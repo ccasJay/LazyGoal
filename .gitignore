@@ -1,0 +1,17 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build and test output
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Local files
+.DS_Store
+*.log
