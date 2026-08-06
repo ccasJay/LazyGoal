@@ -3,7 +3,6 @@ import {
     type Content,
     type GenerateContentParameters
 } from "@google/genai";
-import "dotenv/config";
 
 import type { LLMAdapter } from "./core/adapter";
 import type { LLMMessage, LLMRequest ,LLMResponse } from "./core/types";
@@ -13,17 +12,21 @@ type GeminiInput = Pick<
     "contents" | "config" //选择两个属性
 >;
 
+export interface GeminiConfig {
+    apiKey: string;
+    model: string;
+}
+
 
 export class Gemini implements LLMAdapter {
     private readonly client: GoogleGenAI;
     private readonly model: string;
 
-    constructor() {
+    constructor(config: GeminiConfig) {
         this.client = new GoogleGenAI({
-            apiKey: process.env.GEMINI_API_KEY!,
+            apiKey: config.apiKey,
         });
-
-        this.model = process.env.GEMINI_MODEL!;
+        this.model = config.model;
     }
 
     async generate(request: LLMRequest): Promise<LLMResponse> {

@@ -1,7 +1,12 @@
 import { OpenAICompatible } from "./openai-compatible";
+import "dotenv/config";
 
 async function main(): Promise<void> {
-    const adapter = new OpenAICompatible();
+    const adapter = new OpenAICompatible({
+        apiKey: process.env.LLM_API_KEY!,
+        baseURL: process.env.LLM_BASE_URL!,
+        model: process.env.LLM_MODEL!,
+    });
 
     const response = await adapter.generate({
         messages: [

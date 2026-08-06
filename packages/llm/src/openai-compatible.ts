@@ -1,19 +1,23 @@
-import "dotenv/config";
-
 import OpenAI from "openai";
 import type { LLMAdapter } from "./core/adapter";
 import type { LLMMessage, LLMRequest, LLMResponse } from "./core/types";
+
+export interface OpenAICompatibleConfig {
+    apiKey: string;
+    baseURL: string;
+    model: string;
+}
 
 export class OpenAICompatible implements LLMAdapter {
     private readonly client: OpenAI;
     private readonly model: string;
 
-    constructor (){
+    constructor (config: OpenAICompatibleConfig){
         this.client = new OpenAI({
-            apiKey: process.env.LLM_API_KEY,
-            baseURL: process.env.LLM_BASE_URL,
+            apiKey: config.apiKey,
+            baseURL: config.baseURL,
         });
-        this.model = process.env.LLM_MODEL!;
+        this.model = config.model;
     }
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {
@@ -59,9 +63,5 @@ function toOpenAIMessages(
     });
     
 }
-
-
-
-
 
 
