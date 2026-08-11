@@ -31,7 +31,7 @@
   - 运行任务 2 的测试并使其通过。
   - _Requirements: 1.2, 1.4, 1.5, 3.1, 3.4, 3.5, 3.7_
 
-- [ ] 4. **Agent：补充 Transition Core 分支与错误测试**
+- [X] 4. **Agent：补充 Transition Core 分支与错误测试**
   - 扩展 `packages/runtime/test/transition.test.ts`。
   - 覆盖 `step.continue`、`step.fail` 和 `created`、`running`、`waiting` 的 `cancel`。
   - 覆盖非法转换、终态拒绝输入、错误码 `INVALID_TRANSITION`、原状态不变和输入不被修改。
