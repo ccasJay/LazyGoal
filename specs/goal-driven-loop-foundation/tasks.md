@@ -9,7 +9,7 @@
 
 ## 任务
 
-- [ ] 1. **用户：手写 Runtime package 与公共接口**
+- [X] 1. **用户：手写 Runtime package 与公共接口**
   - 创建 `packages/runtime/package.json`、`packages/runtime/src/domain.ts`、`packages/runtime/src/transition.ts`、`packages/runtime/src/run-store.ts` 和 `packages/runtime/src/index.ts`。
   - 定义 `Goal`、`RunStatus`、`RunState`、`StepResult`、`RunInput`、`TransitionResult` 和 `RunStore`。
   - 实现只负责创建初始状态的 `createRun`。
@@ -17,7 +17,7 @@
   - 从 `index.ts` 导出所有公共接口，不编写状态转换和存储行为。
   - _Requirements: 1.1, 1.2, 1.4, 1.5, 2.1, 2.2, 2.3, 4.1_
 
-- [ ] 2. **Agent：编写初始契约测试**
+- [X] 2. **Agent：编写初始契约测试**
   - 创建 `packages/runtime/test/domain.test.ts` 和 `packages/runtime/test/transition.test.ts`。
   - Domain Model 测试覆盖 `createRun` 的初始状态、Goal 关联和 JSON round-trip；该部分允许首次运行即通过。
   - Transition Core 测试只覆盖 `created → running → waiting → running → completed` 主路径。
