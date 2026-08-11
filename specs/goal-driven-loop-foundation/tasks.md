@@ -45,7 +45,7 @@
   - 运行完整 `transition.test.ts` 并使其通过。
   - _Requirements: 1.2, 1.4, 1.5, 3.1, 3.3, 3.4, 3.6, 3.7, 4.4_
 
-- [ ] 6. **Agent：编写 RunStore 契约测试**
+- [X] 6. **Agent：编写 RunStore 契约测试**
   - 创建 `packages/runtime/test/store.test.ts`。
   - 覆盖首次保存、按 Run ID 加载、覆盖最新快照和不存在时返回 `undefined`。
   - 测试不得依赖文件系统、网络、LLM 或 Tool。
