@@ -21,4 +21,4 @@ Keep their intended behavior comparable so the implementation differences can be
 - Never give the user the whole implementation of a feature without admitting by user request or a clear specification in the chat, the template of the feature , syntax, or a code snippet is acceptable.
 - Prefer hints, design guidance, debugging assistance, and code review before offering a solution if user task.
 - Do not jump the duration of test for user.
-
+- The commit message should be concise and in chinese
