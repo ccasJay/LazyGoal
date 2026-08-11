@@ -1,3 +1,4 @@
+import type { AgentProfile, AgentProfileRegistry } from "./agent-profile";
 
 // 任务目标
 export interface Goal {
@@ -19,6 +20,7 @@ export type RunStatus =
 export interface RunState {
     readonly id: string;
     readonly goal: Goal;
+    readonly profile: AgentProfile;
     readonly status: RunStatus;
     readonly stepCount: number;
     readonly lastResult?: StepResult;
@@ -49,12 +51,26 @@ export type TransitionResult =
             readonly message: string;
         };
     };
-    
-export function createRun(goal: Goal, runId: string): RunState {
+
+
+export function createRun (
+    goal: Goal,
+    runId: string,
+    profile: AgentProfile,
+): RunState {
+    const storedProfile: AgentProfile = {
+        ...profile,
+        instructions: [...profile.instructions],
+        toolIds: [...profile.toolIds],
+    };
+
     return {
         id: runId,
-        goal, //对象属性简写 ==   goal: goal
+        goal,
+        profile: storedProfile,
         status: "created",
         stepCount: 0,
     };
 }
+    
+    
