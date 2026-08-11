@@ -38,7 +38,7 @@
   - 运行测试，确认尚未实现的分支失败，已经完成的主路径继续通过。
   - _Requirements: 1.3, 3.1, 3.2, 3.3, 3.4, 3.6, 3.7, 4.4, 4.5_
 
-- [ ] 5. **用户：补全 Transition Core**
+- [X] 5. **用户：补全 Transition Core**
   - 在 `packages/runtime/src/transition.ts` 中实现任务 4 覆盖的剩余合法分支。
   - 非法转换返回失败的 `TransitionResult`、`INVALID_TRANSITION` 和未改变的原状态。
   - 不增加自动循环、LLM、Tool、Clock、存储调用或状态机框架。
