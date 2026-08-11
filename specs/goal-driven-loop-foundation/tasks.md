@@ -52,7 +52,7 @@
   - 运行该测试文件，确认测试因存储行为未实现而失败，而不是因公共接口缺失而失败。
   - _Requirements: 1.3, 4.1, 4.2, 4.4, 4.5_
 
-- [ ] 7. **用户：手写 InMemoryRunStore**
+- [X] 7. **用户：手写 InMemoryRunStore**
   - 在 `packages/runtime/src/run-store.ts` 中实现 `save` 与 `load`。
   - 每个 Run ID 只保留最新内存快照，并保持存储逻辑与 `transition` 分离。
   - 不加入历史、删除、查询、事务或磁盘持久化。
