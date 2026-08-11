@@ -59,7 +59,7 @@
   - 运行任务 6 的测试并使其通过。
   - _Requirements: 1.2, 1.4, 1.5, 4.1, 4.2_
 
-- [ ] 8. **Agent：完成自动化验证**
+- [X] 8. **Agent：完成自动化验证**
   - 只允许修改 `packages/runtime/test/*.test.ts` 中的测试代码。
   - 运行 `npx tsx --test packages/runtime/test/*.test.ts` 和 `npx tsc --noEmit`。
   - 若失败来自 Runtime 生产实现，只报告失败位置与预期行为，由用户修改生产代码。
