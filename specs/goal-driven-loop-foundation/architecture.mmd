@@ -1,0 +1,32 @@
+%% 最小 Goal-driven Loop 基础设施：组件与一次状态推进
+%% Runtime 中没有自动循环；是否发起下一次 transition 由调用方决定。
+flowchart TD
+    subgraph caller["调用方（负责编排）"]
+        Goal["Goal"]
+        Input["RunInput"]
+        Current["当前 RunState"]
+        Next["下一 RunState"]
+        Handle["处理结果并结束本次调用"]
+    end
+
+    subgraph runtime["@kai/runtime"]
+        Create["createRun"]
+        Transition["transition（纯函数）"]
+        Store[("RunStore")]
+    end
+
+    Goal -->|创建| Create
+    Create -->|created RunState| Current
+    Current -->|可选 save| Store
+    Store -->|按 runId 加载| Current
+    Current -->|currentState| Transition
+    Input -->|input| Transition
+    Transition -->|ok: true，nextState| Next
+    Transition -->|ok: false，原状态和错误| Handle
+    Next -->|save| Store
+    Next --> Handle
+
+    classDef callerStyle fill:#eef4ff,stroke:#4f7cac,color:#1d3557
+    class Goal,Input,Current,Next,Handle callerStyle
+    classDef runtimeStyle fill:#f4f7f4,stroke:#5b8062,color:#24442b
+    class Create,Transition,Store runtimeStyle

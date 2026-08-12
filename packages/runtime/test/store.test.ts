@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createRun, InMemoryRunStore } from "../src/index";
-import type { Goal, RunState, RunStore } from "../src/index";
+import type { AgentProfile, Goal, RunState, RunStore } from "../src/index";
 
 const goal: Goal = {
     id: "goal-1",
@@ -10,9 +10,16 @@ const goal: Goal = {
     completionCriteria: ["可以按 Run ID 加载最新快照"],
 };
 
+const profile: AgentProfile = {
+    id: "profile-1",
+    systemPrompt: "You are a focused coding agent.",
+    instructions: ["保存状态"],
+    toolIds: ["store"],
+};
+
 test("saves and loads a run by its ID", async () => {
     const store: RunStore = new InMemoryRunStore();
-    const saved = createRun(goal, "run-1");
+    const saved = createRun(goal, "run-1", profile);
 
     await store.save(saved);
 
@@ -21,7 +28,7 @@ test("saves and loads a run by its ID", async () => {
 
 test("overwrites the previous snapshot for the same run ID", async () => {
     const store: RunStore = new InMemoryRunStore();
-    const initial = createRun(goal, "run-1");
+    const initial = createRun(goal, "run-1", profile);
     const latest: RunState = {
         ...initial,
         status: "running",
