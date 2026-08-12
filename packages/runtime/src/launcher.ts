@@ -7,7 +7,7 @@
 
 import type { AgentProfileRegistry } from "./agent-profile";
 import { createRun } from "./domain";
-import type { Goal } from "./domain";
+import type { Goal, RunState } from "./domain";
 import type { RunStore } from "./run-store";
 import type { RunScheduler } from "./scheduler";
 
@@ -34,8 +34,8 @@ export type LaunchResult =
         // HINT-2：本阶段不需要返回完整 Profile、Tool 实例或 Scheduler 信息。
         readonly ok: true; 
         readonly runId: string;
-        readonly status: "created";
         readonly profileId: string;
+        readonly state: RunState;
     }
     | {
         // TODO-3: 定义 Profile 不存在时的业务失败结果。
@@ -44,7 +44,10 @@ export type LaunchResult =
         // HINT-2：成功与失败分支应共享同一个判别字段，但取相反值。
         readonly ok: false;
         readonly error: {
-            readonly code: "PROFILE_NOT_FOUND";
+            readonly code:
+                | "PROFILE_NOT_FOUND"
+                | "RUN_NOT_FOUND"
+                | "RUN_NOT_WAITING";
             readonly message: string;
         }
     };
@@ -84,12 +87,16 @@ export async function launch(
     const run = createRun(request.goal, runId, profile);
 
     await dependencies.store.save(run);
-    await dependencies.scheduler.schedule(runId);
+    const scheduleResult = await dependencies.scheduler.schedule(runId);
+
+    if (!scheduleResult.ok) {
+        return scheduleResult;
+    }
 
     return {
         ok: true,
         runId,
-        status: "created",
         profileId: run.profile.id,
+        state: scheduleResult.state,
     };
 }
