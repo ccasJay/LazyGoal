@@ -24,8 +24,8 @@ export interface RunnerDependencies {
 export class Runner {
     constructor(_dependencies: RunnerDependencies) {}
 
-    async run(_runId: string): Promise<RunnerResult> {
-        throw new Error("Runner.run is not implemented");
+    async runUntilBlocked(_runId: string): Promise<RunnerResult> {
+        throw new Error("Runner.runUntilBlocked is not implemented");
     }
 
     async resume(_runId: string): Promise<RunnerResult> {

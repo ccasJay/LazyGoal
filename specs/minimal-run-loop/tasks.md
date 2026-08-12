@@ -10,7 +10,7 @@
   - 不引入 LLM、Tool、队列、Worker 或新的持久化实体。
   - _需求：1.2、1.4、2.2、5.1、6.1_
 
-- [ ] //TODO 2. 编写 Runner 的自动化契约测试
+- [x] 2. 编写 Runner 的自动化契约测试
 
   - 新增 `packages/runtime/test/runner.test.ts`，使用 fake `StepExecutor`、记录保存顺序的内存 Store 与既有 `createRun` / `transition`。
   - 覆盖 `created → running → continue → completed` 的保存和执行顺序、`wait → resume → complete`、终态或 `waiting` 时无副作用、Run 不存在与非法恢复。
