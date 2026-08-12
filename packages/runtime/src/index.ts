@@ -10,6 +10,9 @@ export type {
 export { transition } from "./transition";
 export { InMemoryRunStore } from "./run-store";
 export type { RunStore } from "./run-store";
+export type { StepExecutor } from "./step-executor";
+export { Runner } from "./runner";
+export type { RunnerDependencies, RunnerResult } from "./runner";
 export type { AgentProfile, AgentProfileRegistry } from "./agent-profile";
 export { launch } from "./launcher";
 export type {
