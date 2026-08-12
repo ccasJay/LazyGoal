@@ -3,11 +3,19 @@ import { test } from "node:test";
 
 import { createRun, transition } from "../src/index";
 import type {
+    AgentProfile,
     Goal,
     RunInput,
     RunState,
     TransitionResult,
 } from "../src/index";
+
+const profile: AgentProfile = {
+    id: "profile-1",
+    systemPrompt: "You are a focused coding agent.",
+    instructions: ["推进状态"],
+    toolIds: [],
+};
 
 function requireSuccessfulState(result: TransitionResult): RunState {
     if (!result.ok) {
@@ -35,7 +43,7 @@ function createRunningState(runId = "run-1"): RunState {
     };
 
     return requireSuccessfulState(
-        transition(createRun(goal, runId), { kind: "start" }),
+        transition(createRun(goal, runId, profile), { kind: "start" }),
     );
 }
 
@@ -56,7 +64,7 @@ test("advances one transition at a time through the main lifecycle", () => {
         objective: "完成最小 Runtime",
         completionCriteria: ["Run 进入 completed"],
     };
-    const created = createRun(goal, "run-1");
+    const created = createRun(goal, "run-1", profile);
 
     const running = requireSuccessfulState(
         transition(created, { kind: "start" }),
@@ -138,7 +146,7 @@ const cancellationCases: ReadonlyArray<{
             id: "goal-created",
             objective: "取消 created Run",
             completionCriteria: ["Run 被取消"],
-        }, "run-created"),
+        }, "run-created", profile),
     },
     {
         status: "running",
@@ -186,7 +194,7 @@ const terminalStates: readonly RunState[] = [
             id: "goal-completed",
             objective: "拒绝 completed 后续输入",
             completionCriteria: ["Run 已完成"],
-        }, "run-completed"),
+        }, "run-completed", profile),
         status: "completed",
         stepCount: 1,
         lastResult: { kind: "complete", summary: "已完成" },
@@ -196,7 +204,7 @@ const terminalStates: readonly RunState[] = [
             id: "goal-failed",
             objective: "拒绝 failed 后续输入",
             completionCriteria: ["Run 已失败"],
-        }, "run-failed"),
+        }, "run-failed", profile),
         status: "failed",
         stepCount: 1,
         lastResult: { kind: "fail", error: "执行失败" },
@@ -206,7 +214,7 @@ const terminalStates: readonly RunState[] = [
             id: "goal-cancelled",
             objective: "拒绝 cancelled 后续输入",
             completionCriteria: ["Run 已取消"],
-        }, "run-cancelled"),
+        }, "run-cancelled", profile),
         status: "cancelled",
     },
 ];
