@@ -26,7 +26,7 @@
   - 将 Executor 异常转换为一次 `step.fail` 并保存；Store 与内部状态不变量错误保持向调用方抛出。
   - _需求：2.1–2.6、3.1–3.4、4.1–4.4、5.1–5.3_
 
-- [ ] //TODO 4. 编写 InlineScheduler 的自动化契约测试
+- [x] 4. 编写 InlineScheduler 的自动化契约测试
 
   - 新增 `packages/runtime/test/inline-scheduler.test.ts`，以 fake Runner 验证 Scheduler 只委托一次明确 `runId`。
   - 验证它原样返回 Runner 的 `RunnerResult`，并将 Runner 抛出的异常原样交给调用方。
