@@ -18,9 +18,9 @@
   - 测试不得访问真实 LLM、Tool、网络、文件系统、定时器或后台队列。
   - _需求：2.1–2.6、3.1–3.4、4.1–4.4、5.2–5.5_
 
-- [ ] //TODO 3. 实现 Runner 的同步推进与恢复
+- [x] 3. 实现 Runner 的同步推进与恢复
 
-  - 在 `packages/runtime/src/runner.ts` 实现 `runUntilBlocked(runId)`：加载最新 `RunState`，对 `created` 先保存 `running`，随后逐步执行、转换并保存，直至 `waiting`、终态或步数上限。
+  - 在 `packages/runtime/src/runner.ts` 实现 `run(runId)`：加载最新 `RunState`，对 `created` 先保存 `running`，随后逐步执行、转换并保存，直至 `waiting`、终态或步数上限。
   - 实现 `resume(runId)`：仅允许从 `waiting` 先保存 `running` 后复用同一推进逻辑；对不存在或非等待状态返回对应业务失败。
   - 使用持久化 `stepCount` 作为累计 `maxSteps` 预算；达到上限时保存带 `MAX_STEPS_EXCEEDED` 的 `failed` 状态且不额外调用 Executor 或增加步数。
   - 将 Executor 异常转换为一次 `step.fail` 并保存；Store 与内部状态不变量错误保持向调用方抛出。
