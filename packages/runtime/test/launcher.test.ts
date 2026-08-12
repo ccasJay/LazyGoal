@@ -6,9 +6,11 @@ import type {
     AgentProfile,
     AgentProfileRegistry,
     Goal,
+    RunnerResult,
     RunScheduler,
     RunState,
     RunStore,
+    StepResult,
 } from "../src/index";
 
 const goal: Goal = {
@@ -25,6 +27,42 @@ function createProfile(): AgentProfile {
         toolIds: ["read", "write"],
     };
 }
+
+function createScheduledState(
+    runId: string,
+    status: "waiting" | "completed" | "failed",
+): RunState {
+    let lastResult: StepResult;
+
+    switch (status) {
+        case "waiting":
+            lastResult = { kind: "wait", reason: "等待调用方输入" };
+            break;
+        case "completed":
+            lastResult = { kind: "complete", summary: "目标已完成" };
+            break;
+        case "failed":
+            lastResult = { kind: "fail", error: "执行失败" };
+            break;
+    }
+
+    return {
+        id: runId,
+        goal,
+        profile: createProfile(),
+        status,
+        stepCount: 1,
+        lastResult,
+    };
+}
+
+const unusedSchedulerResult: RunnerResult = {
+    ok: false,
+    error: {
+        code: "RUN_NOT_FOUND",
+        message: "Scheduler should not be called",
+    },
+};
 
 class FakeProfileRegistry implements AgentProfileRegistry {
     private readonly profiles = new Map<string, AgentProfile>();
@@ -64,17 +102,20 @@ class FakeScheduler implements RunScheduler {
     readonly scheduledRunIds: string[] = [];
 
     constructor(
+        private readonly result: RunnerResult,
         private readonly events: string[] = [],
         private readonly failure?: Error,
     ) {}
 
-    async schedule(runId: string): Promise<void> {
+    async schedule(runId: string): Promise<RunnerResult> {
         this.scheduledRunIds.push(runId);
         this.events.push(`schedule:${runId}`);
 
         if (this.failure !== undefined) {
             throw this.failure;
         }
+
+        return this.result;
     }
 }
 
@@ -88,7 +129,7 @@ async function assertRejectsWithSameError(
     });
 }
 
-test("launch saves a frozen created run before scheduling its generated ID", async () => {
+test("launch saves a frozen created run before scheduling and returns the final waiting state", async () => {
     const events: string[] = [];
     const instructions = ["完成目标", "报告结果"];
     const toolIds = ["read", "write"];
@@ -101,7 +142,8 @@ test("launch saves a frozen created run before scheduling its generated ID", asy
     const profile: AgentProfile = mutableProfile;
     const profiles = new FakeProfileRegistry([profile]);
     const store = new RecordingRunStore(events);
-    const scheduler = new FakeScheduler(events);
+    const finalState = createScheduledState("run-1", "waiting");
+    const scheduler = new FakeScheduler({ ok: true, state: finalState }, events);
     let generatorCalls = 0;
 
     const result = await launch(
@@ -120,8 +162,8 @@ test("launch saves a frozen created run before scheduling its generated ID", asy
     assert.deepEqual(result, {
         ok: true,
         runId: "run-1",
-        status: "created",
         profileId: "profile-1",
+        state: finalState,
     });
     assert.equal(generatorCalls, 1);
     assert.deepEqual(profiles.requestedProfileIds, ["profile-1"]);
@@ -165,10 +207,38 @@ test("launch saves a frozen created run before scheduling its generated ID", asy
     });
 });
 
+for (const status of ["completed", "failed"] as const) {
+    test(`launch returns the Scheduler's final ${status} RunState`, async () => {
+        const runId = `run-${status}`;
+        const finalState = createScheduledState(runId, status);
+        const profiles = new FakeProfileRegistry([createProfile()]);
+        const store = new RecordingRunStore();
+        const scheduler = new FakeScheduler({ ok: true, state: finalState });
+
+        const result = await launch(
+            { goal, profileId: "profile-1" },
+            {
+                profiles,
+                runIdGenerator: () => runId,
+                store,
+                scheduler,
+            },
+        );
+
+        assert.deepEqual(result, {
+            ok: true,
+            runId,
+            profileId: "profile-1",
+            state: finalState,
+        });
+        assert.deepEqual(scheduler.scheduledRunIds, [runId]);
+    });
+}
+
 test("returns PROFILE_NOT_FOUND without generating, saving, or scheduling", async () => {
     const profiles = new FakeProfileRegistry();
     const store = new RecordingRunStore();
-    const scheduler = new FakeScheduler();
+    const scheduler = new FakeScheduler(unusedSchedulerResult);
     let generatorCalls = 0;
 
     const result = await launch(
@@ -201,7 +271,7 @@ test("propagates a RunIdGenerator error without saving or scheduling", async () 
     const generatorError = new Error("ID generation failed");
     const profiles = new FakeProfileRegistry([createProfile()]);
     const store = new RecordingRunStore();
-    const scheduler = new FakeScheduler();
+    const scheduler = new FakeScheduler(unusedSchedulerResult);
 
     await assertRejectsWithSameError(
         () => launch(
@@ -225,7 +295,7 @@ test("propagates a RunIdGenerator error without saving or scheduling", async () 
 test("propagates a store error without scheduling", async () => {
     const storeError = new Error("save failed");
     const profiles = new FakeProfileRegistry([createProfile()]);
-    const scheduler = new FakeScheduler();
+    const scheduler = new FakeScheduler(unusedSchedulerResult);
     let saveCalls = 0;
     const store: RunStore = {
         async save(): Promise<void> {
@@ -258,7 +328,7 @@ test("propagates a scheduler error while keeping the saved run created", async (
     const schedulerError = new Error("schedule failed");
     const profiles = new FakeProfileRegistry([createProfile()]);
     const store = new InMemoryRunStore();
-    const scheduler = new FakeScheduler([], schedulerError);
+    const scheduler = new FakeScheduler(unusedSchedulerResult, [], schedulerError);
 
     await assertRejectsWithSameError(
         () => launch(
@@ -279,4 +349,30 @@ test("propagates a scheduler error while keeping the saved run created", async (
     assert.equal(savedRun.status, "created");
     assert.equal(savedRun.id, "run-schedule-failure");
     assert.deepEqual(savedRun.profile, createProfile());
+});
+
+test("returns a Scheduler business failure without fabricating launch success", async () => {
+    const schedulerResult: RunnerResult = {
+        ok: false,
+        error: {
+            code: "RUN_NOT_FOUND",
+            message: 'Run "run-business-failure" was not found',
+        },
+    };
+    const profiles = new FakeProfileRegistry([createProfile()]);
+    const store = new InMemoryRunStore();
+    const scheduler = new FakeScheduler(schedulerResult);
+
+    const result = await launch(
+        { goal, profileId: "profile-1" },
+        {
+            profiles,
+            runIdGenerator: () => "run-business-failure",
+            store,
+            scheduler,
+        },
+    );
+
+    assert.deepEqual(result, schedulerResult);
+    assert.deepEqual(scheduler.scheduledRunIds, ["run-business-failure"]);
 });

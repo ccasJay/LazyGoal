@@ -33,14 +33,14 @@
   - 测试不得引入 Store 扫描、后台任务、定时器或并发行为。
   - _需求：1.1–1.4、5.4–5.5_
 
-- [ ] //TODO 5. 实现同步 InlineScheduler
+- [x] //TODO 5. 实现同步 InlineScheduler
 
   - 新增 `packages/runtime/src/inline-scheduler.ts`，实现 `RunScheduler` 并仅调用注入 Runner 的 `runUntilBlocked(runId)`。
   - 保持调用同步等待、返回 Runner 的结果、异常透明传递；不得持有 Run 状态或读取 `RunStore`。
   - 从 `packages/runtime/src/index.ts` 导出 `InlineScheduler`。
   - _需求：1.1–1.4、5.1_
 
-- [ ] //TODO 6. 更新 Launcher 的自动化契约测试
+- [x] 6. 更新 Launcher 的自动化契约测试
 
   - 修改 `packages/runtime/test/launcher.test.ts` 的 fake Scheduler 以适配新的 `RunnerResult` 返回值。
   - 将成功路径改为断言 `launch()` 返回 Scheduler 提供的最终 `RunState`，包括 `waiting`、`completed` 或 `failed`，而非固定 `created` 状态。
