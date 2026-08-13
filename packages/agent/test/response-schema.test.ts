@@ -3,6 +3,10 @@ import { test } from "node:test";
 
 import type { StepResult } from "../../runtime/src/domain";
 import {
+    LLM_RESPONSE_PROTOCOL_ERROR_CODE,
+    LLMResponseProtocolError,
+} from "../src/errors";
+import {
     CompleteStepResultSchema,
     ContinueStepResultSchema,
     FailStepResultSchema,
@@ -80,4 +84,39 @@ test("四个分支均为严格对象并只接受对应字段", () => {
         }).success,
         false,
     );
+});
+
+function assertProtocolError(content: string): void {
+    assert.throws(
+        () => parseStepResult(content),
+        (error: unknown) => {
+            assert.ok(error instanceof LLMResponseProtocolError);
+            assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
+            assert.match(
+                error.message,
+                /^INVALID_LLM_RESPONSE: /,
+            );
+            return true;
+        },
+    );
+}
+
+test("非法 JSON 会转换为稳定的协议错误", () => {
+    assertProtocolError("不是 JSON");
+});
+
+test("未知 kind、缺失字段和错误字段类型都会被拒绝", () => {
+    assertProtocolError(JSON.stringify({ kind: "retry", summary: "重试" }));
+    assertProtocolError(JSON.stringify({ kind: "continue" }));
+    assertProtocolError(JSON.stringify({ kind: "continue", summary: 42 }));
+});
+
+test("空白载荷和额外字段都会被拒绝", () => {
+    assertProtocolError("   ");
+    assertProtocolError(JSON.stringify({ kind: "continue", summary: "   " }));
+    assertProtocolError(JSON.stringify({
+        kind: "continue",
+        summary: "继续",
+        reason: "不允许的额外字段",
+    }));
 });

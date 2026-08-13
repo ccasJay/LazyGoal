@@ -12,7 +12,7 @@
   - 覆盖四类合法 `StepResult`，并确认解析结果保持 Runtime 既有类型。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5)_
 
-- [ ] //TODO 3. 定义并验证 LLM 响应协议错误
+- [x] //TODO 3. 定义并验证 LLM 响应协议错误
 
   - 在 `errors.ts` 增加带稳定 `code` 的 `LLMResponseProtocolError`，使 JSON 解析和 Zod 校验失败统一进入该错误边界。
   - 测试非法 JSON、未知 `kind`、缺失字段、错误字段类型、空白载荷和额外字段均被拒绝。
