@@ -6,7 +6,7 @@
   - 用纯函数测试 Profile、Goal、`stepCount`、可选 `lastResult` 的消息内容及输入状态不变性。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 2. 实现 Zod 严格响应 Schema 与合法结果解析
+- [x] //TODO 2. 实现 Zod 严格响应 Schema 与合法结果解析
 
   - 在 `response-schema.ts` 定义四个严格对象分支、`StepResultSchema` 和 `parseStepResult`。
   - 覆盖四类合法 `StepResult`，并确认解析结果保持 Runtime 既有类型。
