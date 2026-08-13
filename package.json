@@ -5,6 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "llm:agent-smoke": "tsx packages/llm/src/agent-smoke-test.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
