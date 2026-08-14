@@ -9,7 +9,7 @@ flowchart TD
         Handle["处理结果并结束本次调用"]
     end
 
-    subgraph runtime["@kai/runtime"]
+    subgraph runtime["@lazygoal/runtime"]
         Create["createRun"]
         Transition["transition（纯函数）"]
         Store[("RunStore")]

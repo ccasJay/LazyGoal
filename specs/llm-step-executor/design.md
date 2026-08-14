@@ -90,7 +90,7 @@ flowchart LR
 
 建议的源文件边界如下：
 
-- `package.json`：声明 `@kai/agent` 包及其直接 `zod` 依赖；Runtime/LLM 保持现有
+- `package.json`：声明 `@lazygoal/agent` 包及其直接 `zod` 依赖；Runtime/LLM 保持现有
   契约，不引入对 Agent 的反向依赖。
 - `prompt.ts`：导出 `buildStepRequest(state: RunState): LLMRequest` 与协议文本常量。
 - `response-schema.ts`：导出 `StepResultSchema`、`parseStepResult`。

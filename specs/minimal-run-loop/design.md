@@ -199,7 +199,7 @@ export type LaunchResult =
 - `Runner`、`RunnerDependencies`、`RunnerResult`
 - `InlineScheduler`
 
-既有 `RunScheduler`、`RunState`、`StepResult`、`RunStore` 与 `launch` 继续从同一入口导出。`@kai/llm` 不被 Runtime 导入。
+既有 `RunScheduler`、`RunState`、`StepResult`、`RunStore` 与 `launch` 继续从同一入口导出。`@lazygoal/llm` 不被 Runtime 导入。
 
 ## Data Models（数据模型）
 

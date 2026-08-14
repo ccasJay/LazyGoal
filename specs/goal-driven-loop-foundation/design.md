@@ -29,7 +29,7 @@
 
 ## Architecture（架构）
 
-Runtime 作为现有 `@kai/llm` 的 sibling package，暂时不依赖 LLM package：
+Runtime 作为现有 `@lazygoal/llm` 的 sibling package，暂时不依赖 LLM package：
 
 ```text
 packages/runtime/

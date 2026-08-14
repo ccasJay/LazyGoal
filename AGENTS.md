@@ -5,14 +5,14 @@
 This repository will contain two coding-agent implementations:
 
 - `main` — a hand-written TypeScript agent.
-- `kai-lc` — an agent implemented with LangChain.
+- `lazygoal-lc` — an agent implemented with LangChain.
 
 Keep their intended behavior comparable so the implementation differences can be evaluated clearly.
 
 ## Worktree Boundaries
 
 - Make handwirte TypeScript-agent changes in the `main` worktree.
-- Make LangChain-agent changes in the `kai-lc` worktree.
+- Make LangChain-agent changes in the `lazygoal-lc` worktree.
 - Keep implementation-specific files and generated output in the owning worktree.
 - Document intentional behavioral differences when they are introduced.
 

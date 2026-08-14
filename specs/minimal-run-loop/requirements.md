@@ -65,7 +65,7 @@
 
 #### 验收标准
 
-1. `Runner` 必须通过注入的 `RunStore` 与 `StepExecutor` 工作，不得直接依赖 `@kai/llm`、具体 Tool、网络、文件系统或后台队列。
+1. `Runner` 必须通过注入的 `RunStore` 与 `StepExecutor` 工作，不得直接依赖 `@lazygoal/llm`、具体 Tool、网络、文件系统或后台队列。
 2. 当 `StepExecutor.execute` 抛出异常时，系统必须将该异常表达为一次 `step.fail`，保存状态为 `failed` 的 `RunState` 后结束执行。
 3. 当保存或加载 Run 的基础设施操作失败时，系统必须停止后续执行并将原错误交给调用方处理。
 4. 自动化测试必须使用 fake `StepExecutor` 与内存 Store，覆盖同步调度、启动顺序、连续执行、等待与恢复、步数上限、Executor 异常和 Store 失败。
