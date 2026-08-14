@@ -21,7 +21,7 @@
   - 更新 Runtime 单元测试，验证 `goalId`/`runId` 校验、状态转换回归以及下一 Step 前已成功保存最新 Goal。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 4. 验证恢复后的 Run 生命周期与持久化顺序
+- [x] //TODO 4. 验证恢复后的 Run 生命周期与持久化顺序
 
   - 使用 `InMemoryGoalStore` 构造已保存的 `created`、`running`、`waiting` 和终态 Goal，验证 Runner 从恢复点继续、显式 resume 和终态短路。
   - 覆盖恢复后的累计 `stepCount`、`maxSteps`、Executor 异常与保存失败，确认已完成 Step 不会重放且保存失败后不继续执行。
