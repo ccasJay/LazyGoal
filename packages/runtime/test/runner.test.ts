@@ -3,20 +3,20 @@ import { test } from "node:test";
 
 import {
     createRun,
-    InMemoryRunStore,
     Runner,
     transition,
 } from "../src/index";
+import { InMemoryRunStore } from "../src/run-store";
 import type {
     AgentProfile,
     GoalDefinition,
     RunInput,
     RunnerResult,
     RunState,
-    RunStore,
     StepExecutor,
     StepResult,
 } from "../src/index";
+import type { RunStore } from "../src/run-store";
 
 const goal: GoalDefinition = {
     id: "goal-1",

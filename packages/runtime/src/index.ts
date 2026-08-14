@@ -16,8 +16,7 @@ export type {
     TransitionResult,
 } from "./domain";
 export { transition } from "./transition";
-export { InMemoryRunStore } from "./run-store";
-export type { RunStore } from "./run-store";
+export { GoalSnapshotSchema, InMemoryGoalStore } from "./goal-store";
 export type { GoalStore } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
 export { Runner } from "./runner";

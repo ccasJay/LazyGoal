@@ -2,9 +2,9 @@ import "dotenv/config";
 
 import {
     createRun,
-    InMemoryRunStore,
     Runner,
 } from "../../runtime/src/index";
+import { InMemoryRunStore } from "../../runtime/src/run-store";
 import { LLMStepExecutor } from "../../agent/src/index";
 import { OpenAICompatible } from "./openai-compatible";
 

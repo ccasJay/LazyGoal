@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRun, InMemoryRunStore } from "../src/index";
+import { createRun } from "../src/index";
+import { InMemoryRunStore } from "../src/run-store";
 import type {
     AgentProfile,
     GoalDefinition,
     RunState,
-    RunStore,
 } from "../src/index";
+import type { RunStore } from "../src/run-store";
 
 const goal: GoalDefinition = {
     id: "goal-1",

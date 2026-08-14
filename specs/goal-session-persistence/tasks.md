@@ -7,7 +7,7 @@
   - 增加 Domain 与 Launcher 测试，覆盖身份独立性、完整字段和 JSON round-trip，并保持 Transition 行为测试可用。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 2. 实现 Goal 快照 Schema 与内存 GoalStore
+- [x] //TODO 2. 实现 Goal 快照 Schema 与内存 GoalStore
 
   - 为 Runtime 增加 Zod 4 直接依赖，定义严格的 `GoalSnapshotSchema`、`GoalStore` 和 `InMemoryGoalStore`，保存与恢复时执行校验及克隆隔离。
   - 替换现有 `RunStore` 公共边界，使同一 `goalId` 的保存只覆盖最新完整 Goal，未找到时返回 `undefined`。
