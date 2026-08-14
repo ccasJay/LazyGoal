@@ -81,6 +81,21 @@ export const GoalSnapshotSchema = z.object({
     run: RunStateSchema,
 }).strict();
 
+export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
+
+/**
+ * 表示 Goal JSON 快照违反持久化协议的错误。
+ * 文件系统本身的读写错误不使用该类型，以便调用方区分协议损坏和 I/O 故障。
+ */
+export class GoalSnapshotProtocolError extends Error {
+    readonly code = INVALID_GOAL_SNAPSHOT_CODE;
+
+    constructor(message: string, options?: ErrorOptions) {
+        super(message, options);
+        this.name = "GoalSnapshotProtocolError";
+    }
+}
+
 export function cloneValidatedGoal(input: unknown): Goal {
     const parsed = structuredClone(GoalSnapshotSchema.parse(input));
 
@@ -146,7 +161,7 @@ export class JsonFileGoalStore implements GoalStore {
     constructor(private readonly directory: string) {}
 
     async save(goal: Goal): Promise<void> {
-        const snapshot = cloneValidatedGoal(goal);
+        const snapshot = this.cloneFileSnapshot(goal);
         const filePath = this.filePath(snapshot.id);
         const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
 
@@ -188,10 +203,19 @@ export class JsonFileGoalStore implements GoalStore {
             throw error;
         }
 
-        const goal = cloneValidatedGoal(JSON.parse(content));
+        let goal: Goal;
+
+        try {
+            goal = cloneValidatedGoal(JSON.parse(content));
+        } catch (error) {
+            throw new GoalSnapshotProtocolError(
+                `Invalid Goal snapshot for "${goalId}"`,
+                { cause: error },
+            );
+        }
 
         if (goal.id !== goalId) {
-            throw new Error(
+            throw new GoalSnapshotProtocolError(
                 `Goal snapshot ID mismatch: expected "${goalId}", got "${goal.id}"`,
             );
         }
@@ -202,5 +226,16 @@ export class JsonFileGoalStore implements GoalStore {
     private filePath(goalId: string): string {
         const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
         return join(this.directory, `${encodedGoalId}.json`);
+    }
+
+    private cloneFileSnapshot(goal: Goal): Goal {
+        try {
+            return cloneValidatedGoal(goal);
+        } catch (error) {
+            throw new GoalSnapshotProtocolError(
+                "Goal does not satisfy the snapshot schema",
+                { cause: error },
+            );
+        }
     }
 }

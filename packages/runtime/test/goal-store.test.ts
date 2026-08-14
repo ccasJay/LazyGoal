@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+    mkdir,
     mkdtemp,
     readFile,
     readdir,
     rm,
+    writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,8 +14,11 @@ import { test } from "node:test";
 import {
     createGoal,
     GoalSnapshotSchema,
+    GoalSnapshotProtocolError,
     InMemoryGoalStore,
+    INVALID_GOAL_SNAPSHOT_CODE,
     JsonFileGoalStore,
+    Runner,
 } from "../src/index";
 import type { AgentProfile, Goal, GoalMessage } from "../src/index";
 
@@ -40,6 +45,11 @@ function createSnapshot(runId = "run-1"): Goal {
         messages,
         runId,
     });
+}
+
+function snapshotPath(directory: string, goalId: string): string {
+    const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
+    return join(directory, `${encodedGoalId}.json`);
 }
 
 test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", () => {
@@ -228,5 +238,129 @@ test("JsonFileGoalStore returns undefined for a missing Goal", async () => {
         );
     } finally {
         await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore normalizes invalid JSON, schema, and ID errors", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const goal = createSnapshot("run-protocol");
+        const store = new JsonFileGoalStore(directory);
+        const path = snapshotPath(directory, goal.id);
+
+        await store.save(goal);
+
+        await writeFile(path, "{invalid-json", "utf8");
+        await assert.rejects(
+            store.restore(goal.id),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
+        );
+
+        await writeFile(path, JSON.stringify({ ...goal, extra: true }), "utf8");
+        await assert.rejects(
+            store.restore(goal.id),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
+        );
+
+        await writeFile(
+            path,
+            JSON.stringify({ ...goal, id: "another-goal" }),
+            "utf8",
+        );
+        await assert.rejects(
+            store.restore(goal.id),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
+        );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const blockingPath = join(parent, "not-a-directory");
+        await writeFile(blockingPath, "blocking file", "utf8");
+        const blockedStore = new JsonFileGoalStore(blockingPath);
+        let restoreError: unknown;
+
+        try {
+            await blockedStore.restore("goal-io");
+        } catch (error) {
+            restoreError = error;
+        }
+
+        assert.ok(restoreError instanceof Error);
+        assert.notEqual(
+            (restoreError as NodeJS.ErrnoException).code,
+            INVALID_GOAL_SNAPSHOT_CODE,
+        );
+
+        let executeCalls = 0;
+        const runner = new Runner({
+            store: blockedStore,
+            executor: {
+                async execute() {
+                    executeCalls += 1;
+                    return {
+                        result: { kind: "complete", summary: "不应执行" },
+                        appendedMessages: [],
+                    };
+                },
+            },
+            maxSteps: 1,
+        });
+
+        await assert.rejects(
+            runner.run({ goalId: "goal-io", runId: "run-io" }),
+            (error: unknown) => {
+                assert.ok(error instanceof Error);
+                assert.notEqual(
+                    (error as NodeJS.ErrnoException).code,
+                    INVALID_GOAL_SNAPSHOT_CODE,
+                );
+                return true;
+            },
+        );
+        assert.equal(executeCalls, 0);
+
+        const directory = join(parent, "snapshots");
+        await mkdir(directory);
+        const goal = createSnapshot("run-io");
+        await mkdir(snapshotPath(directory, goal.id));
+        const store = new JsonFileGoalStore(directory);
+        let saveError: unknown;
+
+        try {
+            await store.save(goal);
+        } catch (error) {
+            saveError = error;
+        }
+
+        assert.ok(saveError instanceof Error);
+        assert.notEqual(
+            (saveError as NodeJS.ErrnoException).code,
+            INVALID_GOAL_SNAPSHOT_CODE,
+        );
+        assert.deepEqual(
+            (await readdir(directory)).filter((name) => name.endsWith(".tmp")),
+            [],
+        );
+    } finally {
+        await rm(parent, { recursive: true, force: true });
     }
 });

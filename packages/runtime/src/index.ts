@@ -18,6 +18,8 @@ export type {
 export { transition } from "./transition";
 export {
     GoalSnapshotSchema,
+    GoalSnapshotProtocolError,
+    INVALID_GOAL_SNAPSHOT_CODE,
     InMemoryGoalStore,
     JsonFileGoalStore,
 } from "./goal-store";

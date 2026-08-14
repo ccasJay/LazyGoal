@@ -42,7 +42,7 @@
   - 在临时目录测试首次保存、覆盖、新 Store 实例恢复、路径安全、完整字段与只返回最新快照。
   - _Requirements: [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 7. 完成持久化协议与文件系统错误边界
+- [x] //TODO 7. 完成持久化协议与文件系统错误边界
 
   - 实现带稳定 `INVALID_GOAL_SNAPSHOT` code 的 `GoalSnapshotProtocolError`，统一表达非法 JSON、Schema 不匹配和快照 ID 不一致。
   - 保持其他文件系统错误原样传播，并在写入或替换失败时清理临时文件且阻止 Runner 后续执行。
