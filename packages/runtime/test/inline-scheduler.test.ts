@@ -32,17 +32,6 @@ test("delegates one explicit run ID and returns the Runner success result unchan
         ok: true,
         state: {
             id: "run-1",
-            goal: {
-                id: "goal-1",
-                objective: "验证同步调度",
-                completionCriteria: ["返回最新 RunState"],
-            },
-            profile: {
-                id: "profile-1",
-                systemPrompt: "You are a focused coding agent.",
-                instructions: ["完成目标"],
-                toolIds: [],
-            },
             status: "completed",
             stepCount: 1,
             lastResult: { kind: "complete", summary: "目标完成" },

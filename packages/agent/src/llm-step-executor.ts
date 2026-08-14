@@ -1,5 +1,9 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { RunState, StepResult } from "../../runtime/src/domain";
+import type {
+    LegacyRunState,
+    RunState,
+    StepResult,
+} from "../../runtime/src/domain";
 import type { StepExecutor } from "../../runtime/src/step-executor";
 import { ToolsNotSupportedError } from "./errors";
 import { buildStepRequest } from "./prompt";
@@ -17,8 +21,15 @@ export class LLMStepExecutor implements StepExecutor {
     }
 
     async execute(state: RunState): Promise<StepResult> {
-        if (state.profile.toolIds.length > 0) {
-            throw new ToolsNotSupportedError(state.profile.toolIds);
+        if (!("profile" in state)) {
+            throw new Error(
+                "LLM StepExecutor requires the pre-GoalStore RunState context",
+            );
+        }
+
+        const profile = (state as LegacyRunState).profile;
+        if (profile.toolIds.length > 0) {
+            throw new ToolsNotSupportedError(profile.toolIds);
         }
 
         const request = buildStepRequest(state);

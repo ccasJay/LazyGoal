@@ -9,7 +9,7 @@ import {
     Runner,
 } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import type { Goal, RunState } from "../../runtime/src/domain";
+import type { GoalDefinition, RunState } from "../../runtime/src/domain";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     TOOLS_NOT_SUPPORTED_ERROR_CODE,
@@ -19,7 +19,7 @@ import {
 } from "../src/index";
 import { buildStepRequest } from "../src/prompt";
 
-const goal: Goal = {
+const goal: GoalDefinition = {
     id: "goal-1",
     objective: "完成单步执行",
     completionCriteria: ["返回结构化结果"],

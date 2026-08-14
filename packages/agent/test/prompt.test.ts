@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { createRun } from "../../runtime/src/domain";
-import type { Goal, RunState } from "../../runtime/src/domain";
+import type { GoalDefinition, RunState } from "../../runtime/src/domain";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { buildStepRequest, STEP_RESULT_PROTOCOL } from "../src/prompt";
 
-const goal: Goal = {
+const goal: GoalDefinition = {
     id: "goal-1",
     objective: "完成示例任务",
     completionCriteria: ["标准一", "标准二"],

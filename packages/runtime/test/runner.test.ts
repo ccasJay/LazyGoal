@@ -9,7 +9,7 @@ import {
 } from "../src/index";
 import type {
     AgentProfile,
-    Goal,
+    GoalDefinition,
     RunInput,
     RunnerResult,
     RunState,
@@ -18,7 +18,7 @@ import type {
     StepResult,
 } from "../src/index";
 
-const goal: Goal = {
+const goal: GoalDefinition = {
     id: "goal-1",
     objective: "完成最小同步 Run Loop",
     completionCriteria: ["Run 进入终态或等待状态"],

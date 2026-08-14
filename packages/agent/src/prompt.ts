@@ -1,5 +1,8 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
-import type { RunState } from "../../runtime/src/domain";
+import type {
+    LegacyRunState,
+    RunState,
+} from "../../runtime/src/domain";
 
 /**
  * 约束模型只返回可被 StepResultSchema 验证的单个 JSON 对象。
@@ -13,29 +16,41 @@ export const STEP_RESULT_PROTOCOL = [
     "kind 必须与对应字段匹配，字段值必须是非空字符串。",
 ].join("\n");
 
+function requireLegacyRunState(state: RunState): LegacyRunState {
+    if (!("goal" in state) || !("profile" in state)) {
+        throw new Error(
+            "LLM prompt requires the pre-GoalStore RunState context",
+        );
+    }
+
+    return state as LegacyRunState;
+}
+
 function buildSystemContent(state: RunState): string {
-    const instructions = state.profile.instructions.length === 0
+    const legacyState = requireLegacyRunState(state);
+    const instructions = legacyState.profile.instructions.length === 0
         ? "（无额外指令）"
-        : state.profile.instructions
+        : legacyState.profile.instructions
             .map((instruction, index) => `${index + 1}. ${instruction}`)
             .join("\n");
 
     return [
-        state.profile.systemPrompt,
+        legacyState.profile.systemPrompt,
         `Instructions:\n${instructions}`,
         STEP_RESULT_PROTOCOL,
     ].join("\n\n");
 }
 
 function buildUserContent(state: RunState): string {
+    const legacyState = requireLegacyRunState(state);
     const context: {
         readonly objective: string;
         readonly completionCriteria: readonly string[];
         readonly stepCount: number;
         readonly lastResult?: RunState["lastResult"];
     } = {
-        objective: state.goal.objective,
-        completionCriteria: [...state.goal.completionCriteria],
+        objective: legacyState.goal.objective,
+        completionCriteria: [...legacyState.goal.completionCriteria],
         stepCount: state.stepCount,
         ...(state.lastResult === undefined ? {} : { lastResult: state.lastResult }),
     };

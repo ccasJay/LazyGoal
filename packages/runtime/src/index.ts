@@ -1,7 +1,15 @@
-export { createRun } from "./domain";
+export { createGoal, createRun } from "./domain";
 export type {
     Goal,
+    GoalCreationInput,
+    GoalDefinition,
+    GoalInput,
+    GoalMessage,
+    GoalMetadata,
+    GoalTask,
+    LegacyRunState,
     RunInput,
+    RunRef,
     RunState,
     RunStatus,
     StepResult,
@@ -10,6 +18,7 @@ export type {
 export { transition } from "./transition";
 export { InMemoryRunStore } from "./run-store";
 export type { RunStore } from "./run-store";
+export type { GoalStore } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";

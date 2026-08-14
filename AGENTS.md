@@ -22,3 +22,7 @@ Keep their intended behavior comparable so the implementation differences can be
 - Prefer hints, design guidance, debugging assistance, and code review before offering a solution if user task.
 - Do not jump the duration of test for user.
 - The commit message should be concise and in chinese
+- All the infomation that emitted from the agent should be in english, except for the commit message.
+- Upon completing a task, structure the final summary output strictly as follows:
+  - **Summary**: Concise bullet points describing the changes or features added.
+  - **Locations**: Clickable markdown links with relative paths and line numbers (e.g., `[packages/runtime/src/domain.ts:12-30](packages/runtime/src/domain.ts#L12-L30)`).
