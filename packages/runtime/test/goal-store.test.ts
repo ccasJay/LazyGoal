@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import {
     mkdir,
     mkdtemp,
@@ -10,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
     createGoal,
@@ -50,6 +52,63 @@ function createSnapshot(runId = "run-1"): Goal {
 function snapshotPath(directory: string, goalId: string): string {
     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
     return join(directory, `${encodedGoalId}.json`);
+}
+
+const tsxCliPath = fileURLToPath(
+    new URL("../../../node_modules/tsx/dist/cli.mjs", import.meta.url),
+);
+const processFixturePath = fileURLToPath(
+    new URL("./fixtures/goal-store-process.ts", import.meta.url),
+);
+
+function runGoalStoreProcess(args: readonly string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(
+            process.execPath,
+            [tsxCliPath, processFixturePath, ...args],
+            {
+                cwd: process.cwd(),
+                stdio: ["ignore", "pipe", "pipe"],
+            },
+        );
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout.on("data", (chunk: Buffer) => {
+            stdout += chunk.toString();
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+            stderr += chunk.toString();
+        });
+        child.once("error", reject);
+        child.once("close", (code) => {
+            if (code === 0) {
+                resolve(stdout);
+                return;
+            }
+
+            reject(new Error(
+                `Goal store child exited with ${code}: ${stderr}`,
+            ));
+        });
+    });
+}
+
+function createWaitingSnapshot(runId = "run-1"): Goal {
+    const goal = createSnapshot(runId);
+
+    return {
+        ...goal,
+        run: {
+            ...goal.run,
+            status: "waiting",
+            stepCount: 1,
+            lastResult: {
+                kind: "wait",
+                reason: "等待外部输入",
+            },
+        },
+    };
 }
 
 test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", () => {
@@ -362,5 +421,107 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
         );
     } finally {
         await rm(parent, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore supports complete recovery across tsx processes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const goal = createWaitingSnapshot("run-cross-process");
+
+        await runGoalStoreProcess([
+            "save",
+            directory,
+            goal.id,
+            JSON.stringify(goal),
+        ]);
+        const restoredOutput = await runGoalStoreProcess([
+            "restore",
+            directory,
+            goal.id,
+        ]);
+
+        assert.deepEqual(JSON.parse(restoredOutput), goal);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a cross-process waiting Goal resumes with its run and latest snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const goal = createWaitingSnapshot("run-cross-resume");
+        await runGoalStoreProcess([
+            "save",
+            directory,
+            goal.id,
+            JSON.stringify(goal),
+        ]);
+        const restoredOutput = await runGoalStoreProcess([
+            "restore",
+            directory,
+            goal.id,
+        ]);
+        assert.deepEqual(JSON.parse(restoredOutput), goal);
+
+        const receivedGoals: Goal[] = [];
+        const store = new JsonFileGoalStore(directory);
+        const runner = new Runner({
+            store,
+            executor: {
+                async execute(currentGoal: Goal) {
+                    receivedGoals.push(currentGoal);
+                    return {
+                        result: {
+                            kind: "complete",
+                            summary: "跨进程恢复后完成",
+                        },
+                        appendedMessages: [
+                            { role: "user", content: "恢复后的输入" },
+                            { role: "assistant", content: "恢复后的响应" },
+                        ],
+                    };
+                },
+            },
+            maxSteps: 3,
+        });
+        const ref = { goalId: goal.id, runId: goal.run.id };
+
+        const blocked = await runner.run(ref);
+        assert.equal(blocked.ok, true);
+        if (!blocked.ok) {
+            return;
+        }
+
+        assert.equal(blocked.state.status, "waiting");
+        assert.equal(blocked.state.stepCount, 1);
+        assert.equal(receivedGoals.length, 0);
+
+        const resumed = await runner.resume(ref);
+        assert.equal(resumed.ok, true);
+        if (!resumed.ok) {
+            return;
+        }
+
+        assert.equal(resumed.state.id, goal.run.id);
+        assert.equal(resumed.state.status, "completed");
+        assert.equal(resumed.state.stepCount, 2);
+        assert.equal(receivedGoals.length, 1);
+        assert.equal((receivedGoals[0] as Goal).run.stepCount, 1);
+
+        const latest = await new JsonFileGoalStore(directory).restore(goal.id);
+        assert.deepEqual(latest?.metadata, goal.metadata);
+        assert.deepEqual(latest?.task, goal.task);
+        assert.deepEqual(latest?.profile, goal.profile);
+        assert.deepEqual(latest?.messages, [
+            ...goal.messages,
+            { role: "user", content: "恢复后的输入" },
+            { role: "assistant", content: "恢复后的响应" },
+        ]);
+        assert.deepEqual(latest?.run, resumed.state);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
     }
 });

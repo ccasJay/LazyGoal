@@ -49,7 +49,7 @@
   - 增加损坏快照、ID 不匹配、读写失败和未伪造成功结果的自动化测试。
   - _Requirements: [1.4](./requirements.md#req-1-4), [3.4](./requirements.md#req-3-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 8. 增加跨进程恢复与全链路回归验证
+- [x] //TODO 8. 增加跨进程恢复与全链路回归验证
 
   - 使用独立 `tsx` 子进程在同一临时目录分别保存和恢复 Goal，比较 metadata、任务、Profile、messages 与 Run 状态。
   - 以恢复出的 Goal 驱动 Runner 继续执行，验证 `runId`、累计步数、waiting/resume 和最新快照持久化。
