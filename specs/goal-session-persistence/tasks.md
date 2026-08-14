@@ -28,7 +28,7 @@
   - 保持现有 Runtime 回归测试全部通过。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 5. 让 LLM Step 使用并追加 Goal messages
+- [x] //TODO 5. 让 LLM Step 使用并追加 Goal messages
 
   - 修改 Prompt Builder 与 `LLMStepExecutor` 接收完整 Goal，将冻结 Profile、已有 messages 和本轮 Run 上下文构造成模型请求。
   - 合法响应返回既有 `StepResult` 以及本轮 user/assistant messages；Tool、协议错误和 Adapter 异常继续保持现有错误语义。

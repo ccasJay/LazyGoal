@@ -5,12 +5,15 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
     createGoal,
-    createRun,
     InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import type { GoalDefinition, RunState } from "../../runtime/src/domain";
+import type {
+    Goal,
+    GoalDefinition,
+    GoalMessage,
+} from "../../runtime/src/domain";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     TOOLS_NOT_SUPPORTED_ERROR_CODE,
@@ -32,6 +35,20 @@ const profile: AgentProfile = {
     instructions: ["检查当前上下文"],
     toolIds: [],
 };
+
+function createTestGoal(
+    runId = "run-1",
+    runProfile: AgentProfile = profile,
+    messages: readonly GoalMessage[] = [],
+): Goal {
+    return createGoal({
+        id: goal.id,
+        task: goal,
+        profile: runProfile,
+        messages,
+        runId,
+    });
+}
 
 class FakeAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
@@ -73,34 +90,54 @@ class SequenceAdapter implements LLMAdapter {
 }
 
 test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 StepResult", async () => {
-    const state = createRun(goal, "run-1", profile);
-    const adapter = new FakeAdapter(JSON.stringify({
-        kind: "continue",
-        summary: "继续执行",
-    }));
-    const executor = new LLMStepExecutor({ adapter });
-
-    const result = await executor.execute(state);
-
-    assert.deepEqual(result, {
+    const currentGoal = createTestGoal("run-1", profile, [
+        { role: "user", content: "已恢复的历史输入" },
+        { role: "assistant", content: "已恢复的历史响应" },
+    ]);
+    const responseContent = JSON.stringify({
         kind: "continue",
         summary: "继续执行",
     });
+    const adapter = new FakeAdapter(responseContent);
+    const executor = new LLMStepExecutor({ adapter });
+
+    const result = await executor.execute(currentGoal);
+
+    assert.deepEqual(result, {
+        result: {
+            kind: "continue",
+            summary: "继续执行",
+        },
+        appendedMessages: [
+            {
+                role: "user",
+                content: buildStepRequest(currentGoal).messages.at(-1)?.content,
+            },
+            { role: "assistant", content: responseContent },
+        ],
+    });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(adapter.requests[0], buildStepRequest(state));
+    assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
+    assert.deepEqual(adapter.requests[0]?.messages.slice(1, 3), currentGoal.messages);
 });
 
-test("LLMStepExecutor 不修改传入的 RunState", async () => {
-    const state: RunState = {
-        ...createRun(goal, "run-2", profile),
-        status: "running",
-        stepCount: 3,
-        lastResult: {
-            kind: "continue",
-            summary: "已有进度",
+test("LLMStepExecutor 不修改传入的 Goal", async () => {
+    const baseGoal = createTestGoal("run-2", profile, [
+        { role: "user", content: "已有消息" },
+    ]);
+    const currentGoal: Goal = {
+        ...baseGoal,
+        run: {
+            ...baseGoal.run,
+            status: "running",
+            stepCount: 3,
+            lastResult: {
+                kind: "continue",
+                summary: "已有进度",
+            },
         },
     };
-    const before = JSON.stringify(state);
+    const before = JSON.stringify(currentGoal);
     const executor = new LLMStepExecutor({
         adapter: new FakeAdapter(JSON.stringify({
             kind: "complete",
@@ -108,19 +145,16 @@ test("LLMStepExecutor 不修改传入的 RunState", async () => {
         })),
     });
 
-    await executor.execute(state);
+    await executor.execute(currentGoal);
 
-    assert.equal(JSON.stringify(state), before);
+    assert.equal(JSON.stringify(currentGoal), before);
 });
 
 test("toolIds 非空时抛出稳定错误且不调用 Adapter", async () => {
-    const state: RunState = {
-        ...createRun(goal, "run-3", {
-            ...profile,
-            toolIds: ["web-search"],
-        }),
-        status: "running",
-    };
+    const currentGoal = createTestGoal("run-3", {
+        ...profile,
+        toolIds: ["web-search"],
+    });
     const adapter = new FakeAdapter(JSON.stringify({
         kind: "complete",
         summary: "不应调用",
@@ -128,7 +162,7 @@ test("toolIds 非空时抛出稳定错误且不调用 Adapter", async () => {
     const executor = new LLMStepExecutor({ adapter });
 
     await assert.rejects(
-        executor.execute(state),
+        executor.execute(currentGoal),
         (error: unknown) => {
             assert.ok(error instanceof ToolsNotSupportedError);
             assert.equal(error.code, TOOLS_NOT_SUPPORTED_ERROR_CODE);
@@ -141,25 +175,25 @@ test("toolIds 非空时抛出稳定错误且不调用 Adapter", async () => {
 });
 
 test("Adapter 原始异常会原样传播且不会重试", async () => {
-    const state = createRun(goal, "run-4", profile);
+    const currentGoal = createTestGoal("run-4");
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
     const executor = new LLMStepExecutor({ adapter });
 
     await assert.rejects(
-        executor.execute(state),
+        executor.execute(currentGoal),
         (error: unknown) => error === adapterError,
     );
     assert.equal(adapter.requests.length, 1);
 });
 
 test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
-    const state = createRun(goal, "run-5", profile);
+    const currentGoal = createTestGoal("run-5");
     const adapter = new FakeAdapter("不是合法 JSON");
     const executor = new LLMStepExecutor({ adapter });
 
     await assert.rejects(
-        executor.execute(state),
+        executor.execute(currentGoal),
         (error: unknown) => {
             assert.ok(error instanceof LLMResponseProtocolError);
             assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
@@ -173,21 +207,22 @@ function createStoredGoal(
     store: InMemoryGoalStore,
     runId: string,
     runProfile: AgentProfile = profile,
+    messages: readonly GoalMessage[] = [],
 ): Promise<void> {
     return store.save(createGoal({
         id: goal.id,
         task: goal,
         profile: runProfile,
         runId,
+        messages,
     }));
 }
 
 test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop", async () => {
     const store = new InMemoryGoalStore();
-    const adapter = new SequenceAdapter([
-        JSON.stringify({ kind: "continue", summary: "继续" }),
-        JSON.stringify({ kind: "complete", summary: "完成" }),
-    ]);
+    const continueContent = JSON.stringify({ kind: "continue", summary: "继续" });
+    const completeContent = JSON.stringify({ kind: "complete", summary: "完成" });
+    const adapter = new SequenceAdapter([continueContent, completeContent]);
     const executor = new LLMStepExecutor({ adapter });
     const runner = new Runner({
         store,
@@ -195,7 +230,11 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
         maxSteps: 4,
     });
 
-    await createStoredGoal(store, "run-loop");
+    const initialMessages: readonly GoalMessage[] = [
+        { role: "user", content: "恢复后的历史输入" },
+        { role: "assistant", content: "恢复后的历史响应" },
+    ];
+    await createStoredGoal(store, "run-loop", profile, initialMessages);
     const result = await runner.run({ goalId: goal.id, runId: "run-loop" });
     const persisted = await store.restore(goal.id);
 
@@ -212,6 +251,24 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
     });
     assert.deepEqual(persisted?.run, result.state);
     assert.equal(adapter.requests.length, 2);
+
+    const firstStepUserContent = adapter.requests[0]?.messages.at(-1)?.content ?? "";
+    const secondStepUserContent = adapter.requests[1]?.messages.at(-1)?.content ?? "";
+    assert.notEqual(firstStepUserContent, "");
+    assert.notEqual(secondStepUserContent, "");
+    assert.deepEqual(adapter.requests[0]?.messages.slice(1, 3), initialMessages);
+    assert.deepEqual(adapter.requests[1]?.messages.slice(1, 5), [
+        ...initialMessages,
+        { role: "user", content: firstStepUserContent },
+        { role: "assistant", content: continueContent },
+    ]);
+    assert.deepEqual(persisted?.messages, [
+        ...initialMessages,
+        { role: "user", content: firstStepUserContent },
+        { role: "assistant", content: continueContent },
+        { role: "user", content: secondStepUserContent },
+        { role: "assistant", content: completeContent },
+    ]);
 });
 
 test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () => {

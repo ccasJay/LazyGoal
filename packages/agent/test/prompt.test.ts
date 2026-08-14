@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRun } from "../../runtime/src/domain";
-import type { GoalDefinition, RunState } from "../../runtime/src/domain";
+import { createGoal } from "../../runtime/src/domain";
+import type {
+    Goal,
+    GoalDefinition,
+    GoalMessage,
+} from "../../runtime/src/domain";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import { buildStepRequest, STEP_RESULT_PROTOCOL } from "../src/prompt";
+import {
+    buildStepRequest,
+    buildStepUserMessage,
+    STEP_RESULT_PROTOCOL,
+} from "../src/prompt";
 
 const goal: GoalDefinition = {
     id: "goal-1",
@@ -19,9 +27,22 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-test("buildStepRequest 包含 Profile、Goal 和严格 JSON 协议", () => {
-    const state = createRun(goal, "run-1", profile);
-    const request = buildStepRequest(state);
+function createTestGoal(
+    runId = "run-1",
+    messages: readonly GoalMessage[] = [],
+): Goal {
+    return createGoal({
+        id: goal.id,
+        task: goal,
+        profile,
+        messages,
+        runId,
+    });
+}
+
+test("buildStepRequest 包含冻结 Profile、Goal 和严格 JSON 协议", () => {
+    const currentGoal = createTestGoal();
+    const request = buildStepRequest(currentGoal);
 
     assert.equal(request.messages.length, 2);
     assert.equal(request.messages[0]?.role, "system");
@@ -38,18 +59,45 @@ test("buildStepRequest 包含 Profile、Goal 和严格 JSON 协议", () => {
     });
 });
 
+test("buildStepRequest 按顺序包含历史 messages 和本轮 user message", () => {
+    const history: readonly GoalMessage[] = [
+        { role: "user", content: "历史用户输入" },
+        { role: "assistant", content: "历史模型响应" },
+    ];
+    const currentGoal = createTestGoal("run-history", history);
+    const request = buildStepRequest(currentGoal);
+
+    assert.deepEqual(request.messages.slice(1, 3), history);
+    assert.deepEqual(
+        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        {
+            objective: goal.objective,
+            completionCriteria: goal.completionCriteria,
+            stepCount: 0,
+        },
+    );
+    assert.deepEqual(buildStepUserMessage(currentGoal), {
+        role: "user",
+        content: request.messages.at(-1)?.content,
+    });
+});
+
 test("buildStepRequest 仅在存在时加入 lastResult", () => {
-    const state: RunState = {
-        ...createRun(goal, "run-2", profile),
-        status: "running",
-        stepCount: 2,
-        lastResult: {
-            kind: "continue",
-            summary: "已经完成输入检查",
+    const baseGoal = createTestGoal("run-2");
+    const currentGoal: Goal = {
+        ...baseGoal,
+        run: {
+            ...baseGoal.run,
+            status: "running",
+            stepCount: 2,
+            lastResult: {
+                kind: "continue",
+                summary: "已经完成输入检查",
+            },
         },
     };
 
-    const context = JSON.parse(buildStepRequest(state).messages[1]?.content ?? "") as {
+    const context = JSON.parse(buildStepRequest(currentGoal).messages.at(-1)?.content ?? "") as {
         readonly stepCount: number;
         readonly lastResult?: { readonly kind: string; readonly summary: string };
     };
@@ -61,11 +109,14 @@ test("buildStepRequest 仅在存在时加入 lastResult", () => {
     });
 });
 
-test("buildStepRequest 不修改传入的 RunState", () => {
-    const state = createRun(goal, "run-3", profile);
-    const before = JSON.stringify(state);
+test("buildStepRequest 不修改传入的 Goal", () => {
+    const currentGoal = createTestGoal("run-3", [
+        { role: "user", content: "不可修改的历史" },
+    ]);
+    const before = JSON.stringify(currentGoal);
 
-    buildStepRequest(state);
+    const request = buildStepRequest(currentGoal);
 
-    assert.equal(JSON.stringify(state), before);
+    assert.equal(JSON.stringify(currentGoal), before);
+    assert.notStrictEqual(request.messages[1], currentGoal.messages[0]);
 });

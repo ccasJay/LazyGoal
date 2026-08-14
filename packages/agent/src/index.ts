@@ -1,7 +1,11 @@
 export { LLMStepExecutor } from "./llm-step-executor";
 export type { LLMStepExecutorDependencies } from "./llm-step-executor";
 
-export { buildStepRequest, STEP_RESULT_PROTOCOL } from "./prompt";
+export {
+    buildStepRequest,
+    buildStepUserMessage,
+    STEP_RESULT_PROTOCOL,
+} from "./prompt";
 
 export {
     CompleteStepResultSchema,
