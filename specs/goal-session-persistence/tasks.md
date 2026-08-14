@@ -35,7 +35,7 @@
   - 更新 Agent 测试，验证恢复历史的顺序、追加内容、输入不变性及 Runner 保存后的完整 Goal。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.4](./requirements.md#req-2-4), [5.1](./requirements.md#req-5-1), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 6. 实现可跨实例恢复的 JsonFileGoalStore
+- [x] //TODO 6. 实现可跨实例恢复的 JsonFileGoalStore
 
   - 新增可配置目录的 `JsonFileGoalStore`，使用 `goalId` 的 `base64url` 文件名，并通过同目录临时文件、刷新和替换保存一个最新 JSON 快照。
   - 恢复时执行 JSON 解析、严格 Schema 校验和文件内 `goalId` 核对；文件不存在只返回 `undefined`。

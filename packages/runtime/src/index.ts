@@ -16,7 +16,11 @@ export type {
     TransitionResult,
 } from "./domain";
 export { transition } from "./transition";
-export { GoalSnapshotSchema, InMemoryGoalStore } from "./goal-store";
+export {
+    GoalSnapshotSchema,
+    InMemoryGoalStore,
+    JsonFileGoalStore,
+} from "./goal-store";
 export type { GoalStore } from "./goal-store";
 export type { StepExecutionResult, StepExecutor } from "./step-executor";
 export { Runner } from "./runner";

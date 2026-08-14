@@ -1,3 +1,13 @@
+import { randomUUID } from "node:crypto";
+import {
+    mkdir,
+    open,
+    readFile,
+    rename,
+    unlink,
+} from "node:fs/promises";
+import { join } from "node:path";
+
 import { z } from "zod";
 
 import type { Goal } from "./domain";
@@ -71,7 +81,7 @@ export const GoalSnapshotSchema = z.object({
     run: RunStateSchema,
 }).strict();
 
-function cloneValidatedGoal(input: unknown): Goal {
+export function cloneValidatedGoal(input: unknown): Goal {
     const parsed = structuredClone(GoalSnapshotSchema.parse(input));
 
     return {
@@ -123,5 +133,74 @@ export class InMemoryGoalStore implements GoalStore {
         }
 
         return cloneValidatedGoal(snapshot);
+    }
+}
+
+/**
+ * 基于本地 JSON 文件的 Goal 最新快照存储。
+ *
+ * 每个 Goal 只对应一个文件，文件名由 goalId 的 base64url 编码生成；
+ * 写入通过同目录临时文件和 rename 完成，避免恢复到半写入快照。
+ */
+export class JsonFileGoalStore implements GoalStore {
+    constructor(private readonly directory: string) {}
+
+    async save(goal: Goal): Promise<void> {
+        const snapshot = cloneValidatedGoal(goal);
+        const filePath = this.filePath(snapshot.id);
+        const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+
+        await mkdir(this.directory, { recursive: true });
+
+        try {
+            const handle = await open(temporaryPath, "wx", 0o600);
+
+            try {
+                await handle.writeFile(
+                    `${JSON.stringify(snapshot, null, 2)}\n`,
+                    "utf8",
+                );
+                await handle.sync();
+            } finally {
+                await handle.close();
+            }
+
+            await rename(temporaryPath, filePath);
+        } catch (error) {
+            await unlink(temporaryPath).catch(() => undefined);
+            throw error;
+        }
+    }
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        let content: string;
+
+        try {
+            content = await readFile(this.filePath(goalId), "utf8");
+        } catch (error) {
+            if (
+                error instanceof Error
+                && (error as NodeJS.ErrnoException).code === "ENOENT"
+            ) {
+                return undefined;
+            }
+
+            throw error;
+        }
+
+        const goal = cloneValidatedGoal(JSON.parse(content));
+
+        if (goal.id !== goalId) {
+            throw new Error(
+                `Goal snapshot ID mismatch: expected "${goalId}", got "${goal.id}"`,
+            );
+        }
+
+        return goal;
+    }
+
+    private filePath(goalId: string): string {
+        const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
+        return join(this.directory, `${encodedGoalId}.json`);
     }
 }
