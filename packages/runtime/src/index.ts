@@ -18,7 +18,7 @@ export type {
 export { transition } from "./transition";
 export { GoalSnapshotSchema, InMemoryGoalStore } from "./goal-store";
 export type { GoalStore } from "./goal-store";
-export type { StepExecutor } from "./step-executor";
+export type { StepExecutionResult, StepExecutor } from "./step-executor";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

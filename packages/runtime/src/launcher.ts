@@ -2,8 +2,7 @@
  * Launcher 的公开边界。
  *
  * Launcher 负责选择并冻结 Profile、组装初始 Goal 聚合、先保存完整快照，
- * 再把独立的 Run ID 交给当前 Scheduler。Runner/ Scheduler 的 RunRef 迁移
- * 留给后续任务。
+ * 再把 goalId/runId 组合成 RunRef 交给当前 Scheduler。
  */
 
 import type { AgentProfileRegistry } from "./agent-profile";
@@ -91,7 +90,10 @@ export async function launch(
     });
 
     await dependencies.store.save(goal);
-    const scheduleResult = await dependencies.scheduler.schedule(runId);
+    const scheduleResult = await dependencies.scheduler.schedule({
+        goalId: goal.id,
+        runId,
+    });
 
     if (!scheduleResult.ok) {
         return scheduleResult;

@@ -14,7 +14,7 @@
   - 增加 Schema 与内存 Store 测试，覆盖最新快照、Profile/messages 顺序、额外字段拒绝和无恢复副作用。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 3. 迁移 Runner 与 Scheduler 以推进完整 Goal
+- [x] //TODO 3. 迁移 Runner 与 Scheduler 以推进完整 Goal
 
   - 将 `StepExecutor` 扩展为返回 `StepExecutionResult`，让 Runner 通过 `RunRef` 加载 Goal、校验 `runId`、推进 `goal.run`、追加 messages 并保存完整聚合。
   - 更新 `RunScheduler` 与 `InlineScheduler` 转发 `RunRef`，保留现有同步执行、等待、终态、步数上限和非法转换语义。

@@ -2,25 +2,29 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    createRun,
+    createGoal,
     Runner,
     transition,
 } from "../src/index";
-import { InMemoryRunStore } from "../src/run-store";
+import { InMemoryGoalStore } from "../src/goal-store";
 import type {
     AgentProfile,
+    Goal,
     GoalDefinition,
+    GoalMessage,
+    GoalStore,
     RunInput,
     RunnerResult,
+    RunRef,
     RunState,
+    StepExecutionResult,
     StepExecutor,
     StepResult,
 } from "../src/index";
-import type { RunStore } from "../src/run-store";
 
-const goal: GoalDefinition = {
+const goalDefinition: GoalDefinition = {
     id: "goal-1",
-    objective: "完成最小同步 Run Loop",
+    objective: "完成最小同步 Goal Loop",
     completionCriteria: ["Run 进入终态或等待状态"],
 };
 
@@ -32,50 +36,56 @@ const profile: AgentProfile = {
 };
 
 type ExecuteAction = (
-    state: RunState,
-) => StepResult | Promise<StepResult>;
+    goal: Goal,
+) => StepResult | StepExecutionResult | Promise<StepResult | StepExecutionResult>;
 
 class FakeStepExecutor implements StepExecutor {
-    readonly receivedStates: RunState[] = [];
+    readonly receivedGoals: Goal[] = [];
 
     constructor(
         private readonly actions: readonly ExecuteAction[],
         private readonly events: string[] = [],
     ) {}
 
-    async execute(state: RunState): Promise<StepResult> {
-        const action = this.actions[this.receivedStates.length];
-        this.receivedStates.push(state);
-        this.events.push(`execute:${state.status}:${state.stepCount}`);
+    async execute(goal: Goal): Promise<StepExecutionResult> {
+        const action = this.actions[this.receivedGoals.length];
+        this.receivedGoals.push(goal);
+        this.events.push(`execute:${goal.run.status}:${goal.run.stepCount}`);
 
         if (action === undefined) {
             throw new Error("Unexpected StepExecutor call");
         }
 
-        return action(state);
+        const outcome = await action(goal);
+        return "result" in outcome
+            ? outcome
+            : { result: outcome, appendedMessages: [] };
     }
 }
 
-class RecordingRunStore extends InMemoryRunStore {
-    readonly savedStates: RunState[] = [];
+class RecordingGoalStore implements GoalStore {
+    readonly savedGoals: Goal[] = [];
+    private readonly delegate = new InMemoryGoalStore();
 
-    constructor(private readonly events: string[] = []) {
-        super();
+    constructor(private readonly events: string[] = []) {}
+
+    async seed(goal: Goal): Promise<void> {
+        await this.delegate.save(goal);
     }
 
-    async seed(state: RunState): Promise<void> {
-        await super.save(state);
+    async restore(goalId: string): Promise<Goal | undefined> {
+        this.events.push(`restore:${goalId}`);
+        return this.delegate.restore(goalId);
     }
 
-    override async load(runId: string): Promise<RunState | undefined> {
-        this.events.push(`load:${runId}`);
-        return super.load(runId);
+    async save(goal: Goal): Promise<void> {
+        this.events.push(`save:${goal.id}:${goal.run.status}:${goal.run.stepCount}`);
+        this.savedGoals.push(goal);
+        await this.delegate.save(goal);
     }
 
-    override async save(state: RunState): Promise<void> {
-        this.events.push(`save:${state.status}:${state.stepCount}`);
-        this.savedStates.push(state);
-        await super.save(state);
+    async peek(goalId: string): Promise<Goal | undefined> {
+        return this.delegate.restore(goalId);
     }
 }
 
@@ -89,19 +99,43 @@ function applyTransition(state: RunState, input: RunInput): RunState {
     return result.state;
 }
 
-function createInitialState(runId = "run-1"): RunState {
-    return createRun(goal, runId, profile);
-}
-
-function createRunningState(runId = "run-1"): RunState {
-    return applyTransition(createInitialState(runId), { kind: "start" });
-}
-
-function createWaitingState(runId = "run-1"): RunState {
-    return applyTransition(createRunningState(runId), {
-        kind: "step",
-        result: { kind: "wait", reason: "等待外部输入" },
+function createInitialGoal(
+    runId = "run-1",
+    goalId = goalDefinition.id,
+    runProfile: AgentProfile = profile,
+    messages: readonly GoalMessage[] = [],
+): Goal {
+    return createGoal({
+        id: goalId,
+        task: goalDefinition,
+        profile: runProfile,
+        messages,
+        runId,
     });
+}
+
+function withRun(goal: Goal, run: RunState): Goal {
+    return { ...goal, run };
+}
+
+function createRunningGoal(runId = "run-1"): Goal {
+    const goal = createInitialGoal(runId);
+    return withRun(goal, applyTransition(goal.run, { kind: "start" }));
+}
+
+function createWaitingGoal(runId = "run-1"): Goal {
+    const running = createRunningGoal(runId);
+    return withRun(
+        running,
+        applyTransition(running.run, {
+            kind: "step",
+            result: { kind: "wait", reason: "等待外部输入" },
+        }),
+    );
+}
+
+function createRef(goal: Goal, runId = goal.run.id): RunRef {
+    return { goalId: goal.id, runId };
 }
 
 function requireSuccessfulState(result: RunnerResult): RunState {
@@ -132,51 +166,71 @@ async function assertRejectsWithSameError(
     });
 }
 
-test("starts a created run, saves every transition, and executes until completed", async () => {
+test("starts a created Goal, saves every transition, and executes until completed", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    await store.seed(createInitialState());
+    const store = new RecordingGoalStore(events);
+    const initial = createInitialGoal();
+    await store.seed(initial);
     const continueResult = { kind: "continue", summary: "继续执行" } as const;
     const completeResult = { kind: "complete", summary: "目标完成" } as const;
     const executor = new FakeStepExecutor([
-        () => continueResult,
+        (goal) => ({
+            result: continueResult,
+            appendedMessages: [
+                { role: "user", content: `step-${goal.run.stepCount}` },
+                { role: "assistant", content: "继续执行" },
+            ],
+        }),
         () => completeResult,
     ], events);
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
     const state = requireSuccessfulState(
-        await runner.runUntilBlocked("run-1"),
+        await runner.runUntilBlocked(createRef(initial)),
     );
 
     assert.deepEqual(events, [
-        "load:run-1",
-        "save:running:0",
+        "restore:goal-1",
+        "save:goal-1:running:0",
         "execute:running:0",
-        "save:running:1",
+        "save:goal-1:running:1",
         "execute:running:1",
-        "save:completed:2",
+        "save:goal-1:completed:2",
     ]);
     assert.deepEqual(
-        store.savedStates.map(({ status, stepCount }) => ({ status, stepCount })),
+        store.savedGoals.map(({ run: { status, stepCount } }) => ({
+            status,
+            stepCount,
+        })),
         [
             { status: "running", stepCount: 0 },
             { status: "running", stepCount: 1 },
             { status: "completed", stepCount: 2 },
         ],
     );
-    assert.strictEqual(executor.receivedStates[0], store.savedStates[0]);
-    assert.strictEqual(executor.receivedStates[1], store.savedStates[1]);
-    assert.deepEqual(state, store.savedStates[2]);
+    assert.strictEqual(executor.receivedGoals[0], store.savedGoals[0]);
+    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[1]);
+    assert.deepEqual(state, store.savedGoals[2]?.run);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.lastResult, completeResult);
-    assert.deepEqual(await store.load("run-1"), state);
+
+    const persisted = await store.peek(initial.id);
+    assert.ok(persisted);
+    assert.deepEqual(persisted.messages, [
+        { role: "user", content: "step-0" },
+        { role: "assistant", content: "继续执行" },
+    ]);
+    assert.deepEqual(persisted.task, initial.task);
+    assert.deepEqual(persisted.profile, initial.profile);
+    assert.deepEqual(persisted.run, state);
 });
 
-test("stops on wait and resumes the same run after saving running first", async () => {
+test("stops on wait and resumes the same Goal after saving running first", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    await store.seed(createInitialState());
+    const store = new RecordingGoalStore(events);
+    const initial = createInitialGoal();
+    await store.seed(initial);
     const waitResult = { kind: "wait", reason: "等待批准" } as const;
     const completeResult = { kind: "complete", summary: "批准后完成" } as const;
     const executor = new FakeStepExecutor([
@@ -184,28 +238,32 @@ test("stops on wait and resumes the same run after saving running first", async 
         () => completeResult,
     ], events);
     const runner = new Runner({ store, executor, maxSteps: 3 });
+    const ref = createRef(initial);
 
     const waiting = requireSuccessfulState(
-        await runner.runUntilBlocked("run-1"),
+        await runner.runUntilBlocked(ref),
     );
-    const completed = requireSuccessfulState(await runner.resume("run-1"));
+    const completed = requireSuccessfulState(await runner.resume(ref));
 
     assert.equal(waiting.status, "waiting");
     assert.equal(waiting.stepCount, 1);
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
     assert.deepEqual(events, [
-        "load:run-1",
-        "save:running:0",
+        "restore:goal-1",
+        "save:goal-1:running:0",
         "execute:running:0",
-        "save:waiting:1",
-        "load:run-1",
-        "save:running:1",
+        "save:goal-1:waiting:1",
+        "restore:goal-1",
+        "save:goal-1:running:1",
         "execute:running:1",
-        "save:completed:2",
+        "save:goal-1:completed:2",
     ]);
     assert.deepEqual(
-        store.savedStates.map(({ status, stepCount }) => ({ status, stepCount })),
+        store.savedGoals.map(({ run: { status, stepCount } }) => ({
+            status,
+            stepCount,
+        })),
         [
             { status: "running", stepCount: 0 },
             { status: "waiting", stepCount: 1 },
@@ -213,113 +271,149 @@ test("stops on wait and resumes the same run after saving running first", async 
             { status: "completed", stepCount: 2 },
         ],
     );
-    assert.strictEqual(executor.receivedStates[1], store.savedStates[2]);
-    assert.deepEqual(await store.load("run-1"), completed);
+    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[2]);
+    assert.deepEqual((await store.peek(initial.id))?.run, completed);
 });
 
-const inactiveStates: ReadonlyArray<{
+const inactiveGoals: ReadonlyArray<{
     readonly label: string;
-    readonly state: RunState;
+    readonly goal: Goal;
 }> = [
     {
         label: "waiting",
-        state: createWaitingState("run-waiting"),
+        goal: createWaitingGoal("run-waiting"),
     },
     {
         label: "completed",
-        state: applyTransition(createRunningState("run-completed"), {
-            kind: "step",
-            result: { kind: "complete", summary: "已完成" },
-        }),
+        goal: withRun(
+            createRunningGoal("run-completed"),
+            applyTransition(createRunningGoal("run-completed").run, {
+                kind: "step",
+                result: { kind: "complete", summary: "已完成" },
+            }),
+        ),
     },
     {
         label: "failed",
-        state: applyTransition(createRunningState("run-failed"), {
-            kind: "step",
-            result: { kind: "fail", error: "已失败" },
-        }),
+        goal: withRun(
+            createRunningGoal("run-failed"),
+            applyTransition(createRunningGoal("run-failed").run, {
+                kind: "step",
+                result: { kind: "fail", error: "已失败" },
+            }),
+        ),
     },
     {
         label: "cancelled",
-        state: applyTransition(createInitialState("run-cancelled"), {
-            kind: "cancel",
-        }),
+        goal: withRun(
+            createInitialGoal("run-cancelled"),
+            applyTransition(createInitialGoal("run-cancelled").run, {
+                kind: "cancel",
+            }),
+        ),
     },
 ];
 
-for (const inactive of inactiveStates) {
-    test(`returns an existing ${inactive.label} run without side effects`, async () => {
+for (const inactive of inactiveGoals) {
+    test(`returns an existing ${inactive.label} Goal without side effects`, async () => {
         const events: string[] = [];
-        const store = new RecordingRunStore(events);
-        await store.seed(inactive.state);
+        const store = new RecordingGoalStore(events);
+        await store.seed(inactive.goal);
         const executor = new FakeStepExecutor([], events);
         const runner = new Runner({ store, executor, maxSteps: 3 });
 
         const state = requireSuccessfulState(
-            await runner.runUntilBlocked(inactive.state.id),
+            await runner.runUntilBlocked(createRef(inactive.goal)),
         );
 
-        assert.strictEqual(state, inactive.state);
-        assert.deepEqual(events, [`load:${inactive.state.id}`]);
-        assert.deepEqual(store.savedStates, []);
-        assert.deepEqual(executor.receivedStates, []);
+        assert.deepEqual(state, inactive.goal.run);
+        assert.deepEqual(events, [`restore:${inactive.goal.id}`]);
+        assert.deepEqual(store.savedGoals, []);
+        assert.deepEqual(executor.receivedGoals, []);
     });
 }
 
-test("returns RUN_NOT_FOUND without executing or saving", async () => {
+test("returns RUN_NOT_FOUND without executing or saving when Goal is missing", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
+    const store = new RecordingGoalStore(events);
     const executor = new FakeStepExecutor([], events);
     const runner = new Runner({ store, executor, maxSteps: 3 });
+    const ref = { goalId: "goal-1", runId: "missing-run" };
 
     const result = requireFailedResult(
-        await runner.runUntilBlocked("missing-run"),
+        await runner.runUntilBlocked(ref),
     );
 
     assert.equal(result.error.code, "RUN_NOT_FOUND");
     assert.match(result.error.message, /missing-run/);
-    assert.deepEqual(events, ["load:missing-run"]);
-    assert.deepEqual(store.savedStates, []);
-    assert.deepEqual(executor.receivedStates, []);
+    assert.deepEqual(events, ["restore:goal-1"]);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(executor.receivedGoals, []);
 });
 
-test("resume returns RUN_NOT_FOUND without executing or saving", async () => {
+test("returns RUN_NOT_FOUND without executing or saving when runId mismatches", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
+    const store = new RecordingGoalStore(events);
+    const goal = createInitialGoal("actual-run");
+    await store.seed(goal);
     const executor = new FakeStepExecutor([], events);
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
-    const result = requireFailedResult(await runner.resume("missing-run"));
+    const result = requireFailedResult(
+        await runner.runUntilBlocked({
+            goalId: goal.id,
+            runId: "other-run",
+        }),
+    );
+
+    assert.equal(result.error.code, "RUN_NOT_FOUND");
+    assert.match(result.error.message, /other-run/);
+    assert.deepEqual(events, ["restore:goal-1"]);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(executor.receivedGoals, []);
+});
+
+test("resume returns RUN_NOT_FOUND without executing or saving when Goal is missing", async () => {
+    const events: string[] = [];
+    const store = new RecordingGoalStore(events);
+    const executor = new FakeStepExecutor([], events);
+    const runner = new Runner({ store, executor, maxSteps: 3 });
+
+    const result = requireFailedResult(await runner.resume({
+        goalId: "goal-1",
+        runId: "missing-run",
+    }));
 
     assert.equal(result.error.code, "RUN_NOT_FOUND");
     assert.match(result.error.message, /missing-run/);
-    assert.deepEqual(events, ["load:missing-run"]);
-    assert.deepEqual(store.savedStates, []);
-    assert.deepEqual(executor.receivedStates, []);
+    assert.deepEqual(events, ["restore:goal-1"]);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(executor.receivedGoals, []);
 });
 
-test("resume rejects a run that is not waiting without side effects", async () => {
+test("resume rejects a Goal that is not waiting without side effects", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    const created = createInitialState();
+    const store = new RecordingGoalStore(events);
+    const created = createInitialGoal();
     await store.seed(created);
     const executor = new FakeStepExecutor([], events);
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
-    const result = requireFailedResult(await runner.resume(created.id));
+    const result = requireFailedResult(await runner.resume(createRef(created)));
 
     assert.equal(result.error.code, "RUN_NOT_WAITING");
     assert.match(result.error.message, /run-1/);
-    assert.deepEqual(events, ["load:run-1"]);
-    assert.deepEqual(store.savedStates, []);
-    assert.deepEqual(executor.receivedStates, []);
-    assert.strictEqual(await store.load(created.id), created);
+    assert.deepEqual(events, ["restore:goal-1"]);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(executor.receivedGoals, []);
+    assert.deepEqual((await store.peek(created.id))?.run, created.run);
 });
 
 test("fails at maxSteps without an extra executor call or step count", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    await store.seed(createInitialState());
+    const store = new RecordingGoalStore(events);
+    const initial = createInitialGoal();
+    await store.seed(initial);
     const executor = new FakeStepExecutor([
         () => ({ kind: "continue", summary: "第一次" }),
         () => ({ kind: "continue", summary: "第二次" }),
@@ -327,10 +421,10 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     const runner = new Runner({ store, executor, maxSteps: 2 });
 
     const state = requireSuccessfulState(
-        await runner.runUntilBlocked("run-1"),
+        await runner.runUntilBlocked(createRef(initial)),
     );
 
-    assert.equal(executor.receivedStates.length, 2);
+    assert.equal(executor.receivedGoals.length, 2);
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
     assert.equal(state.lastResult?.kind, "fail");
@@ -339,33 +433,39 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     }
     assert.match(state.lastResult.error, /MAX_STEPS_EXCEEDED/);
     assert.deepEqual(events, [
-        "load:run-1",
-        "save:running:0",
+        "restore:goal-1",
+        "save:goal-1:running:0",
         "execute:running:0",
-        "save:running:1",
+        "save:goal-1:running:1",
         "execute:running:1",
-        "save:running:2",
-        "save:failed:2",
+        "save:goal-1:running:2",
+        "save:goal-1:failed:2",
     ]);
-    assert.deepEqual(await store.load("run-1"), state);
+    assert.deepEqual((await store.peek(initial.id))?.run, state);
 });
 
 test("uses the persisted step count as the maxSteps budget after resume", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    const firstStep = applyTransition(createRunningState(), {
-        kind: "step",
-        result: { kind: "continue", summary: "已执行一步" },
-    });
-    const waitingAtLimit = applyTransition(firstStep, {
-        kind: "step",
-        result: { kind: "wait", reason: "等待恢复" },
-    });
+    const store = new RecordingGoalStore(events);
+    const firstStep = withRun(
+        createRunningGoal(),
+        applyTransition(createRunningGoal().run, {
+            kind: "step",
+            result: { kind: "continue", summary: "已执行一步" },
+        }),
+    );
+    const waitingAtLimit = withRun(
+        firstStep,
+        applyTransition(firstStep.run, {
+            kind: "step",
+            result: { kind: "wait", reason: "等待恢复" },
+        }),
+    );
     await store.seed(waitingAtLimit);
     const executor = new FakeStepExecutor([], events);
     const runner = new Runner({ store, executor, maxSteps: 2 });
 
-    const state = requireSuccessfulState(await runner.resume("run-1"));
+    const state = requireSuccessfulState(await runner.resume(createRef(waitingAtLimit)));
 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
@@ -374,18 +474,19 @@ test("uses the persisted step count as the maxSteps budget after resume", async 
         assert.fail("expected a maxSteps failure result");
     }
     assert.match(state.lastResult.error, /MAX_STEPS_EXCEEDED/);
-    assert.deepEqual(executor.receivedStates, []);
+    assert.deepEqual(executor.receivedGoals, []);
     assert.deepEqual(events, [
-        "load:run-1",
-        "save:running:2",
-        "save:failed:2",
+        "restore:goal-1",
+        "save:goal-1:running:2",
+        "save:goal-1:failed:2",
     ]);
 });
 
 test("converts an executor exception into a persisted step failure", async () => {
     const events: string[] = [];
-    const store = new RecordingRunStore(events);
-    await store.seed(createInitialState());
+    const store = new RecordingGoalStore(events);
+    const initial = createInitialGoal();
+    await store.seed(initial);
     const executorError = new Error("executor failed");
     const executor = new FakeStepExecutor([
         () => {
@@ -395,7 +496,7 @@ test("converts an executor exception into a persisted step failure", async () =>
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
     const state = requireSuccessfulState(
-        await runner.runUntilBlocked("run-1"),
+        await runner.runUntilBlocked(createRef(initial)),
     );
 
     assert.equal(state.status, "failed");
@@ -406,16 +507,16 @@ test("converts an executor exception into a persisted step failure", async () =>
     }
     assert.match(state.lastResult.error, /executor failed/);
     assert.deepEqual(events, [
-        "load:run-1",
-        "save:running:0",
+        "restore:goal-1",
+        "save:goal-1:running:0",
         "execute:running:0",
-        "save:failed:1",
+        "save:goal-1:failed:1",
     ]);
-    assert.deepEqual(await store.load("run-1"), state);
+    assert.deepEqual((await store.peek(initial.id))?.run, state);
 });
 
 test("rejects maxSteps values that are not positive integers", () => {
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const executor = new FakeStepExecutor([]);
 
     for (const maxSteps of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
@@ -426,12 +527,12 @@ test("rejects maxSteps values that are not positive integers", () => {
     }
 });
 
-test("propagates a load error without saving or executing", async () => {
-    const loadError = new Error("load failed");
+test("propagates a restore error without saving or executing", async () => {
+    const restoreError = new Error("restore failed");
     let saveCalls = 0;
-    const store: RunStore = {
-        async load(): Promise<RunState | undefined> {
-            throw loadError;
+    const store: GoalStore = {
+        async restore(): Promise<Goal | undefined> {
+            throw restoreError;
         },
         async save(): Promise<void> {
             saveCalls += 1;
@@ -441,24 +542,24 @@ test("propagates a load error without saving or executing", async () => {
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
     await assertRejectsWithSameError(
-        () => runner.runUntilBlocked("run-1"),
-        loadError,
+        () => runner.runUntilBlocked({ goalId: "goal-1", runId: "run-1" }),
+        restoreError,
     );
 
     assert.equal(saveCalls, 0);
-    assert.deepEqual(executor.receivedStates, []);
+    assert.deepEqual(executor.receivedGoals, []);
 });
 
 test("propagates the start save error without executing", async () => {
     const saveError = new Error("start save failed");
-    const created = createInitialState();
-    const savedStates: RunState[] = [];
-    const store: RunStore = {
-        async load(): Promise<RunState | undefined> {
+    const created = createInitialGoal();
+    const savedGoals: Goal[] = [];
+    const store: GoalStore = {
+        async restore(): Promise<Goal | undefined> {
             return created;
         },
-        async save(state): Promise<void> {
-            savedStates.push(state);
+        async save(goal): Promise<void> {
+            savedGoals.push(goal);
             throw saveError;
         },
     };
@@ -466,30 +567,30 @@ test("propagates the start save error without executing", async () => {
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
     await assertRejectsWithSameError(
-        () => runner.runUntilBlocked(created.id),
+        () => runner.runUntilBlocked(createRef(created)),
         saveError,
     );
 
-    assert.equal(savedStates.length, 1);
-    assert.equal(savedStates[0]?.status, "running");
-    assert.deepEqual(executor.receivedStates, []);
+    assert.equal(savedGoals.length, 1);
+    assert.equal(savedGoals[0]?.run.status, "running");
+    assert.deepEqual(executor.receivedGoals, []);
 });
 
 test("propagates a step save error and does not execute another step", async () => {
     const saveError = new Error("step save failed");
-    const created = createInitialState();
-    let latestState = created;
-    const savedStates: RunState[] = [];
-    const store: RunStore = {
-        async load(): Promise<RunState | undefined> {
-            return latestState;
+    const created = createInitialGoal();
+    let latestGoal = created;
+    const savedGoals: Goal[] = [];
+    const store: GoalStore = {
+        async restore(): Promise<Goal | undefined> {
+            return latestGoal;
         },
-        async save(state): Promise<void> {
-            savedStates.push(state);
-            if (savedStates.length === 2) {
+        async save(goal): Promise<void> {
+            savedGoals.push(goal);
+            if (savedGoals.length === 2) {
                 throw saveError;
             }
-            latestState = state;
+            latestGoal = goal;
         },
     };
     const executor = new FakeStepExecutor([
@@ -499,17 +600,20 @@ test("propagates a step save error and does not execute another step", async () 
     const runner = new Runner({ store, executor, maxSteps: 3 });
 
     await assertRejectsWithSameError(
-        () => runner.runUntilBlocked(created.id),
+        () => runner.runUntilBlocked(createRef(created)),
         saveError,
     );
 
     assert.deepEqual(
-        savedStates.map(({ status, stepCount }) => ({ status, stepCount })),
+        savedGoals.map(({ run: { status, stepCount } }) => ({
+            status,
+            stepCount,
+        })),
         [
             { status: "running", stepCount: 0 },
             { status: "running", stepCount: 1 },
         ],
     );
-    assert.equal(executor.receivedStates.length, 1);
-    assert.strictEqual(latestState, savedStates[0]);
+    assert.equal(executor.receivedGoals.length, 1);
+    assert.strictEqual(latestGoal, savedGoals[0]);
 });

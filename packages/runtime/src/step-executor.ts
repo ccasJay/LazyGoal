@@ -1,5 +1,10 @@
-import type { RunState, StepResult } from "./domain";
+import type { Goal, GoalMessage, StepResult } from "./domain";
+
+export interface StepExecutionResult {
+    readonly result: StepResult;
+    readonly appendedMessages: readonly GoalMessage[];
+}
 
 export interface StepExecutor {
-    execute(state: RunState): Promise<StepResult>;
+    execute(goal: Goal): Promise<StepExecutionResult>;
 }

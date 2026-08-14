@@ -9,6 +9,7 @@ import type {
     GoalMessage,
     GoalStore,
     RunnerResult,
+    RunRef,
     RunScheduler,
     RunState,
     StepResult,
@@ -99,7 +100,7 @@ class RecordingGoalStore implements GoalStore {
 }
 
 class FakeScheduler implements RunScheduler {
-    readonly scheduledRunIds: string[] = [];
+    readonly scheduledRefs: RunRef[] = [];
 
     constructor(
         private readonly result: RunnerResult,
@@ -107,9 +108,9 @@ class FakeScheduler implements RunScheduler {
         private readonly failure?: Error,
     ) {}
 
-    async schedule(runId: string): Promise<RunnerResult> {
-        this.scheduledRunIds.push(runId);
-        this.events.push(`schedule:${runId}`);
+    async schedule(ref: RunRef): Promise<RunnerResult> {
+        this.scheduledRefs.push(ref);
+        this.events.push(`schedule:${ref.goalId}:${ref.runId}`);
 
         if (this.failure !== undefined) {
             throw this.failure;
@@ -171,8 +172,10 @@ test("launch saves a complete frozen Goal before scheduling", async () => {
     });
     assert.equal(generatorCalls, 1);
     assert.deepEqual(profiles.requestedProfileIds, ["profile-1"]);
-    assert.deepEqual(events, ["save:goal-1", "schedule:run-1"]);
-    assert.deepEqual(scheduler.scheduledRunIds, ["run-1"]);
+    assert.deepEqual(events, ["save:goal-1", "schedule:goal-1:run-1"]);
+    assert.deepEqual(scheduler.scheduledRefs, [
+        { goalId: "goal-1", runId: "run-1" },
+    ]);
 
     const savedGoal = store.savedGoals[0];
     assert.ok(savedGoal);
@@ -265,7 +268,7 @@ test("returns PROFILE_NOT_FOUND without generating, saving, or scheduling", asyn
     assert.equal(result.error.code, "PROFILE_NOT_FOUND");
     assert.equal(generatorCalls, 0);
     assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(scheduler.scheduledRunIds, []);
+    assert.deepEqual(scheduler.scheduledRefs, []);
 });
 
 test("propagates a RunIdGenerator error without saving or scheduling", async () => {
@@ -290,7 +293,7 @@ test("propagates a RunIdGenerator error without saving or scheduling", async () 
     );
 
     assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(scheduler.scheduledRunIds, []);
+    assert.deepEqual(scheduler.scheduledRefs, []);
 });
 
 test("propagates a GoalStore error without scheduling", async () => {
@@ -319,7 +322,7 @@ test("propagates a GoalStore error without scheduling", async () => {
     );
 
     assert.equal(saveCalls, 1);
-    assert.deepEqual(scheduler.scheduledRunIds, []);
+    assert.deepEqual(scheduler.scheduledRefs, []);
 });
 
 test("propagates a Scheduler error after the initial Goal is saved", async () => {
@@ -347,7 +350,9 @@ test("propagates a Scheduler error after the initial Goal is saved", async () =>
 
     assert.equal(store.savedGoals.length, 1);
     assert.equal(store.savedGoals[0]?.id, "goal-1");
-    assert.deepEqual(scheduler.scheduledRunIds, ["run-schedule-failure"]);
+    assert.deepEqual(scheduler.scheduledRefs, [
+        { goalId: "goal-1", runId: "run-schedule-failure" },
+    ]);
 });
 
 test("returns a Scheduler business failure without fabricating launch success", async () => {

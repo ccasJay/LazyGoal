@@ -1,10 +1,10 @@
 import "dotenv/config";
 
 import {
-    createRun,
+    createGoal,
+    InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
-import { InMemoryRunStore } from "../../runtime/src/run-store";
 import { LLMStepExecutor } from "../../agent/src/index";
 import { OpenAICompatible } from "./openai-compatible";
 
@@ -24,23 +24,22 @@ async function main(): Promise<void> {
         baseURL: requiredEnv("LLM_BASE_URL"),
         model: requiredEnv("LLM_MODEL"),
     });
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const executor = new LLMStepExecutor({ adapter });
     const runner = new Runner({
         store,
         executor,
         maxSteps: 3,
     });
-    const run = createRun(
-        {
-            id: "live-llm-goal",
+    const goal = createGoal({
+        id: "live-llm-goal",
+        task: {
             objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
             completionCriteria: [
                 "返回一个符合 StepResult 协议的 complete 结果",
             ],
         },
-        "live-llm-run",
-        {
+        profile: {
             id: "live-llm-profile",
             systemPrompt: "你是一个负责连通性验证的单步执行代理。",
             instructions: [
@@ -48,11 +47,15 @@ async function main(): Promise<void> {
             ],
             toolIds: [],
         },
-    );
+        runId: "live-llm-run",
+    });
 
-    await store.save(run);
+    await store.save(goal);
     const startedAt = performance.now();
-    const result = await runner.run(run.id);
+    const result = await runner.run({
+        goalId: goal.id,
+        runId: goal.run.id,
+    });
     const durationMs = Math.round(performance.now() - startedAt);
 
     if (!result.ok) {

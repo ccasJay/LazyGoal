@@ -4,10 +4,11 @@ import { test } from "node:test";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
+    createGoal,
     createRun,
+    InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
-import { InMemoryRunStore } from "../../runtime/src/run-store";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type { GoalDefinition, RunState } from "../../runtime/src/domain";
 import {
@@ -168,16 +169,21 @@ test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
     assert.equal(adapter.requests.length, 1);
 });
 
-function createStoredRun(
-    store: InMemoryRunStore,
+function createStoredGoal(
+    store: InMemoryGoalStore,
     runId: string,
     runProfile: AgentProfile = profile,
 ): Promise<void> {
-    return store.save(createRun(goal, runId, runProfile));
+    return store.save(createGoal({
+        id: goal.id,
+        task: goal,
+        profile: runProfile,
+        runId,
+    }));
 }
 
 test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop", async () => {
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter([
         JSON.stringify({ kind: "continue", summary: "继续" }),
         JSON.stringify({ kind: "complete", summary: "完成" }),
@@ -189,9 +195,9 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
         maxSteps: 4,
     });
 
-    await createStoredRun(store, "run-loop");
-    const result = await runner.run("run-loop");
-    const persisted = await store.load("run-loop");
+    await createStoredGoal(store, "run-loop");
+    const result = await runner.run({ goalId: goal.id, runId: "run-loop" });
+    const persisted = await store.restore(goal.id);
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -204,12 +210,12 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
         kind: "complete",
         summary: "完成",
     });
-    assert.deepEqual(persisted, result.state);
+    assert.deepEqual(persisted?.run, result.state);
     assert.equal(adapter.requests.length, 2);
 });
 
 test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () => {
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter([]);
     const executor = new LLMStepExecutor({ adapter });
     const runner = new Runner({
@@ -218,11 +224,11 @@ test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () =>
         maxSteps: 4,
     });
 
-    await createStoredRun(store, "run-tool", {
+    await createStoredGoal(store, "run-tool", {
         ...profile,
         toolIds: ["web-search"],
     });
-    const result = await runner.run("run-tool");
+    const result = await runner.run({ goalId: goal.id, runId: "run-tool" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -234,11 +240,11 @@ test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () =>
     assert.equal(result.state.lastResult?.kind, "fail");
     assert.match(result.state.lastResult?.error ?? "", /^TOOLS_NOT_SUPPORTED: /);
     assert.equal(adapter.requests.length, 0);
-    assert.deepEqual(await store.load("run-tool"), result.state);
+    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
 });
 
 test("Runner 持久化协议错误并只计一次 Step", async () => {
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter(["不是合法 JSON"]);
     const executor = new LLMStepExecutor({ adapter });
     const runner = new Runner({
@@ -247,8 +253,8 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
         maxSteps: 4,
     });
 
-    await createStoredRun(store, "run-protocol");
-    const result = await runner.run("run-protocol");
+    await createStoredGoal(store, "run-protocol");
+    const result = await runner.run({ goalId: goal.id, runId: "run-protocol" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -260,11 +266,11 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
     assert.equal(result.state.lastResult?.kind, "fail");
     assert.match(result.state.lastResult?.error ?? "", /^INVALID_LLM_RESPONSE: /);
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(await store.load("run-protocol"), result.state);
+    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
 });
 
 test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
-    const store = new InMemoryRunStore();
+    const store = new InMemoryGoalStore();
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
     const executor = new LLMStepExecutor({ adapter });
@@ -274,8 +280,8 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
         maxSteps: 4,
     });
 
-    await createStoredRun(store, "run-adapter");
-    const result = await runner.run("run-adapter");
+    await createStoredGoal(store, "run-adapter");
+    const result = await runner.run({ goalId: goal.id, runId: "run-adapter" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -289,5 +295,5 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
         error: adapterError.message,
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(await store.load("run-adapter"), result.state);
+    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
 });

@@ -1,4 +1,5 @@
 import type { Runner, RunnerResult } from "./runner";
+import type { RunRef } from "./domain";
 import type { RunScheduler } from "./scheduler";
 
 export class InlineScheduler implements RunScheduler {
@@ -6,7 +7,7 @@ export class InlineScheduler implements RunScheduler {
         private readonly runner: Pick<Runner, "runUntilBlocked">,
     ) {}
 
-    schedule(runId: string): Promise<RunnerResult> {
-        return this.runner.runUntilBlocked(runId);
+    schedule(ref: RunRef): Promise<RunnerResult> {
+        return this.runner.runUntilBlocked(ref);
     }
 }
