@@ -23,6 +23,35 @@ Keep their intended behavior comparable so the implementation differences can be
 - Do not jump the duration of test for user.
 - The commit message should be concise and in chinese
 - All the infomation that emitted from the agent should be in english, except for the commit message.
-- Upon completing a task, structure the final summary output strictly as follows:
-  - **Summary**: Concise bullet points describing the changes or features added.
-  - **Locations**: Clickable markdown links with relative paths and line numbers (e.g., `[packages/runtime/src/domain.ts:12-30](packages/runtime/src/domain.ts#L12-L30)`).
+- Upon completing a task, structure the final summary output where each change item is paired directly with its clickable location link:
+  - Concise description of the change or feature added.
+    - [packages/runtime/src/domain.ts:12-30](packages/runtime/src/domain.ts#L12-L30)
+
+### TypeScript Interface Documentation
+
+- Every newly added or extended public TypeScript interface and its methods must include Chinese contract-level TSDoc in the same change.
+- Document responsibilities, lifecycle or state semantics, parameter and return meaning, errors, side effects, and limitations when applicable. Do not merely repeat information already expressed by TypeScript types.
+- Use standard TSDoc tags such as `@remarks`, `@param`, `@returns`, `@throws`, and `@deprecated` where they add useful contract information.
+- Every new public interface must include at least one minimal `@example` showing its intended usage or implementation.
+
+````ts
+/**
+ * Goal 最新快照的持久化边界。
+ *
+ * @remarks
+ * 每个 goalId 只保留最新完整快照，不提供历史查询。
+ *
+ * @example
+ * ```ts
+ * const goal = await store.restore("goal-1");
+ * ```
+ */
+export interface GoalStore {
+    /**
+     * @param goalId - Goal 的稳定标识。
+     * @returns 最新快照；不存在时返回 `undefined`。
+     * @throws 快照损坏或底层存储读取失败时抛出异常。
+     */
+    restore(goalId: string): Promise<Goal | undefined>;
+}
+````

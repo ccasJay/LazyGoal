@@ -4,6 +4,17 @@ import type {
     TransitionResult,
 } from "./domain";
 
+/**
+ * 纯函数式推进一个 Run 状态。
+ *
+ * @remarks
+ * 函数不会修改传入状态。合法转换返回新状态；非法转换返回原对象和
+ * `INVALID_TRANSITION`，由上层决定是否把它视为业务失败或不变量错误。
+ *
+ * @param currentState - 当前已知 Run 状态。
+ * @param input - 本次需要应用的状态转换输入。
+ * @returns 成功后的新状态，或包含原状态的非法转换结果。
+ */
 export function transition(
     currentState: RunState,
     input: RunInput,
