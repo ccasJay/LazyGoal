@@ -55,3 +55,10 @@ export interface GoalStore {
     restore(goalId: string): Promise<Goal | undefined>;
 }
 ````
+
+### Architecture Documentation
+
+- Treat `docs/architecture/` as the concise source of truth for the current implemented architecture.
+- In the same change, update the relevant architecture document when module responsibilities, state ownership, cross-module data flow, lifecycle semantics, key invariants, or current limitations change.
+- Keep API-level contract details in source TSDoc and feature history or future design in `specs/`; architecture documents should link to them instead of duplicating them.
+- Keep each architecture document short enough for a 1–2 minute review and describe implemented behavior only.
