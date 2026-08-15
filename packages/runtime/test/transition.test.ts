@@ -3,19 +3,10 @@ import { test } from "node:test";
 
 import { createRun, transition } from "../src/index";
 import type {
-    AgentProfile,
-    Goal,
     RunInput,
     RunState,
     TransitionResult,
 } from "../src/index";
-
-const profile: AgentProfile = {
-    id: "profile-1",
-    systemPrompt: "You are a focused coding agent.",
-    instructions: ["推进状态"],
-    toolIds: [],
-};
 
 function requireSuccessfulState(result: TransitionResult): RunState {
     if (!result.ok) {
@@ -36,22 +27,14 @@ function requireFailedTransition(
 }
 
 function createRunningState(runId = "run-1"): RunState {
-    const goal: Goal = {
-        id: "goal-1",
-        objective: "完成最小 Runtime",
-        completionCriteria: ["Run 进入 completed"],
-    };
-
     return requireSuccessfulState(
-        transition(createRun(goal, runId, profile), { kind: "start" }),
+        transition(createRun(runId), { kind: "start" }),
     );
 }
 
 function createWaitingState(runId = "run-1"): RunState {
-    const running = createRunningState(runId);
-
     return requireSuccessfulState(
-        transition(running, {
+        transition(createRunningState(runId), {
             kind: "step",
             result: { kind: "wait", reason: "等待外部事件" },
         }),
@@ -59,12 +42,7 @@ function createWaitingState(runId = "run-1"): RunState {
 }
 
 test("advances one transition at a time through the main lifecycle", () => {
-    const goal: Goal = {
-        id: "goal-1",
-        objective: "完成最小 Runtime",
-        completionCriteria: ["Run 进入 completed"],
-    };
-    const created = createRun(goal, "run-1", profile);
+    const created = createRun("run-1");
 
     const running = requireSuccessfulState(
         transition(created, { kind: "start" }),
@@ -142,11 +120,7 @@ const cancellationCases: ReadonlyArray<{
 }> = [
     {
         status: "created",
-        createState: () => createRun({
-            id: "goal-created",
-            objective: "取消 created Run",
-            completionCriteria: ["Run 被取消"],
-        }, "run-created", profile),
+        createState: () => createRun("run-created"),
     },
     {
         status: "running",
@@ -190,31 +164,19 @@ test("an invalid non-terminal transition returns the original state and error", 
 
 const terminalStates: readonly RunState[] = [
     {
-        ...createRun({
-            id: "goal-completed",
-            objective: "拒绝 completed 后续输入",
-            completionCriteria: ["Run 已完成"],
-        }, "run-completed", profile),
+        ...createRun("run-completed"),
         status: "completed",
         stepCount: 1,
         lastResult: { kind: "complete", summary: "已完成" },
     },
     {
-        ...createRun({
-            id: "goal-failed",
-            objective: "拒绝 failed 后续输入",
-            completionCriteria: ["Run 已失败"],
-        }, "run-failed", profile),
+        ...createRun("run-failed"),
         status: "failed",
         stepCount: 1,
         lastResult: { kind: "fail", error: "执行失败" },
     },
     {
-        ...createRun({
-            id: "goal-cancelled",
-            objective: "拒绝 cancelled 后续输入",
-            completionCriteria: ["Run 已取消"],
-        }, "run-cancelled", profile),
+        ...createRun("run-cancelled"),
         status: "cancelled",
     },
 ];

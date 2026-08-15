@@ -51,7 +51,7 @@
 
   - 修改 `packages/runtime/src/launcher.ts` 的 `LaunchResult` 成功分支，使其包含 `runId`、Profile 标识与最终 `RunState`，不再声明固定 `created` 状态。
   - 在初始 `RunState` 保存后处理 `scheduler.schedule(runId)` 的成功或业务失败分支，并保持 `PROFILE_NOT_FOUND` 与基础设施异常的既有语义。
-  - 确认 `packages/runtime/src/index.ts` 导出的公共类型可供 Launcher、Scheduler 和调用方使用，且 Runtime 不导入 `@kai/llm`。
+  - 确认 `packages/runtime/src/index.ts` 导出的公共类型可供 Launcher、Scheduler 和调用方使用，且 Runtime 不导入 `@lazygoal/llm`。
   - _需求：1.1–1.3、5.1、5.3、6.1–6.4_
 
 - [x] //TODO 8. 执行最小 Run Loop 的自动化回归验证

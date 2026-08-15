@@ -1,0 +1,51 @@
+# LazyGoal 架构总览
+
+> 当前架构的极简入口。以源码为事实来源；功能演进过程见 `specs/`，接口细节见源码 TSDoc。
+
+LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化，`agent` 把完整 Goal 转成一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
+
+| 概念 | 含义 |
+| --- | --- |
+| Goal | 可持久化、可恢复的 Session 聚合 |
+| Run | Goal 内当前执行实例，拥有独立 `runId` |
+| Step | Executor 的一次原子执行 |
+| Profile | 创建 Goal 时复制的 Agent 配置 |
+| Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
+
+## 模块关系
+
+```mermaid
+flowchart LR
+    C[调用方] --> L[Runtime: Launcher]
+    L --> S[GoalStore]
+    L --> Q[RunScheduler]
+    Q --> R[Runner]
+    R --> S
+    R --> E[Agent: LLMStepExecutor]
+    E --> A[LLMAdapter]
+    A --> P[模型供应商]
+```
+
+## 主流程
+
+1. Launcher 查找 Profile，创建并保存 `created` Goal。
+2. Scheduler 使用 `{ goalId, runId }` 调用 Runner。
+3. Runner 恢复 Goal、校验 `runId`，进入 `running`。
+4. Executor 生成一个 StepResult 和本轮消息。
+5. Runner 转换 Run、追加消息、保存完整 Goal。
+6. `continue` 重复执行，`wait` 等待 `resume`，终态直接返回。
+
+## 跨模块不变量
+
+- `goalId` 定位 Session，`runId` 标识执行实例，二者不能互换。
+- Runner 独占状态推进与保存顺序；Executor 不保存 Goal。
+- 下一 Step 只能在上一份完整快照保存成功后开始。
+- Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
+- 当前只保存最新快照，不提供历史版本、并发冲突检测或 Tool Calling。
+
+## 模块速查
+
+- [Runtime](./runtime.md)：状态、生命周期、调度与持久化。
+- [Agent](./agent.md)：Prompt、响应协议与 Step 执行。
+- [LLM](./llm.md)：供应商无关接口与模型适配器。
+

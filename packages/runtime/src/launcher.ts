@@ -1,47 +1,36 @@
-/**
- * Launcher 的公开边界。
- *
- * 它接收一个明确的 Goal 和 profileId，并把已保存的 Run 交给 Scheduler。
- * `RunState.profile` 由 createRun 作为启动时的独立 Profile 快照保存。
- */
-
 import type { AgentProfileRegistry } from "./agent-profile";
-import { createRun } from "./domain";
-import type { Goal, RunState } from "./domain";
-import type { RunStore } from "./run-store";
+import { createGoal } from "./domain";
+import type {
+    GoalDefinition,
+    GoalMessage,
+    RunState,
+} from "./domain";
+import type { GoalStore } from "./goal-store";
 import type { RunScheduler } from "./scheduler";
 
+/** 向启动边界提交的任务定义；不包含 Run 状态或 Profile 实例。 */
 export interface LaunchRequest {
-    // TODO-1: 定义启动请求的字段。
-    // 要求：调用方必须提供 Goal 与明确的 profileId；不得由请求提供 Run ID。
-    // HINT-1：这两个字段都不应在 Launcher 中被修改。
-    // HINT-2：Goal 的类型已由 domain.ts 导出，profileId 是稳定的字符串标识。
-    readonly goal: Goal;
+    /** 由调用方定义的 Goal ID、目标与完成条件。 */
+    readonly goal: GoalDefinition;
+    /** 需要从 Registry 解析并冻结到 Goal 的 Profile ID。 */
     readonly profileId: string;
+    /** 创建 Goal 时按原顺序写入的可选历史消息。 */
+    readonly messages?: readonly GoalMessage[];
 }
 
 /** 由调用方注入；生产环境可生成 UUID，测试可返回固定值。 */
 export type RunIdGenerator = () => string;
 
-/**
- * LaunchResult 的业务分支。
- */
+/** Launcher 的成功结果或来自 Profile/Scheduler 的稳定业务失败。 */
 export type LaunchResult =
     | {
-        // TODO-2: 定义成功启动的结果。
-        // 要求：让调用方能拿到新 Run ID、created 状态和已冻结 Profile 的标识。
-        // HINT-1：参考 TransitionResult 的成功分支，使用可区分的结果字段。
-        // HINT-2：本阶段不需要返回完整 Profile、Tool 实例或 Scheduler 信息。
-        readonly ok: true; 
+        readonly ok: true;
+        readonly goalId: string;
         readonly runId: string;
         readonly profileId: string;
         readonly state: RunState;
     }
     | {
-        // TODO-3: 定义 Profile 不存在时的业务失败结果。
-        // 要求：错误码必须可与依赖抛出的异常区分；此分支不代表 Store 或 Scheduler 失败。
-        // HINT-1：参考 TransitionResult 的错误对象结构。
-        // HINT-2：成功与失败分支应共享同一个判别字段，但取相反值。
         readonly ok: false;
         readonly error: {
             readonly code:
@@ -49,23 +38,39 @@ export type LaunchResult =
                 | "RUN_NOT_FOUND"
                 | "RUN_NOT_WAITING";
             readonly message: string;
-        }
+        };
     };
 
-/**
- *  Launcher 的依赖注入接口。
- */
+/** Launcher 的 Profile、身份生成、持久化与调度依赖。 */
 export interface LauncherDependencies {
+    /** 用于按 ID 解析 Profile。 */
     readonly profiles: AgentProfileRegistry;
+    /** 每次 launch 调用一次，用于生成独立 runId。 */
     readonly runIdGenerator: RunIdGenerator;
-    readonly store: RunStore;
+    /** 在调度前保存初始完整 Goal。 */
+    readonly store: Pick<GoalStore, "save">;
+    /** 接收已持久化 Goal 的 RunRef。 */
     readonly scheduler: RunScheduler;
 }
 
 /**
- * @abstract Launch 一个新的 Run。
- * @param request 
- * @param dependencies 
+ * 启动一个新的 Goal/Run 聚合。
+ *
+ * 固定顺序为：Profile lookup → 生成 runId → 组装并保存完整 Goal → 调度。
+ * 依赖失败保持原错误传播；保存未成功时绝不调用 Scheduler。
+ *
+ * @param request - Goal 定义、Profile ID 与可选初始消息。
+ * @param dependencies - Profile Registry、Run ID 生成器、Store 与 Scheduler。
+ * @returns 启动后的 Goal/Run 标识和当前状态，或稳定业务失败。
+ * @throws Run ID 生成、持久化或调度依赖抛出的原始异常。
+ *
+ * @example
+ * ```ts
+ * const result = await launch(
+ *   { goal: { id: "goal-1", objective: "完成任务", completionCriteria: ["已完成"] }, profileId: "default" },
+ *   { profiles, runIdGenerator, store, scheduler },
+ * );
+ * ```
  */
 export async function launch(
     request: LaunchRequest,
@@ -84,10 +89,24 @@ export async function launch(
     }
 
     const runId = dependencies.runIdGenerator();
-    const run = createRun(request.goal, runId, profile);
+    const goal = createGoal({
+        id: request.goal.id,
+        task: {
+            objective: request.goal.objective,
+            completionCriteria: request.goal.completionCriteria,
+        },
+        profile,
+        runId,
+        ...(request.messages === undefined
+            ? {}
+            : { messages: request.messages }),
+    });
 
-    await dependencies.store.save(run);
-    const scheduleResult = await dependencies.scheduler.schedule(runId);
+    await dependencies.store.save(goal);
+    const scheduleResult = await dependencies.scheduler.schedule({
+        goalId: goal.id,
+        runId,
+    });
 
     if (!scheduleResult.ok) {
         return scheduleResult;
@@ -95,8 +114,9 @@ export async function launch(
 
     return {
         ok: true,
+        goalId: goal.id,
         runId,
-        profileId: run.profile.id,
+        profileId: goal.profile.id,
         state: scheduleResult.state,
     };
 }

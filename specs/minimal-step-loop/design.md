@@ -16,7 +16,7 @@ Launcher 选择并冻结 Profile；Scheduler 只接收一个明确的 `runId`；
 - **Run ID 由 Launcher 生成。** Launcher 调用注入的 `RunIdGenerator`；生产调用方可提供 UUID 生成函数，测试可提供固定 ID 函数。
 - **Profile 在 launch 时冻结。** 同名 Profile 后续更新不应改变已启动 Run 的 system prompt、instructions 或 Tool 权限。
 - **先保存，再调度。** Scheduler 或未来 Worker 在接到 `runId` 时，必然能从 `RunStore` 加载 Run。
-- **本阶段不调用 LLM。** `@kai/llm`、Prompt 构造、Tool 运行和自动 loop 都留给后续 Runner。
+- **本阶段不调用 LLM。** `@lazygoal/llm`、Prompt 构造、Tool 运行和自动 loop 都留给后续 Runner。
 
 ## Architecture（架构）
 

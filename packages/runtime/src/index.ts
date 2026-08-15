@@ -1,16 +1,30 @@
-export { createRun } from "./domain";
+export { createGoal, createRun } from "./domain";
 export type {
     Goal,
+    GoalCreationInput,
+    GoalDefinition,
+    GoalInput,
+    GoalMessage,
+    GoalMetadata,
+    GoalTask,
+    LegacyRunState,
     RunInput,
+    RunRef,
     RunState,
     RunStatus,
     StepResult,
     TransitionResult,
 } from "./domain";
 export { transition } from "./transition";
-export { InMemoryRunStore } from "./run-store";
-export type { RunStore } from "./run-store";
-export type { StepExecutor } from "./step-executor";
+export {
+    GoalSnapshotSchema,
+    GoalSnapshotProtocolError,
+    INVALID_GOAL_SNAPSHOT_CODE,
+    InMemoryGoalStore,
+    JsonFileGoalStore,
+} from "./goal-store";
+export type { GoalStore } from "./goal-store";
+export type { StepExecutionResult, StepExecutor } from "./step-executor";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

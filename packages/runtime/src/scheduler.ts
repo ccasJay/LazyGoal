@@ -1,14 +1,18 @@
 import type { RunnerResult } from "./runner";
+import type { RunRef } from "./domain";
 
 /**
- * Scheduler 的当前边界：接收一个已经保存的 Run，交给未来的调度机制。
+ * 对已保存 Goal 发起执行的调度边界。
  *
- * 本阶段不实现队列、Worker、重试或自动 loop。
+ * @remarks
+ * Launcher 保证调用前已经保存初始 Goal。Scheduler 只转发明确的 RunRef，
+ * 不拥有 Goal 内容，也不负责生成身份标识。
  */
 export interface RunScheduler {
-    // TODO-1: 声明单 Run 调度方法。
-    // 要求：它只能接收一个 string 类型的 runId。
-    // HINT-1：Launcher 需要等待调度完成，并把调度失败交给调用方。
-    // HINT-2：不要接收 Goal、AgentProfile、Tool 或多个 Run ID。
-    schedule(runId: string): Promise<RunnerResult>;
+    /**
+     * @param ref - 已持久化 Goal 与当前 Run 的关联键。
+     * @returns Runner 的业务结果。
+     * @throws 调度基础设施或 Runner 依赖抛出的异常。
+     */
+    schedule(ref: RunRef): Promise<RunnerResult>;
 }

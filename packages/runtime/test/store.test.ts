@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createRun, InMemoryRunStore } from "../src/index";
-import type { AgentProfile, Goal, RunState, RunStore } from "../src/index";
+import { createRun } from "../src/index";
+import { InMemoryRunStore } from "../src/run-store";
+import type {
+    AgentProfile,
+    GoalDefinition,
+    RunState,
+} from "../src/index";
+import type { RunStore } from "../src/run-store";
 
-const goal: Goal = {
+const goal: GoalDefinition = {
     id: "goal-1",
     objective: "保存 Run 的最新状态",
     completionCriteria: ["可以按 Run ID 加载最新快照"],

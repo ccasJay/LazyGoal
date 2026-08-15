@@ -39,7 +39,7 @@
 
 #### 验收标准
 
-1. Launcher 必须通过注入的 Profile Registry、RunIdGenerator、RunStore 和 Scheduler 工作，不直接依赖 `@kai/llm`、具体 Tool 实现或后台队列。
+1. Launcher 必须通过注入的 Profile Registry、RunIdGenerator、RunStore 和 Scheduler 工作，不直接依赖 `@lazygoal/llm`、具体 Tool 实现或后台队列。
 2. 自动化测试必须使用 fake Registry、fake RunIdGenerator、fake Scheduler 与内存 Store 验证成功启动、Profile 不存在、保存失败和调度失败分支。
 3. 自动化测试必须验证 Profile 快照在启动后独立于 Registry 中的后续修改，并验证 RunIdGenerator 只在成功解析 Profile 后调用一次。
 
