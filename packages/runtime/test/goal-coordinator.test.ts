@@ -15,6 +15,7 @@ import type {
     PreparationExecutor,
     PreparationResult,
     RunnerResult,
+    RunExecutionOptions,
     RunInput,
     RunRef,
     RunScheduler,
@@ -86,16 +87,24 @@ class RecordingGoalStore implements GoalStore {
 
 class FakeScheduler implements RunScheduler {
     readonly receivedRefs: RunRef[] = [];
+    readonly receivedOptions: (RunExecutionOptions | undefined)[] = [];
 
     constructor(
-        private readonly scheduleAction: (ref: RunRef) => Promise<RunnerResult>,
+        private readonly scheduleAction: (
+            ref: RunRef,
+            options?: RunExecutionOptions,
+        ) => Promise<RunnerResult>,
         private readonly events: string[] = [],
     ) {}
 
-    async schedule(ref: RunRef): Promise<RunnerResult> {
+    async schedule(
+        ref: RunRef,
+        options?: RunExecutionOptions,
+    ): Promise<RunnerResult> {
         this.receivedRefs.push(ref);
+        this.receivedOptions.push(options);
         this.events.push(`schedule:${ref.goalId}`);
-        return this.scheduleAction(ref);
+        return this.scheduleAction(ref, options);
     }
 }
 
@@ -190,6 +199,33 @@ function createExecutingWaitingGoal(): Goal {
             ],
             run: waitingRun,
         },
+    };
+}
+
+function createActionApprovalGoal(): Goal {
+    const goal = createGoal({
+        id: "goal-action-approval",
+        task: { objective: "Read a protected file", completionCriteria: ["Read"] },
+        profile: { ...profile, toolIds: ["read_file"] },
+        runId: "run-action-approval",
+    });
+    const waitingRun = applyRunTransition(
+        applyRunTransition(goal.state.run, { kind: "start" }),
+        {
+            kind: "stage_action",
+            checkpoint: "等待确认后读取文件",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-approval",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+    );
+
+    return {
+        ...goal,
+        state: { ...goal.state, run: waitingRun },
     };
 }
 
@@ -499,6 +535,187 @@ test("returns an executing blocked Goal without scheduling it again", async () =
     assert.equal(result.waitingFor, "blocked");
     assert.deepEqual(result.goal, blockedGoal);
     assert.deepEqual(scheduler.receivedRefs, []);
+});
+
+test("exposes Action approval as a distinct executing waiting type", async () => {
+    const waiting = createActionApprovalGoal();
+    const store = new RecordingGoalStore();
+    await store.seed(waiting);
+    const scheduler = new FakeScheduler(async () => {
+        throw new Error("Unexpected Scheduler call");
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const result = requireSuccess(await coordinator.advance({
+        goalId: waiting.id,
+        runId: waiting.state.run.id,
+    }));
+
+    assert.equal(result.kind, "waiting");
+    assert.equal(result.phase, "executing");
+    assert.equal(result.waitingFor, "action_approval");
+    assert.deepEqual(result.goal, waiting);
+    assert.deepEqual(scheduler.receivedRefs, []);
+});
+
+test("saves Action approval before scheduling the matching transient authorization", async () => {
+    const events: string[] = [];
+    const waiting = createActionApprovalGoal();
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const scheduler = new FakeScheduler(async (ref, options) => {
+        assert.deepEqual(options, { authorizedActionId: "action-approval" });
+        const approved = await store.restore(ref.goalId);
+        assert.ok(approved);
+        assert.equal(approved.state.run.status, "running");
+        assert.equal(approved.state.run.stepCount, 0);
+        assert.deepEqual(approved.state.run.pendingAction, {
+            action: waiting.state.run.pendingAction?.action,
+            status: "approved",
+        });
+
+        const observedRun = applyRunTransition(approved.state.run, {
+            kind: "observe_action",
+            actionId: "action-approval",
+            observation: {
+                kind: "success",
+                output: "文件内容",
+                summary: "读取完成",
+            },
+        });
+        const completedRun = applyRunTransition(observedRun, {
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                checkpoint: "已完成读取",
+                summary: "任务完成",
+            },
+        });
+        await store.save({
+            ...approved,
+            state: { ...approved.state, run: completedRun },
+        });
+        return { ok: true, state: completedRun };
+    }, events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: { kind: "approve_action", actionId: "action-approval" },
+    }));
+
+    assert.equal(result.kind, "terminal");
+    assert.equal(result.goal.state.run.stepCount, 2);
+    assert.deepEqual(result.goal.state.messages, waiting.state.messages);
+    assert.deepEqual(scheduler.receivedOptions, [
+        { authorizedActionId: "action-approval" },
+    ]);
+    assert.ok(
+        events.indexOf("save:executing") < events.indexOf("schedule:goal-action-approval"),
+    );
+});
+
+test("reject_action completes a rejected Observation and continues without a message", async () => {
+    const events: string[] = [];
+    const waiting = createActionApprovalGoal();
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const scheduler = new FakeScheduler(async (ref, options) => {
+        assert.equal(options, undefined);
+        const rejected = await store.restore(ref.goalId);
+        assert.ok(rejected);
+        assert.equal(rejected.state.run.stepCount, 1);
+        assert.equal(rejected.state.run.pendingAction, undefined);
+        assert.deepEqual(rejected.state.run.lastStep, {
+            kind: "action",
+            action: waiting.state.run.pendingAction?.action,
+            observation: {
+                kind: "rejected",
+                reason: "用户拒绝读取",
+            },
+        });
+        assert.deepEqual(rejected.state.messages, waiting.state.messages);
+
+        const completedRun = applyRunTransition(rejected.state.run, {
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                checkpoint: "已采用替代方案",
+                summary: "任务完成",
+            },
+        });
+        await store.save({
+            ...rejected,
+            state: { ...rejected.state, run: completedRun },
+        });
+        return { ok: true, state: completedRun };
+    }, events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: {
+            kind: "reject_action",
+            actionId: "action-approval",
+            reason: "用户拒绝读取",
+        },
+    }));
+
+    assert.equal(result.kind, "terminal");
+    assert.equal(result.goal.state.run.stepCount, 2);
+    assert.deepEqual(result.goal.state.messages, waiting.state.messages);
+    assert.deepEqual(scheduler.receivedOptions, [undefined]);
+});
+
+test("rejects Action controls with the wrong waiting type or actionId without side effects", async () => {
+    const actions = [
+        { kind: "message", content: "直接继续" },
+        { kind: "approve" },
+        { kind: "approve_action", actionId: "action-other" },
+        {
+            kind: "reject_action",
+            actionId: "action-other",
+            reason: "拒绝",
+        },
+    ] as const;
+
+    for (const action of actions) {
+        const waiting = createActionApprovalGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const scheduler = new FakeScheduler(async () => {
+            throw new Error("Unexpected Scheduler call");
+        });
+        const coordinator = new GoalCoordinator({
+            store,
+            preparationExecutor: new FakePreparationExecutor([]),
+            scheduler,
+        });
+
+        const result = requireFailure(await coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action,
+        }));
+
+        assert.equal(result.error.code, "INVALID_GOAL_INPUT");
+        assert.deepEqual(store.savedGoals, []);
+        assert.deepEqual(scheduler.receivedRefs, []);
+        assert.deepEqual(await store.restore(waiting.id), waiting);
+    }
 });
 
 test("returns RUN_NOT_FOUND for a missing Goal or mismatched runId", async () => {

@@ -5,9 +5,11 @@ import type {
     Goal,
     JsonValue,
     RunInput,
+    RunExecutionOptions,
     RunRef,
     RunState,
     StepResult,
+    ToolCallAction,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
@@ -196,6 +198,7 @@ function validateToolAction(
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
     registry: ToolRegistry,
     policy: ToolPolicy,
+    evaluatePolicy = true,
 ): { readonly tool: Tool; readonly policy: "allow" | "require_approval" } {
     if (!goal.definition.profile.toolIds.includes(action.toolId)) {
         throw new RunnerExecutionError(
@@ -256,6 +259,10 @@ function validateToolAction(
             "INVALID_TOOL_INPUT",
             validation.error.message,
         );
+    }
+
+    if (!evaluatePolicy) {
+        return { tool, policy: "allow" };
     }
 
     let policyResult: "allow" | "require_approval";
@@ -358,7 +365,7 @@ export type RunnerResult =
     | {
         readonly ok: false;
         readonly error: {
-            readonly code: "RUN_NOT_FOUND";
+            readonly code: "RUN_NOT_FOUND" | "ACTION_NOT_AUTHORIZED";
             readonly message: string;
         };
     };
@@ -385,8 +392,9 @@ export interface RunnerDependencies {
      */
     readonly toolRegistry?: ToolRegistry;
     /**
-     * Tool 执行前的策略边界；省略时使用允许策略。需要用户批准的流程由
-     * 后续 Coordinator/Scheduler 任务接管。
+     * Tool 执行前的策略边界；省略时使用允许策略。返回
+     * `require_approval` 时 Runner 保存等待中的 Action，由 Coordinator 接收
+     * 用户批准或拒绝。
      */
     readonly toolPolicy?: ToolPolicy;
 }
@@ -401,8 +409,10 @@ export interface RunnerDependencies {
  *
  * 当前 Runner 仍兼容旧 StepResult。新 AgentDecision 会先做运行时严格校验；
  * `tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
- * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation。领域
- * failure 会继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
+ * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation；需要
+ * 批准的 Action 会保存为 `awaiting_approval` 并返回 waiting，不调用 Tool。收到
+ * 匹配的瞬时 `authorizedActionId` 后，Runner 才会执行已批准的同一 Action。
+ * 领域 failure 会继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
  * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
  * 传播，写入失败后不会继续执行下一 Step。
@@ -431,10 +441,15 @@ export class Runner {
      * 返回 `RUN_NOT_FOUND`。
      *
      * @param ref - 目标 Goal 与 Run 的关联键。
+     * @param options - 可选的本次调用瞬时 Action 授权；只接受与已批准
+     *   `pendingAction` 相同的 `actionId`，不会写入快照。
      * @returns Run 到达 waiting 或终态时的结果。
      * @throws GoalStore 的恢复或保存错误。
      */
-    async run(ref: RunRef): Promise<RunnerResult> {
+    async run(
+        ref: RunRef,
+        options: RunExecutionOptions = {},
+    ): Promise<RunnerResult> {
         const goal = await this.restore(ref);
 
         if (goal === undefined) {
@@ -445,21 +460,35 @@ export class Runner {
             return { ok: true, state: goal.state.run };
         }
 
+        if (!this.hasMatchingTransientAuthorization(goal, options)) {
+            return this.actionNotAuthorized(ref, options.authorizedActionId);
+        }
+
         if (goal.state.run.status === "created") {
             const runningGoal = this.withRun(
                 goal,
                 this.applyTransition(goal.state.run, { kind: "start" }),
             );
             await this.store.save(runningGoal);
-            return this.runLoop(runningGoal);
+            return this.runLoop(runningGoal, options.authorizedActionId);
         }
 
-        return this.runLoop(goal);
+        return this.runLoop(goal, options.authorizedActionId);
     }
 
-    /** {@link run} 的语义化别名，供 Scheduler 表达“运行到阻塞点”。 */
-    async runUntilBlocked(ref: RunRef): Promise<RunnerResult> {
-        return this.run(ref);
+    /**
+     * {@link run} 的语义化别名，供 Scheduler 表达“运行到阻塞点”。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @param options - 可选的本次调用瞬时 Action 授权。
+     * @returns 与 {@link run} 相同的 waiting、终态或业务失败结果。
+     * @throws GoalStore 的恢复或保存错误。
+     */
+    async runUntilBlocked(
+        ref: RunRef,
+        options?: RunExecutionOptions,
+    ): Promise<RunnerResult> {
+        return this.run(ref, options);
     }
 
     private async restore(ref: RunRef): Promise<Goal | undefined> {
@@ -484,6 +513,38 @@ export class Runner {
                 message: `Run "${ref.runId}" for Goal "${ref.goalId}" was not found`,
             },
         };
+    }
+
+    private actionNotAuthorized(
+        ref: RunRef,
+        actionId: string | undefined,
+    ): RunnerResult {
+        return {
+            ok: false,
+            error: {
+                code: "ACTION_NOT_AUTHORIZED",
+                message: actionId === undefined
+                    ? `Run "${ref.runId}" requires a matching transient Action authorization`
+                    : `Action "${actionId}" is not the approved pending Action for Run "${ref.runId}"`,
+            },
+        };
+    }
+
+    private hasMatchingTransientAuthorization(
+        goal: Goal,
+        options: RunExecutionOptions,
+    ): boolean {
+        const pendingAction = goal.state.run.pendingAction;
+
+        if (pendingAction === undefined) {
+            return options.authorizedActionId === undefined;
+        }
+
+        if (pendingAction.status !== "approved") {
+            return options.authorizedActionId === undefined;
+        }
+
+        return options.authorizedActionId === pendingAction.action.actionId;
     }
 
     private getAuthorizedToolDefinitions(goal: Goal): readonly ToolDefinition[] {
@@ -531,10 +592,101 @@ export class Runner {
         return { ok: true, state: failedRun };
     }
 
-    private async runLoop(initialGoal: Goal): Promise<RunnerResult> {
+    private async executeToolAndObserve(
+        goal: Goal,
+        tool: Tool,
+        action: ToolCallAction,
+    ): Promise<
+        | { readonly kind: "observed"; readonly goal: Goal }
+        | { readonly kind: "stopped"; readonly result: RunnerResult }
+    > {
+        let observation: ToolObservation;
+
+        try {
+            const rawObservation = await tool.execute({
+                actionId: action.actionId,
+                input: action.input,
+            });
+            observation = validateToolObservation(rawObservation);
+        } catch (error) {
+            const toolError = error instanceof RunnerExecutionError
+                ? error
+                : new RunnerExecutionError(
+                    "TOOL_EXECUTION_ERROR",
+                    error instanceof Error ? error.message : String(error),
+                );
+
+            return {
+                kind: "stopped",
+                result: await this.stopWithExecutionError(goal, toolError),
+            };
+        }
+
+        const observedRun = this.applyTransition(goal.state.run, {
+            kind: "observe_action",
+            actionId: action.actionId,
+            observation,
+        });
+        const observedGoal = this.withRun(goal, observedRun);
+
+        // If this save fails, the already-saved goal remains the recovery baseline.
+        await this.store.save(observedGoal);
+        return { kind: "observed", goal: observedGoal };
+    }
+
+    private async runLoop(
+        initialGoal: Goal,
+        authorizedActionId?: string,
+    ): Promise<RunnerResult> {
         let goal = initialGoal;
+        let transientAuthorization = authorizedActionId;
 
         while (goal.state.run.status === "running") {
+            const pendingAction = goal.state.run.pendingAction;
+
+            if (pendingAction?.status === "approved") {
+                if (transientAuthorization !== pendingAction.action.actionId) {
+                    return this.actionNotAuthorized(
+                        { goalId: goal.id, runId: goal.state.run.id },
+                        transientAuthorization,
+                    );
+                }
+
+                let validated;
+
+                try {
+                    validated = validateToolAction(
+                        goal,
+                        pendingAction.action,
+                        this.toolRegistry,
+                        this.toolPolicy,
+                        false,
+                    );
+                } catch (error) {
+                    const stableError = toStableExecutionError(error)
+                        ?? new RunnerExecutionError(
+                            "TOOL_EXECUTION_ERROR",
+                            error instanceof Error ? error.message : String(error),
+                        );
+
+                    return this.stopWithExecutionError(goal, stableError);
+                }
+
+                const outcome = await this.executeToolAndObserve(
+                    goal,
+                    validated.tool,
+                    pendingAction.action,
+                );
+                transientAuthorization = undefined;
+
+                if (outcome.kind === "stopped") {
+                    return outcome.result;
+                }
+
+                goal = outcome.goal;
+                continue;
+            }
+
             const maxSteps = goal.definition.executionPolicy.maxSteps;
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
@@ -598,16 +750,6 @@ export class Runner {
                     return this.stopWithExecutionError(goal, stableError);
                 }
 
-                if (validated.policy !== "allow") {
-                    return this.stopWithExecutionError(
-                        goal,
-                        new RunnerExecutionError(
-                            "TOOL_EXECUTION_ERROR",
-                            "Tool approval flow is not available before TODO 7",
-                        ),
-                    );
-                }
-
                 try {
                     validateActionLifecycle(goal, normalized.decision.action);
                 } catch (error) {
@@ -618,6 +760,20 @@ export class Runner {
                         );
 
                     return this.stopWithExecutionError(goal, stableError);
+                }
+
+                if (validated.policy !== "allow") {
+                    const stagedRun = this.applyTransition(goal.state.run, {
+                        kind: "stage_action",
+                        checkpoint: normalized.decision.checkpoint,
+                        action: normalized.decision.action,
+                        status: "awaiting_approval",
+                    });
+                    const stagedGoal = this.withRun(goal, stagedRun);
+
+                    await this.store.save(stagedGoal);
+                    goal = stagedGoal;
+                    continue;
                 }
 
                 const stagedRun = this.applyTransition(goal.state.run, {
@@ -631,35 +787,17 @@ export class Runner {
                 // Durable intent must exist before the Tool can produce an effect.
                 await this.store.save(stagedGoal);
 
-                let observation: ToolObservation;
+                const outcome = await this.executeToolAndObserve(
+                    stagedGoal,
+                    validated.tool,
+                    normalized.decision.action,
+                );
 
-                try {
-                    const rawObservation = await validated.tool.execute({
-                        actionId: normalized.decision.action.actionId,
-                        input: normalized.decision.action.input,
-                    });
-                    observation = validateToolObservation(rawObservation);
-                } catch (error) {
-                    const toolError = error instanceof RunnerExecutionError
-                        ? error
-                        : new RunnerExecutionError(
-                            "TOOL_EXECUTION_ERROR",
-                            error instanceof Error ? error.message : String(error),
-                        );
-
-                    return this.stopWithExecutionError(stagedGoal, toolError);
+                if (outcome.kind === "stopped") {
+                    return outcome.result;
                 }
 
-                const observedRun = this.applyTransition(stagedGoal.state.run, {
-                    kind: "observe_action",
-                    actionId: normalized.decision.action.actionId,
-                    observation,
-                });
-                const observedGoal = this.withRun(stagedGoal, observedRun);
-
-                // If this save fails, stagedGoal remains the recovery baseline.
-                await this.store.save(observedGoal);
-                goal = observedGoal;
+                goal = outcome.goal;
                 continue;
             }
 

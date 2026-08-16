@@ -17,18 +17,27 @@ export type GoalProgressErrorCode =
     | "RUN_NOT_FOUND"
     | "GOAL_NOT_WAITING"
     | "INVALID_GOAL_INPUT"
-    | "INVALID_PHASE_RESULT";
+    | "INVALID_PHASE_RESULT"
+    | "ACTION_NOT_AUTHORIZED";
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
  *
  * @remarks
- * `message` 用于回答问题、反馈任务提案或解除执行阻塞，内容按原文持久化；
- * `approve` 只批准当前 proposal，不产生会话消息。
+ * `message` 用于回答问题、反馈任务提案或解除 Agent wait，内容按原文持久化；
+ * `approve` 只批准当前 proposal；`approve_action` 先持久化批准状态再用一次性
+ * 授权继续执行；`reject_action` 将拒绝写成 Observation。两种 Action 操作只
+ * 处理当前 pendingAction，不追加伪造的会话消息。
  */
 export type GoalUserAction =
     | { readonly kind: "message"; readonly content: string }
-    | { readonly kind: "approve" };
+    | { readonly kind: "approve" }
+    | { readonly kind: "approve_action"; readonly actionId: string }
+    | {
+        readonly kind: "reject_action";
+        readonly actionId: string;
+        readonly reason: string;
+    };
 
 /**
  * 恢复等待中 Goal 所需的稳定关联键与用户操作。
@@ -53,7 +62,8 @@ export interface ResumeGoalRequest {
  *
  * @remarks
  * 成功结果始终携带本次推进得到的最新完整 Goal。准备阶段不会启动 Run 或
- * 消费 Step；executing 阶段只区分 blocked 等待与 Run 终态。
+ * 消费 Step；executing 阶段区分 Agent wait、Action approval/recovery 等待与
+ * Run 终态。
  */
 export type GoalProgressResult =
     | {
@@ -74,7 +84,7 @@ export type GoalProgressResult =
         readonly ok: true;
         readonly kind: "waiting";
         readonly phase: "executing";
-        readonly waitingFor: "blocked";
+        readonly waitingFor: "blocked" | "action_approval" | "action_recovery";
         readonly goal: Goal;
     }
     | {
@@ -224,28 +234,11 @@ export class GoalCoordinator {
             || goal.state.run.status === "running"
         ) {
             const scheduled = await this.scheduler.schedule(ref);
-
-            if (!scheduled.ok) {
-                return scheduled;
-            }
-
-            const latestGoal = await this.restore(ref);
-
-            if (latestGoal === undefined) {
-                return this.runNotFound(ref);
-            }
-
-            goal = latestGoal;
+            return this.afterSchedule(ref, scheduled);
         }
 
         if (goal.state.run.status === "waiting") {
-            return {
-                ok: true,
-                kind: "waiting",
-                phase: "executing",
-                waitingFor: "blocked",
-                goal,
-            };
+            return this.executingWaitingResult(goal);
         }
 
         if (
@@ -277,7 +270,9 @@ export class GoalCoordinator {
      * gathering message 会恢复为 active 并追加原文 user 消息；planning
      * message 会移除当前 proposal、保留反馈并重新规划；approve 不追加消息，
      * 而是把当前 proposal 复制为最终 task；executing message 会追加原文输入并
-     * 将 Run 从 waiting 恢复为 running。所有分支均先保存完整 Goal，再调用
+     * 将 Run 从 waiting 恢复为 running。executing 的 `approve_action` 只接受当前
+     * `awaiting_approval` Action，保存为 approved 后透传一次性授权；`reject_action`
+     * 保存 rejected Observation 后继续推进。所有分支均先保存完整 Goal，再调用
      * {@link advance}。当前没有匹配等待点或 action 不匹配时无副作用地失败。
      *
      * @param request - 当前 RunRef 与用户操作。
@@ -334,6 +329,12 @@ export class GoalCoordinator {
                 return this.advance(request.ref);
             }
 
+            if (request.action.kind !== "approve") {
+                return this.invalidGoalInput(
+                    "planning approval requires an approve action",
+                );
+            }
+
             const proposal = workflow.preparation.proposal;
 
             if (proposal === undefined) {
@@ -347,6 +348,92 @@ export class GoalCoordinator {
 
         if (goal.state.run.status !== "waiting") {
             return this.goalNotWaiting(request.ref);
+        }
+
+        const pendingAction = goal.state.run.pendingAction;
+
+        if (pendingAction !== undefined) {
+            if (
+                request.action.kind === "approve_action"
+                && pendingAction.status === "awaiting_approval"
+            ) {
+                if (request.action.actionId.trim().length === 0) {
+                    return this.invalidGoalInput("Action ID must not be empty");
+                }
+
+                if (request.action.actionId !== pendingAction.action.actionId) {
+                    return this.invalidGoalInput(
+                        "Approved actionId does not match pendingAction",
+                    );
+                }
+
+                const approvedRun = transition(goal.state.run, {
+                    kind: "approve_action",
+                    actionId: request.action.actionId,
+                });
+
+                if (!approvedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${approvedRun.error.message}`,
+                    );
+                }
+
+                const approvedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        run: approvedRun.state,
+                    },
+                };
+                await this.store.save(approvedGoal);
+                const scheduled = await this.scheduler.schedule(
+                    request.ref,
+                    { authorizedActionId: request.action.actionId },
+                );
+                return this.afterSchedule(request.ref, scheduled);
+            }
+
+            if (request.action.kind === "reject_action") {
+                if (request.action.actionId.trim().length === 0) {
+                    return this.invalidGoalInput("Action ID must not be empty");
+                }
+
+                if (request.action.actionId !== pendingAction.action.actionId) {
+                    return this.invalidGoalInput(
+                        "Rejected actionId does not match pendingAction",
+                    );
+                }
+
+                if (request.action.reason.trim().length === 0) {
+                    return this.invalidGoalInput("Rejection reason must not be empty");
+                }
+
+                const rejectedRun = transition(goal.state.run, {
+                    kind: "reject_action",
+                    actionId: request.action.actionId,
+                    reason: request.action.reason,
+                });
+
+                if (!rejectedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${rejectedRun.error.message}`,
+                    );
+                }
+
+                const rejectedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        run: rejectedRun.state,
+                    },
+                };
+                await this.store.save(rejectedGoal);
+                return this.advance(request.ref);
+            }
+
+            return this.invalidGoalInput(
+                "pendingAction requires approve_action or reject_action",
+            );
         }
 
         if (request.action.kind !== "message") {
@@ -394,6 +481,63 @@ export class GoalCoordinator {
         }
 
         return goal;
+    }
+
+    private async afterSchedule(
+        ref: RunRef,
+        scheduled: Awaited<ReturnType<RunScheduler["schedule"]>>,
+    ): Promise<GoalProgressResult> {
+        if (!scheduled.ok) {
+            return scheduled;
+        }
+
+        const latestGoal = await this.restore(ref);
+
+        if (latestGoal === undefined) {
+            return this.runNotFound(ref);
+        }
+
+        if (latestGoal.state.run.status === "waiting") {
+            return this.executingWaitingResult(latestGoal);
+        }
+
+        if (
+            latestGoal.state.run.status === "completed"
+            || latestGoal.state.run.status === "failed"
+            || latestGoal.state.run.status === "cancelled"
+        ) {
+            return {
+                ok: true,
+                kind: "terminal",
+                phase: "executing",
+                goal: latestGoal,
+            };
+        }
+
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_PHASE_RESULT",
+                message: `Scheduler left Run "${ref.runId}" in ${latestGoal.state.run.status}`,
+            },
+        };
+    }
+
+    private executingWaitingResult(goal: Goal): GoalProgressResult {
+        const pendingAction = goal.state.run.pendingAction;
+        const waitingFor = pendingAction?.status === "awaiting_approval"
+            ? "action_approval"
+            : pendingAction?.status === "outcome_unknown"
+                ? "action_recovery"
+                : "blocked";
+
+        return {
+            ok: true,
+            kind: "waiting",
+            phase: "executing",
+            waitingFor,
+            goal,
+        };
     }
 
     private withQuestion(goal: Goal, question: string): Goal {

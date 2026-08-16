@@ -397,8 +397,43 @@ export function transition(
             }
             break;
 
-        // waiting 状态只接受 Agent wait 的恢复、Action 拒绝或取消。
+        // waiting 状态接受 Agent wait 的恢复、Action 审批/拒绝或取消。
         case "waiting":
+            if (input.kind === "approve_action") {
+                const pendingAction = currentState.pendingAction;
+
+                if (
+                    pendingAction === undefined
+                    || pendingAction.status !== "awaiting_approval"
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "approve_action requires a pending Action awaiting approval",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Approved actionId does not match pendingAction",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "approved",
+                        },
+                    },
+                };
+            }
+
             if (input.kind === "reject_action") {
                 const pendingAction = currentState.pendingAction;
 

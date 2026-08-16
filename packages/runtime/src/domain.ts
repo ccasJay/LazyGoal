@@ -354,6 +354,25 @@ export interface RunRef {
 }
 
 /**
+ * 一次调度调用的瞬时授权。
+ *
+ * @remarks
+ * `authorizedActionId` 只在当前 Scheduler/Runner 调用链内有效，不写入 Goal
+ * 快照。它必须匹配已持久化且状态为 `approved` 的 pendingAction；批准本身不
+ * 增加 `stepCount`。
+ *
+ * @example
+ * ```ts
+ * const options: RunExecutionOptions = {
+ *   authorizedActionId: "action-1",
+ * };
+ * ```
+ */
+export interface RunExecutionOptions {
+    readonly authorizedActionId?: string;
+}
+
+/**
  * 旧 RunStore 与兼容工厂使用的任务输入。
  * @deprecated 新 Launcher 使用原始 intent 创建 Goal，批准后的任务保存在 workflow 中。
  * @example
@@ -407,7 +426,8 @@ export type StepResult =
  *
  * @remarks
  * `stage_action` 只建立可恢复的 Action 意图，不消费 Step；`observe_action`、
- * `reject_action` 和非 Tool 的 `decision` 才完成一个 Step。`execution_error`
+ * `approve_action` 只解除 Action 审批且不消费 Step；`reject_action` 和非 Tool 的
+ * `decision` 才完成一个 Step。`execution_error`
  * 停止当前 Run 但不消费 Step，并在存在待执行 Action 时保留其不确定结果。
  * 旧 `step` 分支仅供尚未升级的兼容执行链使用。
  *
@@ -449,6 +469,10 @@ export type RunInput =
         readonly kind: "reject_action";
         readonly actionId: string;
         readonly reason: string;
+    }
+    | {
+        readonly kind: "approve_action";
+        readonly actionId: string;
     }
     | {
         readonly kind: "execution_error";

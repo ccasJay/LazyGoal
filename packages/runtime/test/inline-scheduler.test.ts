@@ -2,18 +2,28 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { InlineScheduler } from "../src/index";
-import type { Runner, RunnerResult, RunRef } from "../src/index";
+import type {
+    Runner,
+    RunnerResult,
+    RunExecutionOptions,
+    RunRef,
+} from "../src/index";
 
 class FakeRunner implements Pick<Runner, "runUntilBlocked"> {
     readonly receivedRefs: RunRef[] = [];
+    readonly receivedOptions: (RunExecutionOptions | undefined)[] = [];
 
     constructor(
         private readonly result?: RunnerResult,
         private readonly failure?: Error,
     ) {}
 
-    async runUntilBlocked(ref: RunRef): Promise<RunnerResult> {
+    async runUntilBlocked(
+        ref: RunRef,
+        options?: RunExecutionOptions,
+    ): Promise<RunnerResult> {
         this.receivedRefs.push(ref);
+        this.receivedOptions.push(options);
 
         if (this.failure !== undefined) {
             throw this.failure;
@@ -48,6 +58,7 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
 
     assert.strictEqual(result, runnerResult);
     assert.deepEqual(runner.receivedRefs, [ref]);
+    assert.deepEqual(runner.receivedOptions, [undefined]);
 });
 
 test("returns the Runner business failure unchanged", async () => {
@@ -66,6 +77,7 @@ test("returns the Runner business failure unchanged", async () => {
 
     assert.strictEqual(result, runnerResult);
     assert.deepEqual(runner.receivedRefs, [ref]);
+    assert.deepEqual(runner.receivedOptions, [undefined]);
 });
 
 test("propagates the exact Runner error", async () => {
@@ -83,4 +95,25 @@ test("propagates the exact Runner error", async () => {
     assert.deepEqual(runner.receivedRefs, [
         { goalId: "goal-1", runId: "run-2" },
     ]);
+    assert.deepEqual(runner.receivedOptions, [undefined]);
+});
+
+test("forwards transient Action authorization without persisting or changing it", async () => {
+    const runnerResult: RunnerResult = {
+        ok: true,
+        state: {
+            id: "run-1",
+            status: "waiting",
+            stepCount: 0,
+        },
+    };
+    const runner = new FakeRunner(runnerResult);
+    const scheduler = new InlineScheduler(runner);
+    const ref = { goalId: "goal-1", runId: "run-1" };
+    const options = { authorizedActionId: "action-1" };
+
+    await scheduler.schedule(ref, options);
+
+    assert.deepEqual(runner.receivedRefs, [ref]);
+    assert.deepEqual(runner.receivedOptions, [options]);
 });

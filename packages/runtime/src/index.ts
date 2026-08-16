@@ -17,6 +17,7 @@ export type {
     LegacyRunState,
     LegacyGoalCreationInput,
     RunInput,
+    RunExecutionOptions,
     RunRef,
     RunState,
     RunStopReason,

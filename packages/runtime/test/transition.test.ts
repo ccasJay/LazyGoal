@@ -233,6 +233,44 @@ test("stage_action can enter approval waiting without consuming a Step", () => {
     });
 });
 
+test("approve_action resumes the exact pending Action without consuming a Step", () => {
+    const waiting = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            checkpoint: "等待用户确认后读取文件",
+            status: "awaiting_approval",
+            action: {
+                actionId: "action-approve",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        }),
+    );
+
+    const approved = requireSuccessfulState(
+        transition(waiting, {
+            kind: "approve_action",
+            actionId: "action-approve",
+        }),
+    );
+
+    assert.equal(approved.status, "running");
+    assert.equal(approved.stepCount, waiting.stepCount);
+    assert.deepEqual(approved.pendingAction, {
+        action: waiting.pendingAction?.action,
+        status: "approved",
+    });
+    assert.equal(approved.checkpoint, waiting.checkpoint);
+    assert.equal(approved.lastStep, undefined);
+
+    const wrongAction = transition(waiting, {
+        kind: "approve_action",
+        actionId: "action-other",
+    });
+    assert.equal(wrongAction.ok, false);
+    assert.strictEqual(wrongAction.state, waiting);
+});
+
 test("reject_action records a rejected Observation as one Step", () => {
     const waiting = requireSuccessfulState(
         transition(createRunningState(), {

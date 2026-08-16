@@ -38,8 +38,8 @@ flowchart LR
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
 5. Agent Executor 接收已注册的授权 ToolDefinition 并生成 AgentDecision；Runner 做严格协议、Profile、Registry、输入和 Policy 校验。
-6. 自动允许的 Action 按 `stage_action → Tool → observe_action` 顺序保存；领域 failure 继续下一轮，基础设施异常保存 `execution_error`。
-7. 终止决策或正数 `maxSteps` 使 Run 停止；Preparation 与用户等待由 Coordinator `resume` 继续。
+6. 自动允许的 Action 按 `stage_action → Tool → observe_action` 顺序保存；需要批准的 Action 保存为等待点，领域 failure 继续下一轮，基础设施异常保存 `execution_error`。
+7. Coordinator 对 Action 执行 `approve_action`/`reject_action`：批准先保存再以瞬时授权调度，拒绝写入 rejected Observation；终止决策或正数 `maxSteps` 使 Run 停止。
 
 ## 跨模块不变量
 
@@ -48,7 +48,7 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
-- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许的 Tool Action/Observation，审批等待、拒绝、瞬时授权和中断重放仍待接入。
+- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝和瞬时授权，中断重放仍待接入。
 
 ## 模块速查
 

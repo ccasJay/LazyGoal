@@ -1293,6 +1293,114 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     ]);
 });
 
+test("require_approval 会保存等待中的 Action 且不调用 Tool", async () => {
+    const initial = createInitialGoal(
+        "run-action-approval",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let toolCalls = 0;
+    const tool = createRunnerTool(async () => {
+        toolCalls += 1;
+        return { kind: "success", output: "不应执行", summary: "不应执行" };
+    });
+    const executor = new SequenceDecisionExecutor([{
+        kind: "tool_call",
+        checkpoint: "等待确认后读取文件",
+        action: {
+            actionId: "action-approval",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    }]);
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+        toolPolicy: { evaluate: () => "require_approval" },
+    }).run(createRef(initial, "run-action-approval"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "waiting");
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.pendingAction, {
+        action: {
+            actionId: "action-approval",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "awaiting_approval",
+    });
+    assert.equal(toolCalls, 0);
+    assert.equal(executor.receivedGoals.length, 1);
+});
+
+test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step", async () => {
+    const initialGoal = createInitialGoal(
+        "run-authorized-action",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+        [],
+        0,
+    );
+    const initial = withRun(
+        initialGoal,
+        applyTransition(initialGoal.state.run, { kind: "start" }),
+    );
+    const action = {
+        actionId: "action-authorized",
+        toolId: "read_file",
+        input: { path: "README.md" },
+    } as const;
+    const staged = withRun(initial, applyTransition(initial.state.run, {
+        kind: "stage_action",
+        checkpoint: "已批准读取文件",
+        action,
+        status: "approved",
+    }));
+    const store = new InMemoryGoalStore();
+    await store.save(staged);
+    let toolCalls = 0;
+    const tool = createRunnerTool(async ({ actionId }) => {
+        toolCalls += 1;
+        assert.equal(actionId, action.actionId);
+        return { kind: "success", output: "文件内容", summary: "读取完成" };
+    });
+    const executor = new SequenceDecisionExecutor([{
+        kind: "complete",
+        checkpoint: "已完成任务",
+        summary: "任务完成",
+    }]);
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+        toolPolicy: { evaluate: () => "require_approval" },
+    });
+
+    const unauthorized = await runner.run(createRef(staged), {
+        authorizedActionId: "action-other",
+    });
+    const unauthorizedFailure = requireFailedResult(unauthorized);
+    assert.equal(unauthorizedFailure.error.code, "ACTION_NOT_AUTHORIZED");
+    assert.equal(toolCalls, 0);
+    assert.equal(executor.receivedGoals.length, 0);
+
+    const result = await runner.run(createRef(staged), {
+        authorizedActionId: action.actionId,
+    });
+    const state = requireSuccessfulState(result);
+
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.equal(toolCalls, 1);
+    assert.equal(executor.receivedGoals.length, 1);
+    assert.equal(state.pendingAction, undefined);
+});
+
 test("Runner 将领域 failure Observation 保存后继续下一轮", async () => {
     const initial = createInitialGoal(
         "run-domain-failure",

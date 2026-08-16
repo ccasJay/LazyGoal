@@ -41,7 +41,7 @@
   - 用顺序记录 Fake 覆盖自动允许、保存失败、普通领域失败继续和完整 Step 计数
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 7. 接入 Action 审批、拒绝与瞬时授权
+- [x] //TODO 7. 接入 Action 审批、拒绝与瞬时授权
 
   - 扩展 GoalCoordinator、GoalUserAction、等待结果与 RunScheduler，支持 actionId 匹配的 approve_action、reject_action 和瞬时 authorizedActionId
   - 保证审批等待不执行 Tool，批准先保存再调度，拒绝生成 Observation 后继续且不追加伪造消息

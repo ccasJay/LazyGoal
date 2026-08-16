@@ -28,4 +28,4 @@ Agent 是 Runtime 与 LLM 之间的集成层。它读取完整 Goal，构造一�
 
 ## 当前限制与背景
 
-当前没有 pendingAction 持久化、自动 Tool 执行循环、审批恢复、流式响应、自动重试和协议自修复。LLM Step Executor 已返回 AgentDecision，Runner 已完成 Tool Action 的前置授权/校验边界；Coordinator 负责 Preparation 消息，模型原始 JSON 不会持久化。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。
+Agent 不直接持久化 pendingAction、执行 Tool 或处理审批；这些由 Runtime Runner/Coordinator 负责。当前 Agent 仍不提供流式响应、自动重试和协议自修复。LLM Step Executor 已返回 AgentDecision，Coordinator 负责 Preparation 消息，模型原始 JSON 不会持久化。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。

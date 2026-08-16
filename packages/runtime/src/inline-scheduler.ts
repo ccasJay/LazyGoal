@@ -1,5 +1,5 @@
 import type { Runner, RunnerResult } from "./runner";
-import type { RunRef } from "./domain";
+import type { RunExecutionOptions, RunRef } from "./domain";
 import type { RunScheduler } from "./scheduler";
 
 /**
@@ -14,8 +14,15 @@ export class InlineScheduler implements RunScheduler {
         private readonly runner: Pick<Runner, "runUntilBlocked">,
     ) {}
 
-    /** 将 RunRef 原样交给 Runner，并透传结果或异常。 */
-    schedule(ref: RunRef): Promise<RunnerResult> {
-        return this.runner.runUntilBlocked(ref);
+    /**
+     * 将 RunRef 与瞬时授权原样交给 Runner，并透传结果或异常。
+     *
+     * @param ref - 已持久化 Goal 与当前 Run 的关联键。
+     * @param options - 可选的本次调用 Action 授权，不会由 Scheduler 持久化。
+     * @returns Runner 的业务结果。
+     * @throws Runner 或其依赖抛出的原始异常。
+     */
+    schedule(ref: RunRef, options?: RunExecutionOptions): Promise<RunnerResult> {
+        return this.runner.runUntilBlocked(ref, options);
     }
 }
