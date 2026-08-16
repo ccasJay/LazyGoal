@@ -1,9 +1,10 @@
 import type {
+    AssistantMessage,
     Goal,
-    GoalMessage,
     RunInput,
     RunRef,
     RunState,
+    StepResult,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutionResult, StepExecutor } from "./step-executor";
@@ -15,19 +16,27 @@ export type RunnerResult =
     | {
         readonly ok: false;
         readonly error: {
-            readonly code: "RUN_NOT_FOUND" | "RUN_NOT_WAITING";
+            readonly code: "RUN_NOT_FOUND";
             readonly message: string;
         };
     };
 
-/** 创建 {@link Runner} 所需的持久化、执行和预算依赖。 */
+/**
+ * 创建 {@link Runner} 所需的持久化与单步执行依赖。
+ *
+ * @remarks
+ * Step 上限来自每个 Goal 冻结的 executionPolicy，不属于 Runner 实例配置。
+ *
+ * @example
+ * ```ts
+ * const runner = new Runner({ store, executor });
+ * ```
+ */
 export interface RunnerDependencies {
     /** 完整 Goal 的最新快照存储。 */
     readonly store: GoalStore;
     /** 每轮只执行一个 Step 的实现。 */
     readonly executor: StepExecutor;
-    /** 单个 Run 跨恢复累计允许消费的最大 Step 数。 */
-    readonly maxSteps: number;
 }
 
 /**
@@ -35,8 +44,8 @@ export interface RunnerDependencies {
  *
  * @remarks
  * Runner 是状态推进与持久化顺序的拥有者。启动、恢复和每个 Step 完成后，
- * 都会先保存最新完整 Goal，再继续下一步。`maxSteps` 使用快照中的累计
- * `stepCount`，进程重启或 resume 不会重置预算。
+ * 都会先保存最新完整 Goal，再继续下一步。正数 `maxSteps` 使用快照中的
+ * 累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
  * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
  * 传播，写入失败后不会继续执行下一 Step。
@@ -44,20 +53,11 @@ export interface RunnerDependencies {
 export class Runner {
     private readonly store: GoalStore;
     private readonly executor: StepExecutor;
-    private readonly maxSteps: number;
 
-    /**
-     * @param dependencies - GoalStore、StepExecutor 与正整数 Step 上限。
-     * @throws `maxSteps` 不是正整数时抛出 Error。
-     */
+    /** @param dependencies - GoalStore 与 StepExecutor。 */
     constructor(dependencies: RunnerDependencies) {
-        if (!Number.isInteger(dependencies.maxSteps) || dependencies.maxSteps <= 0) {
-            throw new Error("maxSteps must be a positive integer");
-        }
-
         this.store = dependencies.store;
         this.executor = dependencies.executor;
-        this.maxSteps = dependencies.maxSteps;
     }
 
     /**
@@ -101,40 +101,6 @@ export class Runner {
         return this.run(ref);
     }
 
-    /**
-     * 显式恢复一个 waiting Run，并运行到下一个阻塞点或终态。
-     *
-     * @param ref - waiting Goal 与 Run 的关联键。
-     * @returns 不存在时为 `RUN_NOT_FOUND`，状态不是 waiting 时为
-     * `RUN_NOT_WAITING`，否则返回继续执行后的状态。
-     * @throws GoalStore 的恢复或保存错误。
-     */
-    async resume(ref: RunRef): Promise<RunnerResult> {
-        const goal = await this.restore(ref);
-
-        if (goal === undefined) {
-            return this.runNotFound(ref);
-        }
-
-        if (goal.state.run.status !== "waiting") {
-            return {
-                ok: false,
-                error: {
-                    code: "RUN_NOT_WAITING",
-                    message: `Run "${ref.runId}" for Goal "${ref.goalId}" is not waiting`,
-                },
-            };
-        }
-
-        const runningGoal = this.withRun(
-            goal,
-            this.applyTransition(goal.state.run, { kind: "resume" }),
-        );
-        await this.store.save(runningGoal);
-
-        return this.runLoop(runningGoal);
-    }
-
     private async restore(ref: RunRef): Promise<Goal | undefined> {
         const goal = await this.store.restore(ref.goalId);
 
@@ -163,7 +129,9 @@ export class Runner {
         let goal = initialGoal;
 
         while (goal.state.run.status === "running") {
-            if (goal.state.run.stepCount >= this.maxSteps) {
+            const maxSteps = goal.definition.executionPolicy.maxSteps;
+
+            if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 const failedGoal = this.withRun(goal, {
                     ...goal.state.run,
                     status: "failed",
@@ -175,6 +143,7 @@ export class Runner {
             }
 
             let execution: StepExecutionResult;
+            let shouldAppendResultMessage = true;
             try {
                 execution = await this.executor.execute(goal);
             } catch (error) {
@@ -183,18 +152,18 @@ export class Runner {
                         kind: "fail",
                         error: error instanceof Error ? error.message : String(error),
                     },
-                    appendedMessages: [],
                 };
+                shouldAppendResultMessage = false;
             }
 
             const nextRun = this.applyTransition(goal.state.run, {
                 kind: "step",
                 result: execution.result,
             });
-            const nextGoal = this.withRun(
-                this.appendMessages(goal, execution.appendedMessages),
-                nextRun,
-            );
+            const transitionedGoal = this.withRun(goal, nextRun);
+            const nextGoal = shouldAppendResultMessage
+                ? this.appendResultMessage(transitionedGoal, execution.result)
+                : transitionedGoal;
 
             await this.store.save(nextGoal);
             goal = nextGoal;
@@ -213,11 +182,13 @@ export class Runner {
         };
     }
 
-    private appendMessages(
+    private appendResultMessage(
         goal: Goal,
-        messages: readonly GoalMessage[],
+        result: StepResult,
     ): Goal {
-        if (messages.length === 0) {
+        const message = this.toAssistantMessage(goal, result);
+
+        if (message === undefined) {
             return goal;
         }
 
@@ -227,17 +198,30 @@ export class Runner {
                 ...goal.state,
                 messages: [
                     ...goal.state.messages,
-                    ...messages.map((message) => message.role === "user"
-                        ? { role: "user" as const, content: message.content }
-                        : {
-                            role: "assistant" as const,
-                            assistant: {
-                                profileId: message.assistant.profileId,
-                            },
-                            content: message.content,
-                        }),
+                    message,
                 ],
             },
+        };
+    }
+
+    private toAssistantMessage(
+        goal: Goal,
+        result: StepResult,
+    ): AssistantMessage | undefined {
+        if (result.kind === "continue") {
+            return undefined;
+        }
+
+        const content = result.kind === "wait"
+            ? result.reason
+            : result.kind === "complete"
+                ? result.summary
+                : result.error;
+
+        return {
+            role: "assistant",
+            assistant: { profileId: goal.definition.profile.id },
+            content,
         };
     }
 

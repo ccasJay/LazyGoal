@@ -35,8 +35,7 @@ export type LaunchResult =
         readonly error: {
             readonly code:
                 | "PROFILE_NOT_FOUND"
-                | "RUN_NOT_FOUND"
-                | "RUN_NOT_WAITING";
+                | "RUN_NOT_FOUND";
             readonly message: string;
         };
     };

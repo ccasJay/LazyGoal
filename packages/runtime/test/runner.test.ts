@@ -60,7 +60,7 @@ class FakeStepExecutor implements StepExecutor {
         const outcome = await action(goal);
         return "result" in outcome
             ? outcome
-            : { result: outcome, appendedMessages: [] };
+            : { result: outcome };
     }
 }
 
@@ -132,7 +132,7 @@ function createWaitingGoal(runId = "run-1"): Goal {
         running,
         applyTransition(running.state.run, {
             kind: "step",
-            result: { kind: "wait", reason: "等待外部输入" },
+            result: { kind: "wait", reason: "缺少外部依赖" },
         }),
     );
 }
@@ -185,16 +185,10 @@ test("starts a created Goal, saves every transition, and executes until complete
     const continueResult = { kind: "continue", summary: "继续执行" } as const;
     const completeResult = { kind: "complete", summary: "目标完成" } as const;
     const executor = new FakeStepExecutor([
-        (goal) => ({
-            result: continueResult,
-            appendedMessages: [
-                { role: "user", content: `step-${goal.state.run.stepCount}` },
-                { role: "assistant", assistant: { profileId: "profile-1" }, content: "继续执行" },
-            ],
-        }),
+        () => continueResult,
         () => completeResult,
     ], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -225,12 +219,18 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.lastStep, { result: completeResult });
+    assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
+        result: continueResult,
+    });
 
     const persisted = await store.peek(initial.id);
     assert.ok(persisted);
     assert.deepEqual(persisted.state.messages, [
-        { role: "user", content: "step-0" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "继续执行" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "目标完成",
+        },
     ]);
     assert.deepEqual(executionTask(persisted), executionTask(initial));
     assert.deepEqual(persisted.definition.profile, initial.definition.profile);
@@ -248,7 +248,7 @@ test("does not start or consume a Step for a preparation Goal", async () => {
     });
     await store.seed(preparationGoal);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(preparationGoal)),
@@ -260,24 +260,47 @@ test("does not start or consume a Step for a preparation Goal", async () => {
     assert.deepEqual(executor.receivedGoals, []);
 });
 
-test("stops on wait and resumes the same Goal after saving running first", async () => {
+test("stops on blocked and continues an externally resumed Goal", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const initial = createInitialGoal();
     await store.seed(initial);
-    const waitResult = { kind: "wait", reason: "等待批准" } as const;
+    const waitResult = {
+        kind: "wait",
+        reason: "需要破坏性操作批准",
+    } as const;
     const completeResult = { kind: "complete", summary: "批准后完成" } as const;
     const executor = new FakeStepExecutor([
         () => waitResult,
         () => completeResult,
     ], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
     const ref = createRef(initial);
 
     const waiting = requireSuccessfulState(
         await runner.runUntilBlocked(ref),
     );
-    const completed = requireSuccessfulState(await runner.resume(ref));
+    const waitingGoal = await store.peek(initial.id);
+    assert.ok(waitingGoal !== undefined);
+    const resumedRun = applyTransition(
+        waitingGoal.state.run,
+        { kind: "resume" },
+    );
+    const externallyResumed = {
+        ...waitingGoal,
+        state: {
+            ...waitingGoal.state,
+            messages: [
+                ...waitingGoal.state.messages,
+                { role: "user" as const, content: "已批准继续" },
+            ],
+            run: resumedRun,
+        },
+    };
+    await store.seed(externallyResumed);
+    const completed = requireSuccessfulState(
+        await runner.runUntilBlocked(ref),
+    );
 
     assert.equal(waiting.status, "waiting");
     assert.equal(waiting.stepCount, 1);
@@ -289,7 +312,6 @@ test("stops on wait and resumes the same Goal after saving running first", async
         "execute:running:0",
         "save:goal-1:waiting:1",
         "restore:goal-1",
-        "save:goal-1:running:1",
         "execute:running:1",
         "save:goal-1:completed:2",
     ]);
@@ -301,12 +323,24 @@ test("stops on wait and resumes the same Goal after saving running first", async
         [
             { status: "running", stepCount: 0 },
             { status: "waiting", stepCount: 1 },
-            { status: "running", stepCount: 1 },
             { status: "completed", stepCount: 2 },
         ],
     );
-    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[2]);
-    assert.deepEqual((await store.peek(initial.id))?.state.run, completed);
+    const persisted = await store.peek(initial.id);
+    assert.deepEqual(persisted?.state.run, completed);
+    assert.deepEqual(persisted?.state.messages, [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "需要破坏性操作批准",
+        },
+        { role: "user", content: "已批准继续" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "批准后完成",
+        },
+    ]);
 });
 
 test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进度", async () => {
@@ -372,7 +406,7 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
                 };
             },
         ]);
-        const runner = new Runner({ store, executor, maxSteps: 3 });
+        const runner = new Runner({ store, executor });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(scenario.goal)),
@@ -385,7 +419,7 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
     }
 });
 
-test("从 InMemoryGoalStore 恢复 waiting Goal 需要 resume，终态 Goal 直接短路", async () => {
+test("从 InMemoryGoalStore 恢复 waiting 和终态 Goal 时直接短路", async () => {
     const waiting = createWaitingGoal("run-waiting-recovery");
     const waitingStore = new InMemoryGoalStore();
     await waitingStore.save(waiting);
@@ -395,7 +429,6 @@ test("从 InMemoryGoalStore 恢复 waiting Goal 需要 resume，终态 Goal 直�
     const waitingRunner = new Runner({
         store: waitingStore,
         executor: waitingExecutor,
-        maxSteps: 3,
     });
     const waitingRef = createRef(waiting);
 
@@ -407,21 +440,11 @@ test("从 InMemoryGoalStore 恢复 waiting Goal 需要 resume，终态 Goal 直�
     assert.equal(waitingExecutor.receivedGoals.length, 0);
     assert.deepEqual(await waitingStore.restore(waiting.id), waiting);
 
-    const resumed = requireSuccessfulState(
-        await waitingRunner.resume(waitingRef),
-    );
-
-    assert.equal(resumed.status, "completed");
-    assert.equal(resumed.stepCount, waiting.state.run.stepCount + 1);
-    assert.equal(waitingExecutor.receivedGoals.length, 1);
-    assert.equal(waitingExecutor.receivedGoals[0]?.state.run.stepCount, 1);
-    assert.deepEqual((await waitingStore.restore(waiting.id))?.state.run, resumed);
-
     for (const inactive of inactiveGoals) {
         const store = new InMemoryGoalStore();
         await store.save(inactive.goal);
         const executor = new FakeStepExecutor([]);
-        const runner = new Runner({ store, executor, maxSteps: 3 });
+        const runner = new Runner({ store, executor });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(inactive.goal)),
@@ -478,7 +501,7 @@ for (const inactive of inactiveGoals) {
         const store = new RecordingGoalStore(events);
         await store.seed(inactive.goal);
         const executor = new FakeStepExecutor([], events);
-        const runner = new Runner({ store, executor, maxSteps: 3 });
+        const runner = new Runner({ store, executor });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(inactive.goal)),
@@ -495,7 +518,7 @@ test("returns RUN_NOT_FOUND without executing or saving when Goal is missing", a
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
     const ref = { goalId: "goal-1", runId: "missing-run" };
 
     const result = requireFailedResult(
@@ -515,7 +538,7 @@ test("returns RUN_NOT_FOUND without executing or saving when runId mismatches", 
     const goal = createInitialGoal("actual-run");
     await store.seed(goal);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     const result = requireFailedResult(
         await runner.runUntilBlocked({
@@ -531,42 +554,6 @@ test("returns RUN_NOT_FOUND without executing or saving when runId mismatches", 
     assert.deepEqual(executor.receivedGoals, []);
 });
 
-test("resume returns RUN_NOT_FOUND without executing or saving when Goal is missing", async () => {
-    const events: string[] = [];
-    const store = new RecordingGoalStore(events);
-    const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
-
-    const result = requireFailedResult(await runner.resume({
-        goalId: "goal-1",
-        runId: "missing-run",
-    }));
-
-    assert.equal(result.error.code, "RUN_NOT_FOUND");
-    assert.match(result.error.message, /missing-run/);
-    assert.deepEqual(events, ["restore:goal-1"]);
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(executor.receivedGoals, []);
-});
-
-test("resume rejects a Goal that is not waiting without side effects", async () => {
-    const events: string[] = [];
-    const store = new RecordingGoalStore(events);
-    const created = createInitialGoal();
-    await store.seed(created);
-    const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
-
-    const result = requireFailedResult(await runner.resume(createRef(created)));
-
-    assert.equal(result.error.code, "RUN_NOT_WAITING");
-    assert.match(result.error.message, /run-1/);
-    assert.deepEqual(events, ["restore:goal-1"]);
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(executor.receivedGoals, []);
-    assert.deepEqual((await store.peek(created.id))?.state.run, created.state.run);
-});
-
 test("fails at maxSteps without an extra executor call or step count", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
@@ -576,7 +563,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
         () => ({ kind: "continue", summary: "第一次" }),
         () => ({ kind: "continue", summary: "第二次" }),
     ], events);
-    const runner = new Runner({ store, executor, maxSteps: 2 });
+    const runner = new Runner({ store, executor });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -587,6 +574,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
     assert.equal(state.lastStep?.result.kind, "continue");
+    assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",
         "save:goal-1:running:0",
@@ -599,7 +587,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.deepEqual((await store.peek(initial.id))?.state.run, state);
 });
 
-test("uses the persisted step count as the maxSteps budget after resume", async () => {
+test("uses persisted step count after external resume as the maxSteps budget", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const firstStep = withRun(
@@ -616,11 +604,17 @@ test("uses the persisted step count as the maxSteps budget after resume", async 
             result: { kind: "wait", reason: "等待恢复" },
         }),
     );
-    await store.seed(waitingAtLimit);
+    const externallyResumed = withRun(
+        waitingAtLimit,
+        applyTransition(waitingAtLimit.state.run, { kind: "resume" }),
+    );
+    await store.seed(externallyResumed);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, maxSteps: 2 });
+    const runner = new Runner({ store, executor });
 
-    const state = requireSuccessfulState(await runner.resume(createRef(waitingAtLimit)));
+    const state = requireSuccessfulState(
+        await runner.runUntilBlocked(createRef(externallyResumed)),
+    );
 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
@@ -629,7 +623,6 @@ test("uses the persisted step count as the maxSteps budget after resume", async 
     assert.deepEqual(executor.receivedGoals, []);
     assert.deepEqual(events, [
         "restore:goal-1",
-        "save:goal-1:running:2",
         "save:goal-1:failed:2",
     ]);
 });
@@ -645,7 +638,7 @@ test("converts an executor exception into a persisted step failure", async () =>
             throw executorError;
         },
     ], events);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -658,6 +651,7 @@ test("converts an executor exception into a persisted step failure", async () =>
         assert.fail("expected an executor failure result");
     }
     assert.match(state.lastStep.result.error, /executor failed/);
+    assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",
         "save:goal-1:running:0",
@@ -667,16 +661,57 @@ test("converts an executor exception into a persisted step failure", async () =>
     assert.deepEqual((await store.peek(initial.id))?.state.run, state);
 });
 
-test("rejects maxSteps values that are not positive integers", () => {
+test("persists an explicit fail result with a normalized assistant message", async () => {
     const store = new InMemoryGoalStore();
-    const executor = new FakeStepExecutor([]);
+    const initial = createInitialGoal("run-explicit-fail");
+    await store.save(initial);
+    const executor = new FakeStepExecutor([
+        () => ({ kind: "fail", error: "无法满足完成条件" }),
+    ]);
+    const runner = new Runner({ store, executor });
 
-    for (const maxSteps of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
-        assert.throws(
-            () => new Runner({ store, executor, maxSteps }),
-            /maxSteps/i,
-        );
-    }
+    const state = requireSuccessfulState(
+        await runner.runUntilBlocked(createRef(initial)),
+    );
+    const persisted = await store.restore(initial.id);
+
+    assert.equal(state.status, "failed");
+    assert.deepEqual(persisted?.state.messages, [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "无法满足完成条件",
+        },
+    ]);
+});
+
+test("maxSteps 为 0 时连续执行不受 Step 数量限制", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-unlimited",
+        goalDefinition.id,
+        profile,
+        [],
+        0,
+    );
+    await store.save(initial);
+    const executor = new FakeStepExecutor([
+        ...Array.from({ length: 5 }, (_, index) => () => ({
+            kind: "continue" as const,
+            summary: `累计 checkpoint ${index + 1}`,
+        })),
+        () => ({ kind: "complete", summary: "无限模式完成" }),
+    ]);
+    const runner = new Runner({ store, executor });
+
+    const state = requireSuccessfulState(
+        await runner.runUntilBlocked(createRef(initial)),
+    );
+
+    assert.equal(executor.receivedGoals.length, 6);
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 6);
+    assert.equal(state.stopReason, undefined);
 });
 
 test("propagates a restore error without saving or executing", async () => {
@@ -691,7 +726,7 @@ test("propagates a restore error without saving or executing", async () => {
         },
     };
     const executor = new FakeStepExecutor([]);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked({ goalId: "goal-1", runId: "run-1" }),
@@ -716,7 +751,7 @@ test("propagates the start save error without executing", async () => {
         },
     };
     const executor = new FakeStepExecutor([]);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked(createRef(created)),
@@ -756,7 +791,7 @@ test("propagates a recovered step save error and does not execute another step",
         () => ({ kind: "continue", summary: "恢复后继续" }),
         () => ({ kind: "complete", summary: "不应执行" }),
     ]);
-    const runner = new Runner({ store, executor, maxSteps: 3 });
+    const runner = new Runner({ store, executor });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked(createRef(persisted)),

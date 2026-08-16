@@ -128,7 +128,8 @@ export function transition(
 
         // waiting 状态只接受恢复或取消，不直接消费新的 step 结果。
         case "waiting":
-            // 外部条件满足后恢复：回到 running，计数和最近结果不变。
+            // 外部协调器解除 blocked 后恢复：回到 running，计数和最近结果不变。
+            // Runner 不直接消费 resume；调用方应把该转换与真实 user 消息一同保存。
             if (input.kind === "resume") {
                 const nextState: RunState = {
                     ...currentState,

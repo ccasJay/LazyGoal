@@ -116,7 +116,6 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 StepResult",
             kind: "continue",
             summary: "继续执行",
         },
-        appendedMessages: [],
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
@@ -237,7 +236,6 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
     const runner = new Runner({
         store,
         executor,
-        maxSteps: 4,
     });
 
     const initialMessages: readonly GoalMessage[] = [
@@ -279,7 +277,14 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
         adapter.requests[1]?.messages.slice(1, -1),
         initialMessages.map(({ role, content }) => ({ role, content })),
     );
-    assert.deepEqual(persisted?.state.messages, initialMessages);
+    assert.deepEqual(persisted?.state.messages, [
+        ...initialMessages,
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "完成",
+        },
+    ]);
 });
 
 test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () => {
@@ -289,7 +294,6 @@ test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () =>
     const runner = new Runner({
         store,
         executor,
-        maxSteps: 4,
     });
 
     await createStoredGoal(store, "run-tool", {
@@ -323,7 +327,6 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
     const runner = new Runner({
         store,
         executor,
-        maxSteps: 4,
     });
 
     await createStoredGoal(store, "run-protocol");
@@ -355,7 +358,6 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
     const runner = new Runner({
         store,
         executor,
-        maxSteps: 4,
     });
 
     await createStoredGoal(store, "run-adapter");

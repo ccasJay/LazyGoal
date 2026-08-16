@@ -28,4 +28,4 @@ Agent 是 Runtime 与 LLM 之间的集成层。它读取完整 Goal，构造一�
 
 ## 当前限制与背景
 
-当前没有 Tool Calling、流式响应、自动重试和协议自修复。Coordinator 与 Runner 的规范化真实 assistant 消息尚未接入，因此 LLM Step Executor 当前返回空 `appendedMessages`。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。
+当前没有 Tool Calling、流式响应、自动重试和协议自修复。LLM Step Executor 只返回 StepResult；Runner 负责生成面向用户的规范化 assistant 消息，模型原始 JSON 不会持久化。Preparation 消息仍等待 Coordinator 接入。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。

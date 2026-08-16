@@ -29,7 +29,6 @@ async function main(): Promise<void> {
     const runner = new Runner({
         store,
         executor,
-        maxSteps: 3,
     });
     const goal = createGoal({
         id: "live-llm-goal",
@@ -48,6 +47,7 @@ async function main(): Promise<void> {
             toolIds: [],
         },
         runId: "live-llm-run",
+        maxSteps: 3,
     });
 
     await store.save(goal);

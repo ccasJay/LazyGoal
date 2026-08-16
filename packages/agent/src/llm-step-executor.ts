@@ -21,8 +21,8 @@ export interface LLMStepExecutorDependencies {
  * @remarks
  * 执行器从冻结 Profile、历史消息与当前 Run 构造请求，只调用 Adapter 一次，
  * 再以严格 StepResult 协议解析原始响应。Working Context 和模型协议 JSON
- * 都不是面向用户的真实消息，因此不会作为 appendedMessages 返回；执行器
- * 也不会修改传入 Goal。
+ * 都不是面向用户的真实消息；规范化真实消息由 Runner 生成。执行器不会
+ * 修改传入 Goal。
  *
  * 当前不支持 Tool Calling，Profile 含任意 toolId 时会在调用 Adapter 前失败。
  */
@@ -36,7 +36,7 @@ export class LLMStepExecutor implements StepExecutor {
 
     /**
      * @param goal - 当前完整 Goal 快照。
-     * @returns 解析后的 StepResult；当前不附带待持久化消息。
+     * @returns 只包含解析后 StepResult 的执行结果。
      * @throws ToolsNotSupportedError Profile 声明了 Tool 时抛出。
      * @throws LLMResponseProtocolError 模型响应不符合严格协议时抛出。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
@@ -50,9 +50,6 @@ export class LLMStepExecutor implements StepExecutor {
         const response = await this.adapter.generate(request);
         const result = parseStepResult(response.content);
 
-        return {
-            result,
-            appendedMessages: [],
-        };
+        return { result };
     }
 }

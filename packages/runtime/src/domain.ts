@@ -223,7 +223,12 @@ export type StepResult =
     | { readonly kind: "complete"; readonly summary: string }
     | { readonly kind: "fail"; readonly error: string };
 
-/** 传给 transition 的显式状态转换输入。 */
+/**
+ * 传给 transition 的显式状态转换输入。
+ *
+ * @remarks `resume` 由外部协调器在保存解除 blocked 的真实输入时使用，
+ * Runner 本身不暴露恢复入口。
+ */
 export type RunInput =
     | { readonly kind: "start" }
     | { readonly kind: "step"; readonly result: StepResult }

@@ -597,11 +597,9 @@ test("JsonFileGoalStore rejects damaged v1 without rewriting its file", async ()
                     executeCalls += 1;
                     return {
                         result: { kind: "complete", summary: "不应执行" },
-                        appendedMessages: [],
                     };
                 },
             },
-            maxSteps: 1,
         });
         await assert.rejects(
             runner.run({ goalId: v1.id, runId: v1.run.id }),
@@ -643,11 +641,9 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
                     executeCalls += 1;
                     return {
                         result: { kind: "complete", summary: "不应执行" },
-                        appendedMessages: [],
                     };
                 },
             },
-            maxSteps: 1,
         });
 
         await assert.rejects(
@@ -781,14 +777,9 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                             kind: "complete",
                             summary: "跨进程恢复后完成",
                         },
-                        appendedMessages: [
-                            { role: "user", content: "恢复后的输入" },
-                            { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的响应" },
-                        ],
                     };
                 },
             },
-            maxSteps: 3,
         });
         const ref = { goalId: goal.id, runId: goal.state.run.id };
 
@@ -802,7 +793,19 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         assert.equal(blocked.state.stepCount, 1);
         assert.equal(receivedGoals.length, 0);
 
-        const resumed = await runner.resume(ref);
+        const externallyResumed: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [
+                    ...goal.state.messages,
+                    { role: "user", content: "恢复后的输入" },
+                ],
+                run: { ...goal.state.run, status: "running" },
+            },
+        };
+        await store.save(externallyResumed);
+        const resumed = await runner.run(ref);
         assert.equal(resumed.ok, true);
         if (!resumed.ok) {
             return;
@@ -821,7 +824,11 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         assert.deepEqual(latest?.state.messages, [
             ...goal.state.messages,
             { role: "user", content: "恢复后的输入" },
-            { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的响应" },
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "跨进程恢复后完成",
+            },
         ]);
         assert.deepEqual(latest?.state.run, resumed.state);
     } finally {

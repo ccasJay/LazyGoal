@@ -24,7 +24,7 @@
   - 添加 Prompt 与消息测试，覆盖不持久化控制内容、assistant 来源以及恢复后消息内容和顺序不变
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 5. 将 Runner 收敛为 executing 阶段连续执行器
+- [x] //TODO 5. 将 Runner 收敛为 executing 阶段连续执行器
 
   - 修改 StepExecutor、Runner 与 Run transition，使 Step 结果、规范化 assistant 消息和最新快照按契约保存，并移除公开 Runner resume 路径
   - 扩展 Runner 测试，覆盖 continue 自动循环、blocked、异常 fail、累计 checkpoint、正数上限和 `maxSteps = 0`
