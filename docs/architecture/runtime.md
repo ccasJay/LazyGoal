@@ -20,7 +20,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 Goal v2 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
-Run 主流程为 `created → running → continue* → waiting/resume | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回结果 → Transition 写入最新 `lastStep` → 追加消息 → GoalStore 保存。上限终止使用独立 `stopReason`，不会覆盖最近 Step 事实。
+Run 主流程为 `created → running → continue* → waiting/resume | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回结果 → Transition 写入最新 `lastStep` → 追加 Executor 交付的真实消息 → GoalStore 保存。当前 LLM Executor 不会把 Working Context 或模型协议 JSON 作为消息交付。上限终止使用独立 `stopReason`，不会覆盖最近 Step 事实。
 
 ## 错误与不变量
 

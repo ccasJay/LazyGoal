@@ -18,7 +18,7 @@
   - 导出新扩展点并添加单元测试，覆盖 phase/result 不匹配、Adapter 异常和 Tool 提前拒绝
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 4. 重构三阶段 Working Context 与真实消息请求
+- [x] //TODO 4. 重构三阶段 Working Context 与真实消息请求
 
   - 修改 Agent Prompt Builder，按 gathering_context、planning、executing 派生 WorkingContext，并固定 system、历史消息、当前控制消息的请求顺序
   - 添加 Prompt 与消息测试，覆盖不持久化控制内容、assistant 来源以及恢复后消息内容和顺序不变

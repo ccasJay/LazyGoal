@@ -9,9 +9,12 @@ export {
     buildPreparationRequest,
     buildStepRequest,
     buildStepUserMessage,
+    buildWorkingContext,
+    buildWorkingContextMessage,
     PREPARATION_RESULT_PROTOCOL,
     STEP_RESULT_PROTOCOL,
 } from "./prompt";
+export type { WorkingContext } from "./prompt";
 
 export {
     CompleteStepResultSchema,

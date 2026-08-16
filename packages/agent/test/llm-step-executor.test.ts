@@ -41,13 +41,21 @@ function createTestGoal(
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
 ): Goal {
-    return createGoal({
+    const currentGoal = createGoal({
         id: goal.id,
         task: goal,
         profile: runProfile,
         messages,
         runId,
     });
+
+    return {
+        ...currentGoal,
+        state: {
+            ...currentGoal.state,
+            run: { ...currentGoal.state.run, status: "running" },
+        },
+    };
 }
 
 class FakeAdapter implements LLMAdapter {
@@ -108,13 +116,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 StepResult",
             kind: "continue",
             summary: "继续执行",
         },
-        appendedMessages: [
-            {
-                role: "user",
-                content: buildStepRequest(currentGoal).messages.at(-1)?.content,
-            },
-            { role: "assistant", assistant: { profileId: "profile-1" }, content: responseContent },
-        ],
+        appendedMessages: [],
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
@@ -259,26 +261,25 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
     assert.deepEqual(persisted?.state.run, result.state);
     assert.equal(adapter.requests.length, 2);
 
-    const firstStepUserContent = adapter.requests[0]?.messages.at(-1)?.content ?? "";
-    const secondStepUserContent = adapter.requests[1]?.messages.at(-1)?.content ?? "";
-    assert.notEqual(firstStepUserContent, "");
-    assert.notEqual(secondStepUserContent, "");
+    const firstContext = JSON.parse(
+        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+    ) as { readonly execution: { readonly previousStep?: unknown } };
+    const secondContext = JSON.parse(
+        adapter.requests[1]?.messages.at(-1)?.content ?? "",
+    ) as { readonly execution: { readonly previousStep?: unknown } };
+    assert.equal(firstContext.execution.previousStep, undefined);
+    assert.deepEqual(secondContext.execution.previousStep, {
+        result: { kind: "continue", summary: "继续" },
+    });
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, 3),
         initialMessages.map(({ role, content }) => ({ role, content })),
     );
-    assert.deepEqual(adapter.requests[1]?.messages.slice(1, 5), [
-        ...initialMessages.map(({ role, content }) => ({ role, content })),
-        { role: "user", content: firstStepUserContent },
-        { role: "assistant", content: continueContent },
-    ]);
-    assert.deepEqual(persisted?.state.messages, [
-        ...initialMessages,
-        { role: "user", content: firstStepUserContent },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: continueContent },
-        { role: "user", content: secondStepUserContent },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: completeContent },
-    ]);
+    assert.deepEqual(
+        adapter.requests[1]?.messages.slice(1, -1),
+        initialMessages.map(({ role, content }) => ({ role, content })),
+    );
+    assert.deepEqual(persisted?.state.messages, initialMessages);
 });
 
 test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () => {

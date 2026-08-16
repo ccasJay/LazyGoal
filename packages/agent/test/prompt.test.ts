@@ -1,25 +1,25 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createGoal } from "../../runtime/src/domain";
-import type {
-    Goal,
-    GoalInput,
-    GoalMessage,
-} from "../../runtime/src/domain";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
+import { createGoal } from "../../runtime/src/domain";
+import type { Goal, GoalMessage, StepRecord } from "../../runtime/src/domain";
+import { InMemoryGoalStore } from "../../runtime/src/goal-store";
 import {
+    buildPreparationRequest,
     buildStepRequest,
     buildStepUserMessage,
+    buildWorkingContext,
+    buildWorkingContextMessage,
+    PREPARATION_RESULT_PROTOCOL,
     STEP_RESULT_PROTOCOL,
 } from "../src/prompt";
 
-const goal: GoalInput = {
-    id: "goal-1",
-    objective: "完成示例任务",
-    completionCriteria: ["标准一", "标准二"],
+const intent = "完成示例任务";
+const task = {
+    objective: "实现三阶段上下文",
+    completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
 };
-
 const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "你是一个严谨的执行代理。",
@@ -27,104 +27,236 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function createTestGoal(
-    runId = "run-1",
+function createPreparationGoal(
+    phase: "gathering_context" | "planning" = "gathering_context",
     messages: readonly GoalMessage[] = [],
 ): Goal {
-    return createGoal({
-        id: goal.id,
-        task: goal,
+    const goal = createGoal({
+        id: "goal-1",
+        intent,
         profile,
         messages,
-        runId,
+        runId: "run-1",
     });
-}
 
-test("buildStepRequest 包含冻结 Profile、Goal 和严格 JSON 协议", () => {
-    const currentGoal = createTestGoal();
-    const request = buildStepRequest(currentGoal);
+    if (phase === "gathering_context") {
+        return goal;
+    }
 
-    assert.equal(request.messages.length, 2);
-    assert.equal(request.messages[0]?.role, "system");
-    assert.equal(request.messages[1]?.role, "user");
-    assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
-    assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
-    assert.match(request.messages[0]?.content ?? "", /2\. 再给出下一步/);
-    assert.match(request.messages[0]?.content ?? "", new RegExp(STEP_RESULT_PROTOCOL));
-
-    assert.deepEqual(JSON.parse(request.messages[1]?.content ?? ""), {
-        objective: "完成示例任务",
-        completionCriteria: ["标准一", "标准二"],
-        stepCount: 0,
-    });
-});
-
-test("buildStepRequest 按顺序包含历史 messages 和本轮 user message", () => {
-    const history: readonly GoalMessage[] = [
-        { role: "user", content: "历史用户输入" },
-        { role: "assistant", assistant: { profileId: "profile-1" }, content: "历史模型响应" },
-    ];
-    const currentGoal = createTestGoal("run-history", history);
-    const request = buildStepRequest(currentGoal);
-
-    assert.deepEqual(
-        request.messages.slice(1, 3),
-        history.map(({ role, content }) => ({ role, content })),
-    );
-    assert.deepEqual(
-        JSON.parse(request.messages.at(-1)?.content ?? ""),
-        {
-            objective: goal.objective,
-            completionCriteria: goal.completionCriteria,
-            stepCount: 0,
-        },
-    );
-    assert.deepEqual(buildStepUserMessage(currentGoal), {
-        role: "user",
-        content: request.messages.at(-1)?.content,
-    });
-});
-
-test("buildStepRequest 仅在存在时加入 lastResult", () => {
-    const baseGoal = createTestGoal("run-2");
-    const currentGoal: Goal = {
-        ...baseGoal,
+    return {
+        ...goal,
         state: {
-            ...baseGoal.state,
-            run: {
-                ...baseGoal.state.run,
-                status: "running",
-                stepCount: 2,
-                lastStep: {
-                    result: {
-                        kind: "continue",
-                        summary: "已经完成输入检查",
-                    },
-                },
+            ...goal.state,
+            workflow: {
+                phase: "planning",
+                preparation: { status: "active" },
             },
         },
     };
+}
 
-    const context = JSON.parse(buildStepRequest(currentGoal).messages.at(-1)?.content ?? "") as {
-        readonly stepCount: number;
-        readonly lastResult?: { readonly kind: string; readonly summary: string };
+function createExecutingGoal(options: {
+    readonly maxSteps?: number;
+    readonly messages?: readonly GoalMessage[];
+    readonly stepCount?: number;
+    readonly previousStep?: StepRecord;
+} = {}): Goal {
+    const goal = createGoal({
+        id: "goal-1",
+        intent,
+        profile,
+        runId: "run-1",
+        ...(options.messages === undefined
+            ? {}
+            : { messages: options.messages }),
+        ...(options.maxSteps === undefined
+            ? {}
+            : { maxSteps: options.maxSteps }),
+    });
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task,
+            },
+            run: {
+                ...goal.state.run,
+                status: "running",
+                stepCount: options.stepCount ?? 0,
+                ...(options.previousStep === undefined
+                    ? {}
+                    : { lastStep: options.previousStep }),
+            },
+        },
     };
+}
 
-    assert.equal(context.stepCount, 2);
-    assert.deepEqual(context.lastResult, {
-        kind: "continue",
-        summary: "已经完成输入检查",
+test("buildWorkingContext 按 gathering、planning、executing 三阶段派生", () => {
+    assert.deepEqual(buildWorkingContext(createPreparationGoal()), {
+        phase: "gathering_context",
+        intent,
+    });
+    assert.deepEqual(buildWorkingContext(createPreparationGoal("planning")), {
+        phase: "planning",
+        intent,
+    });
+    assert.deepEqual(buildWorkingContext(createExecutingGoal()), {
+        phase: "executing",
+        intent,
+        task,
+        execution: { stepCount: 0 },
     });
 });
 
-test("buildStepRequest 不修改传入的 Goal", () => {
-    const currentGoal = createTestGoal("run-3", [
-        { role: "user", content: "不可修改的历史" },
-    ]);
-    const before = JSON.stringify(currentGoal);
+test("executing WorkingContext 只投影正数 maxSteps 和最近 previousStep", () => {
+    const previousStep: StepRecord = {
+        result: { kind: "continue", summary: "已完成输入检查" },
+    };
+    const goal = createExecutingGoal({
+        maxSteps: 4,
+        stepCount: 1,
+        previousStep,
+    });
+    const context = buildWorkingContext(goal);
 
-    const request = buildStepRequest(currentGoal);
+    assert.deepEqual(context, {
+        phase: "executing",
+        intent,
+        task,
+        execution: {
+            stepCount: 1,
+            maxSteps: 4,
+            previousStep,
+        },
+    });
+    assert.notStrictEqual(
+        context.phase === "executing" ? context.task : undefined,
+        goal.state.workflow.phase === "executing"
+            ? goal.state.workflow.task
+            : undefined,
+    );
+    assert.notStrictEqual(
+        context.phase === "executing"
+            ? context.execution.previousStep
+            : undefined,
+        goal.state.run.lastStep,
+    );
+});
 
-    assert.equal(JSON.stringify(currentGoal), before);
-    assert.notStrictEqual(request.messages[1], currentGoal.state.messages[0]);
+test("请求顺序固定为 system、真实历史、当前 Working Context", () => {
+    const messages: readonly GoalMessage[] = [
+        { role: "user", content: "补充的真实输入" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "真实响应",
+        },
+    ];
+    const goal = createExecutingGoal({ messages });
+    const request = buildStepRequest(goal);
+
+    assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
+    assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
+    assert.ok(
+        (request.messages[0]?.content ?? "").includes(STEP_RESULT_PROTOCOL),
+    );
+    assert.deepEqual(
+        request.messages.slice(1, -1),
+        goal.state.messages.map(({ role, content }) => ({ role, content })),
+    );
+    assert.deepEqual(
+        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        buildWorkingContext(goal),
+    );
+    assert.deepEqual(buildStepUserMessage(goal), buildWorkingContextMessage(goal));
+});
+
+test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", () => {
+    for (const phase of ["gathering_context", "planning"] as const) {
+        const goal = createPreparationGoal(phase, [
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "已记录的真实问题",
+            },
+            { role: "user", content: "已记录的真实回答" },
+        ]);
+        const request = buildPreparationRequest(goal);
+
+        assert.ok(
+            (request.messages[0]?.content ?? "").includes(
+                PREPARATION_RESULT_PROTOCOL[phase],
+            ),
+        );
+        assert.deepEqual(
+            request.messages.slice(1, -1),
+            goal.state.messages.map(({ role, content }) => ({ role, content })),
+        );
+        assert.deepEqual(
+            JSON.parse(request.messages.at(-1)?.content ?? ""),
+            { phase, intent },
+        );
+    }
+});
+
+test("保存恢复后真实消息及 assistant 来源不变，控制消息不进入快照", async () => {
+    const store = new InMemoryGoalStore();
+    const goal = createExecutingGoal({
+        messages: [
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "需要补充部署环境",
+            },
+            { role: "user", content: "部署到 Linux" },
+        ],
+    });
+    await store.save(goal);
+    const restored = await store.restore(goal.id);
+
+    assert.ok(restored !== undefined);
+    const messagesBeforeRequest = JSON.stringify(restored.state.messages);
+    const request = buildStepRequest(restored);
+    const controlContent = request.messages.at(-1)?.content ?? "";
+
+    assert.deepEqual(restored.state.messages, goal.state.messages);
+    assert.equal(JSON.stringify(restored.state.messages), messagesBeforeRequest);
+    assert.deepEqual(restored.state.messages[1], {
+        role: "assistant",
+        assistant: { profileId: "profile-1" },
+        content: "需要补充部署环境",
+    });
+    assert.equal(
+        restored.state.messages.some(({ content }) => content === controlContent),
+        false,
+    );
+});
+
+test("Builder 拒绝 waiting Preparation 和非 running executing Goal", () => {
+    const gathering = createPreparationGoal();
+    const waiting: Goal = {
+        ...gathering,
+        state: {
+            ...gathering.state,
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "waiting_input" },
+            },
+        },
+    };
+    const executing = createExecutingGoal();
+    const created: Goal = {
+        ...executing,
+        state: {
+            ...executing.state,
+            run: { ...executing.state.run, status: "created" },
+        },
+    };
+
+    assert.throws(() => buildPreparationRequest(waiting), /active preparation/);
+    assert.throws(() => buildStepRequest(created), /running executing/);
 });
