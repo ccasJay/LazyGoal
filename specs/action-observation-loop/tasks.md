@@ -27,7 +27,7 @@
   - 扩展 Agent 测试，覆盖协议外字段、非法分支、Tool 描述、累计 checkpoint 和纯文本完成决策
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 5. 接入 Runner 的 Tool 授权与失败边界
+- [x] //TODO 5. 接入 Runner 的 Tool 授权与失败边界
 
   - 扩展 RunnerDependencies，按冻结 Profile、Registry、Tool 输入协议和 Policy 顺序校验 Agent Action
   - 将越权、缺失 Tool、非法参数、非法决策和 Tool 基础设施异常保存为稳定 execution_error，且不伪造 Observation 或 assistant 消息

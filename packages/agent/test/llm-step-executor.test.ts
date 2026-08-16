@@ -290,7 +290,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     ]);
 });
 
-test("现有 Runner 遇到 tool_call 时在 Tool Loop 升级前明确失败", async () => {
+test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async () => {
     const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter([JSON.stringify({
         kind: "tool_call",
@@ -319,26 +319,18 @@ test("现有 Runner 遇到 tool_call 时在 Tool Loop 升级前明确失败", as
     }
 
     assert.equal(result.state.status, "failed");
-    assert.equal(result.state.stepCount, 1);
-    const lastResult = result.state.lastStep !== undefined
-        && "result" in result.state.lastStep
-        ? result.state.lastStep.result
-        : undefined;
-    assert.equal(
-        lastResult?.kind,
-        "fail",
-    );
-    assert.match(
-        lastResult?.kind === "fail"
-            ? lastResult.error
-            : "",
-        /upgraded Runner Tool loop/,
-    );
+    assert.equal(result.state.stepCount, 0);
+    assert.equal(result.state.lastStep, undefined);
+    assert.deepEqual(result.state.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_NOT_FOUND",
+        message: 'Authorized Tool "read_file" is not registered',
+    });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
 });
 
-test("Runner 持久化协议错误并只计一次 Step", async () => {
+test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async () => {
     const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter(["不是合法 JSON"]);
     const executor = new LLMStepExecutor({ adapter });
@@ -356,18 +348,18 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
     }
 
     assert.equal(result.state.status, "failed");
-    assert.equal(result.state.stepCount, 1);
-    const lastResult = result.state.lastStep !== undefined
-        && "result" in result.state.lastStep
-        ? result.state.lastStep.result
-        : undefined;
+    assert.equal(result.state.stepCount, 0);
+    assert.equal(result.state.lastStep, undefined);
+    assert.equal(result.state.stopReason?.kind, "execution_error");
     assert.equal(
-        lastResult?.kind,
-        "fail",
+        result.state.stopReason?.kind === "execution_error"
+            ? result.state.stopReason.code
+            : undefined,
+        "INVALID_AGENT_DECISION",
     );
     assert.match(
-        lastResult?.kind === "fail"
-            ? lastResult.error
+        result.state.stopReason?.kind === "execution_error"
+            ? result.state.stopReason.message
             : "",
         /^INVALID_LLM_RESPONSE: /,
     );

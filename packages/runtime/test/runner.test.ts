@@ -9,6 +9,7 @@ import {
 } from "../src/index";
 import { InMemoryGoalStore } from "../src/goal-store";
 import type {
+    AgentDecision,
     AgentProfile,
     Goal,
     GoalInput,
@@ -21,6 +22,11 @@ import type {
     StepExecutionResult,
     LegacyStepExecutor,
     StepResult,
+    StepExecutor,
+    Tool,
+    ToolDefinition,
+    ToolPolicy,
+    ToolRegistry,
 } from "../src/index";
 
 const goalDefinition: GoalInput = {
@@ -61,6 +67,20 @@ class FakeStepExecutor implements LegacyStepExecutor {
         return "result" in outcome
             ? outcome
             : { result: outcome };
+    }
+}
+
+class FakeDecisionExecutor implements StepExecutor {
+    readonly receivedTools: ToolDefinition[][] = [];
+
+    constructor(private readonly decision: AgentDecision) {}
+
+    async execute(
+        _goal: Goal,
+        tools: readonly ToolDefinition[],
+    ): Promise<AgentDecision> {
+        this.receivedTools.push([...tools]);
+        return structuredClone(this.decision);
     }
 }
 
@@ -832,4 +852,298 @@ test("propagates a recovered step save error and does not execute another step",
     assert.equal(executor.receivedGoals.length, 1);
     assert.equal(executor.receivedGoals[0]?.state.run.stepCount, 1);
     assert.strictEqual(latestGoal, persisted);
+});
+
+test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal("run-unauthorized");
+    await store.save(initial);
+    let registryCalls = 0;
+    let validateCalls = 0;
+    let executeCalls = 0;
+    const tool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "safe",
+        validate: () => {
+            validateCalls += 1;
+            return { ok: true };
+        },
+        async execute() {
+            executeCalls += 1;
+            return { kind: "success", output: "", summary: "读取完成" };
+        },
+    };
+    const registry: ToolRegistry = {
+        get: () => {
+            registryCalls += 1;
+            return tool;
+        },
+    };
+    const executor = new FakeDecisionExecutor({
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-unauthorized",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    });
+    const result = await new Runner({ store, executor, toolRegistry: registry }).run(
+        createRef(initial, "run-unauthorized"),
+    );
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.lastStep, undefined);
+    assert.deepEqual(state.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_NOT_AUTHORIZED",
+        message: 'Tool "read_file" is not authorized by the frozen Profile',
+    });
+    assert.equal(registryCalls, 0);
+    assert.equal(validateCalls, 0);
+    assert.equal(executeCalls, 0);
+    assert.deepEqual(executor.receivedTools, [[]]);
+});
+
+test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-missing-tool",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    const executor = new FakeDecisionExecutor({
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-missing-tool",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    });
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: {
+            get: () => undefined,
+        },
+    }).run(createRef(initial, "run-missing-tool"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_NOT_FOUND",
+        message: 'Authorized Tool "read_file" is not registered',
+    });
+    assert.deepEqual(executor.receivedTools, [[]]);
+});
+
+test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-invalid-input",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    let executeCalls = 0;
+    const tool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "safe",
+        validate: () => ({
+            ok: false,
+            error: {
+                code: "INVALID_TOOL_INPUT",
+                message: "path 必须是工作区内相对路径",
+            },
+        }),
+        async execute() {
+            executeCalls += 1;
+            return { kind: "success", output: "", summary: "不应执行" };
+        },
+    };
+    const executor = new FakeDecisionExecutor({
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-invalid-input",
+            toolId: "read_file",
+            input: { path: "../secret.txt" },
+        },
+    });
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial, "run-invalid-input"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.stopReason, {
+        kind: "execution_error",
+        code: "INVALID_TOOL_INPUT",
+        message: "path 必须是工作区内相对路径",
+    });
+    assert.equal(executeCalls, 0);
+});
+
+test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_ERROR", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-tool-infrastructure",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    const tool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "safe",
+        validate: () => {
+            throw new Error("校验器不可用");
+        },
+        async execute() {
+            throw new Error("不应执行");
+        },
+    };
+    const executor = new FakeDecisionExecutor({
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-tool-infrastructure",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial, "run-tool-infrastructure"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_EXECUTION_ERROR",
+        message: "校验器不可用",
+    });
+});
+
+test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async () => {
+    const events: string[] = [];
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-policy-order",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    const tool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "safe",
+        validate: () => {
+            events.push("validate");
+            return { ok: true };
+        },
+        async execute() {
+            events.push("execute");
+            return { kind: "success", output: "", summary: "不应执行" };
+        },
+    };
+    const executor: StepExecutor = {
+        async execute(_goal, tools) {
+            events.push(`executor:${tools.length}`);
+            return {
+                kind: "tool_call",
+                checkpoint: "准备读取文件",
+                action: {
+                    actionId: "action-policy-order",
+                    toolId: "read_file",
+                    input: { path: "README.md" },
+                },
+            };
+        },
+    };
+    const registry: ToolRegistry = {
+        get: (toolId) => {
+            events.push(`registry:${toolId}`);
+            return tool;
+        },
+    };
+    const policy: ToolPolicy = {
+        evaluate: () => {
+            events.push("policy");
+            return "allow";
+        },
+    };
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: registry,
+        toolPolicy: policy,
+    }).run(createRef(initial, "run-policy-order"));
+
+    const state = requireSuccessfulState(result);
+    assert.deepEqual(events, [
+        "registry:read_file",
+        "executor:1",
+        "registry:read_file",
+        "validate",
+        "policy",
+    ]);
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.stopReason?.kind, "execution_error");
+    assert.equal(
+        state.stopReason?.kind === "execution_error"
+            ? state.stopReason.code
+            : undefined,
+        "TOOL_EXECUTION_ERROR",
+    );
+});
+
+test("Runner 将运行时非法 AgentDecision 保存为 INVALID_AGENT_DECISION", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal("run-invalid-decision");
+    await store.save(initial);
+    const executor = new FakeDecisionExecutor({
+        kind: "complete",
+        checkpoint: "",
+        summary: "完成",
+    } as unknown as AgentDecision);
+
+    const result = await new Runner({ store, executor }).run(
+        createRef(initial, "run-invalid-decision"),
+    );
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.lastStep, undefined);
+    assert.equal(state.stopReason?.kind, "execution_error");
+    assert.equal(
+        state.stopReason?.kind === "execution_error"
+            ? state.stopReason.code
+            : undefined,
+        "INVALID_AGENT_DECISION",
+    );
 });
