@@ -16,6 +16,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal | 历史与事件查询 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
+| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入校验、重放声明、Registry 与 Policy 边界 | 具体 Tool 执行与 Goal 持久化 |
 
 ## 生命周期与保存顺序
 
@@ -27,9 +28,16 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保�
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running。以上状态均先保存再继续自动推进。
 
-当前 Runner 主流程仍为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。v3 已定义 Action/Observation 的持久化边界，但 Action 调度、Tool 执行和 Observation 循环仍由后续 Spec TODO 实现。每个旧 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` 与 continue checkpoint → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存。
+当前 Runner 主流程仍为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。Transition 已提供下一阶段需要的纯状态转换边界：`stage_action` 只写入 checkpoint/pendingAction，`observe_action` 与 `reject_action` 写入最近 Action/Observation 并各计一个 Step，`decision` 写入非 Tool 终止决策并计一个 Step，`execution_error` 进入 failed 但不计 Step；取消会清理 pendingAction。当前 Runner 尚未调用这些新输入，Action 调度、Tool 执行和 Observation 循环仍由后续 Spec TODO 实现。每个旧 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` 与 continue checkpoint → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存。
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
+
+TODO 3 已建立 Runtime 的 Tool 扩展边界与内存 `ToolRegistry`，并由
+[`packages/tools`](../../packages/tools/src/index.ts) 提供只读 `ReadFileTool`。它会
+拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；合法读取返回
+`success`，文件不存在等领域问题返回 `failure`。当前 Runner、Agent 与 Coordinator
+尚未接入该 Tool，Profile 授权、Policy 编排和自动 Action/Observation 循环仍由后续
+TODO 实现。
 
 ## 错误与不变量
 
@@ -37,6 +45,9 @@ Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后�
 - Goal 没有匹配等待点、文本为空或 action 不匹配：返回 `GOAL_NOT_WAITING` 或 `INVALID_GOAL_INPUT`，无副作用。
 - PreparationResult 与当前 phase 不匹配：返回 `INVALID_PHASE_RESULT`，不追加消息、不保存。
 - Executor 异常：转换为一次持久化的 `fail` Step。
+- Transition 非法组合：返回原状态与 `INVALID_TRANSITION`，不抛异常、不修改输入状态。
+- Action 状态不变量：pendingAction 必须与当前 Action 生命周期匹配；Observation/rejection 必须匹配 actionId；Action 暂存、取消和执行错误不消费 Step，只有完整 Observation、拒绝或终止决策消费一次 Step。
+- Tool 边界不变量：Registry 中的 Tool ID 必须唯一；Tool 执行前必须完成输入校验；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标。
 - Store I/O 或协议错误：原样向调用方传播。
 - GoalStore 按 `schemaVersion` 严格解码；v3 校验 workflow/Run 与 pending Action 不变量，合法 v1/v2 只读迁移为 v3，旧 `lastStep` 仅在迁移结果中包装为 `legacy`，未知版本或损坏快照报协议错误。
 - `JsonFileGoalStore` 恢复 v1/v2 时不改写文件；下一次显式保存才以 v3 原子替换。并发写入仍是最后替换者覆盖。

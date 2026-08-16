@@ -47,6 +47,19 @@ export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
 export type { AgentProfile, AgentProfileRegistry } from "./agent-profile";
+export {
+    InMemoryToolRegistry,
+} from "./tool";
+export type {
+    Tool,
+    ToolDefinition,
+    ToolExecutionRequest,
+    ToolObservation,
+    ToolPolicy,
+    ToolPolicyContext,
+    ToolRegistry,
+    ToolValidationResult,
+} from "./tool";
 export { launch } from "./launcher";
 export type {
     LauncherDependencies,

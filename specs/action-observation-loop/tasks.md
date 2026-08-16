@@ -13,7 +13,7 @@
   - 用状态机测试覆盖合法与非法组合、pendingAction 清理、终态不变量及 Step 单次计数
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 3. 建立 Tool 扩展边界并实现 read_file
+- [x] //TODO 3. 建立 Tool 扩展边界并实现 read_file
 
   - 在 Runtime 增加 Tool、ToolRegistry、ToolPolicy、输入校验和 replayPolicy 契约及内存实现
   - 新增 `packages/tools` 与 ReadFileTool，严格限制 workspaceRoot、绝对路径、路径穿越和符号链接越界
