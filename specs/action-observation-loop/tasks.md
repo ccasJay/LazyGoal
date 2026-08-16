@@ -7,7 +7,7 @@
   - 扩展 Domain 与 GoalStore 测试，覆盖有界快照、克隆隔离、损坏数据和延迟写回
   - _Requirements: [6.3](./requirements.md#req-6-3), [8.3](./requirements.md#req-8-3), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 2. 实现 Action/Observation 状态转换
+- [x] //TODO 2. 实现 Action/Observation 状态转换
 
   - 扩展 `RunInput` 与 `transition`，实现 Action 暂存、Observation 完成、结束决策、拒绝和执行失败转换
   - 用状态机测试覆盖合法与非法组合、pendingAction 清理、终态不变量及 Step 单次计数

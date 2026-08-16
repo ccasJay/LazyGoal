@@ -539,11 +539,11 @@ function validateV3Invariants(
     if (
         run.status === "running"
         && taggedStep?.kind === "decision"
-        && result !== undefined
+        && result?.kind !== "wait"
     ) {
         addInvariantIssue(
             context,
-            "running Run cannot preserve a terminal Agent decision",
+            "running Run can only preserve a resumed wait decision",
         );
     }
 }

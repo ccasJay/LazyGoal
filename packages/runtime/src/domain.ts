@@ -405,12 +405,56 @@ export type StepResult =
 /**
  * 传给 transition 的显式状态转换输入。
  *
- * @remarks `resume` 由外部协调器在保存解除 blocked 的真实输入时使用，
- * Runner 本身不暴露恢复入口。
+ * @remarks
+ * `stage_action` 只建立可恢复的 Action 意图，不消费 Step；`observe_action`、
+ * `reject_action` 和非 Tool 的 `decision` 才完成一个 Step。`execution_error`
+ * 停止当前 Run 但不消费 Step，并在存在待执行 Action 时保留其不确定结果。
+ * 旧 `step` 分支仅供尚未升级的兼容执行链使用。
+ *
+ * `resume` 由外部协调器在保存解除 Agent wait 的真实输入时使用，Runner 本身
+ * 不暴露恢复入口。
+ *
+ * @example
+ * ```ts
+ * const input: RunInput = {
+ *   kind: "stage_action",
+ *   checkpoint: "已确定要读取配置",
+ *   action: {
+ *     actionId: "action-1",
+ *     toolId: "read_file",
+ *     input: { path: "config.json" },
+ *   },
+ * };
+ * ```
  */
 export type RunInput =
     | { readonly kind: "start" }
     | { readonly kind: "step"; readonly result: StepResult }
+    | {
+        readonly kind: "stage_action";
+        readonly checkpoint: string;
+        readonly action: ToolCallAction;
+        readonly status?: "approved" | "awaiting_approval";
+    }
+    | {
+        readonly kind: "observe_action";
+        readonly actionId: string;
+        readonly observation: Exclude<Observation, { readonly kind: "rejected" }>;
+    }
+    | {
+        readonly kind: "decision";
+        readonly decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>;
+    }
+    | {
+        readonly kind: "reject_action";
+        readonly actionId: string;
+        readonly reason: string;
+    }
+    | {
+        readonly kind: "execution_error";
+        readonly code: ExecutionErrorCode;
+        readonly message: string;
+    }
     | { readonly kind: "resume" }
     | { readonly kind: "cancel" };
 

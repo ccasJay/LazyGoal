@@ -1,15 +1,93 @@
 import type {
+    AgentDecision,
+    Observation,
+    PendingAction,
     RunInput,
     RunState,
     TransitionResult,
 } from "./domain";
 
+type TerminalDecision = Exclude<
+    AgentDecision,
+    { readonly kind: "tool_call" }
+>;
+
+type ActionObservation = Exclude<
+    Observation,
+    { readonly kind: "rejected" }
+>;
+
+function hasText(value: string): boolean {
+    return value.trim().length > 0;
+}
+
+function clearPendingAction(
+    state: RunState,
+): Omit<RunState, "pendingAction"> {
+    const { pendingAction: _pendingAction, ...stateWithoutPendingAction } = state;
+    return stateWithoutPendingAction;
+}
+
+function invalidTransition(
+    currentState: RunState,
+    input: RunInput,
+    reason?: string,
+): TransitionResult {
+    return {
+        ok: false,
+        state: currentState,
+        error: {
+            code: "INVALID_TRANSITION",
+            message: reason
+                ?? `Cannot apply "${input.kind}" while run is "${currentState.status}"`,
+        },
+    };
+}
+
+function isTerminalDecision(
+    decision: AgentDecision,
+): decision is TerminalDecision {
+    return (
+        decision.kind === "complete"
+        || decision.kind === "wait"
+        || decision.kind === "fail"
+    );
+}
+
+function isActionObservation(
+    observation: Observation,
+): observation is ActionObservation {
+    return observation.kind === "success" || observation.kind === "failure";
+}
+
+function completeAction(
+    currentState: RunState,
+    action: PendingAction["action"],
+    observation: Observation,
+): RunState {
+    return {
+        ...clearPendingAction(currentState),
+        status: "running",
+        stepCount: currentState.stepCount + 1,
+        lastStep: {
+            kind: "action",
+            action,
+            observation,
+        },
+    };
+}
+
 /**
  * 纯函数式推进一个 Run 状态。
  *
  * @remarks
- * 函数不会修改传入状态。合法转换返回新状态；非法转换返回原对象和
- * `INVALID_TRANSITION`，由上层决定是否把它视为业务失败或不变量错误。
+ * 函数不会修改传入状态。Action 的 `stage_action` 只保存 checkpoint 和
+ * pendingAction，不增加 Step；`observe_action`、`reject_action` 和非 Tool
+ * `decision` 完成一个 Step。`execution_error` 进入 failed 且不增加 Step，
+ * 如果已有 pendingAction，会将其标记为 `outcome_unknown`。
+ *
+ * 合法转换返回新状态；非法转换返回原对象和 `INVALID_TRANSITION`，由上层
+ * 决定是否把它视为业务失败或不变量错误。函数不执行 I/O、Tool 或自发循环。
  *
  * @param currentState - 当前已知 Run 状态。
  * @param input - 本次需要应用的状态转换输入。
@@ -35,22 +113,216 @@ export function transition(
 
             // 创建后直接取消：进入 cancelled，且不产生 StepResult。
             if (input.kind === "cancel") {
-                const nextState: RunState = {
-                    ...currentState,
-                    status: "cancelled",
-                };
-
                 return {
                     ok: true,
-                    state: nextState,
+                    state: {
+                        ...clearPendingAction(currentState),
+                        status: "cancelled",
+                    },
                 };
             }
             break;
 
-        // running 状态接受 step 结果或外部取消。
+        // running 状态接受 Action、决策、旧 Step 结果或外部取消。
         case "running":
-            // 消费一次 step：具体下一状态由 StepResult.kind 决定。
+            if (input.kind === "stage_action") {
+                if (currentState.pendingAction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot stage an Action while another Action is pending",
+                    );
+                }
+
+                if (
+                    !hasText(input.checkpoint)
+                    || !hasText(input.action.actionId)
+                    || !hasText(input.action.toolId)
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action staging requires non-empty checkpoint, actionId, and toolId",
+                    );
+                }
+
+                const status = input.status ?? "approved";
+
+                if (
+                    status !== "approved"
+                    && status !== "awaiting_approval"
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        `Unsupported staged Action status "${String(status)}"`,
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: status === "awaiting_approval"
+                            ? "waiting"
+                            : "running",
+                        checkpoint: input.checkpoint,
+                        pendingAction: {
+                            action: input.action,
+                            status,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "observe_action") {
+                const pendingAction = currentState.pendingAction;
+
+                if (pendingAction === undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot observe an Action without a pendingAction",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Observation actionId does not match pendingAction",
+                    );
+                }
+
+                if (pendingAction.status !== "approved") {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Only an approved pendingAction can receive an Observation",
+                    );
+                }
+
+                if (!isActionObservation(input.observation)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "observe_action cannot carry a rejected Observation",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: completeAction(
+                        currentState,
+                        pendingAction.action,
+                        input.observation,
+                    ),
+                };
+            }
+
+            if (input.kind === "reject_action") {
+                return invalidTransition(
+                    currentState,
+                    input,
+                    "reject_action requires a waiting Action approval",
+                );
+            }
+
+            if (input.kind === "decision") {
+                if (currentState.pendingAction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a terminal decision while an Action is pending",
+                    );
+                }
+
+                if (
+                    !isTerminalDecision(input.decision)
+                    || !hasText(input.decision.checkpoint)
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Decision requires a non-empty checkpoint and a terminal kind",
+                    );
+                }
+
+                const status = input.decision.kind === "wait"
+                    ? "waiting"
+                    : input.decision.kind === "complete"
+                        ? "completed"
+                        : "failed";
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status,
+                        stepCount: currentState.stepCount + 1,
+                        lastStep: {
+                            kind: "decision",
+                            result: input.decision,
+                        },
+                        checkpoint: input.decision.checkpoint,
+                    },
+                };
+            }
+
+            if (input.kind === "execution_error") {
+                if (!hasText(input.message)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Execution failure requires a non-empty message",
+                    );
+                }
+
+                const pendingAction = currentState.pendingAction;
+
+                if (
+                    pendingAction !== undefined
+                    && pendingAction.status !== "approved"
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Only an approved pendingAction can become outcome_unknown",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "failed",
+                        ...(pendingAction === undefined
+                            ? {}
+                            : {
+                                pendingAction: {
+                                    action: pendingAction.action,
+                                    status: "outcome_unknown" as const,
+                                },
+                            }),
+                        stopReason: {
+                            kind: "execution_error",
+                            code: input.code,
+                            message: input.message,
+                        },
+                    },
+                };
+            }
+
+            // 兼容尚未升级的 StepExecutor；新 Action 协议不应混用旧 step。
             if (input.kind === "step") {
+                if (currentState.pendingAction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a legacy step while an Action is pending",
+                    );
+                }
+
                 // step 暂时无法继续：记录结果、计数加一并进入 waiting。
                 if (input.result.kind === "wait") {
                     const nextState: RunState = {
@@ -115,23 +387,70 @@ export function transition(
 
             // 运行期间取消：进入 cancelled，但不额外消费一次 step。
             if (input.kind === "cancel") {
-                const nextState: RunState = {
-                    ...currentState,
-                    status: "cancelled",
-                };
-
                 return {
                     ok: true,
-                    state: nextState,
+                    state: {
+                        ...clearPendingAction(currentState),
+                        status: "cancelled",
+                    },
                 };
             }
             break;
 
-        // waiting 状态只接受恢复或取消，不直接消费新的 step 结果。
+        // waiting 状态只接受 Agent wait 的恢复、Action 拒绝或取消。
         case "waiting":
-            // 外部协调器解除 blocked 后恢复：回到 running，计数和最近结果不变。
-            // Runner 不直接消费 resume；调用方应把该转换与真实 user 消息一同保存。
-            if (input.kind === "resume") {
+            if (input.kind === "reject_action") {
+                const pendingAction = currentState.pendingAction;
+
+                if (
+                    pendingAction === undefined
+                    || (
+                        pendingAction.status !== "awaiting_approval"
+                        && pendingAction.status !== "outcome_unknown"
+                    )
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "reject_action requires an approval or recovery pendingAction",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Rejected actionId does not match pendingAction",
+                    );
+                }
+
+                if (!hasText(input.reason)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action rejection requires a non-empty reason",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: completeAction(
+                        currentState,
+                        pendingAction.action,
+                        {
+                            kind: "rejected",
+                            reason: input.reason,
+                        },
+                    ),
+                };
+            }
+
+            // 外部协调器解除 Agent wait 后恢复：回到 running，计数和最近结果不变。
+            // 带 pendingAction 的审批/恢复等待不能通过通用 resume 绕过授权。
+            if (
+                input.kind === "resume"
+                && currentState.pendingAction === undefined
+            ) {
                 const nextState: RunState = {
                     ...currentState,
                     status: "running",
@@ -143,28 +462,19 @@ export function transition(
                 };
             }
 
-            // 等待期间取消：进入 cancelled，保留已有计数和最近结果。
+            // 等待期间取消：进入 cancelled，清除未完成 Action，且不消费 Step。
             if (input.kind === "cancel") {
-                const nextState: RunState = {
-                    ...currentState,
-                    status: "cancelled",
-                };
-
                 return {
                     ok: true,
-                    state: nextState,
+                    state: {
+                        ...clearPendingAction(currentState),
+                        status: "cancelled",
+                    },
                 };
             }
             break;
     }
 
     // 所有未匹配组合均为非法转换；返回原状态而不是抛出异常。
-    return {
-        ok: false,
-        state: currentState,
-        error: {
-            code: "INVALID_TRANSITION",
-            message: `Cannot apply "${input.kind}" while run is "${currentState.status}"`,
-        },
-    };
+    return invalidTransition(currentState, input);
 }
