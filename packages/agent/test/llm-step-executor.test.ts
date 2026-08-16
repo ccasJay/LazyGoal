@@ -11,7 +11,7 @@ import {
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type {
     Goal,
-    GoalDefinition,
+    GoalInput,
     GoalMessage,
 } from "../../runtime/src/domain";
 import {
@@ -23,7 +23,7 @@ import {
 } from "../src/index";
 import { buildStepRequest } from "../src/prompt";
 
-const goal: GoalDefinition = {
+const goal: GoalInput = {
     id: "goal-1",
     objective: "完成单步执行",
     completionCriteria: ["返回结构化结果"],
@@ -92,7 +92,7 @@ class SequenceAdapter implements LLMAdapter {
 test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 StepResult", async () => {
     const currentGoal = createTestGoal("run-1", profile, [
         { role: "user", content: "已恢复的历史输入" },
-        { role: "assistant", content: "已恢复的历史响应" },
+        { role: "assistant", assistant: { profileId: "profile-1" }, content: "已恢复的历史响应" },
     ]);
     const responseContent = JSON.stringify({
         kind: "continue",
@@ -113,12 +113,15 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 StepResult",
                 role: "user",
                 content: buildStepRequest(currentGoal).messages.at(-1)?.content,
             },
-            { role: "assistant", content: responseContent },
+            { role: "assistant", assistant: { profileId: "profile-1" }, content: responseContent },
         ],
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
-    assert.deepEqual(adapter.requests[0]?.messages.slice(1, 3), currentGoal.messages);
+    assert.deepEqual(
+        adapter.requests[0]?.messages.slice(1, 3),
+        currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
+    );
 });
 
 test("LLMStepExecutor 不修改传入的 Goal", async () => {
@@ -127,13 +130,18 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
     ]);
     const currentGoal: Goal = {
         ...baseGoal,
-        run: {
-            ...baseGoal.run,
-            status: "running",
-            stepCount: 3,
-            lastResult: {
-                kind: "continue",
-                summary: "已有进度",
+        state: {
+            ...baseGoal.state,
+            run: {
+                ...baseGoal.state.run,
+                status: "running",
+                stepCount: 3,
+                lastStep: {
+                    result: {
+                        kind: "continue",
+                        summary: "已有进度",
+                    },
+                },
             },
         },
     };
@@ -232,7 +240,7 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
 
     const initialMessages: readonly GoalMessage[] = [
         { role: "user", content: "恢复后的历史输入" },
-        { role: "assistant", content: "恢复后的历史响应" },
+        { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的历史响应" },
     ];
     await createStoredGoal(store, "run-loop", profile, initialMessages);
     const result = await runner.run({ goalId: goal.id, runId: "run-loop" });
@@ -245,29 +253,31 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
 
     assert.equal(result.state.status, "completed");
     assert.equal(result.state.stepCount, 2);
-    assert.deepEqual(result.state.lastResult, {
-        kind: "complete",
-        summary: "完成",
+    assert.deepEqual(result.state.lastStep, {
+        result: { kind: "complete", summary: "完成" },
     });
-    assert.deepEqual(persisted?.run, result.state);
+    assert.deepEqual(persisted?.state.run, result.state);
     assert.equal(adapter.requests.length, 2);
 
     const firstStepUserContent = adapter.requests[0]?.messages.at(-1)?.content ?? "";
     const secondStepUserContent = adapter.requests[1]?.messages.at(-1)?.content ?? "";
     assert.notEqual(firstStepUserContent, "");
     assert.notEqual(secondStepUserContent, "");
-    assert.deepEqual(adapter.requests[0]?.messages.slice(1, 3), initialMessages);
+    assert.deepEqual(
+        adapter.requests[0]?.messages.slice(1, 3),
+        initialMessages.map(({ role, content }) => ({ role, content })),
+    );
     assert.deepEqual(adapter.requests[1]?.messages.slice(1, 5), [
-        ...initialMessages,
+        ...initialMessages.map(({ role, content }) => ({ role, content })),
         { role: "user", content: firstStepUserContent },
         { role: "assistant", content: continueContent },
     ]);
-    assert.deepEqual(persisted?.messages, [
+    assert.deepEqual(persisted?.state.messages, [
         ...initialMessages,
         { role: "user", content: firstStepUserContent },
-        { role: "assistant", content: continueContent },
+        { role: "assistant", assistant: { profileId: "profile-1" }, content: continueContent },
         { role: "user", content: secondStepUserContent },
-        { role: "assistant", content: completeContent },
+        { role: "assistant", assistant: { profileId: "profile-1" }, content: completeContent },
     ]);
 });
 
@@ -294,10 +304,15 @@ test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () =>
 
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
-    assert.equal(result.state.lastResult?.kind, "fail");
-    assert.match(result.state.lastResult?.error ?? "", /^TOOLS_NOT_SUPPORTED: /);
+    assert.equal(result.state.lastStep?.result.kind, "fail");
+    assert.match(
+        result.state.lastStep?.result.kind === "fail"
+            ? result.state.lastStep.result.error
+            : "",
+        /^TOOLS_NOT_SUPPORTED: /,
+    );
     assert.equal(adapter.requests.length, 0);
-    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
+    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
 });
 
 test("Runner 持久化协议错误并只计一次 Step", async () => {
@@ -320,10 +335,15 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
 
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
-    assert.equal(result.state.lastResult?.kind, "fail");
-    assert.match(result.state.lastResult?.error ?? "", /^INVALID_LLM_RESPONSE: /);
+    assert.equal(result.state.lastStep?.result.kind, "fail");
+    assert.match(
+        result.state.lastStep?.result.kind === "fail"
+            ? result.state.lastStep.result.error
+            : "",
+        /^INVALID_LLM_RESPONSE: /,
+    );
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
+    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
 });
 
 test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
@@ -347,10 +367,9 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
 
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
-    assert.deepEqual(result.state.lastResult, {
-        kind: "fail",
-        error: adapterError.message,
+    assert.deepEqual(result.state.lastStep, {
+        result: { kind: "fail", error: adapterError.message },
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual((await store.restore(goal.id))?.run, result.state);
+    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
 });

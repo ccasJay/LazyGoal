@@ -34,7 +34,9 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
             id: "run-1",
             status: "completed",
             stepCount: 1,
-            lastResult: { kind: "complete", summary: "目标完成" },
+            lastStep: {
+                result: { kind: "complete", summary: "目标完成" },
+            },
         },
     };
     const runner = new FakeRunner(runnerResult);

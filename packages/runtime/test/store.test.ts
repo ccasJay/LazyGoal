@@ -5,12 +5,12 @@ import { createRun } from "../src/index";
 import { InMemoryRunStore } from "../src/run-store";
 import type {
     AgentProfile,
-    GoalDefinition,
+    GoalInput,
     RunState,
 } from "../src/index";
 import type { RunStore } from "../src/run-store";
 
-const goal: GoalDefinition = {
+const goal: GoalInput = {
     id: "goal-1",
     objective: "保存 Run 的最新状态",
     completionCriteria: ["可以按 Run ID 加载最新快照"],

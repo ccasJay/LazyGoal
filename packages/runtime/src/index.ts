@@ -1,19 +1,26 @@
 export { createGoal, createRun } from "./domain";
 export type {
+    AssistantMessage,
     Goal,
     GoalCreationInput,
     GoalDefinition,
     GoalInput,
     GoalMessage,
     GoalMetadata,
+    GoalState,
     GoalTask,
+    GoalWorkflowState,
     LegacyRunState,
+    LegacyGoalCreationInput,
     RunInput,
     RunRef,
     RunState,
+    RunStopReason,
     RunStatus,
+    StepRecord,
     StepResult,
     TransitionResult,
+    UserMessage,
 } from "./domain";
 export { transition } from "./transition";
 export {

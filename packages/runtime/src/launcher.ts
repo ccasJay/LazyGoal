@@ -1,7 +1,7 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import { createGoal } from "./domain";
 import type {
-    GoalDefinition,
+    GoalInput,
     GoalMessage,
     RunState,
 } from "./domain";
@@ -11,7 +11,7 @@ import type { RunScheduler } from "./scheduler";
 /** 向启动边界提交的任务定义；不包含 Run 状态或 Profile 实例。 */
 export interface LaunchRequest {
     /** 由调用方定义的 Goal ID、目标与完成条件。 */
-    readonly goal: GoalDefinition;
+    readonly goal: GoalInput;
     /** 需要从 Registry 解析并冻结到 Goal 的 Profile ID。 */
     readonly profileId: string;
     /** 创建 Goal 时按原顺序写入的可选历史消息。 */
@@ -116,7 +116,7 @@ export async function launch(
         ok: true,
         goalId: goal.id,
         runId,
-        profileId: goal.profile.id,
+        profileId: goal.definition.profile.id,
         state: scheduleResult.state,
     };
 }

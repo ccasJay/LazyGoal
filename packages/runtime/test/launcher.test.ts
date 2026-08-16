@@ -52,7 +52,7 @@ function createScheduledState(
         id: runId,
         status,
         stepCount: 1,
-        lastResult,
+        lastStep: { result: lastResult },
     };
 }
 
@@ -181,35 +181,45 @@ test("launch saves a complete frozen Goal before scheduling", async () => {
     assert.ok(savedGoal);
     assert.deepEqual(savedGoal, {
         id: "goal-1",
-        metadata: { schemaVersion: 1 },
-        task: {
-            objective: "启动一个可调度的 Run",
-            completionCriteria: ["初始 Goal 已保存并完成调度"],
+        metadata: { schemaVersion: 2 },
+        definition: {
+            intent: "启动一个可调度的 Run",
+            profile: {
+                id: "profile-1",
+                systemPrompt: "You are a focused coding agent.",
+                instructions: ["完成目标", "报告结果"],
+                toolIds: ["read", "write"],
+            },
+            executionPolicy: { maxSteps: 0 },
         },
-        profile: {
-            id: "profile-1",
-            systemPrompt: "You are a focused coding agent.",
-            instructions: ["完成目标", "报告结果"],
-            toolIds: ["read", "write"],
-        },
-        messages,
-        run: {
-            id: "run-1",
-            status: "created",
-            stepCount: 0,
+        state: {
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: "启动一个可调度的 Run",
+                    completionCriteria: ["初始 Goal 已保存并完成调度"],
+                },
+            },
+            messages,
+            run: {
+                id: "run-1",
+                status: "created",
+                stepCount: 0,
+            },
         },
     });
-    assert.notStrictEqual(savedGoal.profile, profile);
-    assert.notStrictEqual(savedGoal.profile.instructions, instructions);
-    assert.notStrictEqual(savedGoal.profile.toolIds, toolIds);
-    assert.notStrictEqual(savedGoal.messages, messages);
+    assert.notStrictEqual(savedGoal.definition.profile, profile);
+    assert.notStrictEqual(savedGoal.definition.profile.instructions, instructions);
+    assert.notStrictEqual(savedGoal.definition.profile.toolIds, toolIds);
+    assert.notStrictEqual(savedGoal.state.messages, messages);
 
     mutableProfile.systemPrompt = "Changed prompt";
     instructions[0] = "改变已有指令";
     toolIds.push("network");
-    messages[0] = { role: "assistant", content: "已改变" };
-    assert.deepEqual(savedGoal.profile, createProfile());
-    assert.deepEqual(savedGoal.messages, [
+    messages[0] = { role: "assistant", assistant: { profileId: "profile-1" }, content: "已改变" };
+    assert.deepEqual(savedGoal.definition.profile, createProfile());
+    assert.deepEqual(savedGoal.state.messages, [
         { role: "user", content: "请开始" },
     ]);
 });

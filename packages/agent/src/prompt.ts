@@ -14,32 +14,38 @@ export const STEP_RESULT_PROTOCOL = [
 ].join("\n");
 
 function buildSystemContent(goal: Goal): string {
-    const instructions = goal.profile.instructions.length === 0
+    const instructions = goal.definition.profile.instructions.length === 0
         ? "（无额外指令）"
-        : goal.profile.instructions
+        : goal.definition.profile.instructions
             .map((instruction, index) => `${index + 1}. ${instruction}`)
             .join("\n");
 
     return [
-        goal.profile.systemPrompt,
+        goal.definition.profile.systemPrompt,
         `Instructions:\n${instructions}`,
         STEP_RESULT_PROTOCOL,
     ].join("\n\n");
 }
 
 function buildUserContent(goal: Goal): string {
+    if (goal.state.workflow.phase !== "executing") {
+        throw new Error("Step request requires an executing Goal");
+    }
+
     const context: {
         readonly objective: string;
         readonly completionCriteria: readonly string[];
         readonly stepCount: number;
-        readonly lastResult?: Goal["run"]["lastResult"];
+        readonly lastResult?: NonNullable<
+            Goal["state"]["run"]["lastStep"]
+        >["result"];
     } = {
-        objective: goal.task.objective,
-        completionCriteria: [...goal.task.completionCriteria],
-        stepCount: goal.run.stepCount,
-        ...(goal.run.lastResult === undefined
+        objective: goal.state.workflow.task.objective,
+        completionCriteria: [...goal.state.workflow.task.completionCriteria],
+        stepCount: goal.state.run.stepCount,
+        ...(goal.state.run.lastStep === undefined
             ? {}
-            : { lastResult: goal.run.lastResult }),
+            : { lastResult: goal.state.run.lastStep.result }),
     };
 
     return JSON.stringify(context, null, 2);
@@ -67,7 +73,7 @@ export function buildStepRequest(goal: Goal): LLMRequest {
             role: "system",
             content: buildSystemContent(goal),
         },
-        ...goal.messages.map((message) => ({
+        ...goal.state.messages.map((message) => ({
             role: message.role,
             content: message.content,
         })),

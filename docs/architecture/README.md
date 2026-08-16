@@ -6,7 +6,7 @@ LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命�
 
 | 概念 | 含义 |
 | --- | --- |
-| Goal | 可持久化、可恢复的 Session 聚合 |
+| Goal | 由冻结 definition 与可变 state 组成的可恢复 Session 聚合 |
 | Run | Goal 内当前执行实例，拥有独立 `runId` |
 | Step | Executor 的一次原子执行 |
 | Profile | 创建 Goal 时复制的 Agent 配置 |
@@ -38,6 +38,7 @@ flowchart LR
 ## 跨模块不变量
 
 - `goalId` 定位 Session，`runId` 标识执行实例，二者不能互换。
+- Preparation workflow 不消费 Step；executing workflow 必须拥有已确定 task。
 - Runner 独占状态推进与保存顺序；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
@@ -48,4 +49,3 @@ flowchart LR
 - [Runtime](./runtime.md)：状态、生命周期、调度与持久化。
 - [Agent](./agent.md)：Prompt、响应协议与 Step 执行。
 - [LLM](./llm.md)：供应商无关接口与模型适配器。
-

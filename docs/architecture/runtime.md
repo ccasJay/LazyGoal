@@ -8,7 +8,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [Domain](../../packages/runtime/src/domain.ts) | Goal、Run、StepResult、RunRef | I/O 和模型调用 |
+| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、StepResult | I/O 和模型调用 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 冻结 Profile、创建 Goal、先保存后调度 | 执行 Step |
 | [Runner](../../packages/runtime/src/runner.ts) | 恢复、转换、追加消息、逐步保存 | 解析模型协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
@@ -17,7 +17,9 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-`created → running → continue* → waiting/resume | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回结果 → Transition 推进 Run → 追加消息 → GoalStore 保存。保存失败时停止，不执行下一 Step；`stepCount` 跨恢复累计，`maxSteps` 不会因 resume 重置。
+Goal v2 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+
+Run 主流程为 `created → running → continue* → waiting/resume | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回结果 → Transition 写入最新 `lastStep` → 追加消息 → GoalStore 保存。上限终止使用独立 `stopReason`，不会覆盖最近 Step 事实。
 
 ## 错误与不变量
 
@@ -25,9 +27,8 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 - 非 waiting Run 调用 resume：返回 `RUN_NOT_WAITING`。
 - Executor 异常：转换为一次持久化的 `fail` Step。
 - Store I/O 或协议错误：原样向调用方传播。
-- `JsonFileGoalStore` 使用单文件最新快照；并发写入是最后替换者覆盖。
+- `JsonFileGoalStore` 当前写入 v2 单文件最新快照；并发写入是最后替换者覆盖。
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。持久化设计背景见 [Goal Session Spec](../../specs/goal-session-persistence/design.md)。
-
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。旧 Launcher 暂时通过 deprecated 输入创建已准备的 executing Goal；Preparation 推进与 v1 快照迁移尚未接入。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。

@@ -12,17 +12,18 @@ const profile: AgentProfile = {
 };
 
 const messages: GoalMessage[] = [
-    { role: "user", content: "请开始执行" },
-    { role: "assistant", content: "我会先检查输入" },
+    { role: "user", content: "补充上下文" },
+    {
+        role: "assistant",
+        assistant: { profileId: "profile-1" },
+        content: "我会继续确认",
+    },
 ];
 
-test("createGoal creates a complete aggregate with independent goalId/runId", () => {
+test("createGoal creates an initial gathering snapshot with independent IDs", () => {
     const goal = createGoal({
         id: "goal-1",
-        task: {
-            objective: "完成最小 Runtime",
-            completionCriteria: ["主生命周期可以完成"],
-        },
+        intent: "完成最小 Runtime",
         profile,
         messages,
         runId: "run-1",
@@ -30,26 +31,35 @@ test("createGoal creates a complete aggregate with independent goalId/runId", ()
 
     assert.deepEqual(goal, {
         id: "goal-1",
-        metadata: { schemaVersion: 1 },
-        task: {
-            objective: "完成最小 Runtime",
-            completionCriteria: ["主生命周期可以完成"],
+        metadata: { schemaVersion: 2 },
+        definition: {
+            intent: "完成最小 Runtime",
+            profile,
+            executionPolicy: { maxSteps: 0 },
         },
-        profile,
-        messages,
-        run: {
-            id: "run-1",
-            status: "created",
-            stepCount: 0,
+        state: {
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "active" },
+            },
+            messages: [
+                { role: "user", content: "完成最小 Runtime" },
+                ...messages,
+            ],
+            run: {
+                id: "run-1",
+                status: "created",
+                stepCount: 0,
+            },
         },
     });
-    assert.notEqual(goal.id, goal.run.id);
-    assert.notStrictEqual(goal.profile, profile);
-    assert.notStrictEqual(goal.profile.instructions, profile.instructions);
-    assert.notStrictEqual(goal.messages, messages);
+    assert.notEqual(goal.id, goal.state.run.id);
+    assert.equal(goal.state.workflow.phase, "gathering_context");
+    assert.equal(goal.state.run.stepCount, 0);
+    assert.equal(goal.state.run.lastStep, undefined);
 });
 
-test("createGoal freezes task, profile, and initial messages", () => {
+test("createGoal isolates frozen definition and real messages from input mutation", () => {
     const mutableProfile = {
         ...profile,
         instructions: ["原始指令"],
@@ -60,50 +70,76 @@ test("createGoal freezes task, profile, and initial messages", () => {
     ];
     const goal = createGoal({
         id: "goal-2",
-        task: {
-            objective: "原始目标",
-            completionCriteria: ["原始条件"],
-        },
+        intent: "原始意图",
         profile: mutableProfile,
         messages: mutableMessages,
         runId: "run-2",
+        maxSteps: 5,
     });
 
     mutableProfile.instructions[0] = "修改后的指令";
     mutableProfile.toolIds.push("write");
-    mutableMessages[0] = { role: "assistant", content: "修改后的消息" };
+    mutableMessages[0] = { role: "user", content: "修改后的消息" };
 
-    assert.deepEqual(goal.profile.instructions, ["原始指令"]);
-    assert.deepEqual(goal.profile.toolIds, ["read"]);
-    assert.deepEqual(goal.messages, [
+    assert.deepEqual(goal.definition.profile.instructions, ["原始指令"]);
+    assert.deepEqual(goal.definition.profile.toolIds, ["read"]);
+    assert.deepEqual(goal.definition.executionPolicy, { maxSteps: 5 });
+    assert.deepEqual(goal.state.messages, [
+        { role: "user", content: "原始意图" },
         { role: "user", content: "原始消息" },
     ]);
-    assert.deepEqual(goal.task, {
-        objective: "原始目标",
-        completionCriteria: ["原始条件"],
-    });
 });
 
-test("a complete Goal supports a JSON round-trip", () => {
+test("preparation workflow cannot represent executing without a final task", () => {
     const goal = createGoal({
         id: "goal-3",
-        task: {
-            objective: "验证序列化",
-            completionCriteria: ["恢复后字段一致"],
-        },
+        intent: "先准备再执行",
         profile,
-        messages,
         runId: "run-3",
     });
 
-    const restored: unknown = JSON.parse(JSON.stringify(goal));
+    assert.equal(goal.state.workflow.phase, "gathering_context");
+    assert.equal("task" in goal.state.workflow, false);
+    assert.deepEqual(goal.state.run, createRun("run-3"));
+});
 
-    assert.deepEqual(restored, goal);
+test("createGoal accepts zero or a positive maxSteps and rejects invalid values", () => {
+    assert.equal(createGoal({
+        id: "goal-unlimited",
+        intent: "无限执行",
+        profile,
+        runId: "run-unlimited",
+    }).definition.executionPolicy.maxSteps, 0);
+
+    for (const maxSteps of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        assert.throws(
+            () => createGoal({
+                id: "goal-invalid",
+                intent: "非法预算",
+                profile,
+                runId: "run-invalid",
+                maxSteps,
+            }),
+            /maxSteps/i,
+        );
+    }
+});
+
+test("a complete v2 Goal supports a JSON round-trip", () => {
+    const goal = createGoal({
+        id: "goal-4",
+        intent: "验证序列化",
+        profile,
+        messages,
+        runId: "run-4",
+    });
+
+    assert.deepEqual(JSON.parse(JSON.stringify(goal)), goal);
 });
 
 test("createRun creates a deterministic core RunState", () => {
-    assert.deepEqual(createRun("run-4"), {
-        id: "run-4",
+    assert.deepEqual(createRun("run-5"), {
+        id: "run-5",
         status: "created",
         stepCount: 0,
     });

@@ -41,8 +41,8 @@ export class LLMStepExecutor implements StepExecutor {
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
     async execute(goal: Goal): Promise<StepExecutionResult> {
-        if (goal.profile.toolIds.length > 0) {
-            throw new ToolsNotSupportedError(goal.profile.toolIds);
+        if (goal.definition.profile.toolIds.length > 0) {
+            throw new ToolsNotSupportedError(goal.definition.profile.toolIds);
         }
 
         const request = buildStepRequest(goal);
@@ -53,7 +53,11 @@ export class LLMStepExecutor implements StepExecutor {
             result,
             appendedMessages: [
                 buildStepUserMessage(goal),
-                { role: "assistant", content: response.content },
+                {
+                    role: "assistant",
+                    assistant: { profileId: goal.definition.profile.id },
+                    content: response.content,
+                },
             ],
         };
     }

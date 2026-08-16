@@ -54,7 +54,7 @@ async function main(): Promise<void> {
     const startedAt = performance.now();
     const result = await runner.run({
         goalId: goal.id,
-        runId: goal.run.id,
+        runId: goal.state.run.id,
     });
     const durationMs = Math.round(performance.now() - startedAt);
 
@@ -67,7 +67,7 @@ async function main(): Promise<void> {
         durationMs,
         status: result.state.status,
         stepCount: result.state.stepCount,
-        lastResult: result.state.lastResult,
+        lastStep: result.state.lastStep,
     }, null, 2));
 
     if (result.state.status === "failed") {

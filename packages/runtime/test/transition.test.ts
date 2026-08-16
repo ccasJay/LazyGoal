@@ -49,7 +49,7 @@ test("advances one transition at a time through the main lifecycle", () => {
     );
     assert.equal(running.status, "running");
     assert.equal(running.stepCount, 0);
-    assert.equal(running.lastResult, undefined);
+    assert.equal(running.lastStep, undefined);
 
     const waitResult = {
         kind: "wait",
@@ -60,14 +60,14 @@ test("advances one transition at a time through the main lifecycle", () => {
     );
     assert.equal(waiting.status, "waiting");
     assert.equal(waiting.stepCount, 1);
-    assert.deepEqual(waiting.lastResult, waitResult);
+    assert.deepEqual(waiting.lastStep, { result: waitResult });
 
     const resumed = requireSuccessfulState(
         transition(waiting, { kind: "resume" }),
     );
     assert.equal(resumed.status, "running");
     assert.equal(resumed.stepCount, 1);
-    assert.deepEqual(resumed.lastResult, waitResult);
+    assert.deepEqual(resumed.lastStep, { result: waitResult });
 
     const completeResult = {
         kind: "complete",
@@ -78,7 +78,7 @@ test("advances one transition at a time through the main lifecycle", () => {
     );
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
-    assert.deepEqual(completed.lastResult, completeResult);
+    assert.deepEqual(completed.lastStep, { result: completeResult });
 });
 
 test("step.continue keeps the run running and increments once", () => {
@@ -95,7 +95,7 @@ test("step.continue keeps the run running and increments once", () => {
     assert.notStrictEqual(nextState, currentState);
     assert.equal(nextState.status, "running");
     assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastResult, input.result);
+    assert.deepEqual(nextState.lastStep, { result: input.result });
     assert.deepEqual(currentState, stateBefore);
     assert.deepEqual(input, inputBefore);
 });
@@ -111,7 +111,7 @@ test("step.fail moves the run to failed and increments once", () => {
     assert.notStrictEqual(nextState, currentState);
     assert.equal(nextState.status, "failed");
     assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastResult, result);
+    assert.deepEqual(nextState.lastStep, { result });
 });
 
 const cancellationCases: ReadonlyArray<{
@@ -143,7 +143,7 @@ for (const cancellationCase of cancellationCases) {
         assert.notStrictEqual(nextState, currentState);
         assert.equal(nextState.status, "cancelled");
         assert.equal(nextState.stepCount, currentState.stepCount);
-        assert.deepEqual(nextState.lastResult, currentState.lastResult);
+        assert.deepEqual(nextState.lastStep, currentState.lastStep);
     });
 }
 
@@ -167,13 +167,15 @@ const terminalStates: readonly RunState[] = [
         ...createRun("run-completed"),
         status: "completed",
         stepCount: 1,
-        lastResult: { kind: "complete", summary: "已完成" },
+        lastStep: {
+            result: { kind: "complete", summary: "已完成" },
+        },
     },
     {
         ...createRun("run-failed"),
         status: "failed",
         stepCount: 1,
-        lastResult: { kind: "fail", error: "执行失败" },
+        lastStep: { result: { kind: "fail", error: "执行失败" } },
     },
     {
         ...createRun("run-cancelled"),

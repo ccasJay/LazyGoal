@@ -65,8 +65,9 @@ export class Runner {
      *
      * @remarks
      * `created` 会先转换并保存为 `running`；`running` 会继续执行；waiting
-     * 和终态直接返回且不产生副作用。Goal 不存在或 runId 不匹配时返回
-     * `RUN_NOT_FOUND`。
+     * 和终态直接返回且不产生副作用。非 executing Goal 同样直接返回，
+     * Preparation 不会启动 Run 或消费 Step。Goal 不存在或 runId 不匹配时
+     * 返回 `RUN_NOT_FOUND`。
      *
      * @param ref - 目标 Goal 与 Run 的关联键。
      * @returns Run 到达 waiting 或终态时的结果。
@@ -79,10 +80,14 @@ export class Runner {
             return this.runNotFound(ref);
         }
 
-        if (goal.run.status === "created") {
+        if (goal.state.workflow.phase !== "executing") {
+            return { ok: true, state: goal.state.run };
+        }
+
+        if (goal.state.run.status === "created") {
             const runningGoal = this.withRun(
                 goal,
-                this.applyTransition(goal.run, { kind: "start" }),
+                this.applyTransition(goal.state.run, { kind: "start" }),
             );
             await this.store.save(runningGoal);
             return this.runLoop(runningGoal);
@@ -111,7 +116,7 @@ export class Runner {
             return this.runNotFound(ref);
         }
 
-        if (goal.run.status !== "waiting") {
+        if (goal.state.run.status !== "waiting") {
             return {
                 ok: false,
                 error: {
@@ -123,7 +128,7 @@ export class Runner {
 
         const runningGoal = this.withRun(
             goal,
-            this.applyTransition(goal.run, { kind: "resume" }),
+            this.applyTransition(goal.state.run, { kind: "resume" }),
         );
         await this.store.save(runningGoal);
 
@@ -136,7 +141,7 @@ export class Runner {
         if (
             goal === undefined
             || goal.id !== ref.goalId
-            || goal.run.id !== ref.runId
+            || goal.state.run.id !== ref.runId
         ) {
             return undefined;
         }
@@ -157,19 +162,16 @@ export class Runner {
     private async runLoop(initialGoal: Goal): Promise<RunnerResult> {
         let goal = initialGoal;
 
-        while (goal.run.status === "running") {
-            if (goal.run.stepCount >= this.maxSteps) {
+        while (goal.state.run.status === "running") {
+            if (goal.state.run.stepCount >= this.maxSteps) {
                 const failedGoal = this.withRun(goal, {
-                    ...goal.run,
+                    ...goal.state.run,
                     status: "failed",
-                    lastResult: {
-                        kind: "fail",
-                        error: `MAX_STEPS_EXCEEDED: Run "${goal.run.id}" reached maxSteps (${this.maxSteps})`,
-                    },
+                    stopReason: { kind: "max_steps_exceeded" },
                 });
 
                 await this.store.save(failedGoal);
-                return { ok: true, state: failedGoal.run };
+                return { ok: true, state: failedGoal.state.run };
             }
 
             let execution: StepExecutionResult;
@@ -185,7 +187,7 @@ export class Runner {
                 };
             }
 
-            const nextRun = this.applyTransition(goal.run, {
+            const nextRun = this.applyTransition(goal.state.run, {
                 kind: "step",
                 result: execution.result,
             });
@@ -198,13 +200,16 @@ export class Runner {
             goal = nextGoal;
         }
 
-        return { ok: true, state: goal.run };
+        return { ok: true, state: goal.state.run };
     }
 
     private withRun(goal: Goal, run: RunState): Goal {
         return {
             ...goal,
-            run,
+            state: {
+                ...goal.state,
+                run,
+            },
         };
     }
 
@@ -218,13 +223,21 @@ export class Runner {
 
         return {
             ...goal,
-            messages: [
-                ...goal.messages,
-                ...messages.map((message) => ({
-                    role: message.role,
-                    content: message.content,
-                })),
-            ],
+            state: {
+                ...goal.state,
+                messages: [
+                    ...goal.state.messages,
+                    ...messages.map((message) => message.role === "user"
+                        ? { role: "user" as const, content: message.content }
+                        : {
+                            role: "assistant" as const,
+                            assistant: {
+                                profileId: message.assistant.profileId,
+                            },
+                            content: message.content,
+                        }),
+                ],
+            },
         };
     }
 

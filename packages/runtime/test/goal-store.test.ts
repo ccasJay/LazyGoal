@@ -33,7 +33,7 @@ const profile: AgentProfile = {
 
 const messages: GoalMessage[] = [
     { role: "user", content: "请开始执行" },
-    { role: "assistant", content: "我会先检查输入" },
+    { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
 ];
 
 function createSnapshot(runId = "run-1"): Goal {
@@ -99,13 +99,18 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
 
     return {
         ...goal,
-        run: {
-            ...goal.run,
-            status: "waiting",
-            stepCount: 1,
-            lastResult: {
-                kind: "wait",
-                reason: "等待外部输入",
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                stepCount: 1,
+                lastStep: {
+                    result: {
+                        kind: "wait",
+                        reason: "等待外部输入",
+                    },
+                },
             },
         },
     };
@@ -122,9 +127,12 @@ test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", ()
     }));
     assert.throws(() => GoalSnapshotSchema.parse({
         ...goal,
-        profile: {
-            ...goal.profile,
-            extra: true,
+        definition: {
+            ...goal.definition,
+            profile: {
+                ...goal.definition.profile,
+                extra: true,
+            },
         },
     }));
 });
@@ -134,15 +142,21 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
     const initial = createSnapshot("run-1");
     const latest: Goal = {
         ...initial,
-        messages: [
-            ...initial.messages,
-            { role: "user", content: "继续执行" },
-        ],
-        run: {
-            ...initial.run,
-            id: "run-2",
-            status: "running",
-            stepCount: 1,
+        state: {
+            ...initial.state,
+            messages: [
+                ...initial.state.messages,
+                { role: "user", content: "继续执行" },
+            ],
+            run: {
+                ...initial.state.run,
+                id: "run-2",
+                status: "running",
+                stepCount: 1,
+                lastStep: {
+                    result: { kind: "continue", summary: "继续执行" },
+                },
+            },
         },
     };
 
@@ -150,10 +164,10 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
     await store.save(latest);
 
     assert.deepEqual(await store.restore("goal-1"), latest);
-    assert.deepEqual((await store.restore("goal-1"))?.profile, profile);
-    assert.deepEqual((await store.restore("goal-1"))?.messages, [
+    assert.deepEqual((await store.restore("goal-1"))?.definition.profile, profile);
+    assert.deepEqual((await store.restore("goal-1"))?.state.messages, [
         { role: "user", content: "请开始执行" },
-        { role: "assistant", content: "我会先检查输入" },
+        { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
         { role: "user", content: "继续执行" },
     ]);
 });
@@ -163,20 +177,21 @@ test("InMemoryGoalStore clones on save and restore", async () => {
     const input = createSnapshot();
 
     await store.save(input);
-    (input.profile.instructions as string[]).push("外部修改");
-    (input.messages as GoalMessage[]).reverse();
+    (input.definition.profile.instructions as string[]).push("外部修改");
+    (input.state.messages as GoalMessage[]).reverse();
 
     const first = await store.restore("goal-1");
-    assert.deepEqual(first?.profile.instructions, ["先检查输入", "再执行任务"]);
-    assert.deepEqual(first?.messages, messages);
+    assert.deepEqual(first?.definition.profile.instructions, ["先检查输入", "再执行任务"]);
+    assert.deepEqual(first?.state.messages, messages);
 
     if (first === undefined) {
         assert.fail("expected a saved Goal");
     }
 
-    (first.profile.instructions as string[]).push("恢复结果修改");
-    (first.messages as GoalMessage[]).push({
+    (first.definition.profile.instructions as string[]).push("恢复结果修改");
+    (first.state.messages as GoalMessage[]).push({
         role: "assistant",
+        assistant: { profileId: "profile-1" },
         content: "不应写回 Store",
     });
 
@@ -206,9 +221,9 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
         const restored = await new JsonFileGoalStore(directory).restore(goal.id);
         assert.deepEqual(restored, goal);
         assert.notStrictEqual(restored, goal);
-        assert.deepEqual(restored?.profile, goal.profile);
-        assert.deepEqual(restored?.messages, goal.messages);
-        assert.deepEqual(restored?.run, goal.run);
+        assert.deepEqual(restored?.definition.profile, goal.definition.profile);
+        assert.deepEqual(restored?.state.messages, goal.state.messages);
+        assert.deepEqual(restored?.state.run, goal.state.run);
 
         const files = await readdir(directory);
         assert.equal(files.length, 1);
@@ -230,18 +245,23 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
         const initial = createSnapshot("run-old");
         const latest: Goal = {
             ...initial,
-            messages: [
-                ...initial.messages,
-                { role: "user", content: "恢复后继续执行" },
-            ],
-            run: {
-                ...initial.run,
-                id: "run-latest",
-                status: "running",
-                stepCount: 2,
-                lastResult: {
-                    kind: "continue",
-                    summary: "已保存最新进度",
+            state: {
+                ...initial.state,
+                messages: [
+                    ...initial.state.messages,
+                    { role: "user", content: "恢复后继续执行" },
+                ],
+                run: {
+                    ...initial.state.run,
+                    id: "run-latest",
+                    status: "running",
+                    stepCount: 2,
+                    lastStep: {
+                        result: {
+                            kind: "continue",
+                            summary: "已保存最新进度",
+                        },
+                    },
                 },
             },
         };
@@ -480,14 +500,14 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                         },
                         appendedMessages: [
                             { role: "user", content: "恢复后的输入" },
-                            { role: "assistant", content: "恢复后的响应" },
+                            { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的响应" },
                         ],
                     };
                 },
             },
             maxSteps: 3,
         });
-        const ref = { goalId: goal.id, runId: goal.run.id };
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
 
         const blocked = await runner.run(ref);
         assert.equal(blocked.ok, true);
@@ -505,22 +525,22 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
             return;
         }
 
-        assert.equal(resumed.state.id, goal.run.id);
+        assert.equal(resumed.state.id, goal.state.run.id);
         assert.equal(resumed.state.status, "completed");
         assert.equal(resumed.state.stepCount, 2);
         assert.equal(receivedGoals.length, 1);
-        assert.equal((receivedGoals[0] as Goal).run.stepCount, 1);
+        assert.equal((receivedGoals[0] as Goal).state.run.stepCount, 1);
 
         const latest = await new JsonFileGoalStore(directory).restore(goal.id);
         assert.deepEqual(latest?.metadata, goal.metadata);
-        assert.deepEqual(latest?.task, goal.task);
-        assert.deepEqual(latest?.profile, goal.profile);
-        assert.deepEqual(latest?.messages, [
-            ...goal.messages,
+        assert.deepEqual(latest?.state.workflow, goal.state.workflow);
+        assert.deepEqual(latest?.definition.profile, goal.definition.profile);
+        assert.deepEqual(latest?.state.messages, [
+            ...goal.state.messages,
             { role: "user", content: "恢复后的输入" },
-            { role: "assistant", content: "恢复后的响应" },
+            { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的响应" },
         ]);
-        assert.deepEqual(latest?.run, resumed.state);
+        assert.deepEqual(latest?.state.run, resumed.state);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

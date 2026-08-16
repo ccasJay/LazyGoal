@@ -13,7 +13,7 @@ import { z } from "zod";
 import type { Goal } from "./domain";
 
 const GoalMetadataSchema = z.object({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.literal(2),
 }).strict();
 
 const GoalTaskSchema = z.object({
@@ -28,10 +28,17 @@ const AgentProfileSchema = z.object({
     toolIds: z.array(z.string()),
 }).strict();
 
-const GoalMessageSchema = z.object({
-    role: z.enum(["user", "assistant"]),
-    content: z.string(),
-}).strict();
+const GoalMessageSchema = z.discriminatedUnion("role", [
+    z.object({
+        role: z.literal("user"),
+        content: z.string(),
+    }).strict(),
+    z.object({
+        role: z.literal("assistant"),
+        assistant: z.object({ profileId: z.string() }).strict(),
+        content: z.string(),
+    }).strict(),
+]);
 
 const StepResultSchema = z.discriminatedUnion("kind", [
     z.object({
@@ -63,8 +70,35 @@ const RunStateSchema = z.object({
         "cancelled",
     ]),
     stepCount: z.number().int().nonnegative(),
-    lastResult: StepResultSchema.optional(),
+    lastStep: z.object({ result: StepResultSchema }).strict().optional(),
+    stopReason: z.object({
+        kind: z.literal("max_steps_exceeded"),
+    }).strict().optional(),
 }).strict();
+
+const GoalWorkflowSchema = z.discriminatedUnion("phase", [
+    z.object({
+        phase: z.literal("gathering_context"),
+        preparation: z.object({
+            status: z.enum(["active", "waiting_input"]),
+        }).strict(),
+    }).strict(),
+    z.object({
+        phase: z.literal("planning"),
+        preparation: z.union([
+            z.object({ status: z.literal("active") }).strict(),
+            z.object({
+                status: z.literal("waiting_approval"),
+                proposal: GoalTaskSchema,
+            }).strict(),
+        ]),
+    }).strict(),
+    z.object({
+        phase: z.literal("executing"),
+        preparation: z.object({ status: z.literal("completed") }).strict(),
+        task: GoalTaskSchema,
+    }).strict(),
+]);
 
 /**
  * Goal 的版本化持久化协议。
@@ -76,10 +110,18 @@ const RunStateSchema = z.object({
 export const GoalSnapshotSchema = z.object({
     id: z.string(),
     metadata: GoalMetadataSchema,
-    task: GoalTaskSchema,
-    profile: AgentProfileSchema,
-    messages: z.array(GoalMessageSchema),
-    run: RunStateSchema,
+    definition: z.object({
+        intent: z.string(),
+        profile: AgentProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: GoalWorkflowSchema,
+        messages: z.array(GoalMessageSchema),
+        run: RunStateSchema,
+    }).strict(),
 }).strict();
 
 export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
@@ -103,18 +145,20 @@ export function cloneValidatedGoal(input: unknown): Goal {
     const parsed = structuredClone(GoalSnapshotSchema.parse(input));
 
     return {
-        id: parsed.id,
-        metadata: parsed.metadata,
-        task: parsed.task,
-        profile: parsed.profile,
-        messages: parsed.messages,
-        run: {
-            id: parsed.run.id,
-            status: parsed.run.status,
-            stepCount: parsed.run.stepCount,
-            ...(parsed.run.lastResult === undefined
-                ? {}
-                : { lastResult: parsed.run.lastResult }),
+        ...parsed,
+        state: {
+            ...parsed.state,
+            run: {
+                id: parsed.state.run.id,
+                status: parsed.state.run.status,
+                stepCount: parsed.state.run.stepCount,
+                ...(parsed.state.run.lastStep === undefined
+                    ? {}
+                    : { lastStep: parsed.state.run.lastStep }),
+                ...(parsed.state.run.stopReason === undefined
+                    ? {}
+                    : { stopReason: parsed.state.run.stopReason }),
+            },
         },
     };
 }
