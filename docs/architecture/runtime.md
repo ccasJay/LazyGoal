@@ -8,7 +8,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、StepResult | I/O 和模型调用 |
+| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、Action/Observation 数据契约 | I/O 和模型调用 |
 | [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界 | 阶段推进、消息追加与持久化 |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 推进 Preparation、恢复全部输入、持久化等待点、委派 executing Goal | Step 执行 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入、冻结 Profile、创建并保存 Goal、调用 Coordinator | 恢复已有 Goal |
@@ -19,7 +19,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-Goal v2 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal v3 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Run 可保存有界的 `checkpoint`、最近 `lastStep` 与当前 `pendingAction`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Launcher 在 Profile lookup 和 runId 生成前校验 intent 与 maxSteps，保存初始 Goal 成功后才调用 Coordinator。它返回 Coordinator 的等待点或终态，不直接调用 Scheduler。
 
@@ -27,7 +27,7 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保�
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running。以上状态均先保存再继续自动推进。
 
-Run 主流程为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存；`continue` 保存后立即进入下一轮。Executor 异常转为无消息的 fail Step。
+当前 Runner 主流程仍为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。v3 已定义 Action/Observation 的持久化边界，但 Action 调度、Tool 执行和 Observation 循环仍由后续 Spec TODO 实现。每个旧 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` 与 continue checkpoint → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存。
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
@@ -38,8 +38,8 @@ Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后�
 - PreparationResult 与当前 phase 不匹配：返回 `INVALID_PHASE_RESULT`，不追加消息、不保存。
 - Executor 异常：转换为一次持久化的 `fail` Step。
 - Store I/O 或协议错误：原样向调用方传播。
-- GoalStore 按 `schemaVersion` 严格解码；v2 校验 workflow/Run 不变量，合法 v1 只读迁移为 v2，未知版本或损坏快照报协议错误。
-- `JsonFileGoalStore` 恢复 v1 时不改写文件；下一次显式保存才以 v2 原子替换。并发写入仍是最后替换者覆盖。
+- GoalStore 按 `schemaVersion` 严格解码；v3 校验 workflow/Run 与 pending Action 不变量，合法 v1/v2 只读迁移为 v3，旧 `lastStep` 仅在迁移结果中包装为 `legacy`，未知版本或损坏快照报协议错误。
+- `JsonFileGoalStore` 恢复 v1/v2 时不改写文件；下一次显式保存才以 v3 原子替换。并发写入仍是最后替换者覆盖。
 
 ## 当前限制与背景
 

@@ -138,6 +138,7 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
                 status: "running",
                 stepCount: 3,
                 lastStep: {
+                    kind: "legacy",
                     result: {
                         kind: "continue",
                         summary: "已有进度",
@@ -254,6 +255,7 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
     assert.equal(result.state.status, "completed");
     assert.equal(result.state.stepCount, 2);
     assert.deepEqual(result.state.lastStep, {
+        kind: "legacy",
         result: { kind: "complete", summary: "完成" },
     });
     assert.deepEqual(persisted?.state.run, result.state);
@@ -267,6 +269,7 @@ test("Runner 通过 LLMStepExecutor 完成 continue 到 complete 的同步 Loop"
     ) as { readonly execution: { readonly previousStep?: unknown } };
     assert.equal(firstContext.execution.previousStep, undefined);
     assert.deepEqual(secondContext.execution.previousStep, {
+        kind: "legacy",
         result: { kind: "continue", summary: "继续" },
     });
     assert.deepEqual(
@@ -309,10 +312,17 @@ test("Runner 持久化 Tool 不受支持错误并只计一次 Step", async () =>
 
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
-    assert.equal(result.state.lastStep?.result.kind, "fail");
+    const lastResult = result.state.lastStep !== undefined
+        && "result" in result.state.lastStep
+        ? result.state.lastStep.result
+        : undefined;
+    assert.equal(
+        lastResult?.kind,
+        "fail",
+    );
     assert.match(
-        result.state.lastStep?.result.kind === "fail"
-            ? result.state.lastStep.result.error
+        lastResult?.kind === "fail"
+            ? lastResult.error
             : "",
         /^TOOLS_NOT_SUPPORTED: /,
     );
@@ -339,10 +349,17 @@ test("Runner 持久化协议错误并只计一次 Step", async () => {
 
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
-    assert.equal(result.state.lastStep?.result.kind, "fail");
+    const lastResult = result.state.lastStep !== undefined
+        && "result" in result.state.lastStep
+        ? result.state.lastStep.result
+        : undefined;
+    assert.equal(
+        lastResult?.kind,
+        "fail",
+    );
     assert.match(
-        result.state.lastStep?.result.kind === "fail"
-            ? result.state.lastStep.result.error
+        lastResult?.kind === "fail"
+            ? lastResult.error
             : "",
         /^INVALID_LLM_RESPONSE: /,
     );
@@ -371,6 +388,7 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
     assert.deepEqual(result.state.lastStep, {
+        kind: "legacy",
         result: { kind: "fail", error: adapterError.message },
     });
     assert.equal(adapter.requests.length, 1);

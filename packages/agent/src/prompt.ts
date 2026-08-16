@@ -88,7 +88,7 @@ function assertActivePreparation(goal: Goal): PreparationPhase {
 }
 
 function cloneStepRecord(step: StepRecord): StepRecord {
-    return { result: { ...step.result } };
+    return structuredClone(step);
 }
 
 /**

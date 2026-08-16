@@ -114,6 +114,7 @@ test("buildWorkingContext 按 gathering、planning、executing 三阶段派生",
 
 test("executing WorkingContext 只投影正数 maxSteps 和最近 previousStep", () => {
     const previousStep: StepRecord = {
+        kind: "legacy",
         result: { kind: "continue", summary: "已完成输入检查" },
     };
     const goal = createExecutingGoal({

@@ -57,7 +57,7 @@ export function transition(
                         ...currentState,
                         status: "waiting",
                         stepCount: currentState.stepCount + 1,
-                        lastStep: { result: input.result },
+                        lastStep: { kind: "legacy", result: input.result },
                     };
 
                     return {
@@ -72,7 +72,7 @@ export function transition(
                         ...currentState,
                         status: "completed",
                         stepCount: currentState.stepCount + 1,
-                        lastStep: { result: input.result },
+                        lastStep: { kind: "legacy", result: input.result },
                     };
 
                     return {
@@ -87,7 +87,8 @@ export function transition(
                         ...currentState,
                         status: "running",
                         stepCount: currentState.stepCount + 1,
-                        lastStep: { result: input.result },
+                        lastStep: { kind: "legacy", result: input.result },
+                        checkpoint: input.result.summary,
                     };
 
                     return {
@@ -102,7 +103,7 @@ export function transition(
                         ...currentState,
                         status: "failed",
                         stepCount: currentState.stepCount + 1,
-                        lastStep: { result: input.result },
+                        lastStep: { kind: "legacy", result: input.result },
                     };
 
                     return {

@@ -76,6 +76,60 @@ function createV1Snapshot() {
     } as const;
 }
 
+function createV2Snapshot() {
+    const goal = createSnapshot("run-v2");
+
+    return {
+        ...goal,
+        metadata: { schemaVersion: 2 },
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "running" as const,
+                stepCount: 1,
+                lastStep: {
+                    result: {
+                        kind: "continue" as const,
+                        summary: "旧版累计 checkpoint",
+                    },
+                },
+            },
+        },
+    };
+}
+
+function createActionSnapshot(): Goal {
+    const goal = createSnapshot("run-action");
+    const action = {
+        actionId: "action-1",
+        toolId: "read_file",
+        input: { path: "README.md", options: { encoding: "utf8" } },
+    } as const;
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "running",
+                stepCount: 1,
+                checkpoint: "已读取任务上下文",
+                lastStep: {
+                    kind: "action",
+                    action,
+                    observation: {
+                        kind: "success",
+                        output: { content: "ok" },
+                        summary: "已读取 README.md",
+                    },
+                },
+            },
+        },
+    };
+}
+
 function snapshotPath(directory: string, goalId: string): string {
     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
     return join(directory, `${encodedGoalId}.json`);
@@ -133,6 +187,7 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
                 status: "waiting",
                 stepCount: 1,
                 lastStep: {
+                    kind: "legacy",
                     result: {
                         kind: "wait",
                         reason: "等待外部输入",
@@ -164,10 +219,117 @@ test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", ()
     }));
 });
 
-test("GoalSnapshotSchema enforces v2 workflow and Run cross-field invariants", () => {
+test("GoalSnapshotSchema accepts bounded v3 Action memory and approval state", () => {
+    const actionGoal = createActionSnapshot();
+    const parsedAction = GoalSnapshotSchema.parse(actionGoal);
+
+    assert.deepEqual(parsedAction, actionGoal);
+
+    const pendingGoal: Goal = {
+        ...createSnapshot("run-pending"),
+        state: {
+            ...createSnapshot("run-pending").state,
+            run: {
+                id: "run-pending",
+                status: "waiting",
+                stepCount: 0,
+                checkpoint: "等待用户批准读取",
+                pendingAction: {
+                    action: {
+                        actionId: "action-pending",
+                        toolId: "read_file",
+                        input: { path: "README.md" },
+                    },
+                    status: "awaiting_approval",
+                },
+            },
+        },
+    };
+
+    assert.deepEqual(GoalSnapshotSchema.parse(pendingGoal), pendingGoal);
+});
+
+test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
+    const goal = createSnapshot("run-invalid-v3");
+    const action = {
+        actionId: "action-invalid",
+        toolId: "read_file",
+        input: { path: "README.md" },
+    } as const;
+    const invalidSnapshots: unknown[] = [
+        {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    id: "run-invalid-v3",
+                    status: "running",
+                    stepCount: 1,
+                },
+            },
+        },
+        {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    id: "run-invalid-v3",
+                    status: "running",
+                    stepCount: 0,
+                    checkpoint: "等待批准",
+                    pendingAction: { action, status: "awaiting_approval" },
+                },
+            },
+        },
+        {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    id: "run-invalid-v3",
+                    status: "waiting",
+                    stepCount: 0,
+                    pendingAction: { action, status: "approved" },
+                },
+            },
+        },
+        {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    id: "run-invalid-v3",
+                    status: "running",
+                    stepCount: 0,
+                    pendingAction: { action, status: "approved" },
+                },
+            },
+        },
+        {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    id: "run-invalid-v3",
+                    status: "completed",
+                    stepCount: 0,
+                    pendingAction: { action, status: "awaiting_approval" },
+                    checkpoint: "不应存在",
+                },
+            },
+        },
+    ];
+
+    for (const invalidSnapshot of invalidSnapshots) {
+        assert.equal(GoalSnapshotSchema.safeParse(invalidSnapshot).success, false);
+    }
+});
+
+test("GoalSnapshotSchema enforces v3 workflow and Run cross-field invariants", () => {
     const snapshot = createSnapshot();
     const continueStep = {
         lastStep: {
+            kind: "legacy",
             result: { kind: "continue", summary: "继续" },
         },
     } as const;
@@ -248,7 +410,7 @@ test("schemaVersion 1 snapshot migrates deterministically without changing sourc
     assert.equal(JSON.stringify(v1), sourceBefore);
     assert.deepEqual(migrated, {
         id: "goal-v1",
-        metadata: { schemaVersion: 2 },
+        metadata: { schemaVersion: 3 },
         definition: {
             intent: "恢复旧版任务",
             profile: v1.profile,
@@ -274,11 +436,29 @@ test("schemaVersion 1 snapshot migrates deterministically without changing sourc
                 status: "waiting",
                 stepCount: 1,
                 lastStep: {
+                    kind: "legacy",
                     result: { kind: "wait", reason: "等待旧版输入" },
                 },
             },
         },
     });
+});
+
+test("schemaVersion 2 migrates to v3 with a derived checkpoint without write-back", () => {
+    const v2 = createV2Snapshot();
+    const sourceBefore = JSON.stringify(v2);
+    const migrated = GoalSnapshotSchema.parse(v2);
+
+    assert.equal(JSON.stringify(v2), sourceBefore);
+    assert.equal(migrated.metadata.schemaVersion, 3);
+    assert.deepEqual(migrated.state.run.lastStep, {
+        kind: "legacy",
+        result: {
+            kind: "continue",
+            summary: "旧版累计 checkpoint",
+        },
+    });
+    assert.equal(migrated.state.run.checkpoint, "旧版累计 checkpoint");
 });
 
 test("unknown versions and cross-field-invalid v1 snapshots are rejected", () => {
@@ -321,8 +501,10 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
                 status: "running",
                 stepCount: 1,
                 lastStep: {
+                    kind: "legacy",
                     result: { kind: "continue", summary: "继续执行" },
                 },
+                checkpoint: "继续执行",
             },
         },
     };
@@ -363,6 +545,48 @@ test("InMemoryGoalStore clones on save and restore", async () => {
     });
 
     assert.deepEqual(await store.restore("goal-1"), createSnapshot());
+});
+
+test("InMemoryGoalStore clones Action, Observation, checkpoint, and pending memory", async () => {
+    const store = new InMemoryGoalStore();
+    const input = createActionSnapshot();
+    const expected = structuredClone(input);
+
+    await store.save(input);
+
+    const inputStep = input.state.run.lastStep;
+    if (
+        inputStep === undefined
+        || !("kind" in inputStep)
+        || inputStep.kind !== "action"
+    ) {
+        assert.fail("expected an Action Step");
+    }
+
+    (inputStep.action.input as { path: string }).path = "changed.txt";
+    Object.assign(inputStep, {
+        observation: {
+            kind: "failure",
+            code: "MUTATED",
+            message: "外部修改",
+            retryable: false,
+        },
+    });
+
+    const first = await store.restore(input.id);
+    assert.deepEqual(first, expected);
+
+    const firstStep = first?.state.run.lastStep;
+    if (
+        firstStep === undefined
+        || !("kind" in firstStep)
+        || firstStep.kind !== "action"
+    ) {
+        assert.fail("expected an Action Step");
+    }
+
+    (firstStep.action.input as { path: string }).path = "restored.txt";
+    assert.deepEqual(await store.restore(input.id), expected);
 });
 
 test("InMemoryGoalStore validates before saving and returns undefined when missing", async () => {
@@ -418,7 +642,7 @@ test("JsonFileGoalStore restores v1 read-only and upgrades it on the next save",
         const restored = await store.restore(v1.id);
 
         assert.ok(restored);
-        assert.equal(restored.metadata.schemaVersion, 2);
+        assert.equal(restored.metadata.schemaVersion, 3);
         assert.equal(await readFile(path, "utf8"), originalContent);
 
         await store.save(restored);
@@ -427,9 +651,43 @@ test("JsonFileGoalStore restores v1 read-only and upgrades it on the next save",
             readonly task?: unknown;
         };
 
-        assert.equal(saved.metadata.schemaVersion, 2);
+        assert.equal(saved.metadata.schemaVersion, 3);
         assert.equal(saved.task, undefined);
         assert.deepEqual(await store.restore(v1.id), restored);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore restores v2 read-only and upgrades it on the next save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const v2 = createV2Snapshot();
+        const path = snapshotPath(directory, v2.id);
+        const originalContent = `${JSON.stringify(v2, null, 2)}\n`;
+        await mkdir(directory, { recursive: true });
+        await writeFile(path, originalContent, "utf8");
+        const store = new JsonFileGoalStore(directory);
+
+        const restored = await store.restore(v2.id);
+
+        assert.ok(restored);
+        assert.equal(restored.metadata.schemaVersion, 3);
+        assert.equal(restored.state.run.checkpoint, "旧版累计 checkpoint");
+        assert.equal(await readFile(path, "utf8"), originalContent);
+
+        await store.save(restored);
+        const saved = JSON.parse(await readFile(path, "utf8")) as {
+            readonly metadata: { readonly schemaVersion: number };
+            readonly state: {
+                readonly run: { readonly lastStep?: { readonly kind?: string } };
+            };
+        };
+
+        assert.equal(saved.metadata.schemaVersion, 3);
+        assert.equal(saved.state.run.lastStep?.kind, "legacy");
+        assert.deepEqual(await store.restore(v2.id), restored);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -455,11 +713,13 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
                     status: "running",
                     stepCount: 2,
                     lastStep: {
+                        kind: "legacy",
                         result: {
                             kind: "continue",
                             summary: "已保存最新进度",
                         },
                     },
+                    checkpoint: "已保存最新进度",
                 },
             },
         };
@@ -729,7 +989,7 @@ test("JsonFileGoalStore migrates v1 across tsx processes", async () => {
         ]);
         const restored = JSON.parse(restoredOutput) as Goal;
 
-        assert.equal(restored.metadata.schemaVersion, 2);
+        assert.equal(restored.metadata.schemaVersion, 3);
         assert.equal(restored.state.workflow.phase, "executing");
         assert.deepEqual(restored.state.messages[1], {
             role: "assistant",

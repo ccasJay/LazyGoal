@@ -218,8 +218,12 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.deepEqual(state, store.savedGoals[2]?.state.run);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
-    assert.deepEqual(state.lastStep, { result: completeResult });
+    assert.deepEqual(state.lastStep, {
+        kind: "legacy",
+        result: completeResult,
+    });
     assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
+        kind: "legacy",
         result: continueResult,
     });
 
@@ -573,7 +577,13 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
-    assert.equal(state.lastStep?.result.kind, "continue");
+    const lastResult = state.lastStep !== undefined && "result" in state.lastStep
+        ? state.lastStep.result
+        : undefined;
+    assert.equal(
+        lastResult?.kind,
+        "continue",
+    );
     assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",
@@ -619,7 +629,13 @@ test("uses persisted step count after external resume as the maxSteps budget", a
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
-    assert.equal(state.lastStep?.result.kind, "wait");
+    const lastResult = state.lastStep !== undefined && "result" in state.lastStep
+        ? state.lastStep.result
+        : undefined;
+    assert.equal(
+        lastResult?.kind,
+        "wait",
+    );
     assert.deepEqual(executor.receivedGoals, []);
     assert.deepEqual(events, [
         "restore:goal-1",
@@ -646,11 +662,17 @@ test("converts an executor exception into a persisted step failure", async () =>
 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 1);
-    assert.equal(state.lastStep?.result.kind, "fail");
-    if (state.lastStep?.result.kind !== "fail") {
+    const lastResult = state.lastStep !== undefined && "result" in state.lastStep
+        ? state.lastStep.result
+        : undefined;
+    assert.equal(
+        lastResult?.kind,
+        "fail",
+    );
+    if (lastResult?.kind !== "fail") {
         assert.fail("expected an executor failure result");
     }
-    assert.match(state.lastStep.result.error, /executor failed/);
+    assert.match(lastResult.error, /executor failed/);
     assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",

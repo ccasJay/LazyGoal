@@ -60,14 +60,14 @@ test("advances one transition at a time through the main lifecycle", () => {
     );
     assert.equal(waiting.status, "waiting");
     assert.equal(waiting.stepCount, 1);
-    assert.deepEqual(waiting.lastStep, { result: waitResult });
+    assert.deepEqual(waiting.lastStep, { kind: "legacy", result: waitResult });
 
     const resumed = requireSuccessfulState(
         transition(waiting, { kind: "resume" }),
     );
     assert.equal(resumed.status, "running");
     assert.equal(resumed.stepCount, 1);
-    assert.deepEqual(resumed.lastStep, { result: waitResult });
+    assert.deepEqual(resumed.lastStep, { kind: "legacy", result: waitResult });
 
     const completeResult = {
         kind: "complete",
@@ -78,7 +78,7 @@ test("advances one transition at a time through the main lifecycle", () => {
     );
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
-    assert.deepEqual(completed.lastStep, { result: completeResult });
+    assert.deepEqual(completed.lastStep, { kind: "legacy", result: completeResult });
 });
 
 test("step.continue keeps the run running and increments once", () => {
@@ -95,7 +95,10 @@ test("step.continue keeps the run running and increments once", () => {
     assert.notStrictEqual(nextState, currentState);
     assert.equal(nextState.status, "running");
     assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastStep, { result: input.result });
+    assert.deepEqual(nextState.lastStep, {
+        kind: "legacy",
+        result: input.result,
+    });
     assert.deepEqual(currentState, stateBefore);
     assert.deepEqual(input, inputBefore);
 });
@@ -111,7 +114,7 @@ test("step.fail moves the run to failed and increments once", () => {
     assert.notStrictEqual(nextState, currentState);
     assert.equal(nextState.status, "failed");
     assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastStep, { result });
+    assert.deepEqual(nextState.lastStep, { kind: "legacy", result });
 });
 
 const cancellationCases: ReadonlyArray<{
@@ -168,6 +171,7 @@ const terminalStates: readonly RunState[] = [
         status: "completed",
         stepCount: 1,
         lastStep: {
+            kind: "legacy",
             result: { kind: "complete", summary: "已完成" },
         },
     },
@@ -175,7 +179,10 @@ const terminalStates: readonly RunState[] = [
         ...createRun("run-failed"),
         status: "failed",
         stepCount: 1,
-        lastStep: { result: { kind: "fail", error: "执行失败" } },
+        lastStep: {
+            kind: "legacy",
+            result: { kind: "fail", error: "执行失败" },
+        },
     },
     {
         ...createRun("run-cancelled"),

@@ -10,7 +10,18 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import type { Goal } from "./domain";
+import type {
+    Goal,
+    GoalWorkflowState,
+    RunState,
+    StepResult,
+} from "./domain";
+
+const NonEmptyStringSchema = z.string().min(1);
+
+const GoalV3MetadataSchema = z.object({
+    schemaVersion: z.literal(3),
+}).strict();
 
 const GoalV2MetadataSchema = z.object({
     schemaVersion: z.literal(2),
@@ -49,6 +60,32 @@ const GoalV1MessageSchema = z.object({
     content: z.string(),
 }).strict();
 
+const JsonValueSchema = z.json();
+
+const ToolCallActionSchema = z.object({
+    actionId: NonEmptyStringSchema,
+    toolId: NonEmptyStringSchema,
+    input: JsonValueSchema,
+}).strict();
+
+const ObservationSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("success"),
+        output: JsonValueSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("failure"),
+        code: NonEmptyStringSchema,
+        message: NonEmptyStringSchema,
+        retryable: z.boolean(),
+    }).strict(),
+    z.object({
+        kind: z.literal("rejected"),
+        reason: NonEmptyStringSchema,
+    }).strict(),
+]);
+
 const StepResultSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("continue"),
@@ -68,6 +105,56 @@ const StepResultSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const DecisionResultSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("complete"),
+        checkpoint: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        checkpoint: NonEmptyStringSchema,
+        reason: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        checkpoint: NonEmptyStringSchema,
+        error: NonEmptyStringSchema,
+    }).strict(),
+]);
+
+const PendingActionSchema = z.object({
+    action: ToolCallActionSchema,
+    status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
+}).strict();
+
+const ActionStepRecordSchema = z.object({
+    kind: z.literal("action"),
+    action: ToolCallActionSchema,
+    observation: ObservationSchema,
+}).strict();
+
+const DecisionStepRecordSchema = z.object({
+    kind: z.literal("decision"),
+    result: DecisionResultSchema,
+}).strict();
+
+const LegacyStepRecordSchema = z.object({
+    kind: z.literal("legacy"),
+    result: StepResultSchema,
+}).strict();
+
+const GoalV3StepRecordSchema = z.discriminatedUnion("kind", [
+    ActionStepRecordSchema,
+    DecisionStepRecordSchema,
+]);
+
+const MigratedGoalV3StepRecordSchema = z.discriminatedUnion("kind", [
+    ActionStepRecordSchema,
+    DecisionStepRecordSchema,
+    LegacyStepRecordSchema,
+]);
+
 const RunStatusSchema = z.enum([
     "created",
     "running",
@@ -77,7 +164,7 @@ const RunStatusSchema = z.enum([
     "cancelled",
 ]);
 
-const RunStateSchema = z.object({
+const RunStateV2Schema = z.object({
     id: z.string(),
     status: RunStatusSchema,
     stepCount: z.number().int().nonnegative(),
@@ -85,6 +172,43 @@ const RunStateSchema = z.object({
     stopReason: z.object({
         kind: z.literal("max_steps_exceeded"),
     }).strict().optional(),
+}).strict();
+
+const RunStopReasonV3Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("max_steps_exceeded"),
+    }).strict(),
+    z.object({
+        kind: z.literal("execution_error"),
+        code: z.enum([
+            "TOOL_NOT_AUTHORIZED",
+            "TOOL_NOT_FOUND",
+            "INVALID_TOOL_INPUT",
+            "INVALID_AGENT_DECISION",
+            "TOOL_EXECUTION_ERROR",
+        ]),
+        message: NonEmptyStringSchema,
+    }).strict(),
+]);
+
+const RunStateV3Schema = z.object({
+    id: z.string(),
+    status: RunStatusSchema,
+    stepCount: z.number().int().nonnegative(),
+    lastStep: GoalV3StepRecordSchema.optional(),
+    checkpoint: NonEmptyStringSchema.optional(),
+    pendingAction: PendingActionSchema.optional(),
+    stopReason: RunStopReasonV3Schema.optional(),
+}).strict();
+
+const MigratedRunStateV3Schema = z.object({
+    id: z.string(),
+    status: RunStatusSchema,
+    stepCount: z.number().int().nonnegative(),
+    lastStep: MigratedGoalV3StepRecordSchema.optional(),
+    checkpoint: NonEmptyStringSchema.optional(),
+    pendingAction: PendingActionSchema.optional(),
+    stopReason: RunStopReasonV3Schema.optional(),
 }).strict();
 
 const GoalWorkflowSchema = z.discriminatedUnion("phase", [
@@ -120,7 +244,7 @@ function addInvariantIssue(
 }
 
 function validateRunResultInvariant(
-    run: z.infer<typeof RunStateSchema>,
+    run: z.infer<typeof RunStateV2Schema>,
     context: z.RefinementCtx,
 ): void {
     const result = run.lastStep?.result;
@@ -177,7 +301,7 @@ const GoalV2SnapshotSchema = z.object({
     state: z.object({
         workflow: GoalWorkflowSchema,
         messages: z.array(GoalMessageSchema),
-        run: RunStateSchema,
+        run: RunStateV2Schema,
     }).strict(),
 }).strict().superRefine((goal, context) => {
     const { run, workflow } = goal.state;
@@ -229,6 +353,242 @@ const GoalV2SnapshotSchema = z.object({
         }
     }
 });
+
+type V3InvariantGoal = {
+    readonly definition: {
+        readonly executionPolicy: { readonly maxSteps: number };
+    };
+    readonly state: {
+        readonly workflow: GoalWorkflowState;
+        readonly run: RunState;
+    };
+};
+
+function validateV3Invariants(
+    input: unknown,
+    context: z.RefinementCtx,
+): void {
+    const goal = input as V3InvariantGoal;
+    const { run, workflow } = goal.state;
+    const step = run.lastStep;
+    const taggedStep = step !== undefined && "kind" in step ? step : undefined;
+    const result = taggedStep?.kind === "decision" || taggedStep?.kind === "legacy"
+        ? taggedStep.result
+        : undefined;
+
+    if ((run.stepCount > 0) !== (step !== undefined)) {
+        addInvariantIssue(
+            context,
+            "lastStep must exist if and only if stepCount is positive",
+            ["state", "run", "lastStep"],
+        );
+    }
+
+    if (run.status === "created" && (
+        run.stepCount !== 0
+        || step !== undefined
+        || run.checkpoint !== undefined
+        || run.pendingAction !== undefined
+        || run.stopReason !== undefined
+    )) {
+        addInvariantIssue(context, "created Run cannot contain execution progress");
+    }
+
+    if (workflow.phase !== "executing" && (
+        run.status !== "created"
+        || run.stepCount !== 0
+        || step !== undefined
+        || run.checkpoint !== undefined
+        || run.pendingAction !== undefined
+        || run.stopReason !== undefined
+    )) {
+        addInvariantIssue(
+            context,
+            "Preparation workflow requires a created Run without execution memory",
+            ["state", "run"],
+        );
+    }
+
+    if (run.status !== "failed" && run.stopReason !== undefined) {
+        addInvariantIssue(context, "stopReason is only valid for a failed Run");
+    }
+
+    const pendingAction = run.pendingAction;
+
+    if (pendingAction !== undefined) {
+        if (workflow.phase !== "executing") {
+            addInvariantIssue(
+                context,
+                "pendingAction is only valid for an executing Goal",
+                ["state", "run", "pendingAction"],
+            );
+        }
+
+        if (run.checkpoint === undefined) {
+            addInvariantIssue(
+                context,
+                "pendingAction requires a checkpoint",
+                ["state", "run", "checkpoint"],
+            );
+        }
+
+        if (
+            pendingAction.status === "awaiting_approval"
+            && run.status !== "waiting"
+        ) {
+            addInvariantIssue(
+                context,
+                "awaiting_approval pendingAction requires a waiting Run",
+            );
+        }
+
+        if (
+            pendingAction.status === "outcome_unknown"
+            && run.status !== "waiting"
+            && run.status !== "failed"
+        ) {
+            addInvariantIssue(
+                context,
+                "outcome_unknown pendingAction requires a waiting or failed Run",
+            );
+        }
+
+        if (run.status === "waiting" && pendingAction.status === "approved") {
+            addInvariantIssue(
+                context,
+                "waiting Run cannot contain an approved pendingAction",
+            );
+        }
+
+        if (
+            (run.status === "completed" || run.status === "cancelled")
+            && pendingAction !== undefined
+        ) {
+            addInvariantIssue(
+                context,
+                "terminal Run cannot contain a pendingAction",
+            );
+        }
+
+        if (run.stopReason?.kind === "max_steps_exceeded") {
+            addInvariantIssue(
+                context,
+                "maxSteps failure cannot contain a pendingAction",
+            );
+        }
+
+        if (
+            taggedStep?.kind === "action"
+            && taggedStep.action.actionId === pendingAction.action.actionId
+        ) {
+            addInvariantIssue(
+                context,
+                "pendingAction cannot repeat the latest completed Action",
+            );
+        }
+    }
+
+    if (run.status === "waiting") {
+        if (pendingAction === undefined && result?.kind !== "wait") {
+            addInvariantIssue(
+                context,
+                "waiting Run requires a wait decision or a pending Action",
+            );
+        }
+
+        if (
+            pendingAction !== undefined
+            && pendingAction.status !== "awaiting_approval"
+            && pendingAction.status !== "outcome_unknown"
+        ) {
+            addInvariantIssue(
+                context,
+                "waiting Run requires an approval or recovery pendingAction",
+            );
+        }
+    }
+
+    if (run.status === "completed" && result?.kind !== "complete") {
+        addInvariantIssue(context, "completed Run requires a complete decision");
+    }
+
+    if (run.status === "failed") {
+        if (run.stopReason === undefined && result?.kind !== "fail") {
+            addInvariantIssue(context, "failed Run requires a fail decision");
+        }
+
+        if (run.stopReason?.kind === "max_steps_exceeded") {
+            const maxSteps = goal.definition.executionPolicy.maxSteps;
+            const validPreviousStep = taggedStep?.kind === "action"
+                || (taggedStep?.kind === "legacy"
+                    && (result?.kind === "continue" || result?.kind === "wait"));
+
+            if (
+                maxSteps <= 0
+                || run.stepCount < maxSteps
+                || !validPreviousStep
+            ) {
+                addInvariantIssue(
+                    context,
+                    "maxSteps failure requires a reached positive execution limit",
+                );
+            }
+        }
+    }
+
+    if (
+        run.status === "running"
+        && taggedStep?.kind === "decision"
+        && result !== undefined
+    ) {
+        addInvariantIssue(
+            context,
+            "running Run cannot preserve a terminal Agent decision",
+        );
+    }
+}
+
+const GoalV3SnapshotBaseSchema = z.object({
+    id: z.string(),
+    metadata: GoalV3MetadataSchema,
+    definition: z.object({
+        intent: z.string(),
+        profile: AgentProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: GoalWorkflowSchema,
+        messages: z.array(GoalMessageSchema),
+        run: RunStateV3Schema,
+    }).strict(),
+}).strict();
+
+const MigratedGoalV3SnapshotBaseSchema = z.object({
+    id: z.string(),
+    metadata: GoalV3MetadataSchema,
+    definition: z.object({
+        intent: z.string(),
+        profile: AgentProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: GoalWorkflowSchema,
+        messages: z.array(GoalMessageSchema),
+        run: MigratedRunStateV3Schema,
+    }).strict(),
+}).strict();
+
+const GoalV3SnapshotSchema = GoalV3SnapshotBaseSchema.superRefine(
+    validateV3Invariants,
+);
+
+const MigratedGoalV3SnapshotSchema = MigratedGoalV3SnapshotBaseSchema.superRefine(
+    validateV3Invariants,
+);
 
 const GoalV1RunSchema = z.object({
     id: z.string(),
@@ -291,9 +651,9 @@ const GoalV1SnapshotSchema = z.object({
     }
 });
 
-function migrateV1Goal(
+function migrateV1ToV2Goal(
     goal: z.infer<typeof GoalV1SnapshotSchema>,
-): Goal {
+) {
     return {
         id: goal.id,
         metadata: { schemaVersion: 2 },
@@ -327,13 +687,52 @@ function migrateV1Goal(
     };
 }
 
+function deriveCheckpoint(result: StepResult | undefined): string | undefined {
+    return result?.kind === "continue" ? result.summary : undefined;
+}
+
+function migrateV2ToV3Goal(
+    goal: z.infer<typeof GoalV2SnapshotSchema>,
+): Goal {
+    const legacyResult = goal.state.run.lastStep?.result;
+    const checkpoint = deriveCheckpoint(legacyResult);
+
+    return {
+        id: goal.id,
+        metadata: { schemaVersion: 3 },
+        definition: structuredClone(goal.definition),
+        state: {
+            workflow: structuredClone(goal.state.workflow),
+            messages: structuredClone(goal.state.messages),
+            run: {
+                id: goal.state.run.id,
+                status: goal.state.run.status,
+                stepCount: goal.state.run.stepCount,
+                ...(goal.state.run.lastStep === undefined
+                    ? {}
+                    : {
+                        lastStep: {
+                            kind: "legacy" as const,
+                            result: structuredClone(goal.state.run.lastStep.result),
+                        },
+                    }),
+                ...(checkpoint === undefined ? {} : { checkpoint }),
+                ...(goal.state.run.stopReason === undefined
+                    ? {}
+                    : { stopReason: structuredClone(goal.state.run.stopReason) }),
+            },
+        },
+    };
+}
+
 /**
  * Goal 的版本化持久化协议。
  *
  * @remarks
- * 解码器先读取 `schemaVersion` 再选择对应的严格 Schema。v2 会校验
- * workflow 与 Run 的交叉字段；合法 v1 会在内存中确定性迁移为 v2。
- * 每一层对象都拒绝未声明字段，未知版本和损坏快照均验证失败。
+ * 解码器先读取 `schemaVersion` 再选择对应的严格 Schema。合法 v1/v2 会在
+ * 内存中依次迁移为 v3；迁移产生的 `legacy` Step 只允许出现在迁移结果中，
+ * 不允许新协议直接写入。每一层对象都拒绝未声明字段，未知版本和损坏快照
+ * 均验证失败。
  */
 export const GoalSnapshotSchema = z.unknown().transform((input, context) => {
     const metadata = typeof input === "object" && input !== null
@@ -347,7 +746,9 @@ export const GoalSnapshotSchema = z.unknown().transform((input, context) => {
         const result = GoalV1SnapshotSchema.safeParse(input);
 
         if (result.success) {
-            return migrateV1Goal(result.data);
+            return migrateV2ToV3Goal(
+                GoalV2SnapshotSchema.parse(migrateV1ToV2Goal(result.data)),
+            );
         }
 
         addInvariantIssue(context, "Invalid schemaVersion 1 Goal snapshot");
@@ -358,16 +759,36 @@ export const GoalSnapshotSchema = z.unknown().transform((input, context) => {
         const result = GoalV2SnapshotSchema.safeParse(input);
 
         if (result.success) {
-            return result.data;
+            return migrateV2ToV3Goal(result.data);
         }
 
         addInvariantIssue(context, "Invalid schemaVersion 2 Goal snapshot");
         return z.NEVER;
     }
 
+    if (schemaVersion === 3) {
+        const result = GoalV3SnapshotSchema.safeParse(input);
+
+        if (result.success) {
+            return result.data;
+        }
+
+        addInvariantIssue(context, "Invalid schemaVersion 3 Goal snapshot");
+        return z.NEVER;
+    }
+
     addInvariantIssue(context, "Unknown Goal snapshot schemaVersion");
     return z.NEVER;
-}).pipe(GoalV2SnapshotSchema);
+}).transform((input, context) => {
+    const result = MigratedGoalV3SnapshotSchema.safeParse(input);
+
+    if (!result.success) {
+        addInvariantIssue(context, "Invalid migrated v3 Goal snapshot");
+        return z.NEVER;
+    }
+
+    return result.data as Goal;
+});
 
 export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
 
@@ -386,15 +807,86 @@ export class GoalSnapshotProtocolError extends Error {
     }
 }
 
+function isRecord(input: unknown): input is Record<string, unknown> {
+    return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+/**
+ * 让尚未升级的当前 Runtime 写入路径先回到 v2 解码分支。
+ *
+ * @remarks
+ * 该兼容层只处理 schemaVersion 3 中旧的 `legacy` StepRecord，且不
+ * 丢弃 checkpoint、pendingAction 等 v3 字段；包含这些字段时仍由严格 v3
+ * Schema 拒绝。公开 `GoalSnapshotSchema` 仍拒绝直接写入 legacy Step。
+ */
+function normalizeLegacyRuntimeSnapshot(input: unknown): unknown {
+    if (!isRecord(input)) {
+        return input;
+    }
+
+    const metadata = input.metadata;
+    const state = input.state;
+    const run = isRecord(state) ? state.run : undefined;
+    const lastStep = isRecord(run) ? run.lastStep : undefined;
+
+    if (
+        !isRecord(metadata)
+        || metadata.schemaVersion !== 3
+        || !isRecord(state)
+        || !isRecord(run)
+        || !isRecord(lastStep)
+        || !("kind" in lastStep)
+        || lastStep.kind !== "legacy"
+        || "checkpoint" in run
+        || "pendingAction" in run
+    ) {
+        return input;
+    }
+
+    return {
+        ...input,
+        metadata: { schemaVersion: 2 },
+        state: {
+            ...state,
+            run: {
+                id: run.id,
+                status: run.status,
+                stepCount: run.stepCount,
+                lastStep: {
+                    result: lastStep.result,
+                },
+                ...(run.stopReason === undefined
+                    ? {}
+                    : { stopReason: run.stopReason }),
+            },
+        },
+    };
+}
+
 /**
  * 解码并结构化克隆一个版本化 Goal 快照。
  *
- * @param input - v2 Goal 或仍符合旧协议的 v1 快照。
- * @returns 与输入隔离的 v2 Goal；v1 输入不会被原地修改。
+ * @param input - v3 Goal 或仍符合旧协议的 v1/v2 快照。
+ * @returns 与输入隔离的 v3 Goal；旧版本输入不会被原地修改。
  * @throws 输入版本未知、结构损坏或违反跨字段不变量时抛出 ZodError。
  */
 export function cloneValidatedGoal(input: unknown): Goal {
-    const parsed = structuredClone(GoalSnapshotSchema.parse(input));
+    const normalizedInput = normalizeLegacyRuntimeSnapshot(input);
+    let parsed: Goal;
+
+    try {
+        parsed = GoalSnapshotSchema.parse(normalizedInput);
+    } catch (error) {
+        const migrated = MigratedGoalV3SnapshotSchema.safeParse(normalizedInput);
+
+        if (!migrated.success) {
+            throw error;
+        }
+
+        parsed = migrated.data as Goal;
+    }
+
+    parsed = structuredClone(parsed);
 
     return {
         ...parsed,
@@ -407,6 +899,12 @@ export function cloneValidatedGoal(input: unknown): Goal {
                 ...(parsed.state.run.lastStep === undefined
                     ? {}
                     : { lastStep: parsed.state.run.lastStep }),
+                ...(parsed.state.run.checkpoint === undefined
+                    ? {}
+                    : { checkpoint: parsed.state.run.checkpoint }),
+                ...(parsed.state.run.pendingAction === undefined
+                    ? {}
+                    : { pendingAction: parsed.state.run.pendingAction }),
                 ...(parsed.state.run.stopReason === undefined
                     ? {}
                     : { stopReason: parsed.state.run.stopReason }),
@@ -428,6 +926,11 @@ export interface GoalStore {
      *
      * @param goal - 需要成为最新版本的完整 Session 聚合。
      * @throws 快照不符合协议或底层存储写入失败时抛出异常。
+     *
+     * @example
+     * ```ts
+     * await store.save(goal);
+     * ```
      */
     save(goal: Goal): Promise<void>;
 
@@ -435,7 +938,7 @@ export interface GoalStore {
      * 恢复指定 Goal 的最新完整快照。
      *
      * @param goalId - Session 的稳定标识。
-     * @returns 最新 v2 快照；v1 数据只在返回值中迁移，不因恢复而写回。
+     * @returns 最新 v3 快照；v1/v2 数据只在返回值中迁移，不因恢复而写回。
      * @throws 已存在快照损坏或底层存储读取失败时抛出异常。
      */
     restore(goalId: string): Promise<Goal | undefined>;
@@ -479,7 +982,7 @@ export class InMemoryGoalStore implements GoalStore {
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播；非法 JSON、Schema
  * 不匹配、未知版本和文件内 Goal ID 不一致统一抛出
  * {@link GoalSnapshotProtocolError}。恢复 v1 不改写文件，之后显式保存恢复
- * 结果时才以 v2 原子替换。
+ * 结果时才以 v3 原子替换。
  */
 export class JsonFileGoalStore implements GoalStore {
     /**
@@ -523,7 +1026,7 @@ export class JsonFileGoalStore implements GoalStore {
     /**
      * 从 JSON 文件恢复并校验最新 Goal 快照。
      *
-     * @returns 文件不存在时返回 `undefined`，否则返回与存储隔离的 v2 Goal。
+     * @returns 文件不存在时返回 `undefined`，否则返回与存储隔离的 v3 Goal。
      * @throws 快照违反协议时抛出 GoalSnapshotProtocolError；其他读取错误原样传播。
      */
     async restore(goalId: string): Promise<Goal | undefined> {

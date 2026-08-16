@@ -31,7 +31,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
 
     assert.deepEqual(goal, {
         id: "goal-1",
-        metadata: { schemaVersion: 2 },
+        metadata: { schemaVersion: 3 },
         definition: {
             intent: "完成最小 Runtime",
             profile,
@@ -125,7 +125,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
     }
 });
 
-test("a complete v2 Goal supports a JSON round-trip", () => {
+test("a complete v3 Goal supports a JSON round-trip", () => {
     const goal = createGoal({
         id: "goal-4",
         intent: "验证序列化",

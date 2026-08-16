@@ -1,6 +1,8 @@
 export { createGoal, createRun } from "./domain";
 export type {
     AssistantMessage,
+    AgentDecision,
+    ExecutionErrorCode,
     Goal,
     GoalCreationInput,
     GoalDefinition,
@@ -10,6 +12,8 @@ export type {
     GoalState,
     GoalTask,
     GoalWorkflowState,
+    JsonObject,
+    JsonValue,
     LegacyRunState,
     LegacyGoalCreationInput,
     RunInput,
@@ -17,8 +21,11 @@ export type {
     RunState,
     RunStopReason,
     RunStatus,
+    Observation,
+    PendingAction,
     StepRecord,
     StepResult,
+    ToolCallAction,
     TransitionResult,
     UserMessage,
 } from "./domain";
