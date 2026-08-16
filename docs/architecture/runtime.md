@@ -9,6 +9,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、StepResult | I/O 和模型调用 |
+| [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界 | 阶段推进、消息追加与持久化 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 冻结 Profile、创建 Goal、先保存后调度 | 执行 Step |
 | [Runner](../../packages/runtime/src/runner.ts) | 恢复、转换、追加消息、逐步保存 | 解析模型协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
@@ -32,4 +33,4 @@ Run 主流程为 `created → running → continue* → waiting/resume | complet
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。旧 Launcher 暂时通过 deprecated 输入创建已准备的 executing Goal；Preparation 推进尚未接入。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Preparation Executor 契约已存在，但 Coordinator 尚未接入阶段推进和持久化。旧 Launcher 仍暂时通过 deprecated 输入创建已准备的 executing Goal。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。

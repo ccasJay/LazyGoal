@@ -32,6 +32,10 @@ export {
 } from "./goal-store";
 export type { GoalStore } from "./goal-store";
 export type { StepExecutionResult, StepExecutor } from "./step-executor";
+export type {
+    PreparationExecutor,
+    PreparationResult,
+} from "./preparation-executor";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

@@ -21,7 +21,7 @@ export interface LLMResponseProtocolErrorDetails {
     readonly issues?: readonly z.ZodIssue[];
 }
 
-/** 模型原始文本不是合法 JSON，或不符合严格 StepResult Schema。 */
+/** 模型原始文本不是合法 JSON，或不符合当前严格领域结果 Schema。 */
 export class LLMResponseProtocolError extends Error {
     readonly code = LLM_RESPONSE_PROTOCOL_ERROR_CODE;
     readonly cause?: unknown;

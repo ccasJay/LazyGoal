@@ -12,7 +12,7 @@
   - 扩展 GoalStore 测试与跨进程 fixture，覆盖消息保序、下一次保存升级、未知版本及损坏快照
   - _Requirements: [1.3](./requirements.md#req-1-3), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 3. 增加分阶段 Preparation Executor 协议
+- [x] //TODO 3. 增加分阶段 Preparation Executor 协议
 
   - 在 Runtime 增加 PreparationExecutor/PreparationResult 契约，在 Agent 增加按 Goal phase 选择的严格响应 Schema 与 LLM 实现
   - 导出新扩展点并添加单元测试，覆盖 phase/result 不匹配、Adapter 异常和 Tool 提前拒绝
