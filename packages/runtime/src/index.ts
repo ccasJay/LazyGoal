@@ -53,4 +53,6 @@ export type {
     GoalCoordinatorDependencies,
     GoalProgressErrorCode,
     GoalProgressResult,
+    GoalUserAction,
+    ResumeGoalRequest,
 } from "./goal-coordinator";

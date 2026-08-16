@@ -89,10 +89,12 @@ class FakeScheduler implements RunScheduler {
 
     constructor(
         private readonly scheduleAction: (ref: RunRef) => Promise<RunnerResult>,
+        private readonly events: string[] = [],
     ) {}
 
     async schedule(ref: RunRef): Promise<RunnerResult> {
         this.receivedRefs.push(ref);
+        this.events.push(`schedule:${ref.goalId}`);
         return this.scheduleAction(ref);
     }
 }
@@ -104,6 +106,60 @@ function createPreparationGoal(): Goal {
         profile,
         runId: "run-1",
     });
+}
+
+function createGatheringWaitingGoal(): Goal {
+    const goal = createPreparationGoal();
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "waiting_input" },
+            },
+            messages: [
+                ...goal.state.messages,
+                {
+                    role: "assistant",
+                    assistant: { profileId: profile.id },
+                    content: "Which database should be used?",
+                },
+            ],
+        },
+    };
+}
+
+function createPlanningWaitingGoal(
+    proposal = {
+        objective: "Implement persistence",
+        completionCriteria: ["Snapshots can be restored"],
+    },
+): Goal {
+    const goal = createPreparationGoal();
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "planning",
+                preparation: {
+                    status: "waiting_approval",
+                    proposal,
+                },
+            },
+            messages: [
+                ...goal.state.messages,
+                {
+                    role: "assistant",
+                    assistant: { profileId: profile.id },
+                    content: "Approve the persistence task?",
+                },
+            ],
+        },
+    };
 }
 
 function createUnusedScheduler(): RunScheduler {
@@ -429,6 +485,271 @@ test("returns RUN_NOT_FOUND for a missing Goal or mismatched runId", async () =>
         { goalId: "goal-1", runId: "other-run" },
     ]) {
         const result = requireFailure(await coordinator.advance(ref));
+        assert.equal(result.error.code, "RUN_NOT_FOUND");
+    }
+});
+
+test("saves a gathering answer before continuing and preserves its original text", async () => {
+    const events: string[] = [];
+    const waiting = createGatheringWaitingGoal();
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const executor = new FakePreparationExecutor([
+        { kind: "question", question: "Which region should be used?" },
+    ], events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: { kind: "message", content: "  PostgreSQL  " },
+    }));
+
+    assert.deepEqual(events, [
+        "restore:goal-1",
+        "save:gathering_context",
+        "restore:goal-1",
+        "execute:gathering_context",
+        "save:gathering_context",
+    ]);
+    assert.equal(result.kind, "waiting");
+    assert.equal(result.phase, "gathering_context");
+    assert.deepEqual(result.goal.state.messages.slice(-2), [
+        { role: "user", content: "  PostgreSQL  " },
+        {
+            role: "assistant",
+            assistant: { profileId: profile.id },
+            content: "Which region should be used?",
+        },
+    ]);
+    assert.deepEqual(result.goal.state.run, waiting.state.run);
+    assert.equal(executor.receivedGoals[0]?.state.workflow.phase, "gathering_context");
+    assert.deepEqual(executor.receivedGoals[0]?.state.messages.at(-1), {
+        role: "user",
+        content: "  PostgreSQL  ",
+    });
+});
+
+test("saves planning feedback without the current proposal before replanning", async () => {
+    const events: string[] = [];
+    const waiting = createPlanningWaitingGoal();
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const revisedTask = {
+        objective: "Implement encrypted persistence",
+        completionCriteria: ["Snapshots are encrypted and restorable"],
+    } as const;
+    const executor = new FakePreparationExecutor([
+        (goal) => {
+            assert.deepEqual(goal.state.workflow, {
+                phase: "planning",
+                preparation: { status: "active" },
+            });
+            assert.deepEqual(goal.state.messages.at(-1), {
+                role: "user",
+                content: "Encrypt snapshots at rest",
+            });
+            return {
+                kind: "task_proposal",
+                task: revisedTask,
+                approvalRequest: "Approve the revised task?",
+            };
+        },
+    ], events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: { kind: "message", content: "Encrypt snapshots at rest" },
+    }));
+
+    assert.deepEqual(events, [
+        "restore:goal-1",
+        "save:planning",
+        "restore:goal-1",
+        "execute:planning",
+        "save:planning",
+    ]);
+    assert.equal(result.kind, "waiting");
+    assert.equal(result.phase, "planning");
+    assert.deepEqual(result.goal.state.workflow, {
+        phase: "planning",
+        preparation: {
+            status: "waiting_approval",
+            proposal: revisedTask,
+        },
+    });
+    assert.deepEqual(result.goal.state.run, waiting.state.run);
+});
+
+test("saves an approved proposal as the final task before scheduling execution", async () => {
+    const events: string[] = [];
+    const proposal = {
+        objective: "Implement persistence",
+        completionCriteria: ["Snapshots can be restored"],
+    };
+    const waiting = createPlanningWaitingGoal(proposal);
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const scheduler = new FakeScheduler(async (ref) => {
+        const approved = await store.restore(ref.goalId);
+        assert.ok(approved);
+        assert.deepEqual(approved.state.workflow, {
+            phase: "executing",
+            preparation: { status: "completed" },
+            task: proposal,
+        });
+        assert.deepEqual(approved.state.messages, waiting.state.messages);
+
+        const completedRun = applyRunTransition(
+            applyRunTransition(approved.state.run, { kind: "start" }),
+            { kind: "step", result: { kind: "complete", summary: "Done" } },
+        );
+        await store.save({
+            ...approved,
+            state: { ...approved.state, run: completedRun },
+        });
+        return { ok: true, state: completedRun };
+    }, events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: { kind: "approve" },
+    }));
+
+    assert.ok(events.indexOf("save:executing") < events.indexOf("schedule:goal-1"));
+    assert.equal(result.kind, "terminal");
+    assert.equal(result.phase, "executing");
+    assert.deepEqual(result.goal.state.messages, waiting.state.messages);
+    assert.notStrictEqual(
+        result.goal.state.workflow.phase === "executing"
+            ? result.goal.state.workflow.task
+            : undefined,
+        proposal,
+    );
+});
+
+test("rejects empty or mismatched preparation actions without side effects", async () => {
+    const cases = [
+        {
+            goal: createGatheringWaitingGoal(),
+            action: { kind: "message", content: "   " } as const,
+            code: "INVALID_GOAL_INPUT",
+        },
+        {
+            goal: createGatheringWaitingGoal(),
+            action: { kind: "approve" } as const,
+            code: "INVALID_GOAL_INPUT",
+        },
+        {
+            goal: createPreparationGoal(),
+            action: { kind: "message", content: "Too early" } as const,
+            code: "GOAL_NOT_WAITING",
+        },
+        {
+            goal: {
+                ...createPreparationGoal(),
+                state: {
+                    ...createPreparationGoal().state,
+                    workflow: {
+                        phase: "planning",
+                        preparation: { status: "active" },
+                    },
+                },
+            } as Goal,
+            action: { kind: "approve" } as const,
+            code: "GOAL_NOT_WAITING",
+        },
+    ] as const;
+
+    for (const testCase of cases) {
+        const store = new RecordingGoalStore();
+        await store.seed(testCase.goal);
+        const executor = new FakePreparationExecutor([]);
+        const scheduler = new FakeScheduler(async () => {
+            throw new Error("Unexpected Scheduler call");
+        });
+        const coordinator = new GoalCoordinator({
+            store,
+            preparationExecutor: executor,
+            scheduler,
+        });
+
+        const result = requireFailure(await coordinator.resume({
+            ref: {
+                goalId: testCase.goal.id,
+                runId: testCase.goal.state.run.id,
+            },
+            action: testCase.action,
+        }));
+
+        assert.equal(result.error.code, testCase.code);
+        assert.deepEqual(store.savedGoals, []);
+        assert.deepEqual(executor.receivedGoals, []);
+        assert.deepEqual(scheduler.receivedRefs, []);
+        assert.deepEqual(await store.restore(testCase.goal.id), testCase.goal);
+    }
+});
+
+test("propagates a resume save failure without continuing preparation", async () => {
+    const waiting = createGatheringWaitingGoal();
+    const saveError = new Error("resume save failed");
+    const store = new RecordingGoalStore([], { call: 1, error: saveError });
+    await store.seed(waiting);
+    const executor = new FakePreparationExecutor([]);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+    });
+
+    await assert.rejects(
+        () => coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action: { kind: "message", content: "PostgreSQL" },
+        }),
+        (error: unknown) => {
+            assert.strictEqual(error, saveError);
+            return true;
+        },
+    );
+    assert.deepEqual(executor.receivedGoals, []);
+    assert.deepEqual(await store.restore(waiting.id), waiting);
+});
+
+test("resume returns RUN_NOT_FOUND for a missing Goal or mismatched runId", async () => {
+    const waiting = createGatheringWaitingGoal();
+    const store = new RecordingGoalStore();
+    await store.seed(waiting);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler: createUnusedScheduler(),
+    });
+
+    for (const ref of [
+        { goalId: "missing", runId: waiting.state.run.id },
+        { goalId: waiting.id, runId: "other-run" },
+    ]) {
+        const result = requireFailure(await coordinator.resume({
+            ref,
+            action: { kind: "message", content: "PostgreSQL" },
+        }));
         assert.equal(result.error.code, "RUN_NOT_FOUND");
     }
 });

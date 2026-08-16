@@ -19,6 +19,35 @@ export type GoalProgressErrorCode =
     | "INVALID_PHASE_RESULT";
 
 /**
+ * 用户对 Goal 当前交互等待点提交的操作。
+ *
+ * @remarks
+ * `message` 用于回答问题或反馈任务提案，内容按原文持久化；`approve` 只批准
+ * 当前 proposal，不产生会话消息。
+ */
+export type GoalUserAction =
+    | { readonly kind: "message"; readonly content: string }
+    | { readonly kind: "approve" };
+
+/**
+ * 恢复等待中 Goal 所需的稳定关联键与用户操作。
+ *
+ * @example
+ * ```ts
+ * const request: ResumeGoalRequest = {
+ *   ref: { goalId: "goal-1", runId: "run-1" },
+ *   action: { kind: "message", content: "Use PostgreSQL" },
+ * };
+ * ```
+ */
+export interface ResumeGoalRequest {
+    /** 目标 Goal 与当前 Run 的关联键。 */
+    readonly ref: RunRef;
+    /** 与当前等待类型匹配的用户操作。 */
+    readonly action: GoalUserAction;
+}
+
+/**
  * GoalCoordinator 推进一次 Goal 后到达的等待点、执行终态或业务失败。
  *
  * @remarks
@@ -89,6 +118,8 @@ export interface GoalCoordinatorDependencies {
  * `advance` 是自动推进入口。每次跨阶段继续前都会先保存完整 Goal；保存失败
  * 时错误原样传播，且不会调用下一轮 Executor 或 Scheduler。Preparation
  * result 与当前 phase 不匹配时返回 `INVALID_PHASE_RESULT`，不产生副作用。
+ * `resume` 恢复准备阶段的 question/approval 等待；executing blocked 恢复由
+ * 后续执行协调边界接入。
  *
  * @example
  * ```ts
@@ -239,6 +270,89 @@ export class GoalCoordinator {
         };
     }
 
+    /**
+     * 提交准备阶段等待中的用户回答、提案反馈或批准操作。
+     *
+     * @remarks
+     * gathering message 会恢复为 active 并追加原文 user 消息；planning
+     * message 会移除当前 proposal、保留反馈并重新规划；approve 不追加消息，
+     * 而是把当前 proposal 复制为最终 task。所有分支均先保存完整 Goal，再调用
+     * {@link advance}。当前没有匹配等待点或 action 不匹配时无副作用地失败。
+     *
+     * @param request - 当前 RunRef 与用户操作。
+     * @returns 保存后自动推进得到的下一等待点或执行终态。
+     * @throws GoalStore、PreparationExecutor 或 Scheduler 失败时传播原始异常。
+     */
+    async resume(request: ResumeGoalRequest): Promise<GoalProgressResult> {
+        const goal = await this.restore(request.ref);
+
+        if (goal === undefined) {
+            return this.runNotFound(request.ref);
+        }
+
+        const workflow = goal.state.workflow;
+
+        if (workflow.phase === "gathering_context") {
+            if (workflow.preparation.status !== "waiting_input") {
+                return this.goalNotWaiting(request.ref);
+            }
+
+            if (request.action.kind !== "message") {
+                return this.invalidGoalInput(
+                    "gathering_context requires a message action",
+                );
+            }
+
+            if (request.action.content.trim().length === 0) {
+                return this.invalidGoalInput("Message content must not be empty");
+            }
+
+            const resumedGoal = this.withGatheringAnswer(
+                goal,
+                request.action.content,
+            );
+            await this.store.save(resumedGoal);
+            return this.advance(request.ref);
+        }
+
+        if (workflow.phase === "planning") {
+            if (workflow.preparation.status !== "waiting_approval") {
+                return this.goalNotWaiting(request.ref);
+            }
+
+            if (request.action.kind === "message") {
+                if (request.action.content.trim().length === 0) {
+                    return this.invalidGoalInput("Message content must not be empty");
+                }
+
+                const resumedGoal = this.withPlanningFeedback(
+                    goal,
+                    request.action.content,
+                );
+                await this.store.save(resumedGoal);
+                return this.advance(request.ref);
+            }
+
+            const proposal = workflow.preparation.proposal;
+
+            if (proposal === undefined) {
+                return this.goalNotWaiting(request.ref);
+            }
+
+            const approvedGoal = this.withApprovedTask(goal, proposal);
+            await this.store.save(approvedGoal);
+            return this.advance(request.ref);
+        }
+
+        if (goal.state.run.status !== "waiting") {
+            return this.goalNotWaiting(request.ref);
+        }
+
+        return this.invalidGoalInput(
+            "Executing blocked resume is not available in the preparation workflow",
+        );
+    }
+
     private async restore(ref: RunRef): Promise<Goal | undefined> {
         const goal = await this.store.restore(ref.goalId);
 
@@ -278,6 +392,54 @@ export class GoalCoordinator {
                 workflow: {
                     phase: "planning",
                     preparation: { status: "active" },
+                },
+            },
+        };
+    }
+
+    private withGatheringAnswer(goal: Goal, content: string): Goal {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                workflow: {
+                    phase: "gathering_context",
+                    preparation: { status: "active" },
+                },
+                messages: [
+                    ...goal.state.messages,
+                    { role: "user", content },
+                ],
+            },
+        };
+    }
+
+    private withPlanningFeedback(goal: Goal, content: string): Goal {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                workflow: {
+                    phase: "planning",
+                    preparation: { status: "active" },
+                },
+                messages: [
+                    ...goal.state.messages,
+                    { role: "user", content },
+                ],
+            },
+        };
+    }
+
+    private withApprovedTask(goal: Goal, proposal: GoalTask): Goal {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                workflow: {
+                    phase: "executing",
+                    preparation: { status: "completed" },
+                    task: this.cloneTask(proposal),
                 },
             },
         };
@@ -350,6 +512,26 @@ export class GoalCoordinator {
             error: {
                 code: "INVALID_PHASE_RESULT",
                 message: `Preparation result "${result.kind}" is invalid for phase "${phase}"`,
+            },
+        };
+    }
+
+    private goalNotWaiting(ref: RunRef): GoalProgressResult {
+        return {
+            ok: false,
+            error: {
+                code: "GOAL_NOT_WAITING",
+                message: `Goal "${ref.goalId}" is not waiting for user input`,
+            },
+        };
+    }
+
+    private invalidGoalInput(message: string): GoalProgressResult {
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_GOAL_INPUT",
+                message,
             },
         };
     }

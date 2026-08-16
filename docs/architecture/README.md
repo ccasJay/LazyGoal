@@ -38,7 +38,8 @@ flowchart LR
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
 5. Executor 生成 StepResult；Runner 转换状态、规范化消息并保存完整 Goal。
-6. `continue` 重复执行，`wait` 等待外部恢复，终态直接返回。
+6. Preparation 等待由 Coordinator `resume` 保存输入后继续；executing blocked 恢复尚未接入。
+7. Run 的 `continue` 自动重复执行，waiting 或终态停止。
 
 ## 跨模块不变量
 

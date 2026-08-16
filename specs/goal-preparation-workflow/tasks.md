@@ -36,7 +36,7 @@
   - 添加 Coordinator 测试，验证正向阶段转换、问题与完整提案持久化，以及每次继续前先保存成功
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 7. 实现 GoalCoordinator 的准备阶段恢复操作
+- [x] //TODO 7. 实现 GoalCoordinator 的准备阶段恢复操作
 
   - 实现 gathering 回答、planning 反馈与批准的 action 校验、消息追加、状态推进和完整快照保存
   - 扩展 Coordinator 测试，覆盖重规划、批准、空输入、无提案及非等待状态的无副作用失败
