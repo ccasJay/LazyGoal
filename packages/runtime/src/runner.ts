@@ -412,7 +412,9 @@ export interface RunnerDependencies {
  * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation；需要
  * 批准的 Action 会保存为 `awaiting_approval` 并返回 waiting，不调用 Tool。收到
  * 匹配的瞬时 `authorizedActionId` 后，Runner 才会执行已批准的同一 Action。
- * 领域 failure 会继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
+ * 进程恢复时，`safe` Tool 会沿用原 `actionId` 自动重放；`manual` Tool 会转为
+ * `outcome_unknown` waiting，等待 Coordinator 再次批准或拒绝。领域 failure 会
+ * 继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
  * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
  * 传播，写入失败后不会继续执行下一 Step。
@@ -441,8 +443,9 @@ export class Runner {
      * 返回 `RUN_NOT_FOUND`。
      *
      * @param ref - 目标 Goal 与 Run 的关联键。
-     * @param options - 可选的本次调用瞬时 Action 授权；只接受与已批准
-     *   `pendingAction` 相同的 `actionId`，不会写入快照。
+     * @param options - 可选的本次调用瞬时 Action 授权；有授权时只接受与已批准
+     *   `pendingAction` 相同的 `actionId`，不会写入快照；无授权恢复已批准 Action
+     *   时按 Tool 的 `replayPolicy` 分流。
      * @returns Run 到达 waiting 或终态时的结果。
      * @throws GoalStore 的恢复或保存错误。
      */
@@ -458,6 +461,14 @@ export class Runner {
 
         if (goal.state.workflow.phase !== "executing") {
             return { ok: true, state: goal.state.run };
+        }
+
+        if (
+            goal.state.run.status === "running"
+            && goal.state.run.pendingAction?.status === "approved"
+            && options.authorizedActionId === undefined
+        ) {
+            return this.recoverPendingAction(goal);
         }
 
         if (!this.hasMatchingTransientAuthorization(goal, options)) {
@@ -528,6 +539,47 @@ export class Runner {
                     : `Action "${actionId}" is not the approved pending Action for Run "${ref.runId}"`,
             },
         };
+    }
+
+    private async recoverPendingAction(goal: Goal): Promise<RunnerResult> {
+        const pendingAction = goal.state.run.pendingAction;
+
+        if (pendingAction === undefined || pendingAction.status !== "approved") {
+            return { ok: true, state: goal.state.run };
+        }
+
+        let validated;
+
+        try {
+            validated = validateToolAction(
+                goal,
+                pendingAction.action,
+                this.toolRegistry,
+                this.toolPolicy,
+                false,
+            );
+        } catch (error) {
+            const stableError = toStableExecutionError(error)
+                ?? new RunnerExecutionError(
+                    "TOOL_EXECUTION_ERROR",
+                    error instanceof Error ? error.message : String(error),
+                );
+
+            return this.stopWithExecutionError(goal, stableError);
+        }
+
+        if (validated.tool.replayPolicy === "safe") {
+            return this.runLoop(goal, pendingAction.action.actionId);
+        }
+
+        const recoveredRun = this.applyTransition(goal.state.run, {
+            kind: "recover_action",
+            actionId: pendingAction.action.actionId,
+        });
+        const recoveredGoal = this.withRun(goal, recoveredRun);
+
+        await this.store.save(recoveredGoal);
+        return { ok: true, state: recoveredRun };
     }
 
     private hasMatchingTransientAuthorization(

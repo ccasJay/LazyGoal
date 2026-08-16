@@ -5,6 +5,8 @@ import {
     createGoal,
     GoalCoordinator,
     InMemoryGoalStore,
+    InlineScheduler,
+    Runner,
     transition,
 } from "../src/index";
 import type {
@@ -20,6 +22,8 @@ import type {
     RunRef,
     RunScheduler,
     RunState,
+    StepExecutor,
+    Tool,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -226,6 +230,36 @@ function createActionApprovalGoal(): Goal {
     return {
         ...goal,
         state: { ...goal.state, run: waitingRun },
+    };
+}
+
+function createActionRecoveryGoal(): Goal {
+    const approval = createActionApprovalGoal();
+    const approvedRun = applyRunTransition(approval.state.run, {
+        kind: "approve_action",
+        actionId: "action-approval",
+    });
+    const recoveredRun = applyRunTransition(approvedRun, {
+        kind: "recover_action",
+        actionId: "action-approval",
+    });
+
+    return {
+        ...approval,
+        state: { ...approval.state, run: recoveredRun },
+    };
+}
+
+function createApprovedActionGoal(): Goal {
+    const approval = createActionApprovalGoal();
+    const approvedRun = applyRunTransition(approval.state.run, {
+        kind: "approve_action",
+        actionId: "action-approval",
+    });
+
+    return {
+        ...approval,
+        state: { ...approval.state, run: approvedRun },
     };
 }
 
@@ -679,6 +713,124 @@ test("reject_action completes a rejected Observation and continues without a mes
     assert.equal(result.goal.state.run.stepCount, 2);
     assert.deepEqual(result.goal.state.messages, waiting.state.messages);
     assert.deepEqual(scheduler.receivedOptions, [undefined]);
+});
+
+test("allows re-approval of manual recovery and preserves the Action identity", async () => {
+    const recovery = createActionRecoveryGoal();
+    const store = new RecordingGoalStore();
+    await store.seed(recovery);
+    const scheduler = new FakeScheduler(async (ref, options) => {
+        assert.deepEqual(options, { authorizedActionId: "action-approval" });
+        const approved = await store.restore(ref.goalId);
+        assert.ok(approved);
+        assert.equal(approved.state.run.status, "running");
+        assert.equal(approved.state.run.stepCount, 0);
+        assert.equal(
+            approved.state.run.pendingAction?.action.actionId,
+            "action-approval",
+        );
+
+        const observedRun = applyRunTransition(approved.state.run, {
+            kind: "observe_action",
+            actionId: "action-approval",
+            observation: {
+                kind: "success",
+                output: "恢复后内容",
+                summary: "恢复读取完成",
+            },
+        });
+        const completedRun = applyRunTransition(observedRun, {
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                checkpoint: "已完成恢复",
+                summary: "任务完成",
+            },
+        });
+        await store.save({
+            ...approved,
+            state: { ...approved.state, run: completedRun },
+        });
+        return { ok: true, state: completedRun };
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const waiting = requireSuccess(await coordinator.advance({
+        goalId: recovery.id,
+        runId: recovery.state.run.id,
+    }));
+    assert.equal(waiting.kind, "waiting");
+    assert.equal(waiting.waitingFor, "action_recovery");
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: recovery.id, runId: recovery.state.run.id },
+        action: { kind: "approve_action", actionId: "action-approval" },
+    }));
+
+    assert.equal(result.kind, "terminal");
+    assert.equal(result.goal.state.run.stepCount, 2);
+    assert.deepEqual(result.goal.state.messages, recovery.state.messages);
+});
+
+test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", async () => {
+    const interrupted = createApprovedActionGoal();
+    const store = new InMemoryGoalStore();
+    await store.save(interrupted);
+    let executedActionId: string | undefined;
+    const manualTool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "需要人工确认的读取 Tool",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute(request) {
+            executedActionId = request.actionId;
+            return {
+                kind: "success",
+                output: "人工确认后的内容",
+                summary: "读取完成",
+            };
+        },
+    };
+    const executor: StepExecutor = {
+        async execute() {
+            return {
+                kind: "complete",
+                checkpoint: "已吸收人工确认结果",
+                summary: "任务完成",
+            };
+        },
+    };
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler: new InlineScheduler(new Runner({
+            store,
+            executor,
+            toolRegistry: { get: () => manualTool },
+        })),
+    });
+    const ref = { goalId: interrupted.id, runId: interrupted.state.run.id };
+
+    const recovery = requireSuccess(await coordinator.advance(ref));
+    assert.equal(recovery.kind, "waiting");
+    assert.equal(recovery.waitingFor, "action_recovery");
+    assert.equal(executedActionId, undefined);
+
+    const completed = requireSuccess(await coordinator.resume({
+        ref,
+        action: { kind: "approve_action", actionId: "action-approval" },
+    }));
+    assert.equal(completed.kind, "terminal");
+    assert.equal(completed.goal.state.run.status, "completed");
+    assert.equal(completed.goal.state.run.stepCount, 2);
+    assert.equal(executedActionId, "action-approval");
 });
 
 test("rejects Action controls with the wrong waiting type or actionId without side effects", async () => {

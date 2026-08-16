@@ -271,6 +271,47 @@ test("approve_action resumes the exact pending Action without consuming a Step",
     assert.strictEqual(wrongAction.state, waiting);
 });
 
+test("recover_action moves an approved Action to manual recovery without consuming a Step", () => {
+    const staged = requireSuccessfulState(
+        transition(createRunningState(), {
+            kind: "stage_action",
+            checkpoint: "已保存但结果未知",
+            action: {
+                actionId: "action-recover",
+                toolId: "manual_tool",
+                input: { value: "x" },
+            },
+        }),
+    );
+
+    const recovered = requireSuccessfulState(
+        transition(staged, {
+            kind: "recover_action",
+            actionId: "action-recover",
+        }),
+    );
+
+    assert.equal(recovered.status, "waiting");
+    assert.equal(recovered.stepCount, 0);
+    assert.deepEqual(recovered.pendingAction, {
+        action: staged.pendingAction?.action,
+        status: "outcome_unknown",
+    });
+
+    const reapproved = requireSuccessfulState(
+        transition(recovered, {
+            kind: "approve_action",
+            actionId: "action-recover",
+        }),
+    );
+    assert.equal(reapproved.status, "running");
+    assert.equal(reapproved.stepCount, 0);
+    assert.deepEqual(reapproved.pendingAction, {
+        action: staged.pendingAction?.action,
+        status: "approved",
+    });
+});
+
 test("reject_action records a rejected Observation as one Step", () => {
     const waiting = requireSuccessfulState(
         transition(createRunningState(), {

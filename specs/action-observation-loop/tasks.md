@@ -48,7 +48,7 @@
   - 添加 Coordinator、Scheduler 与 Runner 协作测试，覆盖错误 actionId、等待类型隔离和不重复计数
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 8. 完成中断恢复与跨模块自动化验证
+- [x] //TODO 8. 完成中断恢复与跨模块自动化验证
 
   - 实现 pendingAction 恢复分流：safe Tool 保留 actionId 自动重放，manual Tool 进入 outcome_unknown 并等待用户决定
   - 增加跨进程和端到端测试，覆盖 read_file 单 Step 重放、正数 maxSteps 与 maxSteps 为 0 的连续循环

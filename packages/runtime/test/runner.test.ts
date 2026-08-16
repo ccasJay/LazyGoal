@@ -1401,6 +1401,223 @@ test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step",
     assert.equal(state.pendingAction, undefined);
 });
 
+test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", async () => {
+    const base = createInitialGoal(
+        "run-safe-replay",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+        [],
+        0,
+    );
+    const running = withRun(
+        base,
+        applyTransition(base.state.run, { kind: "start" }),
+    );
+    const action = {
+        actionId: "action-safe-replay",
+        toolId: "read_file",
+        input: { path: "README.md" },
+    } as const;
+    const interrupted = withRun(running, applyTransition(running.state.run, {
+        kind: "stage_action",
+        checkpoint: "已保存读取意图",
+        action,
+        status: "approved",
+    }));
+    const store = new InMemoryGoalStore();
+    await store.save(interrupted);
+    const actionIds: string[] = [];
+    const tool = createRunnerTool(async ({ actionId }) => {
+        actionIds.push(actionId);
+        return { kind: "success", output: "内容", summary: "读取完成" };
+    });
+    const executor = new SequenceDecisionExecutor([{
+        kind: "complete",
+        checkpoint: "已吸收重放结果",
+        summary: "任务完成",
+    }]);
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+        toolPolicy: {
+            evaluate: () => {
+                throw new Error("恢复 safe Action 不应重新评估 Policy");
+            },
+        },
+    }).run(createRef(interrupted));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.deepEqual(actionIds, [action.actionId]);
+    assert.equal(executor.receivedGoals.length, 1);
+    assert.equal(executor.receivedGoals[0]?.state.run.stepCount, 1);
+    assert.deepEqual(executor.receivedGoals[0]?.state.run.lastStep, {
+        kind: "action",
+        action,
+        observation: {
+            kind: "success",
+            output: "内容",
+            summary: "读取完成",
+        },
+    });
+    assert.equal(state.pendingAction, undefined);
+});
+
+test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而不调用 Tool", async () => {
+    const base = createInitialGoal(
+        "run-manual-replay",
+        goalDefinition.id,
+        { ...profile, toolIds: ["manual_tool"] },
+        [],
+        0,
+    );
+    const running = withRun(
+        base,
+        applyTransition(base.state.run, { kind: "start" }),
+    );
+    const action = {
+        actionId: "action-manual-replay",
+        toolId: "manual_tool",
+        input: { value: "x" },
+    } as const;
+    const interrupted = withRun(running, applyTransition(running.state.run, {
+        kind: "stage_action",
+        checkpoint: "已保存人工确认 Action",
+        action,
+        status: "approved",
+    }));
+    const store = new InMemoryGoalStore();
+    await store.save(interrupted);
+    let toolCalls = 0;
+    const tool = {
+        ...createRunnerTool(async () => {
+            toolCalls += 1;
+            return { kind: "success", output: "不应执行", summary: "不应执行" };
+        }),
+        definition: {
+            id: "manual_tool",
+            description: "需要人工确认的 Tool",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "manual" as const,
+    };
+    const executor = new SequenceDecisionExecutor([]);
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(interrupted));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "waiting");
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.pendingAction, {
+        action,
+        status: "outcome_unknown",
+    });
+    assert.equal(toolCalls, 0);
+    assert.equal(executor.receivedGoals.length, 0);
+    assert.deepEqual((await store.restore(interrupted.id))?.state.run, state);
+});
+
+test("Action loop reaches maxSteps after completing a pending Action", async () => {
+    const initial = createInitialGoal(
+        "run-action-max-steps",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+        [],
+        1,
+    );
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new SequenceDecisionExecutor([{
+        kind: "tool_call",
+        checkpoint: "读取文件",
+        action: {
+            actionId: "action-max-steps",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    }]);
+    let toolCalls = 0;
+    const tool = createRunnerTool(async () => {
+        toolCalls += 1;
+        return { kind: "success", output: "内容", summary: "读取完成" };
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stepCount, 1);
+    assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
+    assert.equal(toolCalls, 1);
+    assert.equal(executor.receivedGoals.length, 1);
+    assert.equal(state.pendingAction, undefined);
+});
+
+test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async () => {
+    const initial = createInitialGoal(
+        "run-action-unlimited",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+        [],
+        0,
+    );
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            checkpoint: "第一次读取",
+            action: {
+                actionId: "action-unlimited-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+        {
+            kind: "tool_call",
+            checkpoint: "第二次读取",
+            action: {
+                actionId: "action-unlimited-2",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+        {
+            kind: "complete",
+            checkpoint: "已完成连续读取",
+            summary: "任务完成",
+        },
+    ]);
+    const actionIds: string[] = [];
+    const tool = createRunnerTool(async ({ actionId }) => {
+        actionIds.push(actionId);
+        return { kind: "success", output: "内容", summary: "读取完成" };
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 3);
+    assert.deepEqual(actionIds, ["action-unlimited-1", "action-unlimited-2"]);
+    assert.equal(executor.receivedGoals.length, 3);
+});
+
 test("Runner 将领域 failure Observation 保存后继续下一轮", async () => {
     const initial = createInitialGoal(
         "run-domain-failure",

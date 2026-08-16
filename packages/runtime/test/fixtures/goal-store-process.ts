@@ -1,6 +1,11 @@
-import { JsonFileGoalStore } from "../../src/index";
+import {
+    JsonFileGoalStore,
+    Runner,
+} from "../../src/index";
+import type { Goal } from "../../src/index";
+import { READ_FILE_TOOL_ID, ReadFileTool } from "../../../tools/src/index";
 
-const [mode, directory, goalId, serializedGoal] = process.argv.slice(2);
+const [mode, directory, goalId, serializedGoal, runId, workspaceRoot] = process.argv.slice(2);
 
 async function main(): Promise<void> {
     if (mode === "save") {
@@ -19,6 +24,47 @@ async function main(): Promise<void> {
 
         const goal = await new JsonFileGoalStore(directory).restore(goalId);
         process.stdout.write(JSON.stringify(goal ?? null));
+        return;
+    }
+
+    if (mode === "run-safe-replay") {
+        if (
+            directory === undefined
+            || goalId === undefined
+            || runId === undefined
+            || workspaceRoot === undefined
+        ) {
+            throw new Error(
+                "run-safe-replay requires directory, goalId, runId, and workspaceRoot",
+            );
+        }
+
+        const tool = new ReadFileTool(workspaceRoot);
+        let observedActionId: string | undefined;
+        const result = await new Runner({
+            store: new JsonFileGoalStore(directory),
+            executor: {
+                async execute(goal: Goal) {
+                    const lastStep = goal.state.run.lastStep;
+
+                    observedActionId = lastStep?.kind === "action"
+                        ? lastStep.action.actionId
+                        : undefined;
+                    return {
+                        kind: "complete" as const,
+                        checkpoint: "已吸收跨进程读取结果",
+                        summary: "跨进程重放后完成",
+                    };
+                },
+            },
+            toolRegistry: {
+                get(toolId) {
+                    return toolId === READ_FILE_TOOL_ID ? tool : undefined;
+                },
+            },
+        }).run({ goalId, runId });
+
+        process.stdout.write(JSON.stringify({ result, observedActionId }));
         return;
     }
 

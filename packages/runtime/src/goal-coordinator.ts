@@ -270,10 +270,11 @@ export class GoalCoordinator {
      * gathering message 会恢复为 active 并追加原文 user 消息；planning
      * message 会移除当前 proposal、保留反馈并重新规划；approve 不追加消息，
      * 而是把当前 proposal 复制为最终 task；executing message 会追加原文输入并
-     * 将 Run 从 waiting 恢复为 running。executing 的 `approve_action` 只接受当前
-     * `awaiting_approval` Action，保存为 approved 后透传一次性授权；`reject_action`
-     * 保存 rejected Observation 后继续推进。所有分支均先保存完整 Goal，再调用
-     * {@link advance}。当前没有匹配等待点或 action 不匹配时无副作用地失败。
+     * 将 Run 从 waiting 恢复为 running。executing 的 `approve_action` 接受当前
+     * `awaiting_approval` 或 `outcome_unknown` Action，保存为 approved 后透传一次性
+     * 授权；`reject_action` 保存 rejected Observation 后继续推进。所有分支均先
+     * 保存完整 Goal，再调用 {@link advance}。当前没有匹配等待点或 action 不匹配时
+     * 无副作用地失败。
      *
      * @param request - 当前 RunRef 与用户操作。
      * @returns 保存后自动推进得到的下一等待点或执行终态。
@@ -355,7 +356,10 @@ export class GoalCoordinator {
         if (pendingAction !== undefined) {
             if (
                 request.action.kind === "approve_action"
-                && pendingAction.status === "awaiting_approval"
+                && (
+                    pendingAction.status === "awaiting_approval"
+                    || pendingAction.status === "outcome_unknown"
+                )
             ) {
                 if (request.action.actionId.trim().length === 0) {
                     return this.invalidGoalInput("Action ID must not be empty");

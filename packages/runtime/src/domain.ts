@@ -425,14 +425,14 @@ export type StepResult =
  * 传给 transition 的显式状态转换输入。
  *
  * @remarks
- * `stage_action` 只建立可恢复的 Action 意图，不消费 Step；`observe_action`、
- * `approve_action` 只解除 Action 审批且不消费 Step；`reject_action` 和非 Tool 的
- * `decision` 才完成一个 Step。`execution_error`
+ * `stage_action` 只建立可恢复的 Action 意图，不消费 Step；`approve_action` 和
+ * `recover_action` 只解除或改变 Action 恢复状态，不消费 Step；`observe_action`、
+ * `reject_action` 和非 Tool 的 `decision` 才完成一个 Step。`execution_error`
  * 停止当前 Run 但不消费 Step，并在存在待执行 Action 时保留其不确定结果。
  * 旧 `step` 分支仅供尚未升级的兼容执行链使用。
  *
- * `resume` 由外部协调器在保存解除 Agent wait 的真实输入时使用，Runner 本身
- * 不暴露恢复入口。
+ * `resume` 由外部协调器在保存解除 Agent wait 的真实输入时使用；`recover_action`
+ * 由 Runner 在进程恢复时用于把已批准但结果未知的 Action 转为可处理的等待点。
  *
  * @example
  * ```ts
@@ -472,6 +472,10 @@ export type RunInput =
     }
     | {
         readonly kind: "approve_action";
+        readonly actionId: string;
+    }
+    | {
+        readonly kind: "recover_action";
         readonly actionId: string;
     }
     | {

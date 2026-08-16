@@ -21,6 +21,7 @@ import {
     INVALID_GOAL_SNAPSHOT_CODE,
     JsonFileGoalStore,
     Runner,
+    transition,
 } from "../src/index";
 import type { AgentProfile, Goal, GoalMessage } from "../src/index";
 
@@ -1099,5 +1100,83 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         assert.deepEqual(latest?.state.run, resumed.state);
     } finally {
         await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a cross-process Runner safely replays a persisted read_file Action once", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kai-action-workspace-"));
+
+    try {
+        await writeFile(join(workspaceRoot, "README.md"), "跨进程文件内容", "utf8");
+        const initial = createGoal({
+            id: "goal-cross-action",
+            task: {
+                objective: "跨进程恢复读取",
+                completionCriteria: ["读取成功"],
+            },
+            profile: { ...profile, toolIds: ["read_file"] },
+            runId: "run-cross-action",
+        });
+        const runningResult = transition(initial.state.run, { kind: "start" });
+
+        if (!runningResult.ok) {
+            assert.fail(runningResult.error.message);
+        }
+
+        const stagedResult = transition(runningResult.state, {
+            kind: "stage_action",
+            checkpoint: "已保存跨进程读取意图",
+            action: {
+                actionId: "action-cross-process",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+            status: "approved",
+        });
+
+        if (!stagedResult.ok) {
+            assert.fail(stagedResult.error.message);
+        }
+
+        const interrupted: Goal = {
+            ...initial,
+            state: { ...initial.state, run: stagedResult.state },
+        };
+        await new JsonFileGoalStore(directory).save(interrupted);
+
+        const output = await runGoalStoreProcess([
+            "run-safe-replay",
+            directory,
+            interrupted.id,
+            "",
+            interrupted.state.run.id,
+            workspaceRoot,
+        ]);
+        const child = JSON.parse(output) as {
+            readonly result: {
+                readonly ok: boolean;
+                readonly state?: {
+                    readonly status: string;
+                    readonly stepCount: number;
+                    readonly pendingAction?: unknown;
+                };
+            };
+            readonly observedActionId?: string;
+        };
+
+        assert.equal(child.result.ok, true);
+        assert.equal(child.result.state?.status, "completed");
+        assert.equal(child.result.state?.stepCount, 2);
+        assert.equal(child.result.state?.pendingAction, undefined);
+        assert.equal(child.observedActionId, "action-cross-process");
+
+        const latest = await new JsonFileGoalStore(directory).restore(interrupted.id);
+        assert.equal(latest?.state.run.status, "completed");
+        assert.equal(latest?.state.run.stepCount, 2);
+        assert.equal(latest?.state.run.pendingAction, undefined);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+        await rm(workspaceRoot, { recursive: true, force: true });
     }
 });

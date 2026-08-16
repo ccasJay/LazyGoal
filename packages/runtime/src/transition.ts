@@ -82,7 +82,8 @@ function completeAction(
  *
  * @remarks
  * 函数不会修改传入状态。Action 的 `stage_action` 只保存 checkpoint 和
- * pendingAction，不增加 Step；`observe_action`、`reject_action` 和非 Tool
+ * pendingAction，不增加 Step；`recover_action` 只将 approved Action 转为
+ * `outcome_unknown` waiting；`observe_action`、`reject_action` 和非 Tool
  * `decision` 完成一个 Step。`execution_error` 进入 failed 且不增加 Step，
  * 如果已有 pendingAction，会将其标记为 `outcome_unknown`。
  *
@@ -123,8 +124,51 @@ export function transition(
             }
             break;
 
-        // running 状态接受 Action、决策、旧 Step 结果或外部取消。
+        // running 状态接受 Action、恢复、决策、旧 Step 结果或外部取消。
         case "running":
+            if (input.kind === "recover_action") {
+                const pendingAction = currentState.pendingAction;
+
+                if (
+                    pendingAction === undefined
+                    || pendingAction.status !== "approved"
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "recover_action requires an approved pendingAction",
+                    );
+                }
+
+                if (!hasText(input.actionId)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Recovery requires a non-empty actionId",
+                    );
+                }
+
+                if (pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Recovered actionId does not match pendingAction",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "waiting",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "outcome_unknown",
+                        },
+                    },
+                };
+            }
+
             if (input.kind === "stage_action") {
                 if (currentState.pendingAction !== undefined) {
                     return invalidTransition(
@@ -404,12 +448,15 @@ export function transition(
 
                 if (
                     pendingAction === undefined
-                    || pendingAction.status !== "awaiting_approval"
+                    || (
+                        pendingAction.status !== "awaiting_approval"
+                        && pendingAction.status !== "outcome_unknown"
+                    )
                 ) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "approve_action requires a pending Action awaiting approval",
+                        "approve_action requires an approval or recovery pendingAction",
                     );
                 }
 

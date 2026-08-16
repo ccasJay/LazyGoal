@@ -48,7 +48,7 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
-- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝和瞬时授权，中断重放仍待接入。
+- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝、瞬时授权以及 safe/manual 中断恢复。
 
 ## 模块速查
 
