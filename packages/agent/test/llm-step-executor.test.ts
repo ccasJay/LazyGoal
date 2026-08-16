@@ -271,8 +271,12 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     assert.equal(result.state.status, "completed");
     assert.equal(result.state.stepCount, 1);
     assert.deepEqual(result.state.lastStep, {
-        kind: "legacy",
-        result: { kind: "complete", summary: "完成" },
+        kind: "decision",
+        result: {
+            kind: "complete",
+            checkpoint: "已完成目标",
+            summary: "完成",
+        },
     });
     assert.deepEqual(persisted?.state.run, result.state);
     assert.equal(adapter.requests.length, 1);

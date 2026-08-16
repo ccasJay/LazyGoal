@@ -84,6 +84,78 @@ class FakeDecisionExecutor implements StepExecutor {
     }
 }
 
+class SequenceDecisionExecutor implements StepExecutor {
+    readonly receivedGoals: Goal[] = [];
+    private index = 0;
+
+    constructor(
+        private readonly decisions: readonly AgentDecision[],
+        private readonly events: string[] = [],
+    ) {}
+
+    async execute(
+        goal: Goal,
+        _tools: readonly ToolDefinition[],
+    ): Promise<AgentDecision> {
+        this.receivedGoals.push(goal);
+        this.events.push(`executor:${goal.state.run.stepCount}`);
+        const decision = this.decisions[this.index];
+        this.index += 1;
+
+        if (decision === undefined) {
+            throw new Error("Unexpected AgentDecision call");
+        }
+
+        return structuredClone(decision);
+    }
+}
+
+function createRunnerTool(
+    execute: Tool["execute"],
+    validate: Tool["validate"] = () => ({ ok: true }),
+): Tool {
+    return {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "safe",
+        validate,
+        execute,
+    };
+}
+
+function createSaveFailingStore(
+    failureOnSave: number,
+    failure: Error,
+): {
+    readonly store: GoalStore;
+    readonly delegate: InMemoryGoalStore;
+    readonly saveCalls: () => number;
+} {
+    const delegate = new InMemoryGoalStore();
+    let calls = 0;
+    const store: GoalStore = {
+        restore: (goalId) => delegate.restore(goalId),
+        save: async (goal) => {
+            calls += 1;
+
+            if (calls === failureOnSave) {
+                throw failure;
+            }
+
+            await delegate.save(goal);
+        },
+    };
+
+    return {
+        store,
+        delegate,
+        saveCalls: () => calls,
+    };
+}
+
 class RecordingGoalStore implements GoalStore {
     readonly savedGoals: Goal[] = [];
     private readonly delegate = new InMemoryGoalStore();
@@ -1070,9 +1142,19 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
             return { kind: "success", output: "", summary: "不应执行" };
         },
     };
+    let executorCalls = 0;
     const executor: StepExecutor = {
         async execute(_goal, tools) {
             events.push(`executor:${tools.length}`);
+
+            if (executorCalls++ > 0) {
+                return {
+                    kind: "complete",
+                    checkpoint: "已吸收读取结果",
+                    summary: "完成",
+                };
+            }
+
             return {
                 kind: "tool_call",
                 checkpoint: "准备读取文件",
@@ -1111,15 +1193,295 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
         "registry:read_file",
         "validate",
         "policy",
+        "execute",
+        "registry:read_file",
+        "executor:1",
     ]);
-    assert.equal(state.stepCount, 0);
-    assert.equal(state.stopReason?.kind, "execution_error");
-    assert.equal(
-        state.stopReason?.kind === "execution_error"
-            ? state.stopReason.code
-            : undefined,
-        "TOOL_EXECUTION_ERROR",
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.deepEqual(state.lastStep, {
+        kind: "decision",
+        result: {
+            kind: "complete",
+            checkpoint: "已吸收读取结果",
+            summary: "完成",
+        },
+    });
+});
+
+test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期", async () => {
+    const events: string[] = [];
+    const initial = createInitialGoal(
+        "run-auto-action",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
     );
+    const store = new RecordingGoalStore(events);
+    await store.seed(initial);
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            checkpoint: "准备读取文件",
+            action: {
+                actionId: "action-auto",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+        {
+            kind: "complete",
+            checkpoint: "已吸收读取结果",
+            summary: "目标完成",
+        },
+    ], events);
+    const tool = createRunnerTool(async ({ actionId, input }) => {
+        events.push(`tool:${actionId}`);
+        assert.deepEqual(input, { path: "README.md" });
+        return {
+            kind: "success",
+            output: "文件内容",
+            summary: "读取完成",
+        };
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+        toolPolicy: { evaluate: () => "allow" },
+    }).run(createRef(initial, "run-auto-action"));
+
+    const state = requireSuccessfulState(result);
+    assert.deepEqual(events, [
+        "restore:goal-1",
+        "save:goal-1:running:0",
+        "executor:0",
+        "save:goal-1:running:0",
+        "tool:action-auto",
+        "save:goal-1:running:1",
+        "executor:1",
+        "save:goal-1:completed:2",
+    ]);
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.deepEqual(executor.receivedGoals[1]?.state.run, {
+        id: "run-auto-action",
+        status: "running",
+        stepCount: 1,
+        checkpoint: "准备读取文件",
+        lastStep: {
+            kind: "action",
+            action: {
+                actionId: "action-auto",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+            observation: {
+                kind: "success",
+                output: "文件内容",
+                summary: "读取完成",
+            },
+        },
+    });
+    assert.equal(state.pendingAction, undefined);
+    assert.deepEqual((await store.peek(initial.id))?.state.messages, [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "目标完成",
+        },
+    ]);
+});
+
+test("Runner 将领域 failure Observation 保存后继续下一轮", async () => {
+    const initial = createInitialGoal(
+        "run-domain-failure",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            checkpoint: "尝试读取缺失文件",
+            action: {
+                actionId: "action-domain-failure",
+                toolId: "read_file",
+                input: { path: "missing.txt" },
+            },
+        },
+        {
+            kind: "complete",
+            checkpoint: "已吸收文件不存在结果",
+            summary: "采用替代方案完成",
+        },
+    ]);
+    const tool = createRunnerTool(async () => ({
+        kind: "failure",
+        code: "FILE_NOT_FOUND",
+        message: "文件不存在",
+        retryable: true,
+    }));
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial, "run-domain-failure"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.equal(executor.receivedGoals.length, 2);
+    assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
+        kind: "action",
+        action: {
+            actionId: "action-domain-failure",
+            toolId: "read_file",
+            input: { path: "missing.txt" },
+        },
+        observation: {
+            kind: "failure",
+            code: "FILE_NOT_FOUND",
+            message: "文件不存在",
+            retryable: true,
+        },
+    });
+});
+
+test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async () => {
+    const initial = createInitialGoal(
+        "run-pending-save-failure",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const saveError = new Error("pending save failed");
+    const control = createSaveFailingStore(2, saveError);
+    await control.delegate.save(initial);
+    let toolCalls = 0;
+    const tool = createRunnerTool(async () => {
+        toolCalls += 1;
+        return { kind: "success", output: "不应执行", summary: "不应执行" };
+    });
+    const executor = new SequenceDecisionExecutor([{
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-pending-save-failure",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    }]);
+
+    await assertRejectsWithSameError(
+        () => new Runner({
+            store: control.store,
+            executor,
+            toolRegistry: { get: () => tool },
+        }).run(createRef(initial, "run-pending-save-failure")),
+        saveError,
+    );
+
+    assert.equal(control.saveCalls(), 2);
+    assert.equal(toolCalls, 0);
+    const persisted = await control.delegate.restore(initial.id);
+    assert.equal(persisted?.state.run.pendingAction, undefined);
+    assert.equal(persisted?.state.run.stepCount, 0);
+});
+
+test("Observation 保存失败时保留已暂存 pendingAction", async () => {
+    const initial = createInitialGoal(
+        "run-observation-save-failure",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const saveError = new Error("observation save failed");
+    const control = createSaveFailingStore(3, saveError);
+    await control.delegate.save(initial);
+    let toolCalls = 0;
+    const tool = createRunnerTool(async () => {
+        toolCalls += 1;
+        return { kind: "success", output: "文件内容", summary: "读取完成" };
+    });
+    const executor = new SequenceDecisionExecutor([{
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-observation-save-failure",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    }]);
+
+    await assertRejectsWithSameError(
+        () => new Runner({
+            store: control.store,
+            executor,
+            toolRegistry: { get: () => tool },
+        }).run(createRef(initial, "run-observation-save-failure")),
+        saveError,
+    );
+
+    assert.equal(control.saveCalls(), 3);
+    assert.equal(toolCalls, 1);
+    const persisted = await control.delegate.restore(initial.id);
+    assert.equal(persisted?.state.run.status, "running");
+    assert.equal(persisted?.state.run.stepCount, 0);
+    assert.deepEqual(persisted?.state.run.pendingAction, {
+        action: {
+            actionId: "action-observation-save-failure",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "approved",
+    });
+    assert.equal(persisted?.state.run.lastStep, undefined);
+});
+
+test("Tool 异常会保存 outcome_unknown execution_error", async () => {
+    const initial = createInitialGoal(
+        "run-tool-error",
+        goalDefinition.id,
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const executor = new SequenceDecisionExecutor([{
+        kind: "tool_call",
+        checkpoint: "准备读取文件",
+        action: {
+            actionId: "action-tool-error",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    }]);
+    const tool = createRunnerTool(async () => {
+        throw new Error("文件系统不可用");
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    }).run(createRef(initial, "run-tool-error"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stepCount, 0);
+    assert.deepEqual(state.pendingAction, {
+        action: {
+            actionId: "action-tool-error",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "outcome_unknown",
+    });
+    assert.deepEqual(state.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_EXECUTION_ERROR",
+        message: "文件系统不可用",
+    });
 });
 
 test("Runner 将运行时非法 AgentDecision 保存为 INVALID_AGENT_DECISION", async () => {

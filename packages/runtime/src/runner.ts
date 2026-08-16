@@ -18,6 +18,7 @@ import type {
 import type {
     Tool,
     ToolDefinition,
+    ToolObservation,
     ToolPolicy,
     ToolRegistry,
 } from "./tool";
@@ -167,19 +168,6 @@ function normalizeExecution(
     };
 }
 
-function toLegacyStepResult(
-    decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>,
-): StepResult {
-    switch (decision.kind) {
-        case "complete":
-            return { kind: "complete", summary: decision.summary };
-        case "wait":
-            return { kind: "wait", reason: decision.reason };
-        case "fail":
-            return { kind: "fail", error: decision.error };
-    }
-}
-
 function isProtocolError(error: unknown): boolean {
     return isRecord(error) && error.code === "INVALID_LLM_RESPONSE";
 }
@@ -208,7 +196,7 @@ function validateToolAction(
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
     registry: ToolRegistry,
     policy: ToolPolicy,
-): void {
+): { readonly tool: Tool; readonly policy: "allow" | "require_approval" } {
     if (!goal.definition.profile.toolIds.includes(action.toolId)) {
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
@@ -292,12 +280,76 @@ function validateToolAction(
         );
     }
 
+    return { tool, policy: policyResult };
+}
+
+function validateToolObservation(value: unknown): ToolObservation {
+    if (!isRecord(value) || !isNonEmptyText(value.kind)) {
+        throw new RunnerExecutionError(
+            "TOOL_EXECUTION_ERROR",
+            "Tool returned an invalid Observation",
+        );
+    }
+
+    if (value.kind === "success") {
+        if (
+            !hasOnlyKeys(value, ["kind", "output", "summary"])
+            || !isJsonValue(value.output)
+            || !isNonEmptyText(value.summary)
+        ) {
+            throw new RunnerExecutionError(
+                "TOOL_EXECUTION_ERROR",
+                "Tool success Observation does not match the protocol",
+            );
+        }
+
+        return value as unknown as ToolObservation;
+    }
+
+    if (value.kind === "failure") {
+        if (
+            !hasOnlyKeys(value, ["kind", "code", "message", "retryable"])
+            || !isNonEmptyText(value.code)
+            || !isNonEmptyText(value.message)
+            || typeof value.retryable !== "boolean"
+        ) {
+            throw new RunnerExecutionError(
+                "TOOL_EXECUTION_ERROR",
+                "Tool failure Observation does not match the protocol",
+            );
+        }
+
+        return value as unknown as ToolObservation;
+    }
+
     throw new RunnerExecutionError(
         "TOOL_EXECUTION_ERROR",
-        policyResult === "require_approval"
-            ? "Tool approval flow is not available before TODO 7"
-            : "Tool execution loop is not available before TODO 6",
+        `Unsupported Tool Observation kind: ${value.kind}`,
     );
+}
+
+function validateActionLifecycle(
+    goal: Goal,
+    action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
+): void {
+    if (goal.state.run.pendingAction !== undefined) {
+        throw new RunnerExecutionError(
+            "INVALID_AGENT_DECISION",
+            "Cannot request a new Action while another Action is pending",
+        );
+    }
+
+    const lastStep = goal.state.run.lastStep;
+
+    if (
+        lastStep?.kind === "action"
+        && lastStep.action.actionId === action.actionId
+    ) {
+        throw new RunnerExecutionError(
+            "INVALID_AGENT_DECISION",
+            `Action ID "${action.actionId}" repeats the latest completed Action`,
+        );
+    }
 }
 
 /** Runner 的公开结果；其中 state 是 Run 状态，不是模型原始输出。 */
@@ -348,8 +400,9 @@ export interface RunnerDependencies {
  * 累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
  * 当前 Runner 仍兼容旧 StepResult。新 AgentDecision 会先做运行时严格校验；
- * `tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，但实际
- * 保存 pendingAction 与调用 Tool 仍由后续 Runner 版本接管。
+ * `tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
+ * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation。领域
+ * failure 会继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
  * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
  * 传播，写入失败后不会继续执行下一 Step。
@@ -495,29 +548,12 @@ export class Runner {
                 return { ok: true, state: failedGoal.state.run };
             }
 
-            let stepResult: StepResult;
-            let shouldAppendResultMessage = true;
+            let normalized: NormalizedExecution;
+
             try {
                 const tools = this.getAuthorizedToolDefinitions(goal);
                 const execution = await this.executor.execute(goal, tools);
-                const normalized = normalizeExecution(execution);
-
-                if (normalized.kind === "legacy") {
-                    stepResult = normalized.result;
-                } else if (normalized.decision.kind === "tool_call") {
-                    validateToolAction(
-                        goal,
-                        normalized.decision.action,
-                        this.toolRegistry,
-                        this.toolPolicy,
-                    );
-                    throw new RunnerExecutionError(
-                        "TOOL_EXECUTION_ERROR",
-                        "Tool execution loop is not available before TODO 6",
-                    );
-                } else {
-                    stepResult = toLegacyStepResult(normalized.decision);
-                }
+                normalized = normalizeExecution(execution);
             } catch (error) {
                 const stableError = toStableExecutionError(error);
 
@@ -525,21 +561,140 @@ export class Runner {
                     return this.stopWithExecutionError(goal, stableError);
                 }
 
-                stepResult = {
-                    kind: "fail",
-                    error: error instanceof Error ? error.message : String(error),
-                };
-                shouldAppendResultMessage = false;
+                const nextRun = this.applyTransition(goal.state.run, {
+                    kind: "step",
+                    result: {
+                        kind: "fail",
+                        error: error instanceof Error ? error.message : String(error),
+                    },
+                });
+                const nextGoal = this.withRun(goal, nextRun);
+
+                await this.store.save(nextGoal);
+                goal = nextGoal;
+                continue;
+            }
+
+            if (
+                normalized.kind === "agent"
+                && normalized.decision.kind === "tool_call"
+            ) {
+                let validated;
+
+                try {
+                    validated = validateToolAction(
+                        goal,
+                        normalized.decision.action,
+                        this.toolRegistry,
+                        this.toolPolicy,
+                    );
+                } catch (error) {
+                    const stableError = toStableExecutionError(error)
+                        ?? new RunnerExecutionError(
+                            "TOOL_EXECUTION_ERROR",
+                            error instanceof Error ? error.message : String(error),
+                        );
+
+                    return this.stopWithExecutionError(goal, stableError);
+                }
+
+                if (validated.policy !== "allow") {
+                    return this.stopWithExecutionError(
+                        goal,
+                        new RunnerExecutionError(
+                            "TOOL_EXECUTION_ERROR",
+                            "Tool approval flow is not available before TODO 7",
+                        ),
+                    );
+                }
+
+                try {
+                    validateActionLifecycle(goal, normalized.decision.action);
+                } catch (error) {
+                    const stableError = toStableExecutionError(error)
+                        ?? new RunnerExecutionError(
+                            "INVALID_AGENT_DECISION",
+                            error instanceof Error ? error.message : String(error),
+                        );
+
+                    return this.stopWithExecutionError(goal, stableError);
+                }
+
+                const stagedRun = this.applyTransition(goal.state.run, {
+                    kind: "stage_action",
+                    checkpoint: normalized.decision.checkpoint,
+                    action: normalized.decision.action,
+                    status: "approved",
+                });
+                const stagedGoal = this.withRun(goal, stagedRun);
+
+                // Durable intent must exist before the Tool can produce an effect.
+                await this.store.save(stagedGoal);
+
+                let observation: ToolObservation;
+
+                try {
+                    const rawObservation = await validated.tool.execute({
+                        actionId: normalized.decision.action.actionId,
+                        input: normalized.decision.action.input,
+                    });
+                    observation = validateToolObservation(rawObservation);
+                } catch (error) {
+                    const toolError = error instanceof RunnerExecutionError
+                        ? error
+                        : new RunnerExecutionError(
+                            "TOOL_EXECUTION_ERROR",
+                            error instanceof Error ? error.message : String(error),
+                        );
+
+                    return this.stopWithExecutionError(stagedGoal, toolError);
+                }
+
+                const observedRun = this.applyTransition(stagedGoal.state.run, {
+                    kind: "observe_action",
+                    actionId: normalized.decision.action.actionId,
+                    observation,
+                });
+                const observedGoal = this.withRun(stagedGoal, observedRun);
+
+                // If this save fails, stagedGoal remains the recovery baseline.
+                await this.store.save(observedGoal);
+                goal = observedGoal;
+                continue;
+            }
+
+            if (
+                normalized.kind === "agent"
+                && normalized.decision.kind !== "tool_call"
+            ) {
+                const nextRun = this.applyTransition(goal.state.run, {
+                    kind: "decision",
+                    decision: normalized.decision,
+                });
+                const transitionedGoal = this.withRun(goal, nextRun);
+                const nextGoal = this.appendDecisionMessage(
+                    transitionedGoal,
+                    normalized.decision,
+                );
+
+                await this.store.save(nextGoal);
+                goal = nextGoal;
+                continue;
+            }
+
+            if (normalized.kind !== "legacy") {
+                throw new Error("Runner received an unhandled execution result");
             }
 
             const nextRun = this.applyTransition(goal.state.run, {
                 kind: "step",
-                result: stepResult,
+                result: normalized.result,
             });
             const transitionedGoal = this.withRun(goal, nextRun);
-            const nextGoal = shouldAppendResultMessage
-                ? this.appendResultMessage(transitionedGoal, stepResult)
-                : transitionedGoal;
+            const nextGoal = this.appendResultMessage(
+                transitionedGoal,
+                normalized.result,
+            );
 
             await this.store.save(nextGoal);
             goal = nextGoal;
@@ -554,6 +709,39 @@ export class Runner {
             state: {
                 ...goal.state,
                 run,
+            },
+        };
+    }
+
+    private appendDecisionMessage(
+        goal: Goal,
+        decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>,
+    ): Goal {
+        const content = decision.kind === "complete"
+            ? decision.summary
+            : decision.kind === "wait"
+                ? decision.reason
+                : decision.error;
+
+        return this.appendAssistantContent(goal, content);
+    }
+
+    private appendAssistantContent(
+        goal: Goal,
+        content: string,
+    ): Goal {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [
+                    ...goal.state.messages,
+                    {
+                        role: "assistant",
+                        assistant: { profileId: goal.definition.profile.id },
+                        content,
+                    },
+                ],
             },
         };
     }

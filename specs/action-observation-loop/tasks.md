@@ -34,7 +34,7 @@
   - 添加 Runner 测试，断言失败发生在 Tool 调用前、错误码稳定且不消费 Step
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 实现 Runner 的自动 Action/Observation 循环
+- [x] //TODO 6. 实现 Runner 的自动 Action/Observation 循环
 
   - 在 Runner 中编排 checkpoint 与 pendingAction 先保存、Tool 执行、Observation 保存和连续下一轮
   - 区分 success/failure Observation 与抛出异常，保证每个保存失败都立即停止后续调用
