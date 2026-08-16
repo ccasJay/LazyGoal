@@ -10,6 +10,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | --- | --- | --- |
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、StepResult | I/O 和模型调用 |
 | [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界 | 阶段推进、消息追加与持久化 |
+| [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 自动推进 Preparation、持久化交互等待点、委派 executing Goal | 用户输入恢复与 Step 执行 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 冻结 Profile、创建 Goal、先保存后调度 | 执行 Step |
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、转换、规范化消息、逐步保存 | 外部输入恢复与模型协议解析 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
@@ -20,13 +21,16 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 Goal v2 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
-Run 主流程为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存；`continue` 保存后立即进入下一轮。Executor 异常转为无消息的 fail Step。外部恢复由 Coordinator 先保存 `waiting → running` 后重新调度 Runner。
+Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保存为真实 assistant 消息并进入 `waiting_input`；`context_ready` 先保存 `planning/active`，再继续生成 task proposal；proposal 与完整批准文本一起保存为 `waiting_approval`。每个继续点都以保存成功为前提。executing Goal 委派给 Scheduler，并在调度结束后重新恢复最新 Goal。
+
+Run 主流程为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态。每个 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存；`continue` 保存后立即进入下一轮。Executor 异常转为无消息的 fail Step。外部输入恢复尚未接入 Coordinator。
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
 ## 错误与不变量
 
 - Goal 不存在或 `runId` 不匹配：返回 `RUN_NOT_FOUND`，不执行、不保存。
+- PreparationResult 与当前 phase 不匹配：返回 `INVALID_PHASE_RESULT`，不追加消息、不保存。
 - Executor 异常：转换为一次持久化的 `fail` Step。
 - Store I/O 或协议错误：原样向调用方传播。
 - GoalStore 按 `schemaVersion` 严格解码；v2 校验 workflow/Run 不变量，合法 v1 只读迁移为 v2，未知版本或损坏快照报协议错误。
@@ -34,4 +38,4 @@ Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后�
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runner 不再提供公开 resume；Coordinator 尚未接入准备阶段和 blocked 输入恢复。旧 Launcher 仍暂时通过 deprecated 输入创建已准备的 executing Goal。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Coordinator 当前只实现自动推进，用户回答、提案批准/反馈和 blocked 恢复尚未接入。旧 Launcher 仍暂时通过 deprecated 输入创建已准备的 executing Goal。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。

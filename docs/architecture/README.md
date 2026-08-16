@@ -17,29 +17,34 @@ LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命�
 ```mermaid
 flowchart LR
     C[调用方] --> L[Runtime: Launcher]
+    C --> G[GoalCoordinator]
     L --> S[GoalStore]
     L --> Q[RunScheduler]
+    G --> S
+    G --> PE[Agent: PreparationExecutor]
+    G --> Q[RunScheduler]
     Q --> R[Runner]
     R --> S
     R --> E[Agent: LLMStepExecutor]
-    E --> A[LLMAdapter]
-    A --> P[模型供应商]
+    PE --> A[LLMAdapter]
+    E --> A
+    A --> V[模型供应商]
 ```
 
 ## 主流程
 
-1. Launcher 查找 Profile，创建并保存 `created` Goal。
-2. Scheduler 使用 `{ goalId, runId }` 调用 Runner。
-3. Runner 恢复 Goal、校验 `runId`，进入 `running`。
-4. Executor 生成一个 StepResult 和本轮消息。
-5. Runner 转换 Run、追加消息、保存完整 Goal。
-6. `continue` 重复执行，`wait` 等待 `resume`，终态直接返回。
+1. 调用方创建并保存 `gathering_context/active` Goal；旧 Launcher 暂时仍直达 executing。
+2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
+3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
+4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
+5. Executor 生成 StepResult；Runner 转换状态、规范化消息并保存完整 Goal。
+6. `continue` 重复执行，`wait` 等待外部恢复，终态直接返回。
 
 ## 跨模块不变量
 
 - `goalId` 定位 Session，`runId` 标识执行实例，二者不能互换。
 - Preparation workflow 不消费 Step；executing workflow 必须拥有已确定 task。
-- Runner 独占状态推进与保存顺序；Executor 不保存 Goal。
+- Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
 - 当前只保存最新快照，不提供历史版本、并发冲突检测或 Tool Calling。

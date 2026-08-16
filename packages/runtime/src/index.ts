@@ -48,3 +48,9 @@ export type {
     RunIdGenerator,
 } from "./launcher";
 export type { RunScheduler } from "./scheduler";
+export { GoalCoordinator } from "./goal-coordinator";
+export type {
+    GoalCoordinatorDependencies,
+    GoalProgressErrorCode,
+    GoalProgressResult,
+} from "./goal-coordinator";

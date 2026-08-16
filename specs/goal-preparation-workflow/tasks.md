@@ -30,7 +30,7 @@
   - 扩展 Runner 测试，覆盖 continue 自动循环、blocked、异常 fail、累计 checkpoint、正数上限和 `maxSteps = 0`
   - _Requirements: [4.3](./requirements.md#req-4-3), [6.1](./requirements.md#req-6-1), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 6. 实现 GoalCoordinator 的阶段自动推进
+- [x] //TODO 6. 实现 GoalCoordinator 的阶段自动推进
 
   - 新增 GoalCoordinator，处理 active Preparation 的 question、context_ready、task_proposal，并把 executing Goal 委派给 Scheduler
   - 添加 Coordinator 测试，验证正向阶段转换、问题与完整提案持久化，以及每次继续前先保存成功
