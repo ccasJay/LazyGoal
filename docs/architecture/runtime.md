@@ -28,16 +28,17 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保�
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running。以上状态均先保存再继续自动推进。
 
-当前 Runner 主流程仍为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。Transition 已提供下一阶段需要的纯状态转换边界：`stage_action` 只写入 checkpoint/pendingAction，`observe_action` 与 `reject_action` 写入最近 Action/Observation 并各计一个 Step，`decision` 写入非 Tool 终止决策并计一个 Step，`execution_error` 进入 failed 但不计 Step；取消会清理 pendingAction。当前 Runner 尚未调用这些新输入，Action 调度、Tool 执行和 Observation 循环仍由后续 Spec TODO 实现。每个旧 Step 依次执行：Executor 返回 StepResult → Transition 写入最新 `lastStep` 与 continue checkpoint → Runner 为成功的 `wait/complete/fail` 生成规范化 assistant 消息 → GoalStore 保存。
+当前 Runner 主流程仍为 `created → running → continue* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。StepExecutor 已可生成 AgentDecision，但当前 Runner 只兼容转换终止分支；`tool_call` 会在 Tool Loop 升级前明确失败。Transition 已提供下一阶段需要的纯状态转换边界：`stage_action` 只写入 checkpoint/pendingAction，`observe_action` 与 `reject_action` 写入最近 Action/Observation 并各计一个 Step，`decision` 写入非 Tool 终止决策并计一个 Step，`execution_error` 进入 failed 但不计 Step；取消会清理 pendingAction。完整 Action 调度、Tool 执行和 Observation 循环仍由后续 Spec TODO 实现。当前兼容路径依次执行：Executor 返回 AgentDecision → Runner 转换终止分支为旧 StepResult → Transition 写入最新 `legacy` Step → GoalStore 保存。
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
-TODO 3 已建立 Runtime 的 Tool 扩展边界与内存 `ToolRegistry`，并由
+TODO 3 已建立 Runtime 的 Tool 扩展边界与内存 `ToolRegistry`，Agent 已能接收授权
+ToolDefinition 并生成严格 AgentDecision；并由
 [`packages/tools`](../../packages/tools/src/index.ts) 提供只读 `ReadFileTool`。它会
 拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；合法读取返回
 `success`，文件不存在等领域问题返回 `failure`。当前 Runner、Agent 与 Coordinator
-尚未接入该 Tool，Profile 授权、Policy 编排和自动 Action/Observation 循环仍由后续
-TODO 实现。
+尚未完成该 Tool 的授权执行编排，Profile 授权、Policy 编排和自动
+Action/Observation 循环仍由后续 TODO 实现。
 
 ## 错误与不变量
 

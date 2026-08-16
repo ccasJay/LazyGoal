@@ -1,4 +1,5 @@
 import type {
+    AgentDecision,
     AssistantMessage,
     Goal,
     RunInput,
@@ -7,8 +8,33 @@ import type {
     StepResult,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
-import type { StepExecutionResult, StepExecutor } from "./step-executor";
+import type {
+    LegacyStepExecutor,
+    StepExecutionResult,
+    StepExecutor,
+} from "./step-executor";
 import { transition } from "./transition";
+
+function toLegacyStepResult(
+    execution: AgentDecision | StepExecutionResult,
+): StepResult {
+    if ("result" in execution) {
+        return execution.result;
+    }
+
+    switch (execution.kind) {
+        case "complete":
+            return { kind: "complete", summary: execution.summary };
+        case "wait":
+            return { kind: "wait", reason: execution.reason };
+        case "fail":
+            return { kind: "fail", error: execution.error };
+        case "tool_call":
+            throw new Error(
+                "AgentDecision tool_call requires the upgraded Runner Tool loop",
+            );
+    }
+}
 
 /** Runner 的公开结果；其中 state 是 Run 状态，不是模型原始输出。 */
 export type RunnerResult =
@@ -35,8 +61,8 @@ export type RunnerResult =
 export interface RunnerDependencies {
     /** 完整 Goal 的最新快照存储。 */
     readonly store: GoalStore;
-    /** 每轮只执行一个 Step 的实现。 */
-    readonly executor: StepExecutor;
+    /** 新 AgentDecision 或旧 StepResult 兼容实现的单步执行器。 */
+    readonly executor: StepExecutor | LegacyStepExecutor;
 }
 
 /**
@@ -47,12 +73,16 @@ export interface RunnerDependencies {
  * 都会先保存最新完整 Goal，再继续下一步。正数 `maxSteps` 使用快照中的
  * 累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
+ * 当前 Runner 仍兼容旧 StepResult；收到新的 AgentDecision 时只转换其终止分支，
+ * `tool_call` 会明确失败，真正的 Tool 授权与 Action/Observation 编排由后续
+ * Runner 版本接管。
+ *
  * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
  * 传播，写入失败后不会继续执行下一 Step。
  */
 export class Runner {
     private readonly store: GoalStore;
-    private readonly executor: StepExecutor;
+    private readonly executor: StepExecutor | LegacyStepExecutor;
 
     /** @param dependencies - GoalStore 与 StepExecutor。 */
     constructor(dependencies: RunnerDependencies) {
@@ -142,27 +172,26 @@ export class Runner {
                 return { ok: true, state: failedGoal.state.run };
             }
 
-            let execution: StepExecutionResult;
+            let stepResult: StepResult;
             let shouldAppendResultMessage = true;
             try {
-                execution = await this.executor.execute(goal);
+                const execution = await this.executor.execute(goal, []);
+                stepResult = toLegacyStepResult(execution);
             } catch (error) {
-                execution = {
-                    result: {
-                        kind: "fail",
-                        error: error instanceof Error ? error.message : String(error),
-                    },
+                stepResult = {
+                    kind: "fail",
+                    error: error instanceof Error ? error.message : String(error),
                 };
                 shouldAppendResultMessage = false;
             }
 
             const nextRun = this.applyTransition(goal.state.run, {
                 kind: "step",
-                result: execution.result,
+                result: stepResult,
             });
             const transitionedGoal = this.withRun(goal, nextRun);
             const nextGoal = shouldAppendResultMessage
-                ? this.appendResultMessage(transitionedGoal, execution.result)
+                ? this.appendResultMessage(transitionedGoal, stepResult)
                 : transitionedGoal;
 
             await this.store.save(nextGoal);

@@ -20,7 +20,7 @@
   - 添加真实临时工作区测试，覆盖成功读取、领域失败、拒绝越界与 safe 重放声明
   - _Requirements: [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 4. 将 Agent 执行协议升级为 AgentDecision
+- [x] //TODO 4. 将 Agent 执行协议升级为 AgentDecision
 
   - 修改 StepExecutor、LLMStepExecutor、Prompt 与 Zod Schema，传入授权 ToolDefinition 并严格解析四种 AgentDecision 分支
   - 将 checkpoint、lastStep 和 pendingAction 投影到非持久化 Working Context，移除执行与 Preparation 的 Tool 前置拦截

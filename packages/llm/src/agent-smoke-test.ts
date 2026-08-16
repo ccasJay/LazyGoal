@@ -35,7 +35,7 @@ async function main(): Promise<void> {
         task: {
             objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
             completionCriteria: [
-                "返回一个符合 StepResult 协议的 complete 结果",
+                "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
             ],
         },
         profile: {

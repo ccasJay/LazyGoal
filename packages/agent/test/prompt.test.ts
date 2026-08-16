@@ -3,8 +3,14 @@ import { test } from "node:test";
 
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
-import type { Goal, GoalMessage, StepRecord } from "../../runtime/src/domain";
+import type {
+    Goal,
+    GoalMessage,
+    PendingAction,
+    StepRecord,
+} from "../../runtime/src/domain";
 import { InMemoryGoalStore } from "../../runtime/src/goal-store";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     buildPreparationRequest,
     buildStepRequest,
@@ -60,6 +66,8 @@ function createExecutingGoal(options: {
     readonly messages?: readonly GoalMessage[];
     readonly stepCount?: number;
     readonly previousStep?: StepRecord;
+    readonly checkpoint?: string;
+    readonly pendingAction?: PendingAction;
 } = {}): Goal {
     const goal = createGoal({
         id: "goal-1",
@@ -87,9 +95,15 @@ function createExecutingGoal(options: {
                 ...goal.state.run,
                 status: "running",
                 stepCount: options.stepCount ?? 0,
+                ...(options.checkpoint === undefined
+                    ? {}
+                    : { checkpoint: options.checkpoint }),
                 ...(options.previousStep === undefined
                     ? {}
                     : { lastStep: options.previousStep }),
+                ...(options.pendingAction === undefined
+                    ? {}
+                    : { pendingAction: options.pendingAction }),
             },
         },
     };
@@ -148,6 +162,54 @@ test("executing WorkingContext 只投影正数 maxSteps 和最近 previousStep",
     );
 });
 
+test("executing WorkingContext 投影 checkpoint、最近 Action Step 和 pendingAction", () => {
+    const previousStep: StepRecord = {
+        kind: "action",
+        action: {
+            actionId: "action-1",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        observation: {
+            kind: "success",
+            output: "完成",
+            summary: "已读取 README.md",
+        },
+    };
+    const pendingAction: PendingAction = {
+        action: {
+            actionId: "action-2",
+            toolId: "read_file",
+            input: { path: "package.json" },
+        },
+        status: "approved",
+    };
+    const goal = createExecutingGoal({
+        stepCount: 1,
+        checkpoint: "已吸收 README 内容",
+        previousStep,
+        pendingAction,
+    });
+
+    const context = buildWorkingContext(goal);
+
+    assert.deepEqual(
+        context.phase === "executing" ? context.execution : undefined,
+        {
+            stepCount: 1,
+            checkpoint: "已吸收 README 内容",
+            previousStep,
+            pendingAction,
+        },
+    );
+    assert.notStrictEqual(
+        context.phase === "executing"
+            ? context.execution.pendingAction
+            : undefined,
+        pendingAction,
+    );
+});
+
 test("请求顺序固定为 system、真实历史、当前 Working Context", () => {
     const messages: readonly GoalMessage[] = [
         { role: "user", content: "补充的真实输入" },
@@ -174,6 +236,24 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
         buildWorkingContext(goal),
     );
     assert.deepEqual(buildStepUserMessage(goal), buildWorkingContextMessage(goal));
+});
+
+test("执行请求只展示调用方传入的授权 ToolDefinition", () => {
+    const goal = createExecutingGoal();
+    const tool: ToolDefinition = {
+        id: "read_file",
+        description: "读取工作区内文本文件",
+        inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+        },
+    };
+    const request = buildStepRequest(goal, [tool]);
+    const systemContent = request.messages[0]?.content ?? "";
+
+    assert.match(systemContent, /read_file/);
+    assert.match(systemContent, /读取工作区内文本文件/);
+    assert.match(systemContent, /AgentDecision/);
 });
 
 test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", () => {

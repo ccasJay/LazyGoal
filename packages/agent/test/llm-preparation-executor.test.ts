@@ -11,8 +11,6 @@ import {
     LLMPreparationExecutor,
     LLMResponseProtocolError,
     PREPARATION_RESULT_PROTOCOL,
-    TOOLS_NOT_SUPPORTED_ERROR_CODE,
-    ToolsNotSupportedError,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -158,7 +156,7 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
     assert.equal(adapter.requests.length, 1);
 });
 
-test("Preparation Profile 含 Tool 时提前拒绝且不调用 Adapter", async () => {
+test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
     const executor = new LLMPreparationExecutor({ adapter });
     const goal = createPreparationGoal("gathering_context", {
@@ -166,16 +164,8 @@ test("Preparation Profile 含 Tool 时提前拒绝且不调用 Adapter", async (
         toolIds: ["filesystem"],
     });
 
-    await assert.rejects(
-        executor.execute(goal),
-        (error: unknown) => {
-            assert.ok(error instanceof ToolsNotSupportedError);
-            assert.equal(error.code, TOOLS_NOT_SUPPORTED_ERROR_CODE);
-            assert.deepEqual(error.toolIds, ["filesystem"]);
-            return true;
-        },
-    );
-    assert.equal(adapter.requests.length, 0);
+    assert.deepEqual(await executor.execute(goal), { kind: "context_ready" });
+    assert.equal(adapter.requests.length, 1);
 });
 
 test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {

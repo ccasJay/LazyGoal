@@ -11,6 +11,7 @@ export {
     buildStepUserMessage,
     buildWorkingContext,
     buildWorkingContextMessage,
+    AGENT_DECISION_PROTOCOL,
     PREPARATION_RESULT_PROTOCOL,
     STEP_RESULT_PROTOCOL,
 } from "./prompt";
@@ -18,16 +19,23 @@ export type { WorkingContext } from "./prompt";
 
 export {
     CompleteStepResultSchema,
+    AgentDecisionSchema,
+    CompleteAgentDecisionSchema,
     ContextReadyPreparationResultSchema,
     ContinueStepResultSchema,
+    FailAgentDecisionSchema,
     FailStepResultSchema,
     GatheringContextPreparationResultSchema,
     parsePreparationResult,
+    parseAgentDecision,
     parseStepResult,
     PlanningPreparationResultSchema,
     QuestionPreparationResultSchema,
     StepResultSchema,
     TaskProposalPreparationResultSchema,
+    ToolCallActionSchema,
+    ToolCallAgentDecisionSchema,
+    WaitAgentDecisionSchema,
     WaitStepResultSchema,
 } from "./response-schema";
 export type {
@@ -49,6 +57,10 @@ export type {
     LLMResponse,
 } from "../../llm/src/core/types";
 export type { StepResult } from "../../runtime/src/domain";
+export type {
+    AgentDecision,
+} from "../../runtime/src/domain";
+export type { ToolDefinition } from "../../runtime/src/tool";
 export type {
     PreparationExecutor,
     PreparationResult,

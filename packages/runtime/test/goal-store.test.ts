@@ -856,7 +856,10 @@ test("JsonFileGoalStore rejects damaged v1 without rewriting its file", async ()
                 async execute() {
                     executeCalls += 1;
                     return {
-                        result: { kind: "complete", summary: "不应执行" },
+                        result: {
+                            kind: "complete",
+                            summary: "不应执行",
+                        } as const,
                     };
                 },
             },
@@ -900,7 +903,10 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
                 async execute() {
                     executeCalls += 1;
                     return {
-                        result: { kind: "complete", summary: "不应执行" },
+                        result: {
+                            kind: "complete",
+                            summary: "不应执行",
+                        } as const,
                     };
                 },
             },
@@ -1034,7 +1040,7 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                     receivedGoals.push(currentGoal);
                     return {
                         result: {
-                            kind: "complete",
+                            kind: "complete" as const,
                             summary: "跨进程恢复后完成",
                         },
                     };

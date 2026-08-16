@@ -3,7 +3,11 @@ import type { z } from "zod";
 export const TOOLS_NOT_SUPPORTED_ERROR_CODE = "TOOLS_NOT_SUPPORTED" as const;
 export const LLM_RESPONSE_PROTOCOL_ERROR_CODE = "INVALID_LLM_RESPONSE" as const;
 
-/** Profile 请求当前执行器尚未支持的 Tool Calling。 */
+/**
+ * Profile 请求旧版执行器尚未支持的 Tool Calling。
+ * @deprecated LLMStepExecutor 已通过 AgentDecision 接收授权 ToolDefinition；
+ * 保留该错误仅供旧调用方识别，不再由当前执行器主动抛出。
+ */
 export class ToolsNotSupportedError extends Error {
     readonly code = TOOLS_NOT_SUPPORTED_ERROR_CODE;
     readonly toolIds: readonly string[];

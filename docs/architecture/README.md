@@ -37,7 +37,7 @@ flowchart LR
 2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
-5. Executor 生成 StepResult；Runner 转换状态、规范化消息并保存完整 Goal。
+5. Agent Executor 生成 AgentDecision；当前 Runner 兼容转换终止决策，转换状态、规范化消息并保存完整 Goal。
 6. Preparation 或 executing blocked 等待由 Coordinator `resume` 保存输入和状态后继续。
 7. Run 的 `continue` 自动重复执行，waiting 或终态停止。
 
@@ -48,7 +48,7 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
-- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 已定义 Tool 边界并提供只读 `read_file`，但尚未接入 Agent/Runner 的自动 Tool Calling。
+- 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 已定义 Tool 边界、Agent 已能生成 Tool Action，Runner 的自动 Tool Calling 仍待接入。
 
 ## 模块速查
 

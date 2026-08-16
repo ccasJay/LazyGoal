@@ -1,5 +1,11 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
-import type { Goal, GoalTask, StepRecord } from "../../runtime/src/domain";
+import type {
+    Goal,
+    GoalTask,
+    PendingAction,
+    StepRecord,
+} from "../../runtime/src/domain";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import type { PreparationPhase } from "./response-schema";
 
 /**
@@ -25,21 +31,32 @@ export type WorkingContext =
         readonly execution: {
             readonly stepCount: number;
             readonly maxSteps?: number;
+            readonly checkpoint?: string;
             readonly previousStep?: StepRecord;
+            readonly pendingAction?: PendingAction;
         };
     };
 
 /**
- * 约束模型只返回可被 StepResultSchema 验证的单个 JSON 对象。
- * 后续的解析器会把同一协议落成运行时 schema。
+ * 约束模型只返回可被 AgentDecisionSchema 验证的单个 JSON 对象。
+ * `checkpoint` 必须吸收当前 Working Context；Tool 执行结果只能由 Runtime 回填。
  */
-export const STEP_RESULT_PROTOCOL = [
+export const AGENT_DECISION_PROTOCOL = [
     "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-    '允许的形状为 {"kind":"continue","summary":"非空文本"}、',
-    '{"kind":"wait","reason":"非空文本"}、',
-    '{"kind":"complete","summary":"非空文本"} 或 {"kind":"fail","error":"非空文本"}。',
-    "kind 必须与对应字段匹配，字段值必须是非空字符串。",
+    "输出必须符合 AgentDecision 协议，只能选择以下四个 kind 分支。",
+    'Tool 调用形状为 {"kind":"tool_call","checkpoint":"累计状态",',
+    '"action":{"actionId":"稳定 ID","toolId":"授权 Tool ID","input":对象}}。',
+    '结束形状为 {"kind":"complete|wait|fail","checkpoint":"累计状态",',
+    '"summary|reason|error":"非空文本"}，字段名必须与 kind 匹配。',
+    "checkpoint、actionId、toolId 和对应文本字段必须是非空字符串。",
+    "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
 ].join("\n");
+
+/**
+ * @deprecated 使用 {@link AGENT_DECISION_PROTOCOL}。保留名称供旧 Prompt 调用方
+ * 读取，但内容已升级为 AgentDecision 协议。
+ */
+export const STEP_RESULT_PROTOCOL = AGENT_DECISION_PROTOCOL;
 
 /** Preparation 阶段对应的严格输出协议。 */
 export const PREPARATION_RESULT_PROTOCOL: Readonly<
@@ -126,9 +143,19 @@ export function buildWorkingContext(goal: Goal): WorkingContext {
         execution: {
             stepCount: goal.state.run.stepCount,
             ...(maxSteps > 0 ? { maxSteps } : {}),
+            ...(goal.state.run.checkpoint === undefined
+                ? {}
+                : { checkpoint: goal.state.run.checkpoint }),
             ...(goal.state.run.lastStep === undefined
                 ? {}
                 : { previousStep: cloneStepRecord(goal.state.run.lastStep) }),
+            ...(goal.state.run.pendingAction === undefined
+                ? {}
+                : {
+                    pendingAction: structuredClone(
+                        goal.state.run.pendingAction,
+                    ),
+                }),
         },
     };
 }
@@ -168,16 +195,29 @@ export function buildStepUserMessage(
     return buildControlMessage(context);
 }
 
+function buildAuthorizedToolsContent(
+    tools: readonly ToolDefinition[],
+): string {
+    return [
+        "Authorized Tool definitions (only these Tool IDs may be requested):",
+        JSON.stringify(tools, null, 2),
+    ].join("\n");
+}
+
 function buildRequest(
     goal: Goal,
     protocol: string,
     context: WorkingContext,
+    tools: readonly ToolDefinition[] = [],
 ): LLMRequest {
     return {
         messages: [
             {
                 role: "system",
-                content: buildProfileSystemContent(goal, protocol),
+                content: [
+                    buildProfileSystemContent(goal, protocol),
+                    buildAuthorizedToolsContent(tools),
+                ].join("\n\n"),
             },
             ...goal.state.messages.map((message) => ({
                 role: message.role,
@@ -191,15 +231,21 @@ function buildRequest(
 /**
  * 将一个完整 Goal 快照转换为本轮 LLM 请求。
  * 该函数只读取状态并生成新字符串，不保存状态、不追加历史。
+ *
+ * @param goal - 当前 running executing Goal。
+ * @param tools - 当前 Profile 已授权且由 Runtime 解析出的 Tool 描述。
  */
-export function buildStepRequest(goal: Goal): LLMRequest {
+export function buildStepRequest(
+    goal: Goal,
+    tools: readonly ToolDefinition[] = [],
+): LLMRequest {
     const context = buildWorkingContext(goal);
 
     if (context.phase !== "executing") {
         throw new Error("Step request requires a running executing Goal");
     }
 
-    return buildRequest(goal, STEP_RESULT_PROTOCOL, context);
+    return buildRequest(goal, AGENT_DECISION_PROTOCOL, context, tools);
 }
 
 /**

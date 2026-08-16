@@ -18,7 +18,7 @@ import type {
     PreparationExecutor,
     PreparationResult,
     StepExecutionResult,
-    StepExecutor,
+    LegacyStepExecutor,
     StepResult,
 } from "../src/index";
 
@@ -86,7 +86,7 @@ class WorkflowPreparationExecutor implements PreparationExecutor {
     }
 }
 
-class WorkflowStepExecutor implements StepExecutor {
+class WorkflowStepExecutor implements LegacyStepExecutor {
     private readonly results: readonly StepResult[] = [
         { kind: "wait", reason: "Write permission required" },
         { kind: "complete", summary: "Persistence implemented" },

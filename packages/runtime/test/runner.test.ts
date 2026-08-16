@@ -19,7 +19,7 @@ import type {
     RunRef,
     RunState,
     StepExecutionResult,
-    StepExecutor,
+    LegacyStepExecutor,
     StepResult,
 } from "../src/index";
 
@@ -40,7 +40,7 @@ type ExecuteAction = (
     goal: Goal,
 ) => StepResult | StepExecutionResult | Promise<StepResult | StepExecutionResult>;
 
-class FakeStepExecutor implements StepExecutor {
+class FakeStepExecutor implements LegacyStepExecutor {
     readonly receivedGoals: Goal[] = [];
 
     constructor(

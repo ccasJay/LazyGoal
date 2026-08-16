@@ -1,26 +1,163 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { StepResult } from "../../runtime/src/domain";
+import type {
+    AgentDecision,
+    StepResult,
+} from "../../runtime/src/domain";
 import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
 } from "../src/errors";
 import {
+    AgentDecisionSchema,
+    CompleteAgentDecisionSchema,
     CompleteStepResultSchema,
     ContextReadyPreparationResultSchema,
     ContinueStepResultSchema,
     FailStepResultSchema,
+    FailAgentDecisionSchema,
     GatheringContextPreparationResultSchema,
     parsePreparationResult,
+    parseAgentDecision,
     parseStepResult,
     PlanningPreparationResultSchema,
     QuestionPreparationResultSchema,
     StepResultSchema,
     TaskProposalPreparationResultSchema,
+    ToolCallActionSchema,
+    ToolCallAgentDecisionSchema,
+    WaitAgentDecisionSchema,
     WaitStepResultSchema,
 } from "../src/response-schema";
+
+const decisionCases: ReadonlyArray<{
+    readonly content: string;
+    readonly expected: AgentDecision;
+}> = [
+    {
+        content: JSON.stringify({
+            kind: "tool_call",
+            checkpoint: "已定位配置文件",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "config.json" },
+            },
+        }),
+        expected: {
+            kind: "tool_call",
+            checkpoint: "已定位配置文件",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "config.json" },
+            },
+        },
+    },
+    {
+        content: JSON.stringify({
+            kind: "complete",
+            checkpoint: "已完成目标",
+            summary: "目标完成",
+        }),
+        expected: {
+            kind: "complete",
+            checkpoint: "已完成目标",
+            summary: "目标完成",
+        },
+    },
+    {
+        content: JSON.stringify({
+            kind: "wait",
+            checkpoint: "已等待外部输入",
+            reason: "需要用户确认",
+        }),
+        expected: {
+            kind: "wait",
+            checkpoint: "已等待外部输入",
+            reason: "需要用户确认",
+        },
+    },
+    {
+        content: JSON.stringify({
+            kind: "fail",
+            checkpoint: "已确认无法继续",
+            error: "缺少必要输入",
+        }),
+        expected: {
+            kind: "fail",
+            checkpoint: "已确认无法继续",
+            error: "缺少必要输入",
+        },
+    },
+];
+
+test("四个合法 JSON 分支都能解析为 AgentDecision", () => {
+    for (const validCase of decisionCases) {
+        const result = parseAgentDecision(validCase.content);
+
+        assert.deepEqual(result, validCase.expected);
+        assert.equal(AgentDecisionSchema.safeParse(result).success, true);
+    }
+
+    assert.equal(ToolCallActionSchema.safeParse({
+        actionId: "action-1",
+        toolId: "read_file",
+        input: ["a", 1, true],
+    }).success, true);
+    assert.equal(ToolCallAgentDecisionSchema.safeParse(decisionCases[0] === undefined
+        ? {}
+        : JSON.parse(decisionCases[0].content)).success, true);
+    assert.equal(CompleteAgentDecisionSchema.safeParse(decisionCases[1] === undefined
+        ? {}
+        : JSON.parse(decisionCases[1].content)).success, true);
+    assert.equal(WaitAgentDecisionSchema.safeParse(decisionCases[2] === undefined
+        ? {}
+        : JSON.parse(decisionCases[2].content)).success, true);
+    assert.equal(FailAgentDecisionSchema.safeParse(decisionCases[3] === undefined
+        ? {}
+        : JSON.parse(decisionCases[3].content)).success, true);
+});
+
+test("AgentDecision 严格拒绝空字段、协议外字段和旧 continue 分支", () => {
+    for (const invalid of [
+        {
+            kind: "tool_call",
+            checkpoint: " ",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+        {
+            kind: "tool_call",
+            checkpoint: "已定位",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+                result: "模型伪造结果",
+            },
+        },
+        {
+            kind: "complete",
+            checkpoint: "已完成",
+            summary: "完成",
+            extra: true,
+        },
+        { kind: "continue", summary: "旧协议" },
+    ]) {
+        assert.equal(AgentDecisionSchema.safeParse(invalid).success, false);
+    }
+
+    assert.throws(
+        () => parseAgentDecision("不是 JSON"),
+        (error: unknown) => error instanceof LLMResponseProtocolError,
+    );
+});
 
 const validCases: ReadonlyArray<{
     readonly content: string;
