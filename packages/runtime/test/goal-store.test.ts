@@ -49,6 +49,33 @@ function createSnapshot(runId = "run-1"): Goal {
     });
 }
 
+function createV1Snapshot() {
+    return {
+        id: "goal-v1",
+        metadata: { schemaVersion: 1 },
+        task: {
+            objective: "恢复旧版任务",
+            completionCriteria: ["消息与 Run 进度保持一致"],
+        },
+        profile: {
+            ...profile,
+            instructions: [...profile.instructions],
+            toolIds: [...profile.toolIds],
+        },
+        messages: [
+            { role: "user", content: "旧版真实输入" },
+            { role: "assistant", content: "旧版真实响应" },
+            { role: "user", content: "可能是历史 Working Context" },
+        ],
+        run: {
+            id: "run-v1",
+            status: "waiting",
+            stepCount: 1,
+            lastResult: { kind: "wait", reason: "等待旧版输入" },
+        },
+    } as const;
+}
+
 function snapshotPath(directory: string, goalId: string): string {
     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
     return join(directory, `${encodedGoalId}.json`);
@@ -135,6 +162,146 @@ test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", ()
             },
         },
     }));
+});
+
+test("GoalSnapshotSchema enforces v2 workflow and Run cross-field invariants", () => {
+    const snapshot = createSnapshot();
+    const continueStep = {
+        lastStep: {
+            result: { kind: "continue", summary: "继续" },
+        },
+    } as const;
+    const invalidSnapshots: unknown[] = [
+        {
+            ...createGoal({
+                id: "goal-preparation",
+                intent: "先准备",
+                profile,
+                runId: "run-preparation",
+            }),
+            state: {
+                ...createGoal({
+                    id: "goal-preparation",
+                    intent: "先准备",
+                    profile,
+                    runId: "run-preparation",
+                }).state,
+                run: { id: "run-preparation", status: "running", stepCount: 0 },
+            },
+        },
+        {
+            ...snapshot,
+            state: {
+                ...snapshot.state,
+                run: { id: "run-1", status: "running", stepCount: 1 },
+            },
+        },
+        {
+            ...snapshot,
+            state: {
+                ...snapshot.state,
+                run: {
+                    id: "run-1",
+                    status: "waiting",
+                    stepCount: 1,
+                    ...continueStep,
+                },
+            },
+        },
+        {
+            ...snapshot,
+            state: {
+                ...snapshot.state,
+                run: {
+                    id: "run-1",
+                    status: "failed",
+                    stepCount: 1,
+                    ...continueStep,
+                },
+            },
+        },
+        {
+            ...snapshot,
+            state: {
+                ...snapshot.state,
+                run: {
+                    id: "run-1",
+                    status: "failed",
+                    stepCount: 1,
+                    ...continueStep,
+                    stopReason: { kind: "max_steps_exceeded" },
+                },
+            },
+        },
+    ];
+
+    for (const invalidSnapshot of invalidSnapshots) {
+        assert.equal(GoalSnapshotSchema.safeParse(invalidSnapshot).success, false);
+    }
+});
+
+test("schemaVersion 1 snapshot migrates deterministically without changing source", () => {
+    const v1 = createV1Snapshot();
+    const sourceBefore = JSON.stringify(v1);
+    const migrated = GoalSnapshotSchema.parse(v1);
+
+    assert.equal(JSON.stringify(v1), sourceBefore);
+    assert.deepEqual(migrated, {
+        id: "goal-v1",
+        metadata: { schemaVersion: 2 },
+        definition: {
+            intent: "恢复旧版任务",
+            profile: v1.profile,
+            executionPolicy: { maxSteps: 0 },
+        },
+        state: {
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: v1.task,
+            },
+            messages: [
+                { role: "user", content: "旧版真实输入" },
+                {
+                    role: "assistant",
+                    assistant: { profileId: "profile-1" },
+                    content: "旧版真实响应",
+                },
+                { role: "user", content: "可能是历史 Working Context" },
+            ],
+            run: {
+                id: "run-v1",
+                status: "waiting",
+                stepCount: 1,
+                lastStep: {
+                    result: { kind: "wait", reason: "等待旧版输入" },
+                },
+            },
+        },
+    });
+});
+
+test("unknown versions and cross-field-invalid v1 snapshots are rejected", () => {
+    const v1 = createV1Snapshot();
+
+    assert.equal(GoalSnapshotSchema.safeParse({
+        ...v1,
+        metadata: { schemaVersion: 99 },
+    }).success, false);
+    assert.equal(GoalSnapshotSchema.safeParse({
+        ...v1,
+        run: {
+            ...v1.run,
+            status: "completed",
+        },
+    }).success, false);
+    assert.equal(GoalSnapshotSchema.safeParse({
+        ...v1,
+        run: {
+            ...v1.run,
+            stepCount: 0,
+        },
+    }).success, false);
 });
 
 test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
@@ -232,6 +399,37 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
             JSON.parse(await readFile(join(directory, files[0] ?? ""), "utf8")),
             goal,
         );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore restores v1 read-only and upgrades it on the next save", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const v1 = createV1Snapshot();
+        const path = snapshotPath(directory, v1.id);
+        const originalContent = `${JSON.stringify(v1, null, 2)}\n`;
+        await mkdir(directory, { recursive: true });
+        await writeFile(path, originalContent, "utf8");
+        const store = new JsonFileGoalStore(directory);
+
+        const restored = await store.restore(v1.id);
+
+        assert.ok(restored);
+        assert.equal(restored.metadata.schemaVersion, 2);
+        assert.equal(await readFile(path, "utf8"), originalContent);
+
+        await store.save(restored);
+        const saved = JSON.parse(await readFile(path, "utf8")) as {
+            readonly metadata: { readonly schemaVersion: number };
+            readonly task?: unknown;
+        };
+
+        assert.equal(saved.metadata.schemaVersion, 2);
+        assert.equal(saved.task, undefined);
+        assert.deepEqual(await store.restore(v1.id), restored);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -368,6 +566,54 @@ test("JsonFileGoalStore normalizes invalid JSON, schema, and ID errors", async (
     }
 });
 
+test("JsonFileGoalStore rejects damaged v1 without rewriting its file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const v1 = createV1Snapshot();
+        const damaged = {
+            ...v1,
+            run: { ...v1.run, status: "completed" },
+        };
+        const path = snapshotPath(directory, v1.id);
+        const originalContent = JSON.stringify(damaged);
+        await mkdir(directory, { recursive: true });
+        await writeFile(path, originalContent, "utf8");
+        const store = new JsonFileGoalStore(directory);
+
+        await assert.rejects(
+            store.restore(v1.id),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
+        );
+        let executeCalls = 0;
+        const runner = new Runner({
+            store,
+            executor: {
+                async execute() {
+                    executeCalls += 1;
+                    return {
+                        result: { kind: "complete", summary: "不应执行" },
+                        appendedMessages: [],
+                    };
+                },
+            },
+            maxSteps: 1,
+        });
+        await assert.rejects(
+            runner.run({ goalId: v1.id, runId: v1.run.id }),
+            GoalSnapshotProtocolError,
+        );
+        assert.equal(executeCalls, 0);
+        assert.equal(await readFile(path, "utf8"), originalContent);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files", async () => {
     const parent = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 
@@ -463,6 +709,43 @@ test("JsonFileGoalStore supports complete recovery across tsx processes", async 
         ]);
 
         assert.deepEqual(JSON.parse(restoredOutput), goal);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore migrates v1 across tsx processes", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const v1 = createV1Snapshot();
+        await mkdir(directory, { recursive: true });
+        await writeFile(
+            snapshotPath(directory, v1.id),
+            JSON.stringify(v1),
+            "utf8",
+        );
+
+        const restoredOutput = await runGoalStoreProcess([
+            "restore",
+            directory,
+            v1.id,
+        ]);
+        const restored = JSON.parse(restoredOutput) as Goal;
+
+        assert.equal(restored.metadata.schemaVersion, 2);
+        assert.equal(restored.state.workflow.phase, "executing");
+        assert.deepEqual(restored.state.messages[1], {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "旧版真实响应",
+        });
+        assert.equal(
+            (JSON.parse(await readFile(snapshotPath(directory, v1.id), "utf8")) as {
+                readonly metadata: { readonly schemaVersion: number };
+            }).metadata.schemaVersion,
+            1,
+        );
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

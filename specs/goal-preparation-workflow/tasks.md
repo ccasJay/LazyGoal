@@ -6,7 +6,7 @@
   - 扩展 Runtime 领域与转换测试，覆盖初始准备快照、未批准任务保护及 Preparation 不消费 Step
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.4](./requirements.md#req-1-4), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 2. 实现版本化 Goal 快照解码与 v1 迁移
+- [x] //TODO 2. 实现版本化 Goal 快照解码与 v1 迁移
 
   - 修改 `packages/runtime/src/goal-store.ts`，按版本校验 v2 交叉字段并将合法 v1 快照只读转换为 v2
   - 扩展 GoalStore 测试与跨进程 fixture，覆盖消息保序、下一次保存升级、未知版本及损坏快照

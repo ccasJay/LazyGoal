@@ -105,6 +105,7 @@ function createInitialGoal(
     goalId = goalDefinition.id,
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
+    maxSteps = 3,
 ): Goal {
     return createGoal({
         id: goalId,
@@ -112,6 +113,7 @@ function createInitialGoal(
         profile: runProfile,
         messages,
         runId,
+        maxSteps,
     });
 }
 
@@ -119,8 +121,8 @@ function withRun(goal: Goal, run: RunState): Goal {
     return { ...goal, state: { ...goal.state, run } };
 }
 
-function createRunningGoal(runId = "run-1"): Goal {
-    const goal = createInitialGoal(runId);
+function createRunningGoal(runId = "run-1", maxSteps = 3): Goal {
+    const goal = createInitialGoal(runId, goalDefinition.id, profile, [], maxSteps);
     return withRun(goal, applyTransition(goal.state.run, { kind: "start" }));
 }
 
@@ -568,7 +570,7 @@ test("resume rejects a Goal that is not waiting without side effects", async () 
 test("fails at maxSteps without an extra executor call or step count", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
-    const initial = createInitialGoal();
+    const initial = createInitialGoal("run-1", goalDefinition.id, profile, [], 2);
     await store.seed(initial);
     const executor = new FakeStepExecutor([
         () => ({ kind: "continue", summary: "第一次" }),
@@ -601,8 +603,8 @@ test("uses the persisted step count as the maxSteps budget after resume", async 
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const firstStep = withRun(
-        createRunningGoal(),
-        applyTransition(createRunningGoal().state.run, {
+        createRunningGoal("run-1", 2),
+        applyTransition(createRunningGoal("run-1", 2).state.run, {
             kind: "step",
             result: { kind: "continue", summary: "已执行一步" },
         }),

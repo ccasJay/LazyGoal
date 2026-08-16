@@ -27,8 +27,9 @@ Run 主流程为 `created → running → continue* → waiting/resume | complet
 - 非 waiting Run 调用 resume：返回 `RUN_NOT_WAITING`。
 - Executor 异常：转换为一次持久化的 `fail` Step。
 - Store I/O 或协议错误：原样向调用方传播。
-- `JsonFileGoalStore` 当前写入 v2 单文件最新快照；并发写入是最后替换者覆盖。
+- GoalStore 按 `schemaVersion` 严格解码；v2 校验 workflow/Run 不变量，合法 v1 只读迁移为 v2，未知版本或损坏快照报协议错误。
+- `JsonFileGoalStore` 恢复 v1 时不改写文件；下一次显式保存才以 v2 原子替换。并发写入仍是最后替换者覆盖。
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。旧 Launcher 暂时通过 deprecated 输入创建已准备的 executing Goal；Preparation 推进与 v1 快照迁移尚未接入。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。旧 Launcher 暂时通过 deprecated 输入创建已准备的 executing Goal；Preparation 推进尚未接入。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
