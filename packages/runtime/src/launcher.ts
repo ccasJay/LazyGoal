@@ -1,73 +1,100 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import { createGoal } from "./domain";
-import type {
-    GoalInput,
-    GoalMessage,
-    RunState,
-} from "./domain";
 import type { GoalStore } from "./goal-store";
-import type { RunScheduler } from "./scheduler";
+import type {
+    GoalCoordinator,
+    GoalProgressResult,
+} from "./goal-coordinator";
 
-/** 向启动边界提交的任务定义；不包含 Run 状态或 Profile 实例。 */
+/**
+ * 创建并启动一个准备工作流 Goal 的公开输入。
+ *
+ * @remarks
+ * `intent` 是创建后冻结的原始用户意图；`maxSteps` 只限制批准后 executing
+ * 阶段的 Step，省略或传 `0` 表示无限。
+ *
+ * @example
+ * ```ts
+ * const request: LaunchRequest = {
+ *   goalId: "goal-1",
+ *   intent: "Build a resumable session",
+ *   profileId: "default",
+ *   maxSteps: 10,
+ * };
+ * ```
+ */
 export interface LaunchRequest {
-    /** 由调用方定义的 Goal ID、目标与完成条件。 */
-    readonly goal: GoalInput;
-    /** 需要从 Registry 解析并冻结到 Goal 的 Profile ID。 */
+    /** 由调用方提供的稳定 Session 标识。 */
+    readonly goalId: string;
+    /** 按原文保存到 definition 和首条 user 消息的初始意图。 */
+    readonly intent: string;
+    /** 从 Registry 解析并冻结到 Goal 的 Profile ID。 */
     readonly profileId: string;
-    /** 创建 Goal 时按原顺序写入的可选历史消息。 */
-    readonly messages?: readonly GoalMessage[];
+    /** 非负 executing Step 上限；`0` 或省略表示无限。 */
+    readonly maxSteps?: number;
 }
 
 /** 由调用方注入；生产环境可生成 UUID，测试可返回固定值。 */
 export type RunIdGenerator = () => string;
 
-/** Launcher 的成功结果或来自 Profile/Scheduler 的稳定业务失败。 */
+/** Launcher 的 Goal 推进结果，额外包含 Profile 查找失败。 */
 export type LaunchResult =
-    | {
-        readonly ok: true;
-        readonly goalId: string;
-        readonly runId: string;
-        readonly profileId: string;
-        readonly state: RunState;
-    }
+    | GoalProgressResult
     | {
         readonly ok: false;
         readonly error: {
-            readonly code:
-                | "PROFILE_NOT_FOUND"
-                | "RUN_NOT_FOUND";
+            readonly code: "PROFILE_NOT_FOUND";
             readonly message: string;
         };
     };
 
-/** Launcher 的 Profile、身份生成、持久化与调度依赖。 */
+/**
+ * Launcher 的 Profile、身份生成、持久化与协调依赖。
+ *
+ * @remarks
+ * `store` 必须与 Coordinator 使用同一持久化边界，否则 Coordinator 无法恢复
+ * Launcher 刚保存的初始 Goal。
+ *
+ * @example
+ * ```ts
+ * const dependencies: LauncherDependencies = {
+ *   profiles,
+ *   runIdGenerator: () => crypto.randomUUID(),
+ *   store,
+ *   coordinator,
+ * };
+ * ```
+ */
 export interface LauncherDependencies {
-    /** 用于按 ID 解析 Profile。 */
+    /** 用于按 ID 解析待冻结 Profile。 */
     readonly profiles: AgentProfileRegistry;
-    /** 每次 launch 调用一次，用于生成独立 runId。 */
+    /** 每次合法 launch 调用一次，用于生成当前 runId。 */
     readonly runIdGenerator: RunIdGenerator;
-    /** 在调度前保存初始完整 Goal。 */
+    /** 在任何 Preparation 调用前保存初始完整 Goal。 */
     readonly store: Pick<GoalStore, "save">;
-    /** 接收已持久化 Goal 的 RunRef。 */
-    readonly scheduler: RunScheduler;
+    /** 从已保存的 gathering Goal 推进到下一等待点或终态。 */
+    readonly coordinator: Pick<GoalCoordinator, "advance">;
 }
 
 /**
- * 启动一个新的 Goal/Run 聚合。
+ * 创建、保存并自动推进一个准备工作流 Goal。
  *
- * 固定顺序为：Profile lookup → 生成 runId → 组装并保存完整 Goal → 调度。
- * 依赖失败保持原错误传播；保存未成功时绝不调用 Scheduler。
+ * @remarks
+ * 固定顺序为：输入校验 → Profile lookup → 生成 runId → 保存
+ * `gathering_context/active` Goal → Coordinator.advance。intent 为空白或
+ * maxSteps 非非负整数时返回 `INVALID_GOAL_INPUT`，且不会查找 Profile、生成
+ * runId、保存或调用 Coordinator。初始快照未保存成功时同样不会推进。
  *
- * @param request - Goal 定义、Profile ID 与可选初始消息。
- * @param dependencies - Profile Registry、Run ID 生成器、Store 与 Scheduler。
- * @returns 启动后的 Goal/Run 标识和当前状态，或稳定业务失败。
- * @throws Run ID 生成、持久化或调度依赖抛出的原始异常。
+ * @param request - Goal ID、原始意图、Profile ID 与可选 Step 上限。
+ * @param dependencies - Profile Registry、Run ID 生成器、Store 与 Coordinator。
+ * @returns Coordinator 的最新 Goal 结果或稳定输入/Profile 业务失败。
+ * @throws Run ID 生成、GoalStore 或 Coordinator 依赖失败时传播原始异常。
  *
  * @example
  * ```ts
  * const result = await launch(
- *   { goal: { id: "goal-1", objective: "完成任务", completionCriteria: ["已完成"] }, profileId: "default" },
- *   { profiles, runIdGenerator, store, scheduler },
+ *   { goalId: "goal-1", intent: "Build a session", profileId: "default" },
+ *   { profiles, runIdGenerator, store, coordinator },
  * );
  * ```
  */
@@ -75,6 +102,16 @@ export async function launch(
     request: LaunchRequest,
     dependencies: LauncherDependencies,
 ): Promise<LaunchResult> {
+    if (request.intent.trim().length === 0) {
+        return invalidGoalInput("Intent must not be empty");
+    }
+
+    const maxSteps = request.maxSteps ?? 0;
+
+    if (!Number.isInteger(maxSteps) || maxSteps < 0) {
+        return invalidGoalInput("maxSteps must be a non-negative integer");
+    }
+
     const profile = dependencies.profiles.get(request.profileId);
 
     if (profile === undefined) {
@@ -89,33 +126,24 @@ export async function launch(
 
     const runId = dependencies.runIdGenerator();
     const goal = createGoal({
-        id: request.goal.id,
-        task: {
-            objective: request.goal.objective,
-            completionCriteria: request.goal.completionCriteria,
-        },
+        id: request.goalId,
+        intent: request.intent,
         profile,
         runId,
-        ...(request.messages === undefined
-            ? {}
-            : { messages: request.messages }),
+        maxSteps,
     });
+    const ref = { goalId: goal.id, runId };
 
     await dependencies.store.save(goal);
-    const scheduleResult = await dependencies.scheduler.schedule({
-        goalId: goal.id,
-        runId,
-    });
+    return dependencies.coordinator.advance(ref);
+}
 
-    if (!scheduleResult.ok) {
-        return scheduleResult;
-    }
-
+function invalidGoalInput(message: string): LaunchResult {
     return {
-        ok: true,
-        goalId: goal.id,
-        runId,
-        profileId: goal.definition.profile.id,
-        state: scheduleResult.state,
+        ok: false,
+        error: {
+            code: "INVALID_GOAL_INPUT",
+            message,
+        },
     };
 }

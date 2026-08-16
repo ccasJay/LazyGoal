@@ -19,7 +19,7 @@ flowchart LR
     C[调用方] --> L[Runtime: Launcher]
     C --> G[GoalCoordinator]
     L --> S[GoalStore]
-    L --> Q[RunScheduler]
+    L --> G
     G --> S
     G --> PE[Agent: PreparationExecutor]
     G --> Q[RunScheduler]
@@ -33,12 +33,12 @@ flowchart LR
 
 ## 主流程
 
-1. 调用方创建并保存 `gathering_context/active` Goal；旧 Launcher 暂时仍直达 executing。
+1. Launcher 校验原始 intent，创建并保存 `gathering_context/active` Goal，再调用 Coordinator。
 2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
 5. Executor 生成 StepResult；Runner 转换状态、规范化消息并保存完整 Goal。
-6. Preparation 等待由 Coordinator `resume` 保存输入后继续；executing blocked 恢复尚未接入。
+6. Preparation 或 executing blocked 等待由 Coordinator `resume` 保存输入和状态后继续。
 7. Run 的 `continue` 自动重复执行，waiting 或终态停止。
 
 ## 跨模块不变量

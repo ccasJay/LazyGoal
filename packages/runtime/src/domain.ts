@@ -175,8 +175,8 @@ export interface RunRef {
 }
 
 /**
- * 旧 Launcher/RunStore 使用的任务输入。
- * @deprecated 新流程使用原始 intent 创建 Goal，批准后的任务保存在 workflow 中。
+ * 旧 RunStore 与兼容工厂使用的任务输入。
+ * @deprecated 新 Launcher 使用原始 intent 创建 Goal，批准后的任务保存在 workflow 中。
  * @example
  * ```ts
  * const input: GoalInput = {
@@ -268,7 +268,8 @@ export interface GoalCreationInput {
 /**
  * 旧调用方直接提交已确定任务时使用的创建输入。
  *
- * @deprecated 仅用于新准备工作流接管 Launcher 前保持现有执行链可用。
+ * @deprecated 仅供兼容调用方直接构造已准备的 executing Goal；新 Launcher
+ * 始终从 gathering_context 创建。
  *
  * @example
  * ```ts

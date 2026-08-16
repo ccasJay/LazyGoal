@@ -42,7 +42,7 @@
   - 扩展 Coordinator 测试，覆盖重规划、批准、空输入、无提案及非等待状态的无副作用失败
   - _Requirements: [2.2](./requirements.md#req-2-2), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 8. 接入 Launcher、执行阻塞恢复与端到端流程
+- [x] //TODO 8. 接入 Launcher、执行阻塞恢复与端到端流程
 
   - 修改 Launcher、Scheduler 接口与公共导出，校验 LaunchRequest，先保存新 Goal，再由 Coordinator 推进；执行恢复需原子保存用户消息和 running 状态后再调度
   - 添加集成测试，覆盖完整准备到执行流程、RunRef/等待错误、持久化失败停止以及执行首个 Step 的保存顺序

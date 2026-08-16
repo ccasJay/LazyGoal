@@ -162,6 +162,37 @@ function createPlanningWaitingGoal(
     };
 }
 
+function createExecutingWaitingGoal(): Goal {
+    const goal = createGoal({
+        id: "goal-blocked-resume",
+        task: { objective: "Deploy release", completionCriteria: ["Deployed"] },
+        profile,
+        runId: "run-blocked-resume",
+    });
+    const waitingRun = applyRunTransition(
+        applyRunTransition(goal.state.run, { kind: "start" }),
+        {
+            kind: "step",
+            result: { kind: "wait", reason: "Production permission required" },
+        },
+    );
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            messages: [
+                {
+                    role: "assistant",
+                    assistant: { profileId: profile.id },
+                    content: "Production permission required",
+                },
+            ],
+            run: waitingRun,
+        },
+    };
+}
+
 function createUnusedScheduler(): RunScheduler {
     return new FakeScheduler(async () => {
         throw new Error("Unexpected Scheduler call");
@@ -752,4 +783,108 @@ test("resume returns RUN_NOT_FOUND for a missing Goal or mismatched runId", asyn
         }));
         assert.equal(result.error.code, "RUN_NOT_FOUND");
     }
+});
+
+test("saves a blocked user message and running state before scheduling", async () => {
+    const events: string[] = [];
+    const waiting = createExecutingWaitingGoal();
+    const store = new RecordingGoalStore(events);
+    await store.seed(waiting);
+    events.length = 0;
+    const scheduler = new FakeScheduler(async (ref) => {
+        const resumed = await store.restore(ref.goalId);
+        assert.ok(resumed);
+        assert.equal(resumed.state.run.status, "running");
+        assert.deepEqual(resumed.state.run.lastStep, waiting.state.run.lastStep);
+        assert.deepEqual(resumed.state.messages.at(-1), {
+            role: "user",
+            content: "  Permission granted  ",
+        });
+
+        const completedRun = applyRunTransition(resumed.state.run, {
+            kind: "step",
+            result: { kind: "complete", summary: "Deployed" },
+        });
+        await store.save({
+            ...resumed,
+            state: { ...resumed.state, run: completedRun },
+        });
+        return { ok: true, state: completedRun };
+    }, events);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    const result = requireSuccess(await coordinator.resume({
+        ref: { goalId: waiting.id, runId: waiting.state.run.id },
+        action: { kind: "message", content: "  Permission granted  " },
+    }));
+
+    assert.ok(
+        events.indexOf("save:executing")
+        < events.indexOf(`schedule:${waiting.id}`),
+    );
+    assert.equal(result.kind, "terminal");
+    assert.deepEqual(result.goal.state.messages, [
+        ...waiting.state.messages,
+        { role: "user", content: "  Permission granted  " },
+    ]);
+});
+
+test("rejects invalid blocked actions without saving or scheduling", async () => {
+    for (const action of [
+        { kind: "approve" } as const,
+        { kind: "message", content: "   " } as const,
+    ]) {
+        const waiting = createExecutingWaitingGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const scheduler = new FakeScheduler(async () => {
+            throw new Error("Unexpected Scheduler call");
+        });
+        const coordinator = new GoalCoordinator({
+            store,
+            preparationExecutor: new FakePreparationExecutor([]),
+            scheduler,
+        });
+
+        const result = requireFailure(await coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action,
+        }));
+
+        assert.equal(result.error.code, "INVALID_GOAL_INPUT");
+        assert.deepEqual(store.savedGoals, []);
+        assert.deepEqual(scheduler.receivedRefs, []);
+    }
+});
+
+test("does not schedule when saving a blocked resume fails", async () => {
+    const waiting = createExecutingWaitingGoal();
+    const saveError = new Error("blocked resume save failed");
+    const store = new RecordingGoalStore([], { call: 1, error: saveError });
+    await store.seed(waiting);
+    const scheduler = new FakeScheduler(async () => {
+        throw new Error("Unexpected Scheduler call");
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: new FakePreparationExecutor([]),
+        scheduler,
+    });
+
+    await assert.rejects(
+        () => coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action: { kind: "message", content: "Permission granted" },
+        }),
+        (error: unknown) => {
+            assert.strictEqual(error, saveError);
+            return true;
+        },
+    );
+    assert.deepEqual(scheduler.receivedRefs, []);
+    assert.deepEqual(await store.restore(waiting.id), waiting);
 });

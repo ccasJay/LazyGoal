@@ -5,8 +5,15 @@ import type { RunRef } from "./domain";
  * 对已保存 Goal 发起执行的调度边界。
  *
  * @remarks
- * Launcher 保证调用前已经保存初始 Goal。Scheduler 只转发明确的 RunRef，
- * 不拥有 Goal 内容，也不负责生成身份标识。
+ * Coordinator 保证调用前已经保存 executing Goal。Scheduler 只转发明确的
+ * RunRef，不拥有 Goal 内容，也不负责生成身份标识。
+ *
+ * @example
+ * ```ts
+ * const scheduler: RunScheduler = {
+ *   schedule: (ref) => runner.runUntilBlocked(ref),
+ * };
+ * ```
  */
 export interface RunScheduler {
     /**

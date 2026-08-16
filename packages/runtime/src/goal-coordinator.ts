@@ -10,6 +10,7 @@ import type {
     PreparationResult,
 } from "./preparation-executor";
 import type { RunScheduler } from "./scheduler";
+import { transition } from "./transition";
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
@@ -22,8 +23,8 @@ export type GoalProgressErrorCode =
  * 用户对 Goal 当前交互等待点提交的操作。
  *
  * @remarks
- * `message` 用于回答问题或反馈任务提案，内容按原文持久化；`approve` 只批准
- * 当前 proposal，不产生会话消息。
+ * `message` 用于回答问题、反馈任务提案或解除执行阻塞，内容按原文持久化；
+ * `approve` 只批准当前 proposal，不产生会话消息。
  */
 export type GoalUserAction =
     | { readonly kind: "message"; readonly content: string }
@@ -118,8 +119,7 @@ export interface GoalCoordinatorDependencies {
  * `advance` 是自动推进入口。每次跨阶段继续前都会先保存完整 Goal；保存失败
  * 时错误原样传播，且不会调用下一轮 Executor 或 Scheduler。Preparation
  * result 与当前 phase 不匹配时返回 `INVALID_PHASE_RESULT`，不产生副作用。
- * `resume` 恢复准备阶段的 question/approval 等待；executing blocked 恢复由
- * 后续执行协调边界接入。
+ * `resume` 恢复准备阶段的 question/approval 和 executing blocked 等待。
  *
  * @example
  * ```ts
@@ -271,12 +271,13 @@ export class GoalCoordinator {
     }
 
     /**
-     * 提交准备阶段等待中的用户回答、提案反馈或批准操作。
+     * 提交交互等待中的用户消息或批准操作。
      *
      * @remarks
      * gathering message 会恢复为 active 并追加原文 user 消息；planning
      * message 会移除当前 proposal、保留反馈并重新规划；approve 不追加消息，
-     * 而是把当前 proposal 复制为最终 task。所有分支均先保存完整 Goal，再调用
+     * 而是把当前 proposal 复制为最终 task；executing message 会追加原文输入并
+     * 将 Run 从 waiting 恢复为 running。所有分支均先保存完整 Goal，再调用
      * {@link advance}。当前没有匹配等待点或 action 不匹配时无副作用地失败。
      *
      * @param request - 当前 RunRef 与用户操作。
@@ -348,9 +349,37 @@ export class GoalCoordinator {
             return this.goalNotWaiting(request.ref);
         }
 
-        return this.invalidGoalInput(
-            "Executing blocked resume is not available in the preparation workflow",
-        );
+        if (request.action.kind !== "message") {
+            return this.invalidGoalInput(
+                "executing blocked requires a message action",
+            );
+        }
+
+        if (request.action.content.trim().length === 0) {
+            return this.invalidGoalInput("Message content must not be empty");
+        }
+
+        const resumedRun = transition(goal.state.run, { kind: "resume" });
+
+        if (!resumedRun.ok) {
+            throw new Error(
+                `GoalCoordinator invariant violated: ${resumedRun.error.message}`,
+            );
+        }
+
+        const resumedGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                messages: [
+                    ...goal.state.messages,
+                    { role: "user", content: request.action.content },
+                ],
+                run: resumedRun.state,
+            },
+        };
+        await this.store.save(resumedGoal);
+        return this.advance(request.ref);
     }
 
     private async restore(ref: RunRef): Promise<Goal | undefined> {
