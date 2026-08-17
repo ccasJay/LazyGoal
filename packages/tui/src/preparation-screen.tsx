@@ -1,0 +1,194 @@
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Box, Text } from "ink";
+import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
+
+import type { UiSessionViewModel } from "./types";
+
+/**
+ * PreparationScreen 的渲染与用户操作回调边界。
+ *
+ * @remarks
+ * Screen 只渲染 Controller 提供的 question/proposal 等等待状态。文本提交
+ * 会先做空白校验，再把原文交给 `submitMessage`；批准不会伪造消息，直接
+ * 调用 `approveTask`。业务状态转换仍由 SessionController 完成。
+ *
+ * @example
+ * ```tsx
+ * <PreparationScreen
+ *   session={session}
+ *   onSubmitMessage={content => controller.dispatch({ kind: "submitMessage", content })}
+ *   onApproveTask={() => controller.dispatch({ kind: "approveTask" })}
+ * />
+ * ```
+ */
+export interface PreparationScreenProps {
+    /** 当前单 Goal 会话的不可变 ViewModel。 */
+    readonly session: UiSessionViewModel;
+    /** 非空文本恢复 question 或提交 proposal 反馈。 */
+    readonly onSubmitMessage: (content: string) => void | Promise<void>;
+    /** 批准当前 planning proposal。 */
+    readonly onApproveTask: () => void | Promise<void>;
+}
+
+/**
+ * 渲染 gathering_context 问题和 planning 任务批准界面。
+ *
+ * @param props - Session ViewModel 与语义化命令回调。
+ * @returns Ink 渲染树。
+ */
+export function PreparationScreen({
+    session,
+    onSubmitMessage,
+    onApproveTask,
+}: PreparationScreenProps): React.JSX.Element {
+    const [feedbackMode, setFeedbackMode] = useState(false);
+    const [validationError, setValidationError] = useState<string>();
+    const submitLock = useRef(false);
+    const approveLock = useRef(false);
+
+    useEffect(() => {
+        setFeedbackMode(false);
+        setValidationError(undefined);
+        submitLock.current = false;
+        approveLock.current = false;
+    }, [session.goal.id, session.waitingFor, session.proposal?.objective]);
+
+    useEffect(() => {
+        if (!session.busy) {
+            submitLock.current = false;
+            approveLock.current = false;
+        }
+    }, [session.busy]);
+
+    const handleMessageSubmit = useCallback((value: string) => {
+        if (session.busy || submitLock.current) {
+            return;
+        }
+
+        if (value.trim().length === 0) {
+            setValidationError("Message must not be empty");
+            return;
+        }
+
+        submitLock.current = true;
+        setValidationError(undefined);
+        void onSubmitMessage(value);
+    }, [onSubmitMessage, session.busy]);
+
+    const handleApprove = useCallback(() => {
+        if (session.busy || approveLock.current) {
+            return;
+        }
+
+        approveLock.current = true;
+        setValidationError(undefined);
+        void onApproveTask();
+    }, [onApproveTask, session.busy]);
+
+    const showError = validationError ?? session.error?.message;
+
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Text bold color="cyan">Goal {session.goal.id}</Text>
+            {showError !== undefined ? <Text color="red">Error: {showError}</Text> : null}
+            {session.waitingFor === "question"
+                ? <QuestionPanel
+                    busy={session.busy}
+                    {...(session.question === undefined
+                        ? {}
+                        : { question: session.question })}
+                    onSubmit={handleMessageSubmit}
+                />
+                : null}
+            {session.waitingFor === "approval"
+                ? <ProposalPanel
+                    busy={session.busy}
+                    feedbackMode={feedbackMode}
+                    proposal={session.proposal}
+                    onApprove={handleApprove}
+                    onFeedback={() => {
+                        setValidationError(undefined);
+                        setFeedbackMode(true);
+                    }}
+                    onSubmitFeedback={handleMessageSubmit}
+                />
+                : null}
+            {session.waitingFor !== "question" && session.waitingFor !== "approval"
+                ? <Text color="yellow">Waiting for the next Runtime state.</Text>
+                : null}
+            {session.busy ? <Spinner label="Working..." /> : null}
+        </Box>
+    );
+}
+
+interface QuestionPanelProps {
+    readonly busy: boolean;
+    readonly question?: string;
+    readonly onSubmit: (value: string) => void;
+}
+
+function QuestionPanel({ busy, question, onSubmit }: QuestionPanelProps): React.JSX.Element {
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Text bold>Agent question</Text>
+            <Text>{question ?? "The agent is waiting for your answer."}</Text>
+            <TextInput
+                isDisabled={busy}
+                placeholder="Type your answer..."
+                onSubmit={onSubmit}
+            />
+        </Box>
+    );
+}
+
+interface ProposalPanelProps {
+    readonly busy: boolean;
+    readonly feedbackMode: boolean;
+    readonly proposal: UiSessionViewModel["proposal"];
+    readonly onApprove: () => void;
+    readonly onFeedback: () => void;
+    readonly onSubmitFeedback: (value: string) => void;
+}
+
+function ProposalPanel({
+    busy,
+    feedbackMode,
+    proposal,
+    onApprove,
+    onFeedback,
+    onSubmitFeedback,
+}: ProposalPanelProps): React.JSX.Element {
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Text bold>Task proposal</Text>
+            <Text>{proposal?.objective ?? "The agent has not provided a task proposal."}</Text>
+            {proposal !== undefined ? (
+                <Box flexDirection="column">
+                    <Text>Completion criteria:</Text>
+                    {proposal.completionCriteria.map((criterion) => (
+                        <Text key={criterion}>• {criterion}</Text>
+                    ))}
+                </Box>
+            ) : null}
+            {feedbackMode ? (
+                <Box flexDirection="column" gap={1}>
+                    <Text>Describe the changes you want:</Text>
+                    <TextInput
+                        isDisabled={busy}
+                        placeholder="Provide non-empty feedback..."
+                        onSubmit={onSubmitFeedback}
+                    />
+                </Box>
+            ) : (
+                <Box flexDirection="column" gap={1}>
+                    <ConfirmInput
+                        isDisabled={busy}
+                        onConfirm={onApprove}
+                        onCancel={onFeedback}
+                    />
+                    <Text dimColor>Press Y to approve or N to provide feedback.</Text>
+                </Box>
+            )}
+        </Box>
+    );
+}

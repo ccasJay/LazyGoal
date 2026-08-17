@@ -12,7 +12,12 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@inkjs/ui": "^2.0.0",
     "@types/node": "^26.1.2",
+    "@types/react": "^19.1.10",
+    "ink": "^6.8.0",
+    "ink-testing-library": "^4.0.0",
+    "react": "^19.1.1",
     "tsx": "^4.23.7",
     "typescript": "^7.0.2"
   }

@@ -28,7 +28,7 @@
   - 使用 fake Runtime/Store 编写 Controller 单元测试，覆盖创建、选择、等待点、无效输入、业务错误及重复 dispatch
   - _Requirements: [1.4](./requirements.md#req-1-4), [4.2](./requirements.md#req-4-2), [4.5](./requirements.md#req-4-5), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 5. 实现 Intent 与 Preparation 的 Ink 交互界面
+- [x] //TODO 5. 实现 Intent 与 Preparation 的 Ink 交互界面
 
   - 接入 React Ink、`@inkjs/ui` 和 `useSyncExternalStore`，实现 `IntentScreen`、question 文本输入、proposal 批准与反馈控件
   - 对空白输入显示英文校验，busy 时停用控件，并保证每次合法提交只产生一个语义化 `UiCommand`
