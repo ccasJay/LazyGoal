@@ -5,6 +5,7 @@ import type {
     Observation,
     ToolCallAction,
 } from "./domain";
+import type { ExecutionControl } from "./execution-control";
 
 /**
  * Tool 对外展示和输入校验所需的静态描述。
@@ -101,10 +102,15 @@ export interface Tool {
      * 执行一次已经通过输入校验的 Tool 调用。
      *
      * @param request - Action ID 与结构化输入。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 由执行环境产生的成功或领域失败 Observation。
-     * @throws Tool 协议、配置或基础设施异常；调用方不得将其伪装成 Observation。
+     * @throws Tool 协议、配置或基础设施异常；中止时抛出
+     *   `ExecutionAbortedError`，调用方不得将其伪装成 Observation。
      */
-    execute(request: ToolExecutionRequest): Promise<ToolObservation>;
+    execute(
+        request: ToolExecutionRequest,
+        control?: ExecutionControl,
+    ): Promise<ToolObservation>;
 }
 
 /**

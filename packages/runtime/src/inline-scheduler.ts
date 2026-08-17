@@ -1,5 +1,9 @@
 import type { Runner, RunnerResult } from "./runner";
 import type { RunExecutionOptions, RunRef } from "./domain";
+import {
+    throwIfAborted,
+    type ExecutionControl,
+} from "./execution-control";
 import type { RunScheduler } from "./scheduler";
 
 /**
@@ -19,10 +23,25 @@ export class InlineScheduler implements RunScheduler {
      *
      * @param ref - 已持久化 Goal 与当前 Run 的关联键。
      * @param options - 可选的本次调用 Action 授权，不会由 Scheduler 持久化。
+     * @param control - 当前调度调用共享的中止控制。
      * @returns Runner 的业务结果。
-     * @throws Runner 或其依赖抛出的原始异常。
+     * @throws Runner 或其依赖抛出的原始异常；中止时抛出 `ExecutionAbortedError`。
      */
-    schedule(ref: RunRef, options?: RunExecutionOptions): Promise<RunnerResult> {
-        return this.runner.runUntilBlocked(ref, options);
+    async schedule(
+        ref: RunRef,
+        options?: RunExecutionOptions,
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        const effectiveControl = control?.signal !== undefined
+            ? control
+            : options?.signal === undefined
+                ? control
+                : options.authorizedActionId === undefined
+                    ? options
+                    : { signal: options.signal };
+        throwIfAborted(effectiveControl);
+        const result = await this.runner.runUntilBlocked(ref, options, effectiveControl);
+        throwIfAborted(effectiveControl);
+        return result;
     }
 }

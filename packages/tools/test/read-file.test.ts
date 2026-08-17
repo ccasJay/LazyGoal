@@ -16,6 +16,7 @@ import type {
     Tool,
 } from "../../runtime/src/index";
 import {
+    ExecutionAbortedError,
     InMemoryToolRegistry,
 } from "../../runtime/src/index";
 import {
@@ -124,6 +125,29 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
                 input: { path: "../secret.txt" },
             }),
             /INVALID_TOOL_INPUT/,
+        );
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("ReadFileTool rejects an already-aborted execution before filesystem access", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-read-file-"));
+
+    try {
+        const controller = new AbortController();
+        controller.abort();
+        const tool = new ReadFileTool(workspaceRoot);
+
+        await assert.rejects(
+            () => tool.execute(
+                {
+                    actionId: "action-aborted",
+                    input: { path: "missing.txt" },
+                },
+                { signal: controller.signal },
+            ),
+            (error: unknown) => error instanceof ExecutionAbortedError,
         );
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });

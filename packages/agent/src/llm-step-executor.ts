@@ -3,6 +3,12 @@ import type {
     AgentDecision,
     Goal,
 } from "../../runtime/src/domain";
+import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../runtime/src/execution-control";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { StepExecutor } from "../../runtime/src/step-executor";
 import { buildStepRequest } from "./prompt";
@@ -36,16 +42,35 @@ export class LLMStepExecutor implements StepExecutor {
     /**
      * @param goal - 当前完整 Goal 快照。
      * @param tools - 当前已授权的 Tool 描述；为空时模型只能产生结束决策。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 严格解析后的 AgentDecision。
      * @throws LLMResponseProtocolError 模型响应不符合严格协议时抛出。
+     * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
     async execute(
         goal: Goal,
         tools: readonly ToolDefinition[],
+        control?: ExecutionControl,
     ): Promise<AgentDecision> {
+        throwIfAborted(control);
         const request = buildStepRequest(goal, tools);
-        const response = await this.adapter.generate(request);
+        let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
+
+        try {
+            response = await this.adapter.generate(request, control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
+            throw error;
+        }
+        throwIfAborted(control);
         const decision = parseAgentDecision(response.content);
 
         return decision;

@@ -24,6 +24,11 @@ import type {
     ToolPolicy,
     ToolRegistry,
 } from "./tool";
+import {
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "./execution-control";
 import { transition } from "./transition";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
@@ -47,6 +52,23 @@ class RunnerExecutionError extends Error {
 type NormalizedExecution =
     | { readonly kind: "legacy"; readonly result: StepResult }
     | { readonly kind: "agent"; readonly decision: AgentDecision };
+
+function resolveExecutionControl(
+    options: RunExecutionOptions,
+    control?: ExecutionControl,
+): ExecutionControl | undefined {
+    if (control?.signal !== undefined) {
+        return control;
+    }
+
+    if (options.signal !== undefined) {
+        return options.authorizedActionId === undefined
+            ? options
+            : { signal: options.signal };
+    }
+
+    return control;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -199,7 +221,10 @@ function validateToolAction(
     registry: ToolRegistry,
     policy: ToolPolicy,
     evaluatePolicy = true,
+    control?: ExecutionControl,
 ): { readonly tool: Tool; readonly policy: "allow" | "require_approval" } {
+    throwIfAborted(control);
+
     if (!goal.definition.profile.toolIds.includes(action.toolId)) {
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
@@ -211,7 +236,14 @@ function validateToolAction(
 
     try {
         tool = registry.get(action.toolId);
+        throwIfAborted(control);
     } catch (error) {
+        if (isExecutionAbortedError(error)) {
+            throw error;
+        }
+
+        throwIfAborted(control);
+
         throw new RunnerExecutionError(
             "TOOL_EXECUTION_ERROR",
             error instanceof Error ? error.message : String(error),
@@ -229,7 +261,14 @@ function validateToolAction(
 
     try {
         validation = tool.validate(action.input);
+        throwIfAborted(control);
     } catch (error) {
+        if (isExecutionAbortedError(error)) {
+            throw error;
+        }
+
+        throwIfAborted(control);
+
         throw new RunnerExecutionError(
             "TOOL_EXECUTION_ERROR",
             error instanceof Error ? error.message : String(error),
@@ -273,7 +312,14 @@ function validateToolAction(
             action,
             tool: tool.definition,
         });
+        throwIfAborted(control);
     } catch (error) {
+        if (isExecutionAbortedError(error)) {
+            throw error;
+        }
+
+        throwIfAborted(control);
+
         throw new RunnerExecutionError(
             "TOOL_EXECUTION_ERROR",
             error instanceof Error ? error.message : String(error),
@@ -446,14 +492,19 @@ export class Runner {
      * @param options - 可选的本次调用瞬时 Action 授权；有授权时只接受与已批准
      *   `pendingAction` 相同的 `actionId`，不会写入快照；无授权恢复已批准 Action
      *   时按 Tool 的 `replayPolicy` 分流。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns Run 到达 waiting 或终态时的结果。
-     * @throws GoalStore 的恢复或保存错误。
+     * @throws GoalStore 的恢复或保存错误；中止时抛出 `ExecutionAbortedError`。
      */
     async run(
         ref: RunRef,
         options: RunExecutionOptions = {},
+        control?: ExecutionControl,
     ): Promise<RunnerResult> {
-        const goal = await this.restore(ref);
+        const effectiveControl = resolveExecutionControl(options, control);
+        throwIfAborted(effectiveControl);
+        const goal = await this.restore(ref, effectiveControl);
+        throwIfAborted(effectiveControl);
 
         if (goal === undefined) {
             return this.runNotFound(ref);
@@ -468,7 +519,7 @@ export class Runner {
             && goal.state.run.pendingAction?.status === "approved"
             && options.authorizedActionId === undefined
         ) {
-            return this.recoverPendingAction(goal);
+            return this.recoverPendingAction(goal, effectiveControl);
         }
 
         if (!this.hasMatchingTransientAuthorization(goal, options)) {
@@ -476,15 +527,20 @@ export class Runner {
         }
 
         if (goal.state.run.status === "created") {
+            throwIfAborted(effectiveControl);
             const runningGoal = this.withRun(
                 goal,
                 this.applyTransition(goal.state.run, { kind: "start" }),
             );
-            await this.store.save(runningGoal);
-            return this.runLoop(runningGoal, options.authorizedActionId);
+            await this.saveCheckpoint(runningGoal, effectiveControl);
+            return this.runLoop(
+                runningGoal,
+                options.authorizedActionId,
+                effectiveControl,
+            );
         }
 
-        return this.runLoop(goal, options.authorizedActionId);
+        return this.runLoop(goal, options.authorizedActionId, effectiveControl);
     }
 
     /**
@@ -492,18 +548,25 @@ export class Runner {
      *
      * @param ref - 目标 Goal 与 Run 的关联键。
      * @param options - 可选的本次调用瞬时 Action 授权。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 与 {@link run} 相同的 waiting、终态或业务失败结果。
-     * @throws GoalStore 的恢复或保存错误。
+     * @throws GoalStore 的恢复或保存错误；中止时抛出 `ExecutionAbortedError`。
      */
     async runUntilBlocked(
         ref: RunRef,
         options?: RunExecutionOptions,
+        control?: ExecutionControl,
     ): Promise<RunnerResult> {
-        return this.run(ref, options);
+        return this.run(ref, options, control);
     }
 
-    private async restore(ref: RunRef): Promise<Goal | undefined> {
+    private async restore(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<Goal | undefined> {
+        throwIfAborted(control);
         const goal = await this.store.restore(ref.goalId);
+        throwIfAborted(control);
 
         if (
             goal === undefined
@@ -514,6 +577,15 @@ export class Runner {
         }
 
         return goal;
+    }
+
+    private async saveCheckpoint(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<void> {
+        throwIfAborted(control);
+        await this.store.save(goal);
+        throwIfAborted(control);
     }
 
     private runNotFound(ref: RunRef): RunnerResult {
@@ -541,7 +613,11 @@ export class Runner {
         };
     }
 
-    private async recoverPendingAction(goal: Goal): Promise<RunnerResult> {
+    private async recoverPendingAction(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<RunnerResult> {
+        throwIfAborted(control);
         const pendingAction = goal.state.run.pendingAction;
 
         if (pendingAction === undefined || pendingAction.status !== "approved") {
@@ -557,28 +633,36 @@ export class Runner {
                 this.toolRegistry,
                 this.toolPolicy,
                 false,
+                control,
             );
         } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            throwIfAborted(control);
+
             const stableError = toStableExecutionError(error)
                 ?? new RunnerExecutionError(
                     "TOOL_EXECUTION_ERROR",
                     error instanceof Error ? error.message : String(error),
                 );
 
-            return this.stopWithExecutionError(goal, stableError);
+            return this.stopWithExecutionError(goal, stableError, control);
         }
 
         if (validated.tool.replayPolicy === "safe") {
-            return this.runLoop(goal, pendingAction.action.actionId);
+            return this.runLoop(goal, pendingAction.action.actionId, control);
         }
 
+        throwIfAborted(control);
         const recoveredRun = this.applyTransition(goal.state.run, {
             kind: "recover_action",
             actionId: pendingAction.action.actionId,
         });
         const recoveredGoal = this.withRun(goal, recoveredRun);
 
-        await this.store.save(recoveredGoal);
+        await this.saveCheckpoint(recoveredGoal, control);
         return { ok: true, state: recoveredRun };
     }
 
@@ -599,15 +683,26 @@ export class Runner {
         return options.authorizedActionId === pendingAction.action.actionId;
     }
 
-    private getAuthorizedToolDefinitions(goal: Goal): readonly ToolDefinition[] {
+    private getAuthorizedToolDefinitions(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): readonly ToolDefinition[] {
         const definitions: ToolDefinition[] = [];
 
         for (const toolId of goal.definition.profile.toolIds) {
             let tool: Tool | undefined;
 
             try {
+                throwIfAborted(control);
                 tool = this.toolRegistry.get(toolId);
+                throwIfAborted(control);
             } catch (error) {
+                if (isExecutionAbortedError(error)) {
+                    throw error;
+                }
+
+                throwIfAborted(control);
+
                 throw new RunnerExecutionError(
                     "TOOL_EXECUTION_ERROR",
                     error instanceof Error ? error.message : String(error),
@@ -616,8 +711,16 @@ export class Runner {
 
             if (tool !== undefined) {
                 try {
+                    throwIfAborted(control);
                     definitions.push(toolDefinition(tool));
+                    throwIfAborted(control);
                 } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+
                     throw new RunnerExecutionError(
                         "TOOL_EXECUTION_ERROR",
                         error instanceof Error ? error.message : String(error),
@@ -632,7 +735,9 @@ export class Runner {
     private async stopWithExecutionError(
         goal: Goal,
         error: RunnerExecutionError,
+        control?: ExecutionControl,
     ): Promise<RunnerResult> {
+        throwIfAborted(control);
         const failedRun = this.applyTransition(goal.state.run, {
             kind: "execution_error",
             code: error.code,
@@ -640,7 +745,7 @@ export class Runner {
         });
         const failedGoal = this.withRun(goal, failedRun);
 
-        await this.store.save(failedGoal);
+        await this.saveCheckpoint(failedGoal, control);
         return { ok: true, state: failedRun };
     }
 
@@ -648,6 +753,7 @@ export class Runner {
         goal: Goal,
         tool: Tool,
         action: ToolCallAction,
+        control?: ExecutionControl,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
@@ -655,12 +761,20 @@ export class Runner {
         let observation: ToolObservation;
 
         try {
+            throwIfAborted(control);
             const rawObservation = await tool.execute({
                 actionId: action.actionId,
                 input: action.input,
-            });
+            }, control);
+            throwIfAborted(control);
             observation = validateToolObservation(rawObservation);
         } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            throwIfAborted(control);
+
             const toolError = error instanceof RunnerExecutionError
                 ? error
                 : new RunnerExecutionError(
@@ -670,10 +784,11 @@ export class Runner {
 
             return {
                 kind: "stopped",
-                result: await this.stopWithExecutionError(goal, toolError),
+                result: await this.stopWithExecutionError(goal, toolError, control),
             };
         }
 
+        throwIfAborted(control);
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
             actionId: action.actionId,
@@ -682,18 +797,20 @@ export class Runner {
         const observedGoal = this.withRun(goal, observedRun);
 
         // If this save fails, the already-saved goal remains the recovery baseline.
-        await this.store.save(observedGoal);
+        await this.saveCheckpoint(observedGoal, control);
         return { kind: "observed", goal: observedGoal };
     }
 
     private async runLoop(
         initialGoal: Goal,
         authorizedActionId?: string,
+        control?: ExecutionControl,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
 
         while (goal.state.run.status === "running") {
+            throwIfAborted(control);
             const pendingAction = goal.state.run.pendingAction;
 
             if (pendingAction?.status === "approved") {
@@ -713,21 +830,29 @@ export class Runner {
                         this.toolRegistry,
                         this.toolPolicy,
                         false,
+                        control,
                     );
                 } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+
                     const stableError = toStableExecutionError(error)
                         ?? new RunnerExecutionError(
                             "TOOL_EXECUTION_ERROR",
                             error instanceof Error ? error.message : String(error),
                         );
 
-                    return this.stopWithExecutionError(goal, stableError);
+                    return this.stopWithExecutionError(goal, stableError, control);
                 }
 
                 const outcome = await this.executeToolAndObserve(
                     goal,
                     validated.tool,
                     pendingAction.action,
+                    control,
                 );
                 transientAuthorization = undefined;
 
@@ -742,27 +867,36 @@ export class Runner {
             const maxSteps = goal.definition.executionPolicy.maxSteps;
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
+                throwIfAborted(control);
                 const failedGoal = this.withRun(goal, {
                     ...goal.state.run,
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
 
-                await this.store.save(failedGoal);
+                await this.saveCheckpoint(failedGoal, control);
                 return { ok: true, state: failedGoal.state.run };
             }
 
             let normalized: NormalizedExecution;
 
             try {
-                const tools = this.getAuthorizedToolDefinitions(goal);
-                const execution = await this.executor.execute(goal, tools);
+                throwIfAborted(control);
+                const tools = this.getAuthorizedToolDefinitions(goal, control);
+                const execution = await this.executor.execute(goal, tools, control);
+                throwIfAborted(control);
                 normalized = normalizeExecution(execution);
             } catch (error) {
+                if (isExecutionAbortedError(error)) {
+                    throw error;
+                }
+
+                throwIfAborted(control);
+
                 const stableError = toStableExecutionError(error);
 
                 if (stableError !== undefined) {
-                    return this.stopWithExecutionError(goal, stableError);
+                    return this.stopWithExecutionError(goal, stableError, control);
                 }
 
                 const nextRun = this.applyTransition(goal.state.run, {
@@ -774,7 +908,7 @@ export class Runner {
                 });
                 const nextGoal = this.withRun(goal, nextRun);
 
-                await this.store.save(nextGoal);
+                await this.saveCheckpoint(nextGoal, control);
                 goal = nextGoal;
                 continue;
             }
@@ -791,30 +925,45 @@ export class Runner {
                         normalized.decision.action,
                         this.toolRegistry,
                         this.toolPolicy,
+                        true,
+                        control,
                     );
                 } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+
                     const stableError = toStableExecutionError(error)
                         ?? new RunnerExecutionError(
                             "TOOL_EXECUTION_ERROR",
                             error instanceof Error ? error.message : String(error),
                         );
 
-                    return this.stopWithExecutionError(goal, stableError);
+                    return this.stopWithExecutionError(goal, stableError, control);
                 }
 
                 try {
                     validateActionLifecycle(goal, normalized.decision.action);
                 } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+
                     const stableError = toStableExecutionError(error)
                         ?? new RunnerExecutionError(
                             "INVALID_AGENT_DECISION",
                             error instanceof Error ? error.message : String(error),
                         );
 
-                    return this.stopWithExecutionError(goal, stableError);
+                    return this.stopWithExecutionError(goal, stableError, control);
                 }
 
                 if (validated.policy !== "allow") {
+                    throwIfAborted(control);
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
                         checkpoint: normalized.decision.checkpoint,
@@ -823,11 +972,12 @@ export class Runner {
                     });
                     const stagedGoal = this.withRun(goal, stagedRun);
 
-                    await this.store.save(stagedGoal);
+                    await this.saveCheckpoint(stagedGoal, control);
                     goal = stagedGoal;
                     continue;
                 }
 
+                throwIfAborted(control);
                 const stagedRun = this.applyTransition(goal.state.run, {
                     kind: "stage_action",
                     checkpoint: normalized.decision.checkpoint,
@@ -837,12 +987,13 @@ export class Runner {
                 const stagedGoal = this.withRun(goal, stagedRun);
 
                 // Durable intent must exist before the Tool can produce an effect.
-                await this.store.save(stagedGoal);
+                await this.saveCheckpoint(stagedGoal, control);
 
                 const outcome = await this.executeToolAndObserve(
                     stagedGoal,
                     validated.tool,
                     normalized.decision.action,
+                    control,
                 );
 
                 if (outcome.kind === "stopped") {
@@ -857,6 +1008,7 @@ export class Runner {
                 normalized.kind === "agent"
                 && normalized.decision.kind !== "tool_call"
             ) {
+                throwIfAborted(control);
                 const nextRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision: normalized.decision,
@@ -867,7 +1019,7 @@ export class Runner {
                     normalized.decision,
                 );
 
-                await this.store.save(nextGoal);
+                await this.saveCheckpoint(nextGoal, control);
                 goal = nextGoal;
                 continue;
             }
@@ -876,6 +1028,7 @@ export class Runner {
                 throw new Error("Runner received an unhandled execution result");
             }
 
+            throwIfAborted(control);
             const nextRun = this.applyTransition(goal.state.run, {
                 kind: "step",
                 result: normalized.result,
@@ -886,7 +1039,7 @@ export class Runner {
                 normalized.result,
             );
 
-            await this.store.save(nextGoal);
+            await this.saveCheckpoint(nextGoal, control);
             goal = nextGoal;
         }
 

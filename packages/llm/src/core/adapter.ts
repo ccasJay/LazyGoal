@@ -1,4 +1,5 @@
 import type { LLMRequest, LLMMessage, LLMResponse } from "./types";
+import type { ExecutionControl } from "../../../runtime/src/execution-control";
 
 /**
  * Agent 与具体 LLM 供应商之间的最小适配边界。
@@ -20,8 +21,14 @@ import type { LLMRequest, LLMMessage, LLMResponse } from "./types";
 export interface  LLMAdapter {
     /**
      * @param request - 已按模型消费顺序组装的消息列表。
+     * @param control - 当前 Goal 推进调用共享的中止控制；适配器应将信号传给
+     *   供应商请求，并在响应返回后再次检查。
      * @returns 模型生成的原始文本响应。
-     * @throws 供应商调用、网络或鉴权失败时传播对应异常。
+     * @throws 供应商调用、网络或鉴权失败时传播对应异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
-    generate(request: LLMRequest) : Promise<LLMResponse>;
+    generate(
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ): Promise<LLMResponse>;
 }

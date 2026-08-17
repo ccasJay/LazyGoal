@@ -17,6 +17,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal | 历史与事件查询 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
 | [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入校验、重放声明、Registry 与 Policy 边界 | 具体 Tool 执行与 Goal 持久化 |
+| [ExecutionControl](../../packages/runtime/src/execution-control.ts) | 在一次调用链内传播 AbortSignal，并将中止规范化为控制流错误 | 改写 Goal 状态或决定进程退出 |
 
 ## 生命周期与保存顺序
 
@@ -29,6 +30,12 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保�
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running；`approve_action` 匹配 `awaiting_approval` 或 `outcome_unknown` 的 pendingAction，保存为 `approved` 后透传一次性 `authorizedActionId`；`reject_action` 保存 rejected Observation 后继续推进。以上状态均先保存再继续自动推进。
 
 当前 Runner 主流程为 `created → running → (Action/Observation)* → waiting | completed | failed`，`cancelled` 也是终态；旧 StepResult 会以 `legacy` 记录兼容保存。StepExecutor 生成 AgentDecision 后，Runner 会向它传入冻结 Profile 中已注册的 ToolDefinition，并对返回值做运行时严格校验。`tool_call` 按 Profile 授权、Registry 查找、输入校验和 Policy 顺序检查；自动允许时先用 `stage_action` 保存 checkpoint/pendingAction，再调用 Tool，最后用 `observe_action` 同时保存最近 Action/Observation、清除 pendingAction 并计一个 Step；需要批准时保存 `awaiting_approval` 并进入 waiting，获得匹配的瞬时授权后才执行同一 Action。进程恢复时，safe Tool 沿用原 `actionId` 自动重放，manual Tool 通过 `recover_action` 转为 `outcome_unknown` waiting。领域 failure Observation 继续下一轮；协议、越权、缺失、非法输入和基础设施异常写入 `execution_error`，Tool 抛错时保留 `outcome_unknown`，不伪造 Observation 或 assistant 消息。终止 AgentDecision 使用 `decision` 转换并保存 checkpoint、最近结果和规范化 assistant 消息。每个保存点成功后才会进入下一步。
+
+Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Adapter 和 Tool
+共享可选的 `ExecutionControl`。各层在外部调用前、异步返回后以及状态转换或保存前
+调用 `throwIfAborted`；中止原样传播 `ExecutionAbortedError`，不生成失败 Step、
+`execution_error`、`cancelled` 或新的领域快照。已经进入的 Store 保存仍由存储边界决定
+是否完成。
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
@@ -53,6 +60,7 @@ safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有�
 - Action 状态不变量：pendingAction 必须与当前 Action 生命周期匹配；Observation/rejection 必须匹配 actionId；Action 暂存、取消和执行错误不消费 Step，只有完整 Observation、拒绝或终止决策消费一次 Step。
 - Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；首次执行 Tool 前必须完成输入校验和 Policy 评估，已批准且携带匹配瞬时授权的 Action 只重新校验 Tool 与输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标。
 - Store I/O 或协议错误：原样向调用方传播。
+- `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
 - GoalStore 按 `schemaVersion` 严格解码；v3 校验 workflow/Run 与 pending Action 不变量，合法 v1/v2 只读迁移为 v3，旧 `lastStep` 仅在迁移结果中包装为 `legacy`，未知版本或损坏快照报协议错误。
 - `JsonFileGoalStore` 恢复 v1/v2 时不改写文件；下一次显式保存才以 v3 原子替换。并发写入仍是最后替换者覆盖。
 

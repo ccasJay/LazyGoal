@@ -1,4 +1,5 @@
 import type { Goal, GoalTask } from "./domain";
+import type { ExecutionControl } from "./execution-control";
 
 /**
  * Preparation Executor 单轮返回的结构化决策。
@@ -43,8 +44,13 @@ export type PreparationResult =
 export interface PreparationExecutor {
     /**
      * @param goal - 当前处于 active Preparation 阶段的完整 Goal 快照。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 本轮结构化准备决策；不会产生或消费 Step。
-     * @throws 底层模型、协议或扩展实现失败时传播对应异常。
+     * @throws 底层模型、协议或扩展实现失败时传播对应异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
-    execute(goal: Goal): Promise<PreparationResult>;
+    execute(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<PreparationResult>;
 }

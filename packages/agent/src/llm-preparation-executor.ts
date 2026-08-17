@@ -1,5 +1,11 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { Goal } from "../../runtime/src/domain";
+import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../runtime/src/execution-control";
 import type {
     PreparationExecutor,
     PreparationResult,
@@ -31,13 +37,19 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
     /**
      * @param goal - active gathering_context 或 planning Goal。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 与当前 phase 严格匹配的 PreparationResult。
      * @throws LLMResponseProtocolError 响应不是合法 JSON、结构错误或分支与
      * phase 不匹配时抛出。
      * @throws Goal 不处于 active Preparation 阶段时抛出 Error。
+     * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
-    async execute(goal: Goal): Promise<PreparationResult> {
+    async execute(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<PreparationResult> {
+        throwIfAborted(control);
         const workflow = goal.state.workflow;
 
         if (
@@ -50,7 +62,22 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         }
 
         const request = buildPreparationRequest(goal);
-        const response = await this.adapter.generate(request);
+        let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
+
+        try {
+            response = await this.adapter.generate(request, control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
+            throw error;
+        }
+        throwIfAborted(control);
 
         return parsePreparationResult(response.content, workflow.phase);
     }

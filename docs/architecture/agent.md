@@ -16,13 +16,14 @@ Agent 是 Runtime 与 LLM 之间的集成层。它读取完整 Goal，构造一�
 1. Preparation 不因 Profile 含 `toolIds` 而提前失败；Runtime Runner 只把 Profile 中已注册的 ToolDefinition 传给 executing 请求。
 2. 每轮从 Goal 派生 `gathering_context`、`planning` 或 `executing` Working Context；请求顺序固定为 system → 真实历史 → 当前控制消息。
 3. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。
-4. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。
+4. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 接收 Runtime 传入的 `ExecutionControl`，在 Adapter 返回后检查中止，不解析中止为 Agent 失败。
 5. Working Context 与模型协议 JSON 都不写入真实消息。执行请求通过 `checkpoint`、`previousStep` 和 `pendingAction` 获得有界累计状态。
 
 ## 错误与不变量
 
 - 非法 JSON、Schema 或 Preparation phase 不匹配：Agent 抛出 `INVALID_LLM_RESPONSE`，不修复、不重试；Runner 在 executing 边界将 AgentDecision 协议错误归类为 `INVALID_AGENT_DECISION`。
 - Adapter 异常保持原对象向上传播；Runner 将其记录为失败 Step。
+- `ExecutionAbortedError` 原样传播，不进入失败 Step 或协议错误分支。
 - Executor 不修改传入 Goal，也不直接写 Store。
 - system prompt 来自冻结 Profile，不重复写入 Goal 消息历史；恢复后的 user/assistant 内容和顺序原样参与后续请求，assistant 来源仍保存在 Goal 的 `profileId` 中。
 

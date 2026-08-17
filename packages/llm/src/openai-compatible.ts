@@ -1,6 +1,12 @@
 import OpenAI from "openai";
 import type { LLMAdapter } from "./core/adapter";
 import type { LLMMessage, LLMRequest, LLMResponse } from "./core/types";
+import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../runtime/src/execution-control";
 
 /** OpenAI Chat Completions 兼容服务的连接配置。 */
 export interface OpenAICompatibleConfig {
@@ -34,19 +40,41 @@ export class OpenAICompatible implements LLMAdapter {
 
     /**
      * @param _request - 供应商无关的消息请求。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns Chat Completions 首个候选的文本内容。
-     * @throws OpenAI SDK 暴露的网络、鉴权、限流或协议异常。
+     * @throws OpenAI SDK 暴露的网络、鉴权、限流或协议异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
-    async generate(_request: LLMRequest): Promise<LLMResponse> {
+    async generate(
+        _request: LLMRequest,
+        control?: ExecutionControl,
+    ): Promise<LLMResponse> {
+        throwIfAborted(control);
         const messages = toOpenAIMessages(_request.messages);
 
-        const response = await this.client.chat.completions.create({
-            model: this.model,
-            messages,
-        });
+        try {
+            const request = { model: this.model, messages };
+            const response = control?.signal === undefined
+                ? await this.client.chat.completions.create(request)
+                : await this.client.chat.completions.create(
+                    request,
+                    { signal: control.signal },
+                );
+            throwIfAborted(control);
 
-        return {
-            content: response.choices[0]?.message.content ?? "",
+            return {
+                content: response.choices[0]?.message.content ?? "",
+            };
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
+            throw error;
         }
     }
 }

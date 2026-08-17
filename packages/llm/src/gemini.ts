@@ -6,6 +6,12 @@ import {
 
 import type { LLMAdapter } from "./core/adapter";
 import type { LLMMessage, LLMRequest ,LLMResponse } from "./core/types";
+import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../runtime/src/execution-control";
 
 type GeminiInput = Pick<
     GenerateContentParameters,
@@ -41,20 +47,46 @@ export class Gemini implements LLMAdapter {
 
     /**
      * @param request - 供应商无关的消息请求。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns Gemini 响应中的文本内容。
-     * @throws Google Gen AI SDK 暴露的网络、鉴权、限流或协议异常。
+     * @throws Google Gen AI SDK 暴露的网络、鉴权、限流或协议异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
-    async generate(request: LLMRequest): Promise<LLMResponse> {
+    async generate(
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ): Promise<LLMResponse> {
+        throwIfAborted(control);
         const input = toGeminiInput(request.messages);
 
-        const response = await this.client.models.generateContent({
-            model: this.model,
-            ...input,
-       });
+        if (control?.signal !== undefined) {
+            input.config = {
+                ...input.config,
+                abortSignal: control.signal,
+            };
+        }
 
-       return {
-        content: response.text ?? "",
-       };
+        try {
+            const response = await this.client.models.generateContent({
+                model: this.model,
+                ...input,
+            });
+            throwIfAborted(control);
+
+            return {
+                content: response.text ?? "",
+            };
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
+            throw error;
+        }
     }
 }
 

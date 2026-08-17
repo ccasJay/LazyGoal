@@ -359,17 +359,21 @@ export interface RunRef {
  * @remarks
  * `authorizedActionId` 只在当前 Scheduler/Runner 调用链内有效，不写入 Goal
  * 快照。它必须匹配已持久化且状态为 `approved` 的 pendingAction；批准本身不
- * 增加 `stepCount`。
+ * 增加 `stepCount`。`signal` 同样只属于本次调用，不会写入 Goal 快照。
  *
  * @example
  * ```ts
+ * const controller = new AbortController();
  * const options: RunExecutionOptions = {
  *   authorizedActionId: "action-1",
+ *   signal: controller.signal,
  * };
  * ```
  */
 export interface RunExecutionOptions {
     readonly authorizedActionId?: string;
+    /** 可选的调用级中止信号；不会写入 Goal 快照。 */
+    readonly signal?: AbortSignal;
 }
 
 /**

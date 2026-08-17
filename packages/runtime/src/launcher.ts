@@ -1,5 +1,9 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import { createGoal } from "./domain";
+import {
+    throwIfAborted,
+    type ExecutionControl,
+} from "./execution-control";
 import type { GoalStore } from "./goal-store";
 import type {
     GoalCoordinator,
@@ -87,8 +91,10 @@ export interface LauncherDependencies {
  *
  * @param request - Goal ID、原始意图、Profile ID 与可选 Step 上限。
  * @param dependencies - Profile Registry、Run ID 生成器、Store 与 Coordinator。
+ * @param control - 当前 Goal 启动调用共享的中止控制。
  * @returns Coordinator 的最新 Goal 结果或稳定输入/Profile 业务失败。
- * @throws Run ID 生成、GoalStore 或 Coordinator 依赖失败时传播原始异常。
+ * @throws Run ID 生成、GoalStore 或 Coordinator 依赖失败时传播原始异常；中止时
+ *   抛出 `ExecutionAbortedError`。
  *
  * @example
  * ```ts
@@ -101,7 +107,10 @@ export interface LauncherDependencies {
 export async function launch(
     request: LaunchRequest,
     dependencies: LauncherDependencies,
+    control?: ExecutionControl,
 ): Promise<LaunchResult> {
+    throwIfAborted(control);
+
     if (request.intent.trim().length === 0) {
         return invalidGoalInput("Intent must not be empty");
     }
@@ -113,6 +122,7 @@ export async function launch(
     }
 
     const profile = dependencies.profiles.get(request.profileId);
+    throwIfAborted(control);
 
     if (profile === undefined) {
         return {
@@ -125,6 +135,7 @@ export async function launch(
     }
 
     const runId = dependencies.runIdGenerator();
+    throwIfAborted(control);
     const goal = createGoal({
         id: request.goalId,
         intent: request.intent,
@@ -134,8 +145,12 @@ export async function launch(
     });
     const ref = { goalId: goal.id, runId };
 
+    throwIfAborted(control);
     await dependencies.store.save(goal);
-    return dependencies.coordinator.advance(ref);
+    throwIfAborted(control);
+    const result = await dependencies.coordinator.advance(ref, control);
+    throwIfAborted(control);
+    return result;
 }
 
 function invalidGoalInput(message: string): LaunchResult {

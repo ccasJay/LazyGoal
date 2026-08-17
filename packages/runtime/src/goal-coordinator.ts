@@ -10,6 +10,10 @@ import type {
     PreparationResult,
 } from "./preparation-executor";
 import type { RunScheduler } from "./scheduler";
+import {
+    throwIfAborted,
+    type ExecutionControl,
+} from "./execution-control";
 import { transition } from "./transition";
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
@@ -155,11 +159,18 @@ export class GoalCoordinator {
      * 从最新快照自动推进 Goal。
      *
      * @param ref - Goal 与其当前 Run 的关联键。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 下一等待点、executing 终态或稳定业务失败。
-     * @throws Executor、Scheduler 或 GoalStore 失败时传播原始异常。
+     * @throws Executor、Scheduler 或 GoalStore 失败时传播原始异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
-    async advance(ref: RunRef): Promise<GoalProgressResult> {
-        let goal = await this.restore(ref);
+    async advance(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        throwIfAborted(control);
+        let goal = await this.restore(ref, control);
+        throwIfAborted(control);
 
         if (goal === undefined) {
             return this.runNotFound(ref);
@@ -179,11 +190,14 @@ export class GoalCoordinator {
                     };
                 }
 
-                const result = await this.preparationExecutor.execute(goal);
+                throwIfAborted(control);
+                const result = await this.preparationExecutor.execute(goal, control);
+                throwIfAborted(control);
 
                 if (result.kind === "question") {
+                    throwIfAborted(control);
                     goal = this.withQuestion(goal, result.question);
-                    await this.store.save(goal);
+                    await this.saveCheckpoint(goal, control);
                     return {
                         ok: true,
                         kind: "waiting",
@@ -198,7 +212,8 @@ export class GoalCoordinator {
                 }
 
                 goal = this.withPlanning(goal);
-                await this.store.save(goal);
+                throwIfAborted(control);
+                await this.saveCheckpoint(goal, control);
                 continue;
             }
 
@@ -212,14 +227,17 @@ export class GoalCoordinator {
                 };
             }
 
-            const result = await this.preparationExecutor.execute(goal);
+            throwIfAborted(control);
+            const result = await this.preparationExecutor.execute(goal, control);
+            throwIfAborted(control);
 
             if (result.kind !== "task_proposal") {
                 return this.invalidPhaseResult(workflow.phase, result);
             }
 
             goal = this.withProposal(goal, result);
-            await this.store.save(goal);
+            throwIfAborted(control);
+            await this.saveCheckpoint(goal, control);
             return {
                 ok: true,
                 kind: "waiting",
@@ -233,8 +251,10 @@ export class GoalCoordinator {
             goal.state.run.status === "created"
             || goal.state.run.status === "running"
         ) {
-            const scheduled = await this.scheduler.schedule(ref);
-            return this.afterSchedule(ref, scheduled);
+            throwIfAborted(control);
+            const scheduled = await this.scheduler.schedule(ref, undefined, control);
+            throwIfAborted(control);
+            return this.afterSchedule(ref, scheduled, control);
         }
 
         if (goal.state.run.status === "waiting") {
@@ -277,11 +297,18 @@ export class GoalCoordinator {
      * 无副作用地失败。
      *
      * @param request - 当前 RunRef 与用户操作。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 保存后自动推进得到的下一等待点或执行终态。
-     * @throws GoalStore、PreparationExecutor 或 Scheduler 失败时传播原始异常。
+     * @throws GoalStore、PreparationExecutor 或 Scheduler 失败时传播原始异常；
+     *   中止时抛出 `ExecutionAbortedError`。
      */
-    async resume(request: ResumeGoalRequest): Promise<GoalProgressResult> {
-        const goal = await this.restore(request.ref);
+    async resume(
+        request: ResumeGoalRequest,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        throwIfAborted(control);
+        const goal = await this.restore(request.ref, control);
+        throwIfAborted(control);
 
         if (goal === undefined) {
             return this.runNotFound(request.ref);
@@ -308,8 +335,9 @@ export class GoalCoordinator {
                 goal,
                 request.action.content,
             );
-            await this.store.save(resumedGoal);
-            return this.advance(request.ref);
+            throwIfAborted(control);
+            await this.saveCheckpoint(resumedGoal, control);
+            return this.advance(request.ref, control);
         }
 
         if (workflow.phase === "planning") {
@@ -326,8 +354,9 @@ export class GoalCoordinator {
                     goal,
                     request.action.content,
                 );
-                await this.store.save(resumedGoal);
-                return this.advance(request.ref);
+                throwIfAborted(control);
+                await this.saveCheckpoint(resumedGoal, control);
+                return this.advance(request.ref, control);
             }
 
             if (request.action.kind !== "approve") {
@@ -343,8 +372,9 @@ export class GoalCoordinator {
             }
 
             const approvedGoal = this.withApprovedTask(goal, proposal);
-            await this.store.save(approvedGoal);
-            return this.advance(request.ref);
+            throwIfAborted(control);
+            await this.saveCheckpoint(approvedGoal, control);
+            return this.advance(request.ref, control);
         }
 
         if (goal.state.run.status !== "waiting") {
@@ -389,12 +419,16 @@ export class GoalCoordinator {
                         run: approvedRun.state,
                     },
                 };
-                await this.store.save(approvedGoal);
+                throwIfAborted(control);
+                await this.saveCheckpoint(approvedGoal, control);
+                throwIfAborted(control);
                 const scheduled = await this.scheduler.schedule(
                     request.ref,
                     { authorizedActionId: request.action.actionId },
+                    control,
                 );
-                return this.afterSchedule(request.ref, scheduled);
+                throwIfAborted(control);
+                return this.afterSchedule(request.ref, scheduled, control);
             }
 
             if (request.action.kind === "reject_action") {
@@ -431,8 +465,9 @@ export class GoalCoordinator {
                         run: rejectedRun.state,
                     },
                 };
-                await this.store.save(rejectedGoal);
-                return this.advance(request.ref);
+                throwIfAborted(control);
+                await this.saveCheckpoint(rejectedGoal, control);
+                return this.advance(request.ref, control);
             }
 
             return this.invalidGoalInput(
@@ -469,12 +504,18 @@ export class GoalCoordinator {
                 run: resumedRun.state,
             },
         };
-        await this.store.save(resumedGoal);
-        return this.advance(request.ref);
+        throwIfAborted(control);
+        await this.saveCheckpoint(resumedGoal, control);
+        return this.advance(request.ref, control);
     }
 
-    private async restore(ref: RunRef): Promise<Goal | undefined> {
+    private async restore(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<Goal | undefined> {
+        throwIfAborted(control);
         const goal = await this.store.restore(ref.goalId);
+        throwIfAborted(control);
 
         if (
             goal === undefined
@@ -487,15 +528,27 @@ export class GoalCoordinator {
         return goal;
     }
 
+    private async saveCheckpoint(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<void> {
+        throwIfAborted(control);
+        await this.store.save(goal);
+        throwIfAborted(control);
+    }
+
     private async afterSchedule(
         ref: RunRef,
         scheduled: Awaited<ReturnType<RunScheduler["schedule"]>>,
+        control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
+        throwIfAborted(control);
         if (!scheduled.ok) {
             return scheduled;
         }
 
-        const latestGoal = await this.restore(ref);
+        const latestGoal = await this.restore(ref, control);
+        throwIfAborted(control);
 
         if (latestGoal === undefined) {
             return this.runNotFound(ref);

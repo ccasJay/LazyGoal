@@ -1,4 +1,11 @@
 export { createGoal, createRun } from "./domain";
+export {
+    EXECUTION_ABORTED_ERROR_CODE,
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+} from "./execution-control";
+export type { ExecutionControl } from "./execution-control";
 export type {
     AssistantMessage,
     AgentDecision,

@@ -4,6 +4,7 @@ import type {
     StepResult,
 } from "./domain";
 import type { ToolDefinition } from "./tool";
+import type { ExecutionControl } from "./execution-control";
 
 /**
  * 旧版一次 Step 的结构化领域结果。
@@ -47,10 +48,16 @@ export interface StepExecutionResult {
 export interface LegacyStepExecutor {
     /**
      * @param goal - 当前已恢复并处于 `running` 的完整 Goal 快照。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 旧版 StepExecutionResult。
-     * @throws 执行失败时抛出异常；Runner 会按旧执行边界处理。
+     * @throws 执行失败时抛出异常；中止时抛出 `ExecutionAbortedError`，Runner
+     *   会按旧执行边界处理其余异常。
      */
-    execute(goal: Goal, tools?: readonly ToolDefinition[]): Promise<StepExecutionResult>;
+    execute(
+        goal: Goal,
+        tools?: readonly ToolDefinition[],
+        control?: ExecutionControl,
+    ): Promise<StepExecutionResult>;
 }
 
 /**
@@ -78,11 +85,14 @@ export interface StepExecutor {
     /**
      * @param goal - 当前已恢复并处于 `running` 的完整 Goal 快照。
      * @param tools - 当前 Profile 授权且由 Registry 解析出的 Tool 描述。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 新协议的 AgentDecision。
-     * @throws 执行失败时抛出异常；Runner 会按执行边界处理。
+     * @throws 执行失败时抛出异常；中止时抛出 `ExecutionAbortedError`，Runner
+     *   会按执行边界处理其余异常。
      */
     execute(
         goal: Goal,
         tools: readonly ToolDefinition[],
+        control?: ExecutionControl,
     ): Promise<AgentDecision>;
 }

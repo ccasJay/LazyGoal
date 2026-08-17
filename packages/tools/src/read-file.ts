@@ -14,6 +14,12 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../runtime/src/index";
+import {
+    ExecutionAbortedError,
+    isExecutionAbortedError,
+    throwIfAborted,
+    type ExecutionControl,
+} from "../../runtime/src/execution-control";
 
 /** `ReadFileTool` 在 Profile 中使用的稳定标识。 */
 export const READ_FILE_TOOL_ID = "read_file";
@@ -193,10 +199,16 @@ export class ReadFileTool implements Tool {
      * 读取一次已通过校验的路径。
      *
      * @param request - Action ID 与 `{ path: string }` 输入。
+     * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 文件内容或可恢复的文件领域失败 Observation。
-    * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常。
+     * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常；
+     *   中止时抛出 `ExecutionAbortedError`。
      */
-    async execute(request: ToolExecutionRequest): Promise<ToolObservation> {
+    async execute(
+        request: ToolExecutionRequest,
+        control?: ExecutionControl,
+    ): Promise<ToolObservation> {
+        throwIfAborted(control);
         const input = request.input;
         const validation = this.validate(input);
 
@@ -213,12 +225,22 @@ export class ReadFileTool implements Tool {
         const requestedPath = input.path;
 
         const resolvedRoot = await realpath(this.workspaceRoot);
+        throwIfAborted(control);
         const candidatePath = resolve(resolvedRoot, requestedPath);
         let resolvedTarget: string;
 
         try {
             resolvedTarget = await realpath(candidatePath);
+            throwIfAborted(control);
         } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
             if (isNodeError(error)) {
                 const failure = domainFailure(requestedPath, error);
 
@@ -240,7 +262,13 @@ export class ReadFileTool implements Tool {
         }
 
         try {
-            const content = await readFile(resolvedTarget, "utf8");
+            const content = control?.signal === undefined
+                ? await readFile(resolvedTarget, "utf8")
+                : await readFile(resolvedTarget, {
+                    encoding: "utf8",
+                    signal: control.signal,
+                });
+            throwIfAborted(control);
 
             return {
                 kind: "success",
@@ -248,6 +276,14 @@ export class ReadFileTool implements Tool {
                 summary: `已读取 ${requestedPath}`,
             };
         } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+
+            if (control?.signal?.aborted) {
+                throw new ExecutionAbortedError();
+            }
+
             if (isNodeError(error)) {
                 const failure = domainFailure(requestedPath, error);
 
