@@ -45,7 +45,11 @@ export {
     InMemoryGoalStore,
     JsonFileGoalStore,
 } from "./goal-store";
-export type { GoalStore } from "./goal-store";
+export type {
+    GoalCatalog,
+    GoalCatalogEntry,
+    GoalStore,
+} from "./goal-store";
 export type {
     LegacyStepExecutor,
     StepExecutionResult,

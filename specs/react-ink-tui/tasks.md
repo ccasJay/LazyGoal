@@ -7,7 +7,7 @@
   - 扩展 Runtime、Agent、LLM 与 Tool 单元测试，覆盖模型调用、Tool 调用及保存边界前后的 abort
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 2. 实现项目级 GoalCatalog 与稳定恢复排序
+- [x] //TODO 2. 实现项目级 GoalCatalog 与稳定恢复排序
 
   - 新增带中文契约级 TSDoc 和最小示例的 `GoalCatalog`、`GoalCatalogEntry`，由 `JsonFileGoalStore` 扫描并严格解码正式快照
   - 以成功原子替换后的 `mtime` 排序非终态 Goal，用 `goalId` 打破平局，并忽略 `.tmp`、拒绝损坏快照

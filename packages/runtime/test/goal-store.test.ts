@@ -6,6 +6,7 @@ import {
     readFile,
     readdir,
     rm,
+    utimes,
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -23,7 +24,12 @@ import {
     Runner,
     transition,
 } from "../src/index";
-import type { AgentProfile, Goal, GoalMessage } from "../src/index";
+import type {
+    AgentProfile,
+    Goal,
+    GoalMessage,
+    RunStatus,
+} from "../src/index";
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -134,6 +140,71 @@ function createActionSnapshot(): Goal {
 function snapshotPath(directory: string, goalId: string): string {
     const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
     return join(directory, `${encodedGoalId}.json`);
+}
+
+function transitionGoal(
+    goal: Goal,
+    input: Parameters<typeof transition>[1],
+): Goal {
+    const result = transition(goal.state.run, input);
+
+    if (!result.ok) {
+        throw new Error(result.error.message);
+    }
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: result.state,
+        },
+    };
+}
+
+function createCatalogGoal(id: string, status: RunStatus): Goal {
+    const goal = createGoal({
+        id,
+        task: {
+            objective: `Intent ${id}`,
+            completionCriteria: ["完成目录测试"],
+        },
+        profile,
+        runId: `run-${id}`,
+    });
+
+    if (status === "created") {
+        return goal;
+    }
+
+    const started = transitionGoal(goal, { kind: "start" });
+
+    if (status === "running") {
+        return started;
+    }
+
+    if (status === "cancelled") {
+        return transitionGoal(started, { kind: "cancel" });
+    }
+
+    const decision = status === "waiting"
+        ? {
+            kind: "wait" as const,
+            checkpoint: `Checkpoint ${id}`,
+            reason: "等待目录测试输入",
+        }
+        : status === "completed"
+            ? {
+                kind: "complete" as const,
+                checkpoint: `Checkpoint ${id}`,
+                summary: "目录测试完成",
+            }
+            : {
+                kind: "fail" as const,
+                checkpoint: `Checkpoint ${id}`,
+                error: "目录测试失败",
+            };
+
+    return transitionGoal(started, { kind: "decision", decision });
 }
 
 const tsxCliPath = fileURLToPath(
@@ -773,6 +844,123 @@ test("JsonFileGoalStore returns undefined for a missing Goal", async () => {
         assert.equal(
             await new JsonFileGoalStore(directory).restore("missing-goal"),
             undefined,
+        );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore returns an empty catalog for an empty directory", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+    const emptyDirectory = join(parent, "empty");
+    const missingDirectory = join(parent, "missing");
+
+    try {
+        await mkdir(emptyDirectory);
+
+        assert.deepEqual(
+            await new JsonFileGoalStore(emptyDirectory).listResumable(),
+            [],
+        );
+        assert.deepEqual(
+            await new JsonFileGoalStore(missingDirectory).listResumable(),
+            [],
+        );
+    } finally {
+        await rm(parent, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore catalogs non-terminal snapshots with stable mtime ordering", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        const store = new JsonFileGoalStore(directory);
+        const goals = [
+            createCatalogGoal("goal-created", "created"),
+            createCatalogGoal("goal-running", "running"),
+            createCatalogGoal("goal-waiting", "waiting"),
+            createCatalogGoal("goal-completed", "completed"),
+            createCatalogGoal("goal-failed", "failed"),
+            createCatalogGoal("goal-cancelled", "cancelled"),
+        ];
+
+        for (const goal of goals) {
+            await store.save(goal);
+        }
+
+        const older = new Date("2024-01-01T00:00:00.000Z");
+        const newest = new Date("2024-01-02T00:00:00.000Z");
+        await utimes(snapshotPath(directory, "goal-created"), older, older);
+        await utimes(snapshotPath(directory, "goal-running"), newest, newest);
+        await utimes(snapshotPath(directory, "goal-waiting"), newest, newest);
+
+        await writeFile(
+            join(directory, "ignored.json.tmp"),
+            JSON.stringify(createCatalogGoal("goal-temp", "running")),
+            "utf8",
+        );
+
+        const entries = await store.listResumable();
+
+        assert.deepEqual(
+            entries.map((entry) => entry.goalId),
+            ["goal-running", "goal-waiting", "goal-created"],
+        );
+        assert.deepEqual(entries[0], {
+            goalId: "goal-running",
+            runId: "run-goal-running",
+            intent: "Intent goal-running",
+            workflowPhase: "executing",
+            runStatus: "running",
+            updatedAt: newest.toISOString(),
+        });
+        assert.deepEqual(entries[1], {
+            goalId: "goal-waiting",
+            runId: "run-goal-waiting",
+            intent: "Intent goal-waiting",
+            workflowPhase: "executing",
+            runStatus: "waiting",
+            updatedAt: newest.toISOString(),
+        });
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+
+    try {
+        await writeFile(
+            join(directory, "broken.json"),
+            "{invalid-json",
+            "utf8",
+        );
+
+        await assert.rejects(
+            new JsonFileGoalStore(directory).listResumable(),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
+        );
+
+        await rm(join(directory, "broken.json"), { force: true });
+        await writeFile(
+            join(directory, "wrong-name.json"),
+            JSON.stringify(createCatalogGoal("goal-valid", "running")),
+            "utf8",
+        );
+
+        await assert.rejects(
+            new JsonFileGoalStore(directory).listResumable(),
+            (error: unknown) => {
+                assert.ok(error instanceof GoalSnapshotProtocolError);
+                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+                return true;
+            },
         );
     } finally {
         await rm(directory, { recursive: true, force: true });

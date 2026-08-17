@@ -15,6 +15,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal | 历史与事件查询 |
+| [GoalCatalog](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要 | 写入快照或返回历史版本 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
 | [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入校验、重放声明、Registry 与 Policy 边界 | 具体 Tool 执行与 Goal 持久化 |
 | [ExecutionControl](../../packages/runtime/src/execution-control.ts) | 在一次调用链内传播 AbortSignal，并将中止规范化为控制流错误 | 改写 Goal 状态或决定进程退出 |
@@ -24,6 +25,12 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 Goal v3 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Run 可保存有界的 `checkpoint`、最近 `lastStep` 与当前 `pendingAction`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Launcher 在 Profile lookup 和 runId 生成前校验 intent 与 maxSteps，保存初始 Goal 成功后才调用 Coordinator。它返回 Coordinator 的等待点或终态，不直接调用 Scheduler。
+
+`JsonFileGoalStore` 同时实现 `GoalCatalog`。`listResumable` 只扫描目录中的正式 `.json`
+普通文件，严格解码完整 Goal 快照并忽略 `.tmp`；不存在的目录视为空目录，损坏快照或
+文件系统错误会阻止本次查询。它过滤 `completed`、`failed`、`cancelled` 三个终态，使用
+原子替换后文件的 `mtime` 倒序排列，并以 `goalId` 升序稳定打破平局，返回包含 intent、
+workflow phase、Run 状态、runId 和更新时间的摘要。
 
 Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保存为真实 assistant 消息并进入 `waiting_input`；`context_ready` 先保存 `planning/active`，再继续生成 task proposal；proposal 与完整批准文本一起保存为 `waiting_approval`。每个继续点都以保存成功为前提。executing Goal 委派给 Scheduler，并在调度结束后重新恢复最新 Goal。
 
@@ -62,6 +69,7 @@ safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有�
 - Store I/O 或协议错误：原样向调用方传播。
 - `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
 - GoalStore 按 `schemaVersion` 严格解码；v3 校验 workflow/Run 与 pending Action 不变量，合法 v1/v2 只读迁移为 v3，旧 `lastStep` 仅在迁移结果中包装为 `legacy`，未知版本或损坏快照报协议错误。
+- GoalCatalog 只接受正式 `.json` 快照；目录扫描中的任一正式快照损坏都会报告协议错误，不会静默跳过；`.tmp` 和非普通文件不参与候选项。
 - `JsonFileGoalStore` 恢复 v1/v2 时不改写文件；下一次显式保存才以 v3 原子替换。并发写入仍是最后替换者覆盖。
 
 ## 当前限制与背景

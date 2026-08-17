@@ -3,7 +3,9 @@ import {
     mkdir,
     open,
     readFile,
+    readdir,
     rename,
+    stat,
     unlink,
 } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,6 +16,7 @@ import type {
     Goal,
     GoalWorkflowState,
     RunState,
+    RunStatus,
     StepResult,
 } from "./domain";
 
@@ -945,6 +948,64 @@ export interface GoalStore {
 }
 
 /**
+ * 可恢复 Goal 列表中的轻量摘要。
+ *
+ * @remarks
+ * `updatedAt` 是正式 JSON 快照最近一次成功原子替换后的文件修改时间，使用
+ * ISO 8601 UTC 字符串表示。条目不包含完整 Goal，调用方需要通过 `goalId`
+ * 再次恢复快照；终态 Run 不会出现在列表中。
+ *
+ * @example
+ * ```ts
+ * const entry: GoalCatalogEntry = {
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     intent: "实现恢复能力",
+ *     workflowPhase: "planning",
+ *     runStatus: "waiting",
+ *     updatedAt: "2026-08-17T00:00:00.000Z",
+ * };
+ * ```
+ */
+export interface GoalCatalogEntry {
+    /** Goal 的稳定标识，用于后续 restore。 */
+    readonly goalId: string;
+    /** 当前快照中 Run 的稳定标识。 */
+    readonly runId: string;
+    /** Goal 创建时冻结的原始意图。 */
+    readonly intent: string;
+    /** 当前 Preparation/Execution 工作流阶段。 */
+    readonly workflowPhase: Goal["state"]["workflow"]["phase"];
+    /** 当前 Run 状态；该列表不会返回三个终态。 */
+    readonly runStatus: RunStatus;
+    /** 最近成功快照的 ISO 8601 UTC 修改时间。 */
+    readonly updatedAt: string;
+}
+
+/**
+ * 查询可恢复 Goal 摘要的目录边界。
+ *
+ * @remarks
+ * 目录只反映最近成功持久化的完整快照，不提供历史版本或事件查询；实现
+ * 必须对正式快照执行完整协议校验，损坏快照应阻止本次查询并暴露协议错误。
+ *
+ * @example
+ * ```ts
+ * const catalog: GoalCatalog = new JsonFileGoalStore(".lazygoal/goals");
+ * const resumable = await catalog.listResumable();
+ * ```
+ */
+export interface GoalCatalog {
+    /**
+     * 扫描并按最近更新时间倒序返回非终态 Goal。
+     *
+     * @returns 按 `mtime` 降序排列的摘要；相同时间使用 `goalId` 升序。
+     * @throws 正式 JSON 快照损坏或目录读取失败时抛出异常；目录不存在时返回空列表。
+     */
+    listResumable(): Promise<readonly GoalCatalogEntry[]>;
+}
+
+/**
  * 单进程内的 Goal 快照存储。
  *
  * @remarks
@@ -984,7 +1045,7 @@ export class InMemoryGoalStore implements GoalStore {
  * {@link GoalSnapshotProtocolError}。恢复 v1 不改写文件，之后显式保存恢复
  * 结果时才以 v3 原子替换。
  */
-export class JsonFileGoalStore implements GoalStore {
+export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     /**
      * @param directory - 保存 Goal JSON 文件的目录；保存时按需递归创建。
      */
@@ -1024,6 +1085,95 @@ export class JsonFileGoalStore implements GoalStore {
     }
 
     /**
+     * 扫描目录中的正式快照并生成稳定的可恢复候选项。
+     *
+     * @returns 过滤 `completed`、`failed`、`cancelled` 后按最近快照时间倒序
+     * 排列的摘要；同一时间按 `goalId` 升序。`.tmp` 和非普通文件会被忽略。
+     * @throws JSON、Goal Schema 或跨字段不变量损坏时抛出
+     * `GoalSnapshotProtocolError`；目录或文件读取失败时传播文件系统错误。
+     */
+    async listResumable(): Promise<readonly GoalCatalogEntry[]> {
+        let files;
+
+        try {
+            files = await readdir(this.directory, { withFileTypes: true });
+        } catch (error) {
+            if (
+                error instanceof Error
+                && (error as NodeJS.ErrnoException).code === "ENOENT"
+            ) {
+                return [];
+            }
+
+            throw error;
+        }
+
+        const candidates: Array<{
+            readonly entry: GoalCatalogEntry;
+            readonly mtimeMs: number;
+        }> = [];
+
+        const snapshotFiles = files
+            .filter((file) => file.isFile() && file.name.endsWith(".json"))
+            .sort((left, right) => left.name < right.name
+                ? -1
+                : left.name > right.name
+                    ? 1
+                    : 0);
+
+        for (const file of snapshotFiles) {
+            const filePath = join(this.directory, file.name);
+            const content = await readFile(filePath, "utf8");
+            const goal = this.decodeSnapshot(content, file.name);
+
+            if (this.filePath(goal.id) !== filePath) {
+                throw new GoalSnapshotProtocolError(
+                    `Goal snapshot filename does not match Goal ID in "${file.name}"`,
+                );
+            }
+
+            const fileStats = await stat(filePath);
+            const runStatus = goal.state.run.status;
+
+            if (
+                runStatus === "completed"
+                || runStatus === "failed"
+                || runStatus === "cancelled"
+            ) {
+                continue;
+            }
+
+            candidates.push({
+                entry: {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    intent: goal.definition.intent,
+                    workflowPhase: goal.state.workflow.phase,
+                    runStatus,
+                    updatedAt: new Date(fileStats.mtimeMs).toISOString(),
+                },
+                mtimeMs: fileStats.mtimeMs,
+            });
+        }
+
+        candidates.sort((left, right) => {
+            const timeDifference = right.mtimeMs - left.mtimeMs;
+
+            if (timeDifference !== 0) {
+                return timeDifference;
+            }
+
+            return left.entry.goalId < right.entry.goalId
+                ? -1
+                : left.entry.goalId > right.entry.goalId
+                    ? 1
+                    : 0;
+        });
+
+        return candidates.map(({ entry }) => entry);
+    }
+
+    /**
      * 从 JSON 文件恢复并校验最新 Goal 快照。
      *
      * @returns 文件不存在时返回 `undefined`，否则返回与存储隔离的 v3 Goal。
@@ -1047,14 +1197,7 @@ export class JsonFileGoalStore implements GoalStore {
 
         let goal: Goal;
 
-        try {
-            goal = cloneValidatedGoal(JSON.parse(content));
-        } catch (error) {
-            throw new GoalSnapshotProtocolError(
-                `Invalid Goal snapshot for "${goalId}"`,
-                { cause: error },
-            );
-        }
+        goal = this.decodeSnapshot(content, goalId);
 
         if (goal.id !== goalId) {
             throw new GoalSnapshotProtocolError(
@@ -1068,6 +1211,17 @@ export class JsonFileGoalStore implements GoalStore {
     private filePath(goalId: string): string {
         const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
         return join(this.directory, `${encodedGoalId}.json`);
+    }
+
+    private decodeSnapshot(content: string, label: string): Goal {
+        try {
+            return cloneValidatedGoal(JSON.parse(content));
+        } catch (error) {
+            throw new GoalSnapshotProtocolError(
+                `Invalid Goal snapshot for "${label}"`,
+                { cause: error },
+            );
+        }
     }
 
     private cloneFileSnapshot(goal: Goal): Goal {
