@@ -35,7 +35,7 @@
   - 使用 `ink-testing-library` 覆盖 intent、gathering_context、planning、英文 copy、键盘提交和 busy 防重
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 6. 实现 Goal 恢复选择与最近 Goal 快捷恢复
+- [x] //TODO 6. 实现 Goal 恢复选择与最近 Goal 快捷恢复
 
   - 实现 `GoalSelectScreen`，按 Catalog 顺序展示 `goalId`、intent 摘要、workflow phase、Run 状态和更新时间，并支持键盘选择
   - 为 `resume` 接入选择命令，为 `-c` 直接选择同一排序首项；空候选和 Catalog 错误使用稳定英文反馈且不创建 Goal

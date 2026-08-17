@@ -4,6 +4,7 @@ import { Box, Text } from "ink";
 import { SessionController } from "./session-controller";
 import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
+import { GoalSelectScreen } from "./goal-select-screen";
 import type { UiCommand } from "./types";
 
 /**
@@ -67,13 +68,12 @@ export function TuiApp({ controller }: TuiAppProps): React.JSX.Element {
             );
         case "goal_select":
             return (
-                <Box flexDirection="column" gap={1}>
-                    <Text bold>Goal selection</Text>
-                    <Text>Goal selection will be available in the next screen.</Text>
-                    {snapshot.error !== undefined
-                        ? <Text color="red">Error: {snapshot.error.message}</Text>
-                        : null}
-                </Box>
+                <GoalSelectScreen
+                    goals={snapshot.goals}
+                    busy={snapshot.busy}
+                    {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    onSelect={(goalId) => dispatch({ kind: "selectGoal", goalId })}
+                />
             );
         case "shutting_down":
             return (

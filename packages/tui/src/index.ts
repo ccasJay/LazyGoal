@@ -2,9 +2,11 @@ export { SessionController } from "./session-controller";
 export { TuiApp } from "./app";
 export { IntentScreen } from "./intent-screen";
 export { PreparationScreen } from "./preparation-screen";
+export { GoalSelectScreen } from "./goal-select-screen";
 export type { TuiAppProps } from "./app";
 export type { IntentScreenProps } from "./intent-screen";
 export type { PreparationScreenProps } from "./preparation-screen";
+export type { GoalSelectScreenProps } from "./goal-select-screen";
 export {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,

@@ -120,6 +120,10 @@ export class SessionController {
             case "create":
                 await this.createGoal(command.intent);
                 return;
+            case "openGoalSelect":
+            case "resume":
+                await this.openGoalSelect();
+                return;
             case "continueLatest":
                 await this.continueLatest();
                 return;
@@ -245,6 +249,38 @@ export class SessionController {
         }
 
         await this.restoreAndAdvance(latest.goalId, entries);
+    }
+
+    private async openGoalSelect(): Promise<void> {
+        if (this.snapshot.screen === "session") {
+            this.setError({
+                code: "SESSION_ACTIVE",
+                message: "A Goal session is already active",
+            });
+            return;
+        }
+
+        let goals: readonly GoalCatalogEntry[];
+        try {
+            goals = await this.dependencies.catalog.listResumable();
+        } catch (error: unknown) {
+            this.setGoalSelectError(toUiError(error));
+            return;
+        }
+
+        const entries = goals.map((entry) => ({ ...entry }));
+        this.setSnapshot({
+            screen: "goal_select",
+            busy: true,
+            goals: entries,
+        });
+
+        if (entries.length === 0) {
+            this.setError({
+                code: "NO_RESUMABLE_GOAL",
+                message: "No resumable Goal was found",
+            });
+        }
     }
 
     private async selectGoal(goalId: string): Promise<void> {

@@ -58,6 +58,9 @@ export interface UiError {
  */
 export type UiCommand =
     | { readonly kind: "create"; readonly intent: string }
+    /** 打开可恢复 Goal 选择页面；`resume` 是面向 CLI 的同义入口。 */
+    | { readonly kind: "openGoalSelect" }
+    | { readonly kind: "resume" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }

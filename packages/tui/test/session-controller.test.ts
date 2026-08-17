@@ -119,6 +119,14 @@ class FakeCatalog implements GoalCatalog {
     }
 }
 
+class ThrowingCatalog implements GoalCatalog {
+    constructor(private readonly error: unknown) {}
+
+    async listResumable(): Promise<readonly GoalCatalogEntry[]> {
+        throw this.error;
+    }
+}
+
 function dependencies(
     launcher: SessionLauncher,
     coordinator: SessionCoordinator,
@@ -204,6 +212,120 @@ test("continueLatest lists candidates, restores the newest Goal, and advances it
         runId: goal.state.run.id,
     }]);
     assert.equal(sessionView(controller).goal.id, goal.id);
+});
+
+test("resume opens the ordered Goal selector without restoring or creating a Goal", async () => {
+    const newest: GoalCatalogEntry = {
+        goalId: "goal-newest",
+        runId: "run-newest",
+        intent: "Newest resumable Goal",
+        workflowPhase: "planning",
+        runStatus: "waiting",
+        updatedAt: "2026-08-17T02:00:00.000Z",
+    };
+    const older: GoalCatalogEntry = {
+        goalId: "goal-older",
+        runId: "run-older",
+        intent: "Older resumable Goal",
+        workflowPhase: "gathering_context",
+        runStatus: "running",
+        updatedAt: "2026-08-17T01:00:00.000Z",
+    };
+    const launcher = new FakeLauncher({
+        ok: false,
+        error: { code: "PROFILE_NOT_FOUND", message: "not called" },
+    });
+    const store = new FakeStore([]);
+    const controller = new SessionController(
+        dependencies(
+            launcher,
+            new FakeCoordinator({
+                ok: false,
+                error: { code: "RUN_NOT_FOUND", message: "not called" },
+            }),
+            store,
+            new FakeCatalog([newest, older]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "resume" });
+
+    assert.deepEqual(controller.getSnapshot(), {
+        screen: "goal_select",
+        busy: false,
+        goals: [newest, older],
+    });
+    assert.deepEqual(launcher.requests, []);
+    assert.deepEqual(store.requestedGoalIds, []);
+});
+
+test("resume surfaces a damaged Catalog snapshot without creating a Goal", async () => {
+    const launcher = new FakeLauncher({
+        ok: false,
+        error: { code: "PROFILE_NOT_FOUND", message: "not called" },
+    });
+    const controller = new SessionController(
+        dependencies(
+            launcher,
+            new FakeCoordinator({
+                ok: false,
+                error: { code: "RUN_NOT_FOUND", message: "not called" },
+            }),
+            new FakeStore([]),
+            new ThrowingCatalog({
+                code: "INVALID_GOAL_SNAPSHOT",
+                message: "Goal snapshot is invalid",
+            }),
+        ),
+    );
+
+    await controller.dispatch({ kind: "resume" });
+
+    assert.deepEqual(launcher.requests, []);
+    assert.deepEqual(controller.getSnapshot(), {
+        screen: "goal_select",
+        busy: false,
+        goals: [],
+        error: {
+            code: "INVALID_GOAL_SNAPSHOT",
+            message: "Goal snapshot is invalid",
+        },
+    });
+});
+
+test("continueLatest selects the first Catalog entry for -c semantics", async () => {
+    const first = createWaitingGoal("goal-first");
+    const second = createWaitingGoal("goal-second");
+    const firstEntry: GoalCatalogEntry = {
+        goalId: first.id,
+        runId: first.state.run.id,
+        intent: first.definition.intent,
+        workflowPhase: "gathering_context",
+        runStatus: "waiting",
+        updatedAt: "2026-08-17T02:00:00.000Z",
+    };
+    const secondEntry: GoalCatalogEntry = {
+        goalId: second.id,
+        runId: second.state.run.id,
+        intent: second.definition.intent,
+        workflowPhase: "gathering_context",
+        runStatus: "waiting",
+        updatedAt: "2026-08-17T01:00:00.000Z",
+    };
+    const store = new FakeStore([first, second]);
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(first)),
+            new FakeCoordinator(waitingResult(first)),
+            store,
+            new FakeCatalog([firstEntry, secondEntry]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "continueLatest" });
+
+    assert.deepEqual(store.requestedGoalIds, [first.id]);
+    assert.equal(sessionView(controller).goal.id, first.id);
 });
 
 test("selectGoal reports a stable error without creating a replacement Goal", async () => {
