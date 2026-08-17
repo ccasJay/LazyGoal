@@ -21,7 +21,7 @@
   - 添加 fake clock、阻塞 Store 和记录型资源测试，验证不回滚、不写 `cancelled`、保留 `pendingAction`、幂等关闭及超时强制清理
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4), [6.5](./requirements.md#req-6-5)_
 
-- [ ] //TODO 4. 建立 SessionController、UiCommand 与 UiViewModel
+- [x] //TODO 4. 建立 SessionController、UiCommand 与 UiViewModel
 
   - 创建 `packages/tui` 的 Controller 层，以 `getSnapshot`、`subscribe` 和串行 `dispatch` 装配 Launcher、Coordinator、Store 与 Catalog，并补齐公开接口的中文契约级 TSDoc 与示例
   - 实现新建、恢复、消息、任务批准和 Action 批准/拒绝命令映射，保持单 Goal 会话、busy 防重、最近快照和稳定错误状态

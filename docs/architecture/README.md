@@ -53,5 +53,6 @@ flowchart LR
 ## 模块速查
 
 - [Runtime](./runtime.md)：状态、生命周期、调度与持久化。
+- [TUI Controller](./tui.md)：单 Goal UI 命令串行化与不可变会话快照。
 - [Agent](./agent.md)：Prompt、响应协议与 Step 执行。
 - [LLM](./llm.md)：供应商无关接口与模型适配器。
