@@ -42,7 +42,7 @@
   - 添加 Controller、Ink 和命令路由测试，覆盖选择确认、排序展示、空列表、`-c` 首项及损坏快照
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 7. 实现 executing、Action 与终态 SessionScreen
+- [x] //TODO 7. 实现 executing、Action 与终态 SessionScreen
 
   - 使用 Ink `Static` 和动态状态区渲染真实消息、phase、Run 状态、`stepCount`、checkpoint、Spinner、终态摘要及停止原因
   - 根据 Controller 提供的等待类型实现 blocked 输入、Action 批准/拒绝和 `outcome_unknown` 风险恢复，并在终态禁用推进输入

@@ -5,6 +5,7 @@ import { SessionController } from "./session-controller";
 import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
+import { SessionScreen } from "./session-screen";
 import type { UiCommand } from "./types";
 
 /**
@@ -56,7 +57,24 @@ export function TuiApp({ controller }: TuiAppProps): React.JSX.Element {
                 />
             );
         case "session":
-            return (
+            return snapshot.phase === "executing" ? (
+                <SessionScreen
+                    session={snapshot}
+                    onSubmitMessage={(content) => dispatch({
+                        kind: "submitMessage",
+                        content,
+                    })}
+                    onApproveAction={(actionId) => dispatch({
+                        kind: "approveAction",
+                        actionId,
+                    })}
+                    onRejectAction={(actionId, reason) => dispatch({
+                        kind: "rejectAction",
+                        actionId,
+                        reason,
+                    })}
+                />
+            ) : (
                 <PreparationScreen
                     session={snapshot}
                     onSubmitMessage={(content) => dispatch({
