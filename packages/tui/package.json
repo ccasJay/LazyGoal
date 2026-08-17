@@ -1,0 +1,17 @@
+{
+  "name": "@lazygoal/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@inkjs/ui": "^2.0.0",
+    "ink": "^6.8.0",
+    "react": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.23.7",
+    "typescript": "^7.0.2"
+  }
+}

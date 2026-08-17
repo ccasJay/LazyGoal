@@ -2,15 +2,18 @@
 
 ## 摘要
 
-`packages/tui` 当前提供 SessionController 与 React Ink 的 intent、Goal 选择、
-Preparation 和 executing Session 界面。Controller 把一次进程内的用户交互限制为单 Goal 会话，组合
-Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；`TuiApp` 通过
+`packages/tui` 当前提供项目级 `lazygoal` CLI、Composition Root、SessionController
+与 React Ink 的 intent、Goal 选择、Preparation 和 executing Session 界面。
+Controller 把一次进程内的用户交互限制为单 Goal 会话，组合
+Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量校验通过后
+创建这一整组共享依赖，`TuiApp` 通过
 `useSyncExternalStore` 订阅不可变 `UiViewModel`，屏幕只提交语义化命令。
 
 ## 职责速查
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
+| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM 环境并创建单一 Composition Root | Ctrl+C 关闭、跨进程资源清理 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态 | 自行推断 Runtime 可用操作 |
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller 并按 screen 路由页面 | Runtime 编排和快照写入 |
@@ -21,7 +24,9 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；`TuiApp` 通过
 
 ```mermaid
 flowchart LR
-    I[Intent or UI input] --> C[SessionController]
+    CLI[lazygoal / -c / resume] --> B[Composition Root]
+    B --> I[Intent or UI input]
+    I --> C[SessionController]
     C -->|create| L[Launcher]
     C -->|restore| S[GoalStore]
     C -->|list| G[GoalCatalog]
@@ -34,7 +39,12 @@ flowchart LR
     V --> I
 ```
 
-`create` 校验非空 intent 后只生成一个 goalId，并委托 Launcher；`resume` 先查询
+Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
+`.lazygoal/goals`，共享一个 `OpenAICompatible`、英文默认 Profile、`ReadFileTool`、
+`JsonFileGoalStore`、Coordinator、Scheduler、Runner 和 SessionController。缺失
+`LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Store/Adapter/TUI 前返回
+英文非零错误；构造根本身不会创建 `.lazygoal` 或 Goal。`create` 校验非空 intent
+后只生成一个 goalId，并委托 Launcher；`resume` 先查询
 按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
 直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准
 和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal
@@ -51,6 +61,7 @@ flowchart LR
 
 ## 当前限制
 
-- 本阶段尚未接入 CLI 或 Ctrl+C 关闭编排；这些由 React Ink TUI Spec 的后续 TODO 实现。
+- CLI bin shim 通过 `tsx/esm` 启动 TSX 源码；本阶段仍未接入 Ctrl+C 关闭编排，
+  `exitOnCtrlC` 和资源清理由后续 TODO 实现。
 - `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
   当前限制决定。

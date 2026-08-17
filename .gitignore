@@ -12,6 +12,9 @@ build/
 coverage/
 *.tsbuildinfo
 
+# Project-local LazyGoal snapshots
+.lazygoal/
+
 # Local files
 .DS_Store
 *.log

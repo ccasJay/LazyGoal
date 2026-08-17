@@ -49,7 +49,7 @@
   - 使用 `ink-testing-library` 覆盖消息顺序、状态栏、两类 Action 等待、拒绝理由、终态和英文显示
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [5.5](./requirements.md#req-5-5)_
 
-- [ ] //TODO 8. 接入 lazygoal CLI、默认 Profile 与项目级依赖装配
+- [x] //TODO 8. 接入 lazygoal CLI、默认 Profile 与项目级依赖装配
 
   - 新增 `cli.tsx`、根 `lazygoal` bin shim、TSX 编译配置和 TUI package 依赖，使用 `parseArgs` 路由空参数、`-c` 与 `resume`
   - 启动前严格校验 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`，并装配英文默认 Profile、OpenAICompatible、ReadFileTool、项目级 Store 与单个 SessionController，同时忽略 `.lazygoal/`
