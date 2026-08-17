@@ -43,6 +43,7 @@ type WaitingProgress = Extract<
  */
 export class SessionController {
     private readonly dependencies: SessionControllerDependencies;
+    private shuttingDown = false;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -77,6 +78,39 @@ export class SessionController {
     }
 
     /**
+     * 将当前 UI 快照切换为关闭状态并拒绝后续命令。
+     *
+     * @remarks
+     * 该方法只替换内存中的 ViewModel，不冻结 Store、不 abort Runtime，也不
+     * 写入 `cancelled` 快照；这些动作由 CLI 的 `ShutdownCoordinator` 按顺序
+     * 执行。当前 Session 的最近 Goal 会被结构化克隆到关闭页面，其他页面不
+     * 虚构 Goal。重复调用没有副作用。
+     *
+     * @returns 无返回值；调用方应随后等待其拥有的关闭流程完成。
+     * @example
+     * ```ts
+     * controller.beginShutdown();
+     * await assert.rejects(controller.dispatch({ kind: "create", intent: "later" }));
+     * ```
+     */
+    beginShutdown(): void {
+        if (this.shuttingDown) {
+            return;
+        }
+
+        this.shuttingDown = true;
+        const goal = this.snapshot.screen === "session"
+            ? structuredClone(this.snapshot.goal)
+            : undefined;
+
+        this.setSnapshot({
+            screen: "shutting_down",
+            busy: true,
+            ...(goal === undefined ? {} : { goal }),
+        });
+    }
+
+    /**
      * 串行处理一个 UI 命令。
      *
      * @param command - 不携带运行时状态的用户意图。
@@ -106,7 +140,9 @@ export class SessionController {
 
         return this.execute(command)
             .catch((error: unknown) => {
-                this.setError(toUiError(error));
+                if (this.snapshot.screen !== "shutting_down") {
+                    this.setError(toUiError(error));
+                }
             })
             .finally(() => {
                 if (this.snapshot.screen !== "shutting_down") {
@@ -509,6 +545,10 @@ export class SessionController {
     }
 
     private setSnapshot(snapshot: UiViewModel): void {
+        if (this.shuttingDown && snapshot.screen !== "shutting_down") {
+            return;
+        }
+
         this.snapshot = snapshot;
         for (const subscriber of this.subscribers) {
             subscriber();

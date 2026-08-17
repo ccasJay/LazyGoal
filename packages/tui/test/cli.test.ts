@@ -104,3 +104,66 @@ test("-c reports an empty project without creating a Goal or rendering the TUI",
     assert.equal(rendered, false);
     await assert.rejects(access(join(workspace, ".lazygoal")));
 });
+
+test("CLI handles SIGINT through one shutdown path and requests exit 130", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-sigint-"));
+    const exitCodes: number[] = [];
+    let waitCalls = 0;
+    let unmountCalls = 0;
+    const exitPort = {
+        exit(code: number): void {
+            exitCodes.push(code);
+        },
+    };
+    const exitInstance = {
+        unmount(): void {
+            unmountCalls += 1;
+        },
+        async waitUntilExit(): Promise<void> {
+            waitCalls += 1;
+            if (waitCalls === 1) {
+                process.emit("SIGINT");
+            }
+        },
+    };
+    const errors: string[] = [];
+    const exitCode = await runCli([], {
+        cwd: workspace,
+        env: environment(),
+        exitPort,
+        writeError: (message) => errors.push(message),
+        render: (() => exitInstance) as never,
+    });
+
+    assert.equal(exitCode, 130);
+    assert.deepEqual(exitCodes, [130]);
+    assert.equal(unmountCalls, 1);
+    assert.equal(waitCalls, 2);
+    assert.deepEqual(errors, []);
+    await assert.rejects(access(join(workspace, ".lazygoal")));
+});
+
+test("composition root shares the checkpoint gate and abort signal with shutdown", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-root-shutdown-"));
+    const exitCodes: number[] = [];
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        env: environment(),
+        exitPort: { exit: (code) => { exitCodes.push(code); } },
+        gracePeriodMs: 0,
+    });
+
+    await root.shutdownCoordinator.shutdown();
+
+    assert.equal(root.checkpointStore.isFrozen, true);
+    assert.equal(root.abortController.signal.aborted, true);
+    assert.deepEqual(exitCodes, [130]);
+    await assert.rejects(
+        root.checkpointStore.save({} as never),
+        (error: unknown) => typeof error === "object"
+            && error !== null
+            && "code" in error
+            && error.code === "CHECKPOINT_GATE_FROZEN",
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal")));
+});

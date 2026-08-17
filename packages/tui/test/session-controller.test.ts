@@ -544,3 +544,61 @@ test("a second dispatch is rejected while the first command is in progress", asy
     await first;
     assert.equal(sessionView(controller).goal.id, goal.id);
 });
+
+test("beginShutdown freezes the UI around the latest Goal and rejects later commands", async () => {
+    const goal = createWaitingGoal("goal-shutdown-ui");
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            new FakeCoordinator(waitingResult(goal)),
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Start" });
+    controller.beginShutdown();
+    controller.beginShutdown();
+
+    assert.deepEqual(controller.getSnapshot(), {
+        screen: "shutting_down",
+        busy: true,
+        goal,
+    });
+    await assert.rejects(
+        controller.dispatch({ kind: "create", intent: "Do not start" }),
+        (error: unknown) => {
+            assert.ok(error instanceof UiDispatchRejectedError);
+            assert.equal(error.code, "UI_SHUTTING_DOWN");
+            return true;
+        },
+    );
+});
+
+test("a result that races with shutdown cannot resurrect the session screen", async () => {
+    const goal = createWaitingGoal("goal-shutdown-race");
+    let release!: () => void;
+    const launcher: SessionLauncher = {
+        launch: async () => {
+            await new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            return waitingResult(goal);
+        },
+    };
+    const controller = new SessionController(
+        dependencies(
+            launcher,
+            new FakeCoordinator(waitingResult(goal)),
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    const pending = controller.dispatch({ kind: "create", intent: "Start" });
+    controller.beginShutdown();
+    release();
+    await pending;
+
+    assert.equal(controller.getSnapshot().screen, "shutting_down");
+});

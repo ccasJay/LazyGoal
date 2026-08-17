@@ -7,6 +7,10 @@ import React from "react";
 import { render as inkRender } from "ink";
 
 import {
+    CheckpointGateGoalStore,
+    ManagedResourceRegistry,
+    ProcessExitPort,
+    ShutdownCoordinator,
     GoalCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,
@@ -16,6 +20,7 @@ import {
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
+    type ExitPort,
 } from "../../runtime/src/index";
 import {
     LLMPreparationExecutor,
@@ -217,6 +222,10 @@ export interface CompositionRootOptions {
     readonly goalIdGenerator?: () => string;
     /** 新 Run 的 ID 生成器；默认使用 `randomUUID`。 */
     readonly runIdGenerator?: () => string;
+    /** 关闭时请求退出的端口；默认调用 `process.exit(130)`。 */
+    readonly exitPort?: ExitPort;
+    /** 关闭流程的 grace period；默认 2 秒。 */
+    readonly gracePeriodMs?: number;
 }
 
 /**
@@ -253,6 +262,14 @@ export interface CompositionRoot {
     readonly toolRegistry: InMemoryToolRegistry;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
+    /** 保护项目级 Store 写入边界的单向检查点闸门。 */
+    readonly checkpointStore: CheckpointGateGoalStore;
+    /** 当前进程拥有的可关闭资源注册表。 */
+    readonly resources: ManagedResourceRegistry;
+    /** 贯穿 Controller、Coordinator、Runner 和 Adapter 的根中止控制器。 */
+    readonly abortController: AbortController;
+    /** 协调快照冻结、资源清理和退出码 130 的关闭器。 */
+    readonly shutdownCoordinator: ShutdownCoordinator;
     /** 使用共享 Store 和 Adapter 的 GoalCoordinator。 */
     readonly coordinator: GoalCoordinator;
     /** 当前进程唯一的 SessionController。 */
@@ -313,14 +330,17 @@ export async function createCompositionRoot(
     const readFileTool = new ReadFileTool(workspaceRoot);
     const toolRegistry = new InMemoryToolRegistry([readFileTool]);
     const store = new JsonFileGoalStore(goalsDirectory);
+    const checkpointStore = new CheckpointGateGoalStore(store);
+    const abortController = new AbortController();
+    const resources = new ManagedResourceRegistry();
     const runner = new Runner({
-        store,
+        store: checkpointStore,
         executor: new LLMStepExecutor({ adapter }),
         toolRegistry,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
-        store,
+        store: checkpointStore,
         preparationExecutor: new LLMPreparationExecutor({ adapter }),
         scheduler,
     });
@@ -333,7 +353,7 @@ export async function createCompositionRoot(
                 {
                     profiles,
                     runIdGenerator,
-                    store,
+                    store: checkpointStore,
                     coordinator,
                 },
                 control,
@@ -343,10 +363,20 @@ export async function createCompositionRoot(
     const controller = new SessionController({
         launcher,
         coordinator,
-        store,
+        store: checkpointStore,
         catalog: store satisfies GoalCatalog,
         profileId: profile.id,
         goalIdGenerator,
+        control: { signal: abortController.signal },
+    });
+    const shutdownCoordinator = new ShutdownCoordinator({
+        checkpointStore,
+        resources,
+        abortController,
+        exitPort: options.exitPort ?? new ProcessExitPort(),
+        ...(options.gracePeriodMs === undefined
+            ? {}
+            : { gracePeriodMs: options.gracePeriodMs }),
     });
 
     return {
@@ -359,6 +389,10 @@ export async function createCompositionRoot(
         readFileTool,
         toolRegistry,
         store,
+        checkpointStore,
+        resources,
+        abortController,
+        shutdownCoordinator,
         coordinator,
         controller,
         goalIdGenerator,
@@ -391,6 +425,10 @@ export interface CliRunOptions {
     readonly render?: typeof inkRender;
     /** 输出英文错误；默认写入 stderr。 */
     readonly writeError?: (message: string) => void;
+    /** 关闭时使用的退出端口；测试可注入记录器避免结束当前进程。 */
+    readonly exitPort?: ExitPort;
+    /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
+    readonly gracePeriodMs?: number;
 }
 
 /**
@@ -433,6 +471,10 @@ export async function runCli(
         root = await createCompositionRoot({
             ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
             ...(options.env === undefined ? {} : { env: options.env }),
+            ...(options.exitPort === undefined ? {} : { exitPort: options.exitPort }),
+            ...(options.gracePeriodMs === undefined
+                ? {}
+                : { gracePeriodMs: options.gracePeriodMs }),
         });
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
@@ -456,9 +498,46 @@ export async function runCli(
     }
 
     const renderer = options.render ?? inkRender;
+    let instance: ReturnType<typeof inkRender> | undefined;
+    let shutdownRequested = false;
+    let shutdownPromise: Promise<void> | undefined;
+    let unregisterSigint: (() => void) | undefined;
+    const requestShutdown = (): Promise<void> => {
+        if (shutdownPromise !== undefined) {
+            return shutdownPromise;
+        }
+
+        shutdownRequested = true;
+        root.controller.beginShutdown();
+        root.checkpointStore.freeze();
+        root.abortController.abort();
+        shutdownPromise = (async () => {
+            instance?.unmount();
+            if (instance !== undefined) {
+                await instance.waitUntilExit();
+            }
+            await root.shutdownCoordinator.shutdown();
+        })();
+        return shutdownPromise;
+    };
+    const onSigint = (): void => {
+        void requestShutdown();
+    };
 
     try {
-        const instance = renderer(<TuiApp controller={root.controller} />);
+        process.on("SIGINT", onSigint);
+        unregisterSigint = root.resources.register({
+            close: () => {
+                process.off("SIGINT", onSigint);
+            },
+        });
+        instance = renderer(
+            <TuiApp
+                controller={root.controller}
+                onShutdown={requestShutdown}
+            />,
+            { exitOnCtrlC: false },
+        );
 
         if (command.kind === "resume") {
             await root.controller.dispatch({ kind: "resume" });
@@ -467,10 +546,16 @@ export async function runCli(
         }
 
         await instance.waitUntilExit();
-        return 0;
+        if (shutdownPromise !== undefined) {
+            await shutdownPromise;
+        }
+        return shutdownRequested ? 130 : 0;
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
         return 1;
+    } finally {
+        unregisterSigint?.();
+        process.off("SIGINT", onSigint);
     }
 }
 

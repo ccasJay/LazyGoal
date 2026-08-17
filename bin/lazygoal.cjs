@@ -4,9 +4,10 @@ const { spawnSync } = require("node:child_process");
 const { resolve } = require("node:path");
 
 const source = resolve(__dirname, "../packages/tui/src/cli.tsx");
+const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 const result = spawnSync(
     process.execPath,
-    ["--import", "tsx/esm", source, ...process.argv.slice(2)],
+    ["--import", tsxLoader, source, ...process.argv.slice(2)],
     { stdio: "inherit" },
 );
 

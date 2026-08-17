@@ -362,3 +362,23 @@ test("TuiApp subscribes to Controller and moves from intent to question", async 
     assert.match(instance.lastFrame() ?? "", /Agent question/);
     assert.match(instance.lastFrame() ?? "", /Which database should be used/);
 });
+
+test("TuiApp routes the first raw-mode Ctrl+C to the shutdown callback once", async () => {
+    const goal = questionGoal("goal-ctrl-c");
+    const { controller } = controllerForApp(goal);
+    let shutdownRequests = 0;
+    const instance = render(
+        <TuiApp
+            controller={controller}
+            onShutdown={() => {
+                shutdownRequests += 1;
+            }}
+        />,
+    );
+
+    instance.stdin.write("\u0003");
+    instance.stdin.write("\u0003");
+    await nextFrame();
+
+    assert.equal(shutdownRequests, 1);
+});

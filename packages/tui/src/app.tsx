@@ -1,5 +1,5 @@
-import React, { useCallback, useSyncExternalStore } from "react";
-import { Box, Text } from "ink";
+import React, { useCallback, useRef, useSyncExternalStore } from "react";
+import { Box, Text, useInput } from "ink";
 
 import { SessionController } from "./session-controller";
 import { IntentScreen } from "./intent-screen";
@@ -23,6 +23,8 @@ import type { UiCommand } from "./types";
 export interface TuiAppProps {
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
+    /** 第一次 Ctrl+C 时启动幂等关闭流程的回调。 */
+    readonly onShutdown?: () => void | Promise<void>;
 }
 
 /**
@@ -31,7 +33,22 @@ export interface TuiAppProps {
  * @param props - SessionController 依赖。
  * @returns Ink 渲染树。
  */
-export function TuiApp({ controller }: TuiAppProps): React.JSX.Element {
+export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Element {
+    const shutdownRequested = useRef(false);
+    const requestShutdown = useCallback(() => {
+        if (shutdownRequested.current) {
+            return;
+        }
+
+        shutdownRequested.current = true;
+        void onShutdown?.();
+    }, [onShutdown]);
+    useInput((input, key) => {
+        if (key.ctrl && input === "c") {
+            requestShutdown();
+        }
+    });
+
     const subscribe = useCallback(
         (listener: () => void) => controller.subscribe(listener),
         [controller],

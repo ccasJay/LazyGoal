@@ -56,7 +56,7 @@
   - 添加 CLI 配置和 Composition Root 测试，验证缺失变量无 Goal 副作用、默认身份、workspace 隔离、UUID 及空参数进入 intent
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 9. 集成 Ctrl+C 关闭流程并完成跨进程验证
+- [x] //TODO 9. 集成 Ctrl+C 关闭流程并完成跨进程验证
 
   - 以 `exitOnCtrlC: false` 连接 raw-mode Ctrl+C 与进程级 SIGINT，依次切换 shutting_down、冻结 Store、abort 执行、卸载 Ink、关闭受管资源并调用 ExitPort
   - 使用本地 fake OpenAI-compatible server 和受管子进程编写 CLI 集成测试，覆盖模型失败、模型调用中断、快照恢复、终端退出、子进程清理、grace timeout 和退出码 130
