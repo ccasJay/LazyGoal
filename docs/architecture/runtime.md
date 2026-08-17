@@ -16,9 +16,11 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal | 历史与事件查询 |
 | [GoalCatalog](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要 | 写入快照或返回历史版本 |
+| [CheckpointGateGoalStore](../../packages/runtime/src/checkpoint-gate.ts) | 关闭流程中冻结新快照写入并等待已进入保存 | 回滚快照或修改 Goal 状态 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
 | [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入校验、重放声明、Registry 与 Policy 边界 | 具体 Tool 执行与 Goal 持久化 |
 | [ExecutionControl](../../packages/runtime/src/execution-control.ts) | 在一次调用链内传播 AbortSignal，并将中止规范化为控制流错误 | 改写 Goal 状态或决定进程退出 |
+| [ShutdownCoordinator](../../packages/runtime/src/shutdown.ts) | 幂等编排 Gate 冻结、根 abort、受管资源清理与退出码 130 | 领域取消或快照回滚 |
 
 ## 生命周期与保存顺序
 
@@ -44,6 +46,13 @@ Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Ad
 `execution_error`、`cancelled` 或新的领域快照。已经进入的 Store 保存仍由存储边界决定
 是否完成。
 
+关闭边界由 `CheckpointGateGoalStore`、`ManagedResourceRegistry` 和
+`ShutdownCoordinator` 组成。Gate 的 `freeze()` 是单向操作，只拒绝尚未进入的
+`save`，已经进入底层 Store 的保存继续完成；`restore` 始终可用。Coordinator 首次
+收到关闭请求时先冻结 Gate、abort 根控制器，再并发请求受管资源正常关闭，并在默认
+2 秒 grace period 内等待保存和资源归零。超时后强制处理剩余资源，最后通过可注入的
+`ExitPort` 请求退出码 130；重复请求复用同一个 Promise，不重复执行清理。
+
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
 TODO 3 已建立 Runtime 的 Tool 扩展边界与内存 `ToolRegistry`，TODO 4–8 使 Agent
@@ -68,6 +77,8 @@ safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有�
 - Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；首次执行 Tool 前必须完成输入校验和 Policy 评估，已批准且携带匹配瞬时授权的 Action 只重新校验 Tool 与输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标。
 - Store I/O 或协议错误：原样向调用方传播。
 - `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
+- Checkpoint Gate 冻结后新 `save` 抛出 `CHECKPOINT_GATE_FROZEN`；关闭流程不回滚快照、不写入 `cancelled`，已进入的底层保存仍可成为最新检查点。
+- ShutdownCoordinator 对受管资源先执行正常关闭，grace period 到期后执行强制关闭并只请求一次退出码 130；资源清理错误不会阻止其他资源处理。
 - GoalStore 按 `schemaVersion` 严格解码；v3 校验 workflow/Run 与 pending Action 不变量，合法 v1/v2 只读迁移为 v3，旧 `lastStep` 仅在迁移结果中包装为 `legacy`，未知版本或损坏快照报协议错误。
 - GoalCatalog 只接受正式 `.json` 快照；目录扫描中的任一正式快照损坏都会报告协议错误，不会静默跳过；`.tmp` 和非普通文件不参与候选项。
 - `JsonFileGoalStore` 恢复 v1/v2 时不改写文件；下一次显式保存才以 v3 原子替换。并发写入仍是最后替换者覆盖。

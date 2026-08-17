@@ -14,7 +14,7 @@
   - 扩展 GoalStore 测试，覆盖空目录、终态过滤、更新时间、平局顺序、损坏协议和临时文件
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 3. 实现检查点写入闸门与受管关闭原语
+- [x] //TODO 3. 实现检查点写入闸门与受管关闭原语
 
   - 实现 `CheckpointGateGoalStore`、受管资源注册表、可注入 `ExitPort` 和幂等 `ShutdownCoordinator`，并补齐公开接口的中文契约级 TSDoc 与示例
   - 关闭时冻结新 save、允许已进入的原子 save 完成、abort 根 signal，并在 2 秒 grace period 后强制关闭剩余资源及请求退出码 130

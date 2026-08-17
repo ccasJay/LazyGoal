@@ -6,6 +6,26 @@ export {
     throwIfAborted,
 } from "./execution-control";
 export type { ExecutionControl } from "./execution-control";
+export {
+    CHECKPOINT_GATE_FROZEN_CODE,
+    CheckpointGateFrozenError,
+    CheckpointGateGoalStore,
+} from "./checkpoint-gate";
+export {
+    MANAGED_RESOURCE_REGISTRY_CLOSED_CODE,
+    ManagedResourceRegistryClosedError,
+    ManagedResourceRegistry,
+    ProcessExitPort,
+    SHUTDOWN_EXIT_CODE,
+    SHUTDOWN_GRACE_PERIOD_MS,
+    ShutdownCoordinator,
+} from "./shutdown";
+export type {
+    ExitPort,
+    ManagedResource,
+    ShutdownClock,
+    ShutdownCoordinatorDependencies,
+} from "./shutdown";
 export type {
     AssistantMessage,
     AgentDecision,
