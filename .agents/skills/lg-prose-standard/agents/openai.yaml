@@ -1,0 +1,4 @@
+interface:
+  display_name: "LazyGoal 文本规范"
+  short_description: "审查并改进 LazyGoal 中的契约文本、注释与可见文案"
+  default_prompt: "使用 $lg-prose-standard 审查我指定范围内的文本，保留完整契约并移除重复与推理过程。"
