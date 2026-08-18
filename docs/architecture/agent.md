@@ -2,12 +2,14 @@
 
 ## 摘要
 
-Agent 是 Runtime 与 LLM 之间的集成层。它读取完整 Goal，构造一次模型请求，并按阶段把模型原始文本严格解析为 PreparationResult 或 AgentDecision。
+Agent 是 Runtime 与 LLM 之间的集成层。Runtime Composition Root 负责从当前生效的
+Profile JSON 加载并冻结 Profile；Agent 只读取完整 Goal，构造一次模型请求，并按阶段
+把模型原始文本严格解析为 PreparationResult 或 AgentDecision。
 
 ## 负责 / 不负责
 
 - 负责：三阶段 Working Context 派生、Prompt 组装、调用方传入的授权 ToolDefinition 展示、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
-- 不负责：Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK。
+- 不负责：Profile 文件 I/O、Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK。
 
 主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)，请求构造位于 [prompt.ts](../../packages/agent/src/prompt.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
 

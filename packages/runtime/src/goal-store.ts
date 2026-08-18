@@ -12,6 +12,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
+import type { AgentProfile } from "./agent-profile";
 import type {
     Goal,
     GoalWorkflowState,
@@ -41,6 +42,8 @@ const GoalTaskSchema = z.object({
 
 const AgentProfileSchema = z.object({
     id: z.string(),
+    name: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
     systemPrompt: z.string(),
     instructions: z.array(z.string()),
     toolIds: z.array(z.string()),
@@ -703,7 +706,11 @@ function migrateV2ToV3Goal(
     return {
         id: goal.id,
         metadata: { schemaVersion: 3 },
-        definition: structuredClone(goal.definition),
+        definition: {
+            intent: goal.definition.intent,
+            profile: normalizeAgentProfile(goal.definition.profile),
+            executionPolicy: structuredClone(goal.definition.executionPolicy),
+        },
         state: {
             workflow: structuredClone(goal.state.workflow),
             messages: structuredClone(goal.state.messages),
@@ -725,6 +732,21 @@ function migrateV2ToV3Goal(
                     : { stopReason: structuredClone(goal.state.run.stopReason) }),
             },
         },
+    };
+}
+
+function normalizeAgentProfile(
+    profile: z.infer<typeof AgentProfileSchema>,
+): AgentProfile {
+    return {
+        id: profile.id,
+        ...(profile.name === undefined ? {} : { name: profile.name }),
+        ...(profile.description === undefined
+            ? {}
+            : { description: profile.description }),
+        systemPrompt: profile.systemPrompt,
+        instructions: [...profile.instructions],
+        toolIds: [...profile.toolIds],
     };
 }
 

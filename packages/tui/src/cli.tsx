@@ -8,6 +8,7 @@ import { render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
+    AgentProfileConfigurationError,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
@@ -15,6 +16,7 @@ import {
     InMemoryToolRegistry,
     InlineScheduler,
     JsonFileGoalStore,
+    JsonFileAgentProfileStore,
     Runner,
     launch,
     type AgentProfile,
@@ -27,38 +29,12 @@ import {
     LLMStepExecutor,
 } from "../../agent/src/index";
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
-import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
+import { ReadFileTool } from "../../tools/src/index";
 import { SessionController, TuiApp } from "./index";
 import type { SessionLauncher } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
-export const DEFAULT_PROFILE_ID = "default";
-
-/**
- * CLI 启动时使用的英文默认 Agent 身份。
- *
- * @remarks
- * Profile 会在 Launcher 创建 Goal 时复制并冻结到快照；只授权组合根注册的
- * `read_file` Tool。CLI 不从终端读取 Provider、模型或凭据。
- *
- * @example
- * ```ts
- * const profile = DEFAULT_AGENT_PROFILE;
- * console.log(profile.toolIds); // ["read_file"]
- * ```
- */
-export const DEFAULT_AGENT_PROFILE: AgentProfile = {
-    id: DEFAULT_PROFILE_ID,
-    systemPrompt:
-        "You are LazyGoal, an English-speaking goal-driven coding agent. "
-        + "Follow the frozen task and report progress clearly.",
-    instructions: [
-        "Use only the tools authorized by the frozen profile.",
-        "Reason from the current Goal, messages, and checkpoint before acting.",
-        "Keep checkpoints concise and follow the required JSON response protocol.",
-    ],
-    toolIds: [READ_FILE_TOOL_ID],
-};
+const DEFAULT_PROFILE_ID = "default";
 
 /**
  * OpenAI-compatible CLI 所需的已校验模型配置。
@@ -206,7 +182,8 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
  *
  * @remarks
  * `cwd` 和 `env` 主要用于测试隔离；生产调用省略它们时分别使用当前工作区
- * 和进程环境。ID 生成器可注入确定性实现，但默认使用随机 UUID。
+ * 和进程环境。Profile 从 `<workspaceRoot>/.lazygoal/profiles/default.json`
+ * 加载；ID 生成器可注入确定性实现，但默认使用随机 UUID。
  *
  * @example
  * ```ts
@@ -252,9 +229,9 @@ export interface CompositionRoot {
     readonly llmConfig: LlmConfig;
     /** 组合根使用的 LLM Adapter。 */
     readonly adapter: OpenAICompatible;
-    /** CLI 默认英文 Agent Profile。 */
+    /** 从当前 workspace Profile 文件加载的生效 Agent Profile。 */
     readonly profile: AgentProfile;
-    /** 只解析默认 Profile 的 Registry。 */
+    /** 只承载当前生效 Profile 的内存 Registry。 */
     readonly profiles: AgentProfileRegistry;
     /** 当前 workspaceRoot 下的只读文件 Tool。 */
     readonly readFileTool: ReadFileTool;
@@ -302,8 +279,9 @@ export async function resolveWorkspaceRoot(
  *
  * @param options - 工作区、环境变量和可选测试 ID 生成器。
  * @returns 可直接交给 TUI CLI 的单 Goal 运行根。
- * @throws 环境变量缺失时抛出 `CliConfigurationError`；工作区无法解析时传播
- *   文件系统错误。两类失败均发生在 Goal Store 写入之前。
+ * @throws 环境变量缺失时抛出 `CliConfigurationError`；Profile 文件缺失、读取
+ *   或校验失败时抛出 `AgentProfileConfigurationError`；工作区无法解析时传播
+ *   文件系统错误。以上失败均发生在 Goal Store 写入之前。
  * @example
  * ```ts
  * const root = await createCompositionRoot({ env: process.env });
@@ -316,19 +294,45 @@ export async function createCompositionRoot(
     const llmConfig = readLlmConfig(options.env ?? process.env);
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
-    const adapter = new OpenAICompatible(llmConfig);
-    const profile: AgentProfile = {
-        ...DEFAULT_AGENT_PROFILE,
-        instructions: [...DEFAULT_AGENT_PROFILE.instructions],
-        toolIds: [...DEFAULT_AGENT_PROFILE.toolIds],
-    };
+    const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
+    const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
+    const profilePath = join(
+        profilesDirectory,
+        `${DEFAULT_PROFILE_ID}.json`,
+    );
+    const loadedProfile = await profileStore.load(DEFAULT_PROFILE_ID);
+
+    if (loadedProfile === undefined) {
+        throw new AgentProfileConfigurationError(
+            DEFAULT_PROFILE_ID,
+            profilePath,
+            "Profile 文件不存在",
+        );
+    }
+
+    const profile: AgentProfile = loadedProfile;
     const profiles: AgentProfileRegistry = {
         get(profileId: string): AgentProfile | undefined {
-            return profileId === profile.id ? profile : undefined;
+            return profileId === profile.id
+                ? profile
+                : undefined;
         },
     };
     const readFileTool = new ReadFileTool(workspaceRoot);
     const toolRegistry = new InMemoryToolRegistry([readFileTool]);
+    const missingToolId = profile.toolIds.find(
+        (toolId) => toolRegistry.get(toolId) === undefined,
+    );
+
+    if (missingToolId !== undefined) {
+        throw new AgentProfileConfigurationError(
+            profile.id,
+            profilePath,
+            `toolIds 引用了未注册的 Tool "${missingToolId}"`,
+        );
+    }
+
+    const adapter = new OpenAICompatible(llmConfig);
     const store = new JsonFileGoalStore(goalsDirectory);
     const checkpointStore = new CheckpointGateGoalStore(store);
     const abortController = new AbortController();
@@ -423,7 +427,7 @@ export interface CliRunOptions {
     readonly cwd?: string;
     /** Ink 渲染器；测试可注入不启动真实终端的替身。 */
     readonly render?: typeof inkRender;
-    /** 输出英文错误；默认写入 stderr。 */
+    /** 输出 CLI 错误；默认写入 stderr。 */
     readonly writeError?: (message: string) => void;
     /** 关闭时使用的退出端口；测试可注入记录器避免结束当前进程。 */
     readonly exitPort?: ExitPort;

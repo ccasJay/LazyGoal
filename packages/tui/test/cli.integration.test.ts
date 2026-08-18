@@ -13,6 +13,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { writeDefaultProfile } from "./profile-fixture";
+
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const processFixturePath = fileURLToPath(
     new URL("./fixtures/model-abort-process.ts", import.meta.url),
@@ -79,6 +81,7 @@ function requestHandler(
 
 test("CLI composition child aborts an in-flight model request and preserves its checkpoint", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-process-"));
+    await writeDefaultProfile(workspace);
     let requestStarted!: () => void;
     let requestAborted!: () => void;
     const modelRequest = new Promise<void>((resolve) => {
@@ -139,6 +142,7 @@ test("CLI composition child aborts an in-flight model request and preserves its 
 
 test("CLI bin resolves its TSX loader from the project when launched in another workspace", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-bin-workspace-"));
+    await writeDefaultProfile(workspace);
     const binPath = join(projectRoot, "bin", "lazygoal.cjs");
     const child = spawn(
         process.execPath,
@@ -165,7 +169,7 @@ test("CLI bin resolves its TSX loader from the project when launched in another 
         }), 6_000, "the bin shim exit");
         assert.equal(result.code, 1, stderr);
         assert.match(stderr, /No resumable Goal was found/);
-        await assert.rejects(access(join(workspace, ".lazygoal")));
+        await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
     } finally {
         if (child.exitCode === null && child.signalCode === null) {
             child.kill("SIGKILL");

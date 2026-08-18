@@ -14,7 +14,7 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM 环境，创建单一 Composition Root 并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
+| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root 并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态 | 自行推断 Runtime 可用操作 |
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller 并按 screen 路由页面 | Runtime 编排和快照写入 |
@@ -26,6 +26,7 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 ```mermaid
 flowchart LR
     CLI[lazygoal / -c / resume] --> B[Composition Root]
+    P[.lazygoal/profiles/default.json] --> B
     B --> I[Intent or UI input]
     I --> C[SessionController]
     C -->|create| L[Launcher]
@@ -41,11 +42,27 @@ flowchart LR
 ```
 
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
-`.lazygoal/goals`，共享一个 `OpenAICompatible`、英文默认 Profile、`ReadFileTool`、
-`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、Scheduler、Runner、
-根 `AbortController` 和 SessionController。缺失
-`LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Store/Adapter/TUI 前返回
-英文非零错误；构造根本身不会创建 `.lazygoal` 或 Goal。`create` 校验非空 intent
+`.lazygoal/goals`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
+`OpenAICompatible`、Profile Registry、`ReadFileTool`、`JsonFileGoalStore`、
+`CheckpointGateGoalStore`、Coordinator、Scheduler、Runner、根 `AbortController` 和
+SessionController。缺失或非法 Profile、未注册 Tool，以及缺失
+`LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Goal 前返回稳定非零错误；
+Profile 文件不会由程序自动生成，构造根本身也不会创建 `.lazygoal` 或 Goal。用户需要手工创建
+`.lazygoal/profiles/default.json`，其当前结构为：
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "default",
+  "name": "Default",
+  "description": "通用 LazyGoal Agent",
+  "systemPrompt": "You are LazyGoal...",
+  "instructions": ["Use only authorized tools."],
+  "toolIds": ["read_file"]
+}
+```
+
+当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。`create` 校验非空 intent
 后只生成一个 goalId，并委托 Launcher；`resume` 先查询
 按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
 直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准

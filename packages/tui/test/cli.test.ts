@@ -6,12 +6,16 @@ import { test } from "node:test";
 
 import {
     CliConfigurationError,
-    DEFAULT_AGENT_PROFILE,
     createCompositionRoot,
     parseCliArgs,
     readLlmConfig,
     runCli,
 } from "../src/cli";
+import { AgentProfileConfigurationError } from "../../runtime/src/index";
+import {
+    DEFAULT_PROFILE_FILE,
+    writeDefaultProfile,
+} from "./profile-fixture";
 
 function environment(): NodeJS.ProcessEnv {
     return {
@@ -47,8 +51,35 @@ test("readLlmConfig reports every missing variable before creating a root", () =
     );
 });
 
+test("missing default Profile fails before creating the workspace Store", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-profile-missing-"));
+
+    await assert.rejects(
+        createCompositionRoot({ cwd: workspace, env: environment() }),
+        (error: unknown) => error instanceof AgentProfileConfigurationError
+            && /Profile 文件不存在/.test(error.message),
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal")));
+});
+
+test("an unregistered Profile Tool fails before creating a Goal Store", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-profile-tool-"));
+    await writeDefaultProfile(workspace, {
+        ...DEFAULT_PROFILE_FILE,
+        toolIds: ["missing_tool"],
+    });
+
+    await assert.rejects(
+        createCompositionRoot({ cwd: workspace, env: environment() }),
+        (error: unknown) => error instanceof AgentProfileConfigurationError
+            && /未注册的 Tool/.test(error.message),
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
+});
+
 test("composition root isolates workspace, freezes the default identity, and does not write a Goal", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-"));
+    await writeDefaultProfile(workspace);
     const root = await createCompositionRoot({
         cwd: workspace,
         env: environment(),
@@ -58,15 +89,20 @@ test("composition root isolates workspace, freezes the default identity, and doe
 
     assert.equal(root.workspaceRoot, await realpath(workspace));
     assert.equal(root.goalsDirectory, join(root.workspaceRoot, ".lazygoal", "goals"));
-    assert.equal(root.profile.id, DEFAULT_AGENT_PROFILE.id);
-    assert.deepEqual(root.profile.toolIds, ["read_file"]);
-    assert.match(root.profile.systemPrompt, /English/);
+    assert.deepEqual(root.profile, {
+        id: DEFAULT_PROFILE_FILE.id,
+        name: DEFAULT_PROFILE_FILE.name,
+        description: DEFAULT_PROFILE_FILE.description,
+        systemPrompt: DEFAULT_PROFILE_FILE.systemPrompt,
+        instructions: DEFAULT_PROFILE_FILE.instructions,
+        toolIds: DEFAULT_PROFILE_FILE.toolIds,
+    });
     assert.ok(root.profiles.get("default") !== undefined);
     assert.equal(root.profiles.get("other"), undefined);
     assert.equal(root.goalIdGenerator(), "goal-test");
     assert.equal(root.runIdGenerator(), "run-test");
     assert.deepEqual(await root.store.listResumable(), []);
-    await assert.rejects(access(join(root.workspaceRoot, ".lazygoal")));
+    await assert.rejects(access(join(root.workspaceRoot, ".lazygoal", "goals")));
 });
 
 test("missing CLI configuration exits before touching the workspace", async () => {
@@ -87,6 +123,7 @@ test("missing CLI configuration exits before touching the workspace", async () =
 
 test("-c reports an empty project without creating a Goal or rendering the TUI", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-empty-"));
+    await writeDefaultProfile(workspace);
     const errors: string[] = [];
     let rendered = false;
     const exitCode = await runCli(["-c"], {
@@ -102,11 +139,12 @@ test("-c reports an empty project without creating a Goal or rendering the TUI",
     assert.equal(exitCode, 1);
     assert.deepEqual(errors, ["No resumable Goal was found"]);
     assert.equal(rendered, false);
-    await assert.rejects(access(join(workspace, ".lazygoal")));
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
 });
 
 test("CLI handles SIGINT through one shutdown path and requests exit 130", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-sigint-"));
+    await writeDefaultProfile(workspace);
     const exitCodes: number[] = [];
     let waitCalls = 0;
     let unmountCalls = 0;
@@ -140,11 +178,12 @@ test("CLI handles SIGINT through one shutdown path and requests exit 130", async
     assert.equal(unmountCalls, 1);
     assert.equal(waitCalls, 2);
     assert.deepEqual(errors, []);
-    await assert.rejects(access(join(workspace, ".lazygoal")));
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
 });
 
 test("composition root shares the checkpoint gate and abort signal with shutdown", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-root-shutdown-"));
+    await writeDefaultProfile(workspace);
     const exitCodes: number[] = [];
     const root = await createCompositionRoot({
         cwd: workspace,
@@ -165,5 +204,5 @@ test("composition root shares the checkpoint gate and abort signal with shutdown
             && "code" in error
             && error.code === "CHECKPOINT_GATE_FROZEN",
     );
-    await assert.rejects(access(join(workspace, ".lazygoal")));
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
 });

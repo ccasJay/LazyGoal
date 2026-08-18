@@ -12,6 +12,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界 | 阶段推进、消息追加与持久化 |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 推进 Preparation、恢复全部输入、持久化等待点、委派 executing Goal | Step 执行 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入、冻结 Profile、创建并保存 Goal、调用 Coordinator | 恢复已有 Goal |
+| [JsonFileAgentProfileStore](../../packages/runtime/src/agent-profile.ts) | 按生效 Profile ID 读取单个 JSON、执行 Zod 严格校验并返回内存 Profile | 扫描其它 Profile、读取 Tool 实例、构造 Prompt |
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal | 历史与事件查询 |
@@ -25,6 +26,12 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 ## 生命周期与保存顺序
 
 Goal v3 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Run 可保存有界的 `checkpoint`、最近 `lastStep` 与当前 `pendingAction`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+
+Composition Root 按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`
+读取一个 Profile 文件。`JsonFileAgentProfileStore` 先用 `JSON.parse` 读取文本，再用
+严格的 Zod Schema 校验；它不会扫描或验证目录中的其它 Profile。Profile 缺失、损坏或
+引用未注册 Tool 时，启动在 Goal Store 写入前失败。成功加载的 Profile 进入内存 Registry，
+之后由 Launcher lookup 并冻结到 Goal。
 
 Launcher 在 Profile lookup 和 runId 生成前校验 intent 与 maxSteps，保存初始 Goal 成功后才调用 Coordinator。它返回 Coordinator 的等待点或终态，不直接调用 Scheduler。
 
