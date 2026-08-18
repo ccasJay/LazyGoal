@@ -1,45 +1,44 @@
 ---
 feature: goal-preparation-workflow
 status: active
+summary: "Preparation 阶段所有权、真实消息与显式批准边界"
 source_spec: specs/goal-preparation-workflow/
 distilled_at: 2026-08-16
-tags: [goal-coordinator, preparation-workflow, working-context, snapshot-v2, v1-migration]
-supersedes: []
-superseded_by: []
-status_reason: ""
+reviewed_at: 2026-08-18
+tags: [coordinator, preparation, working-context, approval]
+authorities: [docs/architecture/runtime.md, packages/runtime/src/goal-coordinator.ts, docs/architecture/agent.md]
 ---
 
 # Goal Preparation Workflow
 
-## Capability
+## Purpose
 
-- GoalCoordinator 将 Goal 扩展为覆盖原始意图澄清（gathering_context）、任务方案规划（planning）、用户显式批准到连续执行（executing）的端到端可恢复会话聚合；准备交互不进入 Run，不消耗 stepCount，并支持只读迁移 v1 历史快照。 [S1, S2, S3]
+- Goal Coordinator 拥有 Preparation 阶段和外部用户输入边界，在上下文收集、任务规划、显式批准与 Executing 之间推进 Goal。 [S1, S2, S3, S4]
 
 ## Durable Decisions
 
-- 准备与执行阶段职责完全解耦：GoalCoordinator 独占准备阶段与用户输入转换，Runner 仅负责 executing 阶段的单步连续循环；准备交互（提问、反馈、批准）绝不进入 RunState 状态机，不计入 maxSteps 预算。 [S1, S2, S3]
-- 真实消息与派生 Working Context 分离：Goal messages 仅保存真实交互文本（UserMessage 与带 Profile 标识的 AssistantMessage）；每轮控制状态作为临时只读 DTO 发送，绝不回写历史消息。 [S1, S2, S4]
-- 零写副作用的 v1 只读迁移：读取 v1 快照时仅在内存中转换为 v2 结构并补齐 Profile 来源，只有下一次发生正常业务保存时才以 v2 协议原子落盘。 [S1, S2, S5]
-- 结构化批准动作：approve 操作直接变更 WorkflowState 并将 proposal 固化为最终 task，不伪造额外的用户文本消息。 [S1, S2, S3]
+- D1 — Preparation 阶段按上下文收集、规划与任务批准单向推进；未经显式批准不得进入 Executing。 [S1, S2, S3, S4]
+- D2 — Goal 只持久化真实会话消息；Working Context 是从当前状态派生的请求上下文，不进入消息历史或快照。 [S1, S2, S5, S6]
+- D3 — 结构化批准是控制输入，不得伪装成用户消息；Coordinator 必须校验输入与当前等待动作匹配。 [S2, S3, S4]
+- D4 — 每次继续调用 Preparation Executor 或把 Goal 交给 Runner 前，必须先保存已经完成的状态转换。 [S2, S3, S4]
 
-## Contracts and Invariants
+## Guardrails
 
-- 阶段单向推进：严格保证 `gathering_context → planning → executing` 单向正向流转，未经过用户显式批准的 task proposal 绝对禁止进入 executing。 [S1, S2, S3]
-- 先保存后执行事务顺序：无论是阶段跃迁、提问挂起、回答恢复还是批准调度，必须先成功持久化完整 Goal 快照，再调用下游 Executor 或 Scheduler。 [S1, S2, S3]
-- 严格分阶段等待类型：gathering 仅接受 question 等待，planning 仅接受 approval 等待，executing 仅接受 blocked 等待，类型不匹配直接返回无副作用的业务失败。 [S1, S2, S3]
+- Preparation 不消费执行 Step，Runner 只接收已进入 Executing 的 Goal。 [S1, S2, S3, S4]
+- 非法阶段输入、失配的批准或等待动作不得产生持久化和下游调用副作用。 [S2, S3, S4]
+- 旧协议快照的迁移保持只读，直到后续正常保存；不得把某个历史协议版本写成永久终点。 [S2, S3, S4]
 
-## Lessons
+## Revisit When
 
-- 利用 TypeScript Discriminated Unions 建模 WorkflowState，在编译期排除“未批准进入执行”等非法组合；结合 Zod 跨字段验证，保证了持久化与状态机运行时的双重不变量安全。 [S2, S3, S5]
-
-## Reuse Triggers
-
-- 实现多阶段人机交互工作流、构建带意图澄清与方案确认的 Agent 会话、设计 Session 协议升级迁移或扩展复杂工作流状态机。
+- Preparation 阶段、批准模型或用户输入所有权变化时。
+- Working Context 开始持久化，或真实消息与控制输入的边界变化时。
+- Coordinator 与 Runner 的交接事务边界变化时。
 
 ## Sources
 
 - S1: `specs/goal-preparation-workflow/requirements.md`
 - S2: `specs/goal-preparation-workflow/design.md`
-- S3: `packages/runtime/src/domain.ts`
-- S4: `packages/agent/src/prompt.ts`
-- S5: `packages/runtime/src/goal-store.ts`
+- S3: `packages/runtime/src/goal-coordinator.ts`
+- S4: `packages/runtime/test/goal-coordinator.test.ts`
+- S5: `packages/agent/src/prompt.ts`
+- S6: `packages/agent/test/prompt.test.ts`

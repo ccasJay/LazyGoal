@@ -4,6 +4,25 @@
 
 LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into an approved task through context gathering and planning, then advances the task through a controlled Action/Observation loop. Each Goal is persisted as a recoverable session so long-running work can pause and continue safely.
 
+## Repository Layout
+
+- When the layout changed, update this section at the first time.
+
+```text
+bin/             CLI entrypoint and executable wiring for `lazygoal`
+scripts/         Repository maintenance and validation utilities
+packages/        Private `@lazygoal/*` workspaces
+  agent/         Agent prompts, response schemas, and LLM preparation/step executors
+  llm/           LLM adapters and provider integrations (OpenAI-compatible, Gemini)
+  runtime/       Goal domain, persistence, scheduling, execution loop, and shutdown control
+  tools/         Agent tools such as filesystem readers
+  tui/           React Ink terminal UI, screens, session controller, and CLI integration
+docs/            Implemented architecture documentation; see `docs/architecture/`
+specs/           Feature requirements, designs, and implementation task checklists
+project-memory/  Durable summaries of completed and verified feature specifications
+.lazygoal/       Local runtime data, including persisted goal snapshots
+```
+
 ## Core Rules
 - Never implement a feature without directly without admitting by user request or a clear specification.
 - Do not jump the duration of test for user.

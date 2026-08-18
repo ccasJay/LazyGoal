@@ -1,38 +1,37 @@
 ---
 feature: minimal-run-loop
 status: active
+summary: "Runner 生命周期所有权、累计预算与持久化顺序"
 source_spec: specs/minimal-run-loop/
 distilled_at: 2026-08-16
-tags: [runner, inline-scheduler, step-executor, run-loop, max-steps]
-supersedes: []
-superseded_by: []
-status_reason: ""
+reviewed_at: 2026-08-18
+tags: [runner, execution-loop, max-steps, persistence-order]
+authorities: [docs/architecture/runtime.md, packages/runtime/src/runner.ts]
 ---
 
 # Minimal Run Loop
 
-## Capability
+## Purpose
 
-- Runner 驱动单个 Run 的同步单进程生命周期推进，通过 StepExecutor 逐步执行、调用纯状态机 transition 推进状态，并在每一步前后原子持久化快照，直至 waiting、终态或达到步数上限；InlineScheduler 提供同步调度的委派封装。 [S1, S2, S3]
+- Runner 拥有 Executing 阶段的推进循环，在冻结的执行策略、状态转换和快照持久化边界内协调 Decision 与 Action。 [S1, S2, S3, S4]
 
 ## Durable Decisions
 
-- maxSteps 作为累计预算策略：使用快照中的累计 stepCount 计算步数预算，进程重启或显式 resume 不会重置步数计数器。 [S1, S2, S3, S4]
-- 步数上限保护不进入 transition：当达到 maxSteps 时直接持久化 failed 状态与 MAX_STEPS_EXCEEDED 错误，不调用 transition 也不增加 stepCount，真实反映实际完成的步数。 [S2, S3, S4]
-- 先转换落盘再执行：created 启动或 waiting 恢复必须先持久化为 running 状态，再进入 StepExecutor 执行，确保崩溃后状态可追溯。 [S1, S2, S3, S4]
+- D1 — `maxSteps` 是 Goal 冻结执行策略中的累计预算；恢复不会重置 `stepCount`，值为 `0` 时表示不设置 Step 上限。 [S1, S2, S3, S4]
+- D2 — Runner 必须在下一个外部副作用前保存最新完整状态；Action 周期先保存 `pendingAction`，执行后再保存 Observation。 [S3, S4, S5, S6]
+- D3 — Runner 只通过领域转换推进状态，不在自身维护第二套生命周期状态或步数。 [S1, S2, S3, S4]
 
-## Contracts and Invariants
+## Guardrails
 
-- 每步执行循环严格保证“执行一步 -> transition 计算下一状态 -> save 完整快照成功 -> 决定是否继续”。 [S1, S2, S3, S4]
-- StepExecutor 异常统一转换为 step.fail 并持久化为 failed 终态；Store 的持久化读写异常则原样向上传播并立即中断循环。 [S1, S2, S3, S4]
+- 达到正数 `maxSteps` 后不得再发起新的模型决策或 Tool 调用。 [S1, S3, S4]
+- `pendingAction` 保存失败时不得调用 Tool；Observation 保存失败时不得伪造回滚已经发生的外部结果。 [S3, S4, S5, S6]
+- Runner 不负责 Preparation、Profile 选择、Provider 创建或持久化协议解码。 [S2, S3]
 
-## Lessons
+## Revisit When
 
-- Runner 保持无状态服务设计（不持有具体 Run 实例字段），使同一个 Runner 实例可以安全地复用于多个 Run 的顺序调度与测试隔离。 [S2, S3, S4]
-
-## Reuse Triggers
-
-- 实现或演进单步执行循环、StepExecutor 接口扩展、maxSteps 预算控制、异常容错以及等待恢复逻辑。
+- Step 预算从累计计数改为其他资源预算时。
+- Action 的暂存、批准、执行或 Observation 持久化顺序改变时。
+- Executing 生命周期的所有权从 Runner 迁移时。
 
 ## Sources
 
@@ -40,3 +39,5 @@ status_reason: ""
 - S2: `specs/minimal-run-loop/design.md`
 - S3: `packages/runtime/src/runner.ts`
 - S4: `packages/runtime/test/runner.test.ts`
+- S5: `specs/action-observation-loop/requirements.md`
+- S6: `specs/action-observation-loop/design.md`
