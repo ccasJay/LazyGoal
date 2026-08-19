@@ -45,14 +45,9 @@ async function main(): Promise<void> {
         store,
         executor,
     });
-    const goal = createGoal({
+    const created = createGoal({
         id: "live-llm-goal",
-        task: {
-            objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
-            completionCriteria: [
-                "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
-            ],
-        },
+        intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
         profile: {
             id: "live-llm-profile",
             systemPrompt: "你是一个负责连通性验证的单步执行代理。",
@@ -64,6 +59,22 @@ async function main(): Promise<void> {
         runId: "live-llm-run",
         maxSteps: 3,
     });
+    const goal: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
+                    completionCriteria: [
+                        "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
+                    ],
+                },
+            },
+        },
+    };
 
     await store.save(goal);
     const startedAt = performance.now();

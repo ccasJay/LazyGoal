@@ -34,16 +34,28 @@ function executingGoal(id = "goal-executing"): Goal {
             content: "I will inspect the project files.",
         },
     ];
-    return createGoal({
+    const created = createGoal({
         id,
-        task: {
-            objective: "Inspect the repository",
-            completionCriteria: ["Report the repository structure"],
-        },
+        intent: "Inspect the repository",
         profile,
         runId: `run-${id}`,
         messages,
     });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: "Inspect the repository",
+                    completionCriteria: ["Report the repository structure"],
+                },
+            },
+        },
+    };
 }
 
 function session(

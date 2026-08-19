@@ -12,13 +12,13 @@ import type {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
+    AGENT_DECISION_PROTOCOL,
     buildPreparationRequest,
     buildStepRequest,
     buildStepUserMessage,
     buildWorkingContext,
     buildWorkingContextMessage,
     PREPARATION_RESULT_PROTOCOL,
-    STEP_RESULT_PROTOCOL,
 } from "../src/prompt";
 
 const intent = "完成示例任务";
@@ -128,8 +128,12 @@ test("buildWorkingContext 按 gathering、planning、executing 三阶段派生",
 
 test("executing WorkingContext 只投影正数 maxSteps 和最近 previousStep", () => {
     const previousStep: StepRecord = {
-        kind: "legacy",
-        result: { kind: "continue", summary: "已完成输入检查" },
+        kind: "decision",
+        result: {
+            kind: "wait",
+            checkpoint: "已完成输入检查",
+            reason: "等待补充信息",
+        },
     };
     const goal = createExecutingGoal({
         maxSteps: 4,
@@ -225,7 +229,7 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
     assert.ok(
-        (request.messages[0]?.content ?? "").includes(STEP_RESULT_PROTOCOL),
+        (request.messages[0]?.content ?? "").includes(AGENT_DECISION_PROTOCOL),
     );
     assert.deepEqual(
         request.messages.slice(1, -1),

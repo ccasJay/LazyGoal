@@ -176,17 +176,22 @@ function createPlanningWaitingGoal(
 }
 
 function createExecutingWaitingGoal(): Goal {
-    const goal = createGoal({
+    const goal = createExecutingGoal({
         id: "goal-blocked-resume",
-        task: { objective: "Deploy release", completionCriteria: ["Deployed"] },
+        objective: "Deploy release",
+        completionCriteria: ["Deployed"],
         profile,
         runId: "run-blocked-resume",
     });
     const waitingRun = applyRunTransition(
         applyRunTransition(goal.state.run, { kind: "start" }),
         {
-            kind: "step",
-            result: { kind: "wait", reason: "Production permission required" },
+            kind: "decision",
+            decision: {
+                kind: "wait",
+                checkpoint: "Production permission required",
+                reason: "Production permission required",
+            },
         },
     );
 
@@ -207,9 +212,10 @@ function createExecutingWaitingGoal(): Goal {
 }
 
 function createActionApprovalGoal(): Goal {
-    const goal = createGoal({
+    const goal = createExecutingGoal({
         id: "goal-action-approval",
-        task: { objective: "Read a protected file", completionCriteria: ["Read"] },
+        objective: "Read a protected file",
+        completionCriteria: ["Read"],
         profile: { ...profile, toolIds: ["read_file"] },
         runId: "run-action-approval",
     });
@@ -300,6 +306,39 @@ function applyRunTransition(
     }
 
     return result.state;
+}
+
+function createExecutingGoal(
+    input: {
+        readonly id: string;
+        readonly objective: string;
+        readonly completionCriteria: readonly string[];
+        readonly profile: typeof profile;
+        readonly runId: string;
+    },
+): Goal {
+    const created = createGoal({
+        id: input.id,
+        intent: input.objective,
+        profile: input.profile,
+        runId: input.runId,
+    });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: input.objective,
+                    completionCriteria: [...input.completionCriteria],
+                },
+            },
+            messages: [],
+        },
+    };
 }
 
 test("persists a gathering question as a real assistant message without consuming a Step", async () => {
@@ -495,9 +534,10 @@ test("returns an existing preparation waiting point without executing or saving"
 });
 
 test("delegates an executing Goal and returns the latest persisted terminal snapshot", async () => {
-    const executing = createGoal({
+    const executing = createExecutingGoal({
         id: "goal-executing",
-        task: { objective: "Execute", completionCriteria: ["Done"] },
+        objective: "Execute",
+        completionCriteria: ["Done"],
         profile,
         runId: "run-executing",
     });
@@ -505,7 +545,14 @@ test("delegates an executing Goal and returns the latest persisted terminal snap
     await store.seed(executing);
     const completedRun = applyRunTransition(
         applyRunTransition(executing.state.run, { kind: "start" }),
-        { kind: "step", result: { kind: "complete", summary: "Done" } },
+        {
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                checkpoint: "任务已完成",
+                summary: "Done",
+            },
+        },
     );
     const completedGoal: Goal = {
         ...executing,
@@ -534,15 +581,23 @@ test("delegates an executing Goal and returns the latest persisted terminal snap
 });
 
 test("returns an executing blocked Goal without scheduling it again", async () => {
-    const executing = createGoal({
+    const executing = createExecutingGoal({
         id: "goal-blocked",
-        task: { objective: "Execute", completionCriteria: [] },
+        objective: "Execute",
+        completionCriteria: [],
         profile,
         runId: "run-blocked",
     });
     const waitingRun = applyRunTransition(
         applyRunTransition(executing.state.run, { kind: "start" }),
-        { kind: "step", result: { kind: "wait", reason: "Permission required" } },
+        {
+            kind: "decision",
+            decision: {
+                kind: "wait",
+                checkpoint: "等待生产授权",
+                reason: "Permission required",
+            },
+        },
     );
     const blockedGoal: Goal = {
         ...executing,
@@ -1013,7 +1068,14 @@ test("saves an approved proposal as the final task before scheduling execution",
 
         const completedRun = applyRunTransition(
             applyRunTransition(approved.state.run, { kind: "start" }),
-            { kind: "step", result: { kind: "complete", summary: "Done" } },
+            {
+                kind: "decision",
+                decision: {
+                    kind: "complete",
+                    checkpoint: "任务已完成",
+                    summary: "Done",
+                },
+            },
         );
         await store.save({
             ...approved,
@@ -1171,8 +1233,12 @@ test("saves a blocked user message and running state before scheduling", async (
         });
 
         const completedRun = applyRunTransition(resumed.state.run, {
-            kind: "step",
-            result: { kind: "complete", summary: "Deployed" },
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                checkpoint: "部署已完成",
+                summary: "Deployed",
+            },
         });
         await store.save({
             ...resumed,

@@ -9,6 +9,7 @@ import {
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
+    AgentDecision,
     AgentProfile,
     AgentProfileRegistry,
     Goal,
@@ -17,9 +18,7 @@ import type {
     LaunchResult,
     PreparationExecutor,
     PreparationResult,
-    StepExecutionResult,
-    LegacyStepExecutor,
-    StepResult,
+    StepExecutor,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -86,25 +85,33 @@ class WorkflowPreparationExecutor implements PreparationExecutor {
     }
 }
 
-class WorkflowStepExecutor implements LegacyStepExecutor {
-    private readonly results: readonly StepResult[] = [
-        { kind: "wait", reason: "Write permission required" },
-        { kind: "complete", summary: "Persistence implemented" },
+class WorkflowStepExecutor implements StepExecutor {
+    private readonly decisions: readonly AgentDecision[] = [
+        {
+            kind: "wait",
+            checkpoint: "需要写入权限才能继续",
+            reason: "Write permission required",
+        },
+        {
+            kind: "complete",
+            checkpoint: "持久化已实现",
+            summary: "Persistence implemented",
+        },
     ];
     private callCount = 0;
 
     constructor(private readonly events: string[]) {}
 
-    async execute(goal: Goal): Promise<StepExecutionResult> {
+    async execute(goal: Goal): Promise<AgentDecision> {
         this.events.push(`step:${goal.state.run.stepCount}`);
-        const result = this.results[this.callCount];
+        const decision = this.decisions[this.callCount];
         this.callCount += 1;
 
-        if (result === undefined) {
+        if (decision === undefined) {
             throw new Error("Unexpected StepExecutor call");
         }
 
-        return { result };
+        return decision;
     }
 }
 

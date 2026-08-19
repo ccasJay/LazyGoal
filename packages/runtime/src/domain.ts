@@ -232,8 +232,8 @@ export interface PendingAction {
  * 最近一次已完成 Step 的有界记录。
  *
  * @remarks
- * Goal 只保存这一条记录，不累积完整 Action/Observation 轨迹。`legacy` 仅
- * 存在于尚未删除的旧执行协议兼容路径，持久化 Snapshot 不接受该分支。
+ * Goal 只保存这一条记录，不累积完整 Action/Observation 轨迹。当前协议只
+ * 产生 `action` 与 `decision` 两种记录。
  *
  * @example
  * ```ts
@@ -253,10 +253,6 @@ export type StepRecord =
     | {
         readonly kind: "decision";
         readonly result: Exclude<AgentDecision, { readonly kind: "tool_call" }>;
-    }
-    | {
-        readonly kind: "legacy";
-        readonly result: StepResult;
     };
 
 /** 可识别的 Runtime 执行协议失败代码。 */
@@ -364,39 +360,6 @@ export interface RunExecutionOptions {
     readonly signal?: AbortSignal;
 }
 
-/**
- * 旧 RunStore 与兼容工厂使用的任务输入。
- * @deprecated 新 Launcher 使用原始 intent 创建 Goal，批准后的任务保存在 workflow 中。
- * @example
- * ```ts
- * const input: GoalInput = {
- *   id: "goal-1",
- *   objective: "旧任务",
- *   completionCriteria: [],
- * };
- * ```
- */
-export interface GoalInput extends GoalTask {
-    readonly id: string;
-}
-
-/**
- * 旧 RunStore/Runner 边界使用的 v1 状态。
- * @deprecated 使用 Goal 和 GoalStore；此类型不继承 v3 RunState。
- * @example
- * ```ts
- * const run = createRun(goalInput, "run-1", profile);
- * ```
- */
-export interface LegacyRunState {
-    readonly id: string;
-    readonly status: RunStatus;
-    readonly stepCount: number;
-    readonly lastResult?: StepResult;
-    readonly goal: GoalInput;
-    readonly profile: AgentProfile;
-}
-
 /** Run 生命周期状态；completed、failed、cancelled 是终态。 */
 export type RunStatus =
     | "created"
@@ -406,13 +369,6 @@ export type RunStatus =
     | "failed"
     | "cancelled";
 
-/** Executor 单步执行结果。 */
-export type StepResult =
-    | { readonly kind: "continue"; readonly summary: string }
-    | { readonly kind: "wait"; readonly reason: string }
-    | { readonly kind: "complete"; readonly summary: string }
-    | { readonly kind: "fail"; readonly error: string };
-
 /**
  * 传给 transition 的显式状态转换输入。
  *
@@ -421,7 +377,6 @@ export type StepResult =
  * `recover_action` 只解除或改变 Action 恢复状态，不消费 Step；`observe_action`、
  * `reject_action` 和非 Tool 的 `decision` 才完成一个 Step。`execution_error`
  * 停止当前 Run 但不消费 Step，并在存在待执行 Action 时保留其不确定结果。
- * 旧 `step` 分支仅供尚未升级的兼容执行链使用。
  *
  * `resume` 由外部协调器在保存解除 Agent wait 的真实输入时使用；`recover_action`
  * 由 Runner 在进程恢复时用于把已批准但结果未知的 Action 转为可处理的等待点。
@@ -441,7 +396,6 @@ export type StepResult =
  */
 export type RunInput =
     | { readonly kind: "start" }
-    | { readonly kind: "step"; readonly result: StepResult }
     | {
         readonly kind: "stage_action";
         readonly checkpoint: string;
@@ -508,43 +462,11 @@ export interface GoalCreationInput {
     readonly messages?: readonly GoalMessage[];
 }
 
-/**
- * 旧调用方直接提交已确定任务时使用的创建输入。
- *
- * @deprecated 仅供兼容调用方直接构造已准备的 executing Goal；新 Launcher
- * 始终从 gathering_context 创建。
- *
- * @example
- * ```ts
- * const input: LegacyGoalCreationInput = {
- *   id: "goal-1",
- *   task: { objective: "旧任务", completionCriteria: [] },
- *   profile,
- *   runId: "run-1",
- * };
- * ```
- */
-export interface LegacyGoalCreationInput {
-    readonly id: string;
-    readonly task: GoalTask;
-    readonly profile: AgentProfile;
-    readonly runId: string;
-    readonly maxSteps?: number;
-    readonly messages?: readonly GoalMessage[];
-}
-
 function cloneProfile(profile: AgentProfile): AgentProfile {
     return {
         ...profile,
         instructions: [...profile.instructions],
         toolIds: [...profile.toolIds],
-    };
-}
-
-function cloneTask(task: GoalTask): GoalTask {
-    return {
-        objective: task.objective,
-        completionCriteria: [...task.completionCriteria],
     };
 }
 
@@ -564,46 +486,27 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
  * @returns Run 为 created/0 的全新 Goal。
  * @throws maxSteps 不是非负整数时抛出 Error。
  */
-export function createGoal(input: GoalCreationInput): Goal;
-
-/** @deprecated 使用接收 intent 的 createGoal 输入。 */
-export function createGoal(input: LegacyGoalCreationInput): Goal;
-
-export function createGoal(
-    input: GoalCreationInput | LegacyGoalCreationInput,
-): Goal {
+export function createGoal(input: GoalCreationInput): Goal {
     const maxSteps = input.maxSteps ?? 0;
 
     if (!Number.isInteger(maxSteps) || maxSteps < 0) {
         throw new Error("maxSteps must be a non-negative integer");
     }
 
-    const isLegacyInput = "task" in input;
-    const intent = isLegacyInput ? input.task.objective : input.intent;
-    const workflow: GoalWorkflowState = isLegacyInput
-        ? {
-            phase: "executing",
-            preparation: { status: "completed" },
-            task: cloneTask(input.task),
-        }
-        : {
-            phase: "gathering_context",
-            preparation: { status: "active" },
-        };
-
     return {
         id: input.id,
         definition: {
-            intent,
+            intent: input.intent,
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },
         state: {
-            workflow,
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "active" },
+            },
             messages: cloneMessages([
-                ...(isLegacyInput
-                    ? []
-                    : [{ role: "user", content: input.intent } as const]),
+                { role: "user", content: input.intent },
                 ...(input.messages ?? []),
             ]),
             run: createRun(input.runId),
@@ -612,39 +515,6 @@ export function createGoal(
 }
 
 /** 创建只包含 Run 自身字段的初始状态。 */
-export function createRun(runId: string): RunState;
-
-/** @deprecated 旧 RunStore/Runner 边界的兼容工厂。 */
-export function createRun(
-    goal: GoalInput,
-    runId: string,
-    profile: AgentProfile,
-): LegacyRunState;
-
-export function createRun(
-    runIdOrGoal: string | GoalInput,
-    legacyRunId?: string,
-    legacyProfile?: AgentProfile,
-): RunState | LegacyRunState {
-    const runId = typeof runIdOrGoal === "string" ? runIdOrGoal : legacyRunId;
-
-    if (runId === undefined) {
-        throw new Error("runId is required");
-    }
-
-    if (typeof runIdOrGoal === "string") {
-        return { id: runId, status: "created", stepCount: 0 };
-    }
-
-    if (legacyProfile === undefined) {
-        throw new Error("profile is required for the legacy createRun signature");
-    }
-
-    return {
-        id: runId,
-        status: "created",
-        stepCount: 0,
-        goal: { id: runIdOrGoal.id, ...cloneTask(runIdOrGoal) },
-        profile: cloneProfile(legacyProfile),
-    };
+export function createRun(runId: string): RunState {
+    return { id: runId, status: "created", stepCount: 0 };
 }

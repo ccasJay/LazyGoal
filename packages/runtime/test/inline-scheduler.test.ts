@@ -45,8 +45,12 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
             status: "completed",
             stepCount: 1,
             lastStep: {
-                kind: "legacy",
-                result: { kind: "complete", summary: "目标完成" },
+                kind: "decision",
+                result: {
+                    kind: "complete",
+                    checkpoint: "目标已完成",
+                    summary: "目标完成",
+                },
             },
         },
     };

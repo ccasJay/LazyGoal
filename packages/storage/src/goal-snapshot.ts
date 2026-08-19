@@ -514,7 +514,8 @@ function validateV3Invariants(
 
         if (run.stopReason?.kind === "max_steps_exceeded") {
             const maxSteps = goal.definition.executionPolicy.maxSteps;
-            const validPreviousStep = step?.kind === "action";
+            const validPreviousStep = step?.kind === "action"
+                || result?.kind === "wait";
 
             if (
                 maxSteps <= 0

@@ -33,15 +33,12 @@ export type {
     Goal,
     GoalCreationInput,
     GoalDefinition,
-    GoalInput,
     GoalMessage,
     GoalState,
     GoalTask,
     GoalWorkflowState,
     JsonObject,
     JsonValue,
-    LegacyRunState,
-    LegacyGoalCreationInput,
     RunInput,
     RunExecutionOptions,
     RunRef,
@@ -51,7 +48,6 @@ export type {
     Observation,
     PendingAction,
     StepRecord,
-    StepResult,
     ToolCallAction,
     TransitionResult,
     UserMessage,
@@ -62,11 +58,7 @@ export type {
     GoalCatalogEntry,
     GoalStore,
 } from "./goal-store";
-export type {
-    LegacyStepExecutor,
-    StepExecutionResult,
-    StepExecutor,
-} from "./step-executor";
+export type { StepExecutor } from "./step-executor";
 export type {
     PreparationExecutor,
     PreparationResult,

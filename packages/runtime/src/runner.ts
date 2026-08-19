@@ -1,6 +1,5 @@
 import type {
     AgentDecision,
-    AssistantMessage,
     ExecutionErrorCode,
     Goal,
     JsonValue,
@@ -8,15 +7,10 @@ import type {
     RunExecutionOptions,
     RunRef,
     RunState,
-    StepResult,
     ToolCallAction,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
-import type {
-    LegacyStepExecutor,
-    StepExecutionResult,
-    StepExecutor,
-} from "./step-executor";
+import type { StepExecutor } from "./step-executor";
 import type {
     Tool,
     ToolDefinition,
@@ -49,9 +43,10 @@ class RunnerExecutionError extends Error {
     }
 }
 
-type NormalizedExecution =
-    | { readonly kind: "legacy"; readonly result: StepResult }
-    | { readonly kind: "agent"; readonly decision: AgentDecision };
+type NormalizedExecution = { readonly decision: AgentDecision };
+
+/** Executor 在返回 AgentDecision 前抛出非协议异常时使用的稳定 checkpoint。 */
+const EXECUTOR_FAILURE_CHECKPOINT = "Executor failed before returning an AgentDecision.";
 
 function resolveExecutionControl(
     options: RunExecutionOptions,
@@ -167,29 +162,6 @@ function validateAgentDecision(value: unknown): AgentDecision {
     }
 
     return value as unknown as AgentDecision;
-}
-
-function isLegacyExecutionResult(
-    value: unknown,
-): value is StepExecutionResult {
-    return (
-        isRecord(value)
-        && hasOnlyKeys(value, ["result"])
-        && "result" in value
-    );
-}
-
-function normalizeExecution(
-    execution: AgentDecision | StepExecutionResult,
-): NormalizedExecution {
-    if (isLegacyExecutionResult(execution)) {
-        return { kind: "legacy", result: execution.result };
-    }
-
-    return {
-        kind: "agent",
-        decision: validateAgentDecision(execution),
-    };
 }
 
 function isProtocolError(error: unknown): boolean {
@@ -430,8 +402,8 @@ export type RunnerResult =
 export interface RunnerDependencies {
     /** 完整 Goal 的最新快照存储。 */
     readonly store: GoalStore;
-    /** 新 AgentDecision 或旧 StepResult 兼容实现的单步执行器。 */
-    readonly executor: StepExecutor | LegacyStepExecutor;
+    /** 返回 AgentDecision 的单步执行器。 */
+    readonly executor: StepExecutor;
     /**
      * 按 Tool ID 查找实现；省略时视为空 Registry，所有 Tool Action 都会
      * 以 `TOOL_NOT_FOUND` 拒绝。
@@ -453,8 +425,8 @@ export interface RunnerDependencies {
  * 都会先保存最新完整 Goal，再继续下一步。正数 `maxSteps` 使用快照中的
  * 累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
- * 当前 Runner 仍兼容旧 StepResult。新 AgentDecision 会先做运行时严格校验；
- * `tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
+ * 当前 Runner 只接受返回 AgentDecision 的 StepExecutor，返回值会先做运行时
+ * 严格校验；`tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
  * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation；需要
  * 批准的 Action 会保存为 `awaiting_approval` 并返回 waiting，不调用 Tool。收到
  * 匹配的瞬时 `authorizedActionId` 后，Runner 才会执行已批准的同一 Action。
@@ -462,12 +434,13 @@ export interface RunnerDependencies {
  * `outcome_unknown` waiting，等待 Coordinator 再次批准或拒绝。领域 failure 会
  * 继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
- * Executor 异常会转换为持久化的 `fail` 结果；Store 的读取或写入异常原样
- * 传播，写入失败后不会继续执行下一 Step。
+ * Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化：沿用
+ * 已有 checkpoint，不存在时使用稳定值；Store 的读取或写入异常原样传播，
+ * 写入失败后不会继续执行下一 Step。
  */
 export class Runner {
     private readonly store: GoalStore;
-    private readonly executor: StepExecutor | LegacyStepExecutor;
+    private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
 
@@ -885,7 +858,9 @@ export class Runner {
                 const tools = this.getAuthorizedToolDefinitions(goal, control);
                 const execution = await this.executor.execute(goal, tools, control);
                 throwIfAborted(control);
-                normalized = normalizeExecution(execution);
+                normalized = {
+                    decision: validateAgentDecision(execution),
+                };
             } catch (error) {
                 if (isExecutionAbortedError(error)) {
                     throw error;
@@ -899,24 +874,31 @@ export class Runner {
                     return this.stopWithExecutionError(goal, stableError, control);
                 }
 
+                // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
+                // checkpoint，不存在时使用稳定值；错误文本保持用户可见内容。
+                const decision = {
+                    kind: "fail" as const,
+                    checkpoint: goal.state.run.checkpoint
+                        ?? EXECUTOR_FAILURE_CHECKPOINT,
+                    error: error instanceof Error
+                        ? error.message
+                        : String(error),
+                };
                 const nextRun = this.applyTransition(goal.state.run, {
-                    kind: "step",
-                    result: {
-                        kind: "fail",
-                        error: error instanceof Error ? error.message : String(error),
-                    },
+                    kind: "decision",
+                    decision,
                 });
-                const nextGoal = this.withRun(goal, nextRun);
+                const nextGoal = this.appendDecisionMessage(
+                    this.withRun(goal, nextRun),
+                    decision,
+                );
 
                 await this.saveCheckpoint(nextGoal, control);
                 goal = nextGoal;
                 continue;
             }
 
-            if (
-                normalized.kind === "agent"
-                && normalized.decision.kind === "tool_call"
-            ) {
+            if (normalized.decision.kind === "tool_call") {
                 let validated;
 
                 try {
@@ -1004,39 +986,15 @@ export class Runner {
                 continue;
             }
 
-            if (
-                normalized.kind === "agent"
-                && normalized.decision.kind !== "tool_call"
-            ) {
-                throwIfAborted(control);
-                const nextRun = this.applyTransition(goal.state.run, {
-                    kind: "decision",
-                    decision: normalized.decision,
-                });
-                const transitionedGoal = this.withRun(goal, nextRun);
-                const nextGoal = this.appendDecisionMessage(
-                    transitionedGoal,
-                    normalized.decision,
-                );
-
-                await this.saveCheckpoint(nextGoal, control);
-                goal = nextGoal;
-                continue;
-            }
-
-            if (normalized.kind !== "legacy") {
-                throw new Error("Runner received an unhandled execution result");
-            }
-
             throwIfAborted(control);
             const nextRun = this.applyTransition(goal.state.run, {
-                kind: "step",
-                result: normalized.result,
+                kind: "decision",
+                decision: normalized.decision,
             });
             const transitionedGoal = this.withRun(goal, nextRun);
-            const nextGoal = this.appendResultMessage(
+            const nextGoal = this.appendDecisionMessage(
                 transitionedGoal,
-                normalized.result,
+                normalized.decision,
             );
 
             await this.saveCheckpoint(nextGoal, control);
@@ -1086,49 +1044,6 @@ export class Runner {
                     },
                 ],
             },
-        };
-    }
-
-    private appendResultMessage(
-        goal: Goal,
-        result: StepResult,
-    ): Goal {
-        const message = this.toAssistantMessage(goal, result);
-
-        if (message === undefined) {
-            return goal;
-        }
-
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                messages: [
-                    ...goal.state.messages,
-                    message,
-                ],
-            },
-        };
-    }
-
-    private toAssistantMessage(
-        goal: Goal,
-        result: StepResult,
-    ): AssistantMessage | undefined {
-        if (result.kind === "continue") {
-            return undefined;
-        }
-
-        const content = result.kind === "wait"
-            ? result.reason
-            : result.kind === "complete"
-                ? result.summary
-                : result.error;
-
-        return {
-            role: "assistant",
-            assistant: { profileId: goal.definition.profile.id },
-            content,
         };
     }
 

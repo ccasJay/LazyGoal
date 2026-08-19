@@ -280,10 +280,6 @@ function encodeStep(step: StepRecord): GoalSnapshotStepRecordV3 {
                         },
             };
         }
-        case "legacy":
-            throw new GoalSnapshotProtocolError(
-                "Goal contains a removed legacy StepRecord",
-            );
     }
 }
 

@@ -675,10 +675,6 @@ function deriveBlockedReason(goal: Goal): string | undefined {
         return lastStep.result.reason;
     }
 
-    if (lastStep?.kind === "legacy" && lastStep.result.kind === "wait") {
-        return lastStep.result.reason;
-    }
-
     return undefined;
 }
 
@@ -693,12 +689,6 @@ function deriveTerminalSummary(goal: Goal): UiTerminalSummary | undefined {
     const lastStep = goal.state.run.lastStep;
 
     if (lastStep?.kind === "decision") {
-        if (lastStep.result.kind === "complete") {
-            summary = lastStep.result.summary;
-        } else if (lastStep.result.kind === "fail") {
-            reason = lastStep.result.error;
-        }
-    } else if (lastStep?.kind === "legacy") {
         if (lastStep.result.kind === "complete") {
             summary = lastStep.result.summary;
         } else if (lastStep.result.kind === "fail") {

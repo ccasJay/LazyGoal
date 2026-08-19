@@ -35,8 +35,12 @@ function createRunningState(runId = "run-1"): RunState {
 function createWaitingState(runId = "run-1"): RunState {
     return requireSuccessfulState(
         transition(createRunningState(runId), {
-            kind: "step",
-            result: { kind: "wait", reason: "等待外部事件" },
+            kind: "decision",
+            decision: {
+                kind: "wait",
+                checkpoint: "等待外部事件",
+                reason: "等待外部事件",
+            },
         }),
     );
 }
@@ -51,70 +55,48 @@ test("advances one transition at a time through the main lifecycle", () => {
     assert.equal(running.stepCount, 0);
     assert.equal(running.lastStep, undefined);
 
-    const waitResult = {
+    const waitDecision = {
         kind: "wait",
+        checkpoint: "等待外部事件",
         reason: "等待外部事件",
     } as const;
     const waiting = requireSuccessfulState(
-        transition(running, { kind: "step", result: waitResult }),
+        transition(running, { kind: "decision", decision: waitDecision }),
     );
     assert.equal(waiting.status, "waiting");
     assert.equal(waiting.stepCount, 1);
-    assert.deepEqual(waiting.lastStep, { kind: "legacy", result: waitResult });
+    assert.deepEqual(waiting.lastStep, {
+        kind: "decision",
+        result: waitDecision,
+    });
 
     const resumed = requireSuccessfulState(
         transition(waiting, { kind: "resume" }),
     );
     assert.equal(resumed.status, "running");
     assert.equal(resumed.stepCount, 1);
-    assert.deepEqual(resumed.lastStep, { kind: "legacy", result: waitResult });
+    assert.deepEqual(resumed.lastStep, {
+        kind: "decision",
+        result: waitDecision,
+    });
 
-    const completeResult = {
+    const completeDecision = {
         kind: "complete",
+        checkpoint: "目标已经完成",
         summary: "目标已经完成",
     } as const;
     const completed = requireSuccessfulState(
-        transition(resumed, { kind: "step", result: completeResult }),
+        transition(resumed, {
+            kind: "decision",
+            decision: completeDecision,
+        }),
     );
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
-    assert.deepEqual(completed.lastStep, { kind: "legacy", result: completeResult });
-});
-
-test("step.continue keeps the run running and increments once", () => {
-    const currentState = createRunningState();
-    const input = {
-        kind: "step",
-        result: { kind: "continue", summary: "继续执行" },
-    } as const;
-    const stateBefore = JSON.parse(JSON.stringify(currentState));
-    const inputBefore = JSON.parse(JSON.stringify(input));
-
-    const nextState = requireSuccessfulState(transition(currentState, input));
-
-    assert.notStrictEqual(nextState, currentState);
-    assert.equal(nextState.status, "running");
-    assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastStep, {
-        kind: "legacy",
-        result: input.result,
+    assert.deepEqual(completed.lastStep, {
+        kind: "decision",
+        result: completeDecision,
     });
-    assert.deepEqual(currentState, stateBefore);
-    assert.deepEqual(input, inputBefore);
-});
-
-test("step.fail moves the run to failed and increments once", () => {
-    const currentState = createRunningState();
-    const result = { kind: "fail", error: "工具执行失败" } as const;
-
-    const nextState = requireSuccessfulState(
-        transition(currentState, { kind: "step", result }),
-    );
-
-    assert.notStrictEqual(nextState, currentState);
-    assert.equal(nextState.status, "failed");
-    assert.equal(nextState.stepCount, currentState.stepCount + 1);
-    assert.deepEqual(nextState.lastStep, { kind: "legacy", result });
 });
 
 test("stage_action persists a pending Action without consuming a Step", () => {
@@ -522,10 +504,6 @@ test("rejects illegal Action/Observation combinations without changing state", (
                 summary: "仍有 Action 未完成",
             },
         },
-        {
-            kind: "step",
-            result: { kind: "continue", summary: "不应混用旧协议" },
-        },
     ];
 
     for (const input of cases) {
@@ -602,8 +580,12 @@ const terminalStates: readonly RunState[] = [
         status: "completed",
         stepCount: 1,
         lastStep: {
-            kind: "legacy",
-            result: { kind: "complete", summary: "已完成" },
+            kind: "decision",
+            result: {
+                kind: "complete",
+                checkpoint: "已完成",
+                summary: "已完成",
+            },
         },
     },
     {
@@ -611,8 +593,12 @@ const terminalStates: readonly RunState[] = [
         status: "failed",
         stepCount: 1,
         lastStep: {
-            kind: "legacy",
-            result: { kind: "fail", error: "执行失败" },
+            kind: "decision",
+            result: {
+                kind: "fail",
+                checkpoint: "执行失败",
+                error: "执行失败",
+            },
         },
     },
     {

@@ -46,13 +46,43 @@ const messages: GoalMessage[] = [
     { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
 ];
 
-function createSnapshot(runId = "run-1"): Goal {
-    return createGoal({
-        id: "goal-1",
-        task: {
-            objective: "完成快照存储",
-            completionCriteria: ["可以恢复最新 Goal"],
+function createExecutingGoal(input: {
+    readonly id: string;
+    readonly objective: string;
+    readonly completionCriteria: readonly string[];
+    readonly profile: AgentProfile;
+    readonly messages?: readonly GoalMessage[];
+    readonly runId: string;
+}): Goal {
+    const created = createGoal({
+        id: input.id,
+        intent: input.objective,
+        profile: input.profile,
+        runId: input.runId,
+        ...(input.messages === undefined ? {} : { messages: input.messages }),
+    });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: input.objective,
+                    completionCriteria: [...input.completionCriteria],
+                },
+            },
         },
+    };
+}
+
+function createSnapshot(runId = "run-1"): Goal {
+    return createExecutingGoal({
+        id: "goal-1",
+        objective: "完成快照存储",
+        completionCriteria: ["可以恢复最新 Goal"],
         profile,
         messages,
         runId,
@@ -165,12 +195,10 @@ function transitionGoal(
 }
 
 function createCatalogGoal(id: string, status: RunStatus): Goal {
-    const goal = createGoal({
+    const goal = createExecutingGoal({
         id,
-        task: {
-            objective: `Intent ${id}`,
-            completionCriteria: ["完成目录测试"],
-        },
+        objective: `Intent ${id}`,
+        completionCriteria: ["完成目录测试"],
         profile,
         runId: `run-${id}`,
     });
@@ -702,7 +730,7 @@ test("GoalSnapshotV3Schema enforces workflow and Run cross-field invariants", ()
                     id: "run-1",
                     status: "failed",
                     stepCount: 1,
-                    lastStep: waitStep,
+                    lastStep: completeStep,
                     checkpoint: "等待输入",
                     stopReason: { kind: "max_steps_exceeded" },
                 },
@@ -750,6 +778,7 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
     assert.deepEqual(await store.restore("goal-1"), latest);
     assert.deepEqual((await store.restore("goal-1"))?.definition.profile, profile);
     assert.deepEqual((await store.restore("goal-1"))?.state.messages, [
+        { role: "user", content: "完成快照存储" },
         { role: "user", content: "请开始执行" },
         { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
         { role: "user", content: "继续执行" },
@@ -766,7 +795,7 @@ test("InMemoryGoalStore clones on save and restore", async () => {
 
     const first = await store.restore("goal-1");
     assert.deepEqual(first?.definition.profile.instructions, ["先检查输入", "再执行任务"]);
-    assert.deepEqual(first?.state.messages, messages);
+    assert.deepEqual(first?.state.messages, createSnapshot().state.messages);
 
     if (first === undefined) {
         assert.fail("expected a saved Goal");
@@ -937,12 +966,10 @@ test("JsonFileGoalStore uses a safe encoded filename for arbitrary Goal IDs", as
 
     try {
         const goalId = "goal/with/slash/../危险";
-        const goal = createGoal({
+        const goal = createExecutingGoal({
             id: goalId,
-            task: {
-                objective: "验证路径安全",
-                completionCriteria: ["文件仍位于存储目录内"],
-            },
+            objective: "验证路径安全",
+            completionCriteria: ["文件仍位于存储目录内"],
             profile,
             messages,
             runId: "run-safe-path",
@@ -1375,12 +1402,10 @@ test("a cross-process Runner safely replays a persisted read_file Action once", 
 
     try {
         await writeFile(join(workspaceRoot, "README.md"), "跨进程文件内容", "utf8");
-        const initial = createGoal({
+        const initial = createExecutingGoal({
             id: "goal-cross-action",
-            task: {
-                objective: "跨进程恢复读取",
-                completionCriteria: ["读取成功"],
-            },
+            objective: "跨进程恢复读取",
+            completionCriteria: ["读取成功"],
             profile: { ...profile, toolIds: ["read_file"] },
             runId: "run-cross-action",
         });

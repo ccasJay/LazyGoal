@@ -52,12 +52,6 @@ export const AGENT_DECISION_PROTOCOL = [
     "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
 ].join("\n");
 
-/**
- * @deprecated 使用 {@link AGENT_DECISION_PROTOCOL}。保留名称供旧 Prompt 调用方
- * 读取，但内容已升级为 AgentDecision 协议。
- */
-export const STEP_RESULT_PROTOCOL = AGENT_DECISION_PROTOCOL;
-
 /** Preparation 阶段对应的严格输出协议。 */
 export const PREPARATION_RESULT_PROTOCOL: Readonly<
     Record<PreparationPhase, string>

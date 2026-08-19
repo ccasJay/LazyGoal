@@ -25,7 +25,7 @@
   - 迁移并补充非法结构、未知版本、原子替换、临时文件清理、文件系统错误和跨进程恢复测试
   - _Requirements: [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 5. 删除 Legacy 执行协议并统一当前 AgentDecision 路径
+- [x] //TODO 5. 删除 Legacy 执行协议并统一当前 AgentDecision 路径
 
   - 删除 Runtime 与 Agent 中的 `StepResult`、`LegacyStepExecutor`、`legacy StepRecord`、旧 `RunInput.step`、overload 和旧响应 Schema 导出
   - 简化 Runner 为单一 `AgentDecision` 路径，并按 Design 规范化非协议 Executor 异常，同时保持协议错误与取消传播

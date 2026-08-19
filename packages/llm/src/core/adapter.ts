@@ -6,7 +6,7 @@ import type { ExecutionControl } from "../../../runtime/src/execution-control";
  *
  * @remarks
  * 实现必须保持消息顺序和角色语义，返回模型原始文本，不应在此解析
- * PreparationResult 或 StepResult。网络、鉴权、限流和供应商协议错误应原样
+ * PreparationResult 或 AgentDecision。网络、鉴权、限流和供应商协议错误应原样
  * 拒绝 Promise，由上层决定工作流语义。
  *
  * @example
