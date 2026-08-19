@@ -32,19 +32,6 @@ export type JsonValue =
     | JsonObject;
 
 /**
- * Goal 快照协议元数据。
- *
- * @remarks v3 表示 Goal 快照包含有界 Action/Observation 执行记忆。
- * @example
- * ```ts
- * const metadata: GoalMetadata = { schemaVersion: 3 };
- * ```
- */
-export interface GoalMetadata {
-    readonly schemaVersion: 3;
-}
-
-/**
  * 用户实际发送并需要随 Session 恢复的消息。
  * @example
  * ```ts
@@ -245,9 +232,8 @@ export interface PendingAction {
  * 最近一次已完成 Step 的有界记录。
  *
  * @remarks
- * Goal 只保存这一条记录，不累积完整 Action/Observation 轨迹。`legacy` 仅由
- * v1/v2 只读迁移产生；当前旧 StepResult 执行路径的兼容写入会在 Store 边界
- * 归一化为该分支，新执行协议不得创建 legacy 记录。
+ * Goal 只保存这一条记录，不累积完整 Action/Observation 轨迹。`legacy` 仅
+ * 存在于尚未删除的旧执行协议兼容路径，持久化 Snapshot 不接受该分支。
  *
  * @example
  * ```ts
@@ -332,9 +318,12 @@ export interface GoalState {
 }
 
 /**
- * 一个可持久化、可恢复的 Session 聚合。
+ * 一个可恢复的 Session 聚合，是 Runtime 的唯一领域真相。
  *
- * @remarks definition 是冻结输入，state 是工作流推进产生的最新状态。
+ * @remarks
+ * definition 是冻结输入，state 是工作流推进产生的最新状态；Goal 不携带
+ * Snapshot 版本、文件表示或迁移控制数据，持久化协议归 Storage Codec 所有。
+ *
  * @example
  * ```ts
  * const goal = createGoal({ id: "goal-1", intent: "实现恢复", profile, runId: "run-1" });
@@ -342,7 +331,6 @@ export interface GoalState {
  */
 export interface Goal {
     readonly id: string;
-    readonly metadata: GoalMetadata;
     readonly definition: GoalDefinition;
     readonly state: GoalState;
 }
@@ -573,7 +561,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
 /**
  * 创建 gathering_context 阶段的确定性 Goal 聚合。
  * @param input - Goal ID、原始意图、冻结 Profile、Run ID 与执行策略。
- * @returns Run 为 created/0、Schema 版本为 3 的全新 Goal。
+ * @returns Run 为 created/0 的全新 Goal。
  * @throws maxSteps 不是非负整数时抛出 Error。
  */
 export function createGoal(input: GoalCreationInput): Goal;
@@ -605,7 +593,6 @@ export function createGoal(
 
     return {
         id: input.id,
-        metadata: { schemaVersion: 3 },
         definition: {
             intent,
             profile: cloneProfile(input.profile),

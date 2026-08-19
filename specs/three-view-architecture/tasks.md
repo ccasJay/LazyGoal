@@ -12,14 +12,14 @@
   - 更新 package 公开入口与 TUI Composition Root，并用现有 Store 测试确保迁移阶段行为连续
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 3. 建立纯 Runtime Goal 与严格 v3 Snapshot Codec
+- [x] //TODO 3. 建立纯 Runtime Goal 与严格 v3 Snapshot Codec
 
   - 从 Runtime `Goal` 移除 Snapshot metadata，并为 Storage v3 声明独立 DTO、Schema 与 `GoalSnapshotCodec`
   - 实现 Runtime↔Snapshot 的深复制转换，只接受非 Legacy v3，使用协议错误拒绝 v1、v2 与 Legacy v3 且不写回原文件
   - 添加 Codec round-trip、对象隔离、旧版本拒绝与 Runtime State 完整性测试
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 4. 让所有 Goal Store 通过 Codec 保存和恢复
+- [x] //TODO 4. 让所有 Goal Store 通过 Codec 保存和恢复
 
   - 使内存与 JSON Store 在 `save` 时 encode、在 `restore` 时 decode，并保持严格字段与跨字段不变量校验
   - 迁移并补充非法结构、未知版本、原子替换、临时文件清理、文件系统错误和跨进程恢复测试

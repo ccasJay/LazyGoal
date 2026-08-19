@@ -122,7 +122,6 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
     let generatorCalls = 0;
     const expectedGoal: Goal = {
         id: "goal-1",
-        metadata: { schemaVersion: 3 },
         definition: {
             intent: "  Build a resumable workflow  ",
             profile: createProfile(),

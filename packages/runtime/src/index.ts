@@ -35,7 +35,6 @@ export type {
     GoalDefinition,
     GoalInput,
     GoalMessage,
-    GoalMetadata,
     GoalState,
     GoalTask,
     GoalWorkflowState,

@@ -16,24 +16,24 @@ import type {
     GoalCatalogEntry,
     GoalStore,
 } from "../../runtime/src/index";
-import {
-    cloneValidatedGoal,
-    GoalSnapshotProtocolError,
-} from "./goal-snapshot";
+import { goalSnapshotCodec } from "./goal-snapshot-codec";
+import type { GoalSnapshotV3 } from "./goal-snapshot";
+import { GoalSnapshotProtocolError } from "./goal-snapshot";
 
 /**
  * 单进程内的 Goal 快照存储。
  *
  * @remarks
- * 保存和恢复都会经过 Schema 校验并进行结构化克隆，调用方不能通过修改
- * 原对象或恢复结果污染 Store 内部保存的快照。数据只存在于当前 Store
- * 实例的内存中，不支持跨实例或进程恢复。
+ * `save` 先将 Goal 编码为严格 v3 Snapshot，`restore` 再解码回 Runtime
+ * Goal；两侧都执行完整协议校验，调用方不能通过修改原对象或恢复结果污染
+ * Store 内部保存的快照。数据只存在于当前 Store 实例的内存中，不支持跨
+ * 实例或进程恢复。
  */
 export class InMemoryGoalStore implements GoalStore {
-    private readonly snapshots = new Map<string, Goal>();
+    private readonly snapshots = new Map<string, GoalSnapshotV3>();
 
     async save(goal: Goal): Promise<void> {
-        const snapshot = cloneValidatedGoal(goal);
+        const snapshot = goalSnapshotCodec.encode(goal);
         this.snapshots.set(snapshot.id, snapshot);
     }
 
@@ -44,7 +44,7 @@ export class InMemoryGoalStore implements GoalStore {
             return undefined;
         }
 
-        return cloneValidatedGoal(snapshot);
+        return goalSnapshotCodec.decode(snapshot);
     }
 }
 
@@ -53,13 +53,13 @@ export class InMemoryGoalStore implements GoalStore {
  *
  * @remarks
  * 每个 Goal 只对应一个文件，文件名由 goalId 的 base64url 编码生成；
- * 写入通过同目录临时文件和 rename 完成，避免恢复到半写入快照。
+ * 写入通过同目录临时文件和 rename 完成，避免恢复到半写入快照。保存前
+ * 经 Codec 编码并校验严格 v3 协议；恢复时解码，v1、v2、Legacy v3 与
+ * 未知版本统一抛出 {@link GoalSnapshotProtocolError}，读取失败绝不触发
+ * 写回，之后显式保存恢复结果时才以 v3 原子替换。
  *
  * 多个写入者并发保存同一 Goal 时采用最后完成替换者覆盖的语义，不提供
- * 乐观锁、租约或版本冲突检测。文件系统错误原样传播；非法 JSON、Schema
- * 不匹配、未知版本和文件内 Goal ID 不一致统一抛出
- * {@link GoalSnapshotProtocolError}。恢复 v1 不改写文件，之后显式保存恢复
- * 结果时才以 v3 原子替换。
+ * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
  */
 export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     /**
@@ -68,13 +68,13 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     constructor(private readonly directory: string) {}
 
     /**
-     * 校验并原子替换指定 Goal 的最新 JSON 快照。
+     * 编码并原子替换指定 Goal 的最新 JSON 快照。
      *
-     * @throws Goal 不符合快照协议时抛出 GoalSnapshotProtocolError；目录创建、
+     * @throws Goal 不满足快照协议时抛出 GoalSnapshotProtocolError；目录创建、
      * 临时文件写入或替换失败时传播原始文件系统错误。
      */
     async save(goal: Goal): Promise<void> {
-        const snapshot = this.cloneFileSnapshot(goal);
+        const snapshot = goalSnapshotCodec.encode(goal);
         const filePath = this.filePath(snapshot.id);
         const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
 
@@ -230,24 +230,28 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     private decodeSnapshot(content: string, label: string): Goal {
+        let parsed: unknown;
+
         try {
-            return cloneValidatedGoal(JSON.parse(content));
+            parsed = JSON.parse(content);
         } catch (error) {
             throw new GoalSnapshotProtocolError(
                 `Invalid Goal snapshot for "${label}"`,
                 { cause: error },
             );
         }
-    }
 
-    private cloneFileSnapshot(goal: Goal): Goal {
         try {
-            return cloneValidatedGoal(goal);
+            return goalSnapshotCodec.decode(parsed);
         } catch (error) {
-            throw new GoalSnapshotProtocolError(
-                "Goal does not satisfy the snapshot schema",
-                { cause: error },
-            );
+            if (error instanceof GoalSnapshotProtocolError) {
+                throw new GoalSnapshotProtocolError(
+                    `Invalid Goal snapshot for "${label}"`,
+                    { cause: error },
+                );
+            }
+
+            throw error;
         }
     }
 }
