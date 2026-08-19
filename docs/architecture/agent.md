@@ -32,4 +32,4 @@ Profile JSON 加载并冻结 Profile；Agent 只读取完整 Goal，构造一次
 
 ## 当前限制与背景
 
-Agent 不直接持久化 pendingAction、执行 Tool 或处理审批；这些由 Runtime Runner/Coordinator 负责。当前 Agent 仍不提供流式响应、自动重试和协议自修复。LLM Step Executor 已返回 AgentDecision，Coordinator 负责 Preparation 消息，模型原始 JSON 不会持久化。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。
+Agent 不直接持久化 pendingAction、执行 Tool 或处理审批；这些由 Runtime Runner/Coordinator 负责。当前 Agent 仍不提供流式响应、自动重试和协议自修复。LLM Step Executor 返回 AgentDecision，Coordinator 负责 Preparation 消息，模型原始 JSON 不会持久化。早期设计背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。

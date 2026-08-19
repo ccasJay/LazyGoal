@@ -2,7 +2,7 @@
 
 > 当前架构的极简入口。以源码为事实来源；功能演进过程见 `specs/`，接口细节见源码 TSDoc。
 
-LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化 Port，`storage` 提供 Profile 等 JSON 文件持久化实现，`agent` 把完整 Goal 转成一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
+LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化 Port，`storage` 提供 Goal Snapshot 与 Profile 的 JSON 文件持久化实现（含 Snapshot Codec），`agent` 通过 Projector 与 Renderer 把完整 Goal 转为一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -16,19 +16,21 @@ LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命�
 
 ```mermaid
 flowchart LR
-    C[调用方] --> L[Runtime: Launcher]
-    C --> G[GoalCoordinator]
-    L --> S[GoalStore]
+    C[调用方 / TUI Composer] --> L[Runtime: Launcher]
+    C --> G[Runtime: GoalCoordinator]
+    L --> GS[GoalStore Port]
     L --> G
-    G --> S
-    G --> PE[Agent: PreparationExecutor]
-    G --> Q[RunScheduler]
-    Q --> R[Runner]
-    R --> S
-    R --> E[Agent: LLMStepExecutor]
-    PE --> A[LLMAdapter]
-    E --> A
-    A --> V[模型供应商]
+    G --> GS
+    G --> PE[PreparationExecutor Port]
+    G --> Q[RunScheduler] --> R[Runner]
+    R --> GS
+    R --> SE[StepExecutor Port]
+
+    GS -->|实现| ST[Storage: Store + Snapshot Codec]
+    PE -->|实现| LPE[Agent: LLMPreparationExecutor]
+    SE -->|实现| LSE[Agent: LLMStepExecutor]
+    LPE & LSE --> V[Agent: ModelInferenceView → Projector → Renderer]
+    V --> A[LLM: Adapter] --> M[模型供应商]
 ```
 
 ## 主流程
@@ -53,8 +55,8 @@ flowchart LR
 
 ## 模块速查
 
-- [Runtime](./runtime.md)：状态、生命周期、调度与持久化。
-- [Storage](./storage.md)：Profile 文件 DTO、Schema 与 JSON Store。
+- [Runtime](./runtime.md)：状态、生命周期、调度与持久化 Port。
+- [Storage](./storage.md)：Goal Snapshot 与 Profile 的 DTO、Schema、Codec 及内存/JSON Store。
 - [TUI Controller](./tui.md)：单 Goal UI 命令串行化与不可变会话快照。
-- [Agent](./agent.md)：Prompt、响应协议与 Step 执行。
+- [Agent](./agent.md)：ModelInferenceView、Projector、Renderer、响应协议与 Step 执行。
 - [LLM](./llm.md)：供应商无关接口与模型适配器。

@@ -61,15 +61,13 @@ Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Ad
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
-TODO 3 已建立 Runtime 的 Tool 扩展边界与内存 `ToolRegistry`，TODO 4–8 使 Agent
-接收已注册的授权 ToolDefinition、生成/校验严格 AgentDecision 并自动执行允许的
-Action；并由
-[`packages/tools`](../../packages/tools/src/index.ts) 提供只读 `ReadFileTool`。它会
-拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；合法读取返回
-`success`，文件不存在等领域问题返回 `failure`。当前 Runner、Agent 与 Coordinator
-已完成自动允许/审批 Action 的授权、持久化执行编排、拒绝 Observation、瞬时授权和
-safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有并发租约或 exactly-once
-保证。
+Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界；Agent 接收已注册的授权
+ToolDefinition、生成并校验严格 AgentDecision，Runner 自动执行允许的 Action。
+[`packages/tools`](../../packages/tools/src/index.ts) 提供只读 `ReadFileTool`：拒绝绝对
+路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；合法读取返回 `success`，
+文件不存在等领域问题返回 `failure`。Runner、Agent 与 Coordinator 支持自动允许/审批
+Action 的授权、持久化执行编排、拒绝 Observation、瞬时授权和 safe/manual 中断恢复；
+跨进程重放依赖 JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 
 ## 错误与不变量
 
