@@ -11,10 +11,12 @@ import { test } from "node:test";
 
 import {
     AgentProfileConfigurationError,
-    createGoal,
     JsonFileAgentProfileStore,
-    JsonFileGoalStore,
 } from "../src/index";
+import {
+    createGoal,
+    JsonFileGoalStore,
+} from "../../runtime/src/index";
 
 const defaultProfile = {
     schemaVersion: 1,

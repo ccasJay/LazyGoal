@@ -14,7 +14,8 @@ scripts/         Repository maintenance and validation utilities
 packages/        Private `@lazygoal/*` workspaces
   agent/         Agent prompts, response schemas, and LLM preparation/step executors
   llm/           LLM adapters and provider integrations (OpenAI-compatible, Gemini)
-  runtime/       Goal domain, persistence, scheduling, execution loop, and shutdown control
+  runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
+  storage/       Persistence file DTOs, schemas, errors, and JSON stores for runtime ports
   tools/         Agent tools such as filesystem readers
   tui/           React Ink terminal UI, screens, session controller, and CLI integration
 docs/            Implemented architecture documentation; see `docs/architecture/`

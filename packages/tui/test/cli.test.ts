@@ -11,7 +11,7 @@ import {
     readLlmConfig,
     runCli,
 } from "../src/cli";
-import { AgentProfileConfigurationError } from "../../runtime/src/index";
+import { AgentProfileConfigurationError } from "../../storage/src/index";
 import {
     DEFAULT_PROFILE_FILE,
     writeDefaultProfile,

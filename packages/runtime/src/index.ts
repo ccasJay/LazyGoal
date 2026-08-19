@@ -82,13 +82,10 @@ export type {
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
-export {
-    AgentProfileConfigurationError,
-    JsonFileAgentProfileStore,
-} from "./agent-profile";
 export type {
     AgentProfile,
     AgentProfileRegistry,
+    AgentProfileStore,
 } from "./agent-profile";
 export {
     InMemoryToolRegistry,

@@ -2,7 +2,7 @@
 
 > 当前架构的极简入口。以源码为事实来源；功能演进过程见 `specs/`，接口细节见源码 TSDoc。
 
-LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化，`agent` 把完整 Goal 转成一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
+LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化 Port，`storage` 提供 Profile 等 JSON 文件持久化实现，`agent` 把完整 Goal 转成一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -53,6 +53,7 @@ flowchart LR
 ## 模块速查
 
 - [Runtime](./runtime.md)：状态、生命周期、调度与持久化。
+- [Storage](./storage.md)：Profile 文件 DTO、Schema 与 JSON Store。
 - [TUI Controller](./tui.md)：单 Goal UI 命令串行化与不可变会话快照。
 - [Agent](./agent.md)：Prompt、响应协议与 Step 执行。
 - [LLM](./llm.md)：供应商无关接口与模型适配器。
