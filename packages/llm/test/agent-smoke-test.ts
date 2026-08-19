@@ -6,7 +6,7 @@ import {
 } from "../../runtime/src/index";
 import type { Goal, GoalStore } from "../../runtime/src/index";
 import { LLMStepExecutor } from "../../agent/src/index";
-import { OpenAICompatible } from "./openai-compatible";
+import { OpenAICompatible } from "../src/openai-compatible";
 
 /** 冒烟测试使用的最小内存 GoalStore，只保证保存最新快照。 */
 class SmokeGoalStore implements GoalStore {

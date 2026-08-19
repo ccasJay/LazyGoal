@@ -8,7 +8,8 @@
     "lazygoal": "bin/lazygoal.cjs"
   },
   "scripts": {
-    "llm:agent-smoke": "tsx packages/llm/src/agent-smoke-test.ts",
+    "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
+    "check:dependencies": "node scripts/check-dependencies.mjs",
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",
     "test:memory": "node --test scripts/project-memory.test.mjs",

@@ -46,7 +46,7 @@
   - 为每个 phase 添加字符级请求 fixture 与 Executor 测试，固定消息角色、内容、顺序和单次 Adapter 调用
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.5](./requirements.md#req-4-5)_
 
-- [ ] //TODO 8. 收紧 package 依赖并完成应用组合
+- [x] //TODO 8. 收紧 package 依赖并完成应用组合
 
   - 更新 TUI/CLI 组合，使具体 Store 仅从 Storage 导入，Runtime 不反向加载 Storage 或 Agent
   - 添加自动化依赖边界检查，验证 View DTO/Renderer、Storage DTO/Schema 及转换模块的允许依赖方向
