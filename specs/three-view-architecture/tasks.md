@@ -32,7 +32,7 @@
   - 更新 Transition、Runner 与 Coordinator 测试，验证等价输入的状态、Step 计数、终态原因和阶段所有权
   - _Requirements: [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 6. 实现独立 ModelInferenceView 与 Runtime Projector
+- [x] //TODO 6. 实现独立 ModelInferenceView 与 Runtime Projector
 
   - 在 Agent 声明不导入 Runtime 的 Profile、Conversation、Working Context、Step、Pending Action 与 Tool View DTO
   - 实现逐字段复制的 Projector，按阶段投影完整推理输入并排除 Snapshot、迁移数据和瞬时执行资源

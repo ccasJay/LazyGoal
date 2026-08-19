@@ -17,6 +17,25 @@ export {
 export type { WorkingContext } from "./prompt";
 
 export {
+    ModelInferenceProjector,
+} from "./model-inference-projector";
+export {
+    renderRequest,
+    renderWorkingContextMessage,
+} from "./render";
+export type {
+    ModelConversationMessage,
+    ModelInferenceView,
+    ModelPendingAction,
+    ModelProfileView,
+    ModelStepRecord,
+    ModelTask,
+    ModelToolCallAction,
+    ModelToolDefinition,
+    ModelWorkingContext,
+} from "./model-inference-view";
+
+export {
     AgentDecisionSchema,
     CompleteAgentDecisionSchema,
     ContextReadyPreparationResultSchema,

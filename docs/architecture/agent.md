@@ -11,15 +11,16 @@ Profile JSON 加载并冻结 Profile；Agent 只读取完整 Goal，构造一次
 - 负责：三阶段 Working Context 派生、Prompt 组装、调用方传入的授权 ToolDefinition 展示、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
 - 不负责：Profile 文件 I/O、Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK。
 
-主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)，请求构造位于 [prompt.ts](../../packages/agent/src/prompt.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
+主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立的模型输入视图 DTO 位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，从 Runtime State 到该视图的逐字段投影位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)，纯 Prompt 渲染位于 [render.ts](../../packages/agent/src/render.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
 
 ## 单轮数据流
 
 1. Preparation 不因 Profile 含 `toolIds` 而提前失败；Runtime Runner 只把 Profile 中已注册的 ToolDefinition 传给 executing 请求。
-2. 每轮从 Goal 派生 `gathering_context`、`planning` 或 `executing` Working Context；请求顺序固定为 system → 真实历史 → 当前控制消息。
-3. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。
-4. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 接收 Runtime 传入的 `ExecutionControl`，在 Adapter 返回后检查中止，不解析中止为 Agent 失败。
-5. Working Context 与模型协议 JSON 都不写入真实消息。执行请求通过 `checkpoint`、`previousStep` 和 `pendingAction` 获得有界累计状态。
+2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：Profile 指令、真实会话投影、阶段化 Working Context 与授权 Tool 描述；Projector 逐字段深复制，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段与瞬时执行资源。
+3. Renderer 只依赖 View DTO，按 `protocol` 选择协议文本，并固定请求顺序为 system → 真实历史 → 当前控制消息。
+4. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。
+5. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 接收 Runtime 传入的 `ExecutionControl`，在 Adapter 返回后检查中止，不解析中止为 Agent 失败。
+6. Working Context 与模型协议 JSON 都不写入真实消息。执行请求通过 `checkpoint`、`previousStep` 和 `pendingAction` 获得有界累计状态。
 
 ## 错误与不变量
 

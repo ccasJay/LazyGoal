@@ -5,6 +5,7 @@ import type {
 } from "../../runtime/src/domain";
 import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import { LLMResponseProtocolError } from "./errors";
+import type { PreparationPhase } from "./model-inference-view";
 
 const nonEmptyText = z.string().trim().min(1);
 
@@ -80,7 +81,7 @@ export const GatheringContextPreparationResultSchema = z.discriminatedUnion(
 export const PlanningPreparationResultSchema =
     TaskProposalPreparationResultSchema;
 
-export type PreparationPhase = "gathering_context" | "planning";
+export type { PreparationPhase } from "./model-inference-view";
 
 function parseJson(content: string): unknown {
     try {
