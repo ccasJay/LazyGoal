@@ -8,13 +8,9 @@ export type {
 export {
     buildPreparationRequest,
     buildStepRequest,
-    buildStepUserMessage,
-    buildWorkingContext,
-    buildWorkingContextMessage,
     AGENT_DECISION_PROTOCOL,
     PREPARATION_RESULT_PROTOCOL,
 } from "./prompt";
-export type { WorkingContext } from "./prompt";
 
 export {
     ModelInferenceProjector,
