@@ -58,13 +58,6 @@ export type {
     UserMessage,
 } from "./domain";
 export { transition } from "./transition";
-export {
-    GoalSnapshotSchema,
-    GoalSnapshotProtocolError,
-    INVALID_GOAL_SNAPSHOT_CODE,
-    InMemoryGoalStore,
-    JsonFileGoalStore,
-} from "./goal-store";
 export type {
     GoalCatalog,
     GoalCatalogEntry,

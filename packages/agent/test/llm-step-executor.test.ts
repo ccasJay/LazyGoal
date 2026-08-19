@@ -5,9 +5,9 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
     createGoal,
-    InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type {
     Goal,

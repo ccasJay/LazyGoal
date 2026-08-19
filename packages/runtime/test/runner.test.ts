@@ -7,7 +7,7 @@ import {
     Runner,
     transition,
 } from "../src/index";
-import { InMemoryGoalStore } from "../src/goal-store";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentDecision,
     AgentProfile,

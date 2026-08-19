@@ -9,7 +9,7 @@ import type {
     PendingAction,
     StepRecord,
 } from "../../runtime/src/domain";
-import { InMemoryGoalStore } from "../../runtime/src/goal-store";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     buildPreparationRequest,

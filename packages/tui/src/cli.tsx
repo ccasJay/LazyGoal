@@ -14,7 +14,6 @@ import {
     GoalCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,
-    JsonFileGoalStore,
     Runner,
     launch,
     type AgentProfile,
@@ -25,6 +24,7 @@ import {
 import {
     AgentProfileConfigurationError,
     JsonFileAgentProfileStore,
+    JsonFileGoalStore,
 } from "../../storage/src/index";
 import {
     LLMPreparationExecutor,

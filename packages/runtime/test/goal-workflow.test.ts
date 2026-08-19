@@ -3,11 +3,11 @@ import { test } from "node:test";
 
 import {
     GoalCoordinator,
-    InMemoryGoalStore,
     InlineScheduler,
     launch,
     Runner,
 } from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentProfile,
     AgentProfileRegistry,

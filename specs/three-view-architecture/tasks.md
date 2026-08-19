@@ -6,7 +6,7 @@
   - 迁移 Launcher、TUI 与测试调用方，覆盖合法配置、缺失/损坏配置和未注册 Tool 不创建 Snapshot 的行为
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 2. 将 Goal 持久化实现迁移到 Storage package
+- [x] //TODO 2. 将 Goal 持久化实现迁移到 Storage package
 
   - 在 Runtime 仅保留 `GoalStore`、`GoalCatalog` 与 Checkpoint Gate Port/Decorator，把 Snapshot 类型、Schema、错误、Catalog 和内存/文件 Store 迁入 `@lazygoal/storage`
   - 更新 package 公开入口与 TUI Composition Root，并用现有 Store 测试确保迁移阶段行为连续

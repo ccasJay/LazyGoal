@@ -1,8 +1,6 @@
-import {
-    JsonFileGoalStore,
-    Runner,
-} from "../../src/index";
-import type { Goal } from "../../src/index";
+import { JsonFileGoalStore } from "../../src/index";
+import { Runner } from "../../../runtime/src/index";
+import type { Goal } from "../../../runtime/src/index";
 import { READ_FILE_TOOL_ID, ReadFileTool } from "../../../tools/src/index";
 
 const [mode, directory, goalId, serializedGoal, runId, workspaceRoot] = process.argv.slice(2);

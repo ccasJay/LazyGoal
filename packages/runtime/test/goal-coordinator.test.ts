@@ -4,11 +4,11 @@ import { test } from "node:test";
 import {
     createGoal,
     GoalCoordinator,
-    InMemoryGoalStore,
     InlineScheduler,
     Runner,
     transition,
 } from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentProfile,
     Goal,

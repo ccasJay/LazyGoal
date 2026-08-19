@@ -16,20 +16,22 @@ import { fileURLToPath } from "node:url";
 
 import {
     createGoal,
-    GoalSnapshotSchema,
+    Runner,
+    transition,
+} from "../../runtime/src/index";
+import {
     GoalSnapshotProtocolError,
+    GoalSnapshotSchema,
     InMemoryGoalStore,
     INVALID_GOAL_SNAPSHOT_CODE,
     JsonFileGoalStore,
-    Runner,
-    transition,
 } from "../src/index";
 import type {
     AgentProfile,
     Goal,
     GoalMessage,
     RunStatus,
-} from "../src/index";
+} from "../../runtime/src/index";
 
 const profile: AgentProfile = {
     id: "profile-1",

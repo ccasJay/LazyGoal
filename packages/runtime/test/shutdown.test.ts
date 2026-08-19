@@ -5,13 +5,13 @@ import {
     CheckpointGateFrozenError,
     CheckpointGateGoalStore,
     createGoal,
-    InMemoryGoalStore,
     ManagedResourceRegistry,
     ManagedResourceRegistryClosedError,
     ShutdownCoordinator,
     SHUTDOWN_EXIT_CODE,
     transition,
 } from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentProfile,
     ExitPort,
