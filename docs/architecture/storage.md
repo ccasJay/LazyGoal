@@ -25,4 +25,4 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按同一�
 
 ## 当前限制与背景
 
-Runtime 侧的 Legacy 执行协议（`StepResult`/`LegacyStepExecutor`）尚未删除，其产生的 `legacy` StepRecord 会被本模块拒绝保存；统一为单一 `AgentDecision` 路径见 [三视图分层架构 Spec](../../specs/three-view-architecture/design.md) TODO 5。
+Runtime 已删除 Legacy 执行协议（`StepResult`/`LegacyStepExecutor`），统一为单一 `AgentDecision` 路径；本模块在解码侧仍拒绝 v1、v2 及含 `legacy` StepRecord 的 v3 快照（不迁移、不改写）。演进背景见 [三视图分层架构 Spec](../../specs/three-view-architecture/design.md)。
