@@ -53,7 +53,7 @@
   - 扩展 TUI 集成测试，覆盖启动、创建、恢复和继续 Goal 的既有可见结果与错误
   - _Requirements: [1.3](./requirements.md#req-1-3), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 9. 验证 Action/Observation 持久化与恢复回归
+- [x] //TODO 9. 验证 Action/Observation 持久化与恢复回归
 
   - 用自动化集成测试覆盖 Preparation、批准、Executing、Tool 决策和终态的完整链路
   - 断言 `pendingAction` 保存、Tool 执行、Observation 保存的顺序，以及中断后的原 `actionId`、safe/manual 重放和瞬时授权行为
