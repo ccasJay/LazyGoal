@@ -16,6 +16,7 @@ import type {
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
+    AGENT_DECISION_PROTOCOL,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
@@ -139,8 +140,28 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, 3),
+        adapter.requests[0]?.messages.slice(1, -1),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
+    );
+    assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
+    assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
+    assert.equal(
+        adapter.requests[0]?.messages[0]?.content,
+        [
+            "你是一个执行代理。",
+            "Instructions:\n1. 检查当前上下文",
+            AGENT_DECISION_PROTOCOL,
+        ].join("\n\n")
+            + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]",
+    );
+    assert.deepEqual(
+        JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
+        {
+            phase: "executing",
+            intent: task.objective,
+            task,
+            execution: { stepCount: 0 },
+        },
     );
 });
 

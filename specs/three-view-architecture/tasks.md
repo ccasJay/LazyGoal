@@ -39,7 +39,7 @@
   - 添加字段覆盖、对象隔离、状态不变和跨 View 泄漏测试
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 7. 通过 LLM View 渲染请求并解析领域输入
+- [x] //TODO 7. 通过 LLM View 渲染请求并解析领域输入
 
   - 实现只依赖 View DTO 与 LLM 类型的纯 Renderer，并让 Preparation/Step Builder 组合 Projector 与 Renderer
   - 保留严格响应解析后显式构造 `PreparationResult` 或 `AgentDecision` 的边界，移除模型类型向 Runtime 的隐式透传
