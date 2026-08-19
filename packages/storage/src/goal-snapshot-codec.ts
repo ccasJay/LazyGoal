@@ -4,7 +4,6 @@ import type {
     GoalMessage,
     GoalTask,
     GoalWorkflowState,
-    JsonValue,
     Observation,
     PendingAction,
     StepRecord,
@@ -14,7 +13,6 @@ import {
     GoalSnapshotProtocolError,
     GoalSnapshotV3Schema,
 } from "./goal-snapshot";
-import type { SnapshotJsonValue } from "./goal-snapshot";
 import type {
     GoalSnapshotMessageV3,
     GoalSnapshotObservationV3,
@@ -36,7 +34,8 @@ import type {
  * 接受严格非 Legacy v3：v1、v2、包含 `legacy` StepRecord 的 v3 与未知版本
  * 统一抛出 {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
  * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 3 }` 并再次
- * 执行跨字段校验，两侧对象互不共享引用。
+ * 执行跨字段校验，两侧对象互不共享引用；JSON 值的深复制基于 Node 内置
+ * `structuredClone` 实现。
  *
  * @example
  * ```ts
@@ -61,26 +60,6 @@ export interface GoalSnapshotCodec {
      *   改写任何文件。
      */
     decode(input: unknown): Goal;
-}
-
-function cloneJsonValue(value: JsonValue): JsonValue;
-function cloneJsonValue(value: SnapshotJsonValue): SnapshotJsonValue;
-function cloneJsonValue(value: SnapshotJsonValue): SnapshotJsonValue {
-    if (Array.isArray(value)) {
-        return value.map(cloneJsonValue);
-    }
-
-    if (typeof value === "object" && value !== null) {
-        const result: Record<string, SnapshotJsonValue> = {};
-
-        for (const [key, entry] of Object.entries(value)) {
-            result[key] = cloneJsonValue(entry);
-        }
-
-        return result;
-    }
-
-    return value;
 }
 
 function isRecord(input: unknown): input is Record<string, unknown> {
@@ -219,7 +198,7 @@ function encodeAction(action: ToolCallAction): GoalSnapshotToolCallActionV3 {
     return {
         actionId: action.actionId,
         toolId: action.toolId,
-        input: cloneJsonValue(action.input),
+        input: structuredClone(action.input),
     };
 }
 
@@ -230,7 +209,7 @@ function encodeObservation(
         case "success":
             return {
                 kind: "success",
-                output: cloneJsonValue(observation.output),
+                output: structuredClone(observation.output),
                 summary: observation.summary,
             };
         case "failure":
@@ -369,7 +348,7 @@ function decodeAction(action: GoalSnapshotToolCallActionV3): ToolCallAction {
     return {
         actionId: action.actionId,
         toolId: action.toolId,
-        input: cloneJsonValue(action.input),
+        input: structuredClone(action.input),
     };
 }
 
@@ -380,7 +359,7 @@ function decodeObservation(
         case "success":
             return {
                 kind: "success",
-                output: cloneJsonValue(observation.output),
+                output: structuredClone(observation.output),
                 summary: observation.summary,
             };
         case "failure":
