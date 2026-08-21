@@ -22,7 +22,7 @@ import { isJsonObject, invalidInput } from "./internal/json-input";
 export const BASH_TOOL_ID = "bash";
 
 /** 未指定 `timeoutMs` 时使用的默认命令超时（毫秒）。 */
-export const BASH_DEFAULT_TIMEOUT_MS = 30_000;
+const BASH_DEFAULT_TIMEOUT_MS = 30_000;
 
 /** 单次命令允许的最大超时（毫秒）。 */
 export const BASH_MAX_TIMEOUT_MS = 120_000;
@@ -31,7 +31,7 @@ export const BASH_MAX_TIMEOUT_MS = 120_000;
 export const BASH_MAX_OUTPUT_CHARS = 10_000;
 
 /** 子进程输出缓冲区上限（字节），超过即杀死进程。 */
-export const BASH_MAX_BUFFER_BYTES = 1024 * 1024;
+const BASH_MAX_BUFFER_BYTES = 1024 * 1024;
 
 const execAsync = promisify(exec);
 

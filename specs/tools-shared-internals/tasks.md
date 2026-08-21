@@ -21,7 +21,7 @@
   - 运行 `npx tsx --test packages/tools/test/*.test.ts` 验证零回归
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [4.1](./requirements.md#req-4-1), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 4. 收窄公共导出面并做全量验收
+- [x] //TODO 4. 收窄公共导出面并做全量验收
 
   - `index.ts` 删除 6 个零引用常量重导出；`GREP_MAX_*` 与 `BASH_DEFAULT_TIMEOUT_MS`、`BASH_MAX_BUFFER_BYTES` 降级为模块私有 `const`
   - 全量验证：`npx tsc --noEmit`、`npx tsx --test packages/tools/test/*.test.ts`（测试源码零改动）、`npm run check:dependencies`

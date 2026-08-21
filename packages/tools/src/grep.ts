@@ -33,16 +33,16 @@ import {
 export const GREP_TOOL_ID = "grep";
 
 /** 单次搜索最多扫描的文件数，超过即截断结果。 */
-export const GREP_MAX_FILES = 2000;
+const GREP_MAX_FILES = 2000;
 
 /** 单次搜索最多返回的匹配行数，超过即截断结果。 */
-export const GREP_MAX_MATCHES = 200;
+const GREP_MAX_MATCHES = 200;
 
 /** 目录递归的最大深度。 */
-export const GREP_MAX_DEPTH = 16;
+const GREP_MAX_DEPTH = 16;
 
 /** 单行匹配文本保留的最大字符数。 */
-export const GREP_MAX_LINE_CHARS = 500;
+const GREP_MAX_LINE_CHARS = 500;
 
 /** 递归时默认跳过的目录名（隐藏控制目录与依赖目录）。 */
 const SKIPPED_DIRECTORY_NAMES = new Set([
