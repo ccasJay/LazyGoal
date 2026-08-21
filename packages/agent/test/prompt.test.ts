@@ -9,17 +9,15 @@ import type {
     PendingAction,
     StepRecord,
 } from "../../runtime/src/domain";
-import { InMemoryGoalStore } from "../../runtime/src/goal-store";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
+    AGENT_DECISION_PROTOCOL,
     buildPreparationRequest,
     buildStepRequest,
-    buildStepUserMessage,
-    buildWorkingContext,
-    buildWorkingContextMessage,
     PREPARATION_RESULT_PROTOCOL,
-    STEP_RESULT_PROTOCOL,
 } from "../src/prompt";
+import { ModelInferenceProjector } from "../src/model-inference-projector";
 
 const intent = "完成示例任务";
 const task = {
@@ -109,107 +107,6 @@ function createExecutingGoal(options: {
     };
 }
 
-test("buildWorkingContext 按 gathering、planning、executing 三阶段派生", () => {
-    assert.deepEqual(buildWorkingContext(createPreparationGoal()), {
-        phase: "gathering_context",
-        intent,
-    });
-    assert.deepEqual(buildWorkingContext(createPreparationGoal("planning")), {
-        phase: "planning",
-        intent,
-    });
-    assert.deepEqual(buildWorkingContext(createExecutingGoal()), {
-        phase: "executing",
-        intent,
-        task,
-        execution: { stepCount: 0 },
-    });
-});
-
-test("executing WorkingContext 只投影正数 maxSteps 和最近 previousStep", () => {
-    const previousStep: StepRecord = {
-        kind: "legacy",
-        result: { kind: "continue", summary: "已完成输入检查" },
-    };
-    const goal = createExecutingGoal({
-        maxSteps: 4,
-        stepCount: 1,
-        previousStep,
-    });
-    const context = buildWorkingContext(goal);
-
-    assert.deepEqual(context, {
-        phase: "executing",
-        intent,
-        task,
-        execution: {
-            stepCount: 1,
-            maxSteps: 4,
-            previousStep,
-        },
-    });
-    assert.notStrictEqual(
-        context.phase === "executing" ? context.task : undefined,
-        goal.state.workflow.phase === "executing"
-            ? goal.state.workflow.task
-            : undefined,
-    );
-    assert.notStrictEqual(
-        context.phase === "executing"
-            ? context.execution.previousStep
-            : undefined,
-        goal.state.run.lastStep,
-    );
-});
-
-test("executing WorkingContext 投影 checkpoint、最近 Action Step 和 pendingAction", () => {
-    const previousStep: StepRecord = {
-        kind: "action",
-        action: {
-            actionId: "action-1",
-            toolId: "read_file",
-            input: { path: "README.md" },
-        },
-        observation: {
-            kind: "success",
-            output: "完成",
-            summary: "已读取 README.md",
-        },
-    };
-    const pendingAction: PendingAction = {
-        action: {
-            actionId: "action-2",
-            toolId: "read_file",
-            input: { path: "package.json" },
-        },
-        status: "approved",
-    };
-    const goal = createExecutingGoal({
-        stepCount: 1,
-        checkpoint: "已吸收 README 内容",
-        previousStep,
-        pendingAction,
-    });
-
-    const context = buildWorkingContext(goal);
-
-    assert.deepEqual(
-        context.phase === "executing" ? context.execution : undefined,
-        {
-            stepCount: 1,
-            checkpoint: "已吸收 README 内容",
-            previousStep,
-            pendingAction,
-        },
-    );
-    assert.notStrictEqual(
-        context.phase === "executing"
-            ? context.execution.pendingAction
-            : undefined,
-        pendingAction,
-    );
-});
-
 test("请求顺序固定为 system、真实历史、当前 Working Context", () => {
     const messages: readonly GoalMessage[] = [
         { role: "user", content: "补充的真实输入" },
@@ -225,7 +122,7 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
     assert.ok(
-        (request.messages[0]?.content ?? "").includes(STEP_RESULT_PROTOCOL),
+        (request.messages[0]?.content ?? "").includes(AGENT_DECISION_PROTOCOL),
     );
     assert.deepEqual(
         request.messages.slice(1, -1),
@@ -233,9 +130,8 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
     );
     assert.deepEqual(
         JSON.parse(request.messages.at(-1)?.content ?? ""),
-        buildWorkingContext(goal),
+        new ModelInferenceProjector().projectWorkingContext(goal),
     );
-    assert.deepEqual(buildStepUserMessage(goal), buildWorkingContextMessage(goal));
 });
 
 test("执行请求只展示调用方传入的授权 ToolDefinition", () => {

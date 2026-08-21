@@ -16,20 +16,23 @@ import { fileURLToPath } from "node:url";
 
 import {
     createGoal,
-    GoalSnapshotSchema,
+    Runner,
+    transition,
+} from "../../runtime/src/index";
+import {
     GoalSnapshotProtocolError,
+    GoalSnapshotV3Schema,
+    goalSnapshotCodec,
     InMemoryGoalStore,
     INVALID_GOAL_SNAPSHOT_CODE,
     JsonFileGoalStore,
-    Runner,
-    transition,
 } from "../src/index";
 import type {
     AgentProfile,
     Goal,
     GoalMessage,
     RunStatus,
-} from "../src/index";
+} from "../../runtime/src/index";
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -43,13 +46,43 @@ const messages: GoalMessage[] = [
     { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
 ];
 
-function createSnapshot(runId = "run-1"): Goal {
-    return createGoal({
-        id: "goal-1",
-        task: {
-            objective: "完成快照存储",
-            completionCriteria: ["可以恢复最新 Goal"],
+function createExecutingGoal(input: {
+    readonly id: string;
+    readonly objective: string;
+    readonly completionCriteria: readonly string[];
+    readonly profile: AgentProfile;
+    readonly messages?: readonly GoalMessage[];
+    readonly runId: string;
+}): Goal {
+    const created = createGoal({
+        id: input.id,
+        intent: input.objective,
+        profile: input.profile,
+        runId: input.runId,
+        ...(input.messages === undefined ? {} : { messages: input.messages }),
+    });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: input.objective,
+                    completionCriteria: [...input.completionCriteria],
+                },
+            },
         },
+    };
+}
+
+function createSnapshot(runId = "run-1"): Goal {
+    return createExecutingGoal({
+        id: "goal-1",
+        objective: "完成快照存储",
+        completionCriteria: ["可以恢复最新 Goal"],
         profile,
         messages,
         runId,
@@ -162,12 +195,10 @@ function transitionGoal(
 }
 
 function createCatalogGoal(id: string, status: RunStatus): Goal {
-    const goal = createGoal({
+    const goal = createExecutingGoal({
         id,
-        task: {
-            objective: `Intent ${id}`,
-            completionCriteria: ["完成目录测试"],
-        },
+        objective: `Intent ${id}`,
+        completionCriteria: ["完成目录测试"],
         profile,
         runId: `run-${id}`,
     });
@@ -259,9 +290,10 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
                 status: "waiting",
                 stepCount: 1,
                 lastStep: {
-                    kind: "legacy",
+                    kind: "decision",
                     result: {
                         kind: "wait",
+                        checkpoint: "等待外部输入",
                         reason: "等待外部输入",
                     },
                 },
@@ -270,32 +302,44 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
     };
 }
 
-test("GoalSnapshotSchema validates a complete Goal and rejects extra fields", () => {
-    const goal = createSnapshot();
-    const restored = GoalSnapshotSchema.parse(JSON.parse(JSON.stringify(goal)));
+function assertProtocolError(error: unknown): boolean {
+    assert.ok(error instanceof GoalSnapshotProtocolError);
+    assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
+    return true;
+}
 
-    assert.deepEqual(restored, goal);
-    assert.throws(() => GoalSnapshotSchema.parse({
-        ...goal,
-        extra: true,
-    }));
-    assert.throws(() => GoalSnapshotSchema.parse({
-        ...goal,
-        definition: {
-            ...goal.definition,
-            profile: {
-                ...goal.definition.profile,
-                extra: true,
+test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", () => {
+    const goal = createSnapshot();
+    const encoded = goalSnapshotCodec.encode(goal);
+
+    assert.equal(encoded.metadata.schemaVersion, 3);
+    assert.deepEqual(goalSnapshotCodec.decode(encoded), goal);
+
+    assert.throws(
+        () => goalSnapshotCodec.decode({ ...encoded, extra: true }),
+        assertProtocolError,
+    );
+    assert.throws(
+        () => goalSnapshotCodec.decode({
+            ...encoded,
+            definition: {
+                ...encoded.definition,
+                profile: {
+                    ...encoded.definition.profile,
+                    extra: true,
+                },
             },
-        },
-    }));
+        }),
+        assertProtocolError,
+    );
 });
 
-test("GoalSnapshotSchema accepts bounded v3 Action memory and approval state", () => {
+test("GoalSnapshotCodec round-trips bounded Action memory and approval state", () => {
     const actionGoal = createActionSnapshot();
-    const parsedAction = GoalSnapshotSchema.parse(actionGoal);
+    const encodedAction = goalSnapshotCodec.encode(actionGoal);
 
-    assert.deepEqual(parsedAction, actionGoal);
+    assert.equal(encodedAction.metadata.schemaVersion, 3);
+    assert.deepEqual(goalSnapshotCodec.decode(encodedAction), actionGoal);
 
     const pendingGoal: Goal = {
         ...createSnapshot("run-pending"),
@@ -318,11 +362,216 @@ test("GoalSnapshotSchema accepts bounded v3 Action memory and approval state", (
         },
     };
 
-    assert.deepEqual(GoalSnapshotSchema.parse(pendingGoal), pendingGoal);
+    assert.deepEqual(
+        goalSnapshotCodec.decode(goalSnapshotCodec.encode(pendingGoal)),
+        pendingGoal,
+    );
 });
 
-test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
-    const goal = createSnapshot("run-invalid-v3");
+test("GoalSnapshotCodec restores the complete Runtime State for every phase", () => {
+    const planning: Goal = createGoal({
+        id: "goal-planning",
+        intent: "先准备",
+        profile,
+        runId: "run-planning",
+    });
+    const planningWaiting: Goal = {
+        ...planning,
+        state: {
+            ...planning.state,
+            workflow: {
+                phase: "planning",
+                preparation: {
+                    status: "waiting_approval",
+                    proposal: {
+                        objective: "准备后的任务",
+                        completionCriteria: ["批准后执行"],
+                    },
+                },
+            },
+            messages: [
+                ...planning.state.messages,
+                {
+                    role: "assistant",
+                    assistant: { profileId: "profile-1" },
+                    content: "请批准任务",
+                },
+            ],
+        },
+    };
+    const failed: Goal = {
+        ...createSnapshot("run-failed"),
+        state: {
+            ...createSnapshot("run-failed").state,
+            run: {
+                id: "run-failed",
+                status: "failed",
+                stepCount: 1,
+                checkpoint: "执行中断",
+                lastStep: {
+                    kind: "action",
+                    action: {
+                        actionId: "action-done",
+                        toolId: "read_file",
+                        input: { path: "a.txt" },
+                    },
+                    observation: {
+                        kind: "success",
+                        output: "ok",
+                        summary: "已读取",
+                    },
+                },
+                pendingAction: {
+                    action: {
+                        actionId: "action-unknown",
+                        toolId: "read_file",
+                        input: { path: "b.txt" },
+                    },
+                    status: "outcome_unknown",
+                },
+                stopReason: {
+                    kind: "execution_error",
+                    code: "TOOL_EXECUTION_ERROR",
+                    message: "进程中断",
+                },
+            },
+        },
+    };
+
+    for (const goal of [planning, planningWaiting, failed]) {
+        const restored = goalSnapshotCodec.decode(
+            goalSnapshotCodec.encode(goal),
+        );
+
+        assert.deepEqual(restored, goal);
+        assert.notStrictEqual(restored, goal);
+    }
+
+    const restoredFailed = goalSnapshotCodec.decode(
+        goalSnapshotCodec.encode(failed),
+    );
+
+    assert.equal(restoredFailed.state.workflow.phase, "executing");
+    assert.equal(restoredFailed.state.run.status, "failed");
+    assert.equal(restoredFailed.state.run.stepCount, 1);
+    assert.equal(restoredFailed.state.run.checkpoint, "执行中断");
+    assert.equal(restoredFailed.state.run.lastStep?.kind, "action");
+    assert.equal(
+        restoredFailed.state.run.pendingAction?.status,
+        "outcome_unknown",
+    );
+    assert.equal(
+        restoredFailed.state.run.pendingAction?.action.actionId,
+        "action-unknown",
+    );
+    assert.deepEqual(restoredFailed.state.run.stopReason, {
+        kind: "execution_error",
+        code: "TOOL_EXECUTION_ERROR",
+        message: "进程中断",
+    });
+});
+
+test("GoalSnapshotCodec isolates objects between Runtime and Snapshot", () => {
+    const goal = createActionSnapshot();
+    const encoded = goalSnapshotCodec.encode(goal);
+
+    const goalStep = goal.state.run.lastStep;
+    assert.equal(goalStep?.kind, "action");
+    if (goalStep?.kind !== "action") {
+        return;
+    }
+    (goalStep.action.input as { path: string }).path = "mutated-by-runtime.json";
+    (goal.definition.profile.instructions as string[]).push("运行时修改");
+
+    assert.deepEqual(
+        encoded.state.run.lastStep?.kind === "action"
+            ? encoded.state.run.lastStep.action.input
+            : undefined,
+        { path: "README.md", options: { encoding: "utf8" } },
+    );
+    assert.deepEqual(
+        encoded.definition.profile.instructions,
+        ["先检查输入", "再执行任务"],
+    );
+
+    const first = goalSnapshotCodec.decode(encoded);
+    const second = goalSnapshotCodec.decode(encoded);
+
+    assert.deepEqual(first, second);
+    assert.deepEqual(first, goalSnapshotCodec.decode(JSON.parse(
+        JSON.stringify(goalSnapshotCodec.encode(createActionSnapshot())),
+    )));
+
+    const encodedStep = encoded.state.run.lastStep;
+    assert.equal(encodedStep?.kind, "action");
+    if (encodedStep?.kind !== "action") {
+        return;
+    }
+    (encodedStep.action.input as { path: string }).path = "mutated-by-storage.json";
+    (encoded.definition.profile.instructions as string[]).push("存储修改");
+
+    assert.deepEqual(first, goalSnapshotCodec.decode(
+        goalSnapshotCodec.encode(createActionSnapshot()),
+    ));
+
+    const firstStep = first.state.run.lastStep;
+    assert.equal(firstStep?.kind, "action");
+    if (firstStep?.kind !== "action") {
+        return;
+    }
+    (firstStep.action.input as { path: string }).path = "mutated-by-caller.json";
+
+    assert.equal(second.state.run.lastStep?.kind, "action");
+    if (second.state.run.lastStep?.kind !== "action") {
+        return;
+    }
+    assert.deepEqual(
+        second.state.run.lastStep.action.input,
+        { path: "README.md", options: { encoding: "utf8" } },
+    );
+});
+
+test("GoalSnapshotCodec rejects v1, v2, legacy v3, and unknown versions without changing the source", () => {
+    const v1 = createV1Snapshot();
+    const v1Source = JSON.stringify(v1);
+    const v2 = createV2Snapshot();
+    const v2Source = JSON.stringify(v2);
+    const encoded = goalSnapshotCodec.encode(createSnapshot());
+    const legacyV3 = {
+        ...encoded,
+        state: {
+            ...encoded.state,
+            run: {
+                ...encoded.state.run,
+                status: "waiting" as const,
+                stepCount: 1,
+                lastStep: {
+                    kind: "legacy",
+                    result: { kind: "wait", reason: "旧执行协议" },
+                },
+            },
+        },
+    };
+    const legacySource = JSON.stringify(legacyV3);
+
+    assert.throws(() => goalSnapshotCodec.decode(v1), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(v2), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(legacyV3), assertProtocolError);
+    assert.throws(
+        () => goalSnapshotCodec.decode({
+            ...encoded,
+            metadata: { schemaVersion: 99 },
+        }),
+        assertProtocolError,
+    );
+
+    assert.equal(JSON.stringify(v1), v1Source);
+    assert.equal(JSON.stringify(v2), v2Source);
+    assert.equal(JSON.stringify(legacyV3), legacySource);
+});
+
+test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
+    const encoded = goalSnapshotCodec.encode(createSnapshot("run-invalid-v3"));
     const action = {
         actionId: "action-invalid",
         toolId: "read_file",
@@ -330,9 +579,9 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
     } as const;
     const invalidSnapshots: unknown[] = [
         {
-            ...goal,
+            ...encoded,
             state: {
-                ...goal.state,
+                ...encoded.state,
                 run: {
                     id: "run-invalid-v3",
                     status: "running",
@@ -341,9 +590,9 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
             },
         },
         {
-            ...goal,
+            ...encoded,
             state: {
-                ...goal.state,
+                ...encoded.state,
                 run: {
                     id: "run-invalid-v3",
                     status: "running",
@@ -354,9 +603,9 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
             },
         },
         {
-            ...goal,
+            ...encoded,
             state: {
-                ...goal.state,
+                ...encoded.state,
                 run: {
                     id: "run-invalid-v3",
                     status: "waiting",
@@ -366,9 +615,9 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
             },
         },
         {
-            ...goal,
+            ...encoded,
             state: {
-                ...goal.state,
+                ...encoded.state,
                 run: {
                     id: "run-invalid-v3",
                     status: "running",
@@ -378,9 +627,9 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
             },
         },
         {
-            ...goal,
+            ...encoded,
             state: {
-                ...goal.state,
+                ...encoded.state,
                 run: {
                     id: "run-invalid-v3",
                     status: "completed",
@@ -393,76 +642,96 @@ test("GoalSnapshotSchema rejects invalid v3 cross-field combinations", () => {
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotSchema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV3Schema.safeParse(invalidSnapshot).success, false);
     }
 });
 
-test("GoalSnapshotSchema enforces v3 workflow and Run cross-field invariants", () => {
-    const snapshot = createSnapshot();
-    const continueStep = {
-        lastStep: {
-            kind: "legacy",
-            result: { kind: "continue", summary: "继续" },
+test("GoalSnapshotV3Schema enforces workflow and Run cross-field invariants", () => {
+    const encoded = goalSnapshotCodec.encode(createSnapshot());
+    const waitStep = {
+        kind: "decision",
+        result: {
+            kind: "wait",
+            checkpoint: "等待输入",
+            reason: "等待外部输入",
+        },
+    } as const;
+    const completeStep = {
+        kind: "decision",
+        result: {
+            kind: "complete",
+            checkpoint: "已完成",
+            summary: "不应出现在 waiting Run",
         },
     } as const;
     const invalidSnapshots: unknown[] = [
-        {
-            ...createGoal({
+        (() => {
+            const preparation = goalSnapshotCodec.encode(createGoal({
                 id: "goal-preparation",
                 intent: "先准备",
                 profile,
                 runId: "run-preparation",
-            }),
-            state: {
-                ...createGoal({
-                    id: "goal-preparation",
-                    intent: "先准备",
-                    profile,
-                    runId: "run-preparation",
-                }).state,
-                run: { id: "run-preparation", status: "running", stepCount: 0 },
-            },
-        },
+            }));
+
+            return {
+                ...preparation,
+                state: {
+                    ...preparation.state,
+                    run: {
+                        id: "run-preparation",
+                        status: "running" as const,
+                        stepCount: 0,
+                    },
+                },
+            };
+        })(),
         {
-            ...snapshot,
+            ...encoded,
             state: {
-                ...snapshot.state,
+                ...encoded.state,
                 run: { id: "run-1", status: "running", stepCount: 1 },
             },
         },
         {
-            ...snapshot,
+            ...encoded,
             state: {
-                ...snapshot.state,
+                ...encoded.state,
                 run: {
                     id: "run-1",
                     status: "waiting",
                     stepCount: 1,
-                    ...continueStep,
+                    lastStep: completeStep,
+                    checkpoint: "等待输入",
                 },
             },
         },
         {
-            ...snapshot,
+            ...encoded,
             state: {
-                ...snapshot.state,
+                ...encoded.state,
                 run: {
                     id: "run-1",
                     status: "failed",
                     stepCount: 1,
-                    ...continueStep,
+                    lastStep: waitStep,
+                    checkpoint: "等待输入",
                 },
             },
         },
         {
-            ...snapshot,
+            ...encoded,
+            definition: {
+                ...encoded.definition,
+                executionPolicy: { maxSteps: 1 },
+            },
             state: {
-                ...snapshot.state,
+                ...encoded.state,
                 run: {
                     id: "run-1",
                     status: "failed",
                     stepCount: 1,
-                    ...continueStep,
+                    lastStep: completeStep,
+                    checkpoint: "等待输入",
                     stopReason: { kind: "max_steps_exceeded" },
                 },
             },
@@ -470,90 +739,8 @@ test("GoalSnapshotSchema enforces v3 workflow and Run cross-field invariants", (
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotSchema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV3Schema.safeParse(invalidSnapshot).success, false);
     }
-});
-
-test("schemaVersion 1 snapshot migrates deterministically without changing source", () => {
-    const v1 = createV1Snapshot();
-    const sourceBefore = JSON.stringify(v1);
-    const migrated = GoalSnapshotSchema.parse(v1);
-
-    assert.equal(JSON.stringify(v1), sourceBefore);
-    assert.deepEqual(migrated, {
-        id: "goal-v1",
-        metadata: { schemaVersion: 3 },
-        definition: {
-            intent: "恢复旧版任务",
-            profile: v1.profile,
-            executionPolicy: { maxSteps: 0 },
-        },
-        state: {
-            workflow: {
-                phase: "executing",
-                preparation: { status: "completed" },
-                task: v1.task,
-            },
-            messages: [
-                { role: "user", content: "旧版真实输入" },
-                {
-                    role: "assistant",
-                    assistant: { profileId: "profile-1" },
-                    content: "旧版真实响应",
-                },
-                { role: "user", content: "可能是历史 Working Context" },
-            ],
-            run: {
-                id: "run-v1",
-                status: "waiting",
-                stepCount: 1,
-                lastStep: {
-                    kind: "legacy",
-                    result: { kind: "wait", reason: "等待旧版输入" },
-                },
-            },
-        },
-    });
-});
-
-test("schemaVersion 2 migrates to v3 with a derived checkpoint without write-back", () => {
-    const v2 = createV2Snapshot();
-    const sourceBefore = JSON.stringify(v2);
-    const migrated = GoalSnapshotSchema.parse(v2);
-
-    assert.equal(JSON.stringify(v2), sourceBefore);
-    assert.equal(migrated.metadata.schemaVersion, 3);
-    assert.deepEqual(migrated.state.run.lastStep, {
-        kind: "legacy",
-        result: {
-            kind: "continue",
-            summary: "旧版累计 checkpoint",
-        },
-    });
-    assert.equal(migrated.state.run.checkpoint, "旧版累计 checkpoint");
-});
-
-test("unknown versions and cross-field-invalid v1 snapshots are rejected", () => {
-    const v1 = createV1Snapshot();
-
-    assert.equal(GoalSnapshotSchema.safeParse({
-        ...v1,
-        metadata: { schemaVersion: 99 },
-    }).success, false);
-    assert.equal(GoalSnapshotSchema.safeParse({
-        ...v1,
-        run: {
-            ...v1.run,
-            status: "completed",
-        },
-    }).success, false);
-    assert.equal(GoalSnapshotSchema.safeParse({
-        ...v1,
-        run: {
-            ...v1.run,
-            stepCount: 0,
-        },
-    }).success, false);
 });
 
 test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
@@ -570,13 +757,17 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
             run: {
                 ...initial.state.run,
                 id: "run-2",
-                status: "running",
+                status: "waiting",
                 stepCount: 1,
                 lastStep: {
-                    kind: "legacy",
-                    result: { kind: "continue", summary: "继续执行" },
+                    kind: "decision",
+                    result: {
+                        kind: "wait",
+                        checkpoint: "等待继续执行",
+                        reason: "等待继续执行",
+                    },
                 },
-                checkpoint: "继续执行",
+                checkpoint: "等待继续执行",
             },
         },
     };
@@ -587,6 +778,7 @@ test("InMemoryGoalStore keeps only the latest complete snapshot", async () => {
     assert.deepEqual(await store.restore("goal-1"), latest);
     assert.deepEqual((await store.restore("goal-1"))?.definition.profile, profile);
     assert.deepEqual((await store.restore("goal-1"))?.state.messages, [
+        { role: "user", content: "完成快照存储" },
         { role: "user", content: "请开始执行" },
         { role: "assistant", assistant: { profileId: "profile-1" }, content: "我会先检查输入" },
         { role: "user", content: "继续执行" },
@@ -603,7 +795,7 @@ test("InMemoryGoalStore clones on save and restore", async () => {
 
     const first = await store.restore("goal-1");
     assert.deepEqual(first?.definition.profile.instructions, ["先检查输入", "再执行任务"]);
-    assert.deepEqual(first?.state.messages, messages);
+    assert.deepEqual(first?.state.messages, createSnapshot().state.messages);
 
     if (first === undefined) {
         assert.fail("expected a saved Goal");
@@ -668,7 +860,7 @@ test("InMemoryGoalStore validates before saving and returns undefined when missi
         extra: true,
     } as Goal;
 
-    await assert.rejects(store.save(invalid));
+    await assert.rejects(store.save(invalid), assertProtocolError);
     assert.equal(await store.restore("missing-goal"), undefined);
 });
 
@@ -693,75 +885,34 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
         assert.match(files[0] ?? "", /^[A-Za-z0-9_-]+\.json$/);
         assert.deepEqual(
             JSON.parse(await readFile(join(directory, files[0] ?? ""), "utf8")),
-            goal,
+            goalSnapshotCodec.encode(goal),
         );
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
 });
 
-test("JsonFileGoalStore restores v1 read-only and upgrades it on the next save", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
+test("JsonFileGoalStore rejects v1 and v2 snapshots without rewriting their files", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 
     try {
-        const v1 = createV1Snapshot();
-        const path = snapshotPath(directory, v1.id);
-        const originalContent = `${JSON.stringify(v1, null, 2)}\n`;
-        await mkdir(directory, { recursive: true });
-        await writeFile(path, originalContent, "utf8");
-        const store = new JsonFileGoalStore(directory);
+        for (const [index, legacy] of [
+            createV1Snapshot(),
+            createV2Snapshot(),
+        ].entries()) {
+            const directory = join(parent, `legacy-${index}`);
+            const path = snapshotPath(directory, legacy.id);
+            const originalContent = `${JSON.stringify(legacy, null, 2)}\n`;
+            await mkdir(directory, { recursive: true });
+            await writeFile(path, originalContent, "utf8");
+            const store = new JsonFileGoalStore(directory);
 
-        const restored = await store.restore(v1.id);
-
-        assert.ok(restored);
-        assert.equal(restored.metadata.schemaVersion, 3);
-        assert.equal(await readFile(path, "utf8"), originalContent);
-
-        await store.save(restored);
-        const saved = JSON.parse(await readFile(path, "utf8")) as {
-            readonly metadata: { readonly schemaVersion: number };
-            readonly task?: unknown;
-        };
-
-        assert.equal(saved.metadata.schemaVersion, 3);
-        assert.equal(saved.task, undefined);
-        assert.deepEqual(await store.restore(v1.id), restored);
+            await assert.rejects(store.restore(legacy.id), assertProtocolError);
+            assert.equal(await readFile(path, "utf8"), originalContent);
+            assert.equal((await readdir(directory)).length, 1);
+        }
     } finally {
-        await rm(directory, { recursive: true, force: true });
-    }
-});
-
-test("JsonFileGoalStore restores v2 read-only and upgrades it on the next save", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
-
-    try {
-        const v2 = createV2Snapshot();
-        const path = snapshotPath(directory, v2.id);
-        const originalContent = `${JSON.stringify(v2, null, 2)}\n`;
-        await mkdir(directory, { recursive: true });
-        await writeFile(path, originalContent, "utf8");
-        const store = new JsonFileGoalStore(directory);
-
-        const restored = await store.restore(v2.id);
-
-        assert.ok(restored);
-        assert.equal(restored.metadata.schemaVersion, 3);
-        assert.equal(restored.state.run.checkpoint, "旧版累计 checkpoint");
-        assert.equal(await readFile(path, "utf8"), originalContent);
-
-        await store.save(restored);
-        const saved = JSON.parse(await readFile(path, "utf8")) as {
-            readonly metadata: { readonly schemaVersion: number };
-            readonly state: {
-                readonly run: { readonly lastStep?: { readonly kind?: string } };
-            };
-        };
-
-        assert.equal(saved.metadata.schemaVersion, 3);
-        assert.equal(saved.state.run.lastStep?.kind, "legacy");
-        assert.deepEqual(await store.restore(v2.id), restored);
-    } finally {
-        await rm(directory, { recursive: true, force: true });
+        await rm(parent, { recursive: true, force: true });
     }
 });
 
@@ -782,13 +933,14 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
                 run: {
                     ...initial.state.run,
                     id: "run-latest",
-                    status: "running",
+                    status: "waiting",
                     stepCount: 2,
                     lastStep: {
-                        kind: "legacy",
+                        kind: "decision",
                         result: {
-                            kind: "continue",
-                            summary: "已保存最新进度",
+                            kind: "wait",
+                            checkpoint: "已保存最新进度",
+                            reason: "等待恢复后输入",
                         },
                     },
                     checkpoint: "已保存最新进度",
@@ -814,12 +966,10 @@ test("JsonFileGoalStore uses a safe encoded filename for arbitrary Goal IDs", as
 
     try {
         const goalId = "goal/with/slash/../危险";
-        const goal = createGoal({
+        const goal = createExecutingGoal({
             id: goalId,
-            task: {
-                objective: "验证路径安全",
-                completionCriteria: ["文件仍位于存储目录内"],
-            },
+            objective: "验证路径安全",
+            completionCriteria: ["文件仍位于存储目录内"],
             profile,
             messages,
             runId: "run-safe-path",
@@ -940,27 +1090,21 @@ test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => 
 
         await assert.rejects(
             new JsonFileGoalStore(directory).listResumable(),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
+            assertProtocolError,
         );
 
         await rm(join(directory, "broken.json"), { force: true });
         await writeFile(
             join(directory, "wrong-name.json"),
-            JSON.stringify(createCatalogGoal("goal-valid", "running")),
+            JSON.stringify(goalSnapshotCodec.encode(
+                createCatalogGoal("goal-valid", "running"),
+            )),
             "utf8",
         );
 
         await assert.rejects(
             new JsonFileGoalStore(directory).listResumable(),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
+            assertProtocolError,
         );
     } finally {
         await rm(directory, { recursive: true, force: true });
@@ -978,66 +1122,41 @@ test("JsonFileGoalStore normalizes invalid JSON, schema, and ID errors", async (
         await store.save(goal);
 
         await writeFile(path, "{invalid-json", "utf8");
-        await assert.rejects(
-            store.restore(goal.id),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
-        );
-
-        await writeFile(path, JSON.stringify({ ...goal, extra: true }), "utf8");
-        await assert.rejects(
-            store.restore(goal.id),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
-        );
+        await assert.rejects(store.restore(goal.id), assertProtocolError);
 
         await writeFile(
             path,
-            JSON.stringify({ ...goal, id: "another-goal" }),
+            JSON.stringify({ ...goalSnapshotCodec.encode(goal), extra: true }),
             "utf8",
         );
-        await assert.rejects(
-            store.restore(goal.id),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
+        await assert.rejects(store.restore(goal.id), assertProtocolError);
+
+        await writeFile(
+            path,
+            JSON.stringify({
+                ...goalSnapshotCodec.encode(goal),
+                id: "another-goal",
+            }),
+            "utf8",
         );
+        await assert.rejects(store.restore(goal.id), assertProtocolError);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
 });
 
-test("JsonFileGoalStore rejects damaged v1 without rewriting its file", async () => {
+test("JsonFileGoalStore rejects a legacy snapshot without rewriting it or executing Steps", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 
     try {
         const v1 = createV1Snapshot();
-        const damaged = {
-            ...v1,
-            run: { ...v1.run, status: "completed" },
-        };
         const path = snapshotPath(directory, v1.id);
-        const originalContent = JSON.stringify(damaged);
+        const originalContent = JSON.stringify(v1);
         await mkdir(directory, { recursive: true });
         await writeFile(path, originalContent, "utf8");
         const store = new JsonFileGoalStore(directory);
 
-        await assert.rejects(
-            store.restore(v1.id),
-            (error: unknown) => {
-                assert.ok(error instanceof GoalSnapshotProtocolError);
-                assert.equal(error.code, INVALID_GOAL_SNAPSHOT_CODE);
-                return true;
-            },
-        );
+        await assert.rejects(store.restore(v1.id), assertProtocolError);
         let executeCalls = 0;
         const runner = new Runner({
             store,
@@ -1045,10 +1164,9 @@ test("JsonFileGoalStore rejects damaged v1 without rewriting its file", async ()
                 async execute() {
                     executeCalls += 1;
                     return {
-                        result: {
-                            kind: "complete",
-                            summary: "不应执行",
-                        } as const,
+                        kind: "complete" as const,
+                        checkpoint: "不应执行",
+                        summary: "不应执行",
                     };
                 },
             },
@@ -1092,10 +1210,9 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
                 async execute() {
                     executeCalls += 1;
                     return {
-                        result: {
-                            kind: "complete",
-                            summary: "不应执行",
-                        } as const,
+                        kind: "complete" as const,
+                        checkpoint: "不应执行",
+                        summary: "不应执行",
                     };
                 },
             },
@@ -1165,37 +1282,27 @@ test("JsonFileGoalStore supports complete recovery across tsx processes", async 
     }
 });
 
-test("JsonFileGoalStore migrates v1 across tsx processes", async () => {
+test("JsonFileGoalStore rejects v1 across tsx processes without rewriting the file", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 
     try {
         const v1 = createV1Snapshot();
+        const originalContent = JSON.stringify(v1);
         await mkdir(directory, { recursive: true });
         await writeFile(
             snapshotPath(directory, v1.id),
-            JSON.stringify(v1),
+            originalContent,
             "utf8",
         );
 
-        const restoredOutput = await runGoalStoreProcess([
+        await assert.rejects(runGoalStoreProcess([
             "restore",
             directory,
             v1.id,
-        ]);
-        const restored = JSON.parse(restoredOutput) as Goal;
-
-        assert.equal(restored.metadata.schemaVersion, 3);
-        assert.equal(restored.state.workflow.phase, "executing");
-        assert.deepEqual(restored.state.messages[1], {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "旧版真实响应",
-        });
+        ]));
         assert.equal(
-            (JSON.parse(await readFile(snapshotPath(directory, v1.id), "utf8")) as {
-                readonly metadata: { readonly schemaVersion: number };
-            }).metadata.schemaVersion,
-            1,
+            await readFile(snapshotPath(directory, v1.id), "utf8"),
+            originalContent,
         );
     } finally {
         await rm(directory, { recursive: true, force: true });
@@ -1228,10 +1335,9 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
                 async execute(currentGoal: Goal) {
                     receivedGoals.push(currentGoal);
                     return {
-                        result: {
-                            kind: "complete" as const,
-                            summary: "跨进程恢复后完成",
-                        },
+                        kind: "complete" as const,
+                        checkpoint: "跨进程恢复后完成",
+                        summary: "跨进程恢复后完成",
                     };
                 },
             },
@@ -1273,7 +1379,6 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         assert.equal((receivedGoals[0] as Goal).state.run.stepCount, 1);
 
         const latest = await new JsonFileGoalStore(directory).restore(goal.id);
-        assert.deepEqual(latest?.metadata, goal.metadata);
         assert.deepEqual(latest?.state.workflow, goal.state.workflow);
         assert.deepEqual(latest?.definition.profile, goal.definition.profile);
         assert.deepEqual(latest?.state.messages, [
@@ -1297,12 +1402,10 @@ test("a cross-process Runner safely replays a persisted read_file Action once", 
 
     try {
         await writeFile(join(workspaceRoot, "README.md"), "跨进程文件内容", "utf8");
-        const initial = createGoal({
+        const initial = createExecutingGoal({
             id: "goal-cross-action",
-            task: {
-                objective: "跨进程恢复读取",
-                completionCriteria: ["读取成功"],
-            },
+            objective: "跨进程恢复读取",
+            completionCriteria: ["读取成功"],
             profile: { ...profile, toolIds: ["read_file"] },
             runId: "run-cross-action",
         });

@@ -5,25 +5,26 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
     createGoal,
-    InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type {
     Goal,
-    GoalInput,
     GoalMessage,
+    GoalTask,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
+    AGENT_DECISION_PROTOCOL,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
 } from "../src/index";
 import { buildStepRequest } from "../src/prompt";
 
-const goal: GoalInput = {
-    id: "goal-1",
+const goalId = "goal-1";
+const task: GoalTask = {
     objective: "完成单步执行",
     completionCriteria: ["返回结构化结果"],
 };
@@ -35,18 +36,38 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
+function createExecutingGoal(
+    runId: string,
+    runProfile: AgentProfile,
+    messages: readonly GoalMessage[],
+): Goal {
+    const created = createGoal({
+        id: goalId,
+        intent: task.objective,
+        profile: runProfile,
+        runId,
+    });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task,
+            },
+            messages: [...messages],
+        },
+    };
+}
+
 function createTestGoal(
     runId = "run-1",
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
 ): Goal {
-    const currentGoal = createGoal({
-        id: goal.id,
-        task: goal,
-        profile: runProfile,
-        messages,
-        runId,
-    });
+    const currentGoal = createExecutingGoal(runId, runProfile, messages);
 
     return {
         ...currentGoal,
@@ -119,8 +140,28 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, 3),
+        adapter.requests[0]?.messages.slice(1, -1),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
+    );
+    assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
+    assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
+    assert.equal(
+        adapter.requests[0]?.messages[0]?.content,
+        [
+            "你是一个执行代理。",
+            "Instructions:\n1. 检查当前上下文",
+            AGENT_DECISION_PROTOCOL,
+        ].join("\n\n")
+            + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]",
+    );
+    assert.deepEqual(
+        JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
+        {
+            phase: "executing",
+            intent: task.objective,
+            task,
+            execution: { stepCount: 0 },
+        },
     );
 });
 
@@ -137,10 +178,11 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
                 status: "running",
                 stepCount: 3,
                 lastStep: {
-                    kind: "legacy",
+                    kind: "decision",
                     result: {
-                        kind: "continue",
-                        summary: "已有进度",
+                        kind: "wait",
+                        checkpoint: "已有进度检查点",
+                        reason: "已有进度",
                     },
                 },
             },
@@ -232,13 +274,7 @@ function createStoredGoal(
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
 ): Promise<void> {
-    return store.save(createGoal({
-        id: goal.id,
-        task: goal,
-        profile: runProfile,
-        runId,
-        messages,
-    }));
+    return store.save(createExecutingGoal(runId, runProfile, messages));
 }
 
 test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async () => {
@@ -260,8 +296,8 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
         { role: "assistant", assistant: { profileId: "profile-1" }, content: "恢复后的历史响应" },
     ];
     await createStoredGoal(store, "run-loop", profile, initialMessages);
-    const result = await runner.run({ goalId: goal.id, runId: "run-loop" });
-    const persisted = await store.restore(goal.id);
+    const result = await runner.run({ goalId: goalId, runId: "run-loop" });
+    const persisted = await store.restore(goalId);
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -315,7 +351,7 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
         ...profile,
         toolIds: ["read_file"],
     });
-    const result = await runner.run({ goalId: goal.id, runId: "run-tool" });
+    const result = await runner.run({ goalId: goalId, runId: "run-tool" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -331,7 +367,7 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
         message: 'Authorized Tool "read_file" is not registered',
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
+    assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
 test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async () => {
@@ -344,7 +380,7 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
     });
 
     await createStoredGoal(store, "run-protocol");
-    const result = await runner.run({ goalId: goal.id, runId: "run-protocol" });
+    const result = await runner.run({ goalId: goalId, runId: "run-protocol" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -368,10 +404,10 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
         /^INVALID_LLM_RESPONSE: /,
     );
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
+    assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
-test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
+test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 Step", async () => {
     const store = new InMemoryGoalStore();
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
@@ -382,7 +418,7 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
     });
 
     await createStoredGoal(store, "run-adapter");
-    const result = await runner.run({ goalId: goal.id, runId: "run-adapter" });
+    const result = await runner.run({ goalId: goalId, runId: "run-adapter" });
 
     assert.equal(result.ok, true);
     if (!result.ok) {
@@ -392,9 +428,18 @@ test("Runner 持久化 Adapter 原始错误并只计一次 Step", async () => {
     assert.equal(result.state.status, "failed");
     assert.equal(result.state.stepCount, 1);
     assert.deepEqual(result.state.lastStep, {
-        kind: "legacy",
-        result: { kind: "fail", error: adapterError.message },
+        kind: "decision",
+        result: {
+            kind: "fail",
+            checkpoint: "Executor failed before returning an AgentDecision.",
+            error: adapterError.message,
+        },
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual((await store.restore(goal.id))?.state.run, result.state);
+    assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
+    assert.deepEqual((await store.restore(goalId))?.state.messages.at(-1), {
+        role: "assistant",
+        assistant: { profileId: profile.id },
+        content: adapterError.message,
+    });
 });

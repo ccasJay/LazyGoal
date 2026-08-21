@@ -18,3 +18,4 @@ coverage/
 # Local files
 .DS_Store
 *.log
+.trae/rules/git-commit-message.md

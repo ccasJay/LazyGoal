@@ -5,13 +5,13 @@ import {
     CheckpointGateFrozenError,
     CheckpointGateGoalStore,
     createGoal,
-    InMemoryGoalStore,
     ManagedResourceRegistry,
     ManagedResourceRegistryClosedError,
     ShutdownCoordinator,
     SHUTDOWN_EXIT_CODE,
     transition,
 } from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentProfile,
     ExitPort,
@@ -29,16 +29,29 @@ const profile: AgentProfile = {
 };
 
 function createPendingActionGoal(): Goal {
+    const task = {
+        objective: "保留关闭前检查点",
+        completionCriteria: ["pendingAction 仍可恢复"],
+    };
     const initial = createGoal({
         id: "goal-shutdown",
-        task: {
-            objective: "保留关闭前检查点",
-            completionCriteria: ["pendingAction 仍可恢复"],
-        },
+        intent: task.objective,
         profile,
         runId: "run-shutdown",
     });
-    const started = transition(initial.state.run, { kind: "start" });
+    const executing: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task,
+            },
+            messages: [],
+        },
+    };
+    const started = transition(executing.state.run, { kind: "start" });
 
     if (!started.ok) {
         throw new Error(started.error.message);
@@ -60,9 +73,9 @@ function createPendingActionGoal(): Goal {
     }
 
     return {
-        ...initial,
+        ...executing,
         state: {
-            ...initial.state,
+            ...executing.state,
             run: staged.state,
         },
     };

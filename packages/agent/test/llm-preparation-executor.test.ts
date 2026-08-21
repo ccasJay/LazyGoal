@@ -69,6 +69,15 @@ class RejectingAdapter implements LLMAdapter {
     }
 }
 
+function expectedSystemContent(protocol: string): string {
+    return [
+        "你是一个任务准备代理。",
+        "Instructions:\n1. 只收集必要信息",
+        protocol,
+    ].join("\n\n")
+        + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]";
+}
+
 test("gathering_context 只解析 question/context_ready 协议", async () => {
     const goal = createPreparationGoal();
     const adapter = new FakeAdapter(JSON.stringify({
@@ -84,10 +93,11 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
         question: "任务需要兼容旧快照吗？",
     });
     assert.equal(adapter.requests.length, 1);
-    assert.ok(
-        (adapter.requests[0]?.messages[0]?.content ?? "").includes(
-            PREPARATION_RESULT_PROTOCOL.gathering_context,
-        ),
+    assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
+    assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
+    assert.equal(
+        adapter.requests[0]?.messages[0]?.content,
+        expectedSystemContent(PREPARATION_RESULT_PROTOCOL.gathering_context),
     );
     assert.deepEqual(
         JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
@@ -118,10 +128,15 @@ test("planning 只解析 task_proposal 协议", async () => {
         approvalRequest: "是否批准该任务？",
     });
     assert.equal(adapter.requests.length, 1);
-    assert.ok(
-        (adapter.requests[0]?.messages[0]?.content ?? "").includes(
-            PREPARATION_RESULT_PROTOCOL.planning,
-        ),
+    assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
+    assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
+    assert.equal(
+        adapter.requests[0]?.messages[0]?.content,
+        expectedSystemContent(PREPARATION_RESULT_PROTOCOL.planning),
+    );
+    assert.deepEqual(
+        JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
+        { phase: "planning", intent: goal.definition.intent },
     );
 });
 

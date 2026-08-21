@@ -7,21 +7,18 @@ import {
     Runner,
     transition,
 } from "../src/index";
-import { InMemoryGoalStore } from "../src/goal-store";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentDecision,
     AgentProfile,
     Goal,
-    GoalInput,
     GoalMessage,
     GoalStore,
+    GoalTask,
     RunInput,
     RunnerResult,
     RunRef,
     RunState,
-    StepExecutionResult,
-    LegacyStepExecutor,
-    StepResult,
     StepExecutor,
     Tool,
     ToolDefinition,
@@ -29,8 +26,7 @@ import type {
     ToolRegistry,
 } from "../src/index";
 
-const goalDefinition: GoalInput = {
-    id: "goal-1",
+const goalDefinition: GoalTask = {
     objective: "完成最小同步 Goal Loop",
     completionCriteria: ["Run 进入终态或等待状态"],
 };
@@ -42,11 +38,13 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
+const toolProfile: AgentProfile = { ...profile, toolIds: ["read_file"] };
+
 type ExecuteAction = (
     goal: Goal,
-) => StepResult | StepExecutionResult | Promise<StepResult | StepExecutionResult>;
+) => AgentDecision | Promise<AgentDecision>;
 
-class FakeStepExecutor implements LegacyStepExecutor {
+class FakeStepExecutor implements StepExecutor {
     readonly receivedGoals: Goal[] = [];
 
     constructor(
@@ -54,7 +52,7 @@ class FakeStepExecutor implements LegacyStepExecutor {
         private readonly events: string[] = [],
     ) {}
 
-    async execute(goal: Goal): Promise<StepExecutionResult> {
+    async execute(goal: Goal): Promise<AgentDecision> {
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
         this.events.push(`execute:${goal.state.run.status}:${goal.state.run.stepCount}`);
@@ -63,10 +61,7 @@ class FakeStepExecutor implements LegacyStepExecutor {
             throw new Error("Unexpected StepExecutor call");
         }
 
-        const outcome = await action(goal);
-        return "result" in outcome
-            ? outcome
-            : { result: outcome };
+        return action(goal);
     }
 }
 
@@ -194,19 +189,31 @@ function applyTransition(state: RunState, input: RunInput): RunState {
 
 function createInitialGoal(
     runId = "run-1",
-    goalId = goalDefinition.id,
+    goalId = "goal-1",
     runProfile: AgentProfile = profile,
     messages: readonly GoalMessage[] = [],
     maxSteps = 3,
 ): Goal {
-    return createGoal({
+    const created = createGoal({
         id: goalId,
-        task: goalDefinition,
+        intent: goalDefinition.objective,
         profile: runProfile,
-        messages,
         runId,
         maxSteps,
     });
+
+    return {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: goalDefinition,
+            },
+            messages: [...messages],
+        },
+    };
 }
 
 function withRun(goal: Goal, run: RunState): Goal {
@@ -214,7 +221,7 @@ function withRun(goal: Goal, run: RunState): Goal {
 }
 
 function createRunningGoal(runId = "run-1", maxSteps = 3): Goal {
-    const goal = createInitialGoal(runId, goalDefinition.id, profile, [], maxSteps);
+    const goal = createInitialGoal(runId, "goal-1", profile, [], maxSteps);
     return withRun(goal, applyTransition(goal.state.run, { kind: "start" }));
 }
 
@@ -223,8 +230,12 @@ function createWaitingGoal(runId = "run-1"): Goal {
     return withRun(
         running,
         applyTransition(running.state.run, {
-            kind: "step",
-            result: { kind: "wait", reason: "缺少外部依赖" },
+            kind: "decision",
+            decision: {
+                kind: "wait",
+                checkpoint: "等待外部输入",
+                reason: "缺少外部依赖",
+            },
         }),
     );
 }
@@ -272,15 +283,35 @@ async function assertRejectsWithSameError(
 test("starts a created Goal, saves every transition, and executes until completed", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
-    const initial = createInitialGoal();
+    const initial = createInitialGoal("run-1", "goal-1", toolProfile);
     await store.seed(initial);
-    const continueResult = { kind: "continue", summary: "继续执行" } as const;
-    const completeResult = { kind: "complete", summary: "目标完成" } as const;
+    const completeDecision = {
+        kind: "complete",
+        checkpoint: "已吸收读取结果",
+        summary: "目标完成",
+    } as const;
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: "ok",
+        summary: "读取完成",
+    }));
     const executor = new FakeStepExecutor([
-        () => continueResult,
-        () => completeResult,
+        () => ({
+            kind: "tool_call",
+            checkpoint: "准备读取文件",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        }),
+        () => completeDecision,
     ], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -290,6 +321,7 @@ test("starts a created Goal, saves every transition, and executes until complete
         "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
+        "save:goal-1:running:0",
         "save:goal-1:running:1",
         "execute:running:1",
         "save:goal-1:completed:2",
@@ -301,22 +333,28 @@ test("starts a created Goal, saves every transition, and executes until complete
         })),
         [
             { status: "running", stepCount: 0 },
+            { status: "running", stepCount: 0 },
             { status: "running", stepCount: 1 },
             { status: "completed", stepCount: 2 },
         ],
     );
     assert.strictEqual(executor.receivedGoals[0], store.savedGoals[0]);
-    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[1]);
-    assert.deepEqual(state, store.savedGoals[2]?.state.run);
+    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[2]);
+    assert.deepEqual(state, store.savedGoals[3]?.state.run);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.lastStep, {
-        kind: "legacy",
-        result: completeResult,
+        kind: "decision",
+        result: completeDecision,
     });
     assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
-        kind: "legacy",
-        result: continueResult,
+        kind: "action",
+        action: {
+            actionId: "action-1",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        observation: { kind: "success", output: "ok", summary: "读取完成" },
     });
 
     const persisted = await store.peek(initial.id);
@@ -361,14 +399,19 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
     const store = new RecordingGoalStore(events);
     const initial = createInitialGoal();
     await store.seed(initial);
-    const waitResult = {
+    const waitDecision = {
         kind: "wait",
+        checkpoint: "需要用户批准",
         reason: "需要破坏性操作批准",
     } as const;
-    const completeResult = { kind: "complete", summary: "批准后完成" } as const;
+    const completeDecision = {
+        kind: "complete",
+        checkpoint: "批准后收尾",
+        summary: "批准后完成",
+    } as const;
     const executor = new FakeStepExecutor([
-        () => waitResult,
-        () => completeResult,
+        () => waitDecision,
+        () => completeDecision,
     ], events);
     const runner = new Runner({ store, executor });
     const ref = createRef(initial);
@@ -472,13 +515,25 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
                     created,
                     applyTransition(created.state.run, { kind: "start" }),
                 );
+                const staged = applyTransition(running.state.run, {
+                    kind: "stage_action",
+                    checkpoint: "已确定要读取的文件",
+                    action: {
+                        actionId: "action-recovered",
+                        toolId: "read_file",
+                        input: { path: "README.md" },
+                    },
+                    status: "approved",
+                });
 
                 return withRun(
                     running,
-                    applyTransition(running.state.run, {
-                        kind: "step",
-                        result: {
-                            kind: "continue",
+                    applyTransition(staged, {
+                        kind: "observe_action",
+                        actionId: "action-recovered",
+                        observation: {
+                            kind: "success",
+                            output: "ok",
                             summary: "已完成并持久化的一步",
                         },
                     }),
@@ -498,6 +553,7 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
                 assert.deepEqual(goal.definition.profile, scenario.goal.definition.profile);
                 return {
                     kind: "complete",
+                    checkpoint: "恢复后收尾",
                     summary: `${scenario.label} 恢复后完成`,
                 };
             },
@@ -520,7 +576,11 @@ test("从 InMemoryGoalStore 恢复 waiting 和终态 Goal 时直接短路", asyn
     const waitingStore = new InMemoryGoalStore();
     await waitingStore.save(waiting);
     const waitingExecutor = new FakeStepExecutor([
-        () => ({ kind: "complete", summary: "恢复后完成" }),
+        () => ({
+            kind: "complete",
+            checkpoint: "恢复后收尾",
+            summary: "恢复后完成",
+        }),
     ]);
     const waitingRunner = new Runner({
         store: waitingStore,
@@ -565,8 +625,12 @@ const inactiveGoals: ReadonlyArray<{
         goal: withRun(
             createRunningGoal("run-completed"),
             applyTransition(createRunningGoal("run-completed").state.run, {
-                kind: "step",
-                result: { kind: "complete", summary: "已完成" },
+                kind: "decision",
+                decision: {
+                    kind: "complete",
+                    checkpoint: "已收尾",
+                    summary: "已完成",
+                },
             }),
         ),
     },
@@ -575,8 +639,12 @@ const inactiveGoals: ReadonlyArray<{
         goal: withRun(
             createRunningGoal("run-failed"),
             applyTransition(createRunningGoal("run-failed").state.run, {
-                kind: "step",
-                result: { kind: "fail", error: "已失败" },
+                kind: "decision",
+                decision: {
+                    kind: "fail",
+                    checkpoint: "已失败",
+                    error: "已失败",
+                },
             }),
         ),
     },
@@ -653,13 +721,30 @@ test("returns RUN_NOT_FOUND without executing or saving when runId mismatches", 
 test("fails at maxSteps without an extra executor call or step count", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
-    const initial = createInitialGoal("run-1", goalDefinition.id, profile, [], 2);
+    const initial = createInitialGoal("run-1", "goal-1", toolProfile, [], 2);
     await store.seed(initial);
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: "ok",
+        summary: "读取完成",
+    }));
     const executor = new FakeStepExecutor([
-        () => ({ kind: "continue", summary: "第一次" }),
-        () => ({ kind: "continue", summary: "第二次" }),
+        () => ({
+            kind: "tool_call",
+            checkpoint: "第一次",
+            action: { actionId: "action-1", toolId: "read_file", input: {} },
+        }),
+        () => ({
+            kind: "tool_call",
+            checkpoint: "第二次",
+            action: { actionId: "action-2", toolId: "read_file", input: {} },
+        }),
     ], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -669,20 +754,16 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.stopReason, { kind: "max_steps_exceeded" });
-    const lastResult = state.lastStep !== undefined && "result" in state.lastStep
-        ? state.lastStep.result
-        : undefined;
-    assert.equal(
-        lastResult?.kind,
-        "continue",
-    );
+    assert.equal(state.lastStep?.kind, "action");
     assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
+        "save:goal-1:running:0",
         "save:goal-1:running:1",
         "execute:running:1",
+        "save:goal-1:running:1",
         "save:goal-1:running:2",
         "save:goal-1:failed:2",
     ]);
@@ -692,18 +773,41 @@ test("fails at maxSteps without an extra executor call or step count", async () 
 test("uses persisted step count after external resume as the maxSteps budget", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
+    const running = createRunningGoal("run-1", 2);
     const firstStep = withRun(
-        createRunningGoal("run-1", 2),
-        applyTransition(createRunningGoal("run-1", 2).state.run, {
-            kind: "step",
-            result: { kind: "continue", summary: "已执行一步" },
-        }),
+        running,
+        (() => {
+            const staged = applyTransition(running.state.run, {
+                kind: "stage_action",
+                checkpoint: "已确定要读取的文件",
+                action: {
+                    actionId: "action-resume-budget",
+                    toolId: "read_file",
+                    input: { path: "README.md" },
+                },
+                status: "approved",
+            });
+
+            return applyTransition(staged, {
+                kind: "observe_action",
+                actionId: "action-resume-budget",
+                observation: {
+                    kind: "success",
+                    output: "ok",
+                    summary: "已执行一步",
+                },
+            });
+        })(),
     );
     const waitingAtLimit = withRun(
         firstStep,
         applyTransition(firstStep.state.run, {
-            kind: "step",
-            result: { kind: "wait", reason: "等待恢复" },
+            kind: "decision",
+            decision: {
+                kind: "wait",
+                checkpoint: "等待恢复",
+                reason: "等待恢复",
+            },
         }),
     );
     const externallyResumed = withRun(
@@ -735,7 +839,7 @@ test("uses persisted step count after external resume as the maxSteps budget", a
     ]);
 });
 
-test("converts an executor exception into a persisted step failure", async () => {
+test("converts an executor exception into a persisted fail decision", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const initial = createInitialGoal();
@@ -754,18 +858,21 @@ test("converts an executor exception into a persisted step failure", async () =>
 
     assert.equal(state.status, "failed");
     assert.equal(state.stepCount, 1);
-    const lastResult = state.lastStep !== undefined && "result" in state.lastStep
-        ? state.lastStep.result
-        : undefined;
-    assert.equal(
-        lastResult?.kind,
-        "fail",
-    );
-    if (lastResult?.kind !== "fail") {
-        assert.fail("expected an executor failure result");
-    }
-    assert.match(lastResult.error, /executor failed/);
-    assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
+    assert.deepEqual(state.lastStep, {
+        kind: "decision",
+        result: {
+            kind: "fail",
+            checkpoint: "Executor failed before returning an AgentDecision.",
+            error: "executor failed",
+        },
+    });
+    assert.deepEqual((await store.peek(initial.id))?.state.messages, [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "executor failed",
+        },
+    ]);
     assert.deepEqual(events, [
         "restore:goal-1",
         "save:goal-1:running:0",
@@ -775,12 +882,16 @@ test("converts an executor exception into a persisted step failure", async () =>
     assert.deepEqual((await store.peek(initial.id))?.state.run, state);
 });
 
-test("persists an explicit fail result with a normalized assistant message", async () => {
+test("persists an explicit fail decision with a normalized assistant message", async () => {
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal("run-explicit-fail");
     await store.save(initial);
     const executor = new FakeStepExecutor([
-        () => ({ kind: "fail", error: "无法满足完成条件" }),
+        () => ({
+            kind: "fail",
+            checkpoint: "无法继续",
+            error: "无法满足完成条件",
+        }),
     ]);
     const runner = new Runner({ store, executor });
 
@@ -803,20 +914,38 @@ test("maxSteps 为 0 时连续执行不受 Step 数量限制", async () => {
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal(
         "run-unlimited",
-        goalDefinition.id,
-        profile,
+        "goal-1",
+        toolProfile,
         [],
         0,
     );
     await store.save(initial);
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: "ok",
+        summary: "读取完成",
+    }));
     const executor = new FakeStepExecutor([
         ...Array.from({ length: 5 }, (_, index) => () => ({
-            kind: "continue" as const,
-            summary: `累计 checkpoint ${index + 1}`,
+            kind: "tool_call" as const,
+            checkpoint: `累计 checkpoint ${index + 1}`,
+            action: {
+                actionId: `action-${index + 1}`,
+                toolId: "read_file",
+                input: {},
+            },
         })),
-        () => ({ kind: "complete", summary: "无限模式完成" }),
+        () => ({
+            kind: "complete" as const,
+            checkpoint: "无限模式收尾",
+            summary: "无限模式完成",
+        }),
     ]);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -879,12 +1008,31 @@ test("propagates the start save error without executing", async () => {
 
 test("propagates a recovered step save error and does not execute another step", async () => {
     const saveError = new Error("step save failed");
-    const running = createRunningGoal();
+    const created = createInitialGoal("run-save-error", "goal-1", toolProfile, [], 3);
+    const running = withRun(
+        created,
+        applyTransition(created.state.run, { kind: "start" }),
+    );
+    const staged = applyTransition(running.state.run, {
+        kind: "stage_action",
+        checkpoint: "已确定要读取的文件",
+        action: {
+            actionId: "action-save-error",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "approved",
+    });
     const persisted = withRun(
         running,
-        applyTransition(running.state.run, {
-            kind: "step",
-            result: { kind: "continue", summary: "已持久化的一步" },
+        applyTransition(staged, {
+            kind: "observe_action",
+            actionId: "action-save-error",
+            observation: {
+                kind: "success",
+                output: "ok",
+                summary: "已持久化的一步",
+            },
         }),
     );
     let latestGoal = persisted;
@@ -901,11 +1049,32 @@ test("propagates a recovered step save error and does not execute another step",
             latestGoal = goal;
         },
     };
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: "ok",
+        summary: "读取完成",
+    }));
     const executor = new FakeStepExecutor([
-        () => ({ kind: "continue", summary: "恢复后继续" }),
-        () => ({ kind: "complete", summary: "不应执行" }),
+        () => ({
+            kind: "tool_call",
+            checkpoint: "恢复后继续",
+            action: {
+                actionId: "action-save-error-2",
+                toolId: "read_file",
+                input: {},
+            },
+        }),
+        () => ({
+            kind: "complete",
+            checkpoint: "不应执行",
+            summary: "不应执行",
+        }),
     ]);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: { get: () => tool },
+    });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked(createRef(persisted)),
@@ -918,7 +1087,7 @@ test("propagates a recovered step save error and does not execute another step",
             stepCount,
         })),
         [
-            { status: "running", stepCount: 2 },
+            { status: "running", stepCount: 1 },
         ],
     );
     assert.equal(executor.receivedGoals.length, 1);
@@ -986,7 +1155,7 @@ test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", a
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal(
         "run-missing-tool",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
@@ -1021,7 +1190,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal(
         "run-invalid-input",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
@@ -1074,7 +1243,7 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal(
         "run-tool-infrastructure",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
@@ -1122,7 +1291,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     const store = new InMemoryGoalStore();
     const initial = createInitialGoal(
         "run-policy-order",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
@@ -1213,7 +1382,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     const events: string[] = [];
     const initial = createInitialGoal(
         "run-auto-action",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const store = new RecordingGoalStore(events);
@@ -1296,7 +1465,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
 test("require_approval 会保存等待中的 Action 且不调用 Tool", async () => {
     const initial = createInitialGoal(
         "run-action-approval",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const store = new InMemoryGoalStore();
@@ -1341,7 +1510,7 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
 test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step", async () => {
     const initialGoal = createInitialGoal(
         "run-authorized-action",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
         [],
         0,
@@ -1404,7 +1573,7 @@ test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step",
 test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", async () => {
     const base = createInitialGoal(
         "run-safe-replay",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
         [],
         0,
@@ -1469,7 +1638,7 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
 test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而不调用 Tool", async () => {
     const base = createInitialGoal(
         "run-manual-replay",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["manual_tool"] },
         [],
         0,
@@ -1527,7 +1696,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
 test("Action loop reaches maxSteps after completing a pending Action", async () => {
     const initial = createInitialGoal(
         "run-action-max-steps",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
         [],
         1,
@@ -1567,7 +1736,7 @@ test("Action loop reaches maxSteps after completing a pending Action", async () 
 test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async () => {
     const initial = createInitialGoal(
         "run-action-unlimited",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
         [],
         0,
@@ -1621,7 +1790,7 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
 test("Runner 将领域 failure Observation 保存后继续下一轮", async () => {
     const initial = createInitialGoal(
         "run-domain-failure",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const store = new InMemoryGoalStore();
@@ -1678,7 +1847,7 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
 test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async () => {
     const initial = createInitialGoal(
         "run-pending-save-failure",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const saveError = new Error("pending save failed");
@@ -1718,7 +1887,7 @@ test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async
 test("Observation 保存失败时保留已暂存 pendingAction", async () => {
     const initial = createInitialGoal(
         "run-observation-save-failure",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const saveError = new Error("observation save failed");
@@ -1767,7 +1936,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
 test("Tool 异常会保存 outcome_unknown execution_error", async () => {
     const initial = createInitialGoal(
         "run-tool-error",
-        goalDefinition.id,
+        "goal-1",
         { ...profile, toolIds: ["read_file"] },
     );
     const store = new InMemoryGoalStore();

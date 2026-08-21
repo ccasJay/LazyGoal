@@ -112,7 +112,7 @@ export function transition(
                 };
             }
 
-            // 创建后直接取消：进入 cancelled，且不产生 StepResult。
+            // 创建后直接取消：进入 cancelled，且不消费 Step。
             if (input.kind === "cancel") {
                 return {
                     ok: true,
@@ -124,7 +124,7 @@ export function transition(
             }
             break;
 
-        // running 状态接受 Action、恢复、决策、旧 Step 结果或外部取消。
+        // running 状态接受 Action、恢复、决策或外部取消。
         case "running":
             if (input.kind === "recover_action") {
                 const pendingAction = currentState.pendingAction;
@@ -355,78 +355,6 @@ export function transition(
                         },
                     },
                 };
-            }
-
-            // 兼容尚未升级的 StepExecutor；新 Action 协议不应混用旧 step。
-            if (input.kind === "step") {
-                if (currentState.pendingAction !== undefined) {
-                    return invalidTransition(
-                        currentState,
-                        input,
-                        "Cannot apply a legacy step while an Action is pending",
-                    );
-                }
-
-                // step 暂时无法继续：记录结果、计数加一并进入 waiting。
-                if (input.result.kind === "wait") {
-                    const nextState: RunState = {
-                        ...currentState,
-                        status: "waiting",
-                        stepCount: currentState.stepCount + 1,
-                        lastStep: { kind: "legacy", result: input.result },
-                    };
-
-                    return {
-                        ok: true,
-                        state: nextState,
-                    };
-                }
-
-                // step 完成目标：记录结果、计数加一并进入 completed 终态。
-                if (input.result.kind === "complete") {
-                    const nextState: RunState = {
-                        ...currentState,
-                        status: "completed",
-                        stepCount: currentState.stepCount + 1,
-                        lastStep: { kind: "legacy", result: input.result },
-                    };
-
-                    return {
-                        ok: true,
-                        state: nextState,
-                    };
-                }
-
-                // step 仍需继续：记录结果、计数加一并保持 running。
-                if (input.result.kind === "continue") {
-                    const nextState: RunState = {
-                        ...currentState,
-                        status: "running",
-                        stepCount: currentState.stepCount + 1,
-                        lastStep: { kind: "legacy", result: input.result },
-                        checkpoint: input.result.summary,
-                    };
-
-                    return {
-                        ok: true,
-                        state: nextState,
-                    };
-                }
-
-                // step 执行失败：合法地记录结果并进入 failed 终态。
-                if (input.result.kind === "fail") {
-                    const nextState: RunState = {
-                        ...currentState,
-                        status: "failed",
-                        stepCount: currentState.stepCount + 1,
-                        lastStep: { kind: "legacy", result: input.result },
-                    };
-
-                    return {
-                        ok: true,
-                        state: nextState,
-                    };
-                }
             }
 
             // 运行期间取消：进入 cancelled，但不额外消费一次 step。

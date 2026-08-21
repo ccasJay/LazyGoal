@@ -2,11 +2,26 @@ import "dotenv/config";
 
 import {
     createGoal,
-    InMemoryGoalStore,
     Runner,
 } from "../../runtime/src/index";
+import type { Goal, GoalStore } from "../../runtime/src/index";
 import { LLMStepExecutor } from "../../agent/src/index";
-import { OpenAICompatible } from "./openai-compatible";
+import { OpenAICompatible } from "../src/openai-compatible";
+
+/** 冒烟测试使用的最小内存 GoalStore，只保证保存最新快照。 */
+class SmokeGoalStore implements GoalStore {
+    private goal: Goal | undefined;
+
+    async save(goal: Goal): Promise<void> {
+        this.goal = structuredClone(goal);
+    }
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return this.goal?.id === goalId
+            ? structuredClone(this.goal)
+            : undefined;
+    }
+}
 
 function requiredEnv(name: string): string {
     const value = process.env[name];
@@ -24,20 +39,15 @@ async function main(): Promise<void> {
         baseURL: requiredEnv("LLM_BASE_URL"),
         model: requiredEnv("LLM_MODEL"),
     });
-    const store = new InMemoryGoalStore();
+    const store = new SmokeGoalStore();
     const executor = new LLMStepExecutor({ adapter });
     const runner = new Runner({
         store,
         executor,
     });
-    const goal = createGoal({
+    const created = createGoal({
         id: "live-llm-goal",
-        task: {
-            objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
-            completionCriteria: [
-                "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
-            ],
-        },
+        intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
         profile: {
             id: "live-llm-profile",
             systemPrompt: "你是一个负责连通性验证的单步执行代理。",
@@ -49,6 +59,22 @@ async function main(): Promise<void> {
         runId: "live-llm-run",
         maxSteps: 3,
     });
+    const goal: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
+                    completionCriteria: [
+                        "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
+                    ],
+                },
+            },
+        },
+    };
 
     await store.save(goal);
     const startedAt = performance.now();

@@ -5,11 +5,11 @@ import {
     createGoal,
     ExecutionAbortedError,
     GoalCoordinator,
-    InMemoryGoalStore,
     InlineScheduler,
     Runner,
     throwIfAborted,
 } from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
 import type {
     AgentDecision,
     AgentProfile,

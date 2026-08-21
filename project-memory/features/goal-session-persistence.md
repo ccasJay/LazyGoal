@@ -1,12 +1,14 @@
 ---
 feature: goal-session-persistence
-status: active
+status: superseded
 summary: "Goal 聚合身份、最新快照与只读协议迁移边界"
 source_spec: specs/goal-session-persistence/
 distilled_at: 2026-08-16
-reviewed_at: 2026-08-18
+reviewed_at: 2026-08-19
 tags: [goal-store, snapshot, atomic-write, migration]
 authorities: [docs/architecture/runtime.md, packages/runtime/src/goal-store.ts]
+status_reason: "被 three-view-architecture 取代：旧快照由内存迁移改为统一拒绝，持久化实现迁至 @lazygoal/storage"
+superseded_by: [project-memory/features/three-view-architecture.md]
 ---
 
 # Goal Session Persistence
@@ -38,4 +40,4 @@ authorities: [docs/architecture/runtime.md, packages/runtime/src/goal-store.ts]
 - S1: `specs/goal-session-persistence/requirements.md`
 - S2: `specs/goal-session-persistence/design.md`
 - S3: `packages/runtime/src/goal-store.ts`
-- S4: `packages/runtime/test/goal-store.test.ts`
+- S4: `packages/storage/test/goal-store.test.ts`

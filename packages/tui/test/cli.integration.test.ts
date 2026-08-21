@@ -6,6 +6,7 @@ import {
     mkdtemp,
     readFile,
     readdir,
+    realpath,
     rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,15 +14,30 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import {
+    createGoal,
+    type AgentProfile,
+} from "../../runtime/src/index";
+import { JsonFileGoalStore } from "../../storage/src/index";
 import { writeDefaultProfile } from "./profile-fixture";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
 const processFixturePath = fileURLToPath(
     new URL("./fixtures/model-abort-process.ts", import.meta.url),
 );
+const continueProcessFixturePath = fileURLToPath(
+    new URL("./fixtures/model-continue-process.ts", import.meta.url),
+);
 const tsxLoaderPath = fileURLToPath(
     new URL("../../../node_modules/tsx/dist/esm/index.mjs", import.meta.url),
 );
+
+const seededProfile: AgentProfile = {
+    id: "seeded-profile",
+    systemPrompt: "You are a focused coding agent.",
+    instructions: ["Resume and continue."],
+    toolIds: [],
+};
 
 function waitFor<T>(
     promise: Promise<T>,
@@ -174,6 +190,77 @@ test("CLI bin resolves its TSX loader from the project when launched in another 
         if (child.exitCode === null && child.signalCode === null) {
             child.kill("SIGKILL");
         }
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves its checkpoint", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-continue-process-"));
+    await writeDefaultProfile(workspace);
+    const store = new JsonFileGoalStore(
+        join(await realpath(workspace), ".lazygoal", "goals"),
+    );
+    await store.save(createGoal({
+        id: "goal-seeded",
+        intent: "Resume and continue the seeded Goal",
+        profile: seededProfile,
+        runId: "run-seeded",
+    }));
+    let requestStarted!: () => void;
+    let requestAborted!: () => void;
+    const modelRequest = new Promise<void>((resolve) => {
+        requestStarted = resolve;
+    });
+    const modelAbort = new Promise<void>((resolve) => {
+        requestAborted = resolve;
+    });
+    const server = createServer((request, response) => {
+        requestHandler(request, response, requestStarted, requestAborted);
+    });
+    const port = await listen(server);
+    const child = spawn(
+        process.execPath,
+        ["--import", tsxLoaderPath, continueProcessFixturePath],
+        {
+            cwd: workspace,
+            env: {
+                ...process.env,
+                LLM_API_KEY: "test-key",
+                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
+                LLM_MODEL: "test-model",
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+        },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+    });
+
+    try {
+        await waitFor(modelRequest, 6_000, "the fake model request for the seeded Goal");
+        child.kill("SIGINT");
+        await waitFor(modelAbort, 6_000, "the model request abort");
+        const result = await waitFor(new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+            child.once("close", (code, signal) => resolve({ code, signal }));
+        }), 6_000, "the CLI child exit");
+
+        assert.equal(result.signal, null, stderr);
+        assert.equal(result.code, 130, stderr);
+        const goalsDirectory = join(await realpath(workspace), ".lazygoal", "goals");
+        const files = (await readdir(goalsDirectory)).filter((file) => file.endsWith(".json"));
+        assert.equal(files.length, 1);
+        const snapshot = JSON.parse(await readFile(join(goalsDirectory, files[0]!), "utf8")) as {
+            readonly id: string;
+            readonly state: { readonly workflow: { readonly phase: string } };
+        };
+        assert.equal(snapshot.id, "goal-seeded");
+        assert.equal(snapshot.state.workflow.phase, "gathering_context");
+    } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+        }
+        await close(server);
         await rm(workspace, { recursive: true, force: true });
     }
 });

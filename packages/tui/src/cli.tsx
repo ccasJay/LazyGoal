@@ -8,15 +8,12 @@ import { render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
-    AgentProfileConfigurationError,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
     GoalCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,
-    JsonFileGoalStore,
-    JsonFileAgentProfileStore,
     Runner,
     launch,
     type AgentProfile,
@@ -24,6 +21,11 @@ import {
     type GoalCatalog,
     type ExitPort,
 } from "../../runtime/src/index";
+import {
+    AgentProfileConfigurationError,
+    JsonFileAgentProfileStore,
+    JsonFileGoalStore,
+} from "../../storage/src/index";
 import {
     LLMPreparationExecutor,
     LLMStepExecutor,

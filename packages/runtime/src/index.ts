@@ -33,16 +33,12 @@ export type {
     Goal,
     GoalCreationInput,
     GoalDefinition,
-    GoalInput,
     GoalMessage,
-    GoalMetadata,
     GoalState,
     GoalTask,
     GoalWorkflowState,
     JsonObject,
     JsonValue,
-    LegacyRunState,
-    LegacyGoalCreationInput,
     RunInput,
     RunExecutionOptions,
     RunRef,
@@ -52,29 +48,17 @@ export type {
     Observation,
     PendingAction,
     StepRecord,
-    StepResult,
     ToolCallAction,
     TransitionResult,
     UserMessage,
 } from "./domain";
 export { transition } from "./transition";
-export {
-    GoalSnapshotSchema,
-    GoalSnapshotProtocolError,
-    INVALID_GOAL_SNAPSHOT_CODE,
-    InMemoryGoalStore,
-    JsonFileGoalStore,
-} from "./goal-store";
 export type {
     GoalCatalog,
     GoalCatalogEntry,
     GoalStore,
 } from "./goal-store";
-export type {
-    LegacyStepExecutor,
-    StepExecutionResult,
-    StepExecutor,
-} from "./step-executor";
+export type { StepExecutor } from "./step-executor";
 export type {
     PreparationExecutor,
     PreparationResult,
@@ -82,13 +66,10 @@ export type {
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
-export {
-    AgentProfileConfigurationError,
-    JsonFileAgentProfileStore,
-} from "./agent-profile";
 export type {
     AgentProfile,
     AgentProfileRegistry,
+    AgentProfileStore,
 } from "./agent-profile";
 export {
     InMemoryToolRegistry,

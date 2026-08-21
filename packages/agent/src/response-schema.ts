@@ -2,10 +2,10 @@ import { z } from "zod";
 
 import type {
     AgentDecision,
-    StepResult,
 } from "../../runtime/src/domain";
 import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import { LLMResponseProtocolError } from "./errors";
+import type { PreparationPhase } from "./model-inference-view";
 
 const nonEmptyText = z.string().trim().min(1);
 
@@ -52,33 +52,6 @@ export const AgentDecisionSchema = z.discriminatedUnion("kind", [
     FailAgentDecisionSchema,
 ]);
 
-export const ContinueStepResultSchema = z.object({
-    kind: z.literal("continue"),
-    summary: nonEmptyText,
-}).strict();
-
-export const WaitStepResultSchema = z.object({
-    kind: z.literal("wait"),
-    reason: nonEmptyText,
-}).strict();
-
-export const CompleteStepResultSchema = z.object({
-    kind: z.literal("complete"),
-    summary: nonEmptyText,
-}).strict();
-
-export const FailStepResultSchema = z.object({
-    kind: z.literal("fail"),
-    error: nonEmptyText,
-}).strict();
-
-export const StepResultSchema = z.discriminatedUnion("kind", [
-    ContinueStepResultSchema,
-    WaitStepResultSchema,
-    CompleteStepResultSchema,
-    FailStepResultSchema,
-]);
-
 export const QuestionPreparationResultSchema = z.object({
     kind: z.literal("question"),
     question: nonEmptyText,
@@ -108,7 +81,7 @@ export const GatheringContextPreparationResultSchema = z.discriminatedUnion(
 export const PlanningPreparationResultSchema =
     TaskProposalPreparationResultSchema;
 
-export type PreparationPhase = "gathering_context" | "planning";
+export type { PreparationPhase } from "./model-inference-view";
 
 function parseJson(content: string): unknown {
     try {
@@ -118,21 +91,6 @@ function parseJson(content: string): unknown {
             cause: error,
         });
     }
-}
-
-export function parseStepResult(content: string): StepResult {
-    const parsed = parseJson(content);
-
-    const result = StepResultSchema.safeParse(parsed);
-
-    if (!result.success) {
-        throw new LLMResponseProtocolError("响应不符合 StepResult 协议", {
-            cause: result.error,
-            issues: result.error.issues,
-        });
-    }
-
-    return result.data;
 }
 
 /**

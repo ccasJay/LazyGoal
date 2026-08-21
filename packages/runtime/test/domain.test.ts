@@ -31,7 +31,6 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
 
     assert.deepEqual(goal, {
         id: "goal-1",
-        metadata: { schemaVersion: 3 },
         definition: {
             intent: "完成最小 Runtime",
             profile,
