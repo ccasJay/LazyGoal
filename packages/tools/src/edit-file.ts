@@ -1,11 +1,3 @@
-import { realpath, readFile, writeFile } from "node:fs/promises";
-import {
-    isAbsolute,
-    relative,
-    resolve,
-    win32,
-} from "node:path";
-
 import type {
     JsonValue,
     Tool,
@@ -20,90 +12,74 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { isJsonObject, invalidInput } from "./internal/json-input";
+import {
+    createWorkspaceSandbox,
+    type DomainFailureMessages,
+    type WorkspaceSandbox,
+} from "./internal/workspace-sandbox";
 
 /** `EditFileTool` 在 Profile 中使用的稳定标识。 */
 export const EDIT_FILE_TOOL_ID = "edit_file";
 
-function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+const EDIT_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
+    ENOENT: {
+        code: "FILE_NOT_FOUND",
+        render: (path) => `文件不存在: ${path}`,
+    },
+    EACCES: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `文件不可读写: ${path}`,
+    },
+    EPERM: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `文件不可读写: ${path}`,
+    },
+    EISDIR: {
+        code: "TARGET_IS_DIRECTORY",
+        render: (path) => `目标不是文件: ${path}`,
+    },
+    ENOTDIR: {
+        code: "INVALID_FILE_PATH",
+        render: (path) => `文件路径无效: ${path}`,
+    },
+};
+
+interface EditFileInput {
+    readonly path: string;
+    readonly oldString: string;
+    readonly newString: string;
 }
 
-function invalidInput(message: string): ToolValidationResult {
-    return {
-        ok: false,
-        error: {
-            code: "INVALID_TOOL_INPUT",
-            message,
-        },
-    };
-}
-
-function isAbsolutePath(value: string): boolean {
-    return isAbsolute(value) || win32.isAbsolute(value);
-}
-
-function hasParentPathSegment(value: string): boolean {
-    return value.split(/[\\/]+/).some((segment) => segment === "..");
-}
-
-function firstPathSegment(value: string): string {
-    return value.split(/[\\/]+/)[0] ?? "";
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-    return error instanceof Error && "code" in error;
-}
-
-function domainFailure(
-    requestedPath: string,
-    error: NodeJS.ErrnoException,
-): ToolObservation | undefined {
-    switch (error.code) {
-        case "ENOENT":
-            return {
-                kind: "failure",
-                code: "FILE_NOT_FOUND",
-                message: `文件不存在: ${requestedPath}`,
-                retryable: false,
-            };
-        case "EACCES":
-        case "EPERM":
-            return {
-                kind: "failure",
-                code: "FILE_ACCESS_DENIED",
-                message: `文件不可读写: ${requestedPath}`,
-                retryable: false,
-            };
-        case "EISDIR":
-            return {
-                kind: "failure",
-                code: "TARGET_IS_DIRECTORY",
-                message: `目标不是文件: ${requestedPath}`,
-                retryable: false,
-            };
-        case "ENOTDIR":
-            return {
-                kind: "failure",
-                code: "INVALID_FILE_PATH",
-                message: `文件路径无效: ${requestedPath}`,
-                retryable: false,
-            };
-        default:
-            return undefined;
+function parseInput(input: JsonValue): EditFileInput | undefined {
+    if (!isJsonObject(input)) {
+        return undefined;
     }
-}
 
-function isWithinRoot(root: string, target: string): boolean {
-    const targetRelativePath = relative(root, target);
+    const keys = Object.keys(input);
 
-    return (
-        targetRelativePath === ""
-        || (
-            targetRelativePath !== ".."
-            && !targetRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-            && !isAbsolute(targetRelativePath)
-        )
-    );
+    if (
+        keys.length !== 3
+        || !Object.prototype.hasOwnProperty.call(input, "path")
+        || !Object.prototype.hasOwnProperty.call(input, "oldString")
+        || !Object.prototype.hasOwnProperty.call(input, "newString")
+    ) {
+        return undefined;
+    }
+
+    if (
+        typeof input.path !== "string"
+        || typeof input.oldString !== "string"
+        || typeof input.newString !== "string"
+    ) {
+        return undefined;
+    }
+
+    return {
+        path: input.path,
+        oldString: input.oldString,
+        newString: input.newString,
+    };
 }
 
 /**
@@ -146,18 +122,15 @@ export class EditFileTool implements Tool {
 
     readonly replayPolicy = "safe" as const;
 
-    private readonly workspaceRoot: string;
+    private readonly sandbox: WorkspaceSandbox;
 
     /**
      * @param workspaceRoot - 允许编辑的工作区根目录，可为相对或绝对路径。
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
     constructor(workspaceRoot: string) {
-        if (workspaceRoot.trim() === "") {
-            throw new Error("workspaceRoot must be non-empty");
-        }
-
-        this.workspaceRoot = resolve(workspaceRoot);
+        // TODO(sandbox-extraction): 迁移独立包后替换为 @lazygoal/sandbox
+        this.sandbox = createWorkspaceSandbox(workspaceRoot);
     }
 
     /**
@@ -168,65 +141,15 @@ export class EditFileTool implements Tool {
      *   符号链接越界需在执行时解析后拒绝。
      */
     validate(input: JsonValue): ToolValidationResult {
-        if (!isJsonObject(input)) {
-            return invalidInput("edit_file 输入必须是对象");
-        }
+        const parsed = parseInput(input);
 
-        const keys = Object.keys(input);
-
-        if (keys.length !== 3 || !(
-            Object.prototype.hasOwnProperty.call(input, "path")
-            && Object.prototype.hasOwnProperty.call(input, "oldString")
-            && Object.prototype.hasOwnProperty.call(input, "newString")
-        )) {
+        if (parsed === undefined) {
             return invalidInput(
                 "edit_file 输入只能包含 path、oldString 与 newString 字段",
             );
         }
 
-        const requestedPath = input.path;
-
-        if (typeof requestedPath !== "string") {
-            return invalidInput("edit_file.path 必须是字符串");
-        }
-
-        if (typeof input.oldString !== "string") {
-            return invalidInput("edit_file.oldString 必须是字符串");
-        }
-
-        if (typeof input.newString !== "string") {
-            return invalidInput("edit_file.newString 必须是字符串");
-        }
-
-        if (requestedPath.trim() === "") {
-            return invalidInput("edit_file.path 不能为空");
-        }
-
-        if (requestedPath.includes("\0")) {
-            return invalidInput("edit_file.path 不能包含 NUL 字符");
-        }
-
-        if (isAbsolutePath(requestedPath)) {
-            return invalidInput("edit_file.path 必须是工作区内的相对路径");
-        }
-
-        if (hasParentPathSegment(requestedPath)) {
-            return invalidInput("edit_file.path 不能包含 .. 路径段");
-        }
-
-        if (firstPathSegment(requestedPath) === ".lazygoal") {
-            return invalidInput("edit_file.path 不能编辑 .lazygoal 持久化目录");
-        }
-
-        if (input.oldString === "") {
-            return invalidInput("edit_file.oldString 不能为空");
-        }
-
-        if (input.oldString === input.newString) {
-            return invalidInput("edit_file.oldString 与 newString 不能相同");
-        }
-
-        return { ok: true };
+        return this.checkSemantics(parsed);
     }
 
     /**
@@ -243,76 +166,39 @@ export class EditFileTool implements Tool {
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const input = request.input;
-        const validation = this.validate(input);
 
-        if (!validation.ok) {
-            throw new Error(
-                `${validation.error.code}: ${validation.error.message}`,
-            );
-        }
+        const parsed = parseInput(request.input);
 
-        if (
-            !isJsonObject(input)
-            || typeof input.path !== "string"
-            || typeof input.oldString !== "string"
-            || typeof input.newString !== "string"
-        ) {
+        if (parsed === undefined) {
             throw new Error(
                 "INVALID_TOOL_INPUT: edit_file requires string path, oldString and newString",
             );
         }
 
-        const requestedPath = input.path;
-        const oldString = input.oldString;
-        const newString = input.newString;
+        const semantic = this.checkSemantics(parsed);
 
-        const resolvedRoot = await realpath(this.workspaceRoot);
-        throwIfAborted(control);
-        const candidatePath = resolve(resolvedRoot, requestedPath);
-        let targetPath: string;
-
-        try {
-            targetPath = await realpath(candidatePath);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-
-            if (control?.signal?.aborted) {
-                throw new ExecutionAbortedError();
-            }
-
-            if (isNodeError(error)) {
-                const failure = domainFailure(requestedPath, error);
-
-                if (failure !== undefined) {
-                    return failure;
-                }
-            }
-
-            throw error;
+        if (!semantic.ok) {
+            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
         }
 
-        if (!isWithinRoot(resolvedRoot, targetPath)) {
-            return {
-                kind: "failure",
-                code: "PATH_OUTSIDE_WORKSPACE",
-                message: `目标不在工作区内: ${requestedPath}`,
-                retryable: false,
-            };
+        const requestedPath = parsed.path;
+        const oldString = parsed.oldString;
+        const newString = parsed.newString;
+
+        const resolved = await this.sandbox.resolveTarget(
+            requestedPath,
+            EDIT_FILE_DOMAIN_FAILURES,
+            control,
+        );
+
+        if (!resolved.ok) {
+            return resolved.failure;
         }
 
         let content: string;
 
         try {
-            content = control?.signal === undefined
-                ? await readFile(targetPath, "utf8")
-                : await readFile(targetPath, {
-                    encoding: "utf8",
-                    signal: control.signal,
-                });
+            content = await this.sandbox.readTextFile(resolved.path, control);
             throwIfAborted(control);
         } catch (error) {
             if (isExecutionAbortedError(error)) {
@@ -323,12 +209,14 @@ export class EditFileTool implements Tool {
                 throw new ExecutionAbortedError();
             }
 
-            if (isNodeError(error)) {
-                const failure = domainFailure(requestedPath, error);
+            const failure = this.sandbox.toDomainFailure(
+                error as NodeJS.ErrnoException,
+                EDIT_FILE_DOMAIN_FAILURES,
+                requestedPath,
+            );
 
-                if (failure !== undefined) {
-                    return failure;
-                }
+            if (failure !== undefined) {
+                return failure;
             }
 
             throw error;
@@ -369,15 +257,11 @@ export class EditFileTool implements Tool {
         const updatedContent = content.replace(oldString, newString);
 
         try {
-            if (control?.signal === undefined) {
-                await writeFile(targetPath, updatedContent, "utf8");
-            } else {
-                await writeFile(targetPath, updatedContent, {
-                    encoding: "utf8",
-                    signal: control.signal,
-                });
-            }
-
+            await this.sandbox.writeTextFile(
+                resolved.path,
+                updatedContent,
+                control,
+            );
             throwIfAborted(control);
         } catch (error) {
             if (isExecutionAbortedError(error)) {
@@ -388,12 +272,14 @@ export class EditFileTool implements Tool {
                 throw new ExecutionAbortedError();
             }
 
-            if (isNodeError(error)) {
-                const failure = domainFailure(requestedPath, error);
+            const failure = this.sandbox.toDomainFailure(
+                error as NodeJS.ErrnoException,
+                EDIT_FILE_DOMAIN_FAILURES,
+                requestedPath,
+            );
 
-                if (failure !== undefined) {
-                    return failure;
-                }
+            if (failure !== undefined) {
+                return failure;
             }
 
             throw error;
@@ -408,6 +294,37 @@ export class EditFileTool implements Tool {
             },
             summary: `已编辑 ${requestedPath}`,
         };
+    }
+
+    private checkSemantics(parsed: EditFileInput): ToolValidationResult {
+        const violation = this.sandbox.validateRelativePath(parsed.path, {
+            rejectSegments: [".lazygoal"],
+        });
+
+        switch (violation) {
+            case "empty":
+                return invalidInput("edit_file.path 不能为空");
+            case "nul":
+                return invalidInput("edit_file.path 不能包含 NUL 字符");
+            case "absolute":
+                return invalidInput("edit_file.path 必须是工作区内的相对路径");
+            case "parent":
+                return invalidInput("edit_file.path 不能包含 .. 路径段");
+            case "rejected-segment":
+                return invalidInput("edit_file.path 不能编辑 .lazygoal 持久化目录");
+            default:
+                break;
+        }
+
+        if (parsed.oldString === "") {
+            return invalidInput("edit_file.oldString 不能为空");
+        }
+
+        if (parsed.oldString === parsed.newString) {
+            return invalidInput("edit_file.oldString 与 newString 不能相同");
+        }
+
+        return { ok: true };
     }
 }
 

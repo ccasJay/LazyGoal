@@ -106,6 +106,24 @@ export interface WorkspaceSandbox {
     ): Promise<SandboxResolveResult>;
 
     /**
+     * 解析已存在的目标路径并保证其位于工作区内，不映射领域错误。
+     *
+     * @remarks
+     * 供 write-file 等需要自行处理 `ENOENT`（解析父目录）的 Tool 使用。
+     *
+     * @param requestedPath - Agent 提交的相对路径。
+     * @param displayPath - 越界失败消息中展示的路径，默认等于 `requestedPath`。
+     * @param control - 可选的中止控制。
+     * @returns 解析后的绝对路径，或越界失败 Observation。
+     * @throws Node 错误原样抛出（含 `ENOENT`）；中止时抛出 {@link ExecutionAbortedError}。
+     */
+    resolveExistingPath(
+        requestedPath: string,
+        displayPath?: string,
+        control?: ExecutionControl,
+    ): Promise<SandboxResolveResult>;
+
+    /**
      * 读取 UTF-8 文本文件。
      *
      * @param path - 已解析的绝对路径。
@@ -294,6 +312,40 @@ export function createWorkspaceSandbox(workspaceRoot: string): WorkspaceSandbox 
 
             if (!isWithinRoot(resolvedRoot, resolvedTarget)) {
                 return { ok: false, failure: outsideWorkspace(requestedPath) };
+            }
+
+            return { ok: true, path: resolvedTarget };
+        },
+
+        async resolveExistingPath(requestedPath, displayPath, control) {
+            throwIfAborted(control);
+
+            const resolvedRoot = await realpath(resolvedWorkspaceRoot);
+            throwIfAborted(control);
+
+            const candidatePath = resolve(resolvedRoot, requestedPath);
+            let resolvedTarget: string;
+
+            try {
+                resolvedTarget = await realpath(candidatePath);
+                throwIfAborted(control);
+            } catch (error) {
+                if (isExecutionAbortedError(error)) {
+                    throw error;
+                }
+
+                if (control?.signal?.aborted) {
+                    throw new ExecutionAbortedError();
+                }
+
+                throw error;
+            }
+
+            if (!isWithinRoot(resolvedRoot, resolvedTarget)) {
+                return {
+                    ok: false,
+                    failure: outsideWorkspace(displayPath ?? requestedPath),
+                };
             }
 
             return { ok: true, path: resolvedTarget };

@@ -7,7 +7,7 @@
   - 运行 `npx tsx --test packages/tools/test/*.test.ts` 验证零回归
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [4.1](./requirements.md#req-4-1), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 2. 迁移 `write-file` 与 `edit-file` 到沙箱模块
+- [x] //TODO 2. 迁移 `write-file` 与 `edit-file` 到沙箱模块
 
   - 两个文件改为沙箱实例委托（`.lazygoal` 前缀规则经 `validateRelativePath` 的 `rejectSegments` 承载），消息表按 D3 参数化保留逐字文案，调用点加 TODO 尾注释
   - 删除两处 `execute` 二次类型断言死代码，统一 `parseInput` + `checkSemantics` 结构；`edit-file` 的读/写经沙箱 fs 包装统一 signal 写法
