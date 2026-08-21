@@ -14,7 +14,7 @@
   - 运行 `npx tsx --test packages/tools/test/*.test.ts` 验证零回归
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [4.1](./requirements.md#req-4-1), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 3. 迁移 `grep` 并重组 `bash` 校验结构
+- [x] //TODO 3. 迁移 `grep` 并重组 `bash` 校验结构
 
   - `grep.ts` 迁移到沙箱实例（路径解析、跳过目录遍历、fs 读取），调用点加 TODO 尾注释；`bash.ts` 不涉及沙箱，仅收敛为 `parseInput` + `checkSemantics`
   - 两个文件的 `execute` 消除 `parseInput` + `validate` 双重解析，结构与语义各执行一次

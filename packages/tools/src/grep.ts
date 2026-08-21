@@ -1,14 +1,11 @@
 import {
     lstat,
     readdir,
-    readFile,
     realpath,
 } from "node:fs/promises";
 import {
-    isAbsolute,
     relative,
     resolve,
-    win32,
 } from "node:path";
 
 import type {
@@ -25,6 +22,12 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { isJsonObject, invalidInput } from "./internal/json-input";
+import {
+    createWorkspaceSandbox,
+    type DomainFailureMessages,
+    type WorkspaceSandbox,
+} from "./internal/workspace-sandbox";
 
 /** `GrepTool` 在 Profile 中使用的稳定标识。 */
 export const GREP_TOOL_ID = "grep";
@@ -48,6 +51,25 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
     "node_modules",
 ]);
 
+const GREP_DOMAIN_FAILURES: DomainFailureMessages = {
+    ENOENT: {
+        code: "FILE_NOT_FOUND",
+        render: (path) => `搜索范围不存在: ${path}`,
+    },
+    EACCES: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `搜索范围不可访问: ${path}`,
+    },
+    EPERM: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `搜索范围不可访问: ${path}`,
+    },
+    ENOTDIR: {
+        code: "INVALID_FILE_PATH",
+        render: (path) => `搜索范围路径无效: ${path}`,
+    },
+};
+
 interface GrepInput {
     readonly pattern: string;
     readonly path?: string;
@@ -59,28 +81,6 @@ type GrepMatch = {
     readonly line: number;
     readonly text: string;
 };
-
-function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function invalidInput(message: string): ToolValidationResult {
-    return {
-        ok: false,
-        error: {
-            code: "INVALID_TOOL_INPUT",
-            message,
-        },
-    };
-}
-
-function isAbsolutePath(value: string): boolean {
-    return isAbsolute(value) || win32.isAbsolute(value);
-}
-
-function hasParentPathSegment(value: string): boolean {
-    return value.split(/[\\/]+/).some((segment) => segment === "..");
-}
 
 function parseInput(input: JsonValue): GrepInput | undefined {
     if (!isJsonObject(input)) {
@@ -104,8 +104,6 @@ function parseInput(input: JsonValue): GrepInput | undefined {
         return undefined;
     }
 
-    const pattern = input.pattern;
-
     if (
         Object.prototype.hasOwnProperty.call(input, "path")
         && typeof input.path !== "string"
@@ -121,7 +119,7 @@ function parseInput(input: JsonValue): GrepInput | undefined {
     }
 
     return {
-        pattern,
+        pattern: input.pattern,
         ...(typeof input.path === "string" ? { path: input.path } : {}),
         ...(typeof input.ignoreCase === "boolean"
             ? { ignoreCase: input.ignoreCase }
@@ -185,18 +183,18 @@ export class GrepTool implements Tool {
 
     readonly replayPolicy = "safe" as const;
 
-    private readonly workspaceRoot: string;
+    private readonly sandbox: WorkspaceSandbox;
 
     /**
      * @param workspaceRoot - 允许搜索的工作区根目录，可为相对或绝对路径。
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
     constructor(workspaceRoot: string) {
-        if (workspaceRoot.trim() === "") {
-            throw new Error("workspaceRoot must be non-empty");
-        }
-
-        this.workspaceRoot = resolve(workspaceRoot);
+        // TODO(sandbox-extraction): 迁移独立包后替换为 @lazygoal/sandbox
+        this.sandbox = createWorkspaceSandbox(
+            workspaceRoot,
+            (path) => `搜索范围不在工作区内: ${path}`,
+        );
     }
 
     /**
@@ -216,35 +214,7 @@ export class GrepTool implements Tool {
             );
         }
 
-        if (parsed.pattern.trim() === "") {
-            return invalidInput("grep.pattern 不能为空");
-        }
-
-        try {
-            new RegExp(parsed.pattern, parsed.ignoreCase === true ? "i" : undefined);
-        } catch {
-            return invalidInput("grep.pattern 不是合法的正则表达式");
-        }
-
-        if (parsed.path !== undefined) {
-            if (parsed.path.trim() === "") {
-                return invalidInput("grep.path 不能为空");
-            }
-
-            if (parsed.path.includes("\0")) {
-                return invalidInput("grep.path 不能包含 NUL 字符");
-            }
-
-            if (isAbsolutePath(parsed.path)) {
-                return invalidInput("grep.path 必须是工作区内的相对路径");
-            }
-
-            if (hasParentPathSegment(parsed.path)) {
-                return invalidInput("grep.path 不能包含 .. 路径段");
-            }
-        }
-
-        return { ok: true };
+        return this.checkSemantics(parsed);
     }
 
     /**
@@ -264,10 +234,16 @@ export class GrepTool implements Tool {
 
         const parsed = parseInput(request.input);
 
-        if (parsed === undefined || !this.validate(request.input).ok) {
+        if (parsed === undefined) {
             throw new Error(
                 "INVALID_TOOL_INPUT: grep requires { pattern: string, path?: string, ignoreCase?: boolean }",
             );
+        }
+
+        const semantic = this.checkSemantics(parsed);
+
+        if (!semantic.ok) {
+            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
         }
 
         const regex = new RegExp(
@@ -275,43 +251,16 @@ export class GrepTool implements Tool {
             parsed.ignoreCase === true ? "i" : undefined,
         );
 
-        const resolvedRoot = await realpath(this.workspaceRoot);
-        throwIfAborted(control);
+        const scopePath = parsed.path ?? "";
 
-        const scopePath = parsed.path === undefined ? "" : parsed.path;
-        const startPath = resolve(resolvedRoot, scopePath);
-        let startTarget: string;
+        const resolved = await this.sandbox.resolveTarget(
+            scopePath === "" ? "." : scopePath,
+            GREP_DOMAIN_FAILURES,
+            control,
+        );
 
-        try {
-            startTarget = await realpath(startPath);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-
-            if (control?.signal?.aborted) {
-                throw new ExecutionAbortedError();
-            }
-
-            if (isNodeError(error)) {
-                const failure = domainFailure(scopePath || ".", error);
-
-                if (failure !== undefined) {
-                    return failure;
-                }
-            }
-
-            throw error;
-        }
-
-        if (!isWithinRoot(resolvedRoot, startTarget)) {
-            return {
-                kind: "failure",
-                code: "PATH_OUTSIDE_WORKSPACE",
-                message: `搜索范围不在工作区内: ${scopePath}`,
-                retryable: false,
-            };
+        if (!resolved.ok) {
+            return resolved.failure;
         }
 
         const state = {
@@ -321,8 +270,7 @@ export class GrepTool implements Tool {
         };
 
         await this.searchPath(
-            resolvedRoot,
-            startTarget,
+            resolved.path,
             scopePath === "" ? "." : scopePath,
             0,
             regex,
@@ -350,18 +298,15 @@ export class GrepTool implements Tool {
     /**
      * 递归搜索目录或单个文件。
      *
-     * @param resolvedRoot - 已解析的工作区根。
      * @param absolutePath - 当前搜索的绝对路径（已通过 realpath 解析）。
      * @param displayPath - 相对工作区的展示路径。
      * @param depth - 当前递归深度。
      * @param regex - 已编译的匹配正则。
      * @param state - 跨递归共享的搜索累计状态。
      * @param control - 共享中止控制。
-     * @throws workspaceRoot 之外的符号链接或未分类异常；中止时抛出
-     *   `ExecutionAbortedError`。
+     * @throws 未分类异常；中止时抛出 `ExecutionAbortedError`。
      */
     private async searchPath(
-        resolvedRoot: string,
         absolutePath: string,
         displayPath: string,
         depth: number,
@@ -425,7 +370,6 @@ export class GrepTool implements Tool {
 
                 throwIfAborted(control);
                 await this.searchPath(
-                    resolvedRoot,
                     resolve(absolutePath, entry.name),
                     `${displayPath}/${entry.name}`,
                     depth + 1,
@@ -448,12 +392,7 @@ export class GrepTool implements Tool {
         let content: string;
 
         try {
-            content = control?.signal === undefined
-                ? await readFile(absolutePath, "utf8")
-                : await readFile(absolutePath, {
-                    encoding: "utf8",
-                    signal: control.signal,
-                });
+            content = await this.sandbox.readTextFile(absolutePath, control);
         } catch {
             return;
         }
@@ -485,55 +424,37 @@ export class GrepTool implements Tool {
             }
         }
     }
-}
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-    return error instanceof Error && "code" in error;
-}
+    private checkSemantics(parsed: GrepInput): ToolValidationResult {
+        if (parsed.pattern.trim() === "") {
+            return invalidInput("grep.pattern 不能为空");
+        }
 
-function domainFailure(
-    requestedPath: string,
-    error: NodeJS.ErrnoException,
-): ToolObservation | undefined {
-    switch (error.code) {
-        case "ENOENT":
-            return {
-                kind: "failure",
-                code: "FILE_NOT_FOUND",
-                message: `搜索范围不存在: ${requestedPath}`,
-                retryable: false,
-            };
-        case "EACCES":
-        case "EPERM":
-            return {
-                kind: "failure",
-                code: "FILE_ACCESS_DENIED",
-                message: `搜索范围不可访问: ${requestedPath}`,
-                retryable: false,
-            };
-        case "ENOTDIR":
-            return {
-                kind: "failure",
-                code: "INVALID_FILE_PATH",
-                message: `搜索范围路径无效: ${requestedPath}`,
-                retryable: false,
-            };
-        default:
-            return undefined;
+        try {
+            new RegExp(parsed.pattern, parsed.ignoreCase === true ? "i" : undefined);
+        } catch {
+            return invalidInput("grep.pattern 不是合法的正则表达式");
+        }
+
+        if (parsed.path !== undefined) {
+            const violation = this.sandbox.validateRelativePath(parsed.path);
+
+            switch (violation) {
+                case "empty":
+                    return invalidInput("grep.path 不能为空");
+                case "nul":
+                    return invalidInput("grep.path 不能包含 NUL 字符");
+                case "absolute":
+                    return invalidInput("grep.path 必须是工作区内的相对路径");
+                case "parent":
+                    return invalidInput("grep.path 不能包含 .. 路径段");
+                default:
+                    break;
+            }
+        }
+
+        return { ok: true };
     }
-}
-
-function isWithinRoot(root: string, target: string): boolean {
-    const targetRelativePath = relative(root, target);
-
-    return (
-        targetRelativePath === ""
-        || (
-            targetRelativePath !== ".."
-            && !targetRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-            && !isAbsolute(targetRelativePath)
-        )
-    );
 }
 
 async function stat(

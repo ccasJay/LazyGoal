@@ -216,19 +216,16 @@ function mapDomainFailure(
     };
 }
 
-function outsideWorkspace(requestedPath: string): ToolObservation {
-    return {
-        kind: "failure",
-        code: "PATH_OUTSIDE_WORKSPACE",
-        message: `目标不在工作区内: ${requestedPath}`,
-        retryable: false,
-    };
-}
+/**
+ * 越界失败消息的渲染器：不同 Tool 使用不同名词（"目标"/"搜索范围"）。
+ */
+type OutsideMessageRenderer = (requestedPath: string) => string;
 
 /**
  * 创建绑定到指定工作区的沙箱实例。
  *
  * @param workspaceRoot - 允许操作的工作区根目录，可为相对或绝对路径。
+ * @param outsideMessage - 可选的越界失败消息渲染器，默认使用"目标"。
  * @returns 自包含沙箱实例。
  * @throws workspaceRoot 为空字符串时抛出 Error。
  *
@@ -237,12 +234,22 @@ function outsideWorkspace(requestedPath: string): ToolObservation {
  * const sandbox = createWorkspaceSandbox("/workspace/project");
  * ```
  */
-export function createWorkspaceSandbox(workspaceRoot: string): WorkspaceSandbox {
+export function createWorkspaceSandbox(
+    workspaceRoot: string,
+    outsideMessage: OutsideMessageRenderer = (path) => `目标不在工作区内: ${path}`,
+): WorkspaceSandbox {
     if (workspaceRoot.trim() === "") {
         throw new Error("workspaceRoot must be non-empty");
     }
 
     const resolvedWorkspaceRoot = resolve(workspaceRoot);
+
+    const outsideWorkspace = (requestedPath: string): ToolObservation => ({
+        kind: "failure",
+        code: "PATH_OUTSIDE_WORKSPACE",
+        message: outsideMessage(requestedPath),
+        retryable: false,
+    });
 
     return {
         validateRelativePath(path, options) {

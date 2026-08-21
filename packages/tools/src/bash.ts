@@ -16,6 +16,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { isJsonObject, invalidInput } from "./internal/json-input";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -37,20 +38,6 @@ const execAsync = promisify(exec);
 interface BashInput {
     readonly command: string;
     readonly timeoutMs?: number;
-}
-
-function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function invalidInput(message: string): ToolValidationResult {
-    return {
-        ok: false,
-        error: {
-            code: "INVALID_TOOL_INPUT",
-            message,
-        },
-    };
 }
 
 function parseInput(input: JsonValue): BashInput | undefined {
@@ -184,6 +171,10 @@ export class BashTool implements Tool {
             );
         }
 
+        return this.checkSemantics(parsed);
+    }
+
+    private checkSemantics(parsed: BashInput): ToolValidationResult {
         if (parsed.command.trim() === "") {
             return invalidInput("bash.command 不能为空");
         }
@@ -227,10 +218,16 @@ export class BashTool implements Tool {
 
         const parsed = parseInput(request.input);
 
-        if (parsed === undefined || !this.validate(request.input).ok) {
+        if (parsed === undefined) {
             throw new Error(
                 "INVALID_TOOL_INPUT: bash requires { command: string, timeoutMs?: number }",
             );
+        }
+
+        const semantic = this.checkSemantics(parsed);
+
+        if (!semantic.ok) {
+            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
         }
 
         const timeoutMs = parsed.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
