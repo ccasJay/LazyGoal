@@ -1,11 +1,3 @@
-import { readFile, realpath } from "node:fs/promises";
-import {
-    isAbsolute,
-    relative,
-    resolve,
-    win32,
-} from "node:path";
-
 import type {
     JsonValue,
     Tool,
@@ -20,86 +12,62 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { isJsonObject, invalidInput } from "./internal/json-input";
+import {
+    createWorkspaceSandbox,
+    type DomainFailureMessages,
+    type WorkspaceSandbox,
+} from "./internal/workspace-sandbox";
 
 /** `ReadFileTool` 在 Profile 中使用的稳定标识。 */
 export const READ_FILE_TOOL_ID = "read_file";
 
-function isJsonObject(value: JsonValue): value is Record<string, JsonValue> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+const READ_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
+    ENOENT: {
+        code: "FILE_NOT_FOUND",
+        render: (path) => `文件不存在: ${path}`,
+    },
+    EACCES: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `文件不可读取: ${path}`,
+    },
+    EPERM: {
+        code: "FILE_ACCESS_DENIED",
+        render: (path) => `文件不可读取: ${path}`,
+    },
+    EISDIR: {
+        code: "TARGET_IS_DIRECTORY",
+        render: (path) => `目标不是文件: ${path}`,
+    },
+    ENOTDIR: {
+        code: "INVALID_FILE_PATH",
+        render: (path) => `文件路径无效: ${path}`,
+    },
+};
+
+interface ReadFileInput {
+    readonly path: string;
 }
 
-function invalidInput(message: string): ToolValidationResult {
-    return {
-        ok: false,
-        error: {
-            code: "INVALID_TOOL_INPUT",
-            message,
-        },
-    };
-}
-
-function isAbsolutePath(value: string): boolean {
-    return isAbsolute(value) || win32.isAbsolute(value);
-}
-
-function hasParentPathSegment(value: string): boolean {
-    return value.split(/[\\/]+/).some((segment) => segment === "..");
-}
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-    return error instanceof Error && "code" in error;
-}
-
-function domainFailure(
-    requestedPath: string,
-    error: NodeJS.ErrnoException,
-): ToolObservation | undefined {
-    switch (error.code) {
-        case "ENOENT":
-            return {
-                kind: "failure",
-                code: "FILE_NOT_FOUND",
-                message: `文件不存在: ${requestedPath}`,
-                retryable: false,
-            };
-        case "EACCES":
-        case "EPERM":
-            return {
-                kind: "failure",
-                code: "FILE_ACCESS_DENIED",
-                message: `文件不可读取: ${requestedPath}`,
-                retryable: false,
-            };
-        case "EISDIR":
-            return {
-                kind: "failure",
-                code: "TARGET_IS_DIRECTORY",
-                message: `目标不是文件: ${requestedPath}`,
-                retryable: false,
-            };
-        case "ENOTDIR":
-            return {
-                kind: "failure",
-                code: "INVALID_FILE_PATH",
-                message: `文件路径无效: ${requestedPath}`,
-                retryable: false,
-            };
-        default:
-            return undefined;
+function parseInput(input: JsonValue): ReadFileInput | undefined {
+    if (!isJsonObject(input)) {
+        return undefined;
     }
-}
 
-function isWithinRoot(root: string, target: string): boolean {
-    const targetRelativePath = relative(root, target);
+    const keys = Object.keys(input);
 
-    return (
-        targetRelativePath === ""
-        || (
-            targetRelativePath !== ".."
-            && !targetRelativePath.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-            && !isAbsolute(targetRelativePath)
-        )
-    );
+    if (
+        keys.length !== 1
+        || !Object.prototype.hasOwnProperty.call(input, "path")
+    ) {
+        return undefined;
+    }
+
+    if (typeof input.path !== "string") {
+        return undefined;
+    }
+
+    return { path: input.path };
 }
 
 /**
@@ -136,18 +104,15 @@ export class ReadFileTool implements Tool {
 
     readonly replayPolicy = "safe" as const;
 
-    private readonly workspaceRoot: string;
+    private readonly sandbox: WorkspaceSandbox;
 
     /**
      * @param workspaceRoot - 允许读取的工作区根目录，可为相对或绝对路径。
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
     constructor(workspaceRoot: string) {
-        if (workspaceRoot.trim() === "") {
-            throw new Error("workspaceRoot must be non-empty");
-        }
-
-        this.workspaceRoot = resolve(workspaceRoot);
+        // TODO(sandbox-extraction): 迁移独立包后替换为 @lazygoal/sandbox
+        this.sandbox = createWorkspaceSandbox(workspaceRoot);
     }
 
     /**
@@ -157,42 +122,13 @@ export class ReadFileTool implements Tool {
      * @returns 输入合法性；符号链接越界需在执行时解析后拒绝。
      */
     validate(input: JsonValue): ToolValidationResult {
-        if (!isJsonObject(input)) {
-            return invalidInput("read_file 输入必须是对象");
-        }
+        const parsed = parseInput(input);
 
-        const keys = Object.keys(input);
-
-        if (
-            keys.length !== 1
-            || !Object.prototype.hasOwnProperty.call(input, "path")
-        ) {
+        if (parsed === undefined) {
             return invalidInput("read_file 输入只能包含 path 字段");
         }
 
-        const requestedPath = input.path;
-
-        if (typeof requestedPath !== "string") {
-            return invalidInput("read_file.path 必须是字符串");
-        }
-
-        if (requestedPath.trim() === "") {
-            return invalidInput("read_file.path 不能为空");
-        }
-
-        if (requestedPath.includes("\0")) {
-            return invalidInput("read_file.path 不能包含 NUL 字符");
-        }
-
-        if (isAbsolutePath(requestedPath)) {
-            return invalidInput("read_file.path 必须是工作区内的相对路径");
-        }
-
-        if (hasParentPathSegment(requestedPath)) {
-            return invalidInput("read_file.path 不能包含 .. 路径段");
-        }
-
-        return { ok: true };
+        return this.checkSemantics(parsed);
     }
 
     /**
@@ -209,65 +145,36 @@ export class ReadFileTool implements Tool {
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const input = request.input;
-        const validation = this.validate(input);
 
-        if (!validation.ok) {
-            throw new Error(
-                `${validation.error.code}: ${validation.error.message}`,
-            );
-        }
+        const parsed = parseInput(request.input);
 
-        if (!isJsonObject(input) || typeof input.path !== "string") {
+        if (parsed === undefined) {
             throw new Error("INVALID_TOOL_INPUT: read_file.path must be a string");
         }
 
-        const requestedPath = input.path;
+        const semantic = this.checkSemantics(parsed);
 
-        const resolvedRoot = await realpath(this.workspaceRoot);
-        throwIfAborted(control);
-        const candidatePath = resolve(resolvedRoot, requestedPath);
-        let resolvedTarget: string;
-
-        try {
-            resolvedTarget = await realpath(candidatePath);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-
-            if (control?.signal?.aborted) {
-                throw new ExecutionAbortedError();
-            }
-
-            if (isNodeError(error)) {
-                const failure = domainFailure(requestedPath, error);
-
-                if (failure !== undefined) {
-                    return failure;
-                }
-            }
-
-            throw error;
+        if (!semantic.ok) {
+            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
         }
 
-        if (!isWithinRoot(resolvedRoot, resolvedTarget)) {
-            return {
-                kind: "failure",
-                code: "PATH_OUTSIDE_WORKSPACE",
-                message: `目标不在工作区内: ${requestedPath}`,
-                retryable: false,
-            };
+        const requestedPath = parsed.path;
+
+        const resolved = await this.sandbox.resolveTarget(
+            requestedPath,
+            READ_FILE_DOMAIN_FAILURES,
+            control,
+        );
+
+        if (!resolved.ok) {
+            return resolved.failure;
         }
 
         try {
-            const content = control?.signal === undefined
-                ? await readFile(resolvedTarget, "utf8")
-                : await readFile(resolvedTarget, {
-                    encoding: "utf8",
-                    signal: control.signal,
-                });
+            const content = await this.sandbox.readTextFile(
+                resolved.path,
+                control,
+            );
             throwIfAborted(control);
 
             return {
@@ -284,15 +191,34 @@ export class ReadFileTool implements Tool {
                 throw new ExecutionAbortedError();
             }
 
-            if (isNodeError(error)) {
-                const failure = domainFailure(requestedPath, error);
+            const failure = this.sandbox.toDomainFailure(
+                error as NodeJS.ErrnoException,
+                READ_FILE_DOMAIN_FAILURES,
+                requestedPath,
+            );
 
-                if (failure !== undefined) {
-                    return failure;
-                }
+            if (failure !== undefined) {
+                return failure;
             }
 
             throw error;
+        }
+    }
+
+    private checkSemantics(parsed: ReadFileInput): ToolValidationResult {
+        const violation = this.sandbox.validateRelativePath(parsed.path);
+
+        switch (violation) {
+            case "empty":
+                return invalidInput("read_file.path 不能为空");
+            case "nul":
+                return invalidInput("read_file.path 不能包含 NUL 字符");
+            case "absolute":
+                return invalidInput("read_file.path 必须是工作区内的相对路径");
+            case "parent":
+                return invalidInput("read_file.path 不能包含 .. 路径段");
+            default:
+                return { ok: true };
         }
     }
 }

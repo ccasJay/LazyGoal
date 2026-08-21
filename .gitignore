@@ -14,6 +14,7 @@ coverage/
 
 # Project-local LazyGoal snapshots
 .lazygoal/
+.trae/
 
 # Local files
 .DS_Store

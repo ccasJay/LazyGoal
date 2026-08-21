@@ -43,9 +43,11 @@ flowchart LR
 
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
 `.lazygoal/goals`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
-`OpenAICompatible`、Profile Registry、`ReadFileTool`、`JsonFileGoalStore`、
-`CheckpointGateGoalStore`、Coordinator、Scheduler、Runner、根 `AbortController` 和
-SessionController。缺失或非法 Profile、未注册 Tool，以及缺失
+`OpenAICompatible`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
+`GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
+Scheduler、Runner、根 `AbortController` 和 SessionController。Runner 注入
+`createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
+自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失
 `LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Goal 前返回稳定非零错误；
 Profile 文件不会由程序自动生成，构造根本身也不会创建 `.lazygoal` 或 Goal。用户需要手工创建
 `.lazygoal/profiles/default.json`，其当前结构为：
@@ -58,7 +60,7 @@ Profile 文件不会由程序自动生成，构造根本身也不会创建 `.laz
   "description": "通用 LazyGoal Agent",
   "systemPrompt": "You are LazyGoal...",
   "instructions": ["Use only authorized tools."],
-  "toolIds": ["read_file"]
+  "toolIds": ["read_file", "write_file", "edit_file", "grep", "bash"]
 }
 ```
 
