@@ -20,6 +20,7 @@ import {
     type AgentProfileRegistry,
     type GoalCatalog,
     type ExitPort,
+    type ToolPolicy,
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -31,12 +32,44 @@ import {
     LLMStepExecutor,
 } from "../../agent/src/index";
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
-import { ReadFileTool } from "../../tools/src/index";
+import {
+    BashTool,
+    READ_FILE_TOOL_ID,
+    ReadFileTool,
+    WriteFileTool,
+} from "../../tools/src/index";
 import { SessionController, TuiApp } from "./index";
 import type { SessionLauncher } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
 const DEFAULT_PROFILE_ID = "default";
+
+/**
+ * 组合根的默认 Tool 授权策略：只读 Tool 自动放行，其余全部需要批准。
+ *
+ * @remarks
+ * fail-closed：只有显式列入白名单的只读 Tool（当前为 `read_file`）会被
+ * `allow` 自动放行；`write_file`、`bash` 以及任何未识别的 Tool 都返回
+ * `require_approval`，由 Runner 保存等待中的 Action 并交给用户批准或拒绝。
+ * 该策略不执行 Tool、不推进 Run，也不持久化授权。
+ *
+ * @example
+ * ```ts
+ * const policy = createDefaultToolPolicy();
+ * policy.evaluate({ goal, action, tool: { id: "bash" } }); // "require_approval"
+ * ```
+ */
+export function createDefaultToolPolicy(): ToolPolicy {
+    const autoAllowedToolIds = new Set([READ_FILE_TOOL_ID]);
+
+    return {
+        evaluate: ({ tool }) =>
+            autoAllowedToolIds.has(tool.id)
+                ? "allow"
+                : "require_approval",
+    };
+}
+
 
 /**
  * OpenAI-compatible CLI 所需的已校验模型配置。
@@ -237,7 +270,7 @@ export interface CompositionRoot {
     readonly profiles: AgentProfileRegistry;
     /** 当前 workspaceRoot 下的只读文件 Tool。 */
     readonly readFileTool: ReadFileTool;
-    /** 包含 `read_file` 的单进程 Tool Registry。 */
+    /** 包含 `read_file`、`write_file` 与 `bash` 的单进程 Tool Registry。 */
     readonly toolRegistry: InMemoryToolRegistry;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
@@ -321,7 +354,13 @@ export async function createCompositionRoot(
         },
     };
     const readFileTool = new ReadFileTool(workspaceRoot);
-    const toolRegistry = new InMemoryToolRegistry([readFileTool]);
+    const writeFileTool = new WriteFileTool(workspaceRoot);
+    const bashTool = new BashTool(workspaceRoot);
+    const toolRegistry = new InMemoryToolRegistry([
+        readFileTool,
+        writeFileTool,
+        bashTool,
+    ]);
     const missingToolId = profile.toolIds.find(
         (toolId) => toolRegistry.get(toolId) === undefined,
     );
@@ -343,6 +382,7 @@ export async function createCompositionRoot(
         store: checkpointStore,
         executor: new LLMStepExecutor({ adapter }),
         toolRegistry,
+        toolPolicy: createDefaultToolPolicy(),
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
