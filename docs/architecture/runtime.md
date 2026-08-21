@@ -63,14 +63,19 @@ Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后�
 
 Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界；Agent 接收已注册的授权
 ToolDefinition、生成并校验严格 AgentDecision，Runner 自动执行允许的 Action。
-[`packages/tools`](../../packages/tools/src/index.ts) 提供三个 Tool：只读 `ReadFileTool`、
+[`packages/tools`](../../packages/tools/src/index.ts) 提供五个 Tool：只读 `ReadFileTool`、
 写入 UTF-8 文本的 `WriteFileTool`（safe 重放，父目录须已存在，拒绝 `.lazygoal`
-前缀）与 `BashTool`（manual 重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为
-workspaceRoot、默认 30 秒/上限 120 秒超时、stdout/stderr 各截断保留尾部 10000
-字符）。三者共享 workspaceRoot 沙箱：拒绝绝对路径、`..` 路径段和解析后越出
-workspaceRoot 的符号链接；文件不存在等领域问题返回 `failure`，非零退出码与超时
-分别返回 `COMMAND_FAILED`/`COMMAND_TIMEOUT` 领域失败。TUI 组合根的默认策略
-（`createDefaultToolPolicy`）只自动放行只读 Tool，`write_file` 与 `bash` 需逐次
+前缀）、执行唯一匹配字符串替换的 `EditFileTool`（safe 重放，`oldString` 须恰好
+出现一次，重放时 `newString` 已存在则幂等成功，拒绝 `.lazygoal` 前缀）、按正则
+递归搜索文本文件的只读 `GrepTool`（safe 重放，跳过符号链接、`.git`、`.lazygoal`
+与 `node_modules`，扫描 2000 文件/返回 200 行匹配后截断）与 `BashTool`（manual
+重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为 workspaceRoot、默认 30 秒/上限
+120 秒超时、stdout/stderr 各截断保留尾部 10000 字符）。五者共享 workspaceRoot
+沙箱：拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；文件不
+存在等领域问题返回 `failure`，非零退出码与超时分别返回 `COMMAND_FAILED`/
+`COMMAND_TIMEOUT`，替换不匹配分别返回 `STRING_NOT_FOUND`/`STRING_NOT_UNIQUE`
+领域失败。TUI 组合根的默认策略（`createDefaultToolPolicy`）只自动放行只读
+Tool（`read_file` 与 `grep`），`write_file`、`edit_file` 与 `bash` 需逐次
 批准。Runner、Agent 与 Coordinator 支持自动允许/审批 Action 的授权、持久化执行
 编排、拒绝 Observation、瞬时授权和 safe/manual 中断恢复；跨进程重放依赖
 JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
@@ -84,7 +89,7 @@ JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 - Adapter 等非协议 Executor 异常：兼容转换为一次持久化的 `fail` Step；AgentDecision 协议错误、Tool 越权/缺失/输入错误与边界基础设施异常：保存稳定 `execution_error`，不消费 Step。Tool 抛错发生在 pendingAction 保存后时标记 `outcome_unknown`。
 - Transition 非法组合：返回原状态与 `INVALID_TRANSITION`，不抛异常、不修改输入状态。
 - Action 状态不变量：pendingAction 必须与当前 Action 生命周期匹配；Observation/rejection 必须匹配 actionId；Action 暂存、取消和执行错误不消费 Step，只有完整 Observation、拒绝或终止决策消费一次 Step。
-- Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；首次执行 Tool 前必须完成输入校验和 Policy 评估，已批准且携带匹配瞬时授权的 Action 只重新校验 Tool 与输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标；`WriteFileTool` 同受 workspaceRoot 沙箱约束、父目录必须已存在且拒绝 `.lazygoal` 前缀写入；`BashTool` 在 workspaceRoot 内执行命令，超时终止与输出截断由 Tool 边界负责，命令内容本身不受限制。
+- Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；首次执行 Tool 前必须完成输入校验和 Policy 评估，已批准且携带匹配瞬时授权的 Action 只重新校验 Tool 与输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标；`WriteFileTool` 同受 workspaceRoot 沙箱约束、父目录必须已存在且拒绝 `.lazygoal` 前缀写入；`EditFileTool` 要求 `oldString` 唯一匹配且与 `newString` 不同、拒绝 `.lazygoal` 前缀，未应用的重放返回 `STRING_NOT_FOUND`、已应用的重放幂等成功；`GrepTool` 跳过符号链接与 `.git`/`.lazygoal`/`node_modules` 目录、不读取含 NUL 字节的文件并在文件数或匹配数上限处截断；`BashTool` 在 workspaceRoot 内执行命令，超时终止与输出截断由 Tool 边界负责，命令内容本身不受限制。
 - Store I/O 或协议错误：原样向调用方传播；协议解码、迁移与并发覆盖语义由 [`@lazygoal/storage`](./storage.md) 拥有。
 - `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
 - Checkpoint Gate 冻结后新 `save` 抛出 `CHECKPOINT_GATE_FROZEN`；关闭流程不回滚快照、不写入 `cancelled`，已进入的底层保存仍可成为最新检查点。

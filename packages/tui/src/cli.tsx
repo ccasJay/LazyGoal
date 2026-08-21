@@ -34,6 +34,9 @@ import {
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
 import {
     BashTool,
+    EditFileTool,
+    GREP_TOOL_ID,
+    GrepTool,
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
@@ -48,10 +51,11 @@ const DEFAULT_PROFILE_ID = "default";
  * 组合根的默认 Tool 授权策略：只读 Tool 自动放行，其余全部需要批准。
  *
  * @remarks
- * fail-closed：只有显式列入白名单的只读 Tool（当前为 `read_file`）会被
- * `allow` 自动放行；`write_file`、`bash` 以及任何未识别的 Tool 都返回
- * `require_approval`，由 Runner 保存等待中的 Action 并交给用户批准或拒绝。
- * 该策略不执行 Tool、不推进 Run，也不持久化授权。
+ * fail-closed：只有显式列入白名单的只读 Tool（当前为 `read_file` 与
+ * `grep`）会被 `allow` 自动放行；`write_file`、`edit_file`、`bash` 以及
+ * 任何未识别的 Tool 都返回 `require_approval`，由 Runner 保存等待中的
+ * Action 并交给用户批准或拒绝。该策略不执行 Tool、不推进 Run，也不持久化
+ * 授权。
  *
  * @example
  * ```ts
@@ -60,7 +64,7 @@ const DEFAULT_PROFILE_ID = "default";
  * ```
  */
 export function createDefaultToolPolicy(): ToolPolicy {
-    const autoAllowedToolIds = new Set([READ_FILE_TOOL_ID]);
+    const autoAllowedToolIds = new Set([READ_FILE_TOOL_ID, GREP_TOOL_ID]);
 
     return {
         evaluate: ({ tool }) =>
@@ -270,7 +274,7 @@ export interface CompositionRoot {
     readonly profiles: AgentProfileRegistry;
     /** 当前 workspaceRoot 下的只读文件 Tool。 */
     readonly readFileTool: ReadFileTool;
-    /** 包含 `read_file`、`write_file` 与 `bash` 的单进程 Tool Registry。 */
+    /** 包含 `read_file`、`write_file`、`edit_file`、`grep` 与 `bash` 的单进程 Tool Registry。 */
     readonly toolRegistry: InMemoryToolRegistry;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
@@ -355,10 +359,14 @@ export async function createCompositionRoot(
     };
     const readFileTool = new ReadFileTool(workspaceRoot);
     const writeFileTool = new WriteFileTool(workspaceRoot);
+    const editFileTool = new EditFileTool(workspaceRoot);
+    const grepTool = new GrepTool(workspaceRoot);
     const bashTool = new BashTool(workspaceRoot);
     const toolRegistry = new InMemoryToolRegistry([
         readFileTool,
         writeFileTool,
+        editFileTool,
+        grepTool,
         bashTool,
     ]);
     const missingToolId = profile.toolIds.find(
