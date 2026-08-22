@@ -43,7 +43,7 @@ export class ModelInferenceProjector {
 
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion:
-                goal.definition.globalSystemPromptVersion,
+                goal.definition.promptBundleVersion,
             phase: workingContext.phase,
             profile: projectProfile(goal),
             authorizedTools: projectTools(tools),

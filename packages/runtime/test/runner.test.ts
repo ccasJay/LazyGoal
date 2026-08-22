@@ -195,6 +195,7 @@ function createInitialGoal(
     maxSteps = 3,
 ): Goal {
     const created = createGoal({
+        promptBundleVersion: 1,
         id: goalId,
         intent: goalDefinition.objective,
         profile: runProfile,
@@ -375,6 +376,7 @@ test("does not start or consume a Step for a preparation Goal", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const preparationGoal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-preparation",
         intent: "先收集上下文",
         profile,

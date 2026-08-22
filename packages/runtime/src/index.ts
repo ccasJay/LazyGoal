@@ -1,5 +1,4 @@
 export {
-    CURRENT_GLOBAL_SYSTEM_PROMPT_VERSION,
     createGoal,
     createRun,
 } from "./domain";
@@ -37,7 +36,6 @@ export type {
     Goal,
     GoalCreationInput,
     GoalDefinition,
-    GlobalSystemPromptVersion,
     GoalMessage,
     GoalState,
     GoalTask,

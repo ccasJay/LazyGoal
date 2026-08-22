@@ -71,6 +71,7 @@ function createExecutingGoal(input: {
     readonly profile: AgentProfile;
 }): Goal {
     const created = createGoal({
+        promptBundleVersion: 1,
         id: input.id,
         intent: "验证 Action/Observation 恢复",
         profile: input.profile,

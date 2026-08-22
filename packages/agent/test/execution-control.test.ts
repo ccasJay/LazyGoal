@@ -25,6 +25,7 @@ const profile: AgentProfile = {
 
 function createPreparationGoal(): Goal {
     return createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test preparation cancellation",
         profile,
@@ -34,6 +35,7 @@ function createPreparationGoal(): Goal {
 
 function createStepGoal(): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test step cancellation",
         profile,

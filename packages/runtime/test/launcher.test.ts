@@ -124,7 +124,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
         id: "goal-1",
         definition: {
             intent: "  Build a resumable workflow  ",
-            globalSystemPromptVersion: 1,
+            promptBundleVersion: 1,
             profile: createProfile(),
             executionPolicy: { maxSteps: 7 },
         },
@@ -156,6 +156,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
             },
             store,
             coordinator,
+            promptBundleVersion: 1,
         },
     );
 
@@ -206,6 +207,7 @@ test("launch validates intent and maxSteps before all dependencies", async () =>
             },
             store,
             coordinator,
+            promptBundleVersion: 1,
         });
 
         assert.equal(result.ok, false);
@@ -235,6 +237,7 @@ test("launch returns PROFILE_NOT_FOUND without generating, saving, or advancing"
             },
             store,
             coordinator,
+            promptBundleVersion: 1,
         },
     );
 
@@ -262,6 +265,7 @@ test("launch propagates ID generation and initial save failures without advancin
                 },
                 store: new RecordingGoalStore(),
                 coordinator: generatorCoordinator,
+                promptBundleVersion: 1,
             },
         ),
         generatorError,
@@ -278,6 +282,7 @@ test("launch propagates ID generation and initial save failures without advancin
                 runIdGenerator: () => "run-1",
                 store: new RecordingGoalStore([], saveError),
                 coordinator: saveCoordinator,
+                promptBundleVersion: 1,
             },
         ),
         saveError,
@@ -299,6 +304,7 @@ test("launch propagates Coordinator failures only after saving the initial Goal"
                 runIdGenerator: () => "run-1",
                 store,
                 coordinator,
+                promptBundleVersion: 1,
             },
         ),
         coordinatorError,
@@ -325,6 +331,7 @@ test("launch returns Coordinator business failures unchanged", async () => {
             runIdGenerator: () => "run-1",
             store: new RecordingGoalStore(),
             coordinator,
+            promptBundleVersion: 1,
         },
     );
 

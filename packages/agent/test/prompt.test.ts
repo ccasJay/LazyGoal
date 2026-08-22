@@ -36,6 +36,7 @@ function createPreparationGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent,
         profile,
@@ -68,6 +69,7 @@ function createExecutingGoal(options: {
     readonly pendingAction?: PendingAction;
 } = {}): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent,
         profile,

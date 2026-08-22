@@ -28,6 +28,7 @@ import {
     JsonFileGoalStore,
 } from "../../storage/src/index";
 import {
+    CURRENT_PROMPT_BUNDLE_VERSION,
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../../agent/src/index";
@@ -409,6 +410,7 @@ export async function createCompositionRoot(
                     runIdGenerator,
                     store: checkpointStore,
                     coordinator,
+                    promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
                 },
                 control,
             );

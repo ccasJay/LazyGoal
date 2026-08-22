@@ -46,6 +46,7 @@ async function main(): Promise<void> {
         executor,
     });
     const created = createGoal({
+        promptBundleVersion: 1,
         id: "live-llm-goal",
         intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
         profile: {

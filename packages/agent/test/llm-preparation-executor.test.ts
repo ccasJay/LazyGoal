@@ -26,6 +26,7 @@ function createPreparationGoal(
     runProfile: AgentProfile = profile,
 ): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "实现可恢复 Agent",
         profile: runProfile,
@@ -207,13 +208,13 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
     assert.equal(adapter.requests.length, 0);
 });
 
-test("未知 Global System Prompt 版本在 Adapter 调用前失败", async () => {
+test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
     const goal = createPreparationGoal();
     const unsupportedGoal = {
         ...goal,
         definition: {
             ...goal.definition,
-            globalSystemPromptVersion: 99,
+            promptBundleVersion: 99,
         },
     } as unknown as Goal;
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));

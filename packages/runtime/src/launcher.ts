@@ -78,6 +78,8 @@ export interface LauncherDependencies {
     readonly store: Pick<GoalStore, "save">;
     /** 从已保存的 gathering Goal 推进到下一等待点或终态。 */
     readonly coordinator: Pick<GoalCoordinator, "advance">;
+    /** Agent 当前生效、由 Composition Root 注入并在新 Goal 创建时冻结的 Prompt Bundle 版本。 */
+    readonly promptBundleVersion: number;
 }
 
 /**
@@ -139,6 +141,7 @@ export async function launch(
     const goal = createGoal({
         id: request.goalId,
         intent: request.intent,
+        promptBundleVersion: dependencies.promptBundleVersion,
         profile,
         runId,
         maxSteps,

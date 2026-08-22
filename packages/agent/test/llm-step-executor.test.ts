@@ -43,6 +43,7 @@ function createExecutingGoal(
     messages: readonly GoalMessage[],
 ): Goal {
     const created = createGoal({
+        promptBundleVersion: 1,
         id: goalId,
         intent: task.objective,
         profile: runProfile,
@@ -204,13 +205,13 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
     assert.equal(JSON.stringify(currentGoal), before);
 });
 
-test("LLMStepExecutor 在未知 Global System Prompt 版本时不调用 Adapter", async () => {
+test("LLMStepExecutor 在未知 Prompt Bundle 版本时不调用 Adapter", async () => {
     const goal = createTestGoal("run-unknown-prompt");
     const unsupportedGoal = {
         ...goal,
         definition: {
             ...goal.definition,
-            globalSystemPromptVersion: 99,
+            promptBundleVersion: 99,
         },
     } as unknown as Goal;
     const adapter = new FakeAdapter(JSON.stringify({

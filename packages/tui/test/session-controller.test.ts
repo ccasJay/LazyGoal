@@ -30,6 +30,7 @@ const profile = {
 
 function createWaitingGoal(id = "goal-1"): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id,
         intent: "Build a resumable workflow",
         profile,

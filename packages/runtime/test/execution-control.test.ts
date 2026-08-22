@@ -34,6 +34,7 @@ function createExecutingGoal(
     toolIds: readonly string[] = [],
 ): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test abort propagation",
         profile: { ...profile, toolIds: [...toolIds] },
@@ -264,6 +265,7 @@ test("InlineScheduler forwards and checks the shared execution control", async (
 test("GoalCoordinator does not save a preparation result after abort", async () => {
     const controller = new AbortController();
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test preparation abort",
         profile,

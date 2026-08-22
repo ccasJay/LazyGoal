@@ -35,6 +35,7 @@ function executingGoal(id = "goal-executing"): Goal {
         },
     ];
     const created = createGoal({
+        promptBundleVersion: 1,
         id,
         intent: "Inspect the repository",
         profile,
