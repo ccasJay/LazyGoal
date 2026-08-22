@@ -11,13 +11,13 @@ Profile JSON 加载并冻结 Profile；Agent 只读取完整 Goal，构造一次
 - 负责：三阶段 Working Context 派生、Prompt 组装、调用方传入的授权 ToolDefinition 展示、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
 - 不负责：Profile 文件 I/O、Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK。
 
-主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立的模型输入视图 DTO 位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，从 Runtime State 到该视图的逐字段投影位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)，纯 Prompt 渲染位于 [render.ts](../../packages/agent/src/render.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
+主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。版本化 Global Overview 位于 [global-system-prompt.ts](../../packages/agent/src/global-system-prompt.ts)，独立的模型输入视图 DTO 位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，从 Runtime State 到该视图的逐字段投影位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)，纯 Prompt 渲染位于 [render.ts](../../packages/agent/src/render.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
 
 ## 单轮数据流
 
 1. Preparation 不因 Profile 含 `toolIds` 而提前失败；Runtime Runner 只把 Profile 中已注册的 ToolDefinition 传给 executing 请求。
-2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：Profile 指令、真实会话投影、阶段化 Working Context 与授权 Tool 描述；Projector 逐字段深复制，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段与瞬时执行资源。
-3. Renderer 只依赖 View DTO，按 `protocol` 选择协议文本，并固定请求顺序为 system → 真实历史 → 当前控制消息。
+2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：冻结的 Global System Prompt 版本、Profile 指令、真实会话投影、阶段化 Working Context 与授权 Tool 描述；Projector 逐字段深复制，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段与瞬时执行资源。
+3. Renderer 只依赖 View DTO，按冻结版本解析 Global Overview、按 `protocol` 选择阶段文本，并把唯一 system 消息固定组装为 Global Overview → Profile → Active Phase Protocol → Authorized Tools；完整请求顺序仍为 system → 真实历史 → 当前控制消息。
 4. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。
 5. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 接收 Runtime 传入的 `ExecutionControl`，在 Adapter 返回后检查中止，不解析中止为 Agent 失败。
 6. Working Context 与模型协议 JSON 都不写入真实消息。执行请求通过 `checkpoint`、`previousStep` 和 `pendingAction` 获得有界累计状态。
@@ -28,7 +28,8 @@ Profile JSON 加载并冻结 Profile；Agent 只读取完整 Goal，构造一次
 - Adapter 异常保持原对象向上传播；Runner 将其记录为失败 Step。
 - `ExecutionAbortedError` 原样传播，不进入失败 Step 或协议错误分支。
 - Executor 不修改传入 Goal，也不直接写 Store。
-- system prompt 来自冻结 Profile，不重复写入 Goal 消息历史；恢复后的 user/assistant 内容和顺序原样参与后续请求，assistant 来源仍保存在 Goal 的 `profileId` 中。
+- Global Overview 与 Active Phase Protocol 高于冻结 Profile，Profile 只补充不冲突的角色、领域和工作方式；未知 Prompt 版本在 Adapter 调用前失败且不回退到最新版。
+- Global Overview、Profile 与阶段协议都不写入 Goal 消息历史；恢复后的 user/assistant 内容和顺序原样参与后续请求，assistant 来源仍保存在 Goal 的 `profileId` 中。
 
 ## 当前限制与背景
 

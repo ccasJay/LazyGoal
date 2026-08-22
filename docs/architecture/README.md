@@ -10,6 +10,7 @@ LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命�
 | Run | Goal 内当前执行实例，拥有独立 `runId` |
 | Step | Executor 的一次原子执行 |
 | Profile | 创建 Goal 时复制的 Agent 配置 |
+| Global System Prompt | 由 Goal 冻结版本、由 Agent 解析的 LazyGoal 全局导览 |
 | Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
 
 ## 模块关系
@@ -39,7 +40,7 @@ flowchart LR
 2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
-5. Agent Executor 接收已注册的授权 ToolDefinition 并生成 AgentDecision；Runner 做严格协议、Profile、Registry、输入和 Policy 校验。
+5. Agent Executor 按 Goal 冻结版本渲染 Global Overview，再组合 Profile、当前 Phase Protocol 与已注册的授权 ToolDefinition 并生成 AgentDecision；Runner 做严格协议、Profile、Registry、输入和 Policy 校验。
 6. 自动允许的 Action 按 `stage_action → Tool → observe_action` 顺序保存；需要批准的 Action 保存为等待点，领域 failure 继续下一轮，基础设施异常保存 `execution_error`。
 7. Coordinator 对 Action 执行 `approve_action`/`reject_action`：批准先保存再以瞬时授权调度，拒绝写入 rejected Observation；终止决策或正数 `maxSteps` 使 Run 停止。
 
@@ -50,6 +51,7 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
+- Global Overview 与 Phase Protocol 是 Agent 拥有的上层模型契约，Profile 只补充不冲突的角色与领域细节；Tool 权限和状态合法性仍由 Runtime 强制执行。
 - 分层依赖方向由 `npm run check:dependencies` 自动校验：View DTO、Prompt Renderer 与 Storage DTO/Schema 不得反向引用 Runtime，只有 Codec 与 Projector 允许同时看到两侧；脚本同时拒绝任何 package 反向加载 Storage 或 Agent。
 - 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝、瞬时授权以及 safe/manual 中断恢复。
 

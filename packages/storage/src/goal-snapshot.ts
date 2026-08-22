@@ -10,7 +10,7 @@ export type SnapshotJsonValue =
     | { readonly [key: string]: SnapshotJsonValue };
 
 /**
- * Goal Snapshot v3 文件协议的顶层 DTO。
+ * Goal Snapshot v4 文件协议的顶层 DTO。
  *
  * @remarks
  * 该类型族独立描述磁盘表示，不以索引类型复用 Runtime 领域契约；只有
@@ -18,37 +18,75 @@ export type SnapshotJsonValue =
  *
  * @example
  * ```ts
- * const snapshot: GoalSnapshotV3 = {
+ * const snapshot: GoalSnapshotV4 = {
  *     id: "goal-1",
- *     metadata: { schemaVersion: 3 },
- *     definition: { intent: "实现恢复", profile, executionPolicy: { maxSteps: 0 } },
+ *     metadata: { schemaVersion: 4 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         globalSystemPromptVersion: 1,
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
  *     state,
  * };
  * ```
  */
-export interface GoalSnapshotV3 {
+export interface GoalSnapshotV4 {
     readonly id: string;
-    readonly metadata: GoalSnapshotMetadataV3;
-    readonly definition: GoalSnapshotDefinitionV3;
-    readonly state: GoalSnapshotStateV3;
+    readonly metadata: GoalSnapshotMetadataV4;
+    readonly definition: GoalSnapshotDefinitionV4;
+    readonly state: GoalSnapshotStateV4;
 }
 
-/** Snapshot 顶层协议元数据；当前协议只有 v3。 */
-export interface GoalSnapshotMetadataV3 {
-    readonly schemaVersion: 3;
+/**
+ * Snapshot 顶层协议元数据；当前协议只有 v4。
+ * @example
+ * ```ts
+ * const metadata: GoalSnapshotMetadataV4 = { schemaVersion: 4 };
+ * ```
+ */
+export interface GoalSnapshotMetadataV4 {
+    readonly schemaVersion: 4;
 }
 
-/** Snapshot 中冻结的任务与 Profile 定义。 */
-export interface GoalSnapshotDefinitionV3 {
+/**
+ * Snapshot 中冻结的意图、Prompt 版本、Profile 与执行策略。
+ *
+ * @remarks `globalSystemPromptVersion` 在恢复后保持不变，由 Agent 解释其文本。
+ * @example
+ * ```ts
+ * const definition: GoalSnapshotDefinitionV4 = {
+ *     intent: "完成目标",
+ *     globalSystemPromptVersion: 1,
+ *     profile,
+ *     executionPolicy: { maxSteps: 0 },
+ * };
+ * ```
+ */
+export interface GoalSnapshotDefinitionV4 {
     readonly intent: string;
-    readonly profile: GoalSnapshotProfileV3;
+    readonly globalSystemPromptVersion: 1;
+    readonly profile: GoalSnapshotProfileV4;
     readonly executionPolicy: {
         readonly maxSteps: number;
     };
 }
 
-/** Snapshot 持久化的 Agent Profile 表示。 */
-export interface GoalSnapshotProfileV3 {
+/**
+ * Snapshot 持久化的 Agent Profile 表示。
+ *
+ * @remarks 保存创建 Goal 时冻结的配置，不在恢复时查询当前 Profile Store。
+ * @example
+ * ```ts
+ * const profile: GoalSnapshotProfileV4 = {
+ *     id: "default",
+ *     systemPrompt: "You are a coding agent.",
+ *     instructions: [],
+ *     toolIds: [],
+ * };
+ * ```
+ */
+export interface GoalSnapshotProfileV4 {
     readonly id: string;
     readonly name?: string | undefined;
     readonly description?: string | undefined;
@@ -57,15 +95,23 @@ export interface GoalSnapshotProfileV3 {
     readonly toolIds: readonly string[];
 }
 
-/** Snapshot 的工作流与执行状态。 */
-export interface GoalSnapshotStateV3 {
-    readonly workflow: GoalSnapshotWorkflowV3;
-    readonly messages: readonly GoalSnapshotMessageV3[];
-    readonly run: GoalSnapshotRunStateV3;
+/**
+ * Snapshot 的工作流、真实消息与当前 Run 状态。
+ *
+ * @remarks 三个字段共同构成一次可恢复状态，不提供历史版本。
+ * @example
+ * ```ts
+ * const state: GoalSnapshotStateV4 = { workflow, messages: [], run };
+ * ```
+ */
+export interface GoalSnapshotStateV4 {
+    readonly workflow: GoalSnapshotWorkflowV4;
+    readonly messages: readonly GoalSnapshotMessageV4[];
+    readonly run: GoalSnapshotRunStateV4;
 }
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
-export type GoalSnapshotWorkflowV3 =
+export type GoalSnapshotWorkflowV4 =
     | {
         readonly phase: "gathering_context";
         readonly preparation: {
@@ -78,23 +124,32 @@ export type GoalSnapshotWorkflowV3 =
             | { readonly status: "active" }
             | {
                 readonly status: "waiting_approval";
-                readonly proposal: GoalSnapshotTaskV3;
+                readonly proposal: GoalSnapshotTaskV4;
             };
     }
     | {
         readonly phase: "executing";
         readonly preparation: { readonly status: "completed" };
-        readonly task: GoalSnapshotTaskV3;
+        readonly task: GoalSnapshotTaskV4;
     };
 
-/** 任务目标与完成标准。 */
-export interface GoalSnapshotTaskV3 {
+/**
+ * 任务目标与完成标准。
+ * @example
+ * ```ts
+ * const task: GoalSnapshotTaskV4 = {
+ *     objective: "完成目标",
+ *     completionCriteria: ["测试通过"],
+ * };
+ * ```
+ */
+export interface GoalSnapshotTaskV4 {
     readonly objective: string;
     readonly completionCriteria: readonly string[];
 }
 
 /** 真实会话消息的持久化表示。 */
-export type GoalSnapshotMessageV3 =
+export type GoalSnapshotMessageV4 =
     | { readonly role: "user"; readonly content: string }
     | {
         readonly role: "assistant";
@@ -102,19 +157,31 @@ export type GoalSnapshotMessageV3 =
         readonly content: string;
     };
 
-/** Run 执行状态快照。 */
-export interface GoalSnapshotRunStateV3 {
+/**
+ * Run 执行状态快照。
+ *
+ * @remarks 可选执行记忆必须满足文件 Schema 的跨字段状态不变量。
+ * @example
+ * ```ts
+ * const run: GoalSnapshotRunStateV4 = {
+ *     id: "run-1",
+ *     status: "created",
+ *     stepCount: 0,
+ * };
+ * ```
+ */
+export interface GoalSnapshotRunStateV4 {
     readonly id: string;
-    readonly status: GoalSnapshotRunStatusV3;
+    readonly status: GoalSnapshotRunStatusV4;
     readonly stepCount: number;
-    readonly lastStep?: GoalSnapshotStepRecordV3 | undefined;
+    readonly lastStep?: GoalSnapshotStepRecordV4 | undefined;
     readonly checkpoint?: string | undefined;
-    readonly pendingAction?: GoalSnapshotPendingActionV3 | undefined;
-    readonly stopReason?: GoalSnapshotStopReasonV3 | undefined;
+    readonly pendingAction?: GoalSnapshotPendingActionV4 | undefined;
+    readonly stopReason?: GoalSnapshotStopReasonV4 | undefined;
 }
 
 /** Run 生命周期状态。 */
-export type GoalSnapshotRunStatusV3 =
+export type GoalSnapshotRunStatusV4 =
     | "created"
     | "running"
     | "waiting"
@@ -128,26 +195,38 @@ export type GoalSnapshotRunStatusV3 =
  * @remarks 当前协议只接受 `action` 与 `decision`；`legacy` StepRecord 属于
  * 已删除的旧执行协议，出现即整体拒绝。
  */
-export type GoalSnapshotStepRecordV3 =
+export type GoalSnapshotStepRecordV4 =
     | {
         readonly kind: "action";
-        readonly action: GoalSnapshotToolCallActionV3;
-        readonly observation: GoalSnapshotObservationV3;
+        readonly action: GoalSnapshotToolCallActionV4;
+        readonly observation: GoalSnapshotObservationV4;
     }
     | {
         readonly kind: "decision";
-        readonly result: GoalSnapshotDecisionResultV3;
+        readonly result: GoalSnapshotDecisionResultV4;
     };
 
-/** Tool Action 调用的持久化表示。 */
-export interface GoalSnapshotToolCallActionV3 {
+/**
+ * Tool Action 调用的持久化表示。
+ *
+ * @remarks `actionId` 在审批、执行和恢复期间保持不变。
+ * @example
+ * ```ts
+ * const action: GoalSnapshotToolCallActionV4 = {
+ *     actionId: "action-1",
+ *     toolId: "read_file",
+ *     input: { path: "README.md" },
+ * };
+ * ```
+ */
+export interface GoalSnapshotToolCallActionV4 {
     readonly actionId: string;
     readonly toolId: string;
     readonly input: SnapshotJsonValue;
 }
 
 /** Tool Observation 的持久化表示。 */
-export type GoalSnapshotObservationV3 =
+export type GoalSnapshotObservationV4 =
     | {
         readonly kind: "success";
         readonly output: SnapshotJsonValue;
@@ -165,7 +244,7 @@ export type GoalSnapshotObservationV3 =
     };
 
 /** 终止性 Agent 决策的持久化表示。 */
-export type GoalSnapshotDecisionResultV3 =
+export type GoalSnapshotDecisionResultV4 =
     | {
         readonly kind: "complete";
         readonly checkpoint: string;
@@ -182,14 +261,25 @@ export type GoalSnapshotDecisionResultV3 =
         readonly error: string;
     };
 
-/** 未完成 Action 的持久化意图。 */
-export interface GoalSnapshotPendingActionV3 {
-    readonly action: GoalSnapshotToolCallActionV3;
+/**
+ * 未完成 Action 的持久化意图。
+ *
+ * @remarks 恢复行为由状态与 Tool replay policy 共同决定，不表示 Tool 结果。
+ * @example
+ * ```ts
+ * const pending: GoalSnapshotPendingActionV4 = {
+ *     action,
+ *     status: "awaiting_approval",
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingActionV4 {
+    readonly action: GoalSnapshotToolCallActionV4;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
 }
 
 /** 非 Step 自身导致的 Run 终止原因。 */
-export type GoalSnapshotStopReasonV3 =
+export type GoalSnapshotStopReasonV4 =
     | { readonly kind: "max_steps_exceeded" }
     | {
         readonly kind: "execution_error";
@@ -205,7 +295,7 @@ export type GoalSnapshotStopReasonV3 =
 const NonEmptyStringSchema = z.string().min(1);
 
 const GoalSnapshotMetadataSchema = z.object({
-    schemaVersion: z.literal(3),
+    schemaVersion: z.literal(4),
 }).strict();
 
 const GoalSnapshotTaskSchema = z.object({
@@ -363,7 +453,7 @@ function addInvariantIssue(
     context.addIssue({ code: "custom", message, path });
 }
 
-function validateV3Invariants(
+function validateV4Invariants(
     goal: z.infer<typeof GoalSnapshotBaseSchema>,
     context: z.RefinementCtx,
 ): void {
@@ -547,6 +637,7 @@ const GoalSnapshotBaseSchema = z.object({
     metadata: GoalSnapshotMetadataSchema,
     definition: z.object({
         intent: z.string(),
+        globalSystemPromptVersion: z.literal(1),
         profile: GoalSnapshotProfileSchema,
         executionPolicy: z.object({
             maxSteps: z.number().int().nonnegative(),
@@ -560,20 +651,20 @@ const GoalSnapshotBaseSchema = z.object({
 }).strict();
 
 /**
- * 严格非 Legacy v3 Goal Snapshot Schema。
+ * 严格 v4 Goal Snapshot Schema。
  *
  * @remarks
  * Schema 只负责文件协议校验：拒绝未声明字段、`legacy` StepRecord 与违反
- * 跨字段不变量的组合；不读取文件系统，也不构造 Runtime Goal。v1、v2 与
- * 未知版本在 Codec 入口被拒绝，不会进入该 Schema。
+ * 跨字段不变量的组合；不读取文件系统，也不构造 Runtime Goal。v1 至 v3
+ * 与未知版本在 Codec 入口被拒绝，不会进入该 Schema。
  *
  * @example
  * ```ts
- * const result = GoalSnapshotV3Schema.safeParse(JSON.parse(text));
+ * const result = GoalSnapshotV4Schema.safeParse(JSON.parse(text));
  * ```
  */
-export const GoalSnapshotV3Schema = GoalSnapshotBaseSchema.superRefine(
-    validateV3Invariants,
+export const GoalSnapshotV4Schema = GoalSnapshotBaseSchema.superRefine(
+    validateV4Invariants,
 );
 
 export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
@@ -582,7 +673,7 @@ export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;
  * 表示 Goal JSON 快照违反持久化协议的错误。
  *
  * @remarks
- * v1、v2、包含 `legacy` StepRecord 的 v3、未知版本、非法结构与不成立的
+ * v1 至 v3、未知版本、非法结构与不成立的
  * 状态组合都使用该错误；文件系统本身的读写错误不使用该类型，以便调用方
  * 区分协议损坏和 I/O 故障。
  *

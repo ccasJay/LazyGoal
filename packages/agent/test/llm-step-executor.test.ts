@@ -17,6 +17,7 @@ import type {
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     AGENT_DECISION_PROTOCOL,
+    GLOBAL_SYSTEM_PROMPT_V1,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
@@ -148,11 +149,12 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.equal(
         adapter.requests[0]?.messages[0]?.content,
         [
-            "你是一个执行代理。",
-            "Instructions:\n1. 检查当前上下文",
-            AGENT_DECISION_PROTOCOL,
-        ].join("\n\n")
-            + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]",
+            `Global Overview:\n${GLOBAL_SYSTEM_PROMPT_V1}`,
+            "Profile System Prompt:\n你是一个执行代理。",
+            "Profile Instructions:\n1. 检查当前上下文",
+            `Active Phase Protocol:\n${AGENT_DECISION_PROTOCOL}`,
+            "Authorized Tool definitions (only these Tool IDs may be requested):\n[]",
+        ].join("\n\n"),
     );
     assert.deepEqual(
         JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
@@ -200,6 +202,29 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
     await executor.execute(currentGoal, []);
 
     assert.equal(JSON.stringify(currentGoal), before);
+});
+
+test("LLMStepExecutor 在未知 Global System Prompt 版本时不调用 Adapter", async () => {
+    const goal = createTestGoal("run-unknown-prompt");
+    const unsupportedGoal = {
+        ...goal,
+        definition: {
+            ...goal.definition,
+            globalSystemPromptVersion: 99,
+        },
+    } as unknown as Goal;
+    const adapter = new FakeAdapter(JSON.stringify({
+        kind: "complete",
+        checkpoint: "不应生成",
+        summary: "不应生成",
+    }));
+    const executor = new LLMStepExecutor({ adapter });
+
+    await assert.rejects(
+        executor.execute(unsupportedGoal, []),
+        /Unsupported Global System Prompt version: 99/,
+    );
+    assert.equal(adapter.requests.length, 0);
 });
 
 test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", async () => {

@@ -1,5 +1,18 @@
 import type { AgentProfile } from "./agent-profile";
 
+/** 新 Goal 当前冻结使用的 Global System Prompt 契约版本。 */
+export const CURRENT_GLOBAL_SYSTEM_PROMPT_VERSION = 1 as const;
+
+/**
+ * Goal 生命周期内不可变的 Global System Prompt 契约版本。
+ *
+ * @remarks
+ * Runtime 只持有版本标识，不持有或渲染 Prompt 文本；Agent 根据该版本选择
+ * 对应文本。新增版本时必须保留仍可能被恢复 Goal 引用的旧版本。
+ */
+export type GlobalSystemPromptVersion =
+    typeof CURRENT_GLOBAL_SYSTEM_PROMPT_VERSION;
+
 /** Goal 的稳定任务定义，不包含执行过程中产生的状态。 */
 export interface GoalTask {
     readonly objective: string;
@@ -68,11 +81,14 @@ export type GoalMessage = UserMessage | AssistantMessage;
 /**
  * Goal 创建后冻结的定义。
  *
- * @remarks 原始意图、Profile 和执行策略在 Session 生命周期内保持不变。
+ * @remarks
+ * 原始意图、Global System Prompt 版本、Profile 和执行策略在 Session 生命周期
+ * 内保持不变。版本只选择 Agent 拥有的 Prompt 文本，不改变 Runtime 权限边界。
  * @example
  * ```ts
  * const definition: GoalDefinition = {
  *   intent: "实现恢复能力",
+ *   globalSystemPromptVersion: 1,
  *   profile,
  *   executionPolicy: { maxSteps: 0 },
  * };
@@ -80,6 +96,8 @@ export type GoalMessage = UserMessage | AssistantMessage;
  */
 export interface GoalDefinition {
     readonly intent: string;
+    /** 恢复时必须继续使用的 Global System Prompt 契约版本。 */
+    readonly globalSystemPromptVersion: GlobalSystemPromptVersion;
     readonly profile: AgentProfile;
     readonly executionPolicy: {
         /** 正整数表示上限，`0` 表示不以 Step 数量限制执行。 */
@@ -497,6 +515,7 @@ export function createGoal(input: GoalCreationInput): Goal {
         id: input.id,
         definition: {
             intent: input.intent,
+            globalSystemPromptVersion: CURRENT_GLOBAL_SYSTEM_PROMPT_VERSION,
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },

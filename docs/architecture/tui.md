@@ -58,14 +58,16 @@ Profile 文件不会由程序自动生成，构造根本身也不会创建 `.laz
   "id": "default",
   "name": "Default",
   "description": "通用 LazyGoal Agent",
-  "systemPrompt": "You are LazyGoal...",
+  "systemPrompt": "You are a focused coding agent...",
   "instructions": ["Use only authorized tools."],
   "toolIds": ["read_file", "write_file", "edit_file", "grep", "bash"]
 }
 ```
 
-当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。`create` 校验非空 intent
-后只生成一个 goalId，并委托 Launcher；`resume` 先查询
+当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。Profile 只补充
+Global Overview 与 Phase Protocol 未规定的角色和工作细节；Tool 权限仍由 Runtime
+强制执行。`create` 校验非空 intent 后只生成一个 goalId，并委托 Launcher；Launcher
+创建的新 Goal 自动冻结当前 Global System Prompt v1。`resume` 先查询
 按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
 直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准
 和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal

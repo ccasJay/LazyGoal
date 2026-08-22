@@ -10,6 +10,7 @@ import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMPreparationExecutor,
     LLMResponseProtocolError,
+    GLOBAL_SYSTEM_PROMPT_V1,
     PREPARATION_RESULT_PROTOCOL,
 } from "../src/index";
 
@@ -71,11 +72,12 @@ class RejectingAdapter implements LLMAdapter {
 
 function expectedSystemContent(protocol: string): string {
     return [
-        "你是一个任务准备代理。",
-        "Instructions:\n1. 只收集必要信息",
-        protocol,
-    ].join("\n\n")
-        + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]";
+        `Global Overview:\n${GLOBAL_SYSTEM_PROMPT_V1}`,
+        "Profile System Prompt:\n你是一个任务准备代理。",
+        "Profile Instructions:\n1. 只收集必要信息",
+        `Active Phase Protocol:\n${protocol}`,
+        "Authorized Tool definitions (only these Tool IDs may be requested):\n[]",
+    ].join("\n\n");
 }
 
 test("gathering_context 只解析 question/context_ready 协议", async () => {
@@ -201,6 +203,25 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
     await assert.rejects(
         executor.execute(waiting),
         /active preparation Goal/,
+    );
+    assert.equal(adapter.requests.length, 0);
+});
+
+test("未知 Global System Prompt 版本在 Adapter 调用前失败", async () => {
+    const goal = createPreparationGoal();
+    const unsupportedGoal = {
+        ...goal,
+        definition: {
+            ...goal.definition,
+            globalSystemPromptVersion: 99,
+        },
+    } as unknown as Goal;
+    const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
+    const executor = new LLMPreparationExecutor({ adapter });
+
+    await assert.rejects(
+        executor.execute(unsupportedGoal),
+        /Unsupported Global System Prompt version: 99/,
     );
     assert.equal(adapter.requests.length, 0);
 });

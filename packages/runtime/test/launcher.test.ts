@@ -124,6 +124,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
         id: "goal-1",
         definition: {
             intent: "  Build a resumable workflow  ",
+            globalSystemPromptVersion: 1,
             profile: createProfile(),
             executionPolicy: { maxSteps: 7 },
         },

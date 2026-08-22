@@ -1,4 +1,8 @@
-export { createGoal, createRun } from "./domain";
+export {
+    CURRENT_GLOBAL_SYSTEM_PROMPT_VERSION,
+    createGoal,
+    createRun,
+} from "./domain";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
     ExecutionAbortedError,
@@ -33,6 +37,7 @@ export type {
     Goal,
     GoalCreationInput,
     GoalDefinition,
+    GlobalSystemPromptVersion,
     GoalMessage,
     GoalState,
     GoalTask,

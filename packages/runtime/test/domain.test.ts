@@ -33,6 +33,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
         id: "goal-1",
         definition: {
             intent: "完成最小 Runtime",
+            globalSystemPromptVersion: 1,
             profile,
             executionPolicy: { maxSteps: 0 },
         },
@@ -124,7 +125,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
     }
 });
 
-test("a complete v3 Goal supports a JSON round-trip", () => {
+test("a complete Goal with a frozen Global System Prompt version supports a JSON round-trip", () => {
     const goal = createGoal({
         id: "goal-4",
         intent: "验证序列化",

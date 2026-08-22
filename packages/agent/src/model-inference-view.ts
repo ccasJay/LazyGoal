@@ -99,10 +99,25 @@ export type ModelWorkingContext =
  *
  * @remarks
  * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：响应协议种类、
- * 冻结 Profile、真实会话、阶段化 Working Context 与授权 Tool 描述。它不包含
- * Snapshot 版本、迁移标记、Run 状态字段或瞬时执行授权。
+ * Global System Prompt 版本、冻结 Profile、真实会话、阶段化 Working Context
+ * 与授权 Tool 描述。它不包含 Storage schemaVersion、迁移标记、Run 状态字段
+ * 或瞬时执行授权。Renderer 对未知 Prompt 版本直接失败，不回退到最新版。
+ *
+ * @example
+ * ```ts
+ * const view: ModelInferenceView = {
+ *     globalSystemPromptVersion: 1,
+ *     protocol: "gathering_context",
+ *     profile,
+ *     conversation: [],
+ *     workingContext: { phase: "gathering_context", intent: "完成目标" },
+ *     authorizedTools: [],
+ * };
+ * ```
  */
 export interface ModelInferenceView {
+    /** Goal 创建时冻结、由 Renderer 解析为 Global Overview 的版本。 */
+    readonly globalSystemPromptVersion: number;
     readonly protocol: "gathering_context" | "planning" | "agent_decision";
     readonly profile: ModelProfileView;
     readonly conversation: readonly ModelConversationMessage[];

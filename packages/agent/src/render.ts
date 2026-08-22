@@ -7,6 +7,7 @@ import {
     AGENT_DECISION_PROTOCOL,
     PREPARATION_RESULT_PROTOCOL,
 } from "./model-inference-view";
+import { resolveGlobalSystemPrompt } from "./global-system-prompt";
 
 /**
  * 只依赖 View DTO 的纯 Prompt Renderer。
@@ -17,20 +18,16 @@ import {
  * `protocol` 选择，最终消息内容与顺序由 Projector + Renderer 组合保证。
  */
 
-function buildProfileSystemContent(
-    view: ModelInferenceView,
-    protocol: string,
-): string {
+function buildProfileSystemContent(view: ModelInferenceView): string {
     const instructions = view.profile.instructions.length === 0
-        ? "（无额外指令）"
+        ? "(No additional instructions.)"
         : view.profile.instructions
             .map((instruction, index) => `${index + 1}. ${instruction}`)
             .join("\n");
 
     return [
-        view.profile.systemPrompt,
-        `Instructions:\n${instructions}`,
-        protocol,
+        `Profile System Prompt:\n${view.profile.systemPrompt}`,
+        `Profile Instructions:\n${instructions}`,
     ].join("\n\n");
 }
 
@@ -72,13 +69,18 @@ export function renderWorkingContextMessage(
  */
 export function renderRequest(view: ModelInferenceView): LLMRequest {
     const protocol = protocolFor(view);
+    const globalSystemPrompt = resolveGlobalSystemPrompt(
+        view.globalSystemPromptVersion,
+    );
 
     return {
         messages: [
             {
                 role: "system",
                 content: [
-                    buildProfileSystemContent(view, protocol),
+                    `Global Overview:\n${globalSystemPrompt}`,
+                    buildProfileSystemContent(view),
+                    `Active Phase Protocol:\n${protocol}`,
                     buildAuthorizedToolsContent(view.authorizedTools),
                 ].join("\n\n"),
             },

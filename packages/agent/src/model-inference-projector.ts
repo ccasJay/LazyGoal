@@ -17,7 +17,8 @@ import type {
  * @remarks
  * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
  * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
- * Snapshot；Run 状态字段、Snapshot 版本与瞬时执行资源不会被投影。
+ * Snapshot；Run 状态字段、Storage schemaVersion 与瞬时执行资源不会被投影。
+ * Goal 冻结的 Global System Prompt 版本属于模型契约选择，因此会被复制到 View。
  *
  * @example
  * ```ts
@@ -43,6 +44,8 @@ export class ModelInferenceProjector {
             : workingContext.phase;
 
         return {
+            globalSystemPromptVersion:
+                goal.definition.globalSystemPromptVersion,
             protocol,
             profile: projectProfile(goal),
             conversation: projectConversation(goal),

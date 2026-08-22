@@ -128,10 +128,12 @@ test("Projector 按阶段投影完整 Profile、Conversation 与 Working Context
         assert.deepEqual(Object.keys(view).sort(), [
             "authorizedTools",
             "conversation",
+            "globalSystemPromptVersion",
             "profile",
             "protocol",
             "workingContext",
         ].sort());
+        assert.equal(view.globalSystemPromptVersion, 1);
         assert.equal(view.protocol, phase);
         assert.equal(view.profile.id, "profile-1");
         assert.equal(view.profile.name, "示例 Profile");
@@ -173,6 +175,7 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     });
     const view = projector.project(goal, [toolDefinition()]);
 
+    assert.equal(view.globalSystemPromptVersion, 1);
     assert.equal(view.protocol, "agent_decision");
     assert.deepEqual(view.conversation, [{ role: "user", content: intent }]);
     assert.equal(view.authorizedTools.length, 1);

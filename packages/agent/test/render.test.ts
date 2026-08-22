@@ -5,6 +5,7 @@ import {
     AGENT_DECISION_PROTOCOL,
     PREPARATION_RESULT_PROTOCOL,
 } from "../src/model-inference-view";
+import { GLOBAL_SYSTEM_PROMPT_V1 } from "../src/global-system-prompt";
 import type {
     ModelInferenceView,
     ModelProfileView,
@@ -42,8 +43,8 @@ const readFileTool: ModelToolDefinition = {
 };
 
 /**
- * 字符级 System 消息 fixture：按 Profile → Instructions → 协议 → 授权 Tool
- * 的固定顺序组装，分隔符与 Tool JSON 缩进固定。
+ * 字符级 System 消息 fixture：按 Global Overview → Profile → Phase Protocol
+ * → 授权 Tool 的固定顺序组装，分隔符与 Tool JSON 缩进固定。
  */
 function expectedSystemMessage(
     protocol: string,
@@ -52,13 +53,13 @@ function expectedSystemMessage(
     return {
         role: "system",
         content: [
-            profile.systemPrompt,
-            "Instructions:\n1. 先检查输入\n2. 再给出下一步",
-            protocol,
-        ].join("\n\n")
-            + "\n\n"
-            + "Authorized Tool definitions (only these Tool IDs may be requested):\n"
-            + JSON.stringify(tools, null, 2),
+            `Global Overview:\n${GLOBAL_SYSTEM_PROMPT_V1}`,
+            `Profile System Prompt:\n${profile.systemPrompt}`,
+            "Profile Instructions:\n1. 先检查输入\n2. 再给出下一步",
+            `Active Phase Protocol:\n${protocol}`,
+            "Authorized Tool definitions (only these Tool IDs may be requested):\n"
+                + JSON.stringify(tools, null, 2),
+        ].join("\n\n"),
     };
 }
 
@@ -86,6 +87,7 @@ test("gathering_context 请求按固定角色、内容与顺序渲染", () => {
         intent: "完成示例任务",
     };
     const view: ModelInferenceView = {
+        globalSystemPromptVersion: 1,
         protocol: "gathering_context",
         profile,
         conversation,
@@ -115,6 +117,7 @@ test("planning 请求按固定角色、内容与顺序渲染", () => {
         intent: "完成示例任务",
     };
     const view: ModelInferenceView = {
+        globalSystemPromptVersion: 1,
         protocol: "planning",
         profile,
         conversation,
@@ -167,6 +170,7 @@ test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符�
         },
     };
     const view: ModelInferenceView = {
+        globalSystemPromptVersion: 1,
         protocol: "agent_decision",
         profile,
         conversation,
@@ -181,6 +185,46 @@ test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符�
             [readFileTool],
         ),
     });
+});
+
+test("Global Overview 明确优先级并位于 Profile 与 Phase Protocol 之前", () => {
+    const view: ModelInferenceView = {
+        globalSystemPromptVersion: 1,
+        protocol: "gathering_context",
+        profile,
+        conversation: [],
+        workingContext: {
+            phase: "gathering_context",
+            intent: "完成示例任务",
+        },
+        authorizedTools: [],
+    };
+    const systemContent = renderRequest(view).messages[0]?.content ?? "";
+
+    assert.match(systemContent, /take precedence over the frozen Profile/);
+    assert.ok(systemContent.indexOf("Global Overview:")
+        < systemContent.indexOf("Profile System Prompt:"));
+    assert.ok(systemContent.indexOf("Profile System Prompt:")
+        < systemContent.indexOf("Active Phase Protocol:"));
+});
+
+test("Renderer 对未知 Global System Prompt 版本失败且不回退", () => {
+    const view: ModelInferenceView = {
+        globalSystemPromptVersion: 99,
+        protocol: "gathering_context",
+        profile,
+        conversation: [],
+        workingContext: {
+            phase: "gathering_context",
+            intent: "完成示例任务",
+        },
+        authorizedTools: [],
+    };
+
+    assert.throws(
+        () => renderRequest(view),
+        /Unsupported Global System Prompt version: 99/,
+    );
 });
 
 test("renderWorkingContextMessage 逐字符固定为 JSON 控制的 user 消息", () => {

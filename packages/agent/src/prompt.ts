@@ -10,6 +10,10 @@ import { ModelInferenceProjector } from "./model-inference-projector";
 import { renderRequest } from "./render";
 
 export { AGENT_DECISION_PROTOCOL, PREPARATION_RESULT_PROTOCOL };
+export {
+    GLOBAL_SYSTEM_PROMPT_V1,
+    resolveGlobalSystemPrompt,
+} from "./global-system-prompt";
 export type { ModelInferenceView } from "./model-inference-view";
 
 function project(goal: Goal, tools: readonly ToolDefinition[] = []): ModelInferenceView {
