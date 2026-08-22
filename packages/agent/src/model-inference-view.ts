@@ -67,6 +67,30 @@ export interface ModelToolDefinition {
     readonly inputSchema: unknown;
 }
 
+/** Prompt Bundle 渲染时区分的三种业务阶段。 */
+export type PromptPhase = "gathering_context" | "planning" | "executing";
+
+/**
+ * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
+ *
+ * @remarks
+ * 该 DTO 只包含构建 system prompt 所需的稳定数据：Goal 冻结的 Prompt Bundle
+ * 版本、当前业务阶段、冻结 Profile 与已授权 Tool 描述。它不包含 goalId、runId、
+ * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
+ * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
+ * 不得修改它或任何 Runtime 领域状态。
+ */
+export interface PromptContext {
+    /** Goal 创建时冻结、用于选择 Prompt Bundle 的正整数版本。 */
+    readonly promptBundleVersion: number;
+    /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
+    readonly phase: PromptPhase;
+    /** 冻结 Profile 的模型可读投影。 */
+    readonly profile: ModelProfileView;
+    /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
+    readonly authorizedTools: readonly ModelToolDefinition[];
+}
+
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
 export type PreparationPhase = "gathering_context" | "planning";
 
