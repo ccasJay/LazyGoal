@@ -9,7 +9,9 @@ import type {
     ModelToolDefinition,
     ModelWorkingContext,
     PreparationPhase,
+    PromptContext,
 } from "./model-inference-view";
+import { compareCodeUnits } from "./prompting/environment";
 
 /**
  * 从 Runtime State 派生 LLM Input View 的单向投影边界。
@@ -38,19 +40,19 @@ export class ModelInferenceProjector {
         tools: readonly ToolDefinition[] = [],
     ): ModelInferenceView {
         const workingContext = this.projectWorkingContext(goal);
-        const protocol: ModelInferenceView["protocol"] = workingContext.phase
-            === "executing"
-            ? "agent_decision"
-            : workingContext.phase;
+
+        const prompt: PromptContext = deepFreeze({
+            promptBundleVersion:
+                goal.definition.globalSystemPromptVersion,
+            phase: workingContext.phase,
+            profile: projectProfile(goal),
+            authorizedTools: projectTools(tools),
+        });
 
         return {
-            globalSystemPromptVersion:
-                goal.definition.globalSystemPromptVersion,
-            protocol,
-            profile: projectProfile(goal),
+            prompt,
             conversation: projectConversation(goal),
             workingContext,
-            authorizedTools: projectTools(tools),
         };
     }
 
@@ -143,11 +145,43 @@ function projectConversation(
 function projectTools(
     tools: readonly ToolDefinition[],
 ): readonly ModelToolDefinition[] {
-    return tools.map((tool) => ({
-        id: tool.id,
-        description: tool.description,
-        inputSchema: structuredClone(tool.inputSchema),
-    }));
+    const seen = new Set<string>();
+    const projected = tools.map((tool) => {
+        if (seen.has(tool.id)) {
+            throw new Error(`重复的 Tool ID：${tool.id}`);
+        }
+
+        seen.add(tool.id);
+
+        return {
+            id: tool.id,
+            description: tool.description,
+            inputSchema: structuredClone(tool.inputSchema),
+        };
+    });
+
+    projected.sort((a, b) => compareCodeUnits(a.id, b.id));
+
+    return projected;
+}
+
+/**
+ * 递归冻结对象与数组，使 PromptContext 在运行时不可变。
+ *
+ * @remarks
+ * 只作用于从 Runtime 投影出的 DTO，不修改原始 Goal。冻结后任何修改尝试在严格
+ * 模式下都会抛出，从而保证 Renderer 只读取 PromptContext、不改变模型输入。
+ */
+function deepFreeze<T>(value: T): T {
+    if (value !== null && typeof value === "object") {
+        Object.freeze(value);
+
+        for (const key of Object.keys(value)) {
+            deepFreeze((value as Record<string, unknown>)[key]);
+        }
+    }
+
+    return value;
 }
 
 function projectStepRecord(step: StepRecord): ModelStepRecord {

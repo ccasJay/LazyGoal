@@ -104,9 +104,9 @@ function createExecutingGoal(options: {
     };
 }
 
-function toolDefinition(): ToolDefinition {
+function toolDefinition(id = "read_file"): ToolDefinition {
     return {
-        id: "read_file",
+        id,
         description: "读取工作区内文本文件",
         inputSchema: {
             type: "object",
@@ -115,7 +115,7 @@ function toolDefinition(): ToolDefinition {
     };
 }
 
-test("Projector 按阶段投影完整 Profile、Conversation 与 Working Context", () => {
+test("Projector 按阶段投影完整 PromptContext、Conversation 与 Working Context", () => {
     for (const phase of ["gathering_context", "planning"] as const) {
         const view = projector.project(createPreparationGoal(phase, [
             {
@@ -126,20 +126,17 @@ test("Projector 按阶段投影完整 Profile、Conversation 与 Working Context
         ]));
 
         assert.deepEqual(Object.keys(view).sort(), [
-            "authorizedTools",
             "conversation",
-            "globalSystemPromptVersion",
-            "profile",
-            "protocol",
+            "prompt",
             "workingContext",
         ].sort());
-        assert.equal(view.globalSystemPromptVersion, 1);
-        assert.equal(view.protocol, phase);
-        assert.equal(view.profile.id, "profile-1");
-        assert.equal(view.profile.name, "示例 Profile");
-        assert.equal(view.profile.description, "项目测试用 Profile");
-        assert.equal(view.profile.systemPrompt, profile.systemPrompt);
-        assert.deepEqual(view.profile.instructions, profile.instructions);
+        assert.equal(view.prompt.promptBundleVersion, 1);
+        assert.equal(view.prompt.phase, phase);
+        assert.equal(view.prompt.profile.id, "profile-1");
+        assert.equal(view.prompt.profile.name, "示例 Profile");
+        assert.equal(view.prompt.profile.description, "项目测试用 Profile");
+        assert.equal(view.prompt.profile.systemPrompt, profile.systemPrompt);
+        assert.deepEqual(view.prompt.profile.instructions, profile.instructions);
         assert.deepEqual(view.workingContext, { phase, intent });
     }
 });
@@ -175,11 +172,11 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     });
     const view = projector.project(goal, [toolDefinition()]);
 
-    assert.equal(view.globalSystemPromptVersion, 1);
-    assert.equal(view.protocol, "agent_decision");
+    assert.equal(view.prompt.promptBundleVersion, 1);
+    assert.equal(view.prompt.phase, "executing");
     assert.deepEqual(view.conversation, [{ role: "user", content: intent }]);
-    assert.equal(view.authorizedTools.length, 1);
-    assert.deepEqual(view.authorizedTools[0], {
+    assert.equal(view.prompt.authorizedTools.length, 1);
+    assert.deepEqual(view.prompt.authorizedTools[0], {
         id: "read_file",
         description: "读取工作区内文本文件",
         inputSchema: toolDefinition().inputSchema,
@@ -218,9 +215,12 @@ test("Projector 投影结果与 Runtime Goal 不共享可变对象", () => {
     });
     const view = projector.project(goal, [toolDefinition()]);
 
-    assert.notStrictEqual(view.profile, goal.definition.profile);
+    assert.notStrictEqual(view.prompt.profile, goal.definition.profile);
     assert.notStrictEqual(view.conversation, goal.state.messages);
-    assert.notStrictEqual(view.authorizedTools[0]?.inputSchema, toolDefinition().inputSchema);
+    assert.notStrictEqual(
+        view.prompt.authorizedTools[0]?.inputSchema,
+        toolDefinition().inputSchema,
+    );
 
     const workingContext = view.workingContext;
 
@@ -238,6 +238,39 @@ test("Projector 投影结果与 Runtime Goal 不共享可变对象", () => {
             : undefined,
     );
     assert.notStrictEqual(workingContext.execution.previousStep, previousStep);
+});
+
+test("Projector 递归冻结 PromptContext，Renderer 无法修改模型输入", () => {
+    const view = projector.project(createExecutingGoal(), [toolDefinition()]);
+
+    assert.ok(Object.isFrozen(view.prompt));
+    assert.ok(Object.isFrozen(view.prompt.profile));
+    assert.ok(Object.isFrozen(view.prompt.profile.instructions));
+    assert.ok(Object.isFrozen(view.prompt.authorizedTools));
+    assert.ok(Object.isFrozen(view.prompt.authorizedTools[0]?.inputSchema));
+});
+
+test("Projector 按 Tool ID 代码单元顺序升序排序，与输入顺序无关", () => {
+    const view = projector.project(createExecutingGoal(), [
+        toolDefinition("zebra"),
+        toolDefinition("apple"),
+        toolDefinition("mango"),
+    ]);
+
+    assert.deepEqual(
+        view.prompt.authorizedTools.map((tool) => tool.id),
+        ["apple", "mango", "zebra"],
+    );
+});
+
+test("Projector 拒绝重复的 Tool ID", () => {
+    assert.throws(
+        () => projector.project(createExecutingGoal(), [
+            toolDefinition("read_file"),
+            toolDefinition("read_file"),
+        ]),
+        /重复的 Tool ID：read_file/,
+    );
 });
 
 test("Projector 不修改传入的 Runtime Goal", () => {
@@ -262,6 +295,8 @@ test("Projector 不把 Snapshot/瞬时资源字段泄漏进 View", () => {
     assert.equal("schemaVersion" in view, false);
     assert.equal("metadata" in view, false);
     assert.equal("runId" in view, false);
+    assert.equal("goalId" in view.prompt, false);
+    assert.equal("runId" in view.prompt, false);
     assert.equal("runId" in view.workingContext, false);
     assert.equal("status" in view.workingContext, false);
     assert.equal("stopReason" in view.workingContext, false);

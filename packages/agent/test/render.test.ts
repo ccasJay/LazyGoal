@@ -42,6 +42,27 @@ const readFileTool: ModelToolDefinition = {
     },
 };
 
+function buildView(
+    phase: ModelInferenceView["prompt"]["phase"],
+    workingContext: ModelWorkingContext,
+    options: {
+        readonly promptBundleVersion?: number;
+        readonly conversation?: ModelInferenceView["conversation"];
+        readonly authorizedTools?: readonly ModelToolDefinition[];
+    } = {},
+): ModelInferenceView {
+    return {
+        prompt: {
+            promptBundleVersion: options.promptBundleVersion ?? 1,
+            phase,
+            profile,
+            authorizedTools: options.authorizedTools ?? [],
+        },
+        conversation: options.conversation ?? conversation,
+        workingContext,
+    };
+}
+
 /**
  * 字符级 System 消息 fixture：按 Global Overview → Profile → Phase Protocol
  * → 授权 Tool 的固定顺序组装，分隔符与 Tool JSON 缩进固定。
@@ -86,14 +107,7 @@ test("gathering_context 请求按固定角色、内容与顺序渲染", () => {
         phase: "gathering_context",
         intent: "完成示例任务",
     };
-    const view: ModelInferenceView = {
-        globalSystemPromptVersion: 1,
-        protocol: "gathering_context",
-        profile,
-        conversation,
-        workingContext,
-        authorizedTools: [],
-    };
+    const view = buildView("gathering_context", workingContext);
 
     assert.deepEqual(renderRequest(view), {
         messages: expectedMessages(
@@ -116,14 +130,7 @@ test("planning 请求按固定角色、内容与顺序渲染", () => {
         phase: "planning",
         intent: "完成示例任务",
     };
-    const view: ModelInferenceView = {
-        globalSystemPromptVersion: 1,
-        protocol: "planning",
-        profile,
-        conversation,
-        workingContext,
-        authorizedTools: [],
-    };
+    const view = buildView("planning", workingContext);
 
     assert.deepEqual(renderRequest(view), {
         messages: expectedMessages(
@@ -169,14 +176,9 @@ test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符�
             },
         },
     };
-    const view: ModelInferenceView = {
-        globalSystemPromptVersion: 1,
-        protocol: "agent_decision",
-        profile,
-        conversation,
-        workingContext,
+    const view = buildView("executing", workingContext, {
         authorizedTools: [readFileTool],
-    };
+    });
 
     assert.deepEqual(renderRequest(view), {
         messages: expectedMessages(
@@ -188,17 +190,10 @@ test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符�
 });
 
 test("Global Overview 明确优先级并位于 Profile 与 Phase Protocol 之前", () => {
-    const view: ModelInferenceView = {
-        globalSystemPromptVersion: 1,
-        protocol: "gathering_context",
-        profile,
-        conversation: [],
-        workingContext: {
-            phase: "gathering_context",
-            intent: "完成示例任务",
-        },
-        authorizedTools: [],
-    };
+    const view = buildView("gathering_context", {
+        phase: "gathering_context",
+        intent: "完成示例任务",
+    }, { conversation: [] });
     const systemContent = renderRequest(view).messages[0]?.content ?? "";
 
     assert.match(systemContent, /take precedence over the frozen Profile/);
@@ -209,17 +204,10 @@ test("Global Overview 明确优先级并位于 Profile 与 Phase Protocol 之前
 });
 
 test("Renderer 对未知 Global System Prompt 版本失败且不回退", () => {
-    const view: ModelInferenceView = {
-        globalSystemPromptVersion: 99,
-        protocol: "gathering_context",
-        profile,
-        conversation: [],
-        workingContext: {
-            phase: "gathering_context",
-            intent: "完成示例任务",
-        },
-        authorizedTools: [],
-    };
+    const view = buildView("gathering_context", {
+        phase: "gathering_context",
+        intent: "完成示例任务",
+    }, { conversation: [], promptBundleVersion: 99 });
 
     assert.throws(
         () => renderRequest(view),

@@ -1,6 +1,7 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     ModelInferenceView,
+    ModelToolDefinition,
     ModelWorkingContext,
 } from "./model-inference-view";
 import {
@@ -14,25 +15,26 @@ import { resolveGlobalSystemPrompt } from "./global-system-prompt";
  *
  * @remarks
  * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。它按固定顺序
- * 组装 system → 真实会话 → Working Context 消息；协议文本只按 View 的
- * `protocol` 选择，最终消息内容与顺序由 Projector + Renderer 组合保证。
+ * 组装 system → 真实会话 → Working Context 消息；协议文本只按 `PromptContext.phase`
+ * 选择，最终消息内容与顺序由 Projector + Renderer 组合保证。
  */
 
 function buildProfileSystemContent(view: ModelInferenceView): string {
-    const instructions = view.profile.instructions.length === 0
+    const profile = view.prompt.profile;
+    const instructions = profile.instructions.length === 0
         ? "(No additional instructions.)"
-        : view.profile.instructions
+        : profile.instructions
             .map((instruction, index) => `${index + 1}. ${instruction}`)
             .join("\n");
 
     return [
-        `Profile System Prompt:\n${view.profile.systemPrompt}`,
+        `Profile System Prompt:\n${profile.systemPrompt}`,
         `Profile Instructions:\n${instructions}`,
     ].join("\n\n");
 }
 
 function buildAuthorizedToolsContent(
-    tools: ModelInferenceView["authorizedTools"],
+    tools: readonly ModelToolDefinition[],
 ): string {
     return [
         "Authorized Tool definitions (only these Tool IDs may be requested):",
@@ -41,9 +43,9 @@ function buildAuthorizedToolsContent(
 }
 
 function protocolFor(view: ModelInferenceView): string {
-    return view.protocol === "agent_decision"
+    return view.prompt.phase === "executing"
         ? AGENT_DECISION_PROTOCOL
-        : PREPARATION_RESULT_PROTOCOL[view.protocol];
+        : PREPARATION_RESULT_PROTOCOL[view.prompt.phase];
 }
 
 /**
@@ -70,7 +72,7 @@ export function renderWorkingContextMessage(
 export function renderRequest(view: ModelInferenceView): LLMRequest {
     const protocol = protocolFor(view);
     const globalSystemPrompt = resolveGlobalSystemPrompt(
-        view.globalSystemPromptVersion,
+        view.prompt.promptBundleVersion,
     );
 
     return {
@@ -81,7 +83,7 @@ export function renderRequest(view: ModelInferenceView): LLMRequest {
                     `Global Overview:\n${globalSystemPrompt}`,
                     buildProfileSystemContent(view),
                     `Active Phase Protocol:\n${protocol}`,
-                    buildAuthorizedToolsContent(view.authorizedTools),
+                    buildAuthorizedToolsContent(view.prompt.authorizedTools),
                 ].join("\n\n"),
             },
             ...view.conversation.map((message) => ({

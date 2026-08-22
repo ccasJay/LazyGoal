@@ -20,9 +20,10 @@ export function normalizeNewlines(text: string): string {
  *
  * @remarks
  * 不使用受 locale 影响的 `localeCompare`，也不按 UTF-16 符号语言排序，
- * 而是逐字符比较 code unit 数值，保证跨环境结果一致。
+ * 而是逐字符比较 code unit 数值，保证跨环境结果一致。用于 `stableJson` 的键排序
+ * 与 Authorized Tools 的 Tool ID 排序。
  */
-function compareCodeUnits(a: string, b: string): number {
+export function compareCodeUnits(a: string, b: string): number {
     const length = Math.min(a.length, b.length);
 
     for (let i = 0; i < length; i += 1) {

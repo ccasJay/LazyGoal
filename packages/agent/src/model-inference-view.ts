@@ -122,31 +122,32 @@ export type ModelWorkingContext =
  * 一次模型推理的完整输入投影。
  *
  * @remarks
- * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：响应协议种类、
- * Global System Prompt 版本、冻结 Profile、真实会话、阶段化 Working Context
- * 与授权 Tool 描述。它不包含 Storage schemaVersion、迁移标记、Run 状态字段
- * 或瞬时执行授权。Renderer 对未知 Prompt 版本直接失败，不回退到最新版。
+ * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的
+ * `PromptContext`、真实会话、阶段化 Working Context。它不包含 Storage
+ * schemaVersion、迁移标记、Run 状态字段或瞬时执行授权。`PromptContext` 单独承载
+ * Prompt Bundle 版本、Phase、冻结 Profile 与授权 Tool 描述，供 Renderer 只读消费；
+ * 真实会话与 Working Context 独立承载，不得进入模板环境。Renderer 对未知 Prompt
+ * Bundle 版本直接失败，不回退到最新版。
  *
  * @example
  * ```ts
  * const view: ModelInferenceView = {
- *     globalSystemPromptVersion: 1,
- *     protocol: "gathering_context",
- *     profile,
+ *     prompt: {
+ *         promptBundleVersion: 1,
+ *         phase: "gathering_context",
+ *         profile,
+ *         authorizedTools: [],
+ *     },
  *     conversation: [],
  *     workingContext: { phase: "gathering_context", intent: "完成目标" },
- *     authorizedTools: [],
  * };
  * ```
  */
 export interface ModelInferenceView {
-    /** Goal 创建时冻结、由 Renderer 解析为 Global Overview 的版本。 */
-    readonly globalSystemPromptVersion: number;
-    readonly protocol: "gathering_context" | "planning" | "agent_decision";
-    readonly profile: ModelProfileView;
+    /** 本轮渲染所需的不可变 Prompt 上下文（含冻结版本、Phase、Profile 与工具）。 */
+    readonly prompt: PromptContext;
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
-    readonly authorizedTools: readonly ModelToolDefinition[];
 }
 
 /**
