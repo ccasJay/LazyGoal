@@ -1,0 +1,5 @@
+Profile System Prompt:
+{{ profile.systemPrompt }}
+
+Profile Instructions:
+{% if profile.instructions | length > 0 %}{% for instruction in profile.instructions %}{{ loop.index }}. {{ instruction }}{% if not loop.last %}{{ "\n" }}{% endif %}{% endfor %}{% else %}(No additional instructions.){% endif %}

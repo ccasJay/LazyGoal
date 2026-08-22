@@ -31,6 +31,8 @@ export type {
     ModelToolCallAction,
     ModelToolDefinition,
     ModelWorkingContext,
+    PromptContext,
+    PromptPhase,
 } from "./model-inference-view";
 
 export {
@@ -59,6 +61,36 @@ export {
     ToolsNotSupportedError,
 } from "./errors";
 export type { LLMResponseProtocolErrorDetails } from "./errors";
+
+export {
+    createDefaultPromptBundleRenderer,
+    CURRENT_PROMPT_BUNDLE_VERSION,
+    DEFAULT_PROMPT_BUNDLE_MANIFEST,
+    DEFAULT_PROMPT_TEMPLATE_ASSETS,
+} from "./prompting/default-bundles";
+export { createPromptBundleRenderer } from "./prompting/renderer";
+export { PromptBundleRegistry } from "./prompting/registry";
+export {
+    PROMPT_BUNDLE_CONFIGURATION_ERROR_CODE,
+    PROMPT_RENDER_ERROR_CODE,
+    UNSUPPORTED_PROMPT_BUNDLE_VERSION_ERROR_CODE,
+    PromptBundleConfigurationError,
+    PromptRenderError,
+    UnsupportedPromptBundleVersionError,
+} from "./prompting/errors";
+export {
+    createPromptEnvironment,
+    normalizeNewlines,
+    stableJson,
+} from "./prompting/environment";
+export { InMemoryLoader } from "./prompting/loader";
+export type {
+    PromptBundleManifest,
+    PromptBundleRenderer,
+    PromptBundleSection,
+    PromptTemplateAsset,
+    PromptTemplateDefinition,
+} from "./prompting/types";
 
 export type { LLMAdapter } from "../../llm/src/core/adapter";
 export type {
