@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import {
-    AGENT_DECISION_PROTOCOL,
-    PREPARATION_RESULT_PROTOCOL,
-} from "../src/model-inference-view";
-import { GLOBAL_SYSTEM_PROMPT_V1 } from "../src/global-system-prompt";
+import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import type {
     ModelInferenceView,
     ModelProfileView,
@@ -16,6 +12,8 @@ import {
     renderRequest,
     renderWorkingContextMessage,
 } from "../src/render";
+
+const renderer = await createDefaultPromptBundleRenderer();
 
 const profile: ModelProfileView = {
     id: "profile-1",
@@ -63,85 +61,29 @@ function buildView(
     };
 }
 
-/**
- * 字符级 System 消息 fixture：按 Global Overview → Profile → Phase Protocol
- * → 授权 Tool 的固定顺序组装，分隔符与 Tool JSON 缩进固定。
- */
-function expectedSystemMessage(
-    protocol: string,
-    tools: readonly ModelToolDefinition[],
-): { readonly role: "system"; readonly content: string } {
-    return {
-        role: "system",
-        content: [
-            `Global Overview:\n${GLOBAL_SYSTEM_PROMPT_V1}`,
-            `Profile System Prompt:\n${profile.systemPrompt}`,
-            "Profile Instructions:\n1. 先检查输入\n2. 再给出下一步",
-            `Active Phase Protocol:\n${protocol}`,
-            "Authorized Tool definitions (only these Tool IDs may be requested):\n"
-                + JSON.stringify(tools, null, 2),
-        ].join("\n\n"),
-    };
-}
-
-function expectedMessages(
-    protocol: string,
-    workingContext: ModelWorkingContext,
-    tools: readonly ModelToolDefinition[],
-): Array<{
-    readonly role: "system" | "user" | "assistant";
-    readonly content: string;
-}> {
-    return [
-        expectedSystemMessage(protocol, tools),
-        ...conversation.map((message) => ({
-            role: message.role,
-            content: message.content,
-        })),
-        { role: "user", content: JSON.stringify(workingContext, null, 2) },
-    ];
-}
-
-test("gathering_context 请求按固定角色、内容与顺序渲染", () => {
+test("renderRequest 按 system → 真实会话 → Working Context 组装唯一 system 消息", () => {
     const workingContext: ModelWorkingContext = {
         phase: "gathering_context",
         intent: "完成示例任务",
     };
     const view = buildView("gathering_context", workingContext);
+    const request = renderRequest(view, renderer);
 
-    assert.deepEqual(renderRequest(view), {
-        messages: expectedMessages(
-            PREPARATION_RESULT_PROTOCOL.gathering_context,
-            workingContext,
-            [],
-        ),
-    });
-    assert.equal(
-        renderRequest(view).messages[0]?.role,
-        "system",
+    assert.equal(request.messages.length, 4);
+    assert.equal(request.messages[0]?.role, "system");
+    assert.equal(request.messages[0]?.content, renderer.render(view.prompt));
+    assert.deepEqual(
+        request.messages.slice(1, -1),
+        conversation.map(({ role, content }) => ({ role, content })),
     );
-    assert.equal(renderRequest(view).messages[1]?.role, "user");
-    assert.equal(renderRequest(view).messages[2]?.role, "assistant");
-    assert.equal(renderRequest(view).messages[3]?.role, "user");
+    assert.equal(request.messages.at(-1)?.role, "user");
+    assert.deepEqual(
+        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        workingContext,
+    );
 });
 
-test("planning 请求按固定角色、内容与顺序渲染", () => {
-    const workingContext: ModelWorkingContext = {
-        phase: "planning",
-        intent: "完成示例任务",
-    };
-    const view = buildView("planning", workingContext);
-
-    assert.deepEqual(renderRequest(view), {
-        messages: expectedMessages(
-            PREPARATION_RESULT_PROTOCOL.planning,
-            workingContext,
-            [],
-        ),
-    });
-});
-
-test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符级内容", () => {
+test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能力", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
@@ -149,69 +91,47 @@ test("executing 请求固定使用 AgentDecision 协议与授权 Tool 的字符�
             objective: "实现三阶段上下文",
             completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
         },
-        execution: {
-            stepCount: 2,
-            maxSteps: 4,
-            checkpoint: "已吸收 README 内容",
-            previousStep: {
-                kind: "action",
-                action: {
-                    actionId: "action-1",
-                    toolId: "read_file",
-                    input: { path: "README.md" },
-                },
-                observation: {
-                    kind: "success",
-                    output: "完成",
-                    summary: "已读取 README.md",
-                },
-            },
-            pendingAction: {
-                action: {
-                    actionId: "action-2",
-                    toolId: "read_file",
-                    input: { path: "package.json" },
-                },
-                status: "approved",
-            },
-        },
+        execution: { stepCount: 0 },
     };
     const view = buildView("executing", workingContext, {
         authorizedTools: [readFileTool],
     });
+    const request = renderRequest(view, renderer);
+    const systemContent = request.messages[0]?.content ?? "";
 
-    assert.deepEqual(renderRequest(view), {
-        messages: expectedMessages(
-            AGENT_DECISION_PROTOCOL,
-            workingContext,
-            [readFileTool],
-        ),
-    });
+    assert.match(systemContent, /Active Phase Protocol:/);
+    assert.match(systemContent, /AgentDecision 协议/);
+    assert.match(systemContent, /read_file/);
+    assert.match(systemContent, /读取工作区内文本文件/);
 });
 
-test("Global Overview 明确优先级并位于 Profile 与 Phase Protocol 之前", () => {
-    const view = buildView("gathering_context", {
-        phase: "gathering_context",
-        intent: "完成示例任务",
-    }, { conversation: [] });
-    const systemContent = renderRequest(view).messages[0]?.content ?? "";
+test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks 语法", () => {
+    const view = buildView(
+        "gathering_context",
+        { phase: "gathering_context", intent: "{% if true %}x{% endif %}" },
+        {
+            conversation: [{ role: "user", content: "{{ profile.systemPrompt }}" }],
+        },
+    );
+    const request = renderRequest(view, renderer);
 
-    assert.match(systemContent, /take precedence over the frozen Profile/);
-    assert.ok(systemContent.indexOf("Global Overview:")
-        < systemContent.indexOf("Profile System Prompt:"));
-    assert.ok(systemContent.indexOf("Profile System Prompt:")
-        < systemContent.indexOf("Active Phase Protocol:"));
+    assert.equal(request.messages[1]?.content, "{{ profile.systemPrompt }}");
+    assert.deepEqual(
+        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        { phase: "gathering_context", intent: "{% if true %}x{% endif %}" },
+    );
 });
 
-test("Renderer 对未知 Global System Prompt 版本失败且不回退", () => {
-    const view = buildView("gathering_context", {
-        phase: "gathering_context",
-        intent: "完成示例任务",
-    }, { conversation: [], promptBundleVersion: 99 });
+test("未知 Prompt Bundle 版本在渲染时抛出且不产生任何请求", () => {
+    const view = buildView(
+        "gathering_context",
+        { phase: "gathering_context", intent: "完成示例任务" },
+        { promptBundleVersion: 99 },
+    );
 
     assert.throws(
-        () => renderRequest(view),
-        /Unsupported Global System Prompt version: 99/,
+        () => renderRequest(view, renderer),
+        /不支持的 Prompt Bundle 版本 99/,
     );
 });
 

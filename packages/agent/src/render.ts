@@ -1,52 +1,18 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     ModelInferenceView,
-    ModelToolDefinition,
     ModelWorkingContext,
 } from "./model-inference-view";
-import {
-    AGENT_DECISION_PROTOCOL,
-    PREPARATION_RESULT_PROTOCOL,
-} from "./model-inference-view";
-import { resolveGlobalSystemPrompt } from "./global-system-prompt";
+import type { PromptBundleRenderer } from "./prompting/types";
 
 /**
- * 只依赖 View DTO 的纯 Prompt Renderer。
+ * 只依赖 View DTO 与注入 Renderer 的纯 Prompt 请求组装。
  *
  * @remarks
- * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。它按固定顺序
- * 组装 system → 真实会话 → Working Context 消息；协议文本只按 `PromptContext.phase`
- * 选择，最终消息内容与顺序由 Projector + Renderer 组合保证。
+ * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。system 消息由
+ * 注入的 `PromptBundleRenderer` 依据 `PromptContext` 生成；真实会话与 Working
+ * Context 只作为原始消息追加，绝不进入模板环境。
  */
-
-function buildProfileSystemContent(view: ModelInferenceView): string {
-    const profile = view.prompt.profile;
-    const instructions = profile.instructions.length === 0
-        ? "(No additional instructions.)"
-        : profile.instructions
-            .map((instruction, index) => `${index + 1}. ${instruction}`)
-            .join("\n");
-
-    return [
-        `Profile System Prompt:\n${profile.systemPrompt}`,
-        `Profile Instructions:\n${instructions}`,
-    ].join("\n\n");
-}
-
-function buildAuthorizedToolsContent(
-    tools: readonly ModelToolDefinition[],
-): string {
-    return [
-        "Authorized Tool definitions (only these Tool IDs may be requested):",
-        JSON.stringify(tools, null, 2),
-    ].join("\n");
-}
-
-function protocolFor(view: ModelInferenceView): string {
-    return view.prompt.phase === "executing"
-        ? AGENT_DECISION_PROTOCOL
-        : PREPARATION_RESULT_PROTOCOL[view.prompt.phase];
-}
 
 /**
  * 构造 Working Context 控制消息。
@@ -66,25 +32,27 @@ export function renderWorkingContextMessage(
 /**
  * 将完整 View 渲染为一轮 LLM 请求。
  *
+ * @remarks
+ * 使用注入的 `PromptBundleRenderer` 依据 `view.prompt` 中的冻结 Bundle 版本与当前
+ * Phase 生成唯一一条 system 消息；随后按原样追加真实 Conversation，最后追加 JSON
+ * Working Context 控制消息。Conversation 与 Working Context 中的任何 Nunjucks
+ * 语法都保持原始文本，不会被再次执行。
+ *
  * @param view - 已投影好的 ModelInferenceView。
+ * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
  * @returns 按 system → 真实会话 → Working Context 顺序组装的消息列表。
+ * @throws 渲染失败（未知 Bundle 版本、缺失变量、模板错误等）时抛出，
+ *   保证发生在 LLM Adapter 调用之前。
  */
-export function renderRequest(view: ModelInferenceView): LLMRequest {
-    const protocol = protocolFor(view);
-    const globalSystemPrompt = resolveGlobalSystemPrompt(
-        view.prompt.promptBundleVersion,
-    );
-
+export function renderRequest(
+    view: ModelInferenceView,
+    renderer: PromptBundleRenderer,
+): LLMRequest {
     return {
         messages: [
             {
                 role: "system",
-                content: [
-                    `Global Overview:\n${globalSystemPrompt}`,
-                    buildProfileSystemContent(view),
-                    `Active Phase Protocol:\n${protocol}`,
-                    buildAuthorizedToolsContent(view.prompt.authorizedTools),
-                ].join("\n\n"),
+                content: renderer.render(view.prompt),
             },
             ...view.conversation.map((message) => ({
                 role: message.role,

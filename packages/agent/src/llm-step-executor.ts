@@ -13,10 +13,13 @@ import type { ToolDefinition } from "../../runtime/src/tool";
 import type { StepExecutor } from "../../runtime/src/step-executor";
 import { buildStepRequest } from "./prompt";
 import { parseAgentDecision } from "./response-schema";
+import type { PromptBundleRenderer } from "./prompting/types";
 
 /** 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。 */
 export interface LLMStepExecutorDependencies {
     readonly adapter: LLMAdapter;
+    /** 由 Composition Root 创建、与 Preparation Executor 共享的 Prompt Bundle Renderer。 */
+    readonly renderer: PromptBundleRenderer;
 }
 
 /**
@@ -33,10 +36,12 @@ export interface LLMStepExecutorDependencies {
  */
 export class LLMStepExecutor implements StepExecutor {
     private readonly adapter: LLMAdapter;
+    private readonly renderer: PromptBundleRenderer;
 
-    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter。 */
+    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter 与共享 Renderer。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
         this.adapter = dependencies.adapter;
+        this.renderer = dependencies.renderer;
     }
 
     /**
@@ -54,7 +59,7 @@ export class LLMStepExecutor implements StepExecutor {
         control?: ExecutionControl,
     ): Promise<AgentDecision> {
         throwIfAborted(control);
-        const request = buildStepRequest(goal, tools);
+        const request = buildStepRequest(goal, tools, this.renderer);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {

@@ -149,37 +149,3 @@ export interface ModelInferenceView {
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
 }
-
-/**
- * 约束模型只返回可被 AgentDecisionSchema 验证的单个 JSON 对象。
- * `checkpoint` 必须吸收当前 Working Context；Tool 执行结果只能由 Runtime 回填。
- */
-export const AGENT_DECISION_PROTOCOL = [
-    "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-    "输出必须符合 AgentDecision 协议，只能选择以下四个 kind 分支。",
-    'Tool 调用形状为 {"kind":"tool_call","checkpoint":"累计状态",',
-    '"action":{"actionId":"稳定 ID","toolId":"授权 Tool ID","input":对象}}。',
-    '结束形状为 {"kind":"complete|wait|fail","checkpoint":"累计状态",',
-    '"summary|reason|error":"非空文本"}，字段名必须与 kind 匹配。',
-    "checkpoint、actionId、toolId 和对应文本字段必须是非空字符串。",
-    "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
-].join("\n");
-
-/** Preparation 阶段对应的严格输出协议。 */
-export const PREPARATION_RESULT_PROTOCOL: Readonly<
-    Record<PreparationPhase, string>
-> = {
-    gathering_context: [
-        "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-        '允许的形状为 {"kind":"question","question":"非空文本"} 或',
-        '{"kind":"context_ready"}。',
-        "不要返回任务提案或执行结果。",
-    ].join("\n"),
-    planning: [
-        "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-        '唯一允许的形状为 {"kind":"task_proposal","task":',
-        '{"objective":"非空文本","completionCriteria":["非空文本"]},',
-        '"approvalRequest":"非空文本"}。',
-        "不要返回问题、context_ready 或执行结果。",
-    ].join("\n"),
-};

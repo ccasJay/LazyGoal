@@ -12,12 +12,13 @@ import type {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
-    AGENT_DECISION_PROTOCOL,
     buildPreparationRequest,
     buildStepRequest,
-    PREPARATION_RESULT_PROTOCOL,
 } from "../src/prompt";
+import { createDefaultPromptBundleRenderer } from "../src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
+
+const renderer = await createDefaultPromptBundleRenderer();
 
 const intent = "完成示例任务";
 const task = {
@@ -119,12 +120,12 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
         },
     ];
     const goal = createExecutingGoal({ messages });
-    const request = buildStepRequest(goal);
+    const request = buildStepRequest(goal, [], renderer);
 
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
     assert.ok(
-        (request.messages[0]?.content ?? "").includes(AGENT_DECISION_PROTOCOL),
+        (request.messages[0]?.content ?? "").includes("AgentDecision 协议"),
     );
     assert.deepEqual(
         request.messages.slice(1, -1),
@@ -146,12 +147,12 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", () => {
             properties: { path: { type: "string" } },
         },
     };
-    const request = buildStepRequest(goal, [tool]);
+    const request = buildStepRequest(goal, [tool], renderer);
     const systemContent = request.messages[0]?.content ?? "";
 
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
-    assert.match(systemContent, /AgentDecision/);
+    assert.match(systemContent, /AgentDecision 协议/);
 });
 
 test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", () => {
@@ -164,13 +165,14 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
             },
             { role: "user", content: "已记录的真实回答" },
         ]);
-        const request = buildPreparationRequest(goal);
+        const request = buildPreparationRequest(goal, renderer);
+        const systemContent = request.messages[0]?.content ?? "";
 
-        assert.ok(
-            (request.messages[0]?.content ?? "").includes(
-                PREPARATION_RESULT_PROTOCOL[phase],
-            ),
-        );
+        if (phase === "gathering_context") {
+            assert.ok(systemContent.includes('"kind":"question"'));
+        } else {
+            assert.ok(systemContent.includes('"kind":"task_proposal"'));
+        }
         assert.deepEqual(
             request.messages.slice(1, -1),
             goal.state.messages.map(({ role, content }) => ({ role, content })),
@@ -199,7 +201,7 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
 
     assert.ok(restored !== undefined);
     const messagesBeforeRequest = JSON.stringify(restored.state.messages);
-    const request = buildStepRequest(restored);
+    const request = buildStepRequest(restored, [], renderer);
     const controlContent = request.messages.at(-1)?.content ?? "";
 
     assert.deepEqual(restored.state.messages, goal.state.messages);
@@ -236,6 +238,12 @@ test("Builder 拒绝 waiting Preparation 和非 running executing Goal", () => {
         },
     };
 
-    assert.throws(() => buildPreparationRequest(waiting), /active preparation/);
-    assert.throws(() => buildStepRequest(created), /running executing/);
+    assert.throws(
+        () => buildPreparationRequest(waiting, renderer),
+        /active preparation/,
+    );
+    assert.throws(
+        () => buildStepRequest(created, [], renderer),
+        /running executing/,
+    );
 });
