@@ -265,3 +265,133 @@ test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-pruning-process-"));
+    await writeDefaultProfile(workspace);
+    const messages = [
+        { role: "user" as const, content: "旧输入内容" },
+        {
+            role: "assistant" as const,
+            assistant: { profileId: seededProfile.id },
+            content: "旧响应内容",
+        },
+        { role: "user" as const, content: "最新输入" },
+        {
+            role: "assistant" as const,
+            assistant: { profileId: seededProfile.id },
+            content: "最新响应",
+        },
+    ];
+    const intent = "Resume with a bounded model context";
+    const persistedMessages = [
+        { role: "user" as const, content: intent },
+        ...messages,
+    ];
+    const store = new JsonFileGoalStore(
+        join(await realpath(workspace), ".lazygoal", "goals"),
+    );
+    await store.save(createGoal({
+        promptBundleVersion: 1,
+        id: "goal-pruning",
+        intent,
+        profile: seededProfile,
+        messages,
+        runId: "run-pruning",
+    }));
+
+    let requestBody!: (value: unknown) => void;
+    let requestAborted!: () => void;
+    const capturedRequest = new Promise<unknown>((resolve) => {
+        requestBody = resolve;
+    });
+    const modelAbort = new Promise<void>((resolve) => {
+        requestAborted = resolve;
+    });
+    const server = createServer((request, response) => {
+        const chunks: Buffer[] = [];
+        request.on("data", (chunk: Buffer) => chunks.push(chunk));
+        request.on("end", () => {
+            requestBody(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+        });
+        request.on("aborted", requestAborted);
+        request.on("close", requestAborted);
+        // 保持响应打开，使测试能在捕获请求投影后中止子进程。
+        void response;
+    });
+    const port = await listen(server);
+    const latestCharacterCount = messages
+        .slice(2)
+        .reduce((sum, message) => sum + message.content.length, 0);
+    const child = spawn(
+        process.execPath,
+        ["--import", tsxLoaderPath, continueProcessFixturePath],
+        {
+            cwd: workspace,
+            env: {
+                ...process.env,
+                LLM_API_KEY: "test-key",
+                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
+                LLM_MODEL: "test-model",
+                LLM_CONVERSATION_CHAR_BUDGET: String(latestCharacterCount),
+            },
+            stdio: ["pipe", "pipe", "pipe"],
+        },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+    });
+
+    try {
+        const payload = await waitFor(
+            capturedRequest,
+            6_000,
+            "the pruned model request",
+        ) as {
+            readonly messages: ReadonlyArray<{
+                readonly role: string;
+                readonly content: string;
+            }>;
+        };
+        assert.deepEqual(
+            payload.messages.slice(1, -1),
+            messages.slice(2).map(({ role, content }) => ({ role, content })),
+        );
+
+        child.kill("SIGINT");
+        await waitFor(modelAbort, 6_000, "the pruned request abort");
+        const result = await waitFor(new Promise<{
+            code: number | null;
+            signal: NodeJS.Signals | null;
+        }>((resolve) => {
+            child.once("close", (code, signal) => resolve({ code, signal }));
+        }), 6_000, "the pruning child exit");
+        assert.equal(result.signal, null, stderr);
+        assert.equal(result.code, 130, stderr);
+
+        const restored = await store.restore("goal-pruning");
+        assert.deepEqual(restored?.state.messages, persistedMessages);
+        const goalsDirectory = join(workspace, ".lazygoal", "goals");
+        const files = await readdir(goalsDirectory);
+        const snapshot = JSON.parse(await readFile(
+            join(goalsDirectory, files[0]!),
+            "utf8",
+        )) as {
+            readonly metadata: { readonly schemaVersion: number };
+            readonly state: {
+                readonly messages: unknown;
+                readonly summary?: unknown;
+            };
+        };
+        assert.equal(snapshot.metadata.schemaVersion, 5);
+        assert.deepEqual(snapshot.state.messages, persistedMessages);
+        assert.equal(snapshot.state.summary, undefined);
+    } finally {
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill("SIGKILL");
+        }
+        await close(server);
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

@@ -28,7 +28,7 @@
   - 扩展 CLI 自动化测试，覆盖默认、空白、合法覆盖、零、负数、小数、指数、非数字和超安全整数，以及非法配置无文件副作用
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 5. 补齐持久化恢复与执行协议回归验证
+- [x] //TODO 5. 补齐持久化恢复与执行协议回归验证
 
   - 更新受异步 Builder 和 Executor 依赖影响的现有测试与 smoke test，保持严格 PreparationResult/AgentDecision 解析行为
   - 增加保存恢复与跨进程自动化测试，确认 Snapshot v5 仍保存完整消息且每轮从完整历史确定性重新裁剪
