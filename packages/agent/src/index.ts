@@ -17,6 +17,13 @@ export {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "./conversation-context-unit-adapter";
+export {
+    DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
+    DropOldestContextCompactor,
+} from "./context-compactor";
+export type {
+    ContextCompactor,
+} from "./context-compactor";
 export type {
     ContextUnit,
     ContextUnitAdapter,

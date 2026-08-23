@@ -7,7 +7,7 @@
   - 添加 Adapter 单元测试，覆盖空会话、前导 assistant、连续 user、多 assistant、顺序和输入不可变
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.5](./requirements.md#req-1-5), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 2. 实现异步丢弃式 ContextCompactor
+- [x] //TODO 2. 实现异步丢弃式 ContextCompactor
 
   - 在 `packages/agent` 声明异步 `ContextCompactor` 契约、默认预算常量和 `DropOldestContextCompactor`，校验正安全整数预算并支持 `AbortSignal`
   - 实现连续新单元后缀选择，并保留 `TODO(model-context-summary)` 注释，不生成摘要或修改输入
