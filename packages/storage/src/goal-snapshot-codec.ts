@@ -11,29 +11,29 @@ import type {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV3Schema,
+    GoalSnapshotV5Schema,
 } from "./goal-snapshot";
 import type {
-    GoalSnapshotMessageV3,
-    GoalSnapshotObservationV3,
-    GoalSnapshotPendingActionV3,
-    GoalSnapshotProfileV3,
-    GoalSnapshotStateV3,
-    GoalSnapshotStepRecordV3,
-    GoalSnapshotStopReasonV3,
-    GoalSnapshotToolCallActionV3,
-    GoalSnapshotV3,
-    GoalSnapshotWorkflowV3,
+    GoalSnapshotMessageV5,
+    GoalSnapshotObservationV5,
+    GoalSnapshotPendingActionV5,
+    GoalSnapshotProfileV5,
+    GoalSnapshotStateV5,
+    GoalSnapshotStepRecordV5,
+    GoalSnapshotStopReasonV5,
+    GoalSnapshotToolCallActionV5,
+    GoalSnapshotV5,
+    GoalSnapshotWorkflowV5,
 } from "./goal-snapshot";
 
 /**
- * Runtime Goal 与 Storage v3 Snapshot 之间的双向转换边界。
+ * Runtime Goal 与 Storage v5 Snapshot 之间的双向转换边界。
  *
  * @remarks
  * Codec 是唯一同时看到 Runtime 领域类型与 Snapshot DTO 的模块。decode 只
- * 接受严格非 Legacy v3：v1、v2、包含 `legacy` StepRecord 的 v3 与未知版本
- * 统一抛出 {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
- * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 3 }` 并再次
+ * 接受严格 v5：v1 至 v4、未知版本以及 v5 中的非法结构统一抛出
+ * {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
+ * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 5 }` 并再次
  * 执行跨字段校验，两侧对象互不共享引用；JSON 值的深复制基于 Node 内置
  * `structuredClone` 实现。
  *
@@ -47,15 +47,15 @@ import type {
 export interface GoalSnapshotCodec {
     /**
      * @param goal - 完整的 Runtime Goal 聚合。
-     * @returns 通过严格 v3 校验、与输入不共享引用的 Snapshot DTO。
-     * @throws Goal 违反 v3 跨字段不变量时抛出 GoalSnapshotProtocolError。
+     * @returns 通过严格 v5 校验、与输入不共享引用的 Snapshot DTO。
+     * @throws Goal 违反 v5 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
      */
-    encode(goal: Goal): GoalSnapshotV3;
+    encode(goal: Goal): GoalSnapshotV5;
 
     /**
      * @param input - 已解析的快照 JSON 值（通常来自 `JSON.parse`）。
      * @returns 与输入不共享引用、语义等价的 Runtime Goal。
-     * @throws v1/v2/Legacy v3/未知版本或结构损坏时抛出
+     * @throws v1 至 v4、未知版本或 v5 结构损坏时抛出
      *   GoalSnapshotProtocolError；本方法不执行任何 I/O，因此失败时不会
      *   改写任何文件。
      */
@@ -88,12 +88,12 @@ function describeLegacyStep(input: unknown): string | undefined {
 
 /** Codec 的默认实现；转换失败统一抛出稳定协议错误。 */
 export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
-    encode(goal: Goal): GoalSnapshotV3 {
+    encode(goal: Goal): GoalSnapshotV5 {
         // 先按同一严格 Schema 校验输入：拒绝 Runtime 侧的多余字段、
         // legacy StepRecord 与不成立的跨字段组合，再逐字段深复制构造 DTO。
-        const validation = GoalSnapshotV3Schema.safeParse({
+        const validation = GoalSnapshotV5Schema.safeParse({
             ...goal,
-            metadata: { schemaVersion: 3 },
+            metadata: { schemaVersion: 5 },
         });
 
         if (!validation.success) {
@@ -105,7 +105,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
 
         return {
             id: goal.id,
-            metadata: { schemaVersion: 3 },
+            metadata: { schemaVersion: 5 },
             definition: encodeDefinition(goal),
             state: encodeState(goal),
         };
@@ -114,8 +114,11 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
     decode(input: unknown): Goal {
         const schemaVersion = readSchemaVersion(input);
 
-        if (schemaVersion !== 3) {
-            const legacyHint = schemaVersion === 1 || schemaVersion === 2
+        if (schemaVersion !== 5) {
+            const legacyHint = schemaVersion === 1
+                || schemaVersion === 2
+                || schemaVersion === 3
+                || schemaVersion === 4
                 ? `schemaVersion ${String(schemaVersion)} is no longer supported`
                 : "unknown Goal snapshot schemaVersion";
 
@@ -124,7 +127,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             );
         }
 
-        const result = GoalSnapshotV3Schema.safeParse(input);
+        const result = GoalSnapshotV5Schema.safeParse(input);
 
         if (!result.success) {
             throw new GoalSnapshotProtocolError(
@@ -142,6 +145,7 @@ function encodeDefinition(goal: Goal) {
 
     return {
         intent: goal.definition.intent,
+        promptBundleVersion: goal.definition.promptBundleVersion,
         profile: {
             id: profile.id,
             ...(profile.name === undefined ? {} : { name: profile.name }),
@@ -165,7 +169,7 @@ function encodeTask(task: GoalTask): GoalTask {
     };
 }
 
-function encodeWorkflow(workflow: GoalWorkflowState): GoalSnapshotWorkflowV3 {
+function encodeWorkflow(workflow: GoalWorkflowState): GoalSnapshotWorkflowV5 {
     switch (workflow.phase) {
         case "gathering_context":
             return {
@@ -194,7 +198,7 @@ function encodeWorkflow(workflow: GoalWorkflowState): GoalSnapshotWorkflowV3 {
     }
 }
 
-function encodeAction(action: ToolCallAction): GoalSnapshotToolCallActionV3 {
+function encodeAction(action: ToolCallAction): GoalSnapshotToolCallActionV5 {
     return {
         actionId: action.actionId,
         toolId: action.toolId,
@@ -204,7 +208,7 @@ function encodeAction(action: ToolCallAction): GoalSnapshotToolCallActionV3 {
 
 function encodeObservation(
     observation: Observation,
-): GoalSnapshotObservationV3 {
+): GoalSnapshotObservationV5 {
     switch (observation.kind) {
         case "success":
             return {
@@ -227,7 +231,7 @@ function encodeObservation(
     }
 }
 
-function encodeStep(step: StepRecord): GoalSnapshotStepRecordV3 {
+function encodeStep(step: StepRecord): GoalSnapshotStepRecordV5 {
     switch (step.kind) {
         case "action":
             return {
@@ -267,7 +271,7 @@ function encodeState(goal: Goal) {
 
     return {
         workflow: encodeWorkflow(goal.state.workflow),
-        messages: goal.state.messages.map((message): GoalSnapshotMessageV3 =>
+        messages: goal.state.messages.map((message): GoalSnapshotMessageV5 =>
             message.role === "user"
                 ? { role: "user", content: message.content }
                 : {
@@ -297,7 +301,7 @@ function encodeState(goal: Goal) {
     };
 }
 
-function decodeProfile(profile: GoalSnapshotProfileV3): AgentProfile {
+function decodeProfile(profile: GoalSnapshotProfileV5): AgentProfile {
     return {
         id: profile.id,
         ...(profile.name === undefined ? {} : { name: profile.name }),
@@ -310,7 +314,7 @@ function decodeProfile(profile: GoalSnapshotProfileV3): AgentProfile {
     };
 }
 
-function decodeWorkflow(workflow: GoalSnapshotWorkflowV3): GoalWorkflowState {
+function decodeWorkflow(workflow: GoalSnapshotWorkflowV5): GoalWorkflowState {
     switch (workflow.phase) {
         case "gathering_context":
             return {
@@ -344,7 +348,7 @@ function decodeWorkflow(workflow: GoalSnapshotWorkflowV3): GoalWorkflowState {
     }
 }
 
-function decodeAction(action: GoalSnapshotToolCallActionV3): ToolCallAction {
+function decodeAction(action: GoalSnapshotToolCallActionV5): ToolCallAction {
     return {
         actionId: action.actionId,
         toolId: action.toolId,
@@ -353,7 +357,7 @@ function decodeAction(action: GoalSnapshotToolCallActionV3): ToolCallAction {
 }
 
 function decodeObservation(
-    observation: GoalSnapshotObservationV3,
+    observation: GoalSnapshotObservationV5,
 ): Observation {
     switch (observation.kind) {
         case "success":
@@ -377,7 +381,7 @@ function decodeObservation(
     }
 }
 
-function decodeStep(step: GoalSnapshotStepRecordV3): StepRecord {
+function decodeStep(step: GoalSnapshotStepRecordV5): StepRecord {
     switch (step.kind) {
         case "action":
             return {
@@ -412,7 +416,7 @@ function decodeStep(step: GoalSnapshotStepRecordV3): StepRecord {
     }
 }
 
-function decodeSnapshot(snapshot: GoalSnapshotV3): Goal {
+function decodeSnapshot(snapshot: GoalSnapshotV5): Goal {
     const state = snapshot.state;
     const run = state.run;
 
@@ -420,6 +424,8 @@ function decodeSnapshot(snapshot: GoalSnapshotV3): Goal {
         id: snapshot.id,
         definition: {
             intent: snapshot.definition.intent,
+            promptBundleVersion:
+                snapshot.definition.promptBundleVersion,
             profile: decodeProfile(snapshot.definition.profile),
             executionPolicy: {
                 maxSteps: snapshot.definition.executionPolicy.maxSteps,
@@ -460,7 +466,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV3): Goal {
 }
 
 function decodePendingAction(
-    pendingAction: GoalSnapshotPendingActionV3,
+    pendingAction: GoalSnapshotPendingActionV5,
 ): PendingAction {
     return {
         action: decodeAction(pendingAction.action),

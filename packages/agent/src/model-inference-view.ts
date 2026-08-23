@@ -67,6 +67,30 @@ export interface ModelToolDefinition {
     readonly inputSchema: unknown;
 }
 
+/** Prompt Bundle 渲染时区分的三种业务阶段。 */
+export type PromptPhase = "gathering_context" | "planning" | "executing";
+
+/**
+ * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
+ *
+ * @remarks
+ * 该 DTO 只包含构建 system prompt 所需的稳定数据：Goal 冻结的 Prompt Bundle
+ * 版本、当前业务阶段、冻结 Profile 与已授权 Tool 描述。它不包含 goalId、runId、
+ * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
+ * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
+ * 不得修改它或任何 Runtime 领域状态。
+ */
+export interface PromptContext {
+    /** Goal 创建时冻结、用于选择 Prompt Bundle 的正整数版本。 */
+    readonly promptBundleVersion: number;
+    /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
+    readonly phase: PromptPhase;
+    /** 冻结 Profile 的模型可读投影。 */
+    readonly profile: ModelProfileView;
+    /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
+    readonly authorizedTools: readonly ModelToolDefinition[];
+}
+
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
 export type PreparationPhase = "gathering_context" | "planning";
 
@@ -98,48 +122,30 @@ export type ModelWorkingContext =
  * 一次模型推理的完整输入投影。
  *
  * @remarks
- * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：响应协议种类、
- * 冻结 Profile、真实会话、阶段化 Working Context 与授权 Tool 描述。它不包含
- * Snapshot 版本、迁移标记、Run 状态字段或瞬时执行授权。
+ * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的
+ * `PromptContext`、真实会话、阶段化 Working Context。它不包含 Storage
+ * schemaVersion、迁移标记、Run 状态字段或瞬时执行授权。`PromptContext` 单独承载
+ * Prompt Bundle 版本、Phase、冻结 Profile 与授权 Tool 描述，供 Renderer 只读消费；
+ * 真实会话与 Working Context 独立承载，不得进入模板环境。Renderer 对未知 Prompt
+ * Bundle 版本直接失败，不回退到最新版。
+ *
+ * @example
+ * ```ts
+ * const view: ModelInferenceView = {
+ *     prompt: {
+ *         promptBundleVersion: 1,
+ *         phase: "gathering_context",
+ *         profile,
+ *         authorizedTools: [],
+ *     },
+ *     conversation: [],
+ *     workingContext: { phase: "gathering_context", intent: "完成目标" },
+ * };
+ * ```
  */
 export interface ModelInferenceView {
-    readonly protocol: "gathering_context" | "planning" | "agent_decision";
-    readonly profile: ModelProfileView;
+    /** 本轮渲染所需的不可变 Prompt 上下文（含冻结版本、Phase、Profile 与工具）。 */
+    readonly prompt: PromptContext;
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
-    readonly authorizedTools: readonly ModelToolDefinition[];
 }
-
-/**
- * 约束模型只返回可被 AgentDecisionSchema 验证的单个 JSON 对象。
- * `checkpoint` 必须吸收当前 Working Context；Tool 执行结果只能由 Runtime 回填。
- */
-export const AGENT_DECISION_PROTOCOL = [
-    "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-    "输出必须符合 AgentDecision 协议，只能选择以下四个 kind 分支。",
-    'Tool 调用形状为 {"kind":"tool_call","checkpoint":"累计状态",',
-    '"action":{"actionId":"稳定 ID","toolId":"授权 Tool ID","input":对象}}。',
-    '结束形状为 {"kind":"complete|wait|fail","checkpoint":"累计状态",',
-    '"summary|reason|error":"非空文本"}，字段名必须与 kind 匹配。',
-    "checkpoint、actionId、toolId 和对应文本字段必须是非空字符串。",
-    "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
-].join("\n");
-
-/** Preparation 阶段对应的严格输出协议。 */
-export const PREPARATION_RESULT_PROTOCOL: Readonly<
-    Record<PreparationPhase, string>
-> = {
-    gathering_context: [
-        "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-        '允许的形状为 {"kind":"question","question":"非空文本"} 或',
-        '{"kind":"context_ready"}。',
-        "不要返回任务提案或执行结果。",
-    ].join("\n"),
-    planning: [
-        "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
-        '唯一允许的形状为 {"kind":"task_proposal","task":',
-        '{"objective":"非空文本","completionCriteria":["非空文本"]},',
-        '"approvalRequest":"非空文本"}。',
-        "不要返回问题、context_ready 或执行结果。",
-    ].join("\n"),
-};

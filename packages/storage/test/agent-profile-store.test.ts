@@ -113,6 +113,7 @@ test("loaded Profile metadata survives Goal snapshot persistence", async () => {
     assert.ok(profile);
 
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-profile-metadata",
         intent: "验证 Profile 快照",
         profile,

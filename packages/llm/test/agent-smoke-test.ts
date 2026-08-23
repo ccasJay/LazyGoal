@@ -5,7 +5,10 @@ import {
     Runner,
 } from "../../runtime/src/index";
 import type { Goal, GoalStore } from "../../runtime/src/index";
-import { LLMStepExecutor } from "../../agent/src/index";
+import {
+    createDefaultPromptBundleRenderer,
+    LLMStepExecutor,
+} from "../../agent/src/index";
 import { OpenAICompatible } from "../src/openai-compatible";
 
 /** 冒烟测试使用的最小内存 GoalStore，只保证保存最新快照。 */
@@ -40,12 +43,14 @@ async function main(): Promise<void> {
         model: requiredEnv("LLM_MODEL"),
     });
     const store = new SmokeGoalStore();
-    const executor = new LLMStepExecutor({ adapter });
+    const renderer = await createDefaultPromptBundleRenderer();
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const runner = new Runner({
         store,
         executor,
     });
     const created = createGoal({
+        promptBundleVersion: 1,
         id: "live-llm-goal",
         intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
         profile: {

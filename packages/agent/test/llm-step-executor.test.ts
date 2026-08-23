@@ -16,12 +16,14 @@ import type {
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
-    AGENT_DECISION_PROTOCOL,
+    createDefaultPromptBundleRenderer,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
 } from "../src/index";
 import { buildStepRequest } from "../src/prompt";
+
+const renderer = await createDefaultPromptBundleRenderer();
 
 const goalId = "goal-1";
 const task: GoalTask = {
@@ -42,6 +44,7 @@ function createExecutingGoal(
     messages: readonly GoalMessage[],
 ): Goal {
     const created = createGoal({
+        promptBundleVersion: 1,
         id: goalId,
         intent: task.objective,
         profile: runProfile,
@@ -128,7 +131,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         summary: "继续执行",
     });
     const adapter = new FakeAdapter(responseContent);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
 
     const result = await executor.execute(currentGoal, []);
 
@@ -138,21 +141,22 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         summary: "继续执行",
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal));
+    assert.deepEqual(adapter.requests[0], buildStepRequest(currentGoal, [], renderer));
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, -1),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
     );
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
     assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
-    assert.equal(
-        adapter.requests[0]?.messages[0]?.content,
-        [
-            "你是一个执行代理。",
-            "Instructions:\n1. 检查当前上下文",
-            AGENT_DECISION_PROTOCOL,
-        ].join("\n\n")
-            + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]",
+    const systemContent = adapter.requests[0]?.messages[0]?.content ?? "";
+    assert.match(systemContent, /Global Overview:/);
+    assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
+    assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
+    assert.match(systemContent, /Active Phase Protocol:/);
+    assert.match(systemContent, /AgentDecision 协议/);
+    assert.match(
+        systemContent,
+        /Authorized Tool definitions \(only these Tool IDs may be requested\):\n\[\]/,
     );
     assert.deepEqual(
         JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
@@ -195,11 +199,35 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
             checkpoint: "已检查当前状态",
             summary: "已完成",
         })),
+        renderer,
     });
 
     await executor.execute(currentGoal, []);
 
     assert.equal(JSON.stringify(currentGoal), before);
+});
+
+test("LLMStepExecutor 在未知 Prompt Bundle 版本时不调用 Adapter", async () => {
+    const goal = createTestGoal("run-unknown-prompt");
+    const unsupportedGoal = {
+        ...goal,
+        definition: {
+            ...goal.definition,
+            promptBundleVersion: 99,
+        },
+    } as unknown as Goal;
+    const adapter = new FakeAdapter(JSON.stringify({
+        kind: "complete",
+        checkpoint: "不应生成",
+        summary: "不应生成",
+    }));
+    const executor = new LLMStepExecutor({ adapter, renderer });
+
+    await assert.rejects(
+        executor.execute(unsupportedGoal, []),
+        /不支持的 Prompt Bundle 版本 99/,
+    );
+    assert.equal(adapter.requests.length, 0);
 });
 
 test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", async () => {
@@ -216,7 +244,7 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
             input: { path: "README.md" },
         },
     }));
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const readFileTool: ToolDefinition = {
         id: "read_file",
         description: "读取工作区文件",
@@ -243,7 +271,7 @@ test("Adapter 原始异常会原样传播且不会重试", async () => {
     const currentGoal = createTestGoal("run-4");
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
 
     await assert.rejects(
         executor.execute(currentGoal, []),
@@ -255,7 +283,7 @@ test("Adapter 原始异常会原样传播且不会重试", async () => {
 test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
     const currentGoal = createTestGoal("run-5");
     const adapter = new FakeAdapter("不是合法 JSON");
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
 
     await assert.rejects(
         executor.execute(currentGoal, []),
@@ -285,7 +313,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
         summary: "完成",
     });
     const adapter = new SequenceAdapter([completeContent]);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const runner = new Runner({
         store,
         executor,
@@ -341,7 +369,7 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
             input: { path: "README.md" },
         },
     })]);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const runner = new Runner({
         store,
         executor,
@@ -373,7 +401,7 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
 test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async () => {
     const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter(["不是合法 JSON"]);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const runner = new Runner({
         store,
         executor,
@@ -411,7 +439,7 @@ test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 
     const store = new InMemoryGoalStore();
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const runner = new Runner({
         store,
         executor,

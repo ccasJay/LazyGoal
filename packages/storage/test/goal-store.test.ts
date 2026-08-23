@@ -21,7 +21,7 @@ import {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV3Schema,
+    GoalSnapshotV5Schema,
     goalSnapshotCodec,
     InMemoryGoalStore,
     INVALID_GOAL_SNAPSHOT_CODE,
@@ -57,6 +57,7 @@ function createExecutingGoal(input: {
     const created = createGoal({
         id: input.id,
         intent: input.objective,
+        promptBundleVersion: 1,
         profile: input.profile,
         runId: input.runId,
         ...(input.messages === undefined ? {} : { messages: input.messages }),
@@ -312,7 +313,8 @@ test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", (
     const goal = createSnapshot();
     const encoded = goalSnapshotCodec.encode(goal);
 
-    assert.equal(encoded.metadata.schemaVersion, 3);
+    assert.equal(encoded.metadata.schemaVersion, 5);
+    assert.equal(encoded.definition.promptBundleVersion, 1);
     assert.deepEqual(goalSnapshotCodec.decode(encoded), goal);
 
     assert.throws(
@@ -332,13 +334,22 @@ test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", (
         }),
         assertProtocolError,
     );
+    const { promptBundleVersion: _version, ...definitionWithoutVersion }
+        = encoded.definition;
+    assert.throws(
+        () => goalSnapshotCodec.decode({
+            ...encoded,
+            definition: definitionWithoutVersion,
+        }),
+        assertProtocolError,
+    );
 });
 
 test("GoalSnapshotCodec round-trips bounded Action memory and approval state", () => {
     const actionGoal = createActionSnapshot();
     const encodedAction = goalSnapshotCodec.encode(actionGoal);
 
-    assert.equal(encodedAction.metadata.schemaVersion, 3);
+    assert.equal(encodedAction.metadata.schemaVersion, 5);
     assert.deepEqual(goalSnapshotCodec.decode(encodedAction), actionGoal);
 
     const pendingGoal: Goal = {
@@ -372,6 +383,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
     const planning: Goal = createGoal({
         id: "goal-planning",
         intent: "先准备",
+        promptBundleVersion: 1,
         profile,
         runId: "run-planning",
     });
@@ -531,13 +543,21 @@ test("GoalSnapshotCodec isolates objects between Runtime and Snapshot", () => {
     );
 });
 
-test("GoalSnapshotCodec rejects v1, v2, legacy v3, and unknown versions without changing the source", () => {
+test("GoalSnapshotCodec rejects v1-v4, invalid v5, and unknown versions without changing the source", () => {
     const v1 = createV1Snapshot();
     const v1Source = JSON.stringify(v1);
     const v2 = createV2Snapshot();
     const v2Source = JSON.stringify(v2);
     const encoded = goalSnapshotCodec.encode(createSnapshot());
-    const legacyV3 = {
+    const v3 = {
+        ...encoded,
+        metadata: { schemaVersion: 3 },
+    };
+    const v4 = {
+        ...encoded,
+        metadata: { schemaVersion: 4 },
+    };
+    const invalidV5 = {
         ...encoded,
         state: {
             ...encoded.state,
@@ -552,11 +572,15 @@ test("GoalSnapshotCodec rejects v1, v2, legacy v3, and unknown versions without 
             },
         },
     };
-    const legacySource = JSON.stringify(legacyV3);
+    const v3Source = JSON.stringify(v3);
+    const v4Source = JSON.stringify(v4);
+    const invalidV5Source = JSON.stringify(invalidV5);
 
     assert.throws(() => goalSnapshotCodec.decode(v1), assertProtocolError);
     assert.throws(() => goalSnapshotCodec.decode(v2), assertProtocolError);
-    assert.throws(() => goalSnapshotCodec.decode(legacyV3), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(v3), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(v4), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(invalidV5), assertProtocolError);
     assert.throws(
         () => goalSnapshotCodec.decode({
             ...encoded,
@@ -567,11 +591,13 @@ test("GoalSnapshotCodec rejects v1, v2, legacy v3, and unknown versions without 
 
     assert.equal(JSON.stringify(v1), v1Source);
     assert.equal(JSON.stringify(v2), v2Source);
-    assert.equal(JSON.stringify(legacyV3), legacySource);
+    assert.equal(JSON.stringify(v3), v3Source);
+    assert.equal(JSON.stringify(v4), v4Source);
+    assert.equal(JSON.stringify(invalidV5), invalidV5Source);
 });
 
-test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
-    const encoded = goalSnapshotCodec.encode(createSnapshot("run-invalid-v3"));
+test("GoalSnapshotV5Schema rejects invalid v5 cross-field combinations", () => {
+    const encoded = goalSnapshotCodec.encode(createSnapshot("run-invalid-v4"));
     const action = {
         actionId: "action-invalid",
         toolId: "read_file",
@@ -583,7 +609,7 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
             state: {
                 ...encoded.state,
                 run: {
-                    id: "run-invalid-v3",
+                    id: "run-invalid-v4",
                     status: "running",
                     stepCount: 1,
                 },
@@ -594,7 +620,7 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
             state: {
                 ...encoded.state,
                 run: {
-                    id: "run-invalid-v3",
+                    id: "run-invalid-v4",
                     status: "running",
                     stepCount: 0,
                     checkpoint: "等待批准",
@@ -607,7 +633,7 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
             state: {
                 ...encoded.state,
                 run: {
-                    id: "run-invalid-v3",
+                    id: "run-invalid-v4",
                     status: "waiting",
                     stepCount: 0,
                     pendingAction: { action, status: "approved" },
@@ -619,7 +645,7 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
             state: {
                 ...encoded.state,
                 run: {
-                    id: "run-invalid-v3",
+                    id: "run-invalid-v4",
                     status: "running",
                     stepCount: 0,
                     pendingAction: { action, status: "approved" },
@@ -631,7 +657,7 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
             state: {
                 ...encoded.state,
                 run: {
-                    id: "run-invalid-v3",
+                    id: "run-invalid-v4",
                     status: "completed",
                     stepCount: 0,
                     pendingAction: { action, status: "awaiting_approval" },
@@ -642,11 +668,11 @@ test("GoalSnapshotV3Schema rejects invalid v3 cross-field combinations", () => {
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotV3Schema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV5Schema.safeParse(invalidSnapshot).success, false);
     }
 });
 
-test("GoalSnapshotV3Schema enforces workflow and Run cross-field invariants", () => {
+test("GoalSnapshotV5Schema enforces workflow and Run cross-field invariants", () => {
     const encoded = goalSnapshotCodec.encode(createSnapshot());
     const waitStep = {
         kind: "decision",
@@ -669,6 +695,7 @@ test("GoalSnapshotV3Schema enforces workflow and Run cross-field invariants", ()
             const preparation = goalSnapshotCodec.encode(createGoal({
                 id: "goal-preparation",
                 intent: "先准备",
+                promptBundleVersion: 1,
                 profile,
                 runId: "run-preparation",
             }));
@@ -739,7 +766,7 @@ test("GoalSnapshotV3Schema enforces workflow and Run cross-field invariants", ()
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotV3Schema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV5Schema.safeParse(invalidSnapshot).success, false);
     }
 });
 

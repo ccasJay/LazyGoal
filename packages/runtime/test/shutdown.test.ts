@@ -34,6 +34,7 @@ function createPendingActionGoal(): Goal {
         completionCriteria: ["pendingAction 仍可恢复"],
     };
     const initial = createGoal({
+        promptBundleVersion: 1,
         id: "goal-shutdown",
         intent: task.objective,
         profile,

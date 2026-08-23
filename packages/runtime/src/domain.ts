@@ -68,11 +68,15 @@ export type GoalMessage = UserMessage | AssistantMessage;
 /**
  * Goal 创建后冻结的定义。
  *
- * @remarks 原始意图、Profile 和执行策略在 Session 生命周期内保持不变。
+ * @remarks
+ * 原始意图、Prompt Bundle 版本、Profile 和执行策略在 Session 生命周期内保持
+ * 不变。Runtime 只持有通用正整数版本标识，不持有或渲染 Prompt 文本，也不判断
+ * 版本是否受支持；Agent 的 Bundle Registry 负责把版本解析为对应 Prompt 组合。
  * @example
  * ```ts
  * const definition: GoalDefinition = {
  *   intent: "实现恢复能力",
+ *   promptBundleVersion: 1,
  *   profile,
  *   executionPolicy: { maxSteps: 0 },
  * };
@@ -80,6 +84,8 @@ export type GoalMessage = UserMessage | AssistantMessage;
  */
 export interface GoalDefinition {
     readonly intent: string;
+    /** 恢复时必须继续使用的 Prompt Bundle 正整数版本。 */
+    readonly promptBundleVersion: number;
     readonly profile: AgentProfile;
     readonly executionPolicy: {
         /** 正整数表示上限，`0` 表示不以 Step 数量限制执行。 */
@@ -447,15 +453,25 @@ export type TransitionResult<TState extends RunState = RunState> =
 /**
  * createGoal 所需的确定性输入。
  *
- * @remarks intent 同时写入冻结定义和首条 user 消息；maxSteps 默认 0。
+ * @remarks intent 同时写入冻结定义和首条 user 消息；maxSteps 默认 0；
+ * promptBundleVersion 必须为正整数，由调用方（Composition Root）注入 Agent
+ * 当前生效的 Prompt Bundle 版本。
  * @example
  * ```ts
- * const input: GoalCreationInput = { id: "goal-1", intent: "实现恢复", profile, runId: "run-1" };
+ * const input: GoalCreationInput = {
+ *     id: "goal-1",
+ *     intent: "实现恢复",
+ *     promptBundleVersion: 1,
+ *     profile,
+ *     runId: "run-1",
+ * };
  * ```
  */
 export interface GoalCreationInput {
     readonly id: string;
     readonly intent: string;
+    /** Goal 创建时冻结的 Prompt Bundle 正整数版本。 */
+    readonly promptBundleVersion: number;
     readonly profile: AgentProfile;
     readonly runId: string;
     readonly maxSteps?: number;
@@ -482,9 +498,9 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
 
 /**
  * 创建 gathering_context 阶段的确定性 Goal 聚合。
- * @param input - Goal ID、原始意图、冻结 Profile、Run ID 与执行策略。
+ * @param input - Goal ID、原始意图、冻结 Prompt Bundle 版本、Profile、Run ID 与执行策略。
  * @returns Run 为 created/0 的全新 Goal。
- * @throws maxSteps 不是非负整数时抛出 Error。
+ * @throws maxSteps 不是非负整数、或 promptBundleVersion 不是正整数时抛出 Error。
  */
 export function createGoal(input: GoalCreationInput): Goal {
     const maxSteps = input.maxSteps ?? 0;
@@ -493,10 +509,18 @@ export function createGoal(input: GoalCreationInput): Goal {
         throw new Error("maxSteps must be a non-negative integer");
     }
 
+    if (
+        !Number.isInteger(input.promptBundleVersion)
+        || input.promptBundleVersion <= 0
+    ) {
+        throw new Error("promptBundleVersion must be a positive integer");
+    }
+
     return {
         id: input.id,
         definition: {
             intent: input.intent,
+            promptBundleVersion: input.promptBundleVersion,
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },

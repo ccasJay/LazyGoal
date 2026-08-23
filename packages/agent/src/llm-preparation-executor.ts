@@ -12,27 +12,32 @@ import type {
 } from "../../runtime/src/preparation-executor";
 import { buildPreparationRequest } from "./prompt";
 import { parsePreparationResult } from "./response-schema";
+import type { PromptBundleRenderer } from "./prompting/types";
 
 /**
  * 创建 {@link LLMPreparationExecutor} 所需的供应商无关依赖。
  *
  * @example
  * ```ts
- * const dependencies: LLMPreparationExecutorDependencies = { adapter };
+ * const dependencies: LLMPreparationExecutorDependencies = { adapter, renderer };
  * ```
  */
 export interface LLMPreparationExecutorDependencies {
     /** 接收统一消息协议并返回模型原始文本的 Adapter。 */
     readonly adapter: LLMAdapter;
+    /** 由 Composition Root 创建、与 Step Executor 共享的 Prompt Bundle Renderer。 */
+    readonly renderer: PromptBundleRenderer;
 }
 
 /** 使用 LLMAdapter 生成严格 PreparationResult 的准备阶段执行器。 */
 export class LLMPreparationExecutor implements PreparationExecutor {
     private readonly adapter: LLMAdapter;
+    private readonly renderer: PromptBundleRenderer;
 
-    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter。 */
+    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter 与共享 Renderer。 */
     constructor(dependencies: LLMPreparationExecutorDependencies) {
         this.adapter = dependencies.adapter;
+        this.renderer = dependencies.renderer;
     }
 
     /**
@@ -61,7 +66,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             );
         }
 
-        const request = buildPreparationRequest(goal);
+        const request = buildPreparationRequest(goal, this.renderer);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {

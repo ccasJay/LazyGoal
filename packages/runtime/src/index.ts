@@ -1,4 +1,7 @@
-export { createGoal, createRun } from "./domain";
+export {
+    createGoal,
+    createRun,
+} from "./domain";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
     ExecutionAbortedError,

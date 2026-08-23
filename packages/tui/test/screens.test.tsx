@@ -38,6 +38,7 @@ const profile = {
 
 function createGoalSnapshot(id = "goal-1"): Goal {
     return createGoal({
+        promptBundleVersion: 1,
         id,
         intent: "Build a resumable workflow",
         profile,

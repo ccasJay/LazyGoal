@@ -201,6 +201,7 @@ test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves
         join(await realpath(workspace), ".lazygoal", "goals"),
     );
     await store.save(createGoal({
+        promptBundleVersion: 1,
         id: "goal-seeded",
         intent: "Resume and continue the seeded Goal",
         profile: seededProfile,

@@ -25,7 +25,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-Goal v3 将创建后冻结的 intent、Profile、executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Run 可保存有界的 `checkpoint`、最近 `lastStep` 与当前 `pendingAction`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal 将创建后冻结的 intent、`promptBundleVersion`、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有 Prompt Bundle 的通用正整数版本标识，不持有或渲染文本，也不判断版本是否受支持；新 Goal 冻结由 Composition Root 注入的 Agent 当前版本，恢复后保留原版本。Run 可保存有界的 `checkpoint`、最近 `lastStep` 与当前 `pendingAction`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileAgentProfileStore`
 按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`

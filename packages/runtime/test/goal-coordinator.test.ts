@@ -114,6 +114,7 @@ class FakeScheduler implements RunScheduler {
 
 function createPreparationGoal(): Goal {
     return createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Build a resumable workflow",
         profile,
@@ -318,6 +319,7 @@ function createExecutingGoal(
     },
 ): Goal {
     const created = createGoal({
+        promptBundleVersion: 1,
         id: input.id,
         intent: input.objective,
         profile: input.profile,

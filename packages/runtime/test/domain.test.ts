@@ -24,6 +24,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
     const goal = createGoal({
         id: "goal-1",
         intent: "完成最小 Runtime",
+        promptBundleVersion: 1,
         profile,
         messages,
         runId: "run-1",
@@ -33,6 +34,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
         id: "goal-1",
         definition: {
             intent: "完成最小 Runtime",
+            promptBundleVersion: 1,
             profile,
             executionPolicy: { maxSteps: 0 },
         },
@@ -70,6 +72,7 @@ test("createGoal isolates frozen definition and real messages from input mutatio
     const goal = createGoal({
         id: "goal-2",
         intent: "原始意图",
+        promptBundleVersion: 1,
         profile: mutableProfile,
         messages: mutableMessages,
         runId: "run-2",
@@ -93,6 +96,7 @@ test("preparation workflow cannot represent executing without a final task", () 
     const goal = createGoal({
         id: "goal-3",
         intent: "先准备再执行",
+        promptBundleVersion: 1,
         profile,
         runId: "run-3",
     });
@@ -106,6 +110,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
     assert.equal(createGoal({
         id: "goal-unlimited",
         intent: "无限执行",
+        promptBundleVersion: 1,
         profile,
         runId: "run-unlimited",
     }).definition.executionPolicy.maxSteps, 0);
@@ -115,6 +120,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
             () => createGoal({
                 id: "goal-invalid",
                 intent: "非法预算",
+                promptBundleVersion: 1,
                 profile,
                 runId: "run-invalid",
                 maxSteps,
@@ -124,10 +130,11 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
     }
 });
 
-test("a complete v3 Goal supports a JSON round-trip", () => {
+test("a complete Goal with a frozen Prompt Bundle version supports a JSON round-trip", () => {
     const goal = createGoal({
         id: "goal-4",
         intent: "验证序列化",
+        promptBundleVersion: 1,
         profile,
         messages,
         runId: "run-4",

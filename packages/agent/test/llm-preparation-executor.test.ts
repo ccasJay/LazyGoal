@@ -7,11 +7,13 @@ import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
 import {
+    createDefaultPromptBundleRenderer,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMPreparationExecutor,
     LLMResponseProtocolError,
-    PREPARATION_RESULT_PROTOCOL,
 } from "../src/index";
+
+const renderer = await createDefaultPromptBundleRenderer();
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -25,6 +27,7 @@ function createPreparationGoal(
     runProfile: AgentProfile = profile,
 ): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "实现可恢复 Agent",
         profile: runProfile,
@@ -69,13 +72,26 @@ class RejectingAdapter implements LLMAdapter {
     }
 }
 
-function expectedSystemContent(protocol: string): string {
-    return [
-        "你是一个任务准备代理。",
-        "Instructions:\n1. 只收集必要信息",
-        protocol,
-    ].join("\n\n")
-        + "\n\nAuthorized Tool definitions (only these Tool IDs may be requested):\n[]";
+function assertPreparationSystemContent(
+    content: string,
+    phase: "gathering_context" | "planning",
+): void {
+    assert.ok(content.includes("Global Overview:"));
+    assert.ok(content.includes("Profile System Prompt:\n你是一个任务准备代理。"));
+    assert.ok(content.includes("Profile Instructions:\n1. 只收集必要信息"));
+    assert.ok(content.includes("Active Phase Protocol:"));
+
+    if (phase === "gathering_context") {
+        assert.ok(content.includes('"kind":"question"'));
+    } else {
+        assert.ok(content.includes('"kind":"task_proposal"'));
+    }
+
+    assert.ok(
+        content.endsWith(
+            "Authorized Tool definitions (only these Tool IDs may be requested):\n[]",
+        ),
+    );
 }
 
 test("gathering_context 只解析 question/context_ready 协议", async () => {
@@ -84,7 +100,7 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
         kind: "question",
         question: "任务需要兼容旧快照吗？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     const result = await executor.execute(goal);
 
@@ -95,9 +111,9 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
     assert.equal(adapter.requests.length, 1);
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
     assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
-    assert.equal(
-        adapter.requests[0]?.messages[0]?.content,
-        expectedSystemContent(PREPARATION_RESULT_PROTOCOL.gathering_context),
+    assertPreparationSystemContent(
+        adapter.requests[0]?.messages[0]?.content ?? "",
+        "gathering_context",
     );
     assert.deepEqual(
         JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
@@ -115,7 +131,7 @@ test("planning 只解析 task_proposal 协议", async () => {
         },
         approvalRequest: "是否批准该任务？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     const result = await executor.execute(goal);
 
@@ -130,9 +146,9 @@ test("planning 只解析 task_proposal 协议", async () => {
     assert.equal(adapter.requests.length, 1);
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
     assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
-    assert.equal(
-        adapter.requests[0]?.messages[0]?.content,
-        expectedSystemContent(PREPARATION_RESULT_PROTOCOL.planning),
+    assertPreparationSystemContent(
+        adapter.requests[0]?.messages[0]?.content ?? "",
+        "planning",
     );
     assert.deepEqual(
         JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
@@ -145,7 +161,7 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
         kind: "question",
         question: "不属于 planning",
     }));
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     await assert.rejects(
         executor.execute(createPreparationGoal("planning")),
@@ -162,7 +178,7 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
 test("Adapter 异常保持原对象传播且不重试", async () => {
     const adapterError = new Error("供应商暂不可用");
     const adapter = new RejectingAdapter(adapterError);
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     await assert.rejects(
         executor.execute(createPreparationGoal()),
@@ -173,7 +189,7 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
 
 test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
     const goal = createPreparationGoal("gathering_context", {
         ...profile,
         toolIds: ["filesystem"],
@@ -196,11 +212,30 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
         },
     };
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     await assert.rejects(
         executor.execute(waiting),
         /active preparation Goal/,
+    );
+    assert.equal(adapter.requests.length, 0);
+});
+
+test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
+    const goal = createPreparationGoal();
+    const unsupportedGoal = {
+        ...goal,
+        definition: {
+            ...goal.definition,
+            promptBundleVersion: 99,
+        },
+    } as unknown as Goal;
+    const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
+
+    await assert.rejects(
+        executor.execute(unsupportedGoal),
+        /不支持的 Prompt Bundle 版本 99/,
     );
     assert.equal(adapter.requests.length, 0);
 });

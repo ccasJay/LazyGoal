@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "nunjucks": "^3.2.4",
     "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/nunjucks": "^3.2.6"
   }
 }

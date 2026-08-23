@@ -150,6 +150,7 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
             runIdGenerator: () => ref.runId,
             store,
             coordinator,
+            promptBundleVersion: 1,
         },
     ));
 

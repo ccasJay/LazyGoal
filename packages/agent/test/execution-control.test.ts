@@ -12,9 +12,12 @@ import type {
     Goal,
 } from "../../runtime/src/index";
 import {
+    createDefaultPromptBundleRenderer,
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
+
+const renderer = await createDefaultPromptBundleRenderer();
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -25,6 +28,7 @@ const profile: AgentProfile = {
 
 function createPreparationGoal(): Goal {
     return createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test preparation cancellation",
         profile,
@@ -34,6 +38,7 @@ function createPreparationGoal(): Goal {
 
 function createStepGoal(): Goal {
     const goal = createGoal({
+        promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test step cancellation",
         profile,
@@ -92,7 +97,7 @@ test("LLMStepExecutor passes the signal and rejects before parsing after abort",
             summary: "not persisted",
         }),
     });
-    const executor = new LLMStepExecutor({ adapter });
+    const executor = new LLMStepExecutor({ adapter, renderer });
     const operation = executor.execute(
         createStepGoal(),
         [],
@@ -125,7 +130,7 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
             };
         },
     };
-    const executor = new LLMPreparationExecutor({ adapter });
+    const executor = new LLMPreparationExecutor({ adapter, renderer });
 
     await assert.rejects(
         () => executor.execute(

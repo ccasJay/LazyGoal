@@ -17,20 +17,20 @@ import type {
     GoalStore,
 } from "../../runtime/src/index";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
-import type { GoalSnapshotV3 } from "./goal-snapshot";
+import type { GoalSnapshotV5 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
 
 /**
  * 单进程内的 Goal 快照存储。
  *
  * @remarks
- * `save` 先将 Goal 编码为严格 v3 Snapshot，`restore` 再解码回 Runtime
+ * `save` 先将 Goal 编码为严格 v5 Snapshot，`restore` 再解码回 Runtime
  * Goal；两侧都执行完整协议校验，调用方不能通过修改原对象或恢复结果污染
  * Store 内部保存的快照。数据只存在于当前 Store 实例的内存中，不支持跨
  * 实例或进程恢复。
  */
 export class InMemoryGoalStore implements GoalStore {
-    private readonly snapshots = new Map<string, GoalSnapshotV3>();
+    private readonly snapshots = new Map<string, GoalSnapshotV5>();
 
     async save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);
@@ -54,9 +54,9 @@ export class InMemoryGoalStore implements GoalStore {
  * @remarks
  * 每个 Goal 只对应一个文件，文件名由 goalId 的 base64url 编码生成；
  * 写入通过同目录临时文件和 rename 完成，避免恢复到半写入快照。保存前
- * 经 Codec 编码并校验严格 v3 协议；恢复时解码，v1、v2、Legacy v3 与
+ * 经 Codec 编码并校验严格 v5 协议；恢复时解码，v1 至 v4 与
  * 未知版本统一抛出 {@link GoalSnapshotProtocolError}，读取失败绝不触发
- * 写回，之后显式保存恢复结果时才以 v3 原子替换。
+ * 写回，之后显式保存恢复结果时才以 v5 原子替换。
  *
  * 多个写入者并发保存同一 Goal 时采用最后完成替换者覆盖的语义，不提供
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
@@ -192,7 +192,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     /**
      * 从 JSON 文件恢复并校验最新 Goal 快照。
      *
-     * @returns 文件不存在时返回 `undefined`，否则返回与存储隔离的 v3 Goal。
+     * @returns 文件不存在时返回 `undefined`，否则返回与存储隔离的 v5 Goal。
      * @throws 快照违反协议时抛出 GoalSnapshotProtocolError；其他读取错误原样传播。
      */
     async restore(goalId: string): Promise<Goal | undefined> {
