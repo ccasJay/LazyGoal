@@ -30,6 +30,7 @@ import {
 import {
     createDefaultPromptBundleRenderer,
     CURRENT_PROMPT_BUNDLE_VERSION,
+    DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
@@ -166,6 +167,75 @@ export function readLlmConfig(
     };
 }
 
+/**
+ * 表示 Conversation 字符预算无法在启动期安全解析。
+ *
+ * @remarks
+ * 错误不包含环境变量原值，只提供稳定错误码和变量名。Composition Root 在解析
+ * 工作区、加载 Profile 或创建任何运行时对象之前抛出该错误。
+ *
+ * @example
+ * ```ts
+ * try {
+ *     readConversationCharBudget({ LLM_CONVERSATION_CHAR_BUDGET: "0" });
+ * } catch (error) {
+ *     if (error instanceof ConversationBudgetConfigurationError) {
+ *         console.error(error.code);
+ *     }
+ * }
+ * ```
+ */
+export class ConversationBudgetConfigurationError extends Error {
+    /** 供 CLI 与自动化测试识别的稳定错误码。 */
+    readonly code = "INVALID_LLM_CONVERSATION_CHAR_BUDGET" as const;
+    /** 配置来源的稳定环境变量名。 */
+    readonly variableName = "LLM_CONVERSATION_CHAR_BUDGET" as const;
+
+    constructor() {
+        super(
+            "LLM_CONVERSATION_CHAR_BUDGET must be a positive safe integer",
+        );
+        this.name = "ConversationBudgetConfigurationError";
+    }
+}
+
+/**
+ * 读取单轮模型请求可使用的 Conversation 字符预算。
+ *
+ * @param env - 要读取的环境对象；默认使用当前进程环境。
+ * @returns 缺失或空白时返回 `196608`，否则返回已校验的正安全整数覆盖值。
+ * @throws `ConversationBudgetConfigurationError` 当非空值不是十进制正安全整数。
+ *
+ * @example
+ * ```ts
+ * readConversationCharBudget({}); // 196608
+ * readConversationCharBudget({ LLM_CONVERSATION_CHAR_BUDGET: "4096" });
+ * ```
+ */
+export function readConversationCharBudget(
+    env: NodeJS.ProcessEnv = process.env,
+): number {
+    const raw = env.LLM_CONVERSATION_CHAR_BUDGET;
+
+    if (raw === undefined || raw.trim() === "") {
+        return DEFAULT_LLM_CONVERSATION_CHAR_BUDGET;
+    }
+
+    const normalized = raw.trim();
+
+    if (!/^\d+$/.test(normalized)) {
+        throw new ConversationBudgetConfigurationError();
+    }
+
+    const budget = Number(normalized);
+
+    if (!Number.isSafeInteger(budget) || budget <= 0) {
+        throw new ConversationBudgetConfigurationError();
+    }
+
+    return budget;
+}
+
 /** CLI 只支持的三个入口意图。 */
 export type CliCommand =
     | { readonly kind: "create" }
@@ -269,6 +339,10 @@ export interface CompositionRoot {
     readonly goalsDirectory: string;
     /** 已校验的 OpenAI-compatible 配置。 */
     readonly llmConfig: LlmConfig;
+    /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
+    readonly conversationCharBudget: number;
+    /** Preparation 与 Step Executor 共享的无状态上下文裁剪实例。 */
+    readonly contextCompactor: DropOldestContextCompactor;
     /** 组合根使用的 LLM Adapter。 */
     readonly adapter: OpenAICompatible;
     /** 从当前 workspace Profile 文件加载的生效 Agent Profile。 */
@@ -321,9 +395,10 @@ export async function resolveWorkspaceRoot(
  *
  * @param options - 工作区、环境变量和可选测试 ID 生成器。
  * @returns 可直接交给 TUI CLI 的单 Goal 运行根。
- * @throws 环境变量缺失时抛出 `CliConfigurationError`；Profile 文件缺失、读取
- *   或校验失败时抛出 `AgentProfileConfigurationError`；工作区无法解析时传播
- *   文件系统错误。以上失败均发生在 Goal Store 写入之前。
+ * @throws 环境变量缺失时抛出 `CliConfigurationError`，Conversation 预算非法时
+ *   抛出 `ConversationBudgetConfigurationError`；Profile 文件缺失、读取或校验
+ *   失败时抛出 `AgentProfileConfigurationError`；工作区无法解析时传播文件系统
+ *   错误。所有配置失败均发生在工作区访问、Goal I/O 与 LLM 调用之前。
  * @example
  * ```ts
  * const root = await createCompositionRoot({ env: process.env });
@@ -333,7 +408,9 @@ export async function resolveWorkspaceRoot(
 export async function createCompositionRoot(
     options: CompositionRootOptions = {},
 ): Promise<CompositionRoot> {
-    const llmConfig = readLlmConfig(options.env ?? process.env);
+    const env = options.env ?? process.env;
+    const llmConfig = readLlmConfig(env);
+    const conversationCharBudget = readConversationCharBudget(env);
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
     const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
@@ -386,7 +463,9 @@ export async function createCompositionRoot(
 
     const adapter = new OpenAICompatible(llmConfig);
     const renderer = await createDefaultPromptBundleRenderer();
-    const contextCompactor = new DropOldestContextCompactor();
+    const contextCompactor = new DropOldestContextCompactor(
+        conversationCharBudget,
+    );
     const store = new JsonFileGoalStore(goalsDirectory);
     const checkpointStore = new CheckpointGateGoalStore(store);
     const abortController = new AbortController();
@@ -447,6 +526,8 @@ export async function createCompositionRoot(
         workspaceRoot,
         goalsDirectory,
         llmConfig,
+        conversationCharBudget,
+        contextCompactor,
         adapter,
         profile,
         profiles,

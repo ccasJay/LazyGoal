@@ -21,7 +21,7 @@
   - 更新三个 phase 的请求与 Executor 测试，验证 system、PromptContext、Authorized Tools、Working Context 和 `pendingAction` 不受裁剪影响，默认流程不增加 LLM 调用
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.4](./requirements.md#req-2-4), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 4. 在 Composition Root 解析预算并共享注入默认 Compactor
+- [x] //TODO 4. 在 Composition Root 解析预算并共享注入默认 Compactor
 
   - 在 TUI 配置边界新增默认值/环境覆盖解析与 `ConversationBudgetConfigurationError`，在任何工作区、Profile、Store 或 Goal 操作前完成校验
   - Composition Root 创建一次 `DropOldestContextCompactor` 并注入 Preparation 与 Step Executor，同时导出必要的公共类型和常量
