@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立中立 ContextUnit 协议与 Conversation Adapter
+- [x] //TODO 1. 建立中立 ContextUnit 协议与 Conversation Adapter
 
   - 在 `packages/agent` 新增带完整中文契约 TSDoc 和示例的 `ContextUnit`、`ContextUnitAdapter`，实现 Conversation 分组、字符计数与按原顺序展开
   - 保留 `TODO(trajectory-context-adapter)` 注释，并确保协议不依赖 Runtime、Storage 或 Trajectory 类型

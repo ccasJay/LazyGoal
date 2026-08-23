@@ -14,6 +14,14 @@ export {
     ModelInferenceProjector,
 } from "./model-inference-projector";
 export {
+    ConversationContextUnitAdapter,
+    flattenContextUnits,
+} from "./conversation-context-unit-adapter";
+export type {
+    ContextUnit,
+    ContextUnitAdapter,
+} from "./context-unit";
+export {
     renderRequest,
     renderWorkingContextMessage,
 } from "./render";
