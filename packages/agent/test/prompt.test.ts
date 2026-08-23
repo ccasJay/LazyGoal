@@ -15,10 +15,14 @@ import {
     buildPreparationRequest,
     buildStepRequest,
 } from "../src/prompt";
-import { createDefaultPromptBundleRenderer } from "../src/index";
+import {
+    createDefaultPromptBundleRenderer,
+    DropOldestContextCompactor,
+} from "../src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 
 const renderer = await createDefaultPromptBundleRenderer();
+const contextCompactor = new DropOldestContextCompactor();
 
 const intent = "完成示例任务";
 const task = {
@@ -110,7 +114,7 @@ function createExecutingGoal(options: {
     };
 }
 
-test("请求顺序固定为 system、真实历史、当前 Working Context", () => {
+test("请求顺序固定为 system、真实历史、当前 Working Context", async () => {
     const messages: readonly GoalMessage[] = [
         { role: "user", content: "补充的真实输入" },
         {
@@ -120,7 +124,12 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
         },
     ];
     const goal = createExecutingGoal({ messages });
-    const request = buildStepRequest(goal, [], renderer);
+    const request = await buildStepRequest(
+        goal,
+        [],
+        renderer,
+        contextCompactor,
+    );
 
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
@@ -137,7 +146,7 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", () 
     );
 });
 
-test("执行请求只展示调用方传入的授权 ToolDefinition", () => {
+test("执行请求只展示调用方传入的授权 ToolDefinition", async () => {
     const goal = createExecutingGoal();
     const tool: ToolDefinition = {
         id: "read_file",
@@ -147,7 +156,12 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", () => {
             properties: { path: { type: "string" } },
         },
     };
-    const request = buildStepRequest(goal, [tool], renderer);
+    const request = await buildStepRequest(
+        goal,
+        [tool],
+        renderer,
+        contextCompactor,
+    );
     const systemContent = request.messages[0]?.content ?? "";
 
     assert.match(systemContent, /read_file/);
@@ -155,7 +169,7 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", () => {
     assert.match(systemContent, /AgentDecision 协议/);
 });
 
-test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", () => {
+test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", async () => {
     for (const phase of ["gathering_context", "planning"] as const) {
         const goal = createPreparationGoal(phase, [
             {
@@ -165,7 +179,11 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
             },
             { role: "user", content: "已记录的真实回答" },
         ]);
-        const request = buildPreparationRequest(goal, renderer);
+        const request = await buildPreparationRequest(
+            goal,
+            renderer,
+            contextCompactor,
+        );
         const systemContent = request.messages[0]?.content ?? "";
 
         if (phase === "gathering_context") {
@@ -182,6 +200,66 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
             { phase, intent },
         );
     }
+});
+
+test("三个 phase 使用同一完整单元规则且只替换 Conversation", async () => {
+    const messages: readonly GoalMessage[] = [
+        { role: "user", content: "旧输入" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "旧响应",
+        },
+        { role: "user", content: "新输入" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "新响应",
+        },
+    ];
+    const latestUnit = messages.slice(2).map(({ role, content }) => ({
+        role,
+        content,
+    }));
+    const compacting = new DropOldestContextCompactor(
+        messages.slice(2).reduce((sum, message) => sum + message.content.length, 0),
+    );
+    const pendingAction: PendingAction = {
+        status: "approved",
+        action: {
+            actionId: "action-current",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    };
+    const cases = [
+        createPreparationGoal("gathering_context", messages),
+        createPreparationGoal("planning", messages),
+        createExecutingGoal({ messages, pendingAction }),
+    ];
+
+    for (const goal of cases) {
+        const compacted = goal.state.workflow.phase === "executing"
+            ? await buildStepRequest(goal, [], renderer, compacting)
+            : await buildPreparationRequest(goal, renderer, compacting);
+        const full = goal.state.workflow.phase === "executing"
+            ? await buildStepRequest(goal, [], renderer, contextCompactor)
+            : await buildPreparationRequest(goal, renderer, contextCompactor);
+
+        assert.deepEqual(compacted.messages.slice(1, -1), latestUnit);
+        assert.deepEqual(compacted.messages[0], full.messages[0]);
+        assert.deepEqual(compacted.messages.at(-1), full.messages.at(-1));
+    }
+
+    const executingControl = JSON.parse(
+        (await buildStepRequest(
+            cases[2]!,
+            [],
+            renderer,
+            compacting,
+        )).messages.at(-1)?.content ?? "",
+    );
+    assert.deepEqual(executingControl.execution.pendingAction, pendingAction);
 });
 
 test("保存恢复后真实消息及 assistant 来源不变，控制消息不进入快照", async () => {
@@ -201,7 +279,12 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
 
     assert.ok(restored !== undefined);
     const messagesBeforeRequest = JSON.stringify(restored.state.messages);
-    const request = buildStepRequest(restored, [], renderer);
+    const request = await buildStepRequest(
+        restored,
+        [],
+        renderer,
+        contextCompactor,
+    );
     const controlContent = request.messages.at(-1)?.content ?? "";
 
     assert.deepEqual(restored.state.messages, goal.state.messages);
@@ -217,7 +300,7 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
     );
 });
 
-test("Builder 拒绝 waiting Preparation 和非 running executing Goal", () => {
+test("Builder 拒绝 waiting Preparation 和非 running executing Goal", async () => {
     const gathering = createPreparationGoal();
     const waiting: Goal = {
         ...gathering,
@@ -238,12 +321,12 @@ test("Builder 拒绝 waiting Preparation 和非 running executing Goal", () => {
         },
     };
 
-    assert.throws(
-        () => buildPreparationRequest(waiting, renderer),
+    await assert.rejects(
+        buildPreparationRequest(waiting, renderer, contextCompactor),
         /active preparation/,
     );
-    assert.throws(
-        () => buildStepRequest(created, [], renderer),
+    await assert.rejects(
+        buildStepRequest(created, [], renderer, contextCompactor),
         /running executing/,
     );
 });

@@ -30,6 +30,7 @@ import {
 import {
     createDefaultPromptBundleRenderer,
     CURRENT_PROMPT_BUNDLE_VERSION,
+    DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../../agent/src/index";
@@ -385,20 +386,25 @@ export async function createCompositionRoot(
 
     const adapter = new OpenAICompatible(llmConfig);
     const renderer = await createDefaultPromptBundleRenderer();
+    const contextCompactor = new DropOldestContextCompactor();
     const store = new JsonFileGoalStore(goalsDirectory);
     const checkpointStore = new CheckpointGateGoalStore(store);
     const abortController = new AbortController();
     const resources = new ManagedResourceRegistry();
     const runner = new Runner({
         store: checkpointStore,
-        executor: new LLMStepExecutor({ adapter, renderer }),
+        executor: new LLMStepExecutor({ adapter, renderer, contextCompactor }),
         toolRegistry,
         toolPolicy: createDefaultToolPolicy(),
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
         store: checkpointStore,
-        preparationExecutor: new LLMPreparationExecutor({ adapter, renderer }),
+        preparationExecutor: new LLMPreparationExecutor({
+            adapter,
+            renderer,
+            contextCompactor,
+        }),
         scheduler,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;

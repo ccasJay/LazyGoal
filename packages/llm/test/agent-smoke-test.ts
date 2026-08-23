@@ -7,6 +7,7 @@ import {
 import type { Goal, GoalStore } from "../../runtime/src/index";
 import {
     createDefaultPromptBundleRenderer,
+    DropOldestContextCompactor,
     LLMStepExecutor,
 } from "../../agent/src/index";
 import { OpenAICompatible } from "../src/openai-compatible";
@@ -44,7 +45,12 @@ async function main(): Promise<void> {
     });
     const store = new SmokeGoalStore();
     const renderer = await createDefaultPromptBundleRenderer();
-    const executor = new LLMStepExecutor({ adapter, renderer });
+    const contextCompactor = new DropOldestContextCompactor();
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+    });
     const runner = new Runner({
         store,
         executor,

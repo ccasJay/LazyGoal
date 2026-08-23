@@ -11,13 +11,18 @@ import type {
     AgentProfile,
     Goal,
 } from "../../runtime/src/index";
+import type { ContextCompactor } from "../src/context-compactor";
+import type { ContextUnit } from "../src/context-unit";
+import type { ModelConversationMessage } from "../src/model-inference-view";
 import {
     createDefaultPromptBundleRenderer,
+    DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
 
 const renderer = await createDefaultPromptBundleRenderer();
+const contextCompactor = new DropOldestContextCompactor();
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -88,6 +93,32 @@ class BlockingAdapter implements LLMAdapter {
     }
 }
 
+class BlockingCompactor implements ContextCompactor<ModelConversationMessage> {
+    readonly signals: Array<AbortSignal | undefined> = [];
+    private startedResolver: (() => void) | undefined;
+    readonly started = new Promise<void>((resolve) => {
+        this.startedResolver = resolve;
+    });
+    private releaseResolver: (() => void) | undefined;
+    private readonly blocked = new Promise<void>((resolve) => {
+        this.releaseResolver = resolve;
+    });
+
+    async compact(
+        units: readonly ContextUnit<ModelConversationMessage>[],
+        signal?: AbortSignal,
+    ): Promise<readonly ContextUnit<ModelConversationMessage>[]> {
+        this.signals.push(signal);
+        this.startedResolver?.();
+        await this.blocked;
+        return [...units];
+    }
+
+    release(): void {
+        this.releaseResolver?.();
+    }
+}
+
 test("LLMStepExecutor passes the signal and rejects before parsing after abort", async () => {
     const controller = new AbortController();
     const adapter = new BlockingAdapter({
@@ -97,7 +128,7 @@ test("LLMStepExecutor passes the signal and rejects before parsing after abort",
             summary: "not persisted",
         }),
     });
-    const executor = new LLMStepExecutor({ adapter, renderer });
+    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor });
     const operation = executor.execute(
         createStepGoal(),
         [],
@@ -130,7 +161,11 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
             };
         },
     };
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+    });
 
     await assert.rejects(
         () => executor.execute(
@@ -140,4 +175,33 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
     assert.equal(calls, 0);
+});
+
+test("LLMPreparationExecutor awaits Compactor and passes the same signal", async () => {
+    const controller = new AbortController();
+    const compactor = new BlockingCompactor();
+    let calls = 0;
+    const adapter: LLMAdapter = {
+        async generate(): Promise<LLMResponse> {
+            calls += 1;
+            return { content: JSON.stringify({ kind: "context_ready" }) };
+        },
+    };
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor: compactor,
+    });
+    const operation = executor.execute(
+        createPreparationGoal(),
+        { signal: controller.signal },
+    );
+
+    await compactor.started;
+    assert.equal(calls, 0);
+    assert.strictEqual(compactor.signals[0], controller.signal);
+
+    compactor.release();
+    assert.deepEqual(await operation, { kind: "context_ready" });
+    assert.equal(calls, 1);
 });

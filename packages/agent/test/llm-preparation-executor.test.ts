@@ -6,14 +6,18 @@ import type { LLMRequest } from "../../llm/src/core/types";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
+import type { ContextCompactor } from "../src/context-compactor";
+import type { ModelConversationMessage } from "../src/model-inference-view";
 import {
     createDefaultPromptBundleRenderer,
+    DropOldestContextCompactor,
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMPreparationExecutor,
     LLMResponseProtocolError,
 } from "../src/index";
 
 const renderer = await createDefaultPromptBundleRenderer();
+const contextCompactor = new DropOldestContextCompactor();
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -100,7 +104,7 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
         kind: "question",
         question: "任务需要兼容旧快照吗？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     const result = await executor.execute(goal);
 
@@ -131,7 +135,7 @@ test("planning 只解析 task_proposal 协议", async () => {
         },
         approvalRequest: "是否批准该任务？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     const result = await executor.execute(goal);
 
@@ -161,7 +165,7 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
         kind: "question",
         question: "不属于 planning",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
         executor.execute(createPreparationGoal("planning")),
@@ -178,7 +182,7 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
 test("Adapter 异常保持原对象传播且不重试", async () => {
     const adapterError = new Error("供应商暂不可用");
     const adapter = new RejectingAdapter(adapterError);
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
         executor.execute(createPreparationGoal()),
@@ -189,7 +193,7 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
 
 test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
     const goal = createPreparationGoal("gathering_context", {
         ...profile,
         toolIds: ["filesystem"],
@@ -212,7 +216,7 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
         },
     };
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
         executor.execute(waiting),
@@ -231,11 +235,32 @@ test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
         },
     } as unknown as Goal;
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer });
+    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
         executor.execute(unsupportedGoal),
         /不支持的 Prompt Bundle 版本 99/,
+    );
+    assert.equal(adapter.requests.length, 0);
+});
+
+test("Compactor 错误原样传播且不会调用业务 Adapter", async () => {
+    const failure = new Error("context compaction failed");
+    const failingCompactor: ContextCompactor<ModelConversationMessage> = {
+        async compact(): Promise<never> {
+            throw failure;
+        },
+    };
+    const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor: failingCompactor,
+    });
+
+    await assert.rejects(
+        executor.execute(createPreparationGoal()),
+        (error: unknown) => error === failure,
     );
     assert.equal(adapter.requests.length, 0);
 });

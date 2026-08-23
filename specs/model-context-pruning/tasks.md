@@ -14,7 +14,7 @@
   - 添加精确边界、停止跳选、最新单元超限、确定性、异步返回和非法构造预算测试
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [2.3](./requirements.md#req-2-3), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 3. 将裁剪接入异步请求构造与两个 LLM Executor
+- [x] //TODO 3. 将裁剪接入异步请求构造与两个 LLM Executor
 
   - 将 `buildPreparationRequest`、`buildStepRequest` 改为 Projector → Adapter → await Compactor → Renderer，并只在新 View 中替换 Conversation
   - 扩展两个 Executor 的依赖与中止检查，注入同一 Compactor、透传 `AbortSignal`，裁剪失败或中止时禁止调用业务 `LLMAdapter`

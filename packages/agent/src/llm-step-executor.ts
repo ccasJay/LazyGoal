@@ -11,15 +11,30 @@ import {
 } from "../../runtime/src/execution-control";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { StepExecutor } from "../../runtime/src/step-executor";
+import type { ContextCompactor } from "./context-compactor";
+import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
 import { parseAgentDecision } from "./response-schema";
 import type { PromptBundleRenderer } from "./prompting/types";
 
-/** 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。 */
+/**
+ * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
+ *
+ * @example
+ * ```ts
+ * const dependencies: LLMStepExecutorDependencies = {
+ *     adapter,
+ *     renderer,
+ *     contextCompactor,
+ * };
+ * ```
+ */
 export interface LLMStepExecutorDependencies {
     readonly adapter: LLMAdapter;
     /** 由 Composition Root 创建、与 Preparation Executor 共享的 Prompt Bundle Renderer。 */
     readonly renderer: PromptBundleRenderer;
+    /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
+    readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
 }
 
 /**
@@ -37,11 +52,13 @@ export interface LLMStepExecutorDependencies {
 export class LLMStepExecutor implements StepExecutor {
     private readonly adapter: LLMAdapter;
     private readonly renderer: PromptBundleRenderer;
+    private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
 
-    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter 与共享 Renderer。 */
+    /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
         this.adapter = dependencies.adapter;
         this.renderer = dependencies.renderer;
+        this.contextCompactor = dependencies.contextCompactor;
     }
 
     /**
@@ -59,7 +76,14 @@ export class LLMStepExecutor implements StepExecutor {
         control?: ExecutionControl,
     ): Promise<AgentDecision> {
         throwIfAborted(control);
-        const request = buildStepRequest(goal, tools, this.renderer);
+        const request = await buildStepRequest(
+            goal,
+            tools,
+            this.renderer,
+            this.contextCompactor,
+            control?.signal,
+        );
+        throwIfAborted(control);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
