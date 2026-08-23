@@ -26,16 +26,17 @@ authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, docs/arc
 
 ## Guardrails
 
-- 只有 LazyGoal 注册的模板可作为模板执行；Profile、Instructions、ToolDefinition、Conversation 与 Working Context 中的 Nunjucks 语法只作为数据/文本插入，不二次执行。 [S1, S3, S4, S9]
-- 渲染失败（未知 Bundle 版本、缺失变量、模板语法错误）都发生在 LLM Adapter 调用前，Executor 不重试、不修复；错误脱敏，不含 Profile/Tool Schema/Conversation 原文。 [S1, S2, S4]
-- 相同输入产生字符级一致输出：模板与结果统一 LF，Tools 按 Tool ID 代码单元升序，`stableJson` 键按代码单元排序，空 Instructions/空 Tools 有固定表示。 [S1, S2, S6, S9]
-- 模型请求消息顺序固定为 system → 真实 Conversation → Working Context；现有 Tool 授权、状态转换与响应 Schema 边界保持不变。 [S1, S2]
+- 只有 LazyGoal 注册的模板可作为模板执行；Profile、Instructions、ToolDefinition、Conversation 与 Working Context 中的 Nunjucks 语法只作为数据或文本插入，不二次执行。 [S1, S3, S4, S9]
+- 渲染失败（未知 Bundle 版本、缺失变量、模板语法错误）都发生在 LLM Adapter 调用前，Executor 不重试、不修复；错误脱敏，不含 Profile、Tool Schema 或 Conversation 原文。 [S1, S2, S4]
+- 相同输入产生字符级一致输出：模板与结果统一 LF，Tools 按 Tool ID 代码单元升序，`stableJson` 键按代码单元排序，空 Instructions 和空 Tools 有固定表示。 [S1, S2, S6, S9]
+- 模型请求消息顺序固定为 system → 本轮选中的 Conversation → Working Context；Conversation 在 Renderer 前由上下文策略选择，现有 Prompt Bundle、Tool 授权、状态转换与响应 Schema 边界保持不变。 [S12, S13, S14]
 
 ## Revisit When
 
 - 新增 Prompt Bundle v2/v3 时：应复用未变化模板组件并新建 Bundle 版本，不升级 Snapshot Schema。
-- Prompt 资产引入构建/发布流程时：需显式复制 `.njk` 资产（当前仓库源码直跑、按 `import.meta.url` 定位）。
+- Prompt 资产引入构建或发布流程时：需显式复制 `.njk` 资产（当前仓库源码直跑、按 `import.meta.url` 定位）。
 - 需要模板支持异步 Filter、Extension、动态 `{% include %}` 或沙箱时（当前明确禁止）。
+- Conversation 选择开始改变模板可见变量或 system/Working Context 消息语义时。
 
 ## Sources
 
@@ -50,3 +51,6 @@ authorities: [docs/architecture/agent.md, docs/architecture/runtime.md, docs/arc
 - S9: `packages/agent/test/prompting-renderer.test.ts`
 - S10: `packages/agent/test/model-inference-projector.test.ts`
 - S11: `packages/storage/test/goal-store.test.ts`
+- S12: `specs/model-context-pruning/design.md`
+- S13: `packages/agent/src/prompt.ts`
+- S14: `packages/agent/test/prompt.test.ts`
