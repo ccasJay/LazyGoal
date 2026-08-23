@@ -32,6 +32,10 @@ project-memory/  Durable summaries of completed and verified feature specificati
 - Upon completing a task, structure the final summary output where each change item is paired directly with its clickable location link:
   - Concise description of the change or feature added.
     - [packages/runtime/src/domain.ts:12-30](packages/runtime/src/domain.ts#L12-L30)
+- When performing a task, load and follow the matching skill under `.agents/skills/` for that task type:
+  - Documentation work (writing, moving, reviewing, auditing) → `lg-doc-standards`
+  - Prose (Markdown, TSDoc, code/test comments, prompts, diagnostics, CLI/TUI copy) → `lg-prose-standard`
+  - Simplification audit (dead code, duplicate state/lifecycle, over-design, dependency replacement) → `lg-find-simplifications`
 
 ### TypeScript Interface Documentation
 
