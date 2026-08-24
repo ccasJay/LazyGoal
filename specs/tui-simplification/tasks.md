@@ -31,7 +31,7 @@
   - 复跑 `rg "fatal|openGoalSelect" packages/`，预期仅命中本 Spec 目录
   - _Requirements: [1.3](./requirements.md#req-1-3), [3.3](./requirements.md#req-3-3), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 6. 新增 `useSubmitGate` 并迁移 5 处交互面板
+- [x] //TODO 6. 新增 `useSubmitGate` 并迁移 5 处交互面板
 
   - 新建 `src/use-submit-gate.ts`（包内私有，含中文契约级 TSDoc），按设计决策 3/4 迁移 `intent-screen.tsx`、`goal-select-screen.tsx`、`preparation-screen.tsx`、`session-screen.tsx` 的 5 处闸门逻辑
   - 运行 4 个屏幕测试文件确认 exactly-once、busy 禁用与空白校验行为不变；若有未覆盖分支，在 `screens.test.tsx` 补充用例

@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback } from "react";
 import { Box, Text } from "ink";
 import { Spinner, TextInput } from "@inkjs/ui";
 
 import type { UiError } from "./types";
+import { useSubmitGate } from "./use-submit-gate";
 
 /**
  * IntentScreen 的渲染与命令回调边界。
@@ -39,39 +40,26 @@ export function IntentScreen({
     error,
     onSubmit,
 }: IntentScreenProps): React.JSX.Element {
-    const [validationError, setValidationError] = useState<string>();
-    const submitLock = useRef(false);
-
-    useEffect(() => {
-        if (!busy) {
-            submitLock.current = false;
-        }
-    }, [busy]);
+    const submitGate = useSubmitGate(busy, true);
 
     const handleSubmit = useCallback((value: string) => {
-        if (busy || submitLock.current) {
-            return;
-        }
-
-        if (value.trim().length === 0) {
-            setValidationError("Intent must not be empty");
-            return;
-        }
-
-        submitLock.current = true;
-        setValidationError(undefined);
-        void onSubmit(value);
-    }, [busy, onSubmit]);
+        submitGate.attempt(() => {
+            void onSubmit(value);
+        }, {
+            value,
+            emptyMessage: "Intent must not be empty",
+        });
+    }, [onSubmit, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">LazyGoal</Text>
             <Text>What would you like to accomplish?</Text>
-            {validationError === undefined && error !== undefined
+            {submitGate.validationError === undefined && error !== undefined
                 ? <Text color="red">Error: {error.message}</Text>
                 : null}
-            {validationError !== undefined
-                ? <Text color="red">Error: {validationError}</Text>
+            {submitGate.validationError !== undefined
+                ? <Text color="red">Error: {submitGate.validationError}</Text>
                 : null}
             <TextInput
                 isDisabled={busy}

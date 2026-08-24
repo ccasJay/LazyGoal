@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Text } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
 import type { UiSessionViewModel } from "./types";
+import { useSubmitGate } from "./use-submit-gate";
 
 /**
  * PreparationScreen 的渲染与用户操作回调边界。
@@ -42,50 +43,32 @@ export function PreparationScreen({
     onApproveTask,
 }: PreparationScreenProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
-    const [validationError, setValidationError] = useState<string>();
-    const submitLock = useRef(false);
-    const approveLock = useRef(false);
+    const resetKey = useMemo(
+        () => [session.goal.id, session.waitingFor, session.proposal?.objective],
+        [session.goal.id, session.proposal?.objective, session.waitingFor],
+    );
+    const submitGate = useSubmitGate(session.busy, resetKey);
 
     useEffect(() => {
         setFeedbackMode(false);
-        setValidationError(undefined);
-        submitLock.current = false;
-        approveLock.current = false;
-    }, [session.goal.id, session.waitingFor, session.proposal?.objective]);
-
-    useEffect(() => {
-        if (!session.busy) {
-            submitLock.current = false;
-            approveLock.current = false;
-        }
-    }, [session.busy]);
+    }, [resetKey]);
 
     const handleMessageSubmit = useCallback((value: string) => {
-        if (session.busy || submitLock.current) {
-            return;
-        }
-
-        if (value.trim().length === 0) {
-            setValidationError("Message must not be empty");
-            return;
-        }
-
-        submitLock.current = true;
-        setValidationError(undefined);
-        void onSubmitMessage(value);
-    }, [onSubmitMessage, session.busy]);
+        submitGate.attempt(() => {
+            void onSubmitMessage(value);
+        }, {
+            value,
+            emptyMessage: "Message must not be empty",
+        });
+    }, [onSubmitMessage, submitGate]);
 
     const handleApprove = useCallback(() => {
-        if (session.busy || approveLock.current) {
-            return;
-        }
+        submitGate.attempt(() => {
+            void onApproveTask();
+        });
+    }, [onApproveTask, submitGate]);
 
-        approveLock.current = true;
-        setValidationError(undefined);
-        void onApproveTask();
-    }, [onApproveTask, session.busy]);
-
-    const showError = validationError ?? session.error?.message;
+    const showError = submitGate.validationError ?? session.error?.message;
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -107,7 +90,7 @@ export function PreparationScreen({
                     proposal={session.proposal}
                     onApprove={handleApprove}
                     onFeedback={() => {
-                        setValidationError(undefined);
+                        submitGate.clearError();
                         setFeedbackMode(true);
                     }}
                     onSubmitFeedback={handleMessageSubmit}

@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Static, Text } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiTerminalSummary } from "./types";
+import { useSubmitGate } from "./use-submit-gate";
 
 /**
  * SessionScreen 的执行交互回调边界。
@@ -185,35 +186,22 @@ interface BlockedPanelProps {
 }
 
 function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.Element {
-    const [validationError, setValidationError] = useState<string>();
-    const submitLock = useRef(false);
-
-    useEffect(() => {
-        if (!busy) {
-            submitLock.current = false;
-        }
-    }, [busy]);
+    const submitGate = useSubmitGate(busy, true);
 
     const handleSubmit = useCallback((value: string) => {
-        if (busy || submitLock.current) {
-            return;
-        }
-
-        if (value.trim().length === 0) {
-            setValidationError("Message must not be empty");
-            return;
-        }
-
-        submitLock.current = true;
-        setValidationError(undefined);
-        void onSubmit(value);
-    }, [busy, onSubmit]);
+        submitGate.attempt(() => {
+            void onSubmit(value);
+        }, {
+            value,
+            emptyMessage: "Message must not be empty",
+        });
+    }, [onSubmit, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold>Agent is blocked</Text>
             <Text>{reason ?? "The agent is waiting for your input."}</Text>
-            {validationError === undefined ? null : <Text color="red">Error: {validationError}</Text>}
+            {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
             <TextInput
                 isDisabled={busy}
                 placeholder="Type a message to continue..."
@@ -239,53 +227,39 @@ function ActionPanel({
     onReject,
 }: ActionPanelProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
-    const [validationError, setValidationError] = useState<string>();
-    const approveLock = useRef(false);
-    const rejectLock = useRef(false);
     const actionId = pendingAction?.action.actionId;
+    const resetKey = useMemo(
+        () => [actionId, recovery],
+        [actionId, recovery],
+    );
+    const submitGate = useSubmitGate(busy, resetKey);
 
     useEffect(() => {
         setFeedbackMode(false);
-        setValidationError(undefined);
-        approveLock.current = false;
-        rejectLock.current = false;
-    }, [actionId, recovery]);
-
-    useEffect(() => {
-        if (!busy) {
-            approveLock.current = false;
-            rejectLock.current = false;
-        }
-    }, [busy]);
+    }, [resetKey]);
 
     const handleApprove = useCallback(() => {
-        if (busy || approveLock.current || actionId === undefined) {
+        if (actionId === undefined) {
             return;
         }
 
-        approveLock.current = true;
-        setValidationError(undefined);
-        void onApprove(actionId);
-    }, [actionId, busy, onApprove]);
+        submitGate.attempt(() => {
+            void onApprove(actionId);
+        });
+    }, [actionId, onApprove, submitGate]);
 
     const handleReject = useCallback((reason: string) => {
-        if (
-            busy
-            || rejectLock.current
-            || actionId === undefined
-        ) {
+        if (actionId === undefined) {
             return;
         }
 
-        if (reason.trim().length === 0) {
-            setValidationError("Rejection reason must not be empty");
-            return;
-        }
-
-        rejectLock.current = true;
-        setValidationError(undefined);
-        void onReject(actionId, reason);
-    }, [actionId, busy, onReject]);
+        submitGate.attempt(() => {
+            void onReject(actionId, reason);
+        }, {
+            value: reason,
+            emptyMessage: "Rejection reason must not be empty",
+        });
+    }, [actionId, onReject, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -300,7 +274,7 @@ function ActionPanel({
             {pendingAction === undefined
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
-            {validationError === undefined ? null : <Text color="red">Error: {validationError}</Text>}
+            {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
             {actionId === undefined || busy ? null : feedbackMode ? (
                 <Box flexDirection="column" gap={1}>
                     <Text>Why should this Action be rejected?</Text>
@@ -315,7 +289,7 @@ function ActionPanel({
                         submitOnEnter={false}
                         onConfirm={handleApprove}
                         onCancel={() => {
-                            setValidationError(undefined);
+                            submitGate.clearError();
                             setFeedbackMode(true);
                         }}
                     />
