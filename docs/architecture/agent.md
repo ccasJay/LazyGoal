@@ -15,7 +15,7 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
 
 主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立的模型输入视图 DTO 位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，从 Runtime State 到该视图的逐字段投影位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)，纯 Prompt 请求组装位于 [render.ts](../../packages/agent/src/render.ts)，响应边界位于 [response-schema.ts](../../packages/agent/src/response-schema.ts)。
 
-版本化 Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)：Registry、内存 Loader、封闭 Nunjucks Environment、确定性 Renderer、错误与 DTO，以及默认 Bundle 工厂 [default-bundles.ts](../../packages/agent/src/prompting/default-bundles.ts)。默认 Renderer 当前同时注册 v1 与 v2；v2 已使用独立 Global Overview，但暂时复用 v1 Phase Protocol，新 Goal 的当前冻结版本仍为 v1。业务 Prompt 以版本化 `.njk` 资产就近维护于 [global-system-prompt/](../../packages/agent/src/global-system-prompt/)、[preparation-prompt/](../../packages/agent/src/preparation-prompt/) 与 [step-prompt/](../../packages/agent/src/step-prompt/)。
+版本化 Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)：Registry、内存 Loader、封闭 Nunjucks Environment、确定性 Renderer、错误与 DTO，以及默认 Bundle 工厂 [default-bundles.ts](../../packages/agent/src/prompting/default-bundles.ts)。默认 Renderer 当前同时注册 v1 与 v2；v2 已使用独立 Global Overview 和 gathering_context Protocol，planning/executing 暂时复用 v1 Protocol，新 Goal 的当前冻结版本仍为 v1。业务 Prompt 以版本化 `.njk` 资产就近维护于 [global-system-prompt/](../../packages/agent/src/global-system-prompt/)、[preparation-prompt/](../../packages/agent/src/preparation-prompt/) 与 [step-prompt/](../../packages/agent/src/step-prompt/)。
 
 ## 单轮数据流
 

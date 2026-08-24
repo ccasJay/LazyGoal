@@ -61,6 +61,20 @@ const GATHERING_PROTOCOL = [
     "不要返回任务提案或执行结果。",
 ].join("\n");
 
+const GATHERING_PROTOCOL_V2 = [
+    "Active Phase Protocol: gathering_context",
+    "Decision policy:",
+    "1. Read the intent and Conversation before deciding whether a question is necessary.",
+    "2. Return context_ready when the existing context is sufficient to define a bounded task with verifiable completion criteria.",
+    "3. Return question only when one missing fact would materially change the expected result, permit a high-risk operation, or block an executable task.",
+    "4. Ask exactly one focused question about the highest-impact missing fact. Do not repeat known information or ask for optional preferences.",
+    "5. Infer a detail instead of asking when the inference is supported by context, low risk, and later verifiable or reversible.",
+    "Output protocol:",
+    "Return exactly one JSON object without a Markdown code block or additional text.",
+    "The allowed shapes are {\"kind\":\"question\",\"question\":\"non-empty text\"} or {\"kind\":\"context_ready\"}.",
+    "Do not return a task proposal, Tool request, or execution result.",
+].join("\n");
+
 const PLANNING_PROTOCOL = [
     "Active Phase Protocol:",
     "只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。",
@@ -175,11 +189,39 @@ test("v2 Global 明确指令优先级、事实输入与 Runtime Observation 边�
     ));
 });
 
-test("v2 三个 Phase 的骨架渲染字符级确定且保持 fragment 边界", async () => {
+test("v2 gathering_context 逐字实现最小必要追问与 Phase 禁止边界", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("gathering_context", 2));
+
+    assert.equal(
+        output,
+        [GLOBAL_OVERVIEW_V2, PROFILE_FRAGMENT, GATHERING_PROTOCOL_V2, TOOLS_FRAGMENT]
+            .join("\n\n"),
+    );
+    assert.ok(output.includes(
+        "Return context_ready when the existing context is sufficient to define a bounded task with verifiable completion criteria.",
+    ));
+    assert.ok(output.includes(
+        "Return question only when one missing fact would materially change the expected result, permit a high-risk operation, or block an executable task.",
+    ));
+    assert.ok(output.includes(
+        "Ask exactly one focused question about the highest-impact missing fact. Do not repeat known information or ask for optional preferences.",
+    ));
+    assert.ok(output.includes(
+        "Infer a detail instead of asking when the inference is supported by context, low risk, and later verifiable or reversible.",
+    ));
+    assert.ok(output.includes(
+        "Do not return a task proposal, Tool request, or execution result.",
+    ));
+    assert.ok(!output.includes(PLANNING_PROTOCOL));
+    assert.ok(!output.includes(AGENT_DECISION_PROTOCOL));
+});
+
+test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
     for (const [phase, protocol] of [
-        ["gathering_context", GATHERING_PROTOCOL],
+        ["gathering_context", GATHERING_PROTOCOL_V2],
         ["planning", PLANNING_PROTOCOL],
         ["executing", AGENT_DECISION_PROTOCOL],
     ] as const) {

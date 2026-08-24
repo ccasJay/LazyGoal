@@ -6,7 +6,8 @@ import {
     GLOBAL_OVERVIEW_TEMPLATE_V2,
 } from "../global-system-prompt/template";
 import {
-    GATHERING_CONTEXT_TEMPLATE,
+    GATHERING_CONTEXT_TEMPLATE_V1,
+    GATHERING_CONTEXT_TEMPLATE_V2,
     PLANNING_TEMPLATE,
 } from "../preparation-prompt/template";
 import { AGENT_DECISION_TEMPLATE } from "../step-prompt/template";
@@ -56,7 +57,8 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     GLOBAL_OVERVIEW_TEMPLATE_V2,
     PROFILE_TEMPLATE,
-    GATHERING_CONTEXT_TEMPLATE,
+    GATHERING_CONTEXT_TEMPLATE_V1,
+    GATHERING_CONTEXT_TEMPLATE_V2,
     PLANNING_TEMPLATE,
     AGENT_DECISION_TEMPLATE,
     AUTHORIZED_TOOLS_TEMPLATE,
@@ -77,7 +79,7 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                gathering_context: GATHERING_CONTEXT_TEMPLATE.id,
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V1.id,
                 planning: PLANNING_TEMPLATE.id,
                 executing: AGENT_DECISION_TEMPLATE.id,
             },
@@ -90,9 +92,10 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
  * v2 Prompt Bundle 的增量 Manifest。
  *
  * @remarks
- * 当前骨架只替换 Global Overview，并复用不可变的 v1 Phase Protocol、Profile 与
- * Authorized Tools 模板。后续 Phase 模板可以在不改动 v1 Manifest 的前提下逐项
- * 接入。本常量不改变新 Goal 当前冻结的默认版本。
+ * 当前已替换 Global Overview 与 gathering_context Protocol，并复用不可变的 v1
+ * planning/executing Protocol、Profile 与 Authorized Tools 模板。后续 Phase 模板
+ * 可以在不改动 v1 Manifest 的前提下逐项接入。本常量不改变新 Goal 当前冻结的
+ * 默认版本。
  */
 export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     version: 2,
@@ -102,7 +105,7 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                gathering_context: GATHERING_CONTEXT_TEMPLATE.id,
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V2.id,
                 planning: PLANNING_TEMPLATE.id,
                 executing: AGENT_DECISION_TEMPLATE.id,
             },

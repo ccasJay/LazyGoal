@@ -14,7 +14,7 @@
   - 更新 Bundle/Renderer 自动化测试，覆盖版本隔离、指令优先级、事实输入边界、字符级确定性与 supported versions。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 实现最小必要追问的 gathering_context v2 Protocol
+- [x] //TODO 3. 实现最小必要追问的 gathering_context v2 Protocol
 
   - 新增设计稿逐字内容的 `gathering-context@2` 资产并接入 v2 Manifest，保持现有严格 JSON 分支不变。
   - 增加字符级与关键行为命题测试，覆盖充分上下文、重大缺口、安全推断、单一聚焦问题和 Phase 禁止分支。
