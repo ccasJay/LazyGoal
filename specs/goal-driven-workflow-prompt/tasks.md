@@ -7,7 +7,7 @@
   - 增加 Runtime/Agent 单元测试，覆盖授权过滤、复制隔离、v1 空输入、解析失败无 LLM/消息/保存副作用。
   - _Requirements: [1.2](./requirements.md#req-1-2), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 2. 注册兼容 v1 的 v2 Global Prompt Bundle 骨架
+- [x] //TODO 2. 注册兼容 v1 的 v2 Global Prompt Bundle 骨架
 
   - 新增逐字一致的 `global-overview@2` 资产与 v2 Manifest，复用不可变 Profile/Authorized Tools 模板，并让默认 Renderer 同时注册 v1/v2；暂不切换新 Goal 的当前版本。
   - 保持全部 v1 资产与完整渲染字符不变，继续对未知版本在 Adapter 调用前失败且不回退。

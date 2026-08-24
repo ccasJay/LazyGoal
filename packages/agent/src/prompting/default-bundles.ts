@@ -1,7 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
-import { GLOBAL_OVERVIEW_TEMPLATE } from "../global-system-prompt/template";
+import {
+    GLOBAL_OVERVIEW_TEMPLATE_V1,
+    GLOBAL_OVERVIEW_TEMPLATE_V2,
+} from "../global-system-prompt/template";
 import {
     GATHERING_CONTEXT_TEMPLATE,
     PLANNING_TEMPLATE,
@@ -42,7 +45,7 @@ const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
 };
 
 /**
- * 当前 Bundle 使用的全部模板描述符集合。
+ * 默认 Renderer 注册的全部版本化模板描述符集合。
  *
  * @remarks
  * 该集合只保存稳定 ID 与 `.njk` 文件 URL，不复制业务 Prompt 文本；各业务模板
@@ -50,7 +53,8 @@ const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
  * 渲染。
  */
 export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
-    GLOBAL_OVERVIEW_TEMPLATE,
+    GLOBAL_OVERVIEW_TEMPLATE_V1,
+    GLOBAL_OVERVIEW_TEMPLATE_V2,
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE,
     PLANNING_TEMPLATE,
@@ -59,16 +63,16 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
 ];
 
 /**
- * 当前 Prompt Bundle 的显式有序 Manifest。
+ * v1 Prompt Bundle 的显式有序 Manifest。
  *
  * @remarks
  * 固定 slot 顺序为 Global Overview → Profile → Phase Protocol → Authorized Tools；
  * `phase_protocol` 显式给出三个 Phase 到模板 ID 的完整映射。
  */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST: PromptBundleManifest = {
-    version: CURRENT_PROMPT_BUNDLE_VERSION,
+export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
+    version: 1,
     sections: [
-        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE.id },
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V1.id },
         { slot: "profile", templateId: PROFILE_TEMPLATE.id },
         {
             slot: "phase_protocol",
@@ -81,6 +85,34 @@ export const DEFAULT_PROMPT_BUNDLE_MANIFEST: PromptBundleManifest = {
         { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
     ],
 };
+
+/**
+ * v2 Prompt Bundle 的增量 Manifest。
+ *
+ * @remarks
+ * 当前骨架只替换 Global Overview，并复用不可变的 v1 Phase Protocol、Profile 与
+ * Authorized Tools 模板。后续 Phase 模板可以在不改动 v1 Manifest 的前提下逐项
+ * 接入。本常量不改变新 Goal 当前冻结的默认版本。
+ */
+export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
+    version: 2,
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V2.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE.id,
+                planning: PLANNING_TEMPLATE.id,
+                executing: AGENT_DECISION_TEMPLATE.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
+/** 当前新 Goal 使用的 Manifest；v2 完整接入前保持指向 v1。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V1_MANIFEST;
 
 async function loadAsset(
     asset: PromptTemplateAsset,
@@ -114,6 +146,6 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
 
     return createPromptBundleRenderer({
         templates,
-        bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST],
+        bundles: [PROMPT_BUNDLE_V1_MANIFEST, PROMPT_BUNDLE_V2_MANIFEST],
     });
 }

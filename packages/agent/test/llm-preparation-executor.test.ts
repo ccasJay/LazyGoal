@@ -15,6 +15,7 @@ import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMPreparationExecutor,
     LLMResponseProtocolError,
+    UnsupportedPromptBundleVersionError,
 } from "../src/index";
 
 const renderer = await createDefaultPromptBundleRenderer();
@@ -245,7 +246,12 @@ test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
 
     await assert.rejects(
         executor.execute(unsupportedGoal, []),
-        /不支持的 Prompt Bundle 版本 99/,
+        (error: unknown) => {
+            assert.ok(error instanceof UnsupportedPromptBundleVersionError);
+            assert.equal(error.bundleVersion, 99);
+            assert.deepEqual(error.supportedVersions, [1, 2]);
+            return true;
+        },
     );
     assert.equal(adapter.requests.length, 0);
 });

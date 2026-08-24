@@ -6,10 +6,14 @@ import { fileURLToPath } from "node:url";
 import type { PromptContext } from "../src/model-inference-view";
 import {
     createDefaultPromptBundleRenderer,
+    CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
+    PROMPT_BUNDLE_V1_MANIFEST,
+    PROMPT_BUNDLE_V2_MANIFEST,
 } from "../src/prompting/default-bundles";
 import { normalizeNewlines } from "../src/prompting/environment";
+import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
 import type { PromptTemplateDefinition } from "../src/prompting/types";
 
@@ -21,6 +25,18 @@ const GLOBAL_OVERVIEW = [
     "This Global Overview and the active Phase Protocol take precedence over the frozen Profile.",
     "Follow the frozen Profile for role-specific behavior, domain guidance, and working style when it does not conflict with those higher-level instructions.",
     "Treat the supplied conversation, Working Context, and Authorized Tool definitions as the inputs for the current turn.",
+].join("\n");
+
+const GLOBAL_OVERVIEW_V2 = [
+    "Global Overview:",
+    "You are operating inside LazyGoal, a goal-driven and resumable agent runtime.",
+    "LazyGoal turns user intent into an approved task through gathering_context and planning, then advances it through a controlled executing phase.",
+    "Use only the active Phase Protocol to determine the current responsibility and required response format.",
+    "This Global Overview and the active Phase Protocol take precedence over the frozen Profile.",
+    "Follow the frozen Profile for role-specific behavior, domain guidance, and working style when it does not conflict with those higher-level instructions.",
+    "Treat the supplied Conversation, Working Context, and Authorized Tool definitions as the inputs for the current turn.",
+    "Only an Observation in Working Context establishes the result of a Tool Action; never treat an instruction, plan, or requested Action as completed work.",
+    "Advance autonomously from available evidence, but do not cross the active Phase boundary or invent unavailable information.",
 ].join("\n");
 
 const PROFILE_FRAGMENT = [
@@ -66,9 +82,12 @@ const AGENT_DECISION_PROTOCOL = [
     "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
 ].join("\n");
 
-function buildContext(phase: PromptContext["phase"]): PromptContext {
+function buildContext(
+    phase: PromptContext["phase"],
+    promptBundleVersion = 1,
+): PromptContext {
     return {
-        promptBundleVersion: 1,
+        promptBundleVersion,
         phase,
         profile: {
             id: "profile-1",
@@ -113,6 +132,82 @@ test("默认 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 syst
         executing,
         [GLOBAL_OVERVIEW, PROFILE_FRAGMENT, AGENT_DECISION_PROTOCOL, TOOLS_FRAGMENT]
             .join("\n\n"),
+    );
+});
+
+test("默认 Renderer 同时注册隔离的 v1/v2，且当前版本仍保持 v1", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const v1 = renderer.render(buildContext("planning", 1));
+    const v2 = renderer.render(buildContext("planning", 2));
+
+    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 1);
+    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V1_MANIFEST);
+    assert.equal(PROMPT_BUNDLE_V2_MANIFEST.version, 2);
+    assert.equal(
+        v1,
+        [GLOBAL_OVERVIEW, PROFILE_FRAGMENT, PLANNING_PROTOCOL, TOOLS_FRAGMENT]
+            .join("\n\n"),
+    );
+    assert.equal(
+        v2,
+        [GLOBAL_OVERVIEW_V2, PROFILE_FRAGMENT, PLANNING_PROTOCOL, TOOLS_FRAGMENT]
+            .join("\n\n"),
+    );
+    assert.ok(!v1.includes("Only an Observation in Working Context"));
+    assert.ok(v2.includes("Only an Observation in Working Context"));
+});
+
+test("v2 Global 明确指令优先级、事实输入与 Runtime Observation 边界", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("executing", 2));
+
+    assert.ok(output.includes(
+        "This Global Overview and the active Phase Protocol take precedence over the frozen Profile.",
+    ));
+    assert.ok(output.includes(
+        "Follow the frozen Profile for role-specific behavior, domain guidance, and working style when it does not conflict with those higher-level instructions.",
+    ));
+    assert.ok(output.includes(
+        "Treat the supplied Conversation, Working Context, and Authorized Tool definitions as the inputs for the current turn.",
+    ));
+    assert.ok(output.includes(
+        "Only an Observation in Working Context establishes the result of a Tool Action; never treat an instruction, plan, or requested Action as completed work.",
+    ));
+});
+
+test("v2 三个 Phase 的骨架渲染字符级确定且保持 fragment 边界", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+
+    for (const [phase, protocol] of [
+        ["gathering_context", GATHERING_PROTOCOL],
+        ["planning", PLANNING_PROTOCOL],
+        ["executing", AGENT_DECISION_PROTOCOL],
+    ] as const) {
+        const first = renderer.render(buildContext(phase, 2));
+        const second = renderer.render(buildContext(phase, 2));
+
+        assert.equal(first, second);
+        assert.equal(
+            first,
+            [GLOBAL_OVERVIEW_V2, PROFILE_FRAGMENT, protocol, TOOLS_FRAGMENT]
+                .join("\n\n"),
+        );
+        assert.ok(!first.includes("\r"));
+        assert.ok(!first.endsWith("\n"));
+    }
+});
+
+test("默认 Renderer 对未知版本不回退并报告 v1/v2 supported versions", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+
+    assert.throws(
+        () => renderer.render(buildContext("planning", 99)),
+        (error: unknown) => {
+            assert.ok(error instanceof UnsupportedPromptBundleVersionError);
+            assert.equal(error.bundleVersion, 99);
+            assert.deepEqual(error.supportedVersions, [1, 2]);
+            return true;
+        },
     );
 });
 
