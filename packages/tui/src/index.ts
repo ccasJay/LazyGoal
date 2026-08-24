@@ -20,7 +20,6 @@ export type {
     SessionLauncher,
     UiCommand,
     UiError,
-    UiFatalViewModel,
     UiGoalSelectViewModel,
     UiIntentInputViewModel,
     UiScreen,

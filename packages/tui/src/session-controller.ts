@@ -156,9 +156,8 @@ export class SessionController {
             case "create":
                 await this.createGoal(command.intent);
                 return;
-            case "openGoalSelect":
             case "resume":
-                await this.openGoalSelect();
+                await this.showGoalSelect();
                 return;
             case "continueLatest":
                 await this.continueLatest();
@@ -245,55 +244,30 @@ export class SessionController {
     }
 
     private async continueLatest(): Promise<void> {
-        if (this.snapshot.screen === "session") {
-            this.setError({
-                code: "SESSION_ACTIVE",
-                message: "A Goal session is already active",
-            });
-            return;
-        }
-
-        let goals: readonly GoalCatalogEntry[];
-        try {
-            goals = await this.dependencies.catalog.listResumable();
-        } catch (error: unknown) {
-            this.setGoalSelectError(toUiError(error));
-            return;
-        }
-        const entries = goals.map((entry) => ({ ...entry }));
-        this.setSnapshot({
-            screen: "goal_select",
-            busy: true,
-            goals: entries,
-        });
-
-        if (entries.length === 0) {
-            this.setError({
-                code: "NO_RESUMABLE_GOAL",
-                message: "No resumable Goal was found",
-            });
+        const entries = await this.listResumableIntoGoalSelect();
+        if (entries === undefined) {
             return;
         }
 
         const latest = entries[0];
         if (latest === undefined) {
-            this.setError({
-                code: "NO_RESUMABLE_GOAL",
-                message: "No resumable Goal was found",
-            });
             return;
         }
 
         await this.restoreAndAdvance(latest.goalId, entries);
     }
 
-    private async openGoalSelect(): Promise<void> {
+    private async showGoalSelect(): Promise<void> {
+        await this.listResumableIntoGoalSelect();
+    }
+
+    private async listResumableIntoGoalSelect(): Promise<GoalCatalogEntry[] | undefined> {
         if (this.snapshot.screen === "session") {
             this.setError({
                 code: "SESSION_ACTIVE",
                 message: "A Goal session is already active",
             });
-            return;
+            return undefined;
         }
 
         let goals: readonly GoalCatalogEntry[];
@@ -301,7 +275,7 @@ export class SessionController {
             goals = await this.dependencies.catalog.listResumable();
         } catch (error: unknown) {
             this.setGoalSelectError(toUiError(error));
-            return;
+            return undefined;
         }
 
         const entries = goals.map((entry) => ({ ...entry }));
@@ -316,7 +290,10 @@ export class SessionController {
                 code: "NO_RESUMABLE_GOAL",
                 message: "No resumable Goal was found",
             });
+            return undefined;
         }
+
+        return entries;
     }
 
     private async selectGoal(goalId: string): Promise<void> {
@@ -450,7 +427,7 @@ export class SessionController {
             phase: snapshot.state.workflow.phase,
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
-            messages: structuredClone(snapshot.state.messages),
+            messages: snapshot.state.messages,
             ...(snapshot.state.run.checkpoint === undefined
                 ? {}
                 : { checkpoint: snapshot.state.run.checkpoint }),
@@ -460,7 +437,7 @@ export class SessionController {
             ...(blockedReason === undefined ? {} : { blockedReason }),
             ...(snapshot.state.run.pendingAction === undefined
                 ? {}
-                : { pendingAction: structuredClone(snapshot.state.run.pendingAction) }),
+                : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
         };
     }
@@ -500,9 +477,6 @@ export class SessionController {
                     this.setSnapshot({ ...current, busy });
                 }
                 return;
-            case "fatal":
-                this.setSnapshot({ ...current, busy });
-                return;
         }
     }
 
@@ -514,7 +488,7 @@ export class SessionController {
         this.setSnapshot({
             screen: "goal_select",
             busy: false,
-            goals: structuredClone(goals),
+            goals,
             error,
         });
     }
@@ -536,9 +510,6 @@ export class SessionController {
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
             case "shutting_down":
-                this.setSnapshot({ ...this.snapshot, busy: false, error });
-                return;
-            case "fatal":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
         }
@@ -664,7 +635,7 @@ function deriveProposal(goal: Goal): GoalTask | undefined {
     const workflow = goal.state.workflow;
     return workflow.phase === "planning"
         && workflow.preparation.status === "waiting_approval"
-        ? structuredClone(workflow.preparation.proposal)
+        ? workflow.preparation.proposal
         : undefined;
 }
 

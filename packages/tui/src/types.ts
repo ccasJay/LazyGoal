@@ -26,8 +26,7 @@ export type UiScreen =
     | "intent_input"
     | "goal_select"
     | "session"
-    | "shutting_down"
-    | "fatal";
+    | "shutting_down";
 
 /**
  * 可展示给用户并可由 UI 稳定判断的错误。
@@ -58,8 +57,6 @@ export interface UiError {
  */
 export type UiCommand =
     | { readonly kind: "create"; readonly intent: string }
-    /** 打开可恢复 Goal 选择页面；`resume` 是面向 CLI 的同义入口。 */
-    | { readonly kind: "openGoalSelect" }
     | { readonly kind: "resume" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "selectGoal"; readonly goalId: string }
@@ -173,31 +170,12 @@ export interface UiShuttingDownViewModel {
     readonly error?: UiError;
 }
 
-/**
- * 不可恢复错误页面的不可变投影。
- *
- * @example
- * ```ts
- * const view: UiFatalViewModel = {
- *   screen: "fatal",
- *   busy: false,
- *   error: { code: "CONFIG_ERROR", message: "Configuration is invalid" },
- * };
- * ```
- */
-export interface UiFatalViewModel {
-    readonly screen: "fatal";
-    readonly busy: boolean;
-    readonly error: UiError;
-}
-
 /** React 外部 Store 所需的统一快照类型。 */
 export type UiViewModel =
     | UiIntentInputViewModel
     | UiGoalSelectViewModel
     | UiSessionViewModel
-    | UiShuttingDownViewModel
-    | UiFatalViewModel;
+    | UiShuttingDownViewModel;
 
 /** SessionController 快照订阅回调。 */
 export type UiSubscriber = () => void;

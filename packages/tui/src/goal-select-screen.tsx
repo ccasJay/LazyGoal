@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Box, Text } from "ink";
 import { Select, Spinner } from "@inkjs/ui";
 
 import type { GoalCatalogEntry } from "../../runtime/src/index";
 import type { UiError } from "./types";
+import { useSubmitGate } from "./use-submit-gate";
 
 /**
  * GoalSelectScreen 的渲染与恢复命令回调边界。
@@ -45,19 +46,7 @@ export function GoalSelectScreen({
     error,
     onSelect,
 }: GoalSelectScreenProps): React.JSX.Element {
-    const [selectionError, setSelectionError] = useState<string>();
-    const selectLock = useRef(false);
-
-    useEffect(() => {
-        selectLock.current = false;
-        setSelectionError(undefined);
-    }, [goals]);
-
-    useEffect(() => {
-        if (!busy) {
-            selectLock.current = false;
-        }
-    }, [busy]);
+    const selectGate = useSubmitGate(busy, goals);
 
     const options = useMemo(
         () => goals.map((entry) => ({
@@ -68,21 +57,15 @@ export function GoalSelectScreen({
     );
 
     const handleSelect = useCallback((goalId: string) => {
-        if (busy || selectLock.current) {
-            return;
-        }
+        selectGate.attempt(() => {
+            void onSelect(goalId);
+        }, {
+            value: goalId,
+            emptyMessage: "Goal ID must not be empty",
+        });
+    }, [onSelect, selectGate]);
 
-        if (goalId.trim().length === 0) {
-            setSelectionError("Goal ID must not be empty");
-            return;
-        }
-
-        selectLock.current = true;
-        setSelectionError(undefined);
-        void onSelect(goalId);
-    }, [busy, onSelect]);
-
-    const visibleError = selectionError ?? error?.message;
+    const visibleError = selectGate.validationError ?? error?.message;
 
     return (
         <Box flexDirection="column" gap={1}>
