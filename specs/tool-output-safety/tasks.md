@@ -12,7 +12,7 @@
   - 保持 `BashTool` 的 `manual` replay policy、输入校验、cwd 和现有公共导出，不新增错误码或公共接口。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [4.6](./requirements.md#req-4-6)_
 
-- [ ] //TODO 3. 增加 Bash 超大输出与生命周期回归测试
+- [x] //TODO 3. 增加 Bash 超大输出与生命周期回归测试
 
   - 扩展 `packages/tools/test/bash.test.ts`，覆盖单行超过 1 MB、stdout/stderr 同时超量、超量后完成标记、UTF-8 截断、正常退出、非零退出、超时、中止和 shell 启动失败。
   - 断言输出仅保留尾部、命令不会因输出预算提前终止，且既有错误文案与 replay 行为不变。

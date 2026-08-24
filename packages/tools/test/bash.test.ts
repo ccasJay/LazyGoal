@@ -249,3 +249,125 @@ test("BashTool 中止运行中的命令并传播 ExecutionAbortedError", async (
         await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
+
+test("BashTool 完成单行超过 1 MB 的输出而不触发 maxBuffer 异常", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-huge-line",
+            input: { command: "head -c 2000000 /dev/zero | tr '\\000' 'a'" },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string; stderr: string };
+            assert.match(output.stdout, /^\[\.\.\.已省略前 1990000 字符\.\.\.\]/);
+            assert.equal(
+                output.stdout.length,
+                "[...已省略前 1990000 字符...]".length + 1 + BASH_MAX_OUTPUT_CHARS,
+            );
+            assert.equal(
+                output.stdout.slice(-BASH_MAX_OUTPUT_CHARS),
+                "a".repeat(BASH_MAX_OUTPUT_CHARS),
+            );
+            assert.equal(output.stderr, "");
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 同时有界收集超量的 stdout 与 stderr", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-both-streams",
+            input: {
+                command: "printf 'a%.0s' {1..20000}; printf 'b%.0s' {1..20000} >&2",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string; stderr: string };
+            assert.match(output.stdout, /^\[\.\.\.已省略前 10000 字符\.\.\.\]/);
+            assert.equal(
+                output.stdout.slice(-BASH_MAX_OUTPUT_CHARS),
+                "a".repeat(BASH_MAX_OUTPUT_CHARS),
+            );
+            assert.match(output.stderr, /^\[\.\.\.已省略前 10000 字符\.\.\.\]/);
+            assert.equal(
+                output.stderr.slice(-BASH_MAX_OUTPUT_CHARS),
+                "b".repeat(BASH_MAX_OUTPUT_CHARS),
+            );
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 达到输出预算后继续运行直到命令退出", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-run-to-completion",
+            input: {
+                command: "printf 'a%.0s' {1..20000}; echo TAIL_MARKER",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.match(output.stdout, /^\[\.\.\.已省略前 10012 字符\.\.\.\]/);
+            assert.ok(output.stdout.endsWith("TAIL_MARKER\n"));
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 截断多字节 UTF-8 输出时不产生损坏字符", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-utf8-truncate",
+            input: {
+                command: "printf 'a\\xf0\\x9f\\x98\\x80'; printf 'b%.0s' {1..9999}",
+            },
+        });
+
+        assert.equal(result.kind, "success");
+        if (result.kind === "success") {
+            const output = result.output as { stdout: string };
+            assert.equal(
+                output.stdout,
+                `[...已省略前 3 字符...]\n${"b".repeat(9999)}`,
+            );
+            assert.equal(
+                Buffer.from(output.stdout, "utf8").toString("utf8"),
+                output.stdout,
+            );
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 在 workspaceRoot 无法解析时传播基础设施异常", async () => {
+    const missingRoot = join(
+        tmpdir(),
+        `lazygoal-bash-missing-${process.pid}`,
+    );
+
+    await assert.rejects(() =>
+        new BashTool(missingRoot).execute({
+            actionId: "action-missing-root",
+            input: { command: "echo hello" },
+        })
+    );
+});
