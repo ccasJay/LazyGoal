@@ -170,6 +170,7 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
     await assert.rejects(
         () => executor.execute(
             createPreparationGoal(),
+            [],
             { signal: controller.signal },
         ),
         (error: unknown) => error instanceof ExecutionAbortedError,
@@ -194,6 +195,7 @@ test("LLMPreparationExecutor awaits Compactor and passes the same signal", async
     });
     const operation = executor.execute(
         createPreparationGoal(),
+        [],
         { signal: controller.signal },
     );
 

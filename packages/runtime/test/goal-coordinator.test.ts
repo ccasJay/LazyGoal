@@ -24,6 +24,7 @@ import type {
     RunState,
     StepExecutor,
     Tool,
+    ToolDefinition,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -33,21 +34,37 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
+function createTool(definition: ToolDefinition): Tool {
+    return {
+        definition,
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute() {
+            return { kind: "success", output: null, summary: "完成" };
+        },
+    };
+}
+
 type PreparationAction =
     | PreparationResult
     | ((goal: Goal) => PreparationResult | Promise<PreparationResult>);
 
 class FakePreparationExecutor implements PreparationExecutor {
     readonly receivedGoals: Goal[] = [];
+    readonly receivedTools: ToolDefinition[][] = [];
 
     constructor(
         private readonly actions: readonly PreparationAction[],
         private readonly events: string[] = [],
     ) {}
 
-    async execute(goal: Goal): Promise<PreparationResult> {
+    async execute(
+        goal: Goal,
+        tools: readonly ToolDefinition[],
+    ): Promise<PreparationResult> {
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
+        this.receivedTools.push(structuredClone([...tools]));
         this.events.push(`execute:${goal.state.workflow.phase}`);
 
         if (action === undefined) {
@@ -443,6 +460,109 @@ test("saves planning before the next model call and persists the complete propos
     });
     assert.deepEqual(result.goal.state.run, initial.state.run);
     assert.deepEqual(store.savedGoals.at(-1), result.goal);
+    assert.deepEqual(executor.receivedTools, [[], []]);
+});
+
+test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 副本", async () => {
+    const initial = createGoal({
+        promptBundleVersion: 2,
+        id: "goal-planning-tools",
+        intent: "规划可验证任务",
+        profile: {
+            ...profile,
+            toolIds: ["write_file", "missing", "read_file"],
+        },
+        runId: "run-planning-tools",
+    });
+    const planning: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            workflow: {
+                phase: "planning",
+                preparation: { status: "active" },
+            },
+        },
+    };
+    const store = new RecordingGoalStore();
+    await store.seed(planning);
+    const readDefinition: ToolDefinition = {
+        id: "read_file",
+        description: "读取文件",
+        inputSchema: { type: "object", properties: { path: { type: "string" } } },
+    };
+    const writeDefinition: ToolDefinition = {
+        id: "write_file",
+        description: "写入文件",
+        inputSchema: { type: "object" },
+    };
+    const tools = new Map<string, Tool>([
+        ["read_file", createTool(readDefinition)],
+        ["write_file", createTool(writeDefinition)],
+        ["not_authorized", createTool({
+            id: "not_authorized",
+            description: "未授权",
+            inputSchema: { type: "object" },
+        })],
+    ]);
+    const executor = new FakePreparationExecutor([{
+        kind: "task_proposal",
+        task: { objective: "完成规划", completionCriteria: ["有可验证证据"] },
+        approvalRequest: "Approve?",
+    }]);
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+        toolRegistry: { get: (toolId) => tools.get(toolId) },
+    });
+
+    await coordinator.advance({ goalId: planning.id, runId: planning.state.run.id });
+
+    assert.deepEqual(executor.receivedTools, [[writeDefinition, readDefinition]]);
+    assert.notStrictEqual(executor.receivedTools[0]?.[0], writeDefinition);
+    assert.notStrictEqual(
+        executor.receivedTools[0]?.[0]?.inputSchema,
+        writeDefinition.inputSchema,
+    );
+});
+
+test("planning ToolDefinition 解析失败时不调用 Executor、不追加消息或保存", async () => {
+    const initial = createGoal({
+        promptBundleVersion: 2,
+        id: "goal-planning-registry-error",
+        intent: "规划失败边界",
+        profile: { ...profile, toolIds: ["read_file"] },
+        runId: "run-planning-registry-error",
+    });
+    const planning: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            workflow: {
+                phase: "planning",
+                preparation: { status: "active" },
+            },
+        },
+    };
+    const store = new RecordingGoalStore();
+    await store.seed(planning);
+    const executor = new FakePreparationExecutor([]);
+    const registryError = new Error("registry unavailable");
+    const coordinator = new GoalCoordinator({
+        store,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+        toolRegistry: { get: () => { throw registryError; } },
+    });
+
+    await assert.rejects(
+        coordinator.advance({ goalId: planning.id, runId: planning.state.run.id }),
+        (error: unknown) => error === registryError,
+    );
+    assert.deepEqual(executor.receivedGoals, []);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual((await store.restore(planning.id))?.state.messages, planning.state.messages);
 });
 
 test("stops before the planning call when saving the phase transition fails", async () => {

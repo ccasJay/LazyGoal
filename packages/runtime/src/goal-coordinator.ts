@@ -11,6 +11,11 @@ import type {
 } from "./preparation-executor";
 import type { RunScheduler } from "./scheduler";
 import {
+    InMemoryToolRegistry,
+    resolveAuthorizedToolDefinitions,
+    type ToolRegistry,
+} from "./tool";
+import {
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
@@ -124,6 +129,11 @@ export interface GoalCoordinatorDependencies {
     readonly preparationExecutor: PreparationExecutor;
     /** 运行 executing Goal，直到 blocked 或终态。 */
     readonly scheduler: RunScheduler;
+    /**
+     * 解析 planning 可见 ToolDefinition 的 Registry；省略时按空 Registry
+     * 处理，因此不会向 Preparation Executor 提供任何 Tool。
+     */
+    readonly toolRegistry?: ToolRegistry;
 }
 
 /**
@@ -147,12 +157,14 @@ export class GoalCoordinator {
     private readonly store: GoalStore;
     private readonly preparationExecutor: PreparationExecutor;
     private readonly scheduler: RunScheduler;
+    private readonly toolRegistry: ToolRegistry;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
         this.store = dependencies.store;
         this.preparationExecutor = dependencies.preparationExecutor;
         this.scheduler = dependencies.scheduler;
+        this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
     }
 
     /**
@@ -191,7 +203,7 @@ export class GoalCoordinator {
                 }
 
                 throwIfAborted(control);
-                const result = await this.preparationExecutor.execute(goal, control);
+                const result = await this.preparationExecutor.execute(goal, [], control);
                 throwIfAborted(control);
 
                 if (result.kind === "question") {
@@ -228,7 +240,9 @@ export class GoalCoordinator {
             }
 
             throwIfAborted(control);
-            const result = await this.preparationExecutor.execute(goal, control);
+            const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
+            throwIfAborted(control);
+            const result = await this.preparationExecutor.execute(goal, tools, control);
             throwIfAborted(control);
 
             if (result.kind !== "task_proposal") {

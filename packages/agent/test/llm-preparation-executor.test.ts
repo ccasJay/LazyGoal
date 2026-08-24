@@ -6,6 +6,7 @@ import type { LLMRequest } from "../../llm/src/core/types";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "../src/context-compactor";
 import type { ModelConversationMessage } from "../src/model-inference-view";
 import {
@@ -106,7 +107,7 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
     }));
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
-    const result = await executor.execute(goal);
+    const result = await executor.execute(goal, []);
 
     assert.deepEqual(result, {
         kind: "question",
@@ -137,7 +138,12 @@ test("planning 只解析 task_proposal 协议", async () => {
     }));
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
-    const result = await executor.execute(goal);
+    const tool: ToolDefinition = {
+        id: "read_file",
+        description: "v1 不应看见",
+        inputSchema: { type: "object" },
+    };
+    const result = await executor.execute(goal, [tool]);
 
     assert.deepEqual(result, {
         kind: "task_proposal",
@@ -168,7 +174,7 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal("planning")),
+        executor.execute(createPreparationGoal("planning"), []),
         (error: unknown) => {
             assert.ok(error instanceof LLMResponseProtocolError);
             assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
@@ -185,7 +191,7 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal()),
+        executor.execute(createPreparationGoal(), []),
         (error: unknown) => error === adapterError,
     );
     assert.equal(adapter.requests.length, 1);
@@ -199,7 +205,7 @@ test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
         toolIds: ["filesystem"],
     });
 
-    assert.deepEqual(await executor.execute(goal), { kind: "context_ready" });
+    assert.deepEqual(await executor.execute(goal, []), { kind: "context_ready" });
     assert.equal(adapter.requests.length, 1);
 });
 
@@ -219,7 +225,7 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
-        executor.execute(waiting),
+        executor.execute(waiting, []),
         /active preparation Goal/,
     );
     assert.equal(adapter.requests.length, 0);
@@ -238,7 +244,7 @@ test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
     const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
 
     await assert.rejects(
-        executor.execute(unsupportedGoal),
+        executor.execute(unsupportedGoal, []),
         /不支持的 Prompt Bundle 版本 99/,
     );
     assert.equal(adapter.requests.length, 0);
@@ -259,7 +265,7 @@ test("Compactor 错误原样传播且不会调用业务 Adapter", async () => {
     });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal()),
+        executor.execute(createPreparationGoal(), []),
         (error: unknown) => error === failure,
     );
     assert.equal(adapter.requests.length, 0);

@@ -11,6 +11,8 @@ import type {
 } from "../../runtime/src/domain";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import type { PromptContext } from "../src/model-inference-view";
+import type { PromptBundleRenderer } from "../src/prompting/types";
 import {
     buildPreparationRequest,
     buildStepRequest,
@@ -181,6 +183,7 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
         ]);
         const request = await buildPreparationRequest(
             goal,
+            [],
             renderer,
             contextCompactor,
         );
@@ -200,6 +203,63 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
             { phase, intent },
         );
     }
+});
+
+test("Preparation 仅在 v2 planning 投影调用方提供的 ToolDefinition", async () => {
+    const inputSchema = {
+        type: "object",
+        properties: { path: { type: "string" } },
+    };
+    const tools: readonly ToolDefinition[] = [{
+        id: "read_file",
+        description: "读取文件",
+        inputSchema,
+    }];
+    const contexts: PromptContext[] = [];
+    const capturingRenderer: PromptBundleRenderer = {
+        render(context) {
+            contexts.push(context);
+            return "captured";
+        },
+    };
+    const v1Planning = createPreparationGoal("planning");
+    const v2Planning: Goal = {
+        ...v1Planning,
+        definition: { ...v1Planning.definition, promptBundleVersion: 2 },
+    };
+    const v2Gathering: Goal = {
+        ...createPreparationGoal("gathering_context"),
+        definition: {
+            ...createPreparationGoal("gathering_context").definition,
+            promptBundleVersion: 2,
+        },
+    };
+
+    await buildPreparationRequest(
+        v1Planning,
+        tools,
+        capturingRenderer,
+        contextCompactor,
+    );
+    await buildPreparationRequest(
+        v2Gathering,
+        tools,
+        capturingRenderer,
+        contextCompactor,
+    );
+    await buildPreparationRequest(
+        v2Planning,
+        tools,
+        capturingRenderer,
+        contextCompactor,
+    );
+
+    assert.deepEqual(contexts[0]?.authorizedTools, []);
+    assert.deepEqual(contexts[1]?.authorizedTools, []);
+    assert.deepEqual(contexts[2]?.authorizedTools, tools);
+    assert.notStrictEqual(contexts[2]?.authorizedTools[0], tools[0]);
+    assert.notStrictEqual(contexts[2]?.authorizedTools[0]?.inputSchema, inputSchema);
+    assert.equal(Object.isFrozen(contexts[2]?.authorizedTools[0]?.inputSchema), true);
 });
 
 test("三个 phase 使用同一完整单元规则且只替换 Conversation", async () => {
@@ -241,10 +301,10 @@ test("三个 phase 使用同一完整单元规则且只替换 Conversation", asy
     for (const goal of cases) {
         const compacted = goal.state.workflow.phase === "executing"
             ? await buildStepRequest(goal, [], renderer, compacting)
-            : await buildPreparationRequest(goal, renderer, compacting);
+            : await buildPreparationRequest(goal, [], renderer, compacting);
         const full = goal.state.workflow.phase === "executing"
             ? await buildStepRequest(goal, [], renderer, contextCompactor)
-            : await buildPreparationRequest(goal, renderer, contextCompactor);
+            : await buildPreparationRequest(goal, [], renderer, contextCompactor);
 
         assert.deepEqual(compacted.messages.slice(1, -1), latestUnit);
         assert.deepEqual(compacted.messages[0], full.messages[0]);
@@ -322,7 +382,7 @@ test("Builder 拒绝 waiting Preparation 和非 running executing Goal", async (
     };
 
     await assert.rejects(
-        buildPreparationRequest(waiting, renderer, contextCompactor),
+        buildPreparationRequest(waiting, [], renderer, contextCompactor),
         /active preparation/,
     );
     await assert.rejects(

@@ -176,6 +176,42 @@ export interface ToolRegistry {
 }
 
 /**
+ * 解析当前 Goal 实际可见的 Tool 描述。
+ *
+ * @remarks
+ * 结果只包含冻结 Profile 白名单与 Registry 已注册 Tool 的交集。每个
+ * `ToolDefinition` 都会被复制，调用方可以安全地把结果交给模型投影层，而不会
+ * 与 Registry 中的 Tool 实例共享可变描述对象。本函数不判断 Prompt 版本、执行
+ * Tool 或修改 Goal。
+ *
+ * @param goal - 提供冻结 Profile Tool 白名单的完整 Goal。
+ * @param registry - 当前 Runtime 已注册的 Tool 查找边界。
+ * @returns 按 Profile `toolIds` 顺序排列的独立 ToolDefinition 副本。
+ * @throws Registry 查找或 ToolDefinition 复制失败时原样传播异常。
+ *
+ * @example
+ * ```ts
+ * const definitions = resolveAuthorizedToolDefinitions(goal, registry);
+ * ```
+ */
+export function resolveAuthorizedToolDefinitions(
+    goal: Goal,
+    registry: ToolRegistry,
+): readonly ToolDefinition[] {
+    const definitions: ToolDefinition[] = [];
+
+    for (const toolId of goal.definition.profile.toolIds) {
+        const tool = registry.get(toolId);
+
+        if (tool !== undefined) {
+            definitions.push(structuredClone(tool.definition));
+        }
+    }
+
+    return definitions;
+}
+
+/**
  * 单进程内的不可变 Tool 注册表。
  *
  * @remarks

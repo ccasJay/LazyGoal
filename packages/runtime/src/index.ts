@@ -76,6 +76,7 @@ export type {
 } from "./agent-profile";
 export {
     InMemoryToolRegistry,
+    resolveAuthorizedToolDefinitions,
 } from "./tool";
 export type {
     Tool,

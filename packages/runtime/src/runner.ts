@@ -18,6 +18,7 @@ import type {
     ToolPolicy,
     ToolRegistry,
 } from "./tool";
+import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -181,10 +182,6 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
     }
 
     return undefined;
-}
-
-function toolDefinition(tool: Tool): ToolDefinition {
-    return structuredClone(tool.definition);
 }
 
 function validateToolAction(
@@ -660,49 +657,25 @@ export class Runner {
         goal: Goal,
         control?: ExecutionControl,
     ): readonly ToolDefinition[] {
-        const definitions: ToolDefinition[] = [];
-
-        for (const toolId of goal.definition.profile.toolIds) {
-            let tool: Tool | undefined;
-
-            try {
-                throwIfAborted(control);
-                tool = this.toolRegistry.get(toolId);
-                throwIfAborted(control);
-            } catch (error) {
-                if (isExecutionAbortedError(error)) {
-                    throw error;
-                }
-
-                throwIfAborted(control);
-
-                throw new RunnerExecutionError(
-                    "TOOL_EXECUTION_ERROR",
-                    error instanceof Error ? error.message : String(error),
-                );
+        try {
+            throwIfAborted(control);
+            const definitions = resolveAuthorizedToolDefinitions(
+                goal,
+                this.toolRegistry,
+            );
+            throwIfAborted(control);
+            return definitions;
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
             }
 
-            if (tool !== undefined) {
-                try {
-                    throwIfAborted(control);
-                    definitions.push(toolDefinition(tool));
-                    throwIfAborted(control);
-                } catch (error) {
-                    if (isExecutionAbortedError(error)) {
-                        throw error;
-                    }
-
-                    throwIfAborted(control);
-
-                    throw new RunnerExecutionError(
-                        "TOOL_EXECUTION_ERROR",
-                        error instanceof Error ? error.message : String(error),
-                    );
-                }
-            }
+            throwIfAborted(control);
+            throw new RunnerExecutionError(
+                "TOOL_EXECUTION_ERROR",
+                error instanceof Error ? error.message : String(error),
+            );
         }
-
-        return definitions;
     }
 
     private async stopWithExecutionError(

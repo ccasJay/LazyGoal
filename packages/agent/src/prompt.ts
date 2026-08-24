@@ -77,6 +77,8 @@ export async function buildStepRequest(
  * 不会写入 Goal.messages。
  *
  * @param goal - active `gathering_context` 或 `planning` Goal。
+ * @param tools - Runtime 已解析的授权 Tool 描述；仅 v2 planning 会投影，v1 与
+ *   gathering_context 始终忽略该输入。
  * @param renderer - 与 Executor 共享的 Prompt Bundle Renderer。
  * @param contextCompactor - 与执行阶段共享的异步 Conversation 裁剪策略。
  * @param signal - 可选的调用级中止信号，原样传给 Compactor。
@@ -85,11 +87,18 @@ export async function buildStepRequest(
  */
 export async function buildPreparationRequest(
     goal: Goal,
+    tools: readonly ToolDefinition[],
     renderer: PromptBundleRenderer,
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
 ): Promise<LLMRequest> {
-    const projected = project(goal);
+    const projected = project(
+        goal,
+        goal.definition.promptBundleVersion === 2
+            && goal.state.workflow.phase === "planning"
+            ? tools
+            : [],
+    );
 
     if (projected.workingContext.phase === "executing") {
         throw new Error("Preparation request requires an active preparation Goal");

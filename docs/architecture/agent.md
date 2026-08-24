@@ -20,7 +20,7 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
 ## 单轮数据流
 
 1. TUI Composition Root 创建一次 Renderer 和一次无状态 `DropOldestContextCompactor` 并共享给两个 Executor。Conversation 预算来自 `LLM_CONVERSATION_CHAR_BUDGET`，缺失时为 `196608`；非法值在访问 Goal 或调用模型前失败。Composition Root 同时把 Agent 导出的 `CURRENT_PROMPT_BUNDLE_VERSION` 注入 `LauncherDependencies.promptBundleVersion`，由 `createGoal` 冻结进 `GoalDefinition.promptBundleVersion`。
-2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、冻结 Profile 与按 Tool ID 稳定排序的授权 Tool 描述）、真实会话投影与阶段化 Working Context。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。
+2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、冻结 Profile 与按 Tool ID 稳定排序的授权 Tool 描述）、真实会话投影与阶段化 Working Context。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
 3. Conversation Adapter 以 user 消息为边界生成 `ContextUnit`，开头连续 assistant 消息形成独立前缀单元。默认 Compactor 按 UTF-16 `content.length` 从旧到新丢弃完整单元，只保留连续最新后缀；最新单元即使超出软预算也完整保留。裁剪只生成本轮临时 View，不修改 Goal 或 Snapshot。
 4. `renderRequest(view, renderer)` 依据 `PromptContext` 生成唯一 system 消息（Global Overview → Profile → Phase Protocol → Authorized Tools），再追加已选择的 Conversation 与完整 JSON Working Context。`pendingAction`、`previousStep` 和 checkpoint 不参与 Conversation 裁剪。
 5. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。

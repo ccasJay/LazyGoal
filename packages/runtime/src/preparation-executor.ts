@@ -1,5 +1,6 @@
 import type { Goal, GoalTask } from "./domain";
 import type { ExecutionControl } from "./execution-control";
+import type { ToolDefinition } from "./tool";
 
 /**
  * Preparation Executor 单轮返回的结构化决策。
@@ -29,7 +30,7 @@ export type PreparationResult =
  * @example
  * ```ts
  * const executor: PreparationExecutor = {
- *   async execute(goal) {
+ *   async execute(goal, tools) {
  *     return goal.state.workflow.phase === "gathering_context"
  *       ? { kind: "context_ready" }
  *       : {
@@ -44,6 +45,8 @@ export type PreparationResult =
 export interface PreparationExecutor {
     /**
      * @param goal - 当前处于 active Preparation 阶段的完整 Goal 快照。
+     * @param tools - Runtime 已解析的授权 Tool 描述；实现仍须按当前 Phase 与
+     *   Prompt Bundle 版本决定是否向模型展示，不得据此执行 Tool。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 本轮结构化准备决策；不会产生或消费 Step。
      * @throws 底层模型、协议或扩展实现失败时传播对应异常；中止时抛出
@@ -51,6 +54,7 @@ export interface PreparationExecutor {
      */
     execute(
         goal: Goal,
+        tools: readonly ToolDefinition[],
         control?: ExecutionControl,
     ): Promise<PreparationResult>;
 }

@@ -1,5 +1,6 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { Goal } from "../../runtime/src/domain";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -52,6 +53,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
     /**
      * @param goal - active gathering_context 或 planning Goal。
+     * @param tools - Runtime 已解析的授权 Tool 描述；只有 v2 planning 会进入
+     *   PromptContext，其它版本或 Phase 会忽略。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 与当前 phase 严格匹配的 PreparationResult。
      * @throws LLMResponseProtocolError 响应不是合法 JSON、结构错误或分支与
@@ -62,6 +65,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
      */
     async execute(
         goal: Goal,
+        tools: readonly ToolDefinition[],
         control?: ExecutionControl,
     ): Promise<PreparationResult> {
         throwIfAborted(control);
@@ -78,6 +82,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
         const request = await buildPreparationRequest(
             goal,
+            tools,
             this.renderer,
             this.contextCompactor,
             control?.signal,
