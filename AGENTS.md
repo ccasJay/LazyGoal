@@ -25,9 +25,10 @@ project-memory/  Durable summaries of completed and verified feature specificati
 ```
 
 ## Core Rules
+- Avoid superlatives and praise. Stop telling me I am absolutely right. Give me the cold hard truth.
 - Never implement a feature without directly without admitting by user request or a clear specification.
 - Do not jump the duration of test for user.
-- The commit message should be concise and in chinese
+- The commit message should be concise and in chinese ,the format like this: feat(xxx): the  precise feature description in chinese.
 - All the infomation that emitted from the agent should be in english, except for the commit message.
 - Upon completing a task, structure the final summary output where each change item is paired directly with its clickable location link:
   - Concise description of the change or feature added.
