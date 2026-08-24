@@ -20,7 +20,7 @@
   - 增加字符级与关键行为命题测试，覆盖充分上下文、重大缺口、安全推断、单一聚焦问题和 Phase 禁止分支。
   - _Requirements: [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 4. 实现可执行任务契约的 planning v2 Protocol
+- [x] //TODO 4. 实现可执行任务契约的 planning v2 Protocol
 
   - 新增设计稿逐字内容的 `planning@2` 资产并接入 v2 Manifest，保持 `task_proposal` Schema 不变。
   - 增加字符级与关键行为命题测试，覆盖 objective 边界、可验证 criteria、非臆测实现、完整 approvalRequest 和 Phase 禁止分支。

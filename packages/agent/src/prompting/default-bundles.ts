@@ -8,7 +8,8 @@ import {
 import {
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
-    PLANNING_TEMPLATE,
+    PLANNING_TEMPLATE_V1,
+    PLANNING_TEMPLATE_V2,
 } from "../preparation-prompt/template";
 import { AGENT_DECISION_TEMPLATE } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
@@ -59,7 +60,8 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
-    PLANNING_TEMPLATE,
+    PLANNING_TEMPLATE_V1,
+    PLANNING_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
@@ -80,7 +82,7 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
             slot: "phase_protocol",
             templates: {
                 gathering_context: GATHERING_CONTEXT_TEMPLATE_V1.id,
-                planning: PLANNING_TEMPLATE.id,
+                planning: PLANNING_TEMPLATE_V1.id,
                 executing: AGENT_DECISION_TEMPLATE.id,
             },
         },
@@ -92,10 +94,9 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
  * v2 Prompt Bundle 的增量 Manifest。
  *
  * @remarks
- * 当前已替换 Global Overview 与 gathering_context Protocol，并复用不可变的 v1
- * planning/executing Protocol、Profile 与 Authorized Tools 模板。后续 Phase 模板
- * 可以在不改动 v1 Manifest 的前提下逐项接入。本常量不改变新 Goal 当前冻结的
- * 默认版本。
+ * 当前已替换 Global Overview 及两个 Preparation Protocol，并复用不可变的 v1
+ * executing Protocol、Profile 与 Authorized Tools 模板。后续 executing 模板可以
+ * 在不改动 v1 Manifest 的前提下接入。本常量不改变新 Goal 当前冻结的默认版本。
  */
 export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     version: 2,
@@ -106,7 +107,7 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
             slot: "phase_protocol",
             templates: {
                 gathering_context: GATHERING_CONTEXT_TEMPLATE_V2.id,
-                planning: PLANNING_TEMPLATE.id,
+                planning: PLANNING_TEMPLATE_V2.id,
                 executing: AGENT_DECISION_TEMPLATE.id,
             },
         },
