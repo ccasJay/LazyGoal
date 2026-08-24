@@ -14,6 +14,7 @@ import {
 import {
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
+    AGENT_DECISION_TEMPLATE_V3,
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
@@ -31,7 +32,7 @@ import type {
  * 该值归 Agent 所有，由 TUI Composition Root 注入 Runtime 的
  * `LauncherDependencies.promptBundleVersion`，从而在新 Goal 创建时冻结。
  */
-export const CURRENT_PROMPT_BUNDLE_VERSION = 2;
+export const CURRENT_PROMPT_BUNDLE_VERSION = 3;
 
 /**
  * 通用的 Profile 展示模板资产，归 prompting 基础设施所有。
@@ -67,6 +68,7 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     PLANNING_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
+    AGENT_DECISION_TEMPLATE_V3,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -119,8 +121,33 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     ],
 };
 
-/** 当前新 Goal 使用的 v2 Manifest。 */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V2_MANIFEST;
+/**
+ * v3 Prompt Bundle 的增量 Manifest。
+ *
+ * @remarks
+ * 仅 executing Phase Protocol 切换为 v3 模板（Tool 优先与 Bash 兜底规则）；
+ * Global Overview、Preparation 两个 Phase 复用 v2 模板，Profile 与
+ * Authorized Tools 继续复用 v1 展示模板，渲染输入协议不变。
+ */
+export const PROMPT_BUNDLE_V3_MANIFEST: PromptBundleManifest = {
+    version: 3,
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V2.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V2.id,
+                planning: PLANNING_TEMPLATE_V2.id,
+                executing: AGENT_DECISION_TEMPLATE_V3.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
+/** 当前新 Goal 使用的 v3 Manifest。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V3_MANIFEST;
 
 async function loadAsset(
     asset: PromptTemplateAsset,
@@ -154,6 +181,10 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
 
     return createPromptBundleRenderer({
         templates,
-        bundles: [PROMPT_BUNDLE_V1_MANIFEST, PROMPT_BUNDLE_V2_MANIFEST],
+        bundles: [
+            PROMPT_BUNDLE_V1_MANIFEST,
+            PROMPT_BUNDLE_V2_MANIFEST,
+            PROMPT_BUNDLE_V3_MANIFEST,
+        ],
     });
 }

@@ -18,7 +18,7 @@
   - 断言输出仅保留尾部、命令不会因输出预算提前终止，且既有错误文案与 replay 行为不变。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 4. 注册兼容 v1/v2 的 Prompt Bundle v3
+- [x] //TODO 4. 注册兼容 v1/v2 的 Prompt Bundle v3
 
   - 新增 `packages/agent/src/step-prompt/agent-decision@3.njk` 与 `AGENT_DECISION_TEMPLATE_V3`，建立只替换 executing 模板的 `PROMPT_BUNDLE_V3_MANIFEST`。
   - 将默认版本切换为 v3，同时保留并注册 v1、v2 的原资产和原字符渲染；补齐默认 Renderer 的版本集合与 supported versions 测试。

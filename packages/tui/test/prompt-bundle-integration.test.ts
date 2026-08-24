@@ -151,7 +151,7 @@ function createLegacyGoal(
     };
 }
 
-test("Composition Root 激活 v2 并保持 v1 三阶段逐字恢复", async () => {
+test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v2-"));
     await writeDefaultProfile(workspace);
     const responses = [
@@ -249,7 +249,7 @@ test("Composition Root 激活 v2 并保持 v1 三阶段逐字恢复", async () =
         }
         assert.equal(planningView.phase, "planning");
         assert.equal(planningView.waitingFor, "approval");
-        assert.equal(planningView.goal.definition.promptBundleVersion, 2);
+        assert.equal(planningView.goal.definition.promptBundleVersion, 3);
 
         const files = (await readdir(root.goalsDirectory))
             .filter((file) => file.endsWith(".json"));
@@ -262,7 +262,7 @@ test("Composition Root 激活 v2 并保持 v1 三阶段逐字恢复", async () =
             readonly definition: { readonly promptBundleVersion: number };
         };
         assert.equal(snapshot.metadata.schemaVersion, 5);
-        assert.equal(snapshot.definition.promptBundleVersion, 2);
+        assert.equal(snapshot.definition.promptBundleVersion, 3);
 
         await root.controller.dispatch({ kind: "approveTask" });
         const completedView = root.controller.getSnapshot();

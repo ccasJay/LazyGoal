@@ -17,6 +17,12 @@ export const AGENT_DECISION_TEMPLATE_V2: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@2.njk", import.meta.url),
 };
 
+/** v3 Tool 优先与 Bash 兜底 AgentDecision 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V3: PromptTemplateAsset = {
+    id: "agent-decision@3",
+    sourceUrl: new URL("./agent-decision@3.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

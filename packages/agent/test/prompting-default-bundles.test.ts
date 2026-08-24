@@ -11,6 +11,7 @@ import {
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
     PROMPT_BUNDLE_V1_MANIFEST,
     PROMPT_BUNDLE_V2_MANIFEST,
+    PROMPT_BUNDLE_V3_MANIFEST,
 } from "../src/prompting/default-bundles";
 import { normalizeNewlines } from "../src/prompting/environment";
 import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
@@ -187,14 +188,15 @@ test("v1 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 system �
     );
 });
 
-test("默认 Renderer 同时注册隔离的 v1/v2，且当前版本激活 v2", async () => {
+test("默认 Renderer 同时注册隔离的 v1/v2/v3，且当前版本激活 v3", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const v1 = renderer.render(buildContext("planning", 1));
     const v2 = renderer.render(buildContext("planning", 2));
 
-    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 2);
-    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V2_MANIFEST);
+    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 3);
+    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V3_MANIFEST);
     assert.equal(PROMPT_BUNDLE_V2_MANIFEST.version, 2);
+    assert.equal(PROMPT_BUNDLE_V3_MANIFEST.version, 3);
     assert.equal(
         v1,
         [GLOBAL_OVERVIEW, PROFILE_FRAGMENT, PLANNING_PROTOCOL, TOOLS_FRAGMENT]
@@ -396,7 +398,7 @@ test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () 
     }
 });
 
-test("默认 Renderer 对未知版本不回退并报告 v1/v2 supported versions", async () => {
+test("默认 Renderer 对未知版本不回退并报告 v1/v2/v3 supported versions", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
     assert.throws(
@@ -404,7 +406,7 @@ test("默认 Renderer 对未知版本不回退并报告 v1/v2 supported versions
         (error: unknown) => {
             assert.ok(error instanceof UnsupportedPromptBundleVersionError);
             assert.equal(error.bundleVersion, 99);
-            assert.deepEqual(error.supportedVersions, [1, 2]);
+            assert.deepEqual(error.supportedVersions, [1, 2, 3]);
             return true;
         },
     );
@@ -435,8 +437,12 @@ test("默认 Bundle 输出与模板注册顺序无关", async () => {
     });
 
     assert.equal(
-        defaultRenderer.render(buildContext("executing", 2)),
-        reversedRenderer.render(buildContext("executing", 2)),
+        defaultRenderer.render(
+            buildContext("executing", CURRENT_PROMPT_BUNDLE_VERSION),
+        ),
+        reversedRenderer.render(
+            buildContext("executing", CURRENT_PROMPT_BUNDLE_VERSION),
+        ),
     );
 });
 

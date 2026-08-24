@@ -80,6 +80,7 @@ export {
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
     PROMPT_BUNDLE_V1_MANIFEST,
     PROMPT_BUNDLE_V2_MANIFEST,
+    PROMPT_BUNDLE_V3_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";
