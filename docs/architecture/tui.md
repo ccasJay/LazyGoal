@@ -17,8 +17,8 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM 环境，创建单一 Composition Root 并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口统一为 `resume` | 自行推断 Runtime 可用操作 |
-| [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller 并按 screen 路由页面 | Runtime 编排和快照写入 |
-| [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝、终态和 Ctrl+C 回调 | 生成 Goal ID、直接调用 Runtime |
+| [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面并将 Ctrl+C 回调交给 CLI | Runtime 编排和快照写入 |
+| [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
 ## 当前数据流

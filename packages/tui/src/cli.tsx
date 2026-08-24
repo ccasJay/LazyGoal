@@ -437,8 +437,8 @@ export interface CliRunOptions {
  * @remarks
  * 环境变量和工作区在创建 TUI 前校验。空参数渲染 intent 页面；`resume` 先
  * 打开 Catalog 选择页；`-c` 先确认有候选项，再委托 Controller 选择排序首项。
- * 该函数不调用 `process.exit`，调用方通过返回码决定进程退出；Ctrl+C 关闭
- * 流程由后续 Shutdown TODO 接管。
+ * 该函数不调用 `process.exit`，调用方通过返回码决定进程退出；Ctrl+C 会进入
+ * `ShutdownCoordinator` 管理的幂等关闭流程。
  *
  * @param argv - 不包含 Node/bin 路径的 CLI 参数。
  * @param options - 测试可注入的环境、工作区、渲染器和错误输出。

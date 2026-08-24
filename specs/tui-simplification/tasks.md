@@ -37,7 +37,7 @@
   - 运行 4 个屏幕测试文件确认 exactly-once、busy 禁用与空白校验行为不变；若有未覆盖分支，在 `screens.test.tsx` 补充用例
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 7. 修正文档漂移并完成第二批全量验证
+- [x] //TODO 7. 修正文档漂移并完成第二批全量验证
 
   - 修正 `docs/architecture/tui.md` 职责表中 Ctrl+C 回调归属（`TuiApp`）与 `cli.tsx` 的 `runCli` 过期 TSDoc
   - 运行 `npx tsc --noEmit` 与 `npx tsx --test packages/tui/test/*.test.ts*`
