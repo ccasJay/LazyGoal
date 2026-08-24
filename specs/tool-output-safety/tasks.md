@@ -6,7 +6,7 @@
   - 保留 workspaceRoot、shell、timeout 上限、UTF-8 解码和现有省略标记语义；确保输出预算达到后继续消费并等待命令退出。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 2. 保持 Bash 命令生命周期与错误语义
+- [x] //TODO 2. 保持 Bash 命令生命周期与错误语义
 
   - 完善 `spawn` Promise 的 `close`、`error`、timeout 和 AbortSignal 竞态处理，保留 `COMMAND_FAILED`、`COMMAND_TIMEOUT`、`ExecutionAbortedError` 和基础设施异常映射。
   - 保持 `BashTool` 的 `manual` replay policy、输入校验、cwd 和现有公共导出，不新增错误码或公共接口。
