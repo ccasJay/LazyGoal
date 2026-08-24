@@ -1464,6 +1464,73 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     ]);
 });
 
+test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-bash-command",
+        "goal-bash-command",
+        { ...profile, toolIds: ["bash"] },
+    );
+    await store.save(initial);
+    const command = "grep -R --line-number --exclude='*.map' src packages";
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            checkpoint: "准备执行 Agent 选择的 Bash 搜索",
+            action: {
+                actionId: "action-bash-command",
+                toolId: "bash",
+                input: { command },
+            },
+        },
+        {
+            kind: "complete",
+            checkpoint: "已吸收 Bash 搜索结果",
+            summary: "完成",
+        },
+    ]);
+    const tool: Tool = {
+        definition: {
+            id: "bash",
+            description: "执行 Bash 命令",
+            inputSchema: { type: "object" },
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute({ input }) {
+            assert.deepEqual(input, { command });
+            return {
+                kind: "success",
+                output: { stdout: "src/example.ts:1", stderr: "" },
+                summary: "搜索完成",
+            };
+        },
+    };
+
+    const result = await new Runner({
+        store,
+        executor,
+        toolRegistry: { get: (toolId) => toolId === "bash" ? tool : undefined },
+        toolPolicy: { evaluate: () => "allow" },
+    }).run(createRef(initial, "run-bash-command"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
+        kind: "action",
+        action: {
+            actionId: "action-bash-command",
+            toolId: "bash",
+            input: { command },
+        },
+        observation: {
+            kind: "success",
+            output: { stdout: "src/example.ts:1", stderr: "" },
+            summary: "搜索完成",
+        },
+    });
+});
+
 test("require_approval 会保存等待中的 Action 且不调用 Tool", async () => {
     const initial = createInitialGoal(
         "run-action-approval",

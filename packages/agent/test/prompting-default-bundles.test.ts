@@ -376,6 +376,47 @@ test("v2 executing 以证据和可恢复性约束终止分支", async () => {
     ));
 });
 
+test("v3 executing 保留 v2 闭环并增加专用 Tool 优先与 Bash 搜索护栏", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const v2 = renderer.render(buildContext("executing", 2));
+    const v3 = renderer.render(buildContext("executing", 3));
+
+    assert.notEqual(v3, v2);
+    assert.ok(v3.includes(
+        "Read the approved task, completion criteria, checkpoint, previousStep, and pendingAction before choosing the next decision.",
+    ));
+    assert.ok(v3.includes(
+        "Return complete only when every completion criterion has sufficient evidence.",
+    ));
+    assert.ok(v3.includes("Tool selection policy:"));
+    assert.ok(v3.includes(
+        "When an Authorized Tool directly provides the capability needed for the current subtask, prefer that specialized Tool instead of reimplementing the same operation with bash.",
+    ));
+    assert.ok(v3.includes(
+        "For repository text search, prefer the authorized `grep` Tool when it is available.",
+    ));
+    assert.ok(v3.includes(
+        "Use `bash` only when no applicable specialized Tool is authorized, or when shell composition, a system command, or a capability that the specialized Tools cannot express is genuinely required.",
+    ));
+    assert.ok(v3.includes(
+        "narrow the search path and exclude `node_modules`, `.git`, `.lazygoal`, generated files, and source maps.",
+    ));
+    assert.ok(v3.includes(
+        "bound output by bytes or an equivalent bounded-output strategy; line-count truncation alone is not sufficient.",
+    ));
+    assert.ok(v3.includes(
+        "For a Tool request, use {\"kind\":\"tool_call\"",
+    ));
+    assert.equal(
+        renderer.render(buildContext("gathering_context", 3)),
+        renderer.render(buildContext("gathering_context", 2)),
+    );
+    assert.equal(
+        renderer.render(buildContext("planning", 3)),
+        renderer.render(buildContext("planning", 2)),
+    );
+});
+
 test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 

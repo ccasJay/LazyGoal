@@ -109,9 +109,10 @@ function createLegacyGoal(
     runId: string,
     profile: AgentProfile,
     phase: "gathering_context" | "planning" | "executing",
+    promptBundleVersion = 1,
 ): Goal {
     const created = createGoal({
-        promptBundleVersion: 1,
+        promptBundleVersion,
         id,
         intent: `Resume legacy ${phase}`,
         profile,
@@ -185,6 +186,23 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
             kind: "complete",
             checkpoint: "Legacy execution evidence is complete",
             summary: "Legacy execution completed",
+        }),
+        JSON.stringify({
+            kind: "question",
+            question: "v2 gathering remains compatible",
+        }),
+        JSON.stringify({
+            kind: "task_proposal",
+            task: {
+                objective: "Resume v2 planning",
+                completionCriteria: ["v2 planning remains compatible"],
+            },
+            approvalRequest: "Approve the v2 legacy task?",
+        }),
+        JSON.stringify({
+            kind: "complete",
+            checkpoint: "v2 execution evidence is complete",
+            summary: "v2 execution completed",
         }),
     ];
     const requests: CapturedRequest[] = [];
@@ -291,6 +309,13 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
                 .map((tool) => tool.id),
             ["read_file"],
         );
+        assert.ok(v2Systems[2]?.includes("Tool selection policy:"));
+        assert.ok(v2Systems[2]?.includes(
+            "For repository text search, prefer the authorized `grep` Tool when it is available.",
+        ));
+        assert.ok(v2Systems[2]?.includes(
+            "bound output by bytes or an equivalent bounded-output strategy; line-count truncation alone is not sufficient.",
+        ));
 
         const legacyProfile: AgentProfile = {
             id: "legacy-profile",
@@ -354,6 +379,57 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
                 EMPTY_TOOLS,
             ].join("\n\n")),
         );
+
+        const legacyV2Cases = [
+            createLegacyGoal(
+                "goal-v2-gathering",
+                "run-v2-gathering",
+                legacyProfile,
+                "gathering_context",
+                2,
+            ),
+            createLegacyGoal(
+                "goal-v2-planning",
+                "run-v2-planning",
+                legacyProfile,
+                "planning",
+                2,
+            ),
+            createLegacyGoal(
+                "goal-v2-executing",
+                "run-v2-executing",
+                legacyProfile,
+                "executing",
+                2,
+            ),
+        ];
+
+        for (const legacyGoal of legacyV2Cases) {
+            await root.store.save(legacyGoal);
+            const result = await root.coordinator.advance({
+                goalId: legacyGoal.id,
+                runId: legacyGoal.state.run.id,
+            });
+
+            assert.equal(result.ok, true);
+            assert.equal(
+                (await root.store.restore(legacyGoal.id))
+                    ?.definition.promptBundleVersion,
+                2,
+            );
+        }
+
+        const legacyV2Systems = requests.slice(6, 9).map(systemContent);
+        assert.equal(legacyV2Systems.length, 3);
+        assert.ok(legacyV2Systems[0]?.includes(
+            "Active Phase Protocol: gathering_context",
+        ));
+        assert.ok(legacyV2Systems[0]?.includes(
+            "Only an Observation in Working Context establishes the result of a Tool Action",
+        ));
+        assert.ok(legacyV2Systems[1]?.includes("Active Phase Protocol: planning"));
+        assert.ok(legacyV2Systems[2]?.includes("Active Phase Protocol: executing"));
+        assert.ok(!legacyV2Systems[2]?.includes("Tool selection policy:"));
     } finally {
         await close(server);
         await rm(workspace, { recursive: true, force: true });

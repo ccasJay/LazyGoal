@@ -30,7 +30,7 @@
   - 保持 v2 的 Observation 证据、checkpoint、终止条件、严格 JSON 协议和 Authorized Tool ID 约束；不引入命令重写或语义拦截。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5)_
 
-- [ ] //TODO 6. 锁定 Prompt 选择规则与旧 Goal 恢复兼容
+- [x] //TODO 6. 锁定 Prompt 选择规则与旧 Goal 恢复兼容
 
   - 扩展 `packages/agent/test/prompting-default-bundles.test.ts` 与入口集成测试，验证 v3 关键规则、v1/v2 字符级不变、v3 默认冻结和旧版本恢复。
   - 断言 Runtime 不根据 Bash 命令文本改写或替换 Agent 选择，未授权 Tool 仍由现有边界拒绝。
