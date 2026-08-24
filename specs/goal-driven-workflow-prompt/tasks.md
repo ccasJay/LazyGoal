@@ -32,7 +32,7 @@
   - 覆盖用户明确要求但 Runtime 无法取得的外部证据，断言 Prompt 要求在 criteria 与 approvalRequest 中显式保留依赖。
   - _Requirements: [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 6. 实现证据驱动 Action 闭环的 executing v2 Protocol
+- [x] //TODO 6. 实现证据驱动 Action 闭环的 executing v2 Protocol
 
   - 新增设计稿逐字内容的 `agent-decision@2` 资产并接入 v2 Manifest，保持四分支 `AgentDecision` Schema 不变。
   - 增加字符级与关键行为命题测试，覆盖最小有效 Action、Observation 驱动、风险相称验证、Authorized Tool 限制和失败后的恢复路径。

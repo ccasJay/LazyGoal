@@ -111,6 +111,29 @@ const AGENT_DECISION_PROTOCOL = [
     "不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。",
 ].join("\n");
 
+const AGENT_DECISION_PROTOCOL_V2 = [
+    "Active Phase Protocol: executing",
+    "Decision policy:",
+    "1. Read the approved task, completion criteria, checkpoint, previousStep, and pendingAction before choosing the next decision.",
+    "2. Treat only recorded Observations as Tool results. Use both success and failure evidence to update the next decision; do not invent unobserved outcomes.",
+    "3. Return complete only when every completion criterion has sufficient evidence.",
+    "4. Otherwise, if an executable and verifiable next step exists, request one Authorized Tool Action that best reduces the most consequential uncertainty or directly advances a completion criterion.",
+    "5. After changing task state, obtain verification evidence proportionate to the change risk before returning complete.",
+    "6. Return wait only when progress requires external input or a decision unavailable from the current context.",
+    "7. Return fail only when the task cannot be completed under current constraints and no reasonable recovery path remains.",
+    "8. Do not return complete, wait, or fail while an executable and verifiable next step remains.",
+    "Checkpoint policy:",
+    "Every checkpoint must be a cumulative recovery summary of confirmed progress, key evidence, and remaining work.",
+    "Cover the current evidence status of each completion criterion, not merely the latest actions.",
+    "Output protocol:",
+    "Return exactly one JSON object without a Markdown code block or additional text.",
+    "For a Tool request, use {\"kind\":\"tool_call\",\"checkpoint\":\"non-empty cumulative state\",\"action\":{\"actionId\":\"stable non-empty ID\",\"toolId\":\"Authorized Tool ID\",\"input\":{}}}; replace input with a JSON object satisfying the selected Tool inputSchema.",
+    "For completion, use {\"kind\":\"complete\",\"checkpoint\":\"non-empty cumulative state\",\"summary\":\"non-empty implemented result\"}.",
+    "For an external blocker, use {\"kind\":\"wait\",\"checkpoint\":\"non-empty cumulative state\",\"reason\":\"non-empty specific blocker\"}.",
+    "For an unrecoverable failure, use {\"kind\":\"fail\",\"checkpoint\":\"non-empty cumulative state\",\"error\":\"non-empty stable failure reason\"}.",
+    "Use only Tool IDs listed in Authorized Tool definitions, and wait for the Runtime Observation before judging a requested Action's result.",
+].join("\n");
+
 function buildContext(
     phase: PromptContext["phase"],
     promptBundleVersion = 1,
@@ -230,6 +253,7 @@ test("v2 gathering_context 逐字实现最小必要追问与 Phase 禁止边界"
     ));
     assert.ok(!output.includes(PLANNING_PROTOCOL));
     assert.ok(!output.includes(AGENT_DECISION_PROTOCOL));
+    assert.ok(!output.includes(AGENT_DECISION_PROTOCOL_V2));
 });
 
 test("v2 planning 逐字实现可执行任务契约与 Phase 禁止边界", async () => {
@@ -261,6 +285,42 @@ test("v2 planning 逐字实现可执行任务契约与 Phase 禁止边界", asyn
     ));
     assert.ok(!output.includes(GATHERING_PROTOCOL_V2));
     assert.ok(!output.includes(AGENT_DECISION_PROTOCOL));
+    assert.ok(!output.includes(AGENT_DECISION_PROTOCOL_V2));
+});
+
+test("v2 executing 逐字实现证据驱动 Action 闭环", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("executing", 2));
+
+    assert.equal(
+        output,
+        [GLOBAL_OVERVIEW_V2, PROFILE_FRAGMENT, AGENT_DECISION_PROTOCOL_V2, TOOLS_FRAGMENT]
+            .join("\n\n"),
+    );
+    assert.ok(output.includes(
+        "Read the approved task, completion criteria, checkpoint, previousStep, and pendingAction before choosing the next decision.",
+    ));
+    assert.ok(output.includes(
+        "Treat only recorded Observations as Tool results. Use both success and failure evidence to update the next decision; do not invent unobserved outcomes.",
+    ));
+    assert.ok(output.includes(
+        "request one Authorized Tool Action that best reduces the most consequential uncertainty or directly advances a completion criterion.",
+    ));
+    assert.ok(output.includes(
+        "After changing task state, obtain verification evidence proportionate to the change risk before returning complete.",
+    ));
+    assert.ok(output.includes(
+        "Return fail only when the task cannot be completed under current constraints and no reasonable recovery path remains.",
+    ));
+    assert.ok(output.includes(
+        "Use only Tool IDs listed in Authorized Tool definitions, and wait for the Runtime Observation before judging a requested Action's result.",
+    ));
+    assert.ok(output.includes(
+        "For a Tool request, use {\"kind\":\"tool_call\"",
+    ));
+    assert.ok(!output.includes(GATHERING_PROTOCOL_V2));
+    assert.ok(!output.includes(PLANNING_PROTOCOL_V2));
+    assert.ok(!output.includes(AGENT_DECISION_PROTOCOL));
 });
 
 test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () => {
@@ -269,7 +329,7 @@ test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () 
     for (const [phase, protocol] of [
         ["gathering_context", GATHERING_PROTOCOL_V2],
         ["planning", PLANNING_PROTOCOL_V2],
-        ["executing", AGENT_DECISION_PROTOCOL],
+        ["executing", AGENT_DECISION_PROTOCOL_V2],
     ] as const) {
         const first = renderer.render(buildContext(phase, 2));
         const second = renderer.render(buildContext(phase, 2));

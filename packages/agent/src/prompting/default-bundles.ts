@@ -11,7 +11,10 @@ import {
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
 } from "../preparation-prompt/template";
-import { AGENT_DECISION_TEMPLATE } from "../step-prompt/template";
+import {
+    AGENT_DECISION_TEMPLATE_V1,
+    AGENT_DECISION_TEMPLATE_V2,
+} from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import type {
@@ -62,7 +65,8 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GATHERING_CONTEXT_TEMPLATE_V2,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
-    AGENT_DECISION_TEMPLATE,
+    AGENT_DECISION_TEMPLATE_V1,
+    AGENT_DECISION_TEMPLATE_V2,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -83,7 +87,7 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
             templates: {
                 gathering_context: GATHERING_CONTEXT_TEMPLATE_V1.id,
                 planning: PLANNING_TEMPLATE_V1.id,
-                executing: AGENT_DECISION_TEMPLATE.id,
+                executing: AGENT_DECISION_TEMPLATE_V1.id,
             },
         },
         { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
@@ -94,9 +98,9 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
  * v2 Prompt Bundle 的增量 Manifest。
  *
  * @remarks
- * 当前已替换 Global Overview 及两个 Preparation Protocol，并复用不可变的 v1
- * executing Protocol、Profile 与 Authorized Tools 模板。后续 executing 模板可以
- * 在不改动 v1 Manifest 的前提下接入。本常量不改变新 Goal 当前冻结的默认版本。
+ * Global Overview 与三个 Phase Protocol 均使用独立的 v2 模板，Profile 与
+ * Authorized Tools 继续复用不可变的 v1 展示模板。本常量不改变新 Goal 当前冻结的
+ * 默认版本。
  */
 export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     version: 2,
@@ -108,7 +112,7 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
             templates: {
                 gathering_context: GATHERING_CONTEXT_TEMPLATE_V2.id,
                 planning: PLANNING_TEMPLATE_V2.id,
-                executing: AGENT_DECISION_TEMPLATE.id,
+                executing: AGENT_DECISION_TEMPLATE_V2.id,
             },
         },
         { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
