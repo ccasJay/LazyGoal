@@ -19,7 +19,7 @@
   - 运行 `npx tsx --test packages/tui/test/session-controller.test.ts` 确认 `goal_select` 与空列表行为不变
   - _Requirements: [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 4. SIGINT 清理改为单机制
+- [x] //TODO 4. SIGINT 清理改为单机制
 
   - 修改 `cli.tsx` 的 `runCli` finally 块，按设计决策 6 只保留 `unregisterSigint?.()`
   - 运行 `npx tsx --test packages/tui/test/cli.test.ts` 确认 SIGINT 单路径与退出码 130 不变

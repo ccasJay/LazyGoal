@@ -555,7 +555,6 @@ export async function runCli(
         return 1;
     } finally {
         unregisterSigint?.();
-        process.off("SIGINT", onSigint);
     }
 }
 
