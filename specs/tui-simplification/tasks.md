@@ -13,7 +13,7 @@
   - 运行 `npx tsx --test packages/tui/test/session-controller.test.ts` 确认快照隔离语义不变
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 3. 合并 `continueLatest` 与 `openGoalSelect` 的 Catalog 读取流程
+- [x] //TODO 3. 合并 `continueLatest` 与 `openGoalSelect` 的 Catalog 读取流程
 
   - 修改 `session-controller.ts`，按设计决策 5 提取共享私有方法并改造两个调用方
   - 运行 `npx tsx --test packages/tui/test/session-controller.test.ts` 确认 `goal_select` 与空列表行为不变

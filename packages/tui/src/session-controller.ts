@@ -244,42 +244,13 @@ export class SessionController {
     }
 
     private async continueLatest(): Promise<void> {
-        if (this.snapshot.screen === "session") {
-            this.setError({
-                code: "SESSION_ACTIVE",
-                message: "A Goal session is already active",
-            });
-            return;
-        }
-
-        let goals: readonly GoalCatalogEntry[];
-        try {
-            goals = await this.dependencies.catalog.listResumable();
-        } catch (error: unknown) {
-            this.setGoalSelectError(toUiError(error));
-            return;
-        }
-        const entries = goals.map((entry) => ({ ...entry }));
-        this.setSnapshot({
-            screen: "goal_select",
-            busy: true,
-            goals: entries,
-        });
-
-        if (entries.length === 0) {
-            this.setError({
-                code: "NO_RESUMABLE_GOAL",
-                message: "No resumable Goal was found",
-            });
+        const entries = await this.listResumableIntoGoalSelect();
+        if (entries === undefined) {
             return;
         }
 
         const latest = entries[0];
         if (latest === undefined) {
-            this.setError({
-                code: "NO_RESUMABLE_GOAL",
-                message: "No resumable Goal was found",
-            });
             return;
         }
 
@@ -287,12 +258,16 @@ export class SessionController {
     }
 
     private async showGoalSelect(): Promise<void> {
+        await this.listResumableIntoGoalSelect();
+    }
+
+    private async listResumableIntoGoalSelect(): Promise<GoalCatalogEntry[] | undefined> {
         if (this.snapshot.screen === "session") {
             this.setError({
                 code: "SESSION_ACTIVE",
                 message: "A Goal session is already active",
             });
-            return;
+            return undefined;
         }
 
         let goals: readonly GoalCatalogEntry[];
@@ -300,7 +275,7 @@ export class SessionController {
             goals = await this.dependencies.catalog.listResumable();
         } catch (error: unknown) {
             this.setGoalSelectError(toUiError(error));
-            return;
+            return undefined;
         }
 
         const entries = goals.map((entry) => ({ ...entry }));
@@ -315,7 +290,10 @@ export class SessionController {
                 code: "NO_RESUMABLE_GOAL",
                 message: "No resumable Goal was found",
             });
+            return undefined;
         }
+
+        return entries;
     }
 
     private async selectGoal(goalId: string): Promise<void> {
