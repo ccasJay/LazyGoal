@@ -323,6 +323,57 @@ test("v2 executing 逐字实现证据驱动 Action 闭环", async () => {
     assert.ok(!output.includes(AGENT_DECISION_PROTOCOL));
 });
 
+test("v2 executing checkpoint 逐项维护累计证据账本", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("executing", 2));
+
+    assert.ok(output.includes(
+        "Every checkpoint must be a cumulative recovery summary of confirmed progress, key evidence, and remaining work.",
+    ));
+    assert.ok(output.includes(
+        "Cover the current evidence status of each completion criterion, not merely the latest actions.",
+    ));
+    assert.ok(output.includes(
+        "For a Tool request, use {\"kind\":\"tool_call\",\"checkpoint\":\"non-empty cumulative state\"",
+    ));
+    assert.ok(output.includes(
+        "For completion, use {\"kind\":\"complete\",\"checkpoint\":\"non-empty cumulative state\"",
+    ));
+    assert.ok(output.includes(
+        "For an external blocker, use {\"kind\":\"wait\",\"checkpoint\":\"non-empty cumulative state\"",
+    ));
+    assert.ok(output.includes(
+        "For an unrecoverable failure, use {\"kind\":\"fail\",\"checkpoint\":\"non-empty cumulative state\"",
+    ));
+});
+
+test("v2 executing 以证据和可恢复性约束终止分支", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("executing", 2));
+
+    assert.ok(output.includes(
+        "Return complete only when every completion criterion has sufficient evidence.",
+    ));
+    assert.ok(output.includes(
+        "For completion, use {\"kind\":\"complete\",\"checkpoint\":\"non-empty cumulative state\",\"summary\":\"non-empty implemented result\"}.",
+    ));
+    assert.ok(output.includes(
+        "Return wait only when progress requires external input or a decision unavailable from the current context.",
+    ));
+    assert.ok(output.includes(
+        "For an external blocker, use {\"kind\":\"wait\",\"checkpoint\":\"non-empty cumulative state\",\"reason\":\"non-empty specific blocker\"}.",
+    ));
+    assert.ok(output.includes(
+        "Return fail only when the task cannot be completed under current constraints and no reasonable recovery path remains.",
+    ));
+    assert.ok(output.includes(
+        "For an unrecoverable failure, use {\"kind\":\"fail\",\"checkpoint\":\"non-empty cumulative state\",\"error\":\"non-empty stable failure reason\"}.",
+    ));
+    assert.ok(output.includes(
+        "Do not return complete, wait, or fail while an executable and verifiable next step remains.",
+    ));
+});
+
 test("v2 三个 Phase 渲染字符级确定且保持 fragment 边界", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 

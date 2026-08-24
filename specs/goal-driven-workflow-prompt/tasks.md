@@ -38,7 +38,7 @@
   - 增加字符级与关键行为命题测试，覆盖最小有效 Action、Observation 驱动、风险相称验证、Authorized Tool 限制和失败后的恢复路径。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [5.5](./requirements.md#req-5-5)_
 
-- [ ] //TODO 7. 锁定逐项证据账本与终止决策契约
+- [x] //TODO 7. 锁定逐项证据账本与终止决策契约
 
   - 扩充 executing Prompt 契约测试，证明 checkpoint 要逐项覆盖 completion criterion 的证据状态，并保留累计进度、关键证据和剩余工作。
   - 覆盖 `complete`、`wait`、`fail` 的适用条件及“存在可执行下一步时不得提前终止”的关键命题。
