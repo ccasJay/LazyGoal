@@ -313,7 +313,7 @@ test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
         (error: unknown) => {
             assert.ok(error instanceof UnsupportedPromptBundleVersionError);
             assert.equal(error.bundleVersion, 99);
-            assert.deepEqual(error.supportedVersions, [1, 2]);
+            assert.deepEqual(error.supportedVersions, [1, 2, 3]);
             return true;
         },
     );

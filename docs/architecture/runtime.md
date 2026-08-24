@@ -62,7 +62,9 @@ Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Ad
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
 Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界；Agent 接收已注册的授权
-ToolDefinition、生成并校验严格 AgentDecision，Runner 自动执行允许的 Action。
+ToolDefinition 并自行选择下一步，生成并校验严格 AgentDecision，Runner 自动执行允许的
+Action。Runtime 不根据 Bash 命令文本改写或替换 Agent 的 Tool 选择；Profile 白名单、
+Registry、输入校验和 Policy 仍是实际授权边界。
 [`packages/tools`](../../packages/tools/src/index.ts) 提供五个 Tool：只读 `ReadFileTool`、
 写入 UTF-8 文本的 `WriteFileTool`（safe 重放，父目录须已存在，拒绝 `.lazygoal`
 前缀）、执行唯一匹配字符串替换的 `EditFileTool`（safe 重放，`oldString` 须恰好
@@ -70,7 +72,8 @@ ToolDefinition、生成并校验严格 AgentDecision，Runner 自动执行允许
 递归搜索文本文件的只读 `GrepTool`（safe 重放，跳过符号链接、`.git`、`.lazygoal`
 与 `node_modules`，扫描 2000 文件/返回 200 行匹配后截断）与 `BashTool`（manual
 重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为 workspaceRoot、默认 30 秒/上限
-120 秒超时、stdout/stderr 各截断保留尾部 10000 字符）。五者共享 workspaceRoot
+120 秒超时，使用 `spawn` 持续消费 stdout/stderr，各自有界保留尾部 10000 字符，
+输出超量不提前终止命令）。五者共享 workspaceRoot
 沙箱：拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；文件不
 存在等领域问题返回 `failure`，非零退出码与超时分别返回 `COMMAND_FAILED`/
 `COMMAND_TIMEOUT`，替换不匹配分别返回 `STRING_NOT_FOUND`/`STRING_NOT_UNIQUE`

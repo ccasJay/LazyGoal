@@ -36,7 +36,7 @@
   - 断言 Runtime 不根据 Bash 命令文本改写或替换 Agent 选择，未授权 Tool 仍由现有边界拒绝。
   - _Requirements: [2.6](./requirements.md#req-2-6), [5.3](./requirements.md#req-5-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 7. 完成协议边界、架构文档与全量回归
+- [x] //TODO 7. 完成协议边界、架构文档与全量回归
 
   - 核对 `ToolObservation`、Goal Snapshot、Run、Action 和 Runner 无结构化截断字段或协议变化，并同步更新 `docs/architecture/agent.md` 与 `docs/architecture/runtime.md` 的当前实现说明。
   - 运行 tools、agent、runtime、storage、tui 相关测试、`npx tsc --noEmit`、`npm run check:dependencies`、完整测试套件和 `git diff --check`。
