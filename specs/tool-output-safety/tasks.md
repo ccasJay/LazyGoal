@@ -24,7 +24,7 @@
   - 将默认版本切换为 v3，同时保留并注册 v1、v2 的原资产和原字符渲染；补齐默认 Renderer 的版本集合与 supported versions 测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 5. 写入 v3 专用 Tool 优先与 Bash 回退规则
+- [x] //TODO 5. 写入 v3 专用 Tool 优先与 Bash 回退规则
 
   - 在 v3 executing Prompt 中加入专用 Tool 优先、`grep` 搜索优先、无适用专用 Tool 时 Bash 回退，以及搜索路径和输出限制规则。
   - 保持 v2 的 Observation 证据、checkpoint、终止条件、严格 JSON 协议和 Authorized Tool ID 约束；不引入命令重写或语义拦截。
