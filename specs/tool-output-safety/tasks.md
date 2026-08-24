@@ -1,6 +1,6 @@
 # Tool 输出安全与搜索工具选择优化实施计划
 
-- [ ] //TODO 1. 实现流式 Bash 执行与 bounded tail collector
+- [x] //TODO 1. 实现流式 Bash 执行与 bounded tail collector
 
   - 在 `packages/tools/src/bash.ts` 中以 `spawn` 替换 `exec`，接入私有 stdout/stderr 尾部收集器，移除 `maxBuffer` 依赖并保持成功 Observation 形状。
   - 保留 workspaceRoot、shell、timeout 上限、UTF-8 解码和现有省略标记语义；确保输出预算达到后继续消费并等待命令退出。
