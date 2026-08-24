@@ -163,12 +163,12 @@ async function loadAllAssets(): Promise<PromptTemplateDefinition[]> {
     );
 }
 
-test("默认 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 system 内容", async () => {
+test("v1 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 system 内容", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
-    const gathering = renderer.render(buildContext("gathering_context"));
-    const planning = renderer.render(buildContext("planning"));
-    const executing = renderer.render(buildContext("executing"));
+    const gathering = renderer.render(buildContext("gathering_context", 1));
+    const planning = renderer.render(buildContext("planning", 1));
+    const executing = renderer.render(buildContext("executing", 1));
 
     assert.equal(
         gathering,
@@ -187,13 +187,13 @@ test("默认 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 syst
     );
 });
 
-test("默认 Renderer 同时注册隔离的 v1/v2，且当前版本仍保持 v1", async () => {
+test("默认 Renderer 同时注册隔离的 v1/v2，且当前版本激活 v2", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const v1 = renderer.render(buildContext("planning", 1));
     const v2 = renderer.render(buildContext("planning", 2));
 
-    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 1);
-    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V1_MANIFEST);
+    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 2);
+    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V2_MANIFEST);
     assert.equal(PROMPT_BUNDLE_V2_MANIFEST.version, 2);
     assert.equal(
         v1,
@@ -410,12 +410,12 @@ test("默认 Renderer 对未知版本不回退并报告 v1/v2 supported versions
     );
 });
 
-test("三个 Phase 共享同一 Global Overview，并按各自 Phase 选择协议", async () => {
+test("v1 三个 Phase 共享同一 Global Overview，并按各自 Phase 选择协议", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
-    const gathering = renderer.render(buildContext("gathering_context"));
-    const planning = renderer.render(buildContext("planning"));
-    const executing = renderer.render(buildContext("executing"));
+    const gathering = renderer.render(buildContext("gathering_context", 1));
+    const planning = renderer.render(buildContext("planning", 1));
+    const executing = renderer.render(buildContext("executing", 1));
 
     assert.ok(gathering.startsWith(GLOBAL_OVERVIEW));
     assert.ok(planning.startsWith(GLOBAL_OVERVIEW));
@@ -435,8 +435,8 @@ test("默认 Bundle 输出与模板注册顺序无关", async () => {
     });
 
     assert.equal(
-        defaultRenderer.render(buildContext("executing")),
-        reversedRenderer.render(buildContext("executing")),
+        defaultRenderer.render(buildContext("executing", 2)),
+        reversedRenderer.render(buildContext("executing", 2)),
     );
 });
 
@@ -444,7 +444,7 @@ test("空 Instructions 与空 Tools 具有固定空值表示", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
     const output = renderer.render({
-        promptBundleVersion: 1,
+        promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
         phase: "gathering_context",
         profile: { id: "profile-1", systemPrompt: "SYS", instructions: [] },
         authorizedTools: [],

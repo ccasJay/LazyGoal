@@ -31,7 +31,7 @@ import type {
  * 该值归 Agent 所有，由 TUI Composition Root 注入 Runtime 的
  * `LauncherDependencies.promptBundleVersion`，从而在新 Goal 创建时冻结。
  */
-export const CURRENT_PROMPT_BUNDLE_VERSION = 1;
+export const CURRENT_PROMPT_BUNDLE_VERSION = 2;
 
 /**
  * 通用的 Profile 展示模板资产，归 prompting 基础设施所有。
@@ -119,8 +119,8 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     ],
 };
 
-/** 当前新 Goal 使用的 Manifest；v2 完整接入前保持指向 v1。 */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V1_MANIFEST;
+/** 当前新 Goal 使用的 v2 Manifest。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V2_MANIFEST;
 
 async function loadAsset(
     asset: PromptTemplateAsset,

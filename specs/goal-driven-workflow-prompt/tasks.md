@@ -44,7 +44,7 @@
   - 覆盖 `complete`、`wait`、`fail` 的适用条件及“存在可执行下一步时不得提前终止”的关键命题。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [6.5](./requirements.md#req-6-5)_
 
-- [ ] //TODO 8. 激活 v2 并完成 Composition Root 与回归验证
+- [x] //TODO 8. 激活 v2 并完成 Composition Root 与回归验证
 
   - 将 `CURRENT_PROMPT_BUNDLE_VERSION` 和默认 Manifest 切换为 v2，向 GoalCoordinator 与 Runner 注入同一 ToolRegistry，保持 Snapshot v5 不变。
   - 增加入口与恢复集成测试，覆盖新 Goal 冻结 v2、v2 三 Phase 路由、v2 planning/executing 能力一致及 v1 Goal 原字符恢复。

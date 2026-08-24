@@ -485,6 +485,7 @@ export async function createCompositionRoot(
             contextCompactor,
         }),
         scheduler,
+        toolRegistry,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
