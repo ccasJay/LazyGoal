@@ -449,7 +449,7 @@ export class SessionController {
             phase: snapshot.state.workflow.phase,
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
-            messages: structuredClone(snapshot.state.messages),
+            messages: snapshot.state.messages,
             ...(snapshot.state.run.checkpoint === undefined
                 ? {}
                 : { checkpoint: snapshot.state.run.checkpoint }),
@@ -459,7 +459,7 @@ export class SessionController {
             ...(blockedReason === undefined ? {} : { blockedReason }),
             ...(snapshot.state.run.pendingAction === undefined
                 ? {}
-                : { pendingAction: structuredClone(snapshot.state.run.pendingAction) }),
+                : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
         };
     }
@@ -510,7 +510,7 @@ export class SessionController {
         this.setSnapshot({
             screen: "goal_select",
             busy: false,
-            goals: structuredClone(goals),
+            goals,
             error,
         });
     }
@@ -657,7 +657,7 @@ function deriveProposal(goal: Goal): GoalTask | undefined {
     const workflow = goal.state.workflow;
     return workflow.phase === "planning"
         && workflow.preparation.status === "waiting_approval"
-        ? structuredClone(workflow.preparation.proposal)
+        ? workflow.preparation.proposal
         : undefined;
 }
 

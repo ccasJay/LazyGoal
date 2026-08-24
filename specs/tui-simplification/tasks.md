@@ -7,7 +7,7 @@
   - 运行 `npx tsc --noEmit` 与 `rg "fatal|openGoalSelect" packages/` 确认无残留
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 2. ViewModel 派生改为单次克隆
+- [x] //TODO 2. ViewModel 派生改为单次克隆
 
   - 修改 `session-controller.ts` 的 `toSessionView`、`deriveProposal`、`setGoalSelectError`，按设计决策 2 移除 3 处冗余 `structuredClone`
   - 运行 `npx tsx --test packages/tui/test/session-controller.test.ts` 确认快照隔离语义不变
