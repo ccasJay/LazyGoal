@@ -116,11 +116,5 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     <Text>Shutting down...</Text>
                 </Box>
             );
-        case "fatal":
-            return (
-                <Box flexDirection="column">
-                    <Text color="red">Fatal error: {snapshot.error.message}</Text>
-                </Box>
-            );
     }
 }

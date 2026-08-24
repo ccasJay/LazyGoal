@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 删除 `fatal` 屏幕与 `openGoalSelect` 命令面
+- [x] //TODO 1. 删除 `fatal` 屏幕与 `openGoalSelect` 命令面
 
   - 修改 `types.ts`、`app.tsx`、`session-controller.ts`、`index.ts`，按设计决策 1 移除对应变体、分支与导出
   - 同一变更内同步 `docs/architecture/tui.md` 的 UiScreen 与命令面描述

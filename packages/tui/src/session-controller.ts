@@ -156,9 +156,8 @@ export class SessionController {
             case "create":
                 await this.createGoal(command.intent);
                 return;
-            case "openGoalSelect":
             case "resume":
-                await this.openGoalSelect();
+                await this.showGoalSelect();
                 return;
             case "continueLatest":
                 await this.continueLatest();
@@ -287,7 +286,7 @@ export class SessionController {
         await this.restoreAndAdvance(latest.goalId, entries);
     }
 
-    private async openGoalSelect(): Promise<void> {
+    private async showGoalSelect(): Promise<void> {
         if (this.snapshot.screen === "session") {
             this.setError({
                 code: "SESSION_ACTIVE",
@@ -500,9 +499,6 @@ export class SessionController {
                     this.setSnapshot({ ...current, busy });
                 }
                 return;
-            case "fatal":
-                this.setSnapshot({ ...current, busy });
-                return;
         }
     }
 
@@ -536,9 +532,6 @@ export class SessionController {
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
             case "shutting_down":
-                this.setSnapshot({ ...this.snapshot, busy: false, error });
-                return;
-            case "fatal":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
         }
