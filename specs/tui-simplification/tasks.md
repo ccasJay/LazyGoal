@@ -25,7 +25,7 @@
   - 运行 `npx tsx --test packages/tui/test/cli.test.ts` 确认 SIGINT 单路径与退出码 130 不变
   - _Requirements: [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 5. 第一批全量验证
+- [x] //TODO 5. 第一批全量验证
 
   - 运行 `npx tsc --noEmit` 与 `npx tsx --test packages/tui/test/*.test.ts*`
   - 复跑 `rg "fatal|openGoalSelect" packages/`，预期仅命中本 Spec 目录
