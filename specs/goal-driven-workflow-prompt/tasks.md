@@ -26,7 +26,7 @@
   - 增加字符级与关键行为命题测试，覆盖 objective 边界、可验证 criteria、非臆测实现、完整 approvalRequest 和 Phase 禁止分支。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5)_
 
-- [ ] //TODO 5. 锁定 planning 与 Runtime 证据能力闭环
+- [x] //TODO 5. 锁定 planning 与 Runtime 证据能力闭环
 
   - 增加 v2 planning 请求测试，证明 Prompt 接收实际 Authorized ToolDefinition，并以其可产生的 Observation 约束 completionCriteria。
   - 覆盖用户明确要求但 Runtime 无法取得的外部证据，断言 Prompt 要求在 criteria 与 approvalRequest 中显式保留依赖。
