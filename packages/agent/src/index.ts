@@ -14,6 +14,21 @@ export {
     ModelInferenceProjector,
 } from "./model-inference-projector";
 export {
+    ConversationContextUnitAdapter,
+    flattenContextUnits,
+} from "./conversation-context-unit-adapter";
+export {
+    DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
+    DropOldestContextCompactor,
+} from "./context-compactor";
+export type {
+    ContextCompactor,
+} from "./context-compactor";
+export type {
+    ContextUnit,
+    ContextUnitAdapter,
+} from "./context-unit";
+export {
     renderRequest,
     renderWorkingContextMessage,
 } from "./render";
@@ -63,6 +78,8 @@ export {
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
+    PROMPT_BUNDLE_V1_MANIFEST,
+    PROMPT_BUNDLE_V2_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";

@@ -6,8 +6,10 @@ import { test } from "node:test";
 
 import {
     CliConfigurationError,
+    ConversationBudgetConfigurationError,
     createCompositionRoot,
     parseCliArgs,
+    readConversationCharBudget,
     readLlmConfig,
     runCli,
 } from "../src/cli";
@@ -51,6 +53,59 @@ test("readLlmConfig reports every missing variable before creating a root", () =
     );
 });
 
+test("readConversationCharBudget 使用默认值并接受正安全整数覆盖", () => {
+    assert.equal(readConversationCharBudget({}), 196608);
+    assert.equal(readConversationCharBudget({
+        LLM_CONVERSATION_CHAR_BUDGET: "   ",
+    }), 196608);
+    assert.equal(readConversationCharBudget({
+        LLM_CONVERSATION_CHAR_BUDGET: " 4096 ",
+    }), 4096);
+    assert.equal(readConversationCharBudget({
+        LLM_CONVERSATION_CHAR_BUDGET: "01",
+    }), 1);
+});
+
+test("readConversationCharBudget 拒绝所有非正安全整数形式", () => {
+    for (const value of [
+        "0",
+        "-1",
+        "1.5",
+        "1e3",
+        "+1",
+        "not-a-number",
+        String(Number.MAX_SAFE_INTEGER + 1),
+    ]) {
+        assert.throws(
+            () => readConversationCharBudget({
+                LLM_CONVERSATION_CHAR_BUDGET: value,
+            }),
+            (error: unknown) => {
+                assert.ok(error instanceof ConversationBudgetConfigurationError);
+                assert.equal(
+                    error.code,
+                    "INVALID_LLM_CONVERSATION_CHAR_BUDGET",
+                );
+                return true;
+            },
+        );
+    }
+});
+
+test("非法 Conversation 预算在访问工作区或创建 Goal 数据前失败", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-budget-"));
+    const invalidEnv = {
+        ...environment(),
+        LLM_CONVERSATION_CHAR_BUDGET: "0",
+    };
+
+    await assert.rejects(
+        createCompositionRoot({ cwd: workspace, env: invalidEnv }),
+        (error: unknown) => error instanceof ConversationBudgetConfigurationError,
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal")));
+});
+
 test("missing default Profile fails before creating the workspace Store", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-profile-missing-"));
 
@@ -89,6 +144,8 @@ test("composition root isolates workspace, freezes the default identity, and doe
 
     assert.equal(root.workspaceRoot, await realpath(workspace));
     assert.equal(root.goalsDirectory, join(root.workspaceRoot, ".lazygoal", "goals"));
+    assert.equal(root.conversationCharBudget, 196608);
+    assert.ok(root.contextCompactor !== undefined);
     assert.deepEqual(root.profile, {
         id: DEFAULT_PROFILE_FILE.id,
         name: DEFAULT_PROFILE_FILE.name,
@@ -103,6 +160,27 @@ test("composition root isolates workspace, freezes the default identity, and doe
     assert.equal(root.runIdGenerator(), "run-test");
     assert.deepEqual(await root.store.listResumable(), []);
     await assert.rejects(access(join(root.workspaceRoot, ".lazygoal", "goals")));
+});
+
+test("Composition Root 使用覆盖预算创建共享 Compactor", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-budget-root-"));
+    await writeDefaultProfile(workspace);
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        env: {
+            ...environment(),
+            LLM_CONVERSATION_CHAR_BUDGET: "32",
+        },
+    });
+
+    assert.equal(root.conversationCharBudget, 32);
+    assert.deepEqual(
+        await root.contextCompactor.compact([
+            { items: ["old"], characterCount: 32 },
+            { items: ["new"], characterCount: 1 },
+        ]),
+        [{ items: ["new"], characterCount: 1 }],
+    );
 });
 
 test("missing CLI configuration exits before touching the workspace", async () => {

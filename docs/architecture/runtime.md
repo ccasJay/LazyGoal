@@ -40,7 +40,7 @@ Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileGoalSto
 `mtime` 倒序与 `goalId` 平局）详见 Storage 模块文档。Runtime 只依赖 `GoalStore` 与
 `GoalCatalog` Port，不感知文件路径、Schema 或解码器。
 
-Coordinator 对 active Preparation 每轮调用一次 Executor。`question` 保存为真实 assistant 消息并进入 `waiting_input`；`context_ready` 先保存 `planning/active`，再继续生成 task proposal；proposal 与完整批准文本一起保存为 `waiting_approval`。每个继续点都以保存成功为前提。executing Goal 委派给 Scheduler，并在调度结束后重新恢复最新 Goal。
+Coordinator 对 active Preparation 每轮调用一次 Executor。Composition Root 向 Coordinator 与 Runner 注入同一个 ToolRegistry 实例，使 planning 看到的能力集合与 executing 的查找边界一致。`gathering_context` 传入空 ToolDefinition；`planning` 则按冻结 Profile 白名单与当前 ToolRegistry 的已注册交集解析独立 ToolDefinition 副本。Runtime 不根据 Prompt Bundle 版本筛选这些描述，是否展示由 Agent 决定。`question` 保存为真实 assistant 消息并进入 `waiting_input`；`context_ready` 先保存 `planning/active`，再继续生成 task proposal；proposal 与完整批准文本一起保存为 `waiting_approval`。每个继续点都以保存成功为前提。解析失败发生在 Executor 调用与新状态保存前。executing Goal 委派给 Scheduler，并在调度结束后重新恢复最新 Goal。
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running；`approve_action` 匹配 `awaiting_approval` 或 `outcome_unknown` 的 pendingAction，保存为 `approved` 后透传一次性 `authorizedActionId`；`reject_action` 保存 rejected Observation 后继续推进。以上状态均先保存再继续自动推进。
 

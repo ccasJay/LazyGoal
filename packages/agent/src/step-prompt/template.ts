@@ -6,7 +6,21 @@ import type { PromptTemplateAsset } from "../prompting/types";
  * @remarks
  * 描述模型在执行阶段必须遵守的严格 JSON 输出形状，稳定 ID 为 `agent-decision@1`。
  */
-export const AGENT_DECISION_TEMPLATE: PromptTemplateAsset = {
+export const AGENT_DECISION_TEMPLATE_V1: PromptTemplateAsset = {
     id: "agent-decision@1",
     sourceUrl: new URL("./agent-decision@1.njk", import.meta.url),
 };
+
+/** v2 证据驱动 Action 闭环与严格 AgentDecision 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V2: PromptTemplateAsset = {
+    id: "agent-decision@2",
+    sourceUrl: new URL("./agent-decision@2.njk", import.meta.url),
+};
+
+/**
+ * v1 AgentDecision 模板的兼容别名。
+ *
+ * @remarks
+ * 已发布调用方继续获得不可变的 v1 资产；版本化 Bundle 应显式选择带版本常量。
+ */
+export const AGENT_DECISION_TEMPLATE = AGENT_DECISION_TEMPLATE_V1;

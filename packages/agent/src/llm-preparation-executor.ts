@@ -1,5 +1,6 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { Goal } from "../../runtime/src/domain";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -10,6 +11,8 @@ import type {
     PreparationExecutor,
     PreparationResult,
 } from "../../runtime/src/preparation-executor";
+import type { ContextCompactor } from "./context-compactor";
+import type { ModelConversationMessage } from "./model-inference-view";
 import { buildPreparationRequest } from "./prompt";
 import { parsePreparationResult } from "./response-schema";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -19,7 +22,11 @@ import type { PromptBundleRenderer } from "./prompting/types";
  *
  * @example
  * ```ts
- * const dependencies: LLMPreparationExecutorDependencies = { adapter, renderer };
+ * const dependencies: LLMPreparationExecutorDependencies = {
+ *     adapter,
+ *     renderer,
+ *     contextCompactor,
+ * };
  * ```
  */
 export interface LLMPreparationExecutorDependencies {
@@ -27,21 +34,27 @@ export interface LLMPreparationExecutorDependencies {
     readonly adapter: LLMAdapter;
     /** 由 Composition Root 创建、与 Step Executor 共享的 Prompt Bundle Renderer。 */
     readonly renderer: PromptBundleRenderer;
+    /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
+    readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
 }
 
 /** 使用 LLMAdapter 生成严格 PreparationResult 的准备阶段执行器。 */
 export class LLMPreparationExecutor implements PreparationExecutor {
     private readonly adapter: LLMAdapter;
     private readonly renderer: PromptBundleRenderer;
+    private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
 
-    /** @param dependencies - 具体供应商或测试实现的 LLMAdapter 与共享 Renderer。 */
+    /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMPreparationExecutorDependencies) {
         this.adapter = dependencies.adapter;
         this.renderer = dependencies.renderer;
+        this.contextCompactor = dependencies.contextCompactor;
     }
 
     /**
      * @param goal - active gathering_context 或 planning Goal。
+     * @param tools - Runtime 已解析的授权 Tool 描述；只有 v2 planning 会进入
+     *   PromptContext，其它版本或 Phase 会忽略。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 与当前 phase 严格匹配的 PreparationResult。
      * @throws LLMResponseProtocolError 响应不是合法 JSON、结构错误或分支与
@@ -52,6 +65,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
      */
     async execute(
         goal: Goal,
+        tools: readonly ToolDefinition[],
         control?: ExecutionControl,
     ): Promise<PreparationResult> {
         throwIfAborted(control);
@@ -66,7 +80,14 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             );
         }
 
-        const request = buildPreparationRequest(goal, this.renderer);
+        const request = await buildPreparationRequest(
+            goal,
+            tools,
+            this.renderer,
+            this.contextCompactor,
+            control?.signal,
+        );
+        throwIfAborted(control);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {

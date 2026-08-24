@@ -274,7 +274,7 @@ test("GoalCoordinator does not save a preparation result after abort", async () 
     const store = new InMemoryGoalStore();
     await store.save(goal);
     const preparationExecutor: PreparationExecutor = {
-        async execute(_goal, control) {
+        async execute(_goal, _tools, control) {
             assert.strictEqual(control?.signal, controller.signal);
             controller.abort();
             return { kind: "context_ready" };
