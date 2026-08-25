@@ -48,7 +48,7 @@
   - 更新 session-screen 测试：`/Working/` 断言改为新文案
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 9. SessionScreen ActionPanel 统一 ConfirmInput 并删冗余 Spinner
+- [x] //TODO 9. SessionScreen ActionPanel 统一 ConfirmInput 并删冗余 Spinner
 
   - ActionPanel：ConfirmInput 保持挂载并 `isDisabled={busy}`（不再 busy 时卸载），`actionId === undefined` 时不渲染控件；删除 ActionPanel 内的 `<Spinner>`
   - 更新 session-screen 测试：Action 批准后控件保持挂载、同屏单 Spinner

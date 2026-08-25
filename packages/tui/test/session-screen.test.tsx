@@ -219,6 +219,44 @@ test("SessionScreen displays an Action and approves the exact actionId once", as
     assert.deepEqual(approved, ["action-1"]);
 });
 
+test("SessionScreen keeps Action approval mounted but disabled while busy", async () => {
+    const goal = executingGoal("goal-action-busy");
+    const currentGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingAction: action(),
+            },
+        },
+    };
+    const approved: string[] = [];
+    const instance = render(
+        <SessionScreen
+            session={session(currentGoal, {
+                busy: true,
+                waitingFor: "action_approval",
+                pendingAction: action(),
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={(actionId) => {
+                approved.push(actionId);
+            }}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Advancing/);
+    assert.match(frame, /Press Y to approve or N to reject with a reason/);
+    assert.doesNotMatch(frame, /Working/);
+    instance.stdin.write("y");
+    await nextFrame();
+    assert.deepEqual(approved, []);
+});
+
 test("SessionScreen requires a reason when rejecting an Action", async () => {
     const goal = executingGoal("goal-action-reject");
     const currentGoal: Goal = {

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Static, Text } from "ink";
-import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
+import { ConfirmInput, TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiTerminalSummary } from "./types";
@@ -295,10 +295,11 @@ function ActionPanel({
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
-            {actionId === undefined || busy ? null : feedbackMode ? (
+            {actionId === undefined ? null : feedbackMode ? (
                 <Box flexDirection="column" gap={1}>
                     <Text>Why should this Action be rejected?</Text>
                     <TextInput
+                        isDisabled={busy}
                         placeholder="Provide a non-empty reason..."
                         onSubmit={handleReject}
                     />
@@ -307,6 +308,7 @@ function ActionPanel({
                 <Box flexDirection="column" gap={1}>
                     <ConfirmInput
                         submitOnEnter={false}
+                        isDisabled={busy}
                         onConfirm={handleApprove}
                         onCancel={() => {
                             submitGate.clearError();
@@ -316,7 +318,6 @@ function ActionPanel({
                     <Text dimColor>Press Y to approve or N to reject with a reason.</Text>
                 </Box>
             )}
-            {busy ? <Spinner label="Working..." /> : null}
         </Box>
     );
 }
