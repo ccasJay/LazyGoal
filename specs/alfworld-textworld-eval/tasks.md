@@ -28,7 +28,7 @@
   - 测试 Profile 授权、基础 Tool 语义复用、reset/step 状态、领域命令失败、`won`/`done` 观察和 manual replay 行为。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 5. 实现 EvaluationRunner、Goal 驱动循环和评测报告聚合
+- [x] //TODO 5. 实现 EvaluationRunner、Goal 驱动循环和评测报告聚合
 
   - 新增 `evaluation-runner.ts`，装配已校验 Profile、专用 ToolRegistry、自动放行 Policy、隔离 GoalStore、`LLMStepExecutor` 和现有 `Runner`。
   - 新增 `report.ts`，记录每次 attempt 的环境事实、Profile/Prompt/Manifest 标识、重试序号和错误类别，按 `won` 聚合成功率、平均步数和失败分类。
