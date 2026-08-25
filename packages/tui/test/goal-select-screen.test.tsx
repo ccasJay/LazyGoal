@@ -110,5 +110,5 @@ test("GoalSelectScreen displays Catalog errors and disables selection while busy
     assert.deepEqual(selected, []);
     assert.match(instance.lastFrame() ?? "", /INVALID_GOAL_SNAPSHOT/);
     assert.match(instance.lastFrame() ?? "", /Goal snapshot is invalid/);
-    assert.match(instance.lastFrame() ?? "", /Working/);
+    assert.match(instance.lastFrame() ?? "", /Resuming goal/);
 });

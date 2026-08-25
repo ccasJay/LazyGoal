@@ -1,10 +1,12 @@
 import React, { useCallback, useMemo } from "react";
 import { Box, Text } from "ink";
-import { Select, Spinner } from "@inkjs/ui";
+import { Select } from "@inkjs/ui";
 
 import type { GoalCatalogEntry } from "../../runtime/src/index";
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
+import { ErrorLine } from "./error-line";
+import { StatusSpinner } from "./status-spinner";
 
 /**
  * GoalSelectScreen 的渲染与恢复命令回调边界。
@@ -65,19 +67,19 @@ export function GoalSelectScreen({
         });
     }, [onSelect, selectGate]);
 
-    const visibleError = selectGate.validationError ?? error?.message;
+    const errorView = selectGate.validationError !== undefined
+        ? { message: selectGate.validationError }
+        : error === undefined
+            ? undefined
+            : { code: error.code, message: error.message };
 
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">Resume a Goal</Text>
-            {visibleError !== undefined
-                ? <Text color="red">
-                    Error{error === undefined ? "" : ` [${error.code}]`}: {visibleError}
-                </Text>
-                : null}
+            {errorView === undefined ? null : <ErrorLine error={errorView} />}
             {goals.length === 0 ? (
                 <Box flexDirection="column" gap={1}>
-                    {visibleError === undefined
+                    {errorView === undefined
                         ? <Text>No resumable Goals found.</Text>
                         : null}
                     <Text dimColor>Press Ctrl+C to exit.</Text>
@@ -93,7 +95,7 @@ export function GoalSelectScreen({
                     />
                 </Box>
             )}
-            {busy ? <Spinner label="Working..." /> : null}
+            {busy ? <StatusSpinner label="Resuming goal..." /> : null}
         </Box>
     );
 }

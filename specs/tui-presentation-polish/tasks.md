@@ -18,7 +18,7 @@
   - 更新对应 intent 测试断言新文案与错误格式
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 4. GoalSelectScreen 接入两原语
+- [x] //TODO 4. GoalSelectScreen 接入两原语
 
   - goal-select-screen.tsx：`<Spinner>` 换为 `<StatusSpinner label="Resuming goal..."/>`，错误 `Text` 换为 `<ErrorLine>`，校验与业务错误统一优先级
   - 更新对应 goal-select 测试断言
