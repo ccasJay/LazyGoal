@@ -21,7 +21,7 @@
   - 使用假的 child process 覆盖初始化、单步、关闭、冲突请求、超时和基础设施退出语义。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 4. 接入 ALFWorld Profile、基础 Tool 和专用环境 Tool
+- [x] //TODO 4. 接入 ALFWorld Profile、基础 Tool 和专用环境 Tool
 
   - 提供 `benchmarks/alfworld/profile/alfworld-profile.json` 模板，并实现从 `.lazygoal/profile/<profileId>.json` 加载、Schema/ID/Tool 白名单校验和 Profile 标识冻结。
   - 复用现有 `ReadFileTool`、`GrepTool`；实现 `AlfworldResetTool`、`AlfworldStepTool` 的环境状态机和 Observation 转换，不复制文件读取、搜索或路径沙箱逻辑，不注册 Bash、写入或编辑 Tool。
