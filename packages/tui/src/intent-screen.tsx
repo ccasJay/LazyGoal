@@ -1,9 +1,11 @@
 import React, { useCallback } from "react";
 import { Box, Text } from "ink";
-import { Spinner, TextInput } from "@inkjs/ui";
+import { TextInput } from "@inkjs/ui";
 
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
+import { ErrorLine } from "./error-line";
+import { StatusSpinner } from "./status-spinner";
 
 /**
  * IntentScreen 的渲染与命令回调边界。
@@ -51,22 +53,23 @@ export function IntentScreen({
         });
     }, [onSubmit, submitGate]);
 
+    const errorView = submitGate.validationError !== undefined
+        ? { message: submitGate.validationError }
+        : error === undefined
+            ? undefined
+            : { code: error.code, message: error.message };
+
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">LazyGoal</Text>
             <Text>What would you like to accomplish?</Text>
-            {submitGate.validationError === undefined && error !== undefined
-                ? <Text color="red">Error: {error.message}</Text>
-                : null}
-            {submitGate.validationError !== undefined
-                ? <Text color="red">Error: {submitGate.validationError}</Text>
-                : null}
+            {errorView === undefined ? null : <ErrorLine error={errorView} />}
             <TextInput
                 isDisabled={busy}
                 placeholder="Describe your goal..."
                 onSubmit={handleSubmit}
             />
-            {busy ? <Spinner label="Working..." /> : null}
+            {busy ? <StatusSpinner label="Creating goal..." /> : null}
         </Box>
     );
 }

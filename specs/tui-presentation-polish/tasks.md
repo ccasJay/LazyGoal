@@ -12,7 +12,7 @@
   - 新增 packages/tui/test/error-line.test.tsx，断言有 code 与无 code 两种格式
   - _Requirements: [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 3. IntentScreen 接入两原语
+- [x] //TODO 3. IntentScreen 接入两原语
 
   - intent-screen.tsx：`<Spinner>` 换为 `<StatusSpinner label="Creating goal..."/>`，错误 `Text` 换为 `<ErrorLine>`；本地校验错误包装为 `{message}`、业务错误透传 `UiError`，按 validationError ?? error 统一优先级
   - 更新对应 intent 测试断言新文案与错误格式

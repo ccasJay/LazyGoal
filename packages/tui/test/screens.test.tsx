@@ -256,7 +256,7 @@ test("IntentScreen disables input and shows progress while busy", async () => {
     await nextFrame();
 
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Working/);
+    assert.match(instance.lastFrame() ?? "", /Creating goal/);
 });
 
 test("PreparationScreen displays an Agent question and submits a message", async () => {
