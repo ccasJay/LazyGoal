@@ -78,7 +78,7 @@
   - 更新/保留 cli 测试，确认 busy/关闭拒绝与正常路径不回归
   - _Requirements: [8.1](./requirements.md#req-8-1), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 14. 全量验证
+- [x] //TODO 14. 全量验证
 
   - 跑 `npx tsx --test packages/tui/test/*.test.tsx` 与 `npx tsc --noEmit` 全绿；补齐前述任务遗留的断言
   - _Requirements: [7.3](./requirements.md#req-7-3), [8.3](./requirements.md#req-8-3)_
