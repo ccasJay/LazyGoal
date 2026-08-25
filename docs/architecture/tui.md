@@ -26,6 +26,7 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 ```mermaid
 flowchart LR
     CLI[lazygoal / -c / resume] --> B[Composition Root]
+    CLI -->|仅显式 eval alfworld| E[benchmarks Evaluation CLI]
     P[.lazygoal/profiles/default.json] --> B
     B --> I[Intent or UI input]
     I --> C[SessionController]
@@ -92,6 +93,8 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 
 - CLI bin shim 通过绝对解析的 `tsx/esm` loader 启动 TSX 源码，因此从其他
   workspace 调用时仍保留当前项目根的依赖解析，而快照路径仍按调用方 cwd 隔离。
+  只有参数前缀严格为 `eval alfworld` 时才转发到 benchmarks 评测入口；普通 CLI
+  参数不会加载 ALFWorld Profile、Conda 或 sidecar。
 - 第一次 raw-mode Ctrl+C 或 SIGINT 进入同一个幂等流程：Controller 先切换
   `shutting_down`，随后冻结 Checkpoint Gate、abort 根 signal、卸载 Ink 并等待
   `waitUntilExit()`，最后由 `ShutdownCoordinator` 等待已进入的原子保存和受管

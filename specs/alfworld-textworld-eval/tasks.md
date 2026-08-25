@@ -35,7 +35,7 @@
   - 用假的 LLM、GoalStore、Session 和 Runner 验证环境成功优先于模型 `complete`、基础设施重试不覆盖原始 attempt，并保留机器可读报告结构。
   - _Requirements: [3.4](./requirements.md#req-3-4), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 6. 增加显式 `lazygoal eval alfworld` 入口与报告阈值退出
+- [x] //TODO 6. 增加显式 `lazygoal eval alfworld` 入口与报告阈值退出
 
   - 实现 benchmarks CLI 的 Profile、Manifest、报告输出和成功率阈值参数，并让根 `bin/lazygoal.cjs` 仅转发显式 `eval alfworld` 参数；普通 `lazygoal` 和 `resume` 路径保持原有加载与 Registry。
   - 在模型请求和 sidecar 启动前报告 Profile、Manifest、Conda 或 Tool 配置错误；阈值未达成时保留完整 JSON 报告并返回非零结果。

@@ -7,7 +7,8 @@
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/alfworld/*.test.ts",
     "alfworld:init": "tsx scripts/init-alfworld.ts",
-    "alfworld:preflight": "tsx scripts/preflight-alfworld.ts"
+    "alfworld:preflight": "tsx scripts/preflight-alfworld.ts",
+    "alfworld:eval": "tsx src/alfworld/cli.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

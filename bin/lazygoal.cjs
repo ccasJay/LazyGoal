@@ -3,11 +3,15 @@
 const { spawnSync } = require("node:child_process");
 const { resolve } = require("node:path");
 
-const source = resolve(__dirname, "../packages/tui/src/cli.tsx");
+const argv = process.argv.slice(2);
+const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
+const source = isAlfworldEval
+    ? resolve(__dirname, "../benchmarks/src/alfworld/cli.ts")
+    : resolve(__dirname, "../packages/tui/src/cli.tsx");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 const result = spawnSync(
     process.execPath,
-    ["--import", tsxLoader, source, ...process.argv.slice(2)],
+    ["--import", tsxLoader, source, ...argv],
     { stdio: "inherit" },
 );
 
