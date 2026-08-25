@@ -257,6 +257,46 @@ test("SessionScreen keeps Action approval mounted but disabled while busy", asyn
     assert.deepEqual(approved, []);
 });
 
+test("SessionScreen folds oversized Action input and preserves short input", () => {
+    const goal = executingGoal("goal-action-input");
+    const largeAction: PendingAction = {
+        status: "awaiting_approval",
+        action: {
+            actionId: "action-large-input",
+            toolId: "write_file",
+            input: { content: "x".repeat(700) },
+        },
+    };
+    const currentGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingAction: largeAction,
+            },
+        },
+    };
+
+    const instance = render(
+        <SessionScreen
+            session={session(currentGoal, {
+                waitingFor: "action_approval",
+                pendingAction: largeAction,
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Action ID: action-large-input/);
+    assert.match(frame, /…\s*\(\d+ chars truncated\)/);
+    assert.doesNotMatch(frame, /x{700}/);
+});
+
 test("SessionScreen requires a reason when rejecting an Action", async () => {
     const goal = executingGoal("goal-action-reject");
     const currentGoal: Goal = {

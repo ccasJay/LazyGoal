@@ -54,7 +54,7 @@
   - 更新 session-screen 测试：Action 批准后控件保持挂载、同屏单 Spinner
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 10. SessionScreen ActionDetails JSON 截断
+- [x] //TODO 10. SessionScreen ActionDetails JSON 截断
 
   - session-screen.tsx ActionDetails：模块常量 `MAX_ACTION_JSON_CHARS = 500`；formatJson 超 500 则 `slice(0, 500)` + dimColor `…(N chars truncated)`，否则完整
   - 新增/更新断言：超长折叠、短输入完整

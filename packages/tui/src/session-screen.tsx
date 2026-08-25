@@ -8,6 +8,8 @@ import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
 
+const MAX_ACTION_JSON_CHARS = 500;
+
 /**
  * SessionScreen 的执行交互回调边界。
  *
@@ -338,7 +340,12 @@ function ActionDetails({ action }: ActionDetailsProps): React.JSX.Element {
 }
 
 function formatJson(value: JsonValue): string {
-    return JSON.stringify(value, null, 2);
+    const serialized = JSON.stringify(value, null, 2);
+    if (serialized.length <= MAX_ACTION_JSON_CHARS) {
+        return serialized;
+    }
+
+    return `${serialized.slice(0, MAX_ACTION_JSON_CHARS)}… (${serialized.length - MAX_ACTION_JSON_CHARS} chars truncated)`;
 }
 
 interface TerminalPanelProps {
