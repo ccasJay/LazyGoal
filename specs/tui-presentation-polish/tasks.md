@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 新增 StatusSpinner 原语与测试
+- [x] //TODO 1. 新增 StatusSpinner 原语与测试
 
   - 创建 packages/tui/src/status-spinner.tsx：`<StatusSpinner label/>` 渲染 `@inkjs/ui` 的 `Spinner`；经 index.ts barrel 导出
   - 新增 packages/tui/test/status-spinner.test.tsx，断言 label 透传渲染
