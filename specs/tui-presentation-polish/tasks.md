@@ -36,7 +36,7 @@
   - 更新 preparation 测试断言新文案与错误格式
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 7. PreparationScreen ProposalPanel ConfirmInput 统一
+- [x] //TODO 7. PreparationScreen ProposalPanel ConfirmInput 统一
 
   - proposal ConfirmInput 加 `submitOnEnter={false}`、`isDisabled={busy}`（保持挂载 disable），dimColor 提示语与 Y/N 行为相符
   - 更新 preparation 测试：Enter 不触发批准

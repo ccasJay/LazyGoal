@@ -341,6 +341,9 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
 
     assert.match(instance.lastFrame() ?? "", /Task proposal/);
     assert.match(instance.lastFrame() ?? "", /Implement persistence/);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.equal(approved, 0);
     instance.stdin.write("y");
     await nextFrame();
     assert.equal(approved, 1);

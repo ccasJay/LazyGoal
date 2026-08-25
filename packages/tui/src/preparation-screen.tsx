@@ -180,6 +180,7 @@ function ProposalPanel({
             ) : (
                 <Box flexDirection="column" gap={1}>
                     <ConfirmInput
+                        submitOnEnter={false}
                         isDisabled={busy}
                         onConfirm={onApprove}
                         onCancel={onFeedback}
