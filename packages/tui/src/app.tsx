@@ -33,7 +33,7 @@ export interface TuiAppProps {
  * @param props - SessionController 依赖。
  * @returns Ink 渲染树。
  */
-export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Element {
+export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Element | null {
     const shutdownRequested = useRef(false);
     const requestShutdown = useCallback(() => {
         if (shutdownRequested.current) {
@@ -116,5 +116,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     <Text>Shutting down...</Text>
                 </Box>
             );
+        default:
+            return null;
     }
 }

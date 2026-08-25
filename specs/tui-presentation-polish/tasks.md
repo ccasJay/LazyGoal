@@ -66,7 +66,7 @@
   - 更新 session-screen 测试：blocked 提交后输入框清空、同一 blocked 再现时为空
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 12. terminalFor 简化与 app.tsx switch 兜底
+- [x] //TODO 12. terminalFor 简化与 app.tsx switch 兜底
 
   - session-screen.tsx `terminalFor` 简化为 `return session.terminal`（删 runStatus 终态 fallback）；app.tsx `switch (snapshot.screen)` 补 `default: return null`
   - 更新/保留终态测试，确认终态展示与路由不回归

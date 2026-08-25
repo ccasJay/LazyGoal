@@ -83,15 +83,7 @@ export function SessionScreen({
 }
 
 function terminalFor(session: UiSessionViewModel): UiTerminalSummary | undefined {
-    if (session.terminal !== undefined) {
-        return session.terminal;
-    }
-
-    return session.runStatus === "completed"
-        || session.runStatus === "failed"
-        || session.runStatus === "cancelled"
-        ? { status: session.runStatus }
-        : undefined;
+    return session.terminal;
 }
 
 interface MessageLineProps {
