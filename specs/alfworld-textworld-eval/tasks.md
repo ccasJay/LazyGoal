@@ -7,7 +7,7 @@
   - 增加配置成功、缺失数据、平台架构选择和未显式启用评测时的自动化测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 实现固定任务 Manifest 解析与可复现校验
+- [x] //TODO 2. 实现固定任务 Manifest 解析与可复现校验
 
   - 新增 `benchmarks/src/alfworld/manifest.ts`，校验相对 `gameFile`、`taskId`、split、顺序、seed 和单任务步数上限。
   - 拒绝绝对路径、越出 `ALFWORLD_DATA` 的路径和不稳定的隐式任务抽样；保留 Smoke 与 Regression 的固定清单入口。
