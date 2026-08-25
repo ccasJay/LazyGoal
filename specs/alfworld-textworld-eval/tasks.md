@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立 benchmarks package、Conda 环境和 ALFWorld 预检入口
+- [x] //TODO 1. 建立 benchmarks package、Conda 环境和 ALFWorld 预检入口
 
   - 新增 `benchmarks/package.json`、独立 `tsconfig.json`、`alfworld/environment.yml` 及初始化/预检脚本，锁定 Python、ALFWorld、TextWorld 和平台架构配置；提供 `alfworld/README.md` 中可复制的 Conda、数据下载和 Apple Silicon 初始化命令。
   - 实现 `ALFWORLD_PYTHON`、`ALFWORLD_DATA`、版本、数据目录和 TextWorld 能力校验；普通 Node/TypeScript 测试路径不得创建 Conda 进程。

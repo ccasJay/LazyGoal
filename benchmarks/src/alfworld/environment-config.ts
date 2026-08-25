@@ -1,0 +1,333 @@
+import { access, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+
+export const ALFWORLD_ENVIRONMENT_NAME = "lazygoal-alfworld";
+export const ALFWORLD_VERSION = "0.4.2";
+export const TEXTWORLD_VERSION = "1.6.2";
+export const ALFWORLD_PYTHON_ENV = "ALFWORLD_PYTHON";
+export const ALFWORLD_DATA_ENV = "ALFWORLD_DATA";
+
+export type CondaSubdir = "linux-64" | "osx-64" | "osx-arm64" | "win-64";
+
+/**
+ * ALFWorld TextWorld 评测所需的进程配置。
+ *
+ * @remarks
+ * 配置只描述显式评测入口需要的 Python 可执行文件、数据根和版本约束，
+ * 不会创建 Conda 环境，也不会触发外部进程。普通 LazyGoal 测试可以安全地
+ * 使用此配置解析函数而无需安装 ALFWorld。
+ *
+ * @example
+ * ```ts
+ * const config = resolveAlfworldEnvironment({
+ *   env: { ALFWORLD_PYTHON: "/opt/conda/envs/lazygoal-alfworld/bin/python", ALFWORLD_DATA: "/data/alfworld" },
+ * });
+ * ```
+ */
+export interface AlfworldEnvironmentConfig {
+    readonly environmentName: string;
+    readonly pythonExecutable: string;
+    readonly dataRoot: string;
+    readonly alfworldVersion: string;
+    readonly textworldVersion: string;
+    readonly condaSubdir: CondaSubdir | undefined;
+    readonly textworldOnly: true;
+}
+
+export interface EnvironmentConfigInput {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly platform?: NodeJS.Platform;
+    readonly arch?: string;
+    readonly cwd?: string;
+}
+
+export type AlfworldConfigurationErrorCode =
+    | "MISSING_PYTHON"
+    | "MISSING_DATA"
+    | "INVALID_DATA_PATH"
+    | "UNSUPPORTED_PLATFORM";
+
+/**
+ * ALFWorld 配置不满足显式评测前置条件时抛出的错误。
+ *
+ * @example
+ * ```ts
+ * try {
+ *   resolveAlfworldEnvironment({ env: {} });
+ * } catch (error) {
+ *   if (error instanceof AlfworldConfigurationError) console.error(error.code);
+ * }
+ * ```
+ */
+export class AlfworldConfigurationError extends Error {
+    readonly name = "AlfworldConfigurationError";
+
+    constructor(
+        readonly code: AlfworldConfigurationErrorCode,
+        message: string,
+    ) {
+        super(message);
+    }
+}
+
+/**
+ * 返回当前平台在 Conda 中应使用的包架构。
+ *
+ * @remarks
+ * Apple Silicon 明确选择 `osx-64`，以匹配 ALFWorld/TextWorld 的已验证依赖；
+ * 该选择只用于初始化命令和诊断，不会在普通测试中运行 Conda。
+ *
+ * @param platform - Node 平台标识。
+ * @param arch - Node CPU 架构标识。
+ * @param explicit - 调用方显式指定的 Conda 子目录。
+ * @returns 可识别的 Conda 子目录；不支持的平台返回 `undefined`。
+ * @example
+ * ```ts
+ * getCondaSubdir("darwin", "arm64"); // "osx-64"
+ * ```
+ */
+export function getCondaSubdir(
+    platform: NodeJS.Platform,
+    arch: string,
+    explicit?: string,
+): CondaSubdir | undefined {
+    if (explicit !== undefined && explicit.trim() !== "") {
+        if (isCondaSubdir(explicit)) return explicit;
+        throw new AlfworldConfigurationError(
+            "UNSUPPORTED_PLATFORM",
+            `Unsupported ALFWorld Conda subdir: ${explicit}`,
+        );
+    }
+
+    if (platform === "darwin") return "osx-64";
+    if (platform === "linux" && arch === "x64") return "linux-64";
+    if (platform === "win32" && arch === "x64") return "win-64";
+    return undefined;
+}
+
+/**
+ * 从进程环境解析 ALFWorld 配置。
+ *
+ * @param input - 可选环境、平台和工作目录覆盖，主要用于测试。
+ * @returns 已解析且未执行外部副作用的配置。
+ * @throws 缺少 Python、数据根或架构配置无效时抛出 `AlfworldConfigurationError`。
+ * @example
+ * ```ts
+ * const config = resolveAlfworldEnvironment();
+ * console.log(config.dataRoot);
+ * ```
+ */
+export function resolveAlfworldEnvironment(
+    input: EnvironmentConfigInput = {},
+): AlfworldEnvironmentConfig {
+    const env = input.env ?? process.env;
+    const pythonExecutable = env[ALFWORLD_PYTHON_ENV]?.trim();
+    if (pythonExecutable === undefined || pythonExecutable.length === 0) {
+        throw new AlfworldConfigurationError(
+            "MISSING_PYTHON",
+            `Missing required environment variable: ${ALFWORLD_PYTHON_ENV}`,
+        );
+    }
+
+    const dataValue = env[ALFWORLD_DATA_ENV]?.trim();
+    if (dataValue === undefined || dataValue.length === 0) {
+        throw new AlfworldConfigurationError(
+            "MISSING_DATA",
+            `Missing required environment variable: ${ALFWORLD_DATA_ENV}`,
+        );
+    }
+
+    const dataRoot = resolve(input.cwd ?? process.cwd(), dataValue);
+    if (!isAbsolute(dataValue)) {
+        throw new AlfworldConfigurationError(
+            "INVALID_DATA_PATH",
+            `${ALFWORLD_DATA_ENV} must be an absolute directory: ${dataValue}`,
+        );
+    }
+
+    const condaSubdir = getCondaSubdir(
+        input.platform ?? process.platform,
+        input.arch ?? process.arch,
+        env.CONDA_SUBDIR,
+    );
+
+    return {
+        environmentName: env.ALFWORLD_CONDA_ENV?.trim() || ALFWORLD_ENVIRONMENT_NAME,
+        pythonExecutable,
+        dataRoot,
+        alfworldVersion: ALFWORLD_VERSION,
+        textworldVersion: TEXTWORLD_VERSION,
+        condaSubdir,
+        textworldOnly: true,
+    };
+}
+
+export interface AlfworldPreflightResult {
+    readonly pythonVersion: string;
+    readonly alfworldVersion: string;
+    readonly textworldVersion: string;
+    readonly dataRoot: string;
+    readonly textworldOnly: true;
+}
+
+export interface PythonProbeResult {
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly exitCode: number;
+}
+
+export interface AlfworldPreflightDependencies {
+    readonly probePython: (
+        executable: string,
+        script: string,
+        env: NodeJS.ProcessEnv,
+    ) => Promise<PythonProbeResult>;
+    readonly isDirectory?: (path: string) => Promise<boolean>;
+}
+
+export type AlfworldPreflightErrorCode =
+    | "DATA_NOT_FOUND"
+    | "PYTHON_PROBE_FAILED"
+    | "INVALID_PYTHON_PROBE"
+    | "VERSION_MISMATCH";
+
+/**
+ * 显式评测启动前的 Python、数据和 TextWorld 能力检查错误。
+ *
+ * @example
+ * ```ts
+ * const result = await preflightAlfworldEnvironment(config, dependencies);
+ * console.log(result.textworldOnly);
+ * ```
+ */
+export class AlfworldPreflightError extends Error {
+    readonly name = "AlfworldPreflightError";
+
+    constructor(
+        readonly code: AlfworldPreflightErrorCode,
+        message: string,
+    ) {
+        super(message);
+    }
+}
+
+const PYTHON_PROBE = [
+    "import importlib.metadata, json, os, sys",
+    "import alfworld, textworld",
+    "def package_version(module, package):",
+    "  return getattr(module, '__version__', importlib.metadata.version(package))",
+    "print(json.dumps({",
+    "  'pythonVersion': sys.version.split()[0],",
+    "  'alfworldVersion': package_version(alfworld, 'alfworld'),",
+    "  'textworldVersion': package_version(textworld, 'textworld'),",
+    "  'dataRoot': os.environ.get('ALFWORLD_DATA', ''),",
+    "  'textworldOnly': True,",
+    "}))",
+].join("\\n");
+
+/**
+ * 执行 ALFWorld 显式入口的无模型预检。
+ *
+ * @remarks
+ * 该函数只在调用方明确启动评测时运行 Python；测试可注入 `probePython`，
+ * 因此普通 Node/TypeScript 测试不会创建 Conda 进程。
+ *
+ * @param config - 已解析的 ALFWorld 环境配置。
+ * @param dependencies - Python 探针和数据目录检查器。
+ * @returns Python、ALFWorld、TextWorld 和数据根的机器可读事实。
+ * @throws 数据目录不存在、探针失败、输出非法或版本不匹配时抛出预检错误。
+ * @example
+ * ```ts
+ * const result = await preflightAlfworldEnvironment(config, {
+ *   probePython: runPythonProbe,
+ * });
+ * ```
+ */
+export async function preflightAlfworldEnvironment(
+    config: AlfworldEnvironmentConfig,
+    dependencies: AlfworldPreflightDependencies,
+): Promise<AlfworldPreflightResult> {
+    const isDirectory = dependencies.isDirectory ?? defaultIsDirectory;
+    if (!(await isDirectory(config.dataRoot))) {
+        throw new AlfworldPreflightError(
+            "DATA_NOT_FOUND",
+            `ALFWorld data directory is not available: ${config.dataRoot}`,
+        );
+    }
+
+    const probe = await dependencies.probePython(
+        config.pythonExecutable,
+        PYTHON_PROBE,
+        { ...process.env, ALFWORLD_DATA: config.dataRoot },
+    );
+    if (probe.exitCode !== 0) {
+        throw new AlfworldPreflightError(
+            "PYTHON_PROBE_FAILED",
+            `ALFWorld Python preflight failed with exit code ${probe.exitCode}: ${probe.stderr.trim()}`,
+        );
+    }
+
+    const result = parseProbeResult(probe.stdout);
+    if (
+        result.alfworldVersion !== config.alfworldVersion ||
+        result.textworldVersion !== config.textworldVersion ||
+        result.textworldOnly !== true ||
+        result.dataRoot !== config.dataRoot
+    ) {
+        throw new AlfworldPreflightError(
+            "VERSION_MISMATCH",
+            `ALFWorld/TextWorld version or capability mismatch: expected ${config.alfworldVersion}/${config.textworldVersion} TextWorld-only`,
+        );
+    }
+
+    return result;
+}
+
+function isCondaSubdir(value: string): value is CondaSubdir {
+    return ["linux-64", "osx-64", "osx-arm64", "win-64"].includes(value);
+}
+
+async function defaultIsDirectory(path: string): Promise<boolean> {
+    try {
+        await access(path, constants.R_OK);
+        return (await stat(path)).isDirectory();
+    } catch {
+        return false;
+    }
+}
+
+function parseProbeResult(stdout: string): AlfworldPreflightResult {
+    const line = stdout.trim().split("\\n").at(-1);
+    if (line === undefined || line.length === 0) {
+        throw new AlfworldPreflightError(
+            "INVALID_PYTHON_PROBE",
+            "ALFWorld Python preflight returned no JSON result",
+        );
+    }
+
+    try {
+        const value: unknown = JSON.parse(line);
+        if (!isPreflightResult(value)) throw new Error("shape");
+        return value;
+    } catch {
+        throw new AlfworldPreflightError(
+            "INVALID_PYTHON_PROBE",
+            "ALFWorld Python preflight returned invalid JSON",
+        );
+    }
+}
+
+function isPreflightResult(value: unknown): value is AlfworldPreflightResult {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return (
+        typeof record.pythonVersion === "string" &&
+        typeof record.alfworldVersion === "string" &&
+        typeof record.textworldVersion === "string" &&
+        typeof record.dataRoot === "string" &&
+        record.textworldOnly === true
+    );
+}
+
+export { PYTHON_PROBE };
