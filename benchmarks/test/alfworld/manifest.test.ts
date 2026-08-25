@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 import {
@@ -105,5 +106,22 @@ test("loadManifest parses a fixed file and fixedManifestPath does not sample", a
         assert.equal(fixedManifestPath(workspace, "smoke"), join(workspace, "alfworld/manifests/smoke.json"));
     } finally {
         await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("repository Smoke and Regression manifests are fixed valid_seen task sets", async () => {
+    const benchmarksRoot = fileURLToPath(new URL("../../", import.meta.url));
+    for (const name of ["smoke", "regression"] as const) {
+        const loaded = await loadManifest(
+            fixedManifestPath(benchmarksRoot, name),
+            "/absolute/alfworld-data",
+        );
+        assert.equal(loaded.name, name);
+        assert.ok(loaded.tasks.length >= 1);
+        assert.ok(loaded.tasks.every((task) => task.split === "valid_seen"));
+        assert.deepEqual(
+            loaded.tasks.map((task) => task.order),
+            loaded.tasks.map((_task, index) => index),
+        );
     }
 });

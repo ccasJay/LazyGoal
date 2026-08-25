@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { AgentProfile } from "../../../packages/runtime/src/index.js";
+import {
+    ExecutionAbortedError,
+    type AgentProfile,
+} from "../../../packages/runtime/src/index.js";
 import {
     EvaluationRunner,
     createRunnerEpisodeExecutor,
@@ -210,4 +213,26 @@ test("Runner Episode executor assembles the isolated store, authorized tools and
     assert.deepEqual(result.model, { runStatus: "completed", completed: true });
     assert.equal(result.failure, undefined);
     assert.equal(closed, 1);
+});
+
+test("evaluation abort stops before the next task and does not create a fake attempt", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const evaluator = new EvaluationRunner({
+        metadata,
+        executeEpisode: async () => {
+            calls += 1;
+            return execution(
+                { done: true, won: true, steps: 1, goalConditionSuccessRate: 1 },
+                { runStatus: "completed", completed: true },
+            );
+        },
+    });
+
+    await assert.rejects(
+        evaluator.run(controller.signal),
+        (error: unknown) => error instanceof ExecutionAbortedError,
+    );
+    assert.equal(calls, 0);
 });

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "name": "smoke",
+  "tasks": [
+    {
+      "order": 0,
+      "taskId": "valid_seen-0000-pick_two_obj_and_place-spraybottle-toilet-429",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/pick_two_obj_and_place-SprayBottle-None-Toilet-429/trial_T20190907_033843_707544/game.tw-pddl",
+      "seed": 0,
+      "maxSteps": 100
+    }
+  ]
+}

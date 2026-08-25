@@ -42,7 +42,7 @@
   - 增加 CLI 集成测试，验证 Profile 缺失/非法、Bash 未授权、报告解析、阈值退出和普通 CLI 不加载 ALFWorld。
   - _Requirements: [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 7. 完成显式 Smoke/Regression 与全量回归验证
+- [x] //TODO 7. 完成显式 Smoke/Regression 与全量回归验证
 
   - 增加一个固定 `valid_seen` Smoke 和固定任务集 Regression 命令，覆盖真实 Conda/ALFWorld 环境、报告生成、任务清理和失败分类；未配置环境时只在显式入口失败。
   - 增加中止、sidecar 意外退出、环境拒绝命令、任务终态和清理幂等的端到端自动化测试，确认不写入虚假成功 Observation。

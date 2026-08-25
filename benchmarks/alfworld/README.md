@@ -35,6 +35,19 @@ npm --prefix benchmarks run alfworld:preflight
 
 预检会在模型请求前验证 Python、固定的 ALFWorld/TextWorld 版本、数据目录和 TextWorld-only 能力。预检失败时不会开始评测。
 
+## 固定评测命令
+
+完成环境初始化后，可以运行固定的 Smoke 或 Regression 清单。两条命令都会输出
+机器可读报告；可在命令末尾追加 `--min-success-rate 0.8` 设置回归阈值。
+
+```sh
+npm --prefix benchmarks run alfworld:smoke
+npm --prefix benchmarks run alfworld:regression
+```
+
+清单位于 `alfworld/manifests/smoke.json` 和 `alfworld/manifests/regression.json`，
+只引用 `valid_seen` 下固定的 `game.tw-pddl` 路径，不在运行时抽样或重排任务。
+
 ## 固定版本
 
 `environment.yml` 固定 Python 3.9、ALFWorld 0.4.2 和 TextWorld 1.6.2。若上游环境实现发生变化，应先更新 sidecar 的验证和清单，不要在一次评测中隐式替换依赖版本。

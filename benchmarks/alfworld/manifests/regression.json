@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "name": "regression",
+  "tasks": [
+    {
+      "order": 0,
+      "taskId": "valid_seen-0000-pick_two_obj_and_place-spraybottle-toilet-429",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/pick_two_obj_and_place-SprayBottle-None-Toilet-429/trial_T20190907_033843_707544/game.tw-pddl",
+      "seed": 0,
+      "maxSteps": 100
+    },
+    {
+      "order": 1,
+      "taskId": "valid_seen-0001-pick_two_obj_and_place-toiletpaper-drawer-423",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/pick_two_obj_and_place-ToiletPaper-None-Drawer-423/trial_T20190907_111251_461099/game.tw-pddl",
+      "seed": 1,
+      "maxSteps": 100
+    },
+    {
+      "order": 2,
+      "taskId": "valid_seen-0002-pick_and_place_simple-spraybottle-toilet-418",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/pick_and_place_simple-SprayBottle-None-Toilet-418/trial_T20190906_190942_706186/game.tw-pddl",
+      "seed": 2,
+      "maxSteps": 100
+    },
+    {
+      "order": 3,
+      "taskId": "valid_seen-0003-look_at_obj_in_light-bowl-desklamp-316",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/look_at_obj_in_light-Bowl-None-DeskLamp-316/trial_T20190908_230702_962704/game.tw-pddl",
+      "seed": 3,
+      "maxSteps": 100
+    },
+    {
+      "order": 4,
+      "taskId": "valid_seen-0004-look_at_obj_in_light-pillow-desklamp-302",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/look_at_obj_in_light-Pillow-None-DeskLamp-302/trial_T20190909_150916_682139/game.tw-pddl",
+      "seed": 4,
+      "maxSteps": 100
+    }
+  ]
+}

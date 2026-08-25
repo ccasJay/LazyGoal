@@ -108,8 +108,9 @@ export class ManifestValidationError extends Error {
  * 返回内置 Smoke 或 Regression 清单的固定路径。
  *
  * @remarks
- * 该函数只计算路径，不读取文件、不抽样任务。固定清单文件由后续任务以已验证
- * 的 ALFWorld gamefile 填充；调用方仍必须通过 `loadManifest` 校验其内容。
+ * 该函数只计算路径，不读取文件、不抽样任务。仓库提供的 Smoke 与 Regression
+ * 清单使用固定、可审查的 ALFWorld gamefile；调用方仍必须通过 `loadManifest`
+ * 校验其内容。
  *
  * @param benchmarksRoot - `benchmarks` package 的绝对根目录。
  * @param name - 固定清单名称。
