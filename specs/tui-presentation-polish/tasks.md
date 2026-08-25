@@ -60,7 +60,7 @@
   - 新增/更新断言：超长折叠、短输入完整
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 11. TextInput 受控并提交后清空
+- [x] //TODO 11. TextInput 受控并提交后清空
 
   - QuestionPanel、BlockedPanel、两处 feedback 的 `TextInput` 改受控（`value` + `onChange`），在 `useSubmitGate.attempt` 的 `action()` 回调内 `setValue("")`
   - 更新 session-screen 测试：blocked 提交后输入框清空、同一 blocked 再现时为空

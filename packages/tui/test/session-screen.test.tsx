@@ -176,6 +176,7 @@ test("SessionScreen validates and submits blocked messages", async () => {
     instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(submitted, ["Use the current repository"]);
+    assert.match(instance.lastFrame() ?? "", /Type a message to continue/);
 });
 
 test("SessionScreen displays an Action and approves the exact actionId once", async () => {

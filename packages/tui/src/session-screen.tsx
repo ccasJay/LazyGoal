@@ -208,16 +208,24 @@ interface BlockedPanelProps {
 }
 
 function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.Element {
+    const [value, setValue] = useState("");
+    const [inputKey, setInputKey] = useState(0);
     const submitGate = useSubmitGate(busy, true);
+
+    const clearInput = useCallback(() => {
+        setValue("");
+        setInputKey((key) => key + 1);
+    }, []);
 
     const handleSubmit = useCallback((value: string) => {
         submitGate.attempt(() => {
             void onSubmit(value);
+            clearInput();
         }, {
             value,
             emptyMessage: "Message must not be empty",
         });
-    }, [onSubmit, submitGate]);
+    }, [clearInput, onSubmit, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -225,8 +233,11 @@ function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.
             <Text>{reason ?? "The agent is waiting for your input."}</Text>
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
             <TextInput
+                key={inputKey}
                 isDisabled={busy}
+                defaultValue={value}
                 placeholder="Type a message to continue..."
+                onChange={setValue}
                 onSubmit={handleSubmit}
             />
         </Box>
@@ -249,6 +260,8 @@ function ActionPanel({
     onReject,
 }: ActionPanelProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
+    const [feedbackValue, setFeedbackValue] = useState("");
+    const [feedbackInputKey, setFeedbackInputKey] = useState(0);
     const actionId = pendingAction?.action.actionId;
     const resetKey = useMemo(
         () => [actionId, recovery],
@@ -256,9 +269,15 @@ function ActionPanel({
     );
     const submitGate = useSubmitGate(busy, resetKey);
 
+    const clearFeedbackInput = useCallback(() => {
+        setFeedbackValue("");
+        setFeedbackInputKey((key) => key + 1);
+    }, []);
+
     useEffect(() => {
         setFeedbackMode(false);
-    }, [resetKey]);
+        clearFeedbackInput();
+    }, [clearFeedbackInput, resetKey]);
 
     const handleApprove = useCallback(() => {
         if (actionId === undefined) {
@@ -277,11 +296,12 @@ function ActionPanel({
 
         submitGate.attempt(() => {
             void onReject(actionId, reason);
+            clearFeedbackInput();
         }, {
             value: reason,
             emptyMessage: "Rejection reason must not be empty",
         });
-    }, [actionId, onReject, submitGate]);
+    }, [actionId, clearFeedbackInput, onReject, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -301,8 +321,11 @@ function ActionPanel({
                 <Box flexDirection="column" gap={1}>
                     <Text>Why should this Action be rejected?</Text>
                     <TextInput
+                        key={feedbackInputKey}
                         isDisabled={busy}
+                        defaultValue={feedbackValue}
                         placeholder="Provide a non-empty reason..."
+                        onChange={setFeedbackValue}
                         onSubmit={handleReject}
                     />
                 </Box>

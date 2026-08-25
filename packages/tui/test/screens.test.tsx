@@ -278,6 +278,7 @@ test("PreparationScreen displays an Agent question and submits a message", async
     await nextFrame();
 
     assert.deepEqual(submitted, ["Use SQLite"]);
+    assert.match(instance.lastFrame() ?? "", /Type your answer/);
 });
 
 test("PreparationScreen shows phase-specific progress and business error format", () => {
@@ -368,6 +369,7 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
     await nextFrame();
 
     assert.deepEqual(submitted, ["Add a migration test"]);
+    assert.match(feedbackInstance.lastFrame() ?? "", /Provide non-empty feedback/);
     assert.equal(approved, 1);
 });
 

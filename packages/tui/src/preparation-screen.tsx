@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
@@ -45,24 +45,39 @@ export function PreparationScreen({
     onApproveTask,
 }: PreparationScreenProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
+    const [messageValue, setMessageValue] = useState("");
+    const [messageInputKey, setMessageInputKey] = useState(0);
+    const resetInitialized = useRef(false);
     const resetKey = useMemo(
         () => [session.goal.id, session.waitingFor, session.proposal?.objective],
         [session.goal.id, session.proposal?.objective, session.waitingFor],
     );
     const submitGate = useSubmitGate(session.busy, resetKey);
 
+    const clearMessageInput = useCallback(() => {
+        setMessageValue("");
+        setMessageInputKey((key) => key + 1);
+    }, []);
+
     useEffect(() => {
+        if (!resetInitialized.current) {
+            resetInitialized.current = true;
+            return;
+        }
+
         setFeedbackMode(false);
-    }, [resetKey]);
+        clearMessageInput();
+    }, [clearMessageInput, resetKey]);
 
     const handleMessageSubmit = useCallback((value: string) => {
         submitGate.attempt(() => {
             void onSubmitMessage(value);
+            clearMessageInput();
         }, {
             value,
             emptyMessage: "Message must not be empty",
         });
-    }, [onSubmitMessage, submitGate]);
+    }, [clearMessageInput, onSubmitMessage, submitGate]);
 
     const handleApprove = useCallback(() => {
         submitGate.attempt(() => {
@@ -84,6 +99,9 @@ export function PreparationScreen({
                     {...(session.question === undefined
                         ? {}
                         : { question: session.question })}
+                    value={messageValue}
+                    inputKey={messageInputKey}
+                    onChange={setMessageValue}
                     onSubmit={handleMessageSubmit}
                 />
                 : null}
@@ -97,6 +115,9 @@ export function PreparationScreen({
                         submitGate.clearError();
                         setFeedbackMode(true);
                     }}
+                    value={messageValue}
+                    inputKey={messageInputKey}
+                    onChange={setMessageValue}
                     onSubmitFeedback={handleMessageSubmit}
                 />
                 : null}
@@ -122,17 +143,30 @@ function preparationSpinnerLabel(phase: UiSessionViewModel["phase"]): string {
 interface QuestionPanelProps {
     readonly busy: boolean;
     readonly question?: string;
+    readonly value: string;
+    readonly inputKey: number;
+    readonly onChange: (value: string) => void;
     readonly onSubmit: (value: string) => void;
 }
 
-function QuestionPanel({ busy, question, onSubmit }: QuestionPanelProps): React.JSX.Element {
+function QuestionPanel({
+    busy,
+    question,
+    value,
+    inputKey,
+    onChange,
+    onSubmit,
+}: QuestionPanelProps): React.JSX.Element {
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold>Agent question</Text>
             <Text>{question ?? "The agent is waiting for your answer."}</Text>
             <TextInput
+                key={inputKey}
                 isDisabled={busy}
+                defaultValue={value}
                 placeholder="Type your answer..."
+                onChange={onChange}
                 onSubmit={onSubmit}
             />
         </Box>
@@ -143,6 +177,9 @@ interface ProposalPanelProps {
     readonly busy: boolean;
     readonly feedbackMode: boolean;
     readonly proposal: UiSessionViewModel["proposal"];
+    readonly value: string;
+    readonly inputKey: number;
+    readonly onChange: (value: string) => void;
     readonly onApprove: () => void;
     readonly onFeedback: () => void;
     readonly onSubmitFeedback: (value: string) => void;
@@ -152,6 +189,9 @@ function ProposalPanel({
     busy,
     feedbackMode,
     proposal,
+    value,
+    inputKey,
+    onChange,
     onApprove,
     onFeedback,
     onSubmitFeedback,
@@ -172,8 +212,11 @@ function ProposalPanel({
                 <Box flexDirection="column" gap={1}>
                     <Text>Describe the changes you want:</Text>
                     <TextInput
+                        key={inputKey}
                         isDisabled={busy}
+                        defaultValue={value}
                         placeholder="Provide non-empty feedback..."
+                        onChange={onChange}
                         onSubmit={onSubmitFeedback}
                     />
                 </Box>
