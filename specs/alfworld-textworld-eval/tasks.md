@@ -14,7 +14,7 @@
   - 为合法清单、重复 ID、非法路径和顺序稳定性增加单元测试。
   - _Requirements: [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 3. 实现 Python JSONL sidecar 与 TypeScript SidecarClient 生命周期
+- [x] //TODO 3. 实现 Python JSONL sidecar 与 TypeScript SidecarClient 生命周期
 
   - 编写 `benchmarks/alfworld/python/sidecar.py` 和 `benchmarks/src/alfworld/sidecar-client.ts`，支持 `health`、`reset`、`step`、`close`、单调 `requestId`、单请求串行和有界响应。
   - 使用 `spawn`、`shell: false`、超时和 `AbortSignal` 管理进程；处理中止、退出、非法 JSON、错配响应和并发/重复请求时关闭会话且不重放未知结果。

@@ -35,6 +35,14 @@ export interface AlfworldEnvironmentConfig {
     readonly textworldOnly: true;
 }
 
+/**
+ * 环境配置解析时的可测试覆盖项。
+ *
+ * @example
+ * ```ts
+ * const input: EnvironmentConfigInput = { env: { ALFWORLD_DATA: "/data" } };
+ * ```
+ */
 export interface EnvironmentConfigInput {
     readonly env?: NodeJS.ProcessEnv;
     readonly platform?: NodeJS.Platform;
@@ -163,6 +171,20 @@ export function resolveAlfworldEnvironment(
     };
 }
 
+/**
+ * Python 预检返回的稳定环境事实。
+ *
+ * @example
+ * ```ts
+ * const result: AlfworldPreflightResult = {
+ *   pythonVersion: "3.9.19",
+ *   alfworldVersion: "0.4.2",
+ *   textworldVersion: "1.6.2",
+ *   dataRoot: "/data/alfworld",
+ *   textworldOnly: true,
+ * };
+ * ```
+ */
 export interface AlfworldPreflightResult {
     readonly pythonVersion: string;
     readonly alfworldVersion: string;
@@ -171,12 +193,34 @@ export interface AlfworldPreflightResult {
     readonly textworldOnly: true;
 }
 
+/**
+ * 可注入 Python 探针的进程结果。
+ *
+ * @example
+ * ```ts
+ * const result: PythonProbeResult = { stdout: "{}", stderr: "", exitCode: 0 };
+ * ```
+ */
 export interface PythonProbeResult {
     readonly stdout: string;
     readonly stderr: string;
     readonly exitCode: number;
 }
 
+/**
+ * ALFWorld 预检的外部边界。
+ *
+ * @remarks
+ * 生产入口注入真实 Python 执行器，普通测试注入假的探针和目录检查器，
+ * 从而不会隐式创建 Conda 进程。
+ *
+ * @example
+ * ```ts
+ * const dependencies: AlfworldPreflightDependencies = {
+ *   probePython: async () => ({ stdout: "{}", stderr: "", exitCode: 0 }),
+ * };
+ * ```
+ */
 export interface AlfworldPreflightDependencies {
     readonly probePython: (
         executable: string,
