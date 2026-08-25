@@ -4,6 +4,8 @@ import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
 import type { UiSessionViewModel } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
+import { ErrorLine } from "./error-line";
+import { StatusSpinner } from "./status-spinner";
 
 /**
  * PreparationScreen 的渲染与用户操作回调边界。
@@ -68,12 +70,14 @@ export function PreparationScreen({
         });
     }, [onApproveTask, submitGate]);
 
-    const showError = submitGate.validationError ?? session.error?.message;
+    const errorView = submitGate.validationError !== undefined
+        ? { message: submitGate.validationError }
+        : session.error;
 
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">Goal {session.goal.id}</Text>
-            {showError !== undefined ? <Text color="red">Error: {showError}</Text> : null}
+            {errorView === undefined ? null : <ErrorLine error={errorView} />}
             {session.waitingFor === "question"
                 ? <QuestionPanel
                     busy={session.busy}
@@ -99,9 +103,20 @@ export function PreparationScreen({
             {session.waitingFor !== "question" && session.waitingFor !== "approval"
                 ? <Text color="yellow">Waiting for the next Runtime state.</Text>
                 : null}
-            {session.busy ? <Spinner label="Working..." /> : null}
+            {session.busy ? <StatusSpinner label={preparationSpinnerLabel(session.phase)} /> : null}
         </Box>
     );
+}
+
+function preparationSpinnerLabel(phase: UiSessionViewModel["phase"]): string {
+    switch (phase) {
+        case "gathering_context":
+            return "Gathering context...";
+        case "planning":
+            return "Planning...";
+        default:
+            return "Processing...";
+    }
 }
 
 interface QuestionPanelProps {

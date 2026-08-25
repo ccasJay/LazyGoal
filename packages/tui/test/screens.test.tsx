@@ -280,6 +280,31 @@ test("PreparationScreen displays an Agent question and submits a message", async
     assert.deepEqual(submitted, ["Use SQLite"]);
 });
 
+test("PreparationScreen shows phase-specific progress and business error format", () => {
+    const gathering = render(
+        <PreparationScreen
+            session={{
+                ...questionSession(),
+                busy: true,
+                error: { code: "PREPARATION_FAILED", message: "Context lookup failed" },
+            }}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+        />,
+    );
+    assert.match(gathering.lastFrame() ?? "", /Gathering context/);
+    assert.match(gathering.lastFrame() ?? "", /Error \[PREPARATION_FAILED\]: Context lookup failed/);
+
+    const planning = render(
+        <PreparationScreen
+            session={{ ...proposalSession(), busy: true }}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+        />,
+    );
+    assert.match(planning.lastFrame() ?? "", /Planning/);
+});
+
 test("PreparationScreen rejects blank question answers", async () => {
     const submitted: string[] = [];
     const instance = render(
@@ -296,7 +321,7 @@ test("PreparationScreen rejects blank question answers", async () => {
     await nextFrame();
 
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Message must not be empty/);
+    assert.match(instance.lastFrame() ?? "", /Error: Message must not be empty/);
 });
 
 test("PreparationScreen supports proposal approval and non-empty feedback", async () => {

@@ -30,7 +30,7 @@
   - 更新 goal-select 测试断言截断 id 与选择行为不回归
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 6. PreparationScreen 接入两原语
+- [x] //TODO 6. PreparationScreen 接入两原语
 
   - preparation-screen.tsx：`<Spinner>` 换为 `<StatusSpinner label={phase 映射}/>`（gathering_context→`Gathering context...`、planning→`Planning...`），错误换为 `<ErrorLine>`，校验与业务错误统一优先级
   - 更新 preparation 测试断言新文案与错误格式
