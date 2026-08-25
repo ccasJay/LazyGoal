@@ -42,7 +42,7 @@
   - 更新 preparation 测试：Enter 不触发批准
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 8. SessionStatus 接入 StatusSpinner、label 映射与 UUID 截断
+- [x] //TODO 8. SessionStatus 接入 StatusSpinner、label 映射与 UUID 截断
 
   - session-screen.tsx SessionStatus：`<Spinner>` 换为 `<StatusSpinner label={spinnerLabel(session)}>`（running→`Executing step...`、action_approval|action_recovery→`Advancing...`、blocked→`Resuming...`、其他 active→`Processing...`）；`Goal ${truncateId(session.goal.id)}`
   - 更新 session-screen 测试：`/Working/` 断言改为新文案

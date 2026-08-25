@@ -122,7 +122,8 @@ test("SessionScreen renders ordered messages and the executing status", () => {
     assert.ok(frame.indexOf("Inspect the repository") < frame.indexOf("I will inspect"));
     assert.match(frame, /Phase: executing \| Run: running \| Steps: 2/);
     assert.match(frame, /Checkpoint: Located the repository entry points/);
-    assert.match(frame, /Working/);
+    assert.match(frame, /Executing step/);
+    assert.match(frame, /Goal goal-exe…/);
 });
 
 test("SessionScreen validates and submits blocked messages", async () => {

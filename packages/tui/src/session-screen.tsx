@@ -5,6 +5,8 @@ import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiTerminalSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
+import { StatusSpinner } from "./status-spinner";
+import { truncateId } from "./format";
 
 /**
  * SessionScreen 的执行交互回调边界。
@@ -112,7 +114,7 @@ interface SessionStatusProps {
 function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
     return (
         <Box flexDirection="column">
-            <Text bold color="cyan">Goal {session.goal.id}</Text>
+            <Text bold color="cyan">Goal {truncateId(session.goal.id)}</Text>
             <Text>
                 Phase: {session.phase} | Run: {session.runStatus} | Steps: {session.stepCount}
             </Text>
@@ -122,13 +124,31 @@ function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
             {session.error === undefined
                 ? null
                 : <Text color="red">Error [{session.error.code}]: {session.error.message}</Text>}
-            {isActiveRun(session) ? <Spinner label="Working..." /> : null}
+            {isActiveRun(session)
+                ? <StatusSpinner label={sessionSpinnerLabel(session)} />
+                : null}
         </Box>
     );
 }
 
 function isActiveRun(session: UiSessionViewModel): boolean {
     return session.busy || session.runStatus === "running";
+}
+
+function sessionSpinnerLabel(session: UiSessionViewModel): string {
+    if (session.runStatus === "running") {
+        return "Executing step...";
+    }
+
+    switch (session.waitingFor) {
+        case "action_approval":
+        case "action_recovery":
+            return "Advancing...";
+        case "blocked":
+            return "Resuming...";
+        default:
+            return "Processing...";
+    }
 }
 
 interface SessionInteractionProps extends SessionScreenProps {
