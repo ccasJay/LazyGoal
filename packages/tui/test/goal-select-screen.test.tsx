@@ -45,7 +45,9 @@ test("GoalSelectScreen preserves Catalog order and renders every summary field",
     );
 
     const frame = instance.lastFrame() ?? "";
-    assert.ok(frame.indexOf("goal-newest") < frame.indexOf("goal-older"));
+    assert.ok(frame.indexOf("goal-new") < frame.indexOf("goal-old"));
+    assert.match(frame, /goal-new…/);
+    assert.match(frame, /goal-old…/);
     assert.match(frame, /Newest resumable workflow/);
     assert.match(frame, /phase=planning/);
     assert.match(frame, /run=waiting/);

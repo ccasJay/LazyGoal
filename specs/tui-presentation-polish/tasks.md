@@ -24,7 +24,7 @@
   - 更新对应 goal-select 测试断言
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 5. GoalSelectScreen UUID 截断与死校验清理
+- [x] //TODO 5. GoalSelectScreen UUID 截断与死校验清理
 
   - 新增 helper `truncateId(id, 8)`；formatGoalEntry 截断 goalId；handleSelect 删除 `{value, emptyMessage}` 死校验，改 `selectGate.attempt(() => { void onSelect(goalId); })`
   - 更新 goal-select 测试断言截断 id 与选择行为不回归

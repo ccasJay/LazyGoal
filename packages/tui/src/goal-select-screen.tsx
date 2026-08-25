@@ -7,6 +7,7 @@ import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { truncateId } from "./format";
 
 /**
  * GoalSelectScreen 的渲染与恢复命令回调边界。
@@ -61,9 +62,6 @@ export function GoalSelectScreen({
     const handleSelect = useCallback((goalId: string) => {
         selectGate.attempt(() => {
             void onSelect(goalId);
-        }, {
-            value: goalId,
-            emptyMessage: "Goal ID must not be empty",
         });
     }, [onSelect, selectGate]);
 
@@ -102,7 +100,7 @@ export function GoalSelectScreen({
 
 function formatGoalEntry(entry: GoalCatalogEntry): string {
     return [
-        entry.goalId,
+        truncateId(entry.goalId),
         summarizeIntent(entry.intent),
         `phase=${entry.workflowPhase}`,
         `run=${entry.runStatus}`,
