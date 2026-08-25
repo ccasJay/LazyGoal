@@ -6,7 +6,7 @@
   - 新增 packages/tui/test/status-spinner.test.tsx，断言 label 透传渲染
   - _Requirements: [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 2. 新增 ErrorLine 原语与测试
+- [x] //TODO 2. 新增 ErrorLine 原语与测试
 
   - 创建 packages/tui/src/error-line.tsx：`<ErrorLine error={{code?,message}}/>` 渲染 `Error[ code]: message`，code 有则附无则省；经 index.ts 导出
   - 新增 packages/tui/test/error-line.test.tsx，断言有 code 与无 code 两种格式
