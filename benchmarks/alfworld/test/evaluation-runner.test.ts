@@ -9,20 +9,20 @@ import {
     EvaluationRunner,
     createRunnerEpisodeExecutor,
     type EpisodeExecutionContext,
-} from "../../src/alfworld/evaluation-runner.js";
+} from "../src/evaluation-runner.js";
 import {
     serializeEvaluationReport,
     type EpisodeExecutionFacts,
     type EvaluationReportMetadata,
-} from "../../src/alfworld/report.js";
+} from "../src/report.js";
 import {
     ALFWORLD_MANIFEST_VERSION,
     type AlfworldManifest,
-} from "../../src/alfworld/manifest.js";
+} from "../src/manifest.js";
 import type {
     SidecarResetResult,
     SidecarStepResult,
-} from "../../src/alfworld/sidecar-client.js";
+} from "../src/sidecar-client.js";
 
 const profile: AgentProfile = {
     id: "alfworld-profile",
@@ -200,7 +200,6 @@ test("Runner Episode executor assembles the isolated store, authorized tools and
 
     const context: EpisodeExecutionContext = {
         task: manifest.tasks[0]!,
-        attemptNumber: 0,
         profile,
     };
     const result = await executeEpisode(context);

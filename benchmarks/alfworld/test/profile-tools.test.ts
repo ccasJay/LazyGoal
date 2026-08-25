@@ -11,22 +11,25 @@ import {
     AlfworldProfileError,
     loadAlfworldProfile,
     validateAlfworldProfile,
-} from "../../src/alfworld/profile.js";
+} from "../src/profile.js";
 import {
     AlfworldResetTool,
     AlfworldSessionStateError,
     AlfworldStepTool,
     createAlfworldToolSet,
     type AlfworldSession,
-} from "../../src/alfworld/alfworld-tools.js";
+} from "../src/alfworld-tools.js";
 import type {
     SidecarResetResult,
     SidecarStepResult,
     SidecarTask,
-} from "../../src/alfworld/sidecar-client.js";
+} from "../src/sidecar-client.js";
 
 const profile = {
+    schemaVersion: 1,
     id: ALFWORLD_PROFILE_ID,
+    name: "ALFWorld TextWorld",
+    description: "Local ALFWorld TextWorld evaluation profile",
     systemPrompt: "ALFWorld TextWorld evaluator",
     instructions: [
         "Call alfworld_reset first.",
@@ -90,19 +93,20 @@ function request(toolId: string, input: unknown): ToolExecutionRequest {
     return { actionId: `${toolId}-1`, input: input as never };
 }
 
-test("Profile loader freezes the fixed ID and allowlist from .lazygoal/profile", async () => {
+test("Profile loader freezes the fixed ID and allowlist from .lazygoal/profiles", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-profile-"));
     try {
-        const profileDirectory = join(workspace, ".lazygoal/profile");
+        const profileDirectory = join(workspace, ".lazygoal/profiles");
         await mkdir(profileDirectory, { recursive: true });
         const content = JSON.stringify(profile, null, 2);
         await writeFile(join(profileDirectory, "alfworld-profile.json"), content, "utf8");
         const loaded = await loadAlfworldProfile(workspace);
 
         assert.equal(loaded.profile.id, ALFWORLD_PROFILE_ID);
+        assert.equal(loaded.profile.name, profile.name);
         assert.deepEqual(loaded.profile.toolIds, ALFWORLD_PROFILE_TOOL_IDS);
         assert.equal(loaded.contentHash.length, 64);
-        assert.equal(loaded.profilePath, join(workspace, ".lazygoal/profile/alfworld-profile.json"));
+        assert.equal(loaded.profilePath, join(workspace, ".lazygoal/profiles/alfworld-profile.json"));
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
@@ -156,10 +160,9 @@ test("ALFWorld tools enforce reset/step state and expose existing basic tool ins
 test("createAlfworldToolSet reuses ReadFileTool/GrepTool and excludes Bash/write tools", () => {
     const session = new FakeSession();
     const set = createAlfworldToolSet("/workspace", task, session as never);
-    assert.strictEqual(set.registry.get("read_file"), set.readFileTool);
-    assert.strictEqual(set.registry.get("grep"), set.grepTool);
-    assert.strictEqual(set.registry.get("alfworld_reset"), set.resetTool);
-    assert.strictEqual(set.registry.get("alfworld_step"), set.stepTool);
+    for (const toolId of ["read_file", "grep", "alfworld_reset", "alfworld_step"]) {
+        assert.ok(set.registry.get(toolId));
+    }
     assert.equal(set.registry.get("bash"), undefined);
     assert.equal(set.registry.get("write_file"), undefined);
 });

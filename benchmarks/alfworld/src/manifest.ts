@@ -1,15 +1,12 @@
 import { readFile } from "node:fs/promises";
 import {
     isAbsolute,
-    join,
     relative,
     resolve,
 } from "node:path";
 
 export const ALFWORLD_MANIFEST_VERSION = 1 as const;
 export const MAX_ALFWORLD_TASK_STEPS = 100;
-export const FIXED_MANIFEST_NAMES = ["smoke", "regression"] as const;
-export type FixedManifestName = (typeof FIXED_MANIFEST_NAMES)[number];
 export type AlfworldSplit =
     | "train"
     | "valid_seen"
@@ -102,36 +99,6 @@ export class ManifestValidationError extends Error {
     ) {
         super(message);
     }
-}
-
-/**
- * 返回内置 Smoke 或 Regression 清单的固定路径。
- *
- * @remarks
- * 该函数只计算路径，不读取文件、不抽样任务。仓库提供的 Smoke 与 Regression
- * 清单使用固定、可审查的 ALFWorld gamefile；调用方仍必须通过 `loadManifest`
- * 校验其内容。
- *
- * @param benchmarksRoot - `benchmarks` package 的绝对根目录。
- * @param name - 固定清单名称。
- * @returns 固定清单文件的绝对路径。
- * @throws 根目录不是绝对路径时抛出 `ManifestValidationError`。
- * @example
- * ```ts
- * const path = fixedManifestPath("/repo/benchmarks", "smoke");
- * ```
- */
-export function fixedManifestPath(
-    benchmarksRoot: string,
-    name: FixedManifestName,
-): string {
-    if (!isAbsolute(benchmarksRoot)) {
-        throw new ManifestValidationError(
-            "INVALID_FORMAT",
-            `benchmarksRoot must be absolute: ${benchmarksRoot}`,
-        );
-    }
-    return join(benchmarksRoot, "alfworld", "manifests", `${name}.json`);
 }
 
 /**

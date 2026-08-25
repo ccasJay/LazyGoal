@@ -9,12 +9,12 @@
 ### 1. 以 `benchmarks` 作为独立 package
 
 - 新增私有 package `@lazygoal/benchmarks`，位于 `benchmarks/`，拥有自己的 `package.json`、`tsconfig.json` 和测试脚本。
-- `benchmarks/alfworld/` 保存 `environment.yml`、Python sidecar、任务清单和安装说明；TypeScript 代码放在 `benchmarks/src/alfworld/`，测试放在 `benchmarks/test/alfworld/`。
+- `benchmarks/alfworld/` 保存环境配置、Python sidecar、任务清单、TypeScript 代码、测试和安装说明；benchmarks 包根目录只保留包级配置文件。
 - 初版不把 `benchmarks` 接入生产 package 依赖图；根脚本通过 `npm --prefix benchmarks ...` 显式委托，避免普通安装和测试触发 Conda。
 - 评测代码只依赖现有 Runtime/Agent/LLM 的公开边界，不修改 `packages/runtime`、`packages/tools`、`packages/tui` 的生产注册表。
-- ALFWorld 的运行时 Profile 固定放在工作区 `.lazygoal/profile/alfworld-profile.json`，文件内容遵循现有 Profile 文件 Schema，`id` 固定为 `alfworld-profile`，`toolIds` 固定包含现有只读 `read_file`、`grep` 与专用 `alfworld_reset`、`alfworld_step`，不包含 `write_file`、`edit_file` 或 `bash`。该文件是工作区配置而不是 Goal Snapshot；模板可随 `benchmarks/alfworld/` 提供，安装或初始化时复制到该路径。由于 `.lazygoal/` 继续被忽略，Profile 不进入源码提交。
+- ALFWorld 的运行时测试 Profile 固定放在工作区 `.lazygoal/profiles/alfworld-profile.json`，复用现有 Profile 文件 Schema，`id` 固定为 `alfworld-profile`，`toolIds` 固定包含现有只读 `read_file`、`grep` 与专用 `alfworld_reset`、`alfworld_step`，不包含 `write_file`、`edit_file` 或 `bash`。该文件是工作区配置而不是 Goal Snapshot；由于 `.lazygoal/` 继续被忽略，Profile 不进入源码提交。
 - Profile 的 `systemPrompt` 和 `instructions` 必须要求模型先调用 `alfworld_reset`、每次 `alfworld_step` 只提交一条环境命令、禁止使用 Bash，并且只有观察中的 `won=true` 才能报告完成；任务路径、数据根和模型凭据不写入 Profile，而由 manifest 与进程环境提供。
-- `lazygoal eval alfworld --profile alfworld-profile --manifest <path>` 是唯一的 ALFWorld 入口；`--profile` 默认值为 `alfworld-profile`，但仍显式加载 `.lazygoal/profile/<profileId>.json` 并校验文件内 `id`。普通 `lazygoal` 和 `lazygoal resume` 仍只加载既有 `.lazygoal/profiles/default.json`，不会扫描或自动启用 ALFWorld Profile。
+- `lazygoal eval alfworld --profile alfworld-profile --manifest <path>` 是唯一的 ALFWorld 入口；`--profile` 默认值为 `alfworld-profile`，但仍显式加载 `.lazygoal/profiles/<profileId>.json` 并校验文件内 `id`。普通 `lazygoal` 和 `lazygoal resume` 仍只加载既有 `.lazygoal/profiles/default.json`，不会扫描或自动启用 ALFWorld Profile。
 
 ### 2. 通过任务级 JSONL sidecar 管理环境
 
@@ -25,7 +25,7 @@
 
 ### 3. 专用 Tool 连接现有 Agent/Runtime
 
-- Profile 可以同时授权现有只读基础 Tool 与 ALFWorld 专用 Tool；但环境初始化和推进只能由 `alfworld_reset`、`alfworld_step` 完成。关闭由评测器在任务终态、中止和异常路径统一调用，不开放给模型主动破坏会话。评测入口先从 `.lazygoal/profile/<profileId>.json` 加载并校验 Profile，再把该 Profile 冻结到 executing Goal。
+- Profile 可以同时授权现有只读基础 Tool 与 ALFWorld 专用 Tool；但环境初始化和推进只能由 `alfworld_reset`、`alfworld_step` 完成。关闭由评测器在任务终态、中止和异常路径统一调用，不开放给模型主动破坏会话。评测入口先从 `.lazygoal/profiles/<profileId>.json` 加载并校验 Profile，再把该 Profile 冻结到 executing Goal。
 - `alfworld_reset` 只允许在空闲会话初始化一次；`alfworld_step` 只允许在活动会话中调用一次一条命令；任务结束后两者都拒绝继续推进。
 - 两个 Tool 均声明 `manual` replay。sidecar 超时或进程异常时 Tool 抛出基础设施异常，由 Runner 保留 `outcome_unknown`，不伪造成功 Observation；环境拒绝命令则返回可继续决策的领域 failure。
 - 评测 Policy 自动放行 `read_file`、`grep` 和两个专用 Tool，不进入 TUI 的人工审批流程；`write_file`、`edit_file`、`bash` 不加入该 Profile。对 req-3-1/req-3-3 的解释是：基础 Tool 可以辅助读取仓库，任何 ALFWorld 环境操作仍必须走专用 Tool，且不允许用 Bash 替代。
@@ -36,7 +36,7 @@
 - 任务清单使用数据根目录下的相对 `gameFile`、稳定 `taskId`、数据切分、顺序、随机种子和单任务 Step 上限；禁止保存机器绝对路径。
 - 默认 Smoke 清单使用 TextWorld `valid_seen`，关闭 domain randomization；Regression 只消费提交到仓库的固定清单，任务顺序由清单顺序决定。
 - sidecar 启动期验证 Python、ALFWorld 版本、`ALFWORLD_DATA`、任务文件和可用 TextWorld 环境；任何一项失败都在模型调用前终止评测。
-- Conda 只安装 TextWorld 依赖。Apple Silicon 的 `osx-64` 选择、数据下载和 `ALFWORLD_DATA` 设置写入 `benchmarks/alfworld/README.md`；THOR 不进入本 Spec。
+- Conda 只安装 TextWorld 依赖。Apple Silicon 的 `osx-64` 选择、数据下载和 `ALFWORLD_DATA` 设置写入 `benchmarks/alfworld/README.md`；显式入口自动解析 `benchmarks/alfworld/.env.alfworld`，命令行环境变量优先；THOR 不进入本 Spec。
 
 ### 5. 以环境事实生成独立评测报告
 
@@ -56,7 +56,7 @@
 
 ```mermaid
 flowchart LR
-    C[lazygoal eval alfworld] --> PF[.lazygoal/profile/alfworld-profile.json]
+    C[lazygoal eval alfworld] --> PF[.lazygoal/profiles/alfworld-profile.json]
     PF --> E[benchmarks EvaluationRunner]
     E --> G[Runner + LLMStepExecutor]
     G --> T[alfworld_reset / alfworld_step]
@@ -75,9 +75,9 @@ flowchart LR
 ### `benchmarks` package
 
 - `package.json`：声明私有 package、`typecheck`、协议单测和显式 ALFWorld Smoke/Regression 脚本。
-- `tsconfig.json`：覆盖 `benchmarks/src` 与 `benchmarks/test`，不改变根 `tsconfig.json` 对生产源码的范围。
-- `alfworld/profile/alfworld-profile.json`：提供符合现有 Profile Schema 的模板；运行时必须复制为工作区 `.lazygoal/profile/alfworld-profile.json`，不能直接从源码目录隐式读取。
-- `src/alfworld/cli.ts`：实现 `eval alfworld` 的参数解析、Profile 加载和运行器调用；Profile 缺失、ID 不匹配或 Tool 白名单不满足时，在创建模型请求前失败。
+- `tsconfig.json`：覆盖 `benchmarks/alfworld/src` 与 `benchmarks/alfworld/test`，不改变根 `tsconfig.json` 对生产源码的范围。
+- `.lazygoal/profiles/alfworld-profile.json`：工作区中的唯一 ALFWorld 测试 Profile；评测入口只从该通用 Profile 目录加载，不从 benchmarks 源码目录隐式读取。
+- `alfworld/src/cli.ts`：实现 `eval alfworld` 的参数解析、Profile 加载和运行器调用；Profile 缺失、ID 不匹配或 Tool 白名单不满足时，在创建模型请求前失败。
 - 根 `bin/lazygoal.cjs` 只对显式的 `eval alfworld` 参数转发到 benchmarks 入口；其它参数继续转发到现有 TUI CLI。该转发不把 `@lazygoal/benchmarks` 加入生产 package 依赖，也不改变默认 `test`。
 
 ### Python sidecar
@@ -88,11 +88,11 @@ flowchart LR
 
 ### TypeScript bridge and Tools
 
-- `benchmarks/src/alfworld/sidecar-client.ts`：拥有子进程、JSONL 请求队列、超时、AbortSignal、协议校验和关闭流程。
-- `benchmarks/src/alfworld/alfworld-tools.ts`：实现 `AlfworldResetTool`、`AlfworldStepTool`；只负责 sidecar 会话状态和环境协议转换，Tool 输出仅使用现有 `ToolObservation` 的 `success`/`failure` 形状，不复制文件读取、搜索或路径沙箱逻辑。
-- `benchmarks/src/alfworld/profile.ts`：通过现有 `JsonFileAgentProfileStore` 从 `.lazygoal/profile` 加载 Profile，校验只读基础 Tool 与 `alfworld_reset`/`alfworld_step` 的允许集合，并把 Profile ID、文件路径和版本标识传给评测报告。
-- `benchmarks/src/alfworld/evaluation-runner.ts`：接收已校验的 Profile，复用现有 `ReadFileTool`、`GrepTool` 实例并注册专用环境 Tool，装配自动放行 Policy、隔离 GoalStore、`LLMStepExecutor`、`Runner` 和报告聚合器；不回写 Profile 文件。
-- `benchmarks/src/alfworld/manifest.ts` 与 `report.ts`：校验固定任务清单和报告 DTO，不向 Runtime 导出新领域类型。
+- `benchmarks/alfworld/src/sidecar-client.ts`：拥有子进程、JSONL 请求队列、超时、AbortSignal、协议校验和关闭流程。
+- `benchmarks/alfworld/src/alfworld-tools.ts`：实现 `AlfworldResetTool`、`AlfworldStepTool`；只负责 sidecar 会话状态和环境协议转换，Tool 输出仅使用现有 `ToolObservation` 的 `success`/`failure` 形状，不复制文件读取、搜索或路径沙箱逻辑。
+- `benchmarks/alfworld/src/profile.ts`：从 `.lazygoal/profiles` 加载 Profile，校验现有 Profile Schema、只读基础 Tool 与 `alfworld_reset`/`alfworld_step` 的允许集合，并把 Profile ID、文件路径和版本标识传给评测报告。
+- `benchmarks/alfworld/src/evaluation-runner.ts`：接收已校验的 Profile，复用现有 `ReadFileTool`、`GrepTool` 实例并注册专用环境 Tool，装配自动放行 Policy、隔离 GoalStore、`LLMStepExecutor`、`Runner` 和报告聚合器；不回写 Profile 文件。
+- `benchmarks/alfworld/src/manifest.ts` 与 `report.ts`：校验固定任务清单和报告 DTO，不向 Runtime 导出新领域类型。
 
 ## Data Models
 
@@ -107,7 +107,7 @@ flowchart LR
 ## Error Handling
 
 - 配置错误：Python、数据根、任务清单或版本预检失败，评测在创建 Goal 前退出。
-- Profile 错误：`.lazygoal/profile/<profileId>.json` 缺失、结构无效、文件内 ID 不匹配或包含未知、写入、编辑、Bash 等不允许的 Tool 时，评测在启动 sidecar 和模型请求前退出；普通 CLI 的 default Profile 错误语义不变。
+- Profile 错误：`.lazygoal/profiles/<profileId>.json` 缺失、结构无效、文件内 ID 不匹配或包含未知、写入、编辑、Bash 等不允许的 Tool 时，评测在启动 sidecar 和模型请求前退出；普通 CLI 的 default Profile 错误语义不变。
 - 领域错误：ALFWorld 拒绝命令时返回 `failure` Observation，`retryable` 由适配器根据环境结果设置，Runner 可继续下一轮。
 - 基础设施错误：超时、进程退出、协议错配、响应超限或 JSON 非法时关闭当前会话并抛出专用错误；Runner 保存 execution error 和 `outcome_unknown`，不生成虚假的 Observation。
 - 中止：转换为现有 `ExecutionAbortedError`，停止后续请求，等待子进程退出或强制清理，不写入失败 Step。
@@ -126,7 +126,7 @@ flowchart LR
 - 用假的 JSONL child process 覆盖请求顺序、`requestId`、错配响应、非法 JSON、超时、退出和 AbortSignal，覆盖 req-2、req-6。
 - 用假的 `AlfworldSession` 覆盖 reset/step 状态机、重复/并发调用、manual replay 和 close 幂等，覆盖 req-2、req-3。
 - 用假的 LLM Adapter 和 GoalStore 运行 `Runner`，验证 `won` 才能形成成功报告、模型提前 complete 仍失败、领域 failure 可继续，覆盖 req-3、req-5、req-7。
-- 用临时 workspace 覆盖 `.lazygoal/profile/alfworld-profile.json` 的加载、ID 校验、Tool 白名单校验和缺失错误，验证普通 `lazygoal` 不读取该目录，覆盖 req-3、req-7。
+- 用临时 workspace 覆盖 `.lazygoal/profiles/alfworld-profile.json` 的加载、ID 校验、Tool 白名单校验和缺失错误，验证普通 `lazygoal` 不自动启用该 Profile，覆盖 req-3、req-7。
 - 验证评测 Profile 中的 `read_file`/`grep` 解析到现有 Tool 实例，并与普通 Tool 的输入校验、沙箱和 Observation 语义一致；验证 ALFWorld 专用 Tool 不包含重复的文件或搜索实现，覆盖 req-3、req-7。
 
 ### 显式启用的真实评测

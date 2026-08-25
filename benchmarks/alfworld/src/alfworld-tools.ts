@@ -5,6 +5,7 @@ import type {
     ToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
+    ToolRegistry,
     ToolValidationResult,
 } from "../../../packages/runtime/src/index.js";
 import {
@@ -291,7 +292,7 @@ export class AlfworldStepTool implements Tool {
 }
 
 /**
- * ALFWorld 评测一组共享会话的 Tool 和 Registry。
+ * ALFWorld 评测一组共享会话的 Tool Registry。
  *
  * @example
  * ```ts
@@ -301,11 +302,7 @@ export class AlfworldStepTool implements Tool {
  */
 export interface AlfworldToolSet {
     readonly session: SidecarAlfworldSession;
-    readonly resetTool: AlfworldResetTool;
-    readonly stepTool: AlfworldStepTool;
-    readonly readFileTool: ReadFileTool;
-    readonly grepTool: GrepTool;
-    readonly registry: InMemoryToolRegistry;
+    readonly registry: ToolRegistry;
 }
 
 /**
@@ -314,7 +311,7 @@ export interface AlfworldToolSet {
  * @param workspaceRoot - `read_file` 和 `grep` 的共同 workspace 边界。
  * @param task - Manifest 已校验的固定任务。
  * @param client - 任务级 sidecar 客户端。
- * @returns 共享基础 Tool 实例、专用 Tool 和 Registry。
+ * @returns 任务级会话和已注册的基础/专用 Tool Registry；具体 Tool 实例不向调用方暴露。
  * @example
  * ```ts
  * const set = createAlfworldToolSet("/workspace", task, client);
@@ -331,7 +328,7 @@ export function createAlfworldToolSet(
     const readFileTool = new ReadFileTool(workspaceRoot);
     const grepTool = new GrepTool(workspaceRoot);
     const registry = new InMemoryToolRegistry([readFileTool, grepTool, resetTool, stepTool]);
-    return { session, resetTool, stepTool, readFileTool, grepTool, registry };
+    return { session, registry };
 }
 
 function isRecord(value: JsonValue): value is JsonObject {

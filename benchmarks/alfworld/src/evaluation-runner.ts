@@ -53,13 +53,12 @@ import {
  * @example
  * ```ts
  * const context: EpisodeExecutionContext = {
- *   task, attemptNumber: 0, profile,
+ *   task, profile,
  * };
  * ```
  */
 export interface EpisodeExecutionContext {
     readonly task: AlfworldManifestTask;
-    readonly attemptNumber: number;
     readonly profile: AgentProfile;
     readonly signal?: AbortSignal;
 }
@@ -158,7 +157,6 @@ export class EvaluationRunner {
                 try {
                     execution = await this.executeEpisode({
                         task,
-                        attemptNumber: retrySequence,
                         profile: this.metadata.profile,
                         ...(signal === undefined ? {} : { signal }),
                     });

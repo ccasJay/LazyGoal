@@ -6,15 +6,18 @@ import { dirname, resolve } from "node:path";
 import {
     ALFWORLD_ENVIRONMENT_NAME,
     getCondaSubdir,
-} from "../src/alfworld/environment-config.js";
+    loadAlfworldEnvironmentFile,
+} from "../src/environment-config.js";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const benchmarkRoot = resolve(scriptDirectory, "..");
-const environmentFile = resolve(benchmarkRoot, "alfworld/environment.yml");
-const explicitSubdir = process.env.CONDA_SUBDIR;
+const environmentFile = resolve(benchmarkRoot, "environment.yml");
+const fileEnv = await loadAlfworldEnvironmentFile();
+const environment = { ...fileEnv, ...process.env };
+const explicitSubdir = environment.CONDA_SUBDIR;
 const condaSubdir = getCondaSubdir(process.platform, process.arch, explicitSubdir);
 const condaEnv = {
-    ...process.env,
+    ...environment,
     ...(condaSubdir === undefined ? {} : { CONDA_SUBDIR: condaSubdir }),
 };
 

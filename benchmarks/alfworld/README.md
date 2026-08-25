@@ -33,6 +33,12 @@ export ALFWORLD_DATA="/absolute/path/to/alfworld-data"
 npm --prefix benchmarks run alfworld:preflight
 ```
 
+评测使用工作区中的唯一测试 Profile：`.lazygoal/profiles/alfworld-profile.json`。
+该 Profile 授权 `read_file`、`grep`、`alfworld_reset` 和 `alfworld_step`，不会授权
+Bash、写入或编辑 Tool。显式 ALFWorld 入口会自动读取
+`benchmarks/alfworld/.env.alfworld`；也可以在运行独立 Python 命令前手动 source
+该文件。
+
 预检会在模型请求前验证 Python、固定的 ALFWorld/TextWorld 版本、数据目录和 TextWorld-only 能力。预检失败时不会开始评测。
 
 ## 固定评测命令

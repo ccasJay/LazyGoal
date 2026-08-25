@@ -9,10 +9,9 @@ import {
     ALFWORLD_MANIFEST_VERSION,
     MAX_ALFWORLD_TASK_STEPS,
     ManifestValidationError,
-    fixedManifestPath,
     loadManifest,
     validateManifest,
-} from "../../src/alfworld/manifest.js";
+} from "../src/manifest.js";
 
 function task(order: number, taskId: string, gameFile = `valid_seen/${taskId}/game.tw-pddl`) {
     return {
@@ -96,14 +95,13 @@ test("validateManifest enforces split, seed and per-task step bounds", () => {
     });
 });
 
-test("loadManifest parses a fixed file and fixedManifestPath does not sample", async () => {
+test("loadManifest parses a fixed file without implicit sampling", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-manifest-"));
     try {
         const manifestPath = join(workspace, "smoke.json");
         await writeFile(manifestPath, JSON.stringify(manifest([task(0, "fixed")])), "utf8");
         const result = await loadManifest(manifestPath, "/data/alfworld");
         assert.equal(result.name, "smoke");
-        assert.equal(fixedManifestPath(workspace, "smoke"), join(workspace, "alfworld/manifests/smoke.json"));
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
@@ -113,7 +111,7 @@ test("repository Smoke and Regression manifests are fixed valid_seen task sets",
     const benchmarksRoot = fileURLToPath(new URL("../../", import.meta.url));
     for (const name of ["smoke", "regression"] as const) {
         const loaded = await loadManifest(
-            fixedManifestPath(benchmarksRoot, name),
+            join(benchmarksRoot, "alfworld/manifests", `${name}.json`),
             "/absolute/alfworld-data",
         );
         assert.equal(loaded.name, name);

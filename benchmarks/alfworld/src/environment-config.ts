@@ -1,12 +1,20 @@
-import { access, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, readFile, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 
 export const ALFWORLD_ENVIRONMENT_NAME = "lazygoal-alfworld";
 export const ALFWORLD_VERSION = "0.4.2";
 export const TEXTWORLD_VERSION = "1.6.2";
 export const ALFWORLD_PYTHON_ENV = "ALFWORLD_PYTHON";
 export const ALFWORLD_DATA_ENV = "ALFWORLD_DATA";
+export const ALFWORLD_ENV_FILE_PATH = fileURLToPath(
+    new URL("../.env.alfworld", import.meta.url),
+);
+const execFileAsync = promisify(execFile);
+const PYTHON_PROBE_MAX_BUFFER = 64 * 1024;
 
 export type CondaSubdir = "linux-64" | "osx-64" | "osx-arm64" | "win-64";
 
@@ -51,6 +59,7 @@ export interface EnvironmentConfigInput {
 }
 
 export type AlfworldConfigurationErrorCode =
+    | "INVALID_ENV_FILE"
     | "MISSING_PYTHON"
     | "MISSING_DATA"
     | "INVALID_DATA_PATH"
@@ -77,6 +86,80 @@ export class AlfworldConfigurationError extends Error {
     ) {
         super(message);
     }
+}
+
+/**
+ * 读取 ALFWorld 本地环境变量文件，并返回其中声明的变量。
+ *
+ * @remarks
+ * 默认读取 `benchmarks/alfworld/.env.alfworld`。支持空行、注释、`export KEY=value`
+ * 和简单的 `${KEY}` 展开；文件中的变量不会覆盖调用方显式传入的环境变量，
+ * 覆盖优先级由入口在合并时保证。文件不存在时返回空对象，使 CI 或手工导出
+ * 环境变量的调用方式保持兼容。
+ *
+ * @param filePath - 可选的环境变量文件路径，主要用于测试覆盖。
+ * @param baseEnv - 展开变量时使用的已有环境；默认使用当前进程环境。
+ * @returns 文件中解析出的环境变量；文件不存在时返回空对象。
+ * @throws 文件无法读取或包含非法行、未闭合引号时抛出配置错误。
+ * @example
+ * ```ts
+ * const fileEnv = await loadAlfworldEnvironmentFile();
+ * const env = { ...fileEnv, ...process.env };
+ * ```
+ */
+export async function loadAlfworldEnvironmentFile(
+    filePath = ALFWORLD_ENV_FILE_PATH,
+    baseEnv: NodeJS.ProcessEnv = process.env,
+): Promise<NodeJS.ProcessEnv> {
+    let content: string;
+    try {
+        content = await readFile(filePath, "utf8");
+    } catch (error: unknown) {
+        if (isNodeError(error) && error.code === "ENOENT") return {};
+        throw new AlfworldConfigurationError(
+            "INVALID_ENV_FILE",
+            `Unable to read ALFWorld environment file: ${filePath}`,
+        );
+    }
+
+    const values: Record<string, string> = {};
+    const expansionEnv: Record<string, string | undefined> = {
+        ...baseEnv,
+    };
+
+    for (const [index, rawLine] of content.split(/\r?\n/u).entries()) {
+        const line = rawLine.trim();
+        if (line === "" || line.startsWith("#")) continue;
+
+        const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/u.exec(line);
+        if (match === null) {
+            throw new AlfworldConfigurationError(
+                "INVALID_ENV_FILE",
+                `Invalid ALFWorld environment assignment at ${filePath}:${index + 1}`,
+            );
+        }
+
+        const key = match[1]!;
+        let value = match[2]!.trim();
+        if (value.startsWith('"') || value.startsWith("'")) {
+            const quote = value[0]!;
+            if (!value.endsWith(quote) || value.length < 2) {
+                throw new AlfworldConfigurationError(
+                    "INVALID_ENV_FILE",
+                    `Unclosed quote in ALFWorld environment file at ${filePath}:${index + 1}`,
+                );
+            }
+            value = value.slice(1, -1);
+        }
+
+        value = value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/gu, (_whole, name: string) => {
+            return expansionEnv[name] ?? "";
+        });
+        values[key] = value;
+        expansionEnv[key] = value;
+    }
+
+    return values;
 }
 
 /**
@@ -208,6 +291,53 @@ export interface PythonProbeResult {
 }
 
 /**
+ * 运行 ALFWorld Python 预检探针并把进程结果转换为统一 DTO。
+ *
+ * @remarks
+ * 使用 `execFile` 的无 shell 调用，stdout/stderr 上限保持为 64 KiB；调用方环境
+ * 变量覆盖当前进程环境，并始终把 `ALFWORLD_DATA` 传给探针。启动失败和非零退出
+ * 不直接抛出，而是转换为 `PythonProbeResult`，由预检层决定错误分类。
+ *
+ * @param executable - Python 可执行文件路径。
+ * @param script - 传给 Python `-c` 的探针脚本。
+ * @param env - 探针使用的环境变量覆盖。
+ * @returns stdout、stderr 和进程退出码。
+ * @example
+ * ```ts
+ * const result = await runAlfworldPythonProbe(
+ *   "/opt/conda/bin/python",
+ *   PYTHON_PROBE,
+ *   { ALFWORLD_DATA: "/data/alfworld" },
+ * );
+ * ```
+ */
+export async function runAlfworldPythonProbe(
+    executable: string,
+    script: string,
+    env: NodeJS.ProcessEnv,
+): Promise<PythonProbeResult> {
+    try {
+        const output = await execFileAsync(executable, ["-c", script], {
+            env: { ...process.env, ...env, ALFWORLD_DATA: env[ALFWORLD_DATA_ENV] },
+            maxBuffer: PYTHON_PROBE_MAX_BUFFER,
+        });
+        return { stdout: output.stdout, stderr: output.stderr, exitCode: 0 };
+    } catch (error: unknown) {
+        const failure = error as {
+            stdout?: string;
+            stderr?: string;
+            code?: number;
+            message?: string;
+        };
+        return {
+            stdout: failure.stdout ?? "",
+            stderr: failure.stderr ?? failure.message ?? "Python probe failed",
+            exitCode: typeof failure.code === "number" ? failure.code : 1,
+        };
+    }
+}
+
+/**
  * ALFWorld 预检的外部边界。
  *
  * @remarks
@@ -268,7 +398,7 @@ const PYTHON_PROBE = [
     "  'dataRoot': os.environ.get('ALFWORLD_DATA', ''),",
     "  'textworldOnly': True,",
     "}))",
-].join("\\n");
+].join("\n");
 
 /**
  * 执行 ALFWorld 显式入口的无模型预检。
@@ -284,7 +414,7 @@ const PYTHON_PROBE = [
  * @example
  * ```ts
  * const result = await preflightAlfworldEnvironment(config, {
- *   probePython: runPythonProbe,
+ *   probePython: runAlfworldPythonProbe,
  * });
  * ```
  */
@@ -330,6 +460,10 @@ export async function preflightAlfworldEnvironment(
 
 function isCondaSubdir(value: string): value is CondaSubdir {
     return ["linux-64", "osx-64", "osx-arm64", "win-64"].includes(value);
+}
+
+function isNodeError(value: unknown): value is NodeJS.ErrnoException {
+    return value instanceof Error && "code" in value;
 }
 
 async function defaultIsDirectory(path: string): Promise<boolean> {

@@ -1,6 +1,4 @@
-import { execFile } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
-import { promisify } from "node:util";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -21,9 +19,10 @@ import {
     type LoadedAlfworldProfile,
 } from "./profile.js";
 import {
-    ALFWORLD_DATA_ENV,
+    loadAlfworldEnvironmentFile,
     preflightAlfworldEnvironment,
     resolveAlfworldEnvironment,
+    runAlfworldPythonProbe,
     type AlfworldEnvironmentConfig,
     type AlfworldPreflightResult,
     type PythonProbeResult,
@@ -36,7 +35,6 @@ import {
     type EvaluationReportMetadata,
 } from "./report.js";
 
-const execFileAsync = promisify(execFile);
 const DEFAULT_PROFILE_ID = ALFWORLD_PROFILE_ID;
 const DEFAULT_CONFIG_ID = "alfworld-textworld-v1";
 
@@ -72,6 +70,8 @@ export interface AlfworldEvalCommand {
 export interface AlfworldCliOptions {
     readonly cwd?: string;
     readonly env?: NodeJS.ProcessEnv;
+    /** 可选环境变量文件覆盖；未提供时读取 benchmarks/alfworld/.env.alfworld。 */
+    readonly environmentFilePath?: string;
     readonly writeOutput?: (text: string) => void;
     readonly writeError?: (text: string) => void;
     /** 测试可注入 Python 探针，避免创建 Conda/sidecar 进程。 */
@@ -223,6 +223,7 @@ export async function runAlfworldCli(
     }
 
     const workspaceRoot = resolve(options.cwd ?? process.cwd());
+    let environmentEnv = process.env;
     let context: AlfworldEvaluationContext;
     try {
         const profile = await loadAlfworldProfile(workspaceRoot);
@@ -231,13 +232,25 @@ export async function runAlfworldCli(
                 `ALFWorld Profile id mismatch: requested ${command.profileId}, file contains ${profile.profile.id}`,
             );
         }
+        if (options.env === undefined || options.environmentFilePath !== undefined) {
+            const fileEnv = await loadAlfworldEnvironmentFile(
+                options.environmentFilePath,
+                options.env ?? process.env,
+            );
+            environmentEnv = {
+                ...fileEnv,
+                ...(options.env ?? process.env),
+            };
+        } else {
+            environmentEnv = options.env;
+        }
         const environment = resolveAlfworldEnvironment({
-            ...(options.env === undefined ? {} : { env: options.env }),
+            env: environmentEnv,
             cwd: workspaceRoot,
         });
         const manifest = await loadManifest(command.manifestPath, environment.dataRoot);
         const preflight = await preflightAlfworldEnvironment(environment, {
-            probePython: options.probePython ?? probePython,
+            probePython: options.probePython ?? runAlfworldPythonProbe,
         });
         context = {
             command,
@@ -252,7 +265,7 @@ export async function runAlfworldCli(
                 profileHash: profile.contentHash,
                 promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
                 configId: command.configId,
-                modelId: (options.env ?? process.env).LLM_MODEL?.trim() || "unknown",
+                modelId: environmentEnv.LLM_MODEL?.trim() || "unknown",
             },
         };
     } catch (error: unknown) {
@@ -262,7 +275,7 @@ export async function runAlfworldCli(
 
     try {
         const report = options.evaluate === undefined
-            ? await runDefaultEvaluation(context, options.env ?? process.env)
+            ? await runDefaultEvaluation(context, environmentEnv)
             : await options.evaluate(context);
         const serialized = serializeEvaluationReport(report);
         if (command.reportPath === null) {
@@ -291,7 +304,7 @@ async function runDefaultEvaluation(
     const adapter = new OpenAICompatible({ apiKey, baseURL, model });
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
-    const scriptPath = fileURLToPath(new URL("../../alfworld/python/sidecar.py", import.meta.url));
+    const scriptPath = fileURLToPath(new URL("../python/sidecar.py", import.meta.url));
     const executeEpisode = createRunnerEpisodeExecutor({
         profile: context.profile.profile,
         promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
@@ -311,32 +324,6 @@ async function runDefaultEvaluation(
         executeEpisode,
         maxInfrastructureRetries: context.command.maxInfrastructureRetries,
     }).run();
-}
-
-async function probePython(
-    executable: string,
-    script: string,
-    env: NodeJS.ProcessEnv,
-): Promise<PythonProbeResult> {
-    try {
-        const output = await execFileAsync(executable, ["-c", script], {
-            env: { ...process.env, ...env, ALFWORLD_DATA: env[ALFWORLD_DATA_ENV] },
-            maxBuffer: 64 * 1024,
-        });
-        return { stdout: output.stdout, stderr: output.stderr, exitCode: 0 };
-    } catch (error: unknown) {
-        const failure = error as {
-            stdout?: string;
-            stderr?: string;
-            code?: number;
-            message?: string;
-        };
-        return {
-            stdout: failure.stdout ?? "",
-            stderr: failure.stderr ?? failure.message ?? "Python probe failed",
-            exitCode: typeof failure.code === "number" ? failure.code : 1,
-        };
-    }
 }
 
 function parseUnitInterval(

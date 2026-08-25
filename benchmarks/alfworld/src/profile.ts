@@ -5,7 +5,8 @@ import { join, resolve } from "node:path";
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 
 export const ALFWORLD_PROFILE_ID = "alfworld-profile";
-export const ALFWORLD_PROFILE_RELATIVE_PATH = ".lazygoal/profile/alfworld-profile.json";
+export const ALFWORLD_PROFILE_SCHEMA_VERSION = 1 as const;
+export const ALFWORLD_PROFILE_RELATIVE_PATH = ".lazygoal/profiles/alfworld-profile.json";
 export const ALFWORLD_PROFILE_TOOL_IDS = [
     "read_file",
     "grep",
@@ -78,14 +79,37 @@ export function validateAlfworldProfile(value: unknown): AgentProfile {
         throw new AlfworldProfileError("PROFILE_INVALID_SCHEMA", "ALFWorld Profile must be an object");
     }
     const keys = Object.keys(value);
-    const allowedKeys = new Set(["id", "systemPrompt", "instructions", "toolIds"]);
+    const allowedKeys = new Set([
+        "schemaVersion",
+        "id",
+        "name",
+        "description",
+        "systemPrompt",
+        "instructions",
+        "toolIds",
+    ]);
     if (keys.some((key) => !allowedKeys.has(key))) {
         throw new AlfworldProfileError("PROFILE_INVALID_SCHEMA", "ALFWorld Profile contains unknown fields");
+    }
+    if (value.schemaVersion !== ALFWORLD_PROFILE_SCHEMA_VERSION) {
+        throw new AlfworldProfileError(
+            "PROFILE_INVALID_SCHEMA",
+            `ALFWorld Profile schemaVersion must be ${ALFWORLD_PROFILE_SCHEMA_VERSION}`,
+        );
     }
     if (value.id !== ALFWORLD_PROFILE_ID) {
         throw new AlfworldProfileError(
             "PROFILE_ID_MISMATCH",
             `ALFWorld Profile id must be ${ALFWORLD_PROFILE_ID}`,
+        );
+    }
+    if (typeof value.name !== "string" || value.name.trim() === "") {
+        throw new AlfworldProfileError("PROFILE_INVALID_SCHEMA", "ALFWorld Profile name must be non-empty");
+    }
+    if (typeof value.description !== "string" || value.description.trim() === "") {
+        throw new AlfworldProfileError(
+            "PROFILE_INVALID_SCHEMA",
+            "ALFWorld Profile description must be non-empty",
         );
     }
     if (typeof value.systemPrompt !== "string" || value.systemPrompt.trim() === "") {
@@ -121,6 +145,8 @@ export function validateAlfworldProfile(value: unknown): AgentProfile {
 
     return {
         id: value.id,
+        name: value.name,
+        description: value.description,
         systemPrompt: value.systemPrompt,
         instructions: [...value.instructions],
         toolIds: [...value.toolIds],
@@ -128,7 +154,7 @@ export function validateAlfworldProfile(value: unknown): AgentProfile {
 }
 
 /**
- * 从 workspace 的 `.lazygoal/profile` 加载固定 ALFWorld Profile。
+ * 从 workspace 的 `.lazygoal/profiles` 加载固定 ALFWorld Profile。
  *
  * @param workspaceRoot - workspace 绝对或相对根目录。
  * @returns Profile、绝对文件路径和内容哈希。

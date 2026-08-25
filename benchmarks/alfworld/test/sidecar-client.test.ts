@@ -10,7 +10,7 @@ import {
     type SidecarProcess,
     type SidecarTask,
     type SpawnSidecar,
-} from "../../src/alfworld/sidecar-client.js";
+} from "../src/sidecar-client.js";
 
 const task: SidecarTask = {
     taskId: "task-1",

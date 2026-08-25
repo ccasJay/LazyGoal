@@ -7,15 +7,18 @@ import { test } from "node:test";
 import {
     parseAlfworldEvalArgs,
     runAlfworldCli,
-} from "../../src/alfworld/cli.js";
+} from "../src/cli.js";
 import {
     aggregateEvaluationReport,
     createEpisodeAttempt,
-} from "../../src/alfworld/report.js";
-import { ALFWORLD_MANIFEST_VERSION } from "../../src/alfworld/manifest.js";
+} from "../src/report.js";
+import { ALFWORLD_MANIFEST_VERSION } from "../src/manifest.js";
 
 const profile = {
+    schemaVersion: 1,
     id: "alfworld-profile",
+    name: "ALFWorld TextWorld",
+    description: "Local ALFWorld TextWorld evaluation profile",
     systemPrompt: "ALFWorld TextWorld evaluator",
     instructions: [
         "Call alfworld_reset first.",
@@ -73,12 +76,18 @@ test("runAlfworldCli rejects a missing Profile before reading Conda or LLM setti
 test("runAlfworldCli validates Bash-free Profile and writes a machine report before threshold exit", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-cli-threshold-"));
     const dataRoot = join(workspace, "alfworld-data");
+    const environmentFilePath = join(workspace, ".env.alfworld");
     const reportPath = join(workspace, "reports", "smoke.json");
     try {
-        await mkdir(join(workspace, ".lazygoal/profile"), { recursive: true });
+        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
         await mkdir(dataRoot, { recursive: true });
         await writeFile(
-            join(workspace, ".lazygoal/profile/alfworld-profile.json"),
+            environmentFilePath,
+            `ALFWORLD_PYTHON="/fake/python"\nALFWORLD_DATA="${dataRoot}"\n`,
+            "utf8",
+        );
+        await writeFile(
+            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
             JSON.stringify(profile),
             "utf8",
         );
@@ -108,11 +117,8 @@ test("runAlfworldCli validates Bash-free Profile and writes a machine report bef
             "1",
         ], {
             cwd: workspace,
-            env: {
-                ALFWORLD_PYTHON: "/fake/python",
-                ALFWORLD_DATA: dataRoot,
-                LLM_MODEL: "fake-model",
-            },
+            env: { LLM_MODEL: "fake-model" },
+            environmentFilePath,
             writeOutput: (text) => output.push(text),
             writeError: (message) => {
                 throw new Error(message);
@@ -164,10 +170,10 @@ test("runAlfworldCli returns non-zero while preserving stdout report when thresh
     const dataRoot = join(workspace, "data");
     const output: string[] = [];
     try {
-        await mkdir(join(workspace, ".lazygoal/profile"), { recursive: true });
+        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
         await mkdir(dataRoot, { recursive: true });
         await writeFile(
-            join(workspace, ".lazygoal/profile/alfworld-profile.json"),
+            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
             JSON.stringify(profile),
             "utf8",
         );

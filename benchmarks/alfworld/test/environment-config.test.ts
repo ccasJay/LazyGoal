@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -10,10 +10,12 @@ import {
     AlfworldConfigurationError,
     AlfworldPreflightError,
     getCondaSubdir,
+    loadAlfworldEnvironmentFile,
     preflightAlfworldEnvironment,
     resolveAlfworldEnvironment,
+    runAlfworldPythonProbe,
     type AlfworldEnvironmentConfig,
-} from "../../src/alfworld/environment-config.js";
+} from "../src/environment-config.js";
 
 function environment(dataRoot: string): NodeJS.ProcessEnv {
     return {
@@ -21,6 +23,44 @@ function environment(dataRoot: string): NodeJS.ProcessEnv {
         ALFWORLD_DATA: dataRoot,
     };
 }
+
+test("loadAlfworldEnvironmentFile parses the package config and expands existing variables", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-env-file-"));
+    const filePath = join(workspace, ".env.alfworld");
+    try {
+        await writeFile(filePath, [
+            "# local test configuration",
+            "export ALFWORLD_PYTHON=\"${CONDA_PREFIX}/bin/python\"",
+            "ALFWORLD_DATA=\"${HOME}/alfworld-data\"",
+            "CONDA_SUBDIR=osx-64",
+        ].join("\n"), "utf8");
+
+        const parsed = await loadAlfworldEnvironmentFile(filePath, {
+            CONDA_PREFIX: "/opt/conda/envs/lazygoal-alfworld",
+            HOME: "/Users/tester",
+        });
+
+        assert.deepEqual(parsed, {
+            ALFWORLD_PYTHON: "/opt/conda/envs/lazygoal-alfworld/bin/python",
+            ALFWORLD_DATA: "/Users/tester/alfworld-data",
+            CONDA_SUBDIR: "osx-64",
+        });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("runAlfworldPythonProbe converts process startup failures into probe results", async () => {
+    const result = await runAlfworldPythonProbe(
+        "/definitely/missing/lazygoal-alfworld-python",
+        "print('unused')",
+        { ALFWORLD_DATA: "/data/alfworld" },
+    );
+
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stdout, "");
+    assert.equal(typeof result.stderr, "string");
+});
 
 test("resolveAlfworldEnvironment reads explicit paths without starting Conda", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-config-"));
