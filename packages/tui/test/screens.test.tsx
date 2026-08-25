@@ -413,3 +413,32 @@ test("TuiApp routes the first raw-mode Ctrl+C to the shutdown callback once", as
 
     assert.equal(shutdownRequests, 1);
 });
+
+test("TuiApp reports unexpected dispatch failures instead of swallowing them", async () => {
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+        warnings.push(args);
+    };
+
+    try {
+        const snapshot = { screen: "intent_input" as const, busy: false };
+        const controller = {
+            getSnapshot: () => snapshot,
+            subscribe: () => () => undefined,
+            dispatch: async () => {
+                throw new Error("dispatch failed");
+            },
+        } as unknown as SessionController;
+        const instance = render(<TuiApp controller={controller} />);
+        instance.stdin.write("Start a session");
+        await nextFrame();
+        instance.stdin.write("\r");
+        await nextFrame();
+
+        assert.equal(warnings.length, 1);
+        assert.match(String(warnings[0]?.[0]), /Unexpected UI dispatch failure/);
+    } finally {
+        console.warn = originalWarn;
+    }
+});

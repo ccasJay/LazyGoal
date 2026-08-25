@@ -72,7 +72,7 @@
   - 更新/保留终态测试，确认终态展示与路由不回归
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 13. app.tsx dispatch catch 收窄
+- [x] //TODO 13. app.tsx dispatch catch 收窄
 
   - app.tsx dispatch 包装按 `UiDispatchRejectedError` 收窄（该类静默，其余 `console.warn`），`import { UiDispatchRejectedError }`
   - 更新/保留 cli 测试，确认 busy/关闭拒绝与正常路径不回归

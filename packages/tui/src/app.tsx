@@ -6,7 +6,7 @@ import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
-import type { UiCommand } from "./types";
+import { UiDispatchRejectedError, type UiCommand } from "./types";
 
 /**
  * TUI 根组件的依赖边界。
@@ -59,8 +59,12 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
     );
     const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
     const dispatch = useCallback((command: UiCommand) => {
-        void controller.dispatch(command).catch(() => {
-            // Controller 将业务错误投影到快照；拒绝只意味着 busy/shutdown。
+        void controller.dispatch(command).catch((error: unknown) => {
+            if (error instanceof UiDispatchRejectedError) {
+                return;
+            }
+
+            console.warn("Unexpected UI dispatch failure", error);
         });
     }, [controller]);
 
