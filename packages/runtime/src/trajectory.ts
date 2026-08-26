@@ -240,6 +240,17 @@ export interface TrajectoryStore extends TrajectorySink {
      * @throws 事件文件损坏或底层读取失败时拒绝。
      */
     read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]>;
+
+    /**
+     * @param query - Goal/Run 必选键和可选的闭区间序列范围。
+     * @param committedThroughSequence - 最新有效 Goal Snapshot 记录的提交边界。
+     * @returns 按 Snapshot 边界分开的已提交事件与未提交 tail。
+     * @throws 边界非法、事件文件损坏或底层读取失败时拒绝。
+     */
+    readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>>;
 }
 
 /** Trajectory 按 Goal、Run 和序列范围读取的查询条件。 */
@@ -252,6 +263,27 @@ export interface TrajectoryReadQuery {
     readonly fromSequence?: number;
     /** 可选的最大序列（包含）。 */
     readonly toSequence?: number;
+}
+
+/**
+ * 以 Goal Snapshot 提交边界分类后的 Trajectory 读取结果。
+ *
+ * @remarks
+ * `committed` 只包含序号不大于 Snapshot 边界的事件；其余事件保留在
+ * `uncommittedTail` 中供审计。两组结果都不代表可 replay 的 Runtime State。
+ *
+ * @example
+ * ```ts
+ * const result = await store.readWithBoundary(
+ *     { goalId: "goal-1", runId: "run-1" },
+ *     goal.state.run.committedThroughSequence ?? 0,
+ * );
+ * console.log(result.uncommittedTail.length);
+ * ```
+ */
+export interface TrajectoryReadResult {
+    readonly committed: readonly TrajectoryEvent[];
+    readonly uncommittedTail: readonly TrajectoryEvent[];
 }
 
 /**
@@ -648,6 +680,46 @@ export function projectTrajectoryEvent(
         ...(event.parentEventId === undefined ? {} : { parentEventId: event.parentEventId }),
     };
     return Object.freeze(projection);
+}
+
+/**
+ * 按最新有效 Goal Snapshot 的提交边界分类事件。
+ *
+ * @param events - 按同一 Goal/Run 读取的 Domain Events。
+ * @param committedThroughSequence - Snapshot 声明的最大已提交序号。
+ * @returns 深度冻结的分类结果；不会修改输入事件或根据 marker 推导边界。
+ * @throws 提交边界不是非负整数时抛出 `TrajectoryProtocolError`。
+ */
+export function classifyTrajectoryTail(
+    events: readonly TrajectoryEvent[],
+    committedThroughSequence: number,
+): Readonly<TrajectoryReadResult> {
+    if (
+        !Number.isInteger(committedThroughSequence)
+        || committedThroughSequence < 0
+    ) {
+        throw new TrajectoryProtocolError(
+            "committedThroughSequence must be a non-negative integer",
+        );
+    }
+
+    const committed: TrajectoryEvent[] = [];
+    const uncommittedTail: TrajectoryEvent[] = [];
+
+    for (const event of events) {
+        const immutableEvent = freezeTrajectoryEvent(event);
+
+        if (immutableEvent.sequence <= committedThroughSequence) {
+            committed.push(immutableEvent);
+        } else {
+            uncommittedTail.push(immutableEvent);
+        }
+    }
+
+    return Object.freeze({
+        committed: Object.freeze(committed),
+        uncommittedTail: Object.freeze(uncommittedTail),
+    });
 }
 
 let localIdCounter = 0;

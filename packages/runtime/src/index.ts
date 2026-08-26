@@ -115,6 +115,7 @@ export {
     allocateImmutableEvent,
     allocateDiagnosticTraceRecord,
     assertValidTrajectoryEventDraft,
+    classifyTrajectoryTail,
     classifyTrajectoryEvent,
     createNoopDiagnosticTraceSink,
     createNoopTrajectoryRecorder,
@@ -132,6 +133,7 @@ export type {
     TrajectoryEventType,
     TrajectoryPhase,
     TrajectoryReadQuery,
+    TrajectoryReadResult,
     TrajectorySink,
     TrajectoryStore,
 } from "./trajectory";

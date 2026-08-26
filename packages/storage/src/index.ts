@@ -44,3 +44,4 @@ export {
     InMemoryGoalStore,
     JsonFileGoalStore,
 } from "./goal-store";
+export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";

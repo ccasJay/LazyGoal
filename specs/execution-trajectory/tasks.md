@@ -28,7 +28,7 @@
   - 增加编解码、旧快照兼容、边界保存和 marker 缺失测试。
   - _Requirements: [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.3](./requirements.md#req-4-3), [7.1](./requirements.md#req-7-1), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 5. 实现 JsonFileTrajectoryStore 与提交边界查询
+- [x] //TODO 5. 实现 JsonFileTrajectoryStore 与提交边界查询
 
   - 在 `packages/storage` 实现 `.lazygoal/trajectories/<goal>/<run>.jsonl` 的安全路径、串行追加、事件序列分配、严格读取和范围查询。
   - 提供基于 Goal Snapshot `committedThroughSequence` 的 committed/uncommitted tail 分类，不以 `state_committed` marker 推导边界；缺少轨迹文件时返回空结果。

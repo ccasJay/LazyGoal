@@ -14,6 +14,7 @@
 | [GoalSnapshotCodec](../../packages/storage/src/goal-snapshot-codec.ts) | Runtime Goal↔v6 Snapshot 的 encode/decode 深复制转换；decode 同时接受 v5/v6，v5 边界归一化为 `0` | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../../packages/storage/src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、目录扫描摘要 | 乐观锁、租约或版本冲突检测 |
+| [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
 
 ## 生命周期与错误
 
@@ -22,6 +23,11 @@
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按同一严格 Schema 校验（拒绝多余字段、非法 StepRecord、缺失或非正整数的 `promptBundleVersion`，以及非法的 `committedThroughSequence`）再 encode 深复制；`restore`/decode 读取 `metadata.schemaVersion`，接受 v5/v6，v5 缺失的提交边界映射为 `0`，不改写原文件；v1 至 v4 与未知版本统一抛出 `INVALID_GOAL_SNAPSHOT`。并发写入为最后替换者覆盖，失败保存会清理 `.tmp` 临时文件，文件系统错误原样传播。
 
 `JsonFileGoalStore.listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
+
+`JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`。
+同一实例内按 Run 串行追加并严格校验 JSONL、事件身份和单调序列；缺失文件或空文件读取为空。
+`readWithBoundary` 只使用调用方从最新 Goal Snapshot 读取的
+`committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。
 
 ## 当前限制与背景
 
