@@ -61,9 +61,16 @@ export class OpenAICompatible implements LLMAdapter {
                     { signal: control.signal },
                 );
             throwIfAborted(control);
+            const choice = response.choices[0];
 
             return {
-                content: response.choices[0]?.message.content ?? "",
+                content: choice?.message.content ?? "",
+                providerMetadata: {
+                    requestId: response.id,
+                    model: response.model,
+                    created: response.created,
+                    finishReason: choice?.finish_reason ?? null,
+                },
             };
         } catch (error) {
             if (isExecutionAbortedError(error)) {

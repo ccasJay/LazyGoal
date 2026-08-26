@@ -45,3 +45,6 @@ export {
     JsonFileGoalStore,
 } from "./goal-store";
 export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
+export {
+    JsonFileDiagnosticTraceSink,
+} from "./json-file-diagnostic-trace-sink";

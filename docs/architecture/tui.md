@@ -14,7 +14,7 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root 并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
+| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root（共享 Goal、Trajectory、Trace Store）并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口统一为 `resume` | 自行推断 Runtime 可用操作 |
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面并将 Ctrl+C 回调交给 CLI | Runtime 编排和快照写入 |
@@ -43,11 +43,13 @@ flowchart LR
 ```
 
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
-`.lazygoal/goals`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
+`.lazygoal/goals`，事实事件放在 `.lazygoal/trajectories`，诊断 Trace 放在
+`.lazygoal/traces`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
 `OpenAICompatible`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
 `GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
-Scheduler、Runner、根 `AbortController` 和 SessionController；Coordinator 与 Runner
-接收同一个 ToolRegistry 实例。Runner 注入
+Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`、根
+`AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
+Trajectory Store 和 Trace Sink 实例。Runner 注入
 `createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
 自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失
 `LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Goal 前返回稳定非零错误；
@@ -103,3 +105,5 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
   `ExecutionAbortedError`，不会生成 fail Step、`execution_error` 或新快照。
 - `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
   当前限制决定。
+- TUI 只把 Trajectory/Trace 作为共享写入依赖装配；当前界面和最终报告不自动展示
+  轨迹，读取与展示由后续独立消费者入口提供。

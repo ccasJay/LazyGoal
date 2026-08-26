@@ -75,6 +75,7 @@ export class Gemini implements LLMAdapter {
 
             return {
                 content: response.text ?? "",
+                providerMetadata: { model: this.model },
             };
         } catch (error) {
             if (isExecutionAbortedError(error)) {

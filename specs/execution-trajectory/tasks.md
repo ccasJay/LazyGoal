@@ -35,7 +35,7 @@
   - 增加 JSONL、单调序列、非法事件、安全路径、空文件和 tail 分类测试。
   - _Requirements: [2.3](./requirements.md#req-2-3), [3.2](./requirements.md#req-3-2), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 6. 接入 Diagnostic Trace 和 Agent 调用诊断
+- [x] //TODO 6. 接入 Diagnostic Trace 和 Agent 调用诊断
 
   - 为 `LLMStepExecutor`、`LLMPreparationExecutor` 和 Composition Root 注入可选 `TraceSink`，记录模型请求/响应、Provider metadata、耗时和异常，并应用脱敏与大小策略。
   - 保证模型原始内容只进入 Diagnostic Trace，不进入 Domain Event；TraceSink 缺失或写入失败不改变 Snapshot、Trajectory 和现有最终报告输出。

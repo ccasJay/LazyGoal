@@ -26,6 +26,9 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
 5. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段只接受四分支 AgentDecision。
 6. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 把 `ExecutionControl.signal` 传给异步 Compactor 和 LLM Adapter，中止或裁剪失败时不调用后续边界。
 7. Working Context 与模型协议 JSON 都不写入真实消息。保存和恢复始终使用完整 `Goal.state.messages`；恢复后的下一轮会从完整历史重新投影和裁剪。
+8. 两个 LLM Executor 可接收独立的 `DiagnosticTraceSink`：模型请求、响应、Provider
+   扩展 metadata、耗时和异常经过递归脱敏与限长后写入 Trace；Trace 写入失败被隔离，
+   不改变 AgentDecision、Snapshot 或 Domain Event。
 
 ## 错误与不变量
 
@@ -35,6 +38,8 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
 - `ExecutionAbortedError` 原样传播，不进入失败 Step 或协议错误分支。
 - Executor 不修改传入 Goal，也不直接写 Store。
 - `ContextCompactor` 不依赖 Runtime、Storage 或 Trajectory 类型，不缓存 Goal、Conversation 或上一次裁剪结果。
+- 模型原始请求/响应只进入可选 Diagnostic Trace；Trace 记录不进入 Domain Event，也不要求
+  记录隐藏思维链。字符串、递归深度、集合项目和总 JSON 大小均有界，敏感字段按键名脱敏。
 - 只有 LazyGoal 注册的模板可被执行；Profile、Instructions、ToolDefinition、Conversation 与 Working Context 中的 Nunjucks 语法一律作为数据/文本插入，不二次执行。
 - Global Overview 与 Active Phase Protocol 高于冻结 Profile，Profile 只补充不冲突的角色、领域和工作方式。
 - 相同输入产生字符级一致输出：模板与结果统一 LF，Tools 按 Tool ID 稳定升序，`stableJson` 键按代码单元排序，fragment 以 `\n\n` 连接且无结尾换行，空 Instructions/空 Tools 有固定表示。
@@ -42,4 +47,4 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
 
 ## 当前限制与背景
 
-Agent 不直接持久化 pendingAction、执行 Tool 或处理审批；这些由 Runtime Runner/Coordinator 负责。当前 Compactor 只丢弃本轮不可见的旧单元，不生成摘要；Trajectory 仍未建模，后续只能通过独立 Adapter 接入中立 `ContextUnit`。Agent 仍不提供流式响应、自动重试和协议自修复。LLM Step Executor 返回 AgentDecision，Coordinator 负责 Preparation 消息，模型原始 JSON 不会持久化。默认工厂按 `import.meta.url` 定位 `.njk` 资产，仓库以源码运行故无需复制流程。裁剪设计见 [Model Context Pruning Spec](../../specs/model-context-pruning/design.md)，早期执行器背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。
+Agent 不直接持久化 pendingAction、执行 Tool 或处理审批；这些由 Runtime Runner/Coordinator 负责。当前 Compactor 只丢弃本轮不可见的旧单元，不生成摘要；Trajectory 事件仍不自动注入 Prompt，未来只能通过独立 Adapter 接入中立 `ContextUnit`。Agent 仍不提供流式响应、自动重试和协议自修复。LLM Step Executor 返回 AgentDecision，Coordinator 负责 Preparation 消息，模型原始 JSON 不进入 Goal 消息或 Domain Event，但可按策略进入独立 Trace。默认工厂按 `import.meta.url` 定位 `.njk` 资产，仓库以源码运行故无需复制流程。裁剪设计见 [Model Context Pruning Spec](../../specs/model-context-pruning/design.md)，早期执行器背景见 [LLM Step Executor Spec](../../specs/llm-step-executor/design.md)，现状以源码为准。

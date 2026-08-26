@@ -15,6 +15,7 @@
 | [InMemoryGoalStore](../../packages/storage/src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、目录扫描摘要 | 乐观锁、租约或版本冲突检测 |
 | [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
+| [JsonFileDiagnosticTraceSink](../../packages/storage/src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
 
 ## 生命周期与错误
 
@@ -28,6 +29,10 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按同一�
 同一实例内按 Run 串行追加并严格校验 JSONL、事件身份和单调序列；缺失文件或空文件读取为空。
 `readWithBoundary` 只使用调用方从最新 Goal Snapshot 读取的
 `committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。
+
+`JsonFileDiagnosticTraceSink` 使用独立的 `.jsonl` 目录和同样的安全编码路径；它只负责
+追加上游已经脱敏、限长的 `TraceRecord`，不被 `GoalStore` 或 Trajectory 读取，也不参与
+恢复边界。
 
 ## 当前限制与背景
 

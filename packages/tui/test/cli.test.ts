@@ -144,6 +144,16 @@ test("composition root isolates workspace, freezes the default identity, and doe
 
     assert.equal(root.workspaceRoot, await realpath(workspace));
     assert.equal(root.goalsDirectory, join(root.workspaceRoot, ".lazygoal", "goals"));
+    assert.equal(
+        root.trajectoriesDirectory,
+        join(root.workspaceRoot, ".lazygoal", "trajectories"),
+    );
+    assert.equal(
+        root.tracesDirectory,
+        join(root.workspaceRoot, ".lazygoal", "traces"),
+    );
+    assert.ok(root.trajectoryStore !== undefined);
+    assert.ok(root.traceSink !== undefined);
     assert.equal(root.conversationCharBudget, 196608);
     assert.ok(root.contextCompactor !== undefined);
     assert.deepEqual(root.profile, {

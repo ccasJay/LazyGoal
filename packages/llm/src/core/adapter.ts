@@ -23,7 +23,7 @@ export interface  LLMAdapter {
      * @param request - 已按模型消费顺序组装的消息列表。
      * @param control - 当前 Goal 推进调用共享的中止控制；适配器应将信号传给
      *   供应商请求，并在响应返回后再次检查。
-     * @returns 模型生成的原始文本响应。
+     * @returns 模型生成的原始文本及可选供应商诊断 metadata。
      * @throws 供应商调用、网络或鉴权失败时传播对应异常；中止时抛出
      *   `ExecutionAbortedError`。
      */

@@ -1,3 +1,5 @@
+import type { JsonValue } from "../../../runtime/src/domain";
+
 /** 当前统一 LLM 消息协议支持的角色。 */
 export type LLMRole = "system" | "user" | "assistant";
 
@@ -18,6 +20,25 @@ export interface LLMRequest {
 }
 
 /** 供应商无关的 LLM 响应；content 保存模型返回的原始文本。 */
+/**
+ * 供应商无关的模型响应。
+ *
+ * @remarks
+ * `content` 是 Agent 协议解析所使用的原始文本；可选的
+ * `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
+ * Snapshot 或模型上下文。调用方应避免把凭据放入 metadata。
+ *
+ * @example
+ * ```ts
+ * const response: LLMResponse = {
+ *     content: '{"kind":"complete"}',
+ *     providerMetadata: { requestId: "req-1" },
+ * };
+ * ```
+ */
 export interface LLMResponse {
+    /** Agent 协议解析使用的原始模型文本。 */
     content: string;
+    /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */
+    providerMetadata?: JsonValue;
 }

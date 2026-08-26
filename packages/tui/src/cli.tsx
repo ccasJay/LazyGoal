@@ -24,8 +24,10 @@ import {
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
+    JsonFileDiagnosticTraceSink,
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
+    JsonFileTrajectoryStore,
 } from "../../storage/src/index";
 import {
     createDefaultPromptBundleRenderer,
@@ -337,6 +339,10 @@ export interface CompositionRoot {
     readonly workspaceRoot: string;
     /** 项目级 Goal 快照目录。 */
     readonly goalsDirectory: string;
+    /** 项目级 Domain Event JSONL 目录。 */
+    readonly trajectoriesDirectory: string;
+    /** 项目级 Diagnostic Trace JSONL 目录。 */
+    readonly tracesDirectory: string;
     /** 已校验的 OpenAI-compatible 配置。 */
     readonly llmConfig: LlmConfig;
     /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
@@ -355,6 +361,10 @@ export interface CompositionRoot {
     readonly toolRegistry: InMemoryToolRegistry;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
+    /** 共享的事实事件追加与读取 Store。 */
+    readonly trajectoryStore: JsonFileTrajectoryStore;
+    /** 共享的独立诊断 Trace Sink。 */
+    readonly traceSink: JsonFileDiagnosticTraceSink;
     /** 保护项目级 Store 写入边界的单向检查点闸门。 */
     readonly checkpointStore: CheckpointGateGoalStore;
     /** 当前进程拥有的可关闭资源注册表。 */
@@ -413,6 +423,12 @@ export async function createCompositionRoot(
     const conversationCharBudget = readConversationCharBudget(env);
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
+    const trajectoriesDirectory = join(
+        workspaceRoot,
+        ".lazygoal",
+        "trajectories",
+    );
+    const tracesDirectory = join(workspaceRoot, ".lazygoal", "traces");
     const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
     const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
     const profilePath = join(
@@ -467,14 +483,23 @@ export async function createCompositionRoot(
         conversationCharBudget,
     );
     const store = new JsonFileGoalStore(goalsDirectory);
+    const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
     const checkpointStore = new CheckpointGateGoalStore(store);
     const abortController = new AbortController();
     const resources = new ManagedResourceRegistry();
     const runner = new Runner({
         store: checkpointStore,
-        executor: new LLMStepExecutor({ adapter, renderer, contextCompactor }),
+        executor: new LLMStepExecutor({
+            adapter,
+            renderer,
+            contextCompactor,
+            traceSink,
+        }),
         toolRegistry,
         toolPolicy: createDefaultToolPolicy(),
+        trajectorySink: trajectoryStore,
+        traceSink,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
@@ -483,9 +508,12 @@ export async function createCompositionRoot(
             adapter,
             renderer,
             contextCompactor,
+            traceSink,
         }),
         scheduler,
         toolRegistry,
+        trajectorySink: trajectoryStore,
+        traceSink,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -499,6 +527,8 @@ export async function createCompositionRoot(
                     store: checkpointStore,
                     coordinator,
                     promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
+                    trajectorySink: trajectoryStore,
+                    traceSink,
                 },
                 control,
             );
@@ -526,6 +556,8 @@ export async function createCompositionRoot(
     return {
         workspaceRoot,
         goalsDirectory,
+        trajectoriesDirectory,
+        tracesDirectory,
         llmConfig,
         conversationCharBudget,
         contextCompactor,
@@ -535,6 +567,8 @@ export async function createCompositionRoot(
         readFileTool,
         toolRegistry,
         store,
+        trajectoryStore,
+        traceSink,
         checkpointStore,
         resources,
         abortController,

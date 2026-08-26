@@ -16,6 +16,12 @@ import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
 import { parseAgentDecision } from "./response-schema";
 import type { PromptBundleRenderer } from "./prompting/types";
+import type { DiagnosticTraceSink } from "../../runtime/src/index";
+import {
+    recordLlmError,
+    recordLlmRequest,
+    recordLlmResponse,
+} from "./llm-diagnostic-trace";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -35,6 +41,8 @@ export interface LLMStepExecutorDependencies {
     readonly renderer: PromptBundleRenderer;
     /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
+    /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
+    readonly traceSink?: DiagnosticTraceSink;
 }
 
 /**
@@ -53,12 +61,14 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly adapter: LLMAdapter;
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
+    private readonly traceSink: DiagnosticTraceSink | undefined;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
         this.adapter = dependencies.adapter;
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
+        this.traceSink = dependencies.traceSink;
     }
 
     /**
@@ -84,11 +94,20 @@ export class LLMStepExecutor implements StepExecutor {
             control?.signal,
         );
         throwIfAborted(control);
+        const startedAt = Date.now();
+        await recordLlmRequest(this.traceSink, goal, request);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
             response = await this.adapter.generate(request, control);
         } catch (error) {
+            await recordLlmError(
+                this.traceSink,
+                goal,
+                error,
+                Date.now() - startedAt,
+                "adapter",
+            );
             if (isExecutionAbortedError(error)) {
                 throw error;
             }
@@ -100,7 +119,27 @@ export class LLMStepExecutor implements StepExecutor {
             throw error;
         }
         throwIfAborted(control);
-        const decision = parseAgentDecision(response.content);
+        await recordLlmResponse(
+            this.traceSink,
+            goal,
+            response,
+            Date.now() - startedAt,
+        );
+
+        let decision: AgentDecision;
+
+        try {
+            decision = parseAgentDecision(response.content);
+        } catch (error) {
+            await recordLlmError(
+                this.traceSink,
+                goal,
+                error,
+                Date.now() - startedAt,
+                "response_parse",
+            );
+            throw error;
+        }
 
         return decision;
     }
