@@ -21,7 +21,7 @@
   - 使用可注入失败 Sink 增加单元测试，确认不伪造 `tool_finished`/成功 Observation，且已有事实不会被回写或删除。
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [3.2](./requirements.md#req-3-2), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 4. 扩展 Goal Snapshot Codec 到提交边界协议
+- [x] //TODO 4. 扩展 Goal Snapshot Codec 到提交边界协议
 
   - 在 `packages/storage` 增加 Snapshot v6 DTO、Schema、Codec 编解码和 `committedThroughSequence` 跨字段校验；v5 快照读取映射为 `0`，不修改原文件，v1 至 v4 继续拒绝。
   - 更新 Runtime/Storage 类型导出与快照构造 fixture，保持 `GoalStore` 原子替换、旧 Action/Observation 和 Profile 冻结语义。

@@ -15,7 +15,8 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [AgentProfile 契约](../../packages/runtime/src/agent-profile.ts) | `AgentProfile`、`AgentProfileRegistry` 与 `AgentProfileStore` Port | 文件读取、Schema 校验、Tool 实例与 Prompt |
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
-| [GoalStore 契约](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal 的 Port 与 `GoalCatalogEntry` 摘要 | 历史与事件查询、文件格式 |
+| [GoalStore 契约](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal 的 Port 与 `GoalCatalogEntry` 摘要；快照中的 `committedThroughSequence` 是轨迹恢复边界 | 历史与事件查询、文件格式 |
+| [Trajectory 契约](../../packages/runtime/src/trajectory.ts) | 追加事实型 Domain Event、记录提交 marker，并为只读消费者提供事件查询/提交边界分类 Port | Runtime State、Snapshot 恢复或 Diagnostic Trace |
 | [GoalCatalog 契约](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要的 Port | 写入快照或返回历史版本 |
 | [CheckpointGateGoalStore](../../packages/runtime/src/checkpoint-gate.ts) | 关闭流程中冻结新快照写入并等待已进入保存 | 回滚快照或修改 Goal 状态 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
@@ -44,7 +45,7 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。Composition Roo
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running；`approve_action` 匹配 `awaiting_approval` 或 `outcome_unknown` 的 pendingAction，保存为 `approved` 后透传一次性 `authorizedActionId`；`reject_action` 保存 rejected Observation 后继续推进。以上状态均先保存再继续自动推进。
 
-当前 Runner 主流程为 `created → running → (Action/Observation)* → waiting | completed | failed`，`cancelled` 也是终态。StepExecutor 生成 AgentDecision 后，Runner 会向它传入冻结 Profile 中已注册的 ToolDefinition，并对返回值做运行时严格校验。`tool_call` 按 Profile 授权、Registry 查找、输入校验和 Policy 顺序检查；自动允许时先用 `stage_action` 保存 checkpoint/pendingAction，再调用 Tool，最后用 `observe_action` 同时保存最近 Action/Observation、清除 pendingAction 并计一个 Step；需要批准时保存 `awaiting_approval` 并进入 waiting，获得匹配的瞬时授权后才执行同一 Action。进程恢复时，safe Tool 沿用原 `actionId` 自动重放，manual Tool 通过 `recover_action` 转为 `outcome_unknown` waiting。领域 failure Observation 继续下一轮；协议、越权、缺失、非法输入和基础设施异常写入 `execution_error`，Tool 抛错时保留 `outcome_unknown`，不伪造 Observation 或 assistant 消息。终止 AgentDecision 使用 `decision` 转换并保存 checkpoint、最近结果和规范化 assistant 消息。每个保存点成功后才会进入下一步。
+当前 Runner 主流程为 `created → running → (Action/Observation)* → waiting | completed | failed`，`cancelled` 也是终态。StepExecutor 生成 AgentDecision 后，Runner 会向它传入冻结 Profile 中已注册的 ToolDefinition，并对返回值做运行时严格校验。`tool_call` 按 Profile 授权、Registry 查找、输入校验和 Policy 顺序检查；自动允许时先用 `stage_action` 保存 checkpoint/pendingAction，再调用 Tool，最后用 `observe_action` 同时保存最近 Action/Observation、清除 pendingAction 并计一个 Step；需要批准时保存 `awaiting_approval` 并进入 waiting，获得匹配的瞬时授权后才执行同一 Action。进程恢复时，safe Tool 沿用原 `actionId` 自动重放，manual Tool 通过 `recover_action` 转为 `outcome_unknown` waiting。领域 failure Observation 继续下一轮；协议、越权、缺失、非法输入和基础设施异常写入 `execution_error`，Tool 抛错时保留 `outcome_unknown`，不伪造 Observation 或 assistant 消息。终止 AgentDecision 使用 `decision` 转换并保存 checkpoint、最近结果和规范化 assistant 消息。每个保存点成功后才会进入下一步。启用轨迹时，Runtime 在快照保存前将本次事实事件的最大序号写入 `RunState.committedThroughSequence`，快照成功后再追加 `state_committed` marker；marker 只用于审计，恢复和 tail 分类始终以最新有效快照中的边界为准。轨迹追加失败采用 fail-closed，Diagnostic Trace 不参与 Runtime 恢复。
 
 Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Adapter 和 Tool
 共享可选的 `ExecutionControl`。各层在外部调用前、异步返回后以及状态转换或保存前

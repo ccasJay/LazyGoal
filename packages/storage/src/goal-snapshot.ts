@@ -39,6 +39,28 @@ export interface GoalSnapshotV5 {
 }
 
 /**
+ * Goal Snapshot v6 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v6 在 Run 中增加 `committedThroughSequence`，用于以 Snapshot 建立 Trajectory
+ * 恢复边界；v5 读取时该字段归一化为 `0`，不会改写原文件。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV6 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 6 },
+ *     definition: { intent: "实现恢复", promptBundleVersion: 1, profile, executionPolicy: { maxSteps: 0 } },
+ *     state: { workflow, messages: [], run: { id: "run-1", status: "created", stepCount: 0, committedThroughSequence: 0 } },
+ * };
+ * ```
+ */
+export type GoalSnapshotV6 = Omit<GoalSnapshotV5, "metadata" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV6;
+    readonly state: GoalSnapshotStateV6;
+};
+
+/**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
  * ```ts
@@ -47,6 +69,11 @@ export interface GoalSnapshotV5 {
  */
 export interface GoalSnapshotMetadataV5 {
     readonly schemaVersion: 5;
+}
+
+/** v6 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV6 {
+    readonly schemaVersion: 6;
 }
 
 /**
@@ -109,6 +136,11 @@ export interface GoalSnapshotStateV5 {
     readonly messages: readonly GoalSnapshotMessageV5[];
     readonly run: GoalSnapshotRunStateV5;
 }
+
+/** v6 Snapshot 的工作流、消息与带提交边界的 Run 状态。 */
+export type GoalSnapshotStateV6 = Omit<GoalSnapshotStateV5, "run"> & {
+    readonly run: GoalSnapshotRunStateV6;
+};
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
 export type GoalSnapshotWorkflowV5 =
@@ -179,6 +211,20 @@ export interface GoalSnapshotRunStateV5 {
     readonly pendingAction?: GoalSnapshotPendingActionV5 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV5 | undefined;
 }
+
+/**
+ * v6 Run 执行状态。
+ *
+ * @remarks `committedThroughSequence` 是最新有效 Snapshot 纳入恢复边界的最大
+ * Domain Event 序号；`state_committed` marker 不参与该字段的推导。
+ */
+export type GoalSnapshotRunStateV6 = Omit<GoalSnapshotRunStateV5, "lastStep" | "checkpoint" | "pendingAction" | "stopReason"> & {
+    readonly committedThroughSequence: number;
+    readonly lastStep?: GoalSnapshotStepRecordV5 | undefined;
+    readonly checkpoint?: string | undefined;
+    readonly pendingAction?: GoalSnapshotPendingActionV5 | undefined;
+    readonly stopReason?: GoalSnapshotStopReasonV5 | undefined;
+};
 
 /** Run 生命周期状态。 */
 export type GoalSnapshotRunStatusV5 =
@@ -453,8 +499,9 @@ function addInvariantIssue(
     context.addIssue({ code: "custom", message, path });
 }
 
-function validateV5Invariants(
-    goal: z.infer<typeof GoalSnapshotBaseSchema>,
+function validateSnapshotInvariants(
+    goal: z.infer<typeof GoalSnapshotBaseSchema>
+        | z.infer<typeof GoalSnapshotV6BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
@@ -650,6 +697,26 @@ const GoalSnapshotBaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const GoalSnapshotV6BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(6) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -664,7 +731,23 @@ const GoalSnapshotBaseSchema = z.object({
  * ```
  */
 export const GoalSnapshotV5Schema = GoalSnapshotBaseSchema.superRefine(
-    validateV5Invariants,
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v6 Goal Snapshot Schema。
+ *
+ * @remarks
+ * 除 v5 已有跨字段约束外，v6 要求 Run 明确提供非负的
+ * `committedThroughSequence`。该字段是 Snapshot 的恢复边界，不依赖 marker。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV6Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV6Schema = GoalSnapshotV6BaseSchema.superRefine(
+    validateSnapshotInvariants,
 );
 
 export const INVALID_GOAL_SNAPSHOT_CODE = "INVALID_GOAL_SNAPSHOT" as const;

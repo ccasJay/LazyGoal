@@ -12,6 +12,7 @@ import type {
 import {
     GoalSnapshotProtocolError,
     GoalSnapshotV5Schema,
+    GoalSnapshotV6Schema,
 } from "./goal-snapshot";
 import type {
     GoalSnapshotMessageV5,
@@ -23,17 +24,18 @@ import type {
     GoalSnapshotStopReasonV5,
     GoalSnapshotToolCallActionV5,
     GoalSnapshotV5,
+    GoalSnapshotV6,
     GoalSnapshotWorkflowV5,
 } from "./goal-snapshot";
 
 /**
- * Runtime Goal 与 Storage v5 Snapshot 之间的双向转换边界。
+ * Runtime Goal 与 Storage v6 Snapshot 之间的双向转换边界。
  *
  * @remarks
  * Codec 是唯一同时看到 Runtime 领域类型与 Snapshot DTO 的模块。decode 只
- * 接受严格 v5：v1 至 v4、未知版本以及 v5 中的非法结构统一抛出
+ * 接受严格 v5/v6：v1 至 v4、未知版本以及快照中的非法结构统一抛出
  * {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
- * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 5 }` 并再次
+ * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 6 }` 并再次
  * 执行跨字段校验，两侧对象互不共享引用；JSON 值的深复制基于 Node 内置
  * `structuredClone` 实现。
  *
@@ -47,15 +49,15 @@ import type {
 export interface GoalSnapshotCodec {
     /**
      * @param goal - 完整的 Runtime Goal 聚合。
-     * @returns 通过严格 v5 校验、与输入不共享引用的 Snapshot DTO。
-     * @throws Goal 违反 v5 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
+     * @returns 通过严格 v6 校验、与输入不共享引用的 Snapshot DTO。
+     * @throws Goal 违反 v6 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
      */
-    encode(goal: Goal): GoalSnapshotV5;
+    encode(goal: Goal): GoalSnapshotV6;
 
     /**
      * @param input - 已解析的快照 JSON 值（通常来自 `JSON.parse`）。
-     * @returns 与输入不共享引用、语义等价的 Runtime Goal。
-     * @throws v1 至 v4、未知版本或 v5 结构损坏时抛出
+     * @returns 与输入不共享引用、语义等价的 Runtime Goal；v5 输入的提交边界归一化为 `0`。
+     * @throws v1 至 v4、未知版本或 v5/v6 结构损坏时抛出
      *   GoalSnapshotProtocolError；本方法不执行任何 I/O，因此失败时不会
      *   改写任何文件。
      */
@@ -88,13 +90,21 @@ function describeLegacyStep(input: unknown): string | undefined {
 
 /** Codec 的默认实现；转换失败统一抛出稳定协议错误。 */
 export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
-    encode(goal: Goal): GoalSnapshotV5 {
+    encode(goal: Goal): GoalSnapshotV6 {
         // 先按同一严格 Schema 校验输入：拒绝 Runtime 侧的多余字段、
         // legacy StepRecord 与不成立的跨字段组合，再逐字段深复制构造 DTO。
-        const validation = GoalSnapshotV5Schema.safeParse({
+        const candidate = {
             ...goal,
-            metadata: { schemaVersion: 5 },
-        });
+            metadata: { schemaVersion: 6 as const },
+            state: {
+                ...goal.state,
+                run: {
+                    ...goal.state.run,
+                    committedThroughSequence: goal.state.run.committedThroughSequence ?? 0,
+                },
+            },
+        };
+        const validation = GoalSnapshotV6Schema.safeParse(candidate);
 
         if (!validation.success) {
             throw new GoalSnapshotProtocolError(
@@ -105,7 +115,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
 
         return {
             id: goal.id,
-            metadata: { schemaVersion: 5 },
+            metadata: { schemaVersion: 6 },
             definition: encodeDefinition(goal),
             state: encodeState(goal),
         };
@@ -114,7 +124,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
     decode(input: unknown): Goal {
         const schemaVersion = readSchemaVersion(input);
 
-        if (schemaVersion !== 5) {
+        if (schemaVersion !== 5 && schemaVersion !== 6) {
             const legacyHint = schemaVersion === 1
                 || schemaVersion === 2
                 || schemaVersion === 3
@@ -127,7 +137,9 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             );
         }
 
-        const result = GoalSnapshotV5Schema.safeParse(input);
+        const result = schemaVersion === 5
+            ? GoalSnapshotV5Schema.safeParse(input)
+            : GoalSnapshotV6Schema.safeParse(input);
 
         if (!result.success) {
             throw new GoalSnapshotProtocolError(
@@ -136,7 +148,12 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             );
         }
 
-        return decodeSnapshot(result.data);
+        return decodeSnapshot(
+            result.data as GoalSnapshotV5 | GoalSnapshotV6,
+            schemaVersion === 6
+                ? (result.data as GoalSnapshotV6).state.run.committedThroughSequence
+                : 0,
+        );
     }
 }
 
@@ -284,6 +301,7 @@ function encodeState(goal: Goal) {
             id: run.id,
             status: run.status,
             stepCount: run.stepCount,
+            committedThroughSequence: run.committedThroughSequence ?? 0,
             ...(run.lastStep === undefined
                 ? {}
                 : { lastStep: encodeStep(run.lastStep) }),
@@ -416,9 +434,47 @@ function decodeStep(step: GoalSnapshotStepRecordV5): StepRecord {
     }
 }
 
-function decodeSnapshot(snapshot: GoalSnapshotV5): Goal {
+function decodeSnapshot(
+    snapshot: GoalSnapshotV5 | GoalSnapshotV6,
+    committedThroughSequence: number,
+): Goal {
     const state = snapshot.state;
     const run = state.run;
+    const decodedRun = {
+        id: run.id,
+        status: run.status,
+        stepCount: run.stepCount,
+        ...(run.lastStep === undefined
+            ? {}
+            : { lastStep: decodeStep(run.lastStep) }),
+        ...(run.checkpoint === undefined
+            ? {}
+            : { checkpoint: run.checkpoint }),
+        ...(run.pendingAction === undefined
+            ? {}
+            : {
+                pendingAction: decodePendingAction(run.pendingAction),
+            }),
+        ...(run.stopReason === undefined
+            ? {}
+            : { stopReason: run.stopReason }),
+    } as Goal["state"]["run"];
+
+    if (committedThroughSequence === 0) {
+        Object.defineProperty(decodedRun, "committedThroughSequence", {
+            value: 0,
+            enumerable: false,
+            writable: false,
+            configurable: true,
+        });
+    } else {
+        Object.defineProperty(decodedRun, "committedThroughSequence", {
+            value: committedThroughSequence,
+            enumerable: true,
+            writable: false,
+            configurable: true,
+        });
+    }
 
     return {
         id: snapshot.id,
@@ -442,25 +498,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV5): Goal {
                         content: message.content,
                     }
             ),
-            run: {
-                id: run.id,
-                status: run.status,
-                stepCount: run.stepCount,
-                ...(run.lastStep === undefined
-                    ? {}
-                    : { lastStep: decodeStep(run.lastStep) }),
-                ...(run.checkpoint === undefined
-                    ? {}
-                    : { checkpoint: run.checkpoint }),
-                ...(run.pendingAction === undefined
-                    ? {}
-                    : {
-                        pendingAction: decodePendingAction(run.pendingAction),
-                    }),
-                ...(run.stopReason === undefined
-                    ? {}
-                    : { stopReason: run.stopReason }),
-            },
+            run: decodedRun,
         },
     };
 }

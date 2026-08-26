@@ -9,6 +9,7 @@ export { JsonFileAgentProfileStore } from "./json-file-agent-profile-store";
 export {
     GoalSnapshotProtocolError,
     GoalSnapshotV5Schema,
+    GoalSnapshotV6Schema,
     INVALID_GOAL_SNAPSHOT_CODE,
 } from "./goal-snapshot";
 export type {
@@ -27,6 +28,10 @@ export type {
     GoalSnapshotTaskV5,
     GoalSnapshotToolCallActionV5,
     GoalSnapshotV5,
+    GoalSnapshotV6,
+    GoalSnapshotMetadataV6,
+    GoalSnapshotRunStateV6,
+    GoalSnapshotStateV6,
     GoalSnapshotWorkflowV5,
     SnapshotJsonValue,
 } from "./goal-snapshot";
