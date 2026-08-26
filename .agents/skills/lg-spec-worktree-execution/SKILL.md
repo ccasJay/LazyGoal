@@ -15,7 +15,7 @@ description: "在 LazyGoal 仓库中把一个已批准的功能 Spec 放入独�
 
 ## 建立 worktree
 
-1. 从默认主干分支（`main`）创建分支 `feature/<name>`，worktree 路径必须包含 spec 名，保证多会话并发执行不同 Spec 时互不冲突；会话内若有 worktree 工具（如 EnterWorktree）优先使用，否则用 `git worktree add` 手工创建。
+1. 从默认开发分支（`dev`）,或用户指定的分支 创建分支`feature/<name>`，worktree 路径必须包含 spec 名，保证多会话并发执行不同 Spec 时互不冲突；会话内若有 worktree 工具（如 EnterWorktree）优先使用，否则用 `git worktree add` 手工创建。
 2. 若 `feature/<name>` 分支或其 worktree 已存在（上次中断的残留），不要重建：进入现有 worktree，从第一个未勾选任务继续。
 3. **spec 目录经常是未跟踪的**（如 `?? specs/<name>/`），而新 worktree 只包含已提交内容。进入 worktree 后若 `specs/<name>/` 缺失，从主工作区完整复制该目录（`cp -R`），并以一条独立提交先行入库，提交信息形如 `规格：沉淀 <name> 实施计划`，再开始执行任务。
 4. 在 worktree 内运行 `npm install`；worktree 拥有独立的 `node_modules`，不与主工作区共享。

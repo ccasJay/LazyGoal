@@ -22,6 +22,9 @@ lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
 入口按 Profile → Manifest → Python/数据预检的顺序校验配置，全部通过后才构造
 模型 Adapter 和 sidecar。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
+数据准备使用 `npm --prefix benchmarks run alfworld:download`；该入口复用同一个
+`.env.alfworld` 解析器，把 `ALFWORLD_DATA` 作为 `--data-dir` 传给
+`alfworld-download`，并让进程环境覆盖文件值。
 评测 CLI 与独立 preflight 脚本共用同一个有界 Python 探针执行器，测试入口仍可注入
 替身探针，不会改变预检顺序或错误语义。
 ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.json` 加载，
@@ -35,6 +38,12 @@ ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.jso
 `LLMStepExecutor` 和 Runtime `Runner`。每个 Episode 绑定一个 sidecar 会话，任务
 终态、错误或中止后关闭会话；基础设施重试追加新的 Attempt，不覆盖原始记录。
 报告的成功事实只有环境返回的 `won=true`，模型 `complete` 不能覆盖环境失败。
+Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
+归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。
+TextWorld 不提供部分目标完成率时，sidecar 以 `won` 生成二值完成率。
+Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错误记录为
+`infrastructure`；模型返回 `fail` 也记录为 `task_not_won`。只有缺少这些终止证据时
+才使用 `unknown`。
 
 [`EvaluationReport`](../../benchmarks/alfworld/src/report.ts) 只保存任务、环境统计、
 配置标识、重试序号和失败类别，不保存完整 Observation 轨迹、Goal Snapshot 或

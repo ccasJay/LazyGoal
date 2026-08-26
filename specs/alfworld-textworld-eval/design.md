@@ -36,7 +36,7 @@
 - 任务清单使用数据根目录下的相对 `gameFile`、稳定 `taskId`、数据切分、顺序、随机种子和单任务 Step 上限；禁止保存机器绝对路径。
 - 默认 Smoke 清单使用 TextWorld `valid_seen`，关闭 domain randomization；Regression 只消费提交到仓库的固定清单，任务顺序由清单顺序决定。
 - sidecar 启动期验证 Python、ALFWorld 版本、`ALFWORLD_DATA`、任务文件和可用 TextWorld 环境；任何一项失败都在模型调用前终止评测。
-- Conda 只安装 TextWorld 依赖。Apple Silicon 的 `osx-64` 选择、数据下载和 `ALFWORLD_DATA` 设置写入 `benchmarks/alfworld/README.md`；显式入口自动解析 `benchmarks/alfworld/.env.alfworld`，命令行环境变量优先；THOR 不进入本 Spec。
+- Conda 只安装 TextWorld 依赖。Apple Silicon 的 `osx-64` 选择、数据下载和 `ALFWORLD_DATA` 设置写入 `benchmarks/alfworld/README.md`；`alfworld:download`、预检和显式入口共同解析 `benchmarks/alfworld/.env.alfworld`，命令行环境变量优先；THOR 不进入本 Spec。
 
 ### 5. 以环境事实生成独立评测报告
 

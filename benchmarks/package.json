@@ -6,7 +6,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "tsx --test alfworld/test/*.test.ts",
+    "alfworld:test-python": "python -B -m unittest discover -s alfworld/python -p 'test_*.py'",
     "alfworld:init": "tsx alfworld/scripts/init-alfworld.ts",
+    "alfworld:download": "tsx alfworld/scripts/download-alfworld.ts",
     "alfworld:preflight": "tsx alfworld/scripts/preflight-alfworld.ts",
     "alfworld:eval": "cd .. && tsx benchmarks/alfworld/src/cli.ts",
     "alfworld:smoke": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 0",

@@ -214,6 +214,156 @@ test("Runner Episode executor assembles the isolated store, authorized tools and
     assert.equal(closed, 1);
 });
 
+test("Runner execution errors remain visible in Episode execution facts", async () => {
+    const executeEpisode = createRunnerEpisodeExecutor({
+        profile,
+        promptBundleVersion: 3,
+        adapter: { generate: async () => ({ content: "" }) },
+        renderer: { render: () => "" },
+        contextCompactor: { compact: async (units) => units },
+        workspaceRoot: "/workspace",
+        createClient: () => ({
+            async reset(): Promise<SidecarResetResult> {
+                return {
+                    taskId: "task-1",
+                    gameFile: "valid_seen/task-1/game.tw-pddl",
+                    observation: "initial",
+                    admissibleCommands: [],
+                };
+            },
+            async step(): Promise<SidecarStepResult> {
+                throw new Error("step should not be called");
+            },
+            async close(): Promise<void> {},
+        }),
+        createRunner: (dependencies) => ({
+            async run(ref) {
+                const goal = await dependencies.store.restore(ref.goalId);
+                assert.ok(goal);
+                return {
+                    ok: true,
+                    state: {
+                        ...goal.state.run,
+                        status: "failed",
+                        stopReason: {
+                            kind: "execution_error",
+                            code: "TOOL_EXECUTION_ERROR",
+                            message: "sidecar reset failed",
+                        },
+                    },
+                };
+            },
+        }),
+    });
+
+    const result = await executeEpisode({
+        task: manifest.tasks[0]!,
+        profile,
+    });
+
+    assert.deepEqual(result.failure, {
+        category: "infrastructure",
+        code: "TOOL_EXECUTION_ERROR",
+    });
+});
+
+test("Runner max-step termination is reported as an unfinished task", async () => {
+    const executeEpisode = createRunnerEpisodeExecutor({
+        profile,
+        promptBundleVersion: 3,
+        adapter: { generate: async () => ({ content: "" }) },
+        renderer: { render: () => "" },
+        contextCompactor: { compact: async (units) => units },
+        workspaceRoot: "/workspace",
+        createClient: () => ({
+            async reset(): Promise<SidecarResetResult> {
+                return {
+                    taskId: "task-1",
+                    gameFile: "valid_seen/task-1/game.tw-pddl",
+                    observation: "initial",
+                    admissibleCommands: [],
+                };
+            },
+            async step(): Promise<SidecarStepResult> {
+                throw new Error("step should not be called");
+            },
+            async close(): Promise<void> {},
+        }),
+        createRunner: (dependencies) => ({
+            async run(ref) {
+                const goal = await dependencies.store.restore(ref.goalId);
+                assert.ok(goal);
+                return {
+                    ok: true,
+                    state: {
+                        ...goal.state.run,
+                        status: "failed",
+                        stopReason: { kind: "max_steps_exceeded" },
+                    },
+                };
+            },
+        }),
+    });
+
+    const result = await executeEpisode({
+        task: manifest.tasks[0]!,
+        profile,
+    });
+
+    assert.deepEqual(result.failure, {
+        category: "task_not_won",
+        code: "MAX_STEPS_EXCEEDED",
+    });
+});
+
+test("Runner model fail termination is reported as an unfinished task", async () => {
+    const executeEpisode = createRunnerEpisodeExecutor({
+        profile,
+        promptBundleVersion: 3,
+        adapter: { generate: async () => ({ content: "" }) },
+        renderer: { render: () => "" },
+        contextCompactor: { compact: async (units) => units },
+        workspaceRoot: "/workspace",
+        createClient: () => ({
+            async reset(): Promise<SidecarResetResult> {
+                return {
+                    taskId: "task-1",
+                    gameFile: "valid_seen/task-1/game.tw-pddl",
+                    observation: "initial",
+                    admissibleCommands: [],
+                };
+            },
+            async step(): Promise<SidecarStepResult> {
+                throw new Error("step should not be called");
+            },
+            async close(): Promise<void> {},
+        }),
+        createRunner: (dependencies) => ({
+            async run(ref) {
+                const goal = await dependencies.store.restore(ref.goalId);
+                assert.ok(goal);
+                return {
+                    ok: true,
+                    state: {
+                        ...goal.state.run,
+                        status: "failed",
+                    },
+                };
+            },
+        }),
+    });
+
+    const result = await executeEpisode({
+        task: manifest.tasks[0]!,
+        profile,
+    });
+
+    assert.deepEqual(result.failure, {
+        category: "task_not_won",
+        code: "MODEL_FAILED",
+    });
+});
+
 test("evaluation abort stops before the next task and does not create a fake attempt", async () => {
     const controller = new AbortController();
     controller.abort();

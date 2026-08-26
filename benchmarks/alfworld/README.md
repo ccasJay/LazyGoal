@@ -27,11 +27,15 @@ CONDA_SUBDIR=osx-64 conda env update --name lazygoal-alfworld --file benchmarks/
 
 ```sh
 conda activate lazygoal-alfworld
-alfworld-download
-export ALFWORLD_PYTHON="$CONDA_PREFIX/bin/python"
-export ALFWORLD_DATA="/absolute/path/to/alfworld-data"
+npm --prefix benchmarks run alfworld:download
 npm --prefix benchmarks run alfworld:preflight
 ```
+
+`alfworld:download`、`alfworld:preflight` 和显式评测入口都会读取
+`benchmarks/alfworld/.env.alfworld`。下载脚本把解析出的 `ALFWORLD_DATA` 传给
+`alfworld-download --data-dir`；当前进程中显式导出的同名变量优先覆盖配置文件。
+因此不需要手动拼接数据路径。若直接运行 Python 命令，仍需先执行
+`source benchmarks/alfworld/.env.alfworld`。
 
 评测使用工作区中的唯一测试 Profile：`.lazygoal/profiles/alfworld-profile.json`。
 该 Profile 授权 `read_file`、`grep`、`alfworld_reset` 和 `alfworld_step`，不会授权
@@ -44,11 +48,14 @@ Bash、写入或编辑 Tool。显式 ALFWorld 入口会自动读取
 ## 固定评测命令
 
 完成环境初始化后，可以运行固定的 Smoke 或 Regression 清单。两条命令都会输出
-机器可读报告；可在命令末尾追加 `--min-success-rate 0.8` 设置回归阈值。
+机器可读报告；它们固定使用阈值 `0`，用于连通性和流程诊断，即使任务未成功也会
+保留报告。需要把“全部任务成功”作为退出条件时，使用通用评测入口显式设置阈值：
 
 ```sh
 npm --prefix benchmarks run alfworld:smoke
 npm --prefix benchmarks run alfworld:regression
+npm --prefix benchmarks run alfworld:eval -- eval alfworld \
+  --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 1
 ```
 
 清单位于 `alfworld/manifests/smoke.json` 和 `alfworld/manifests/regression.json`，

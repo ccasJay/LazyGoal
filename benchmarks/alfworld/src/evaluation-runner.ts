@@ -287,12 +287,7 @@ export function createRunnerEpisodeExecutor(
                 control,
             );
             model = modelFactsFromResult(result);
-            if (!result.ok) {
-                failure = {
-                    category: "infrastructure",
-                    code: result.error.code,
-                };
-            }
+            failure = failureFromRunnerResult(result);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
             failure = failureDescriptor(error);
@@ -405,6 +400,31 @@ function modelFactsFromResult(result: RunnerResult): EpisodeModelFacts {
         completed: result.state.lastStep?.kind === "decision"
             && result.state.lastStep.result.kind === "complete",
     };
+}
+
+function failureFromRunnerResult(
+    result: RunnerResult,
+): EpisodeExecutionFacts["failure"] {
+    if (!result.ok) {
+        return {
+            category: "infrastructure",
+            code: result.error.code,
+        };
+    }
+
+    const stopReason = result.state.stopReason;
+    if (stopReason?.kind === "execution_error") {
+        return {
+            category: "infrastructure",
+            code: stopReason.code,
+        };
+    }
+    if (stopReason?.kind === "max_steps_exceeded") {
+        return { category: "task_not_won", code: "MAX_STEPS_EXCEEDED" };
+    }
+    return result.state.status === "failed"
+        ? { category: "task_not_won", code: "MODEL_FAILED" }
+        : undefined;
 }
 
 function failureExecution(error: unknown): EpisodeExecutionFacts {

@@ -51,6 +51,50 @@ class SessionError(Exception):
         self.code = code
 
 
+def _state_infos(state):
+    """Return the mapping-like info object exposed by TextWorld GameState."""
+    return state if hasattr(state, "get") else {}
+
+
+def _observation_text(state):
+    """Extract feedback text from a TextWorld state or a legacy observation."""
+    infos = _state_infos(state)
+    feedback = infos.get("feedback")
+    return str(feedback if feedback is not None else state)
+
+
+def _unpack_reset_result(result):
+    """Normalize TextWorld GameState and legacy ``(observation, infos)`` reset results."""
+    if isinstance(result, tuple):
+        if len(result) != 2:
+            raise ValueError(f"unsupported TextWorld reset result length: {len(result)}")
+        return result[0], result[1]
+    return result, result
+
+
+def _unpack_step_result(result):
+    """Normalize TextWorld ``(state, score, done)`` and legacy four-tuples."""
+    if not isinstance(result, tuple):
+        raise ValueError("TextWorld step result must be a tuple")
+    if len(result) == 3:
+        state, score, done = result
+        return state, score, done, state
+    if len(result) == 4:
+        return result
+    raise ValueError(f"unsupported TextWorld step result length: {len(result)}")
+
+
+def _goal_condition_success_rate(infos):
+    """Read an explicit rate or derive a binary rate from TextWorld's ``won`` flag."""
+    value = infos.get("goal_condition_success_rate")
+    if value is None:
+        return 1.0 if bool(infos.get("won", False)) else 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 class TextWorldSession:
     def __init__(self, data_root):
         self.data_root = Path(data_root).expanduser().resolve()
@@ -112,7 +156,7 @@ class TextWorldSession:
                 self.environment = textworld.start(str(candidate), request_infos)
                 if hasattr(self.environment, "seed"):
                     self.environment.seed(seed)
-                observation, infos = self.environment.reset()
+                observation, infos = _unpack_reset_result(self.environment.reset())
         except Exception as exc:
             self.environment = None
             raise SessionError("ENVIRONMENT_RESET_FAILED", str(exc)) from exc
@@ -125,8 +169,8 @@ class TextWorldSession:
         return {
             "taskId": task_id,
             "gameFile": game_file,
-            "observation": str(observation),
-            "admissibleCommands": list(infos.get("admissible_commands", [])),
+            "observation": _observation_text(observation),
+            "admissibleCommands": list(_state_infos(infos).get("admissible_commands", [])),
         }
 
     def step(self, command):
@@ -139,7 +183,9 @@ class TextWorldSession:
 
         try:
             with redirect_stdout(sys.stderr):
-                observation, _score, done, infos = self.environment.step(command)
+                observation, _score, done, infos = _unpack_step_result(
+                    self.environment.step(command),
+                )
         except Exception as exc:
             return {
                 "observation": str(exc),
@@ -153,14 +199,11 @@ class TextWorldSession:
 
         self.step_count += 1
         self.done = bool(done) or self.step_count >= self.max_steps
+        infos = _state_infos(infos)
         won = bool(infos.get("won", False))
-        completion = infos.get("goal_condition_success_rate", 0.0)
-        try:
-            completion = float(completion)
-        except (TypeError, ValueError):
-            completion = 0.0
+        completion = _goal_condition_success_rate(infos)
         return {
-            "observation": str(observation),
+            "observation": _observation_text(observation),
             "done": self.done,
             "won": won,
             "goalConditionSuccessRate": completion,
