@@ -279,7 +279,7 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
             readonly metadata: { readonly schemaVersion: number };
             readonly definition: { readonly promptBundleVersion: number };
         };
-        assert.equal(snapshot.metadata.schemaVersion, 5);
+        assert.equal(snapshot.metadata.schemaVersion, 6);
         assert.equal(snapshot.definition.promptBundleVersion, 3);
 
         await root.controller.dispatch({ kind: "approveTask" });
