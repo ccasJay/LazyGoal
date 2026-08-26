@@ -49,7 +49,7 @@
   - 增加消费者投影和 Adapter 单元测试，验证读写职责分离与稳定顺序。
   - _Requirements: [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 8. 固化未来 Outbox 边界并完成全量回归
+- [x] //TODO 8. 固化未来 Outbox 边界并完成全量回归
 
   - 在 Trajectory 契约或相关实现处保留 `TODO(trajectory-durable-outbox)`，明确当前不实现异步 Outbox、事件重试、exactly-once 或 Trajectory replay 恢复。
   - 增加跨 Runtime、Storage、Agent、TUI 的集成回归，确认缺失 Trajectory 的旧 Goal、no-op recorder、Snapshot 恢复、Action replay 和最终报告均保持兼容。
