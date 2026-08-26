@@ -104,3 +104,29 @@ export type {
     GoalUserAction,
     ResumeGoalRequest,
 } from "./goal-coordinator";
+export {
+    TRAJECTORY_PROTOCOL_ERROR_CODE,
+    TrajectoryProtocolError,
+    NoopTrajectoryRecorder,
+    allocateImmutableEvent,
+    assertValidTrajectoryEventDraft,
+    classifyTrajectoryEvent,
+    createNoopDiagnosticTraceSink,
+    createNoopTrajectoryRecorder,
+    freezeTrajectoryEvent,
+    projectTrajectoryEvent,
+} from "./trajectory";
+export type {
+    DiagnosticTraceSink,
+    TraceRecord,
+    TrajectoryEvent,
+    TrajectoryEventCategory,
+    TrajectoryEventDraft,
+    TrajectoryEventPayload,
+    TrajectoryEventProjection,
+    TrajectoryEventType,
+    TrajectoryPhase,
+    TrajectoryReadQuery,
+    TrajectorySink,
+    TrajectoryStore,
+} from "./trajectory";

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 定义 Runtime 的 Trajectory 与 Diagnostic Trace 契约
+- [x] //TODO 1. 定义 Runtime 的 Trajectory 与 Diagnostic Trace 契约
 
   - 在 `packages/runtime/src/trajectory.ts` 新增 Domain Event payload、事件 Envelope、`TrajectorySink`、`TrajectoryStore`、`DiagnosticTraceSink` 和只读分类/投影边界，并从 Runtime 公共入口导出。
   - 实现事件 draft 校验、不可变返回值、稳定错误码和 no-op recorder；为新增公共接口补充中文契约 TSDoc 与最小 `@example`。
