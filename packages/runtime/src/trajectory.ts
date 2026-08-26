@@ -312,6 +312,12 @@ export interface TraceRecord {
 /** 轨迹协议稳定错误代码。 */
 export const TRAJECTORY_PROTOCOL_ERROR_CODE = "TRAJECTORY_PROTOCOL_ERROR" as const;
 
+/** Domain Event 追加失败的稳定错误代码。 */
+export const TRAJECTORY_APPEND_FAILED_CODE = "TRAJECTORY_APPEND_FAILED" as const;
+
+/** Snapshot 成功后提交 marker 追加失败的稳定错误代码。 */
+export const TRAJECTORY_COMMIT_MARKER_FAILED_CODE = "TRAJECTORY_COMMIT_MARKER_FAILED" as const;
+
 /**
  * Domain Event 草稿或事件违反稳定协议时抛出的错误。
  *
@@ -330,6 +336,51 @@ export class TrajectoryProtocolError extends Error {
     constructor(message: string) {
         super(message);
         this.name = "TrajectoryProtocolError";
+    }
+}
+
+/**
+ * Domain Event 追加失败时抛出的稳定错误。
+ *
+ * @remarks
+ * Runtime 会在外部效果或状态转换前暴露此错误并停止继续推进；已有事件和旧
+ * Snapshot 不会被回写或删除。
+ *
+ * @example
+ * ```ts
+ * if (error instanceof TrajectoryAppendError) {
+ *     console.error(error.code);
+ * }
+ * ```
+ */
+export class TrajectoryAppendError extends Error {
+    readonly code = TRAJECTORY_APPEND_FAILED_CODE;
+
+    constructor(message: string, options?: { readonly cause?: unknown }) {
+        super(message, options);
+        this.name = "TrajectoryAppendError";
+    }
+}
+
+/**
+ * Snapshot 已保存但 `state_committed` marker 未能追加时抛出的稳定错误。
+ *
+ * @remarks
+ * 该错误不回滚已经保存的 Snapshot；恢复和消费者仍以 Snapshot 的提交边界为准。
+ *
+ * @example
+ * ```ts
+ * if (error instanceof TrajectoryCommitMarkerError) {
+ *     // Snapshot 已经是恢复权威，等待诊断或重试 marker。
+ * }
+ * ```
+ */
+export class TrajectoryCommitMarkerError extends Error {
+    readonly code = TRAJECTORY_COMMIT_MARKER_FAILED_CODE;
+
+    constructor(message: string, options?: { readonly cause?: unknown }) {
+        super(message, options);
+        this.name = "TrajectoryCommitMarkerError";
     }
 }
 
@@ -506,6 +557,36 @@ export function allocateImmutableEvent(
         occurredAt,
     } as TrajectoryEvent;
     return freezeTrajectoryEvent(event);
+}
+
+/**
+ * 为 Diagnostic Trace 草稿补充进程内身份并深度冻结。
+ *
+ * @param input - 已完成脱敏和大小限制的诊断字段。
+ * @returns 可安全交给 `DiagnosticTraceSink` 的不可变记录。
+ * @example
+ * ```ts
+ * const record = allocateDiagnosticTraceRecord({
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     kind: "runtime_error",
+ *     payload: { code: "EIO" },
+ * });
+ * ```
+ */
+export function allocateDiagnosticTraceRecord(
+    input: Omit<TraceRecord, "traceSchemaVersion" | "traceId" | "occurredAt"> & {
+        readonly occurredAt?: string;
+        readonly traceId?: string;
+    },
+): Readonly<TraceRecord> {
+    const record = {
+        ...structuredClone(input),
+        traceSchemaVersion: 1 as const,
+        traceId: input.traceId ?? createLocalId("trace"),
+        occurredAt: input.occurredAt ?? new Date().toISOString(),
+    } as TraceRecord;
+    return freezeDeep(record);
 }
 
 /**

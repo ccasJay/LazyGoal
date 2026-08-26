@@ -1,6 +1,7 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import { createGoal } from "./domain";
 import {
+    isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
@@ -10,6 +11,12 @@ import type {
     GoalProgressResult,
 } from "./goal-coordinator";
 import type { TrajectorySink } from "./trajectory";
+import {
+    allocateDiagnosticTraceRecord,
+    TrajectoryAppendError,
+    TrajectoryCommitMarkerError,
+    type DiagnosticTraceSink,
+} from "./trajectory";
 
 /**
  * 创建并启动一个准备工作流 Goal 的公开输入。
@@ -83,6 +90,8 @@ export interface LauncherDependencies {
     readonly promptBundleVersion: number;
     /** 可选 Domain Event Sink；省略时保留旧 Launcher 持久化行为。 */
     readonly trajectorySink?: TrajectorySink;
+    /** 可选诊断边界；写入失败不回滚已保存的初始 Snapshot。 */
+    readonly traceSink?: DiagnosticTraceSink;
 }
 
 /**
@@ -154,13 +163,22 @@ export async function launch(
     let initialGoal = goal;
     if (dependencies.trajectorySink !== undefined) {
         throwIfAborted(control);
-        const created = await dependencies.trajectorySink.append({
-            goalId: goal.id,
-            runId,
-            phase: "gathering_context",
-            eventType: "goal_created",
-            payload: { type: "goal_created", intent: request.intent },
-        });
+        let created;
+        try {
+            created = await dependencies.trajectorySink.append({
+                goalId: goal.id,
+                runId,
+                phase: "gathering_context",
+                eventType: "goal_created",
+                payload: { type: "goal_created", intent: request.intent },
+            });
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throw new TrajectoryAppendError(
+                error instanceof Error ? error.message : String(error),
+                { cause: error },
+            );
+        }
         initialGoal = {
             ...goal,
             state: {
@@ -177,16 +195,39 @@ export async function launch(
     await dependencies.store.save(initialGoal);
     throwIfAborted(control);
     if (dependencies.trajectorySink !== undefined) {
-        await dependencies.trajectorySink.append({
-            goalId: initialGoal.id,
-            runId,
-            phase: "gathering_context",
-            eventType: "state_committed",
-            payload: {
-                type: "state_committed",
-                committedThroughSequence: initialGoal.state.run.committedThroughSequence ?? 0,
-            },
-        });
+        try {
+            await dependencies.trajectorySink.append({
+                goalId: initialGoal.id,
+                runId,
+                phase: "gathering_context",
+                eventType: "state_committed",
+                payload: {
+                    type: "state_committed",
+                    committedThroughSequence: initialGoal.state.run.committedThroughSequence ?? 0,
+                },
+            });
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            if (dependencies.traceSink !== undefined) {
+                try {
+                    await dependencies.traceSink.append(allocateDiagnosticTraceRecord({
+                        goalId: initialGoal.id,
+                        runId,
+                        kind: "trajectory_commit_marker_failed",
+                        payload: {
+                            eventType: "state_committed",
+                            error: error instanceof Error ? error.message : String(error),
+                        },
+                    }));
+                } catch {
+                    // Trace 是旁路，不能覆盖已经持久化的初始 Snapshot。
+                }
+            }
+            throw new TrajectoryCommitMarkerError(
+                error instanceof Error ? error.message : String(error),
+                { cause: error },
+            );
+        }
         throwIfAborted(control);
     }
     const result = await dependencies.coordinator.advance(ref, control);

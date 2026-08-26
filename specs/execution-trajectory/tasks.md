@@ -14,7 +14,7 @@
   - 增加 Runner/Coordinator 集成测试，验证正常事件顺序、`executionUnitId`/`actionId` 关联以及事件发生后才产生对应外部效果。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [2.2](./requirements.md#req-2-2), [3.1](./requirements.md#req-3-1), [3.5](./requirements.md#req-3-5)_
 
-- [ ] //TODO 3. 实现 Domain Event 追加失败和不完整 Tool 周期处理
+- [x] //TODO 3. 实现 Domain Event 追加失败和不完整 Tool 周期处理
 
   - 在 Runner/Coordinator 中接入 fail-closed 追加语义：前置事实写入失败时停止后续状态转换或 Tool 调用，不产生新的 Snapshot 提交。
   - 覆盖 Tool 中止、抛错、无返回结果、Observation 追加失败和 `state_committed` marker 追加失败，保持既有 pending Action 恢复边界并将不可回滚缺口写入 Diagnostic Trace。

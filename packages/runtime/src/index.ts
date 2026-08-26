@@ -105,10 +105,15 @@ export type {
     ResumeGoalRequest,
 } from "./goal-coordinator";
 export {
+    TRAJECTORY_APPEND_FAILED_CODE,
+    TRAJECTORY_COMMIT_MARKER_FAILED_CODE,
     TRAJECTORY_PROTOCOL_ERROR_CODE,
+    TrajectoryAppendError,
+    TrajectoryCommitMarkerError,
     TrajectoryProtocolError,
     NoopTrajectoryRecorder,
     allocateImmutableEvent,
+    allocateDiagnosticTraceRecord,
     assertValidTrajectoryEventDraft,
     classifyTrajectoryEvent,
     createNoopDiagnosticTraceSink,

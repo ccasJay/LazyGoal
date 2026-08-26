@@ -26,8 +26,13 @@ import {
 } from "./execution-control";
 import { transition } from "./transition";
 import {
+    allocateDiagnosticTraceRecord,
     createNoopTrajectoryRecorder,
+    TrajectoryAppendError,
+    TrajectoryCommitMarkerError,
+    type DiagnosticTraceSink,
     type TrajectoryEventDraft,
+    type TrajectoryEvent,
     type TrajectorySink,
 } from "./trajectory";
 
@@ -426,6 +431,8 @@ export interface RunnerDependencies {
     readonly toolPolicy?: ToolPolicy;
     /** 可选 Domain Event 追加边界；省略时保留旧调用方的 no-op 行为。 */
     readonly trajectorySink?: TrajectorySink;
+    /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
+    readonly traceSink?: DiagnosticTraceSink;
 }
 
 /**
@@ -457,6 +464,7 @@ export class Runner {
     private readonly trajectorySink: TrajectorySink;
     private readonly trajectoryEnabled: boolean;
     private readonly trajectoryFactSequences = new Map<string, number>();
+    private readonly traceSink: DiagnosticTraceSink | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -467,6 +475,7 @@ export class Runner {
         this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
         this.trajectorySink = dependencies.trajectorySink
             ?? createNoopTrajectoryRecorder();
+        this.traceSink = dependencies.traceSink;
     }
 
     /**
@@ -604,16 +613,25 @@ export class Runner {
 
         await this.store.save(checkpoint);
         throwIfAborted(control);
-        await this.appendTrajectory({
-            goalId: checkpoint.id,
-            runId: checkpoint.state.run.id,
-            phase: checkpoint.state.workflow.phase,
-            eventType: "state_committed",
-            payload: {
-                type: "state_committed",
-                committedThroughSequence,
-            },
-        }, control, false);
+        try {
+            await this.appendTrajectory({
+                goalId: checkpoint.id,
+                runId: checkpoint.state.run.id,
+                phase: checkpoint.state.workflow.phase,
+                eventType: "state_committed",
+                payload: {
+                    type: "state_committed",
+                    committedThroughSequence,
+                },
+            }, control, false);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            await this.recordTrajectoryDiagnostic(checkpoint, "state_committed", error);
+            throw new TrajectoryCommitMarkerError(
+                error instanceof Error ? error.message : String(error),
+                { cause: error },
+            );
+        }
         return checkpoint;
     }
 
@@ -628,7 +646,16 @@ export class Runner {
     ): Promise<void> {
         if (!this.trajectoryEnabled) return;
         throwIfAborted(control);
-        const event = await this.trajectorySink.append(draft);
+        let event: Readonly<TrajectoryEvent>;
+        try {
+            event = await this.trajectorySink.append(draft);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throw new TrajectoryAppendError(
+                error instanceof Error ? error.message : String(error),
+                { cause: error },
+            );
+        }
         throwIfAborted(control);
         if (countAsFact && event.payload.type !== "state_committed") {
             this.trajectoryFactSequences.set(
@@ -638,6 +665,27 @@ export class Runner {
                     event.sequence,
                 ),
             );
+        }
+    }
+
+    private async recordTrajectoryDiagnostic(
+        goal: Goal,
+        kind: string,
+        error: unknown,
+    ): Promise<void> {
+        if (this.traceSink === undefined) return;
+        try {
+            await this.traceSink.append(allocateDiagnosticTraceRecord({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                kind: "trajectory_commit_marker_failed",
+                payload: {
+                    eventType: kind,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            }));
+        } catch {
+            // Diagnostic Trace 是旁路；其自身故障不能覆盖 marker 缺口。
         }
     }
 
@@ -764,7 +812,6 @@ export class Runner {
             if (isExecutionAbortedError(error)) {
                 throw error;
             }
-
             throwIfAborted(control);
             throw new RunnerExecutionError(
                 "TOOL_EXECUTION_ERROR",
@@ -843,6 +890,9 @@ export class Runner {
             observation = validateToolObservation(rawObservation);
         } catch (error) {
             if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+            if (error instanceof TrajectoryAppendError) {
                 throw error;
             }
 
