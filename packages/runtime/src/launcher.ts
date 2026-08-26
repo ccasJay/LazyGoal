@@ -9,6 +9,7 @@ import type {
     GoalCoordinator,
     GoalProgressResult,
 } from "./goal-coordinator";
+import type { TrajectorySink } from "./trajectory";
 
 /**
  * 创建并启动一个准备工作流 Goal 的公开输入。
@@ -80,6 +81,8 @@ export interface LauncherDependencies {
     readonly coordinator: Pick<GoalCoordinator, "advance">;
     /** Agent 当前生效、由 Composition Root 注入并在新 Goal 创建时冻结的 Prompt Bundle 版本。 */
     readonly promptBundleVersion: number;
+    /** 可选 Domain Event Sink；省略时保留旧 Launcher 持久化行为。 */
+    readonly trajectorySink?: TrajectorySink;
 }
 
 /**
@@ -148,9 +151,44 @@ export async function launch(
     });
     const ref = { goalId: goal.id, runId };
 
+    let initialGoal = goal;
+    if (dependencies.trajectorySink !== undefined) {
+        throwIfAborted(control);
+        const created = await dependencies.trajectorySink.append({
+            goalId: goal.id,
+            runId,
+            phase: "gathering_context",
+            eventType: "goal_created",
+            payload: { type: "goal_created", intent: request.intent },
+        });
+        initialGoal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    ...goal.state.run,
+                    committedThroughSequence: created.sequence,
+                },
+            },
+        };
+    }
+
     throwIfAborted(control);
-    await dependencies.store.save(goal);
+    await dependencies.store.save(initialGoal);
     throwIfAborted(control);
+    if (dependencies.trajectorySink !== undefined) {
+        await dependencies.trajectorySink.append({
+            goalId: initialGoal.id,
+            runId,
+            phase: "gathering_context",
+            eventType: "state_committed",
+            payload: {
+                type: "state_committed",
+                committedThroughSequence: initialGoal.state.run.committedThroughSequence ?? 0,
+            },
+        });
+        throwIfAborted(control);
+    }
     const result = await dependencies.coordinator.advance(ref, control);
     throwIfAborted(control);
     return result;

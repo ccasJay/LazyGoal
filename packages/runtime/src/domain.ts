@@ -294,6 +294,13 @@ export interface RunState {
     readonly id: string;
     readonly status: RunStatus;
     readonly stepCount: number;
+    /**
+     * 最新有效 Goal Snapshot 纳入恢复边界的最大 Trajectory sequence。
+     *
+     * @remarks
+     * 旧内存调用方可能省略该字段；Storage 在读取旧快照时将其解释为 `0`。
+     */
+    readonly committedThroughSequence?: number;
     readonly lastStep?: StepRecord;
     readonly checkpoint?: string;
     readonly pendingAction?: PendingAction;

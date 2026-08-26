@@ -1,7 +1,6 @@
 import type {
     AgentDecision,
     ExecutionErrorCode,
-    JsonObject,
     JsonValue,
     Observation,
     ToolCallAction,
@@ -22,6 +21,10 @@ export type TrajectoryEventPayload =
     }
     | { readonly type: "run_started" }
     | { readonly type: "run_resumed" }
+    | {
+        readonly type: "preparation_result";
+        readonly result: "question" | "context_ready" | "task_proposal";
+    }
     | {
         readonly type: "decision_received";
         readonly decision: AgentDecision;
@@ -334,6 +337,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
     "run_resumed",
+    "preparation_result",
     "decision_received",
     "action_staged",
     "action_approved",
@@ -518,6 +522,8 @@ export function classifyTrajectoryEvent(
         case "run_started":
         case "run_resumed":
             return "lifecycle";
+        case "preparation_result":
+            return "decision";
         case "decision_received":
             return "decision";
         case "action_staged":

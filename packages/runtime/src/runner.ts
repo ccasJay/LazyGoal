@@ -25,6 +25,11 @@ import {
     type ExecutionControl,
 } from "./execution-control";
 import { transition } from "./transition";
+import {
+    createNoopTrajectoryRecorder,
+    type TrajectoryEventDraft,
+    type TrajectorySink,
+} from "./trajectory";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -48,6 +53,13 @@ type NormalizedExecution = { readonly decision: AgentDecision };
 
 /** Executor 在返回 AgentDecision 前抛出非协议异常时使用的稳定 checkpoint。 */
 const EXECUTOR_FAILURE_CHECKPOINT = "Executor failed before returning an AgentDecision.";
+
+let executionUnitCounter = 0;
+
+function createExecutionUnitId(): string {
+    executionUnitCounter += 1;
+    return `execution-unit-${Date.now().toString(36)}-${executionUnitCounter.toString(36)}`;
+}
 
 function resolveExecutionControl(
     options: RunExecutionOptions,
@@ -412,6 +424,8 @@ export interface RunnerDependencies {
      * 用户批准或拒绝。
      */
     readonly toolPolicy?: ToolPolicy;
+    /** 可选 Domain Event 追加边界；省略时保留旧调用方的 no-op 行为。 */
+    readonly trajectorySink?: TrajectorySink;
 }
 
 /**
@@ -440,6 +454,9 @@ export class Runner {
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
+    private readonly trajectorySink: TrajectorySink;
+    private readonly trajectoryEnabled: boolean;
+    private readonly trajectoryFactSequences = new Map<string, number>();
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -447,6 +464,9 @@ export class Runner {
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
+        this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
+        this.trajectorySink = dependencies.trajectorySink
+            ?? createNoopTrajectoryRecorder();
     }
 
     /**
@@ -498,13 +518,20 @@ export class Runner {
 
         if (goal.state.run.status === "created") {
             throwIfAborted(effectiveControl);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "run_started",
+                payload: { type: "run_started" },
+            }, effectiveControl);
             const runningGoal = this.withRun(
                 goal,
                 this.applyTransition(goal.state.run, { kind: "start" }),
             );
-            await this.saveCheckpoint(runningGoal, effectiveControl);
+            const checkpoint = await this.saveCheckpoint(runningGoal, effectiveControl);
             return this.runLoop(
-                runningGoal,
+                checkpoint,
                 options.authorizedActionId,
                 effectiveControl,
             );
@@ -552,10 +579,66 @@ export class Runner {
     private async saveCheckpoint(
         goal: Goal,
         control?: ExecutionControl,
+    ): Promise<Goal> {
+        throwIfAborted(control);
+
+        if (!this.trajectoryEnabled) {
+            await this.store.save(goal);
+            throwIfAborted(control);
+            return goal;
+        }
+
+        const key = this.trajectoryKey(goal);
+        const committedThroughSequence = Math.max(
+            goal.state.run.committedThroughSequence ?? 0,
+            this.trajectoryFactSequences.get(key) ?? 0,
+        );
+        const checkpoint = committedThroughSequence === (
+            goal.state.run.committedThroughSequence ?? 0
+        )
+            ? goal
+            : this.withRun(goal, {
+                ...goal.state.run,
+                committedThroughSequence,
+            });
+
+        await this.store.save(checkpoint);
+        throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: checkpoint.id,
+            runId: checkpoint.state.run.id,
+            phase: checkpoint.state.workflow.phase,
+            eventType: "state_committed",
+            payload: {
+                type: "state_committed",
+                committedThroughSequence,
+            },
+        }, control, false);
+        return checkpoint;
+    }
+
+    private trajectoryKey(goal: Goal): string {
+        return `${goal.id}\u0000${goal.state.run.id}`;
+    }
+
+    private async appendTrajectory(
+        draft: TrajectoryEventDraft,
+        control?: ExecutionControl,
+        countAsFact = true,
     ): Promise<void> {
+        if (!this.trajectoryEnabled) return;
         throwIfAborted(control);
-        await this.store.save(goal);
+        const event = await this.trajectorySink.append(draft);
         throwIfAborted(control);
+        if (countAsFact && event.payload.type !== "state_committed") {
+            this.trajectoryFactSequences.set(
+                `${event.goalId}\u0000${event.runId}`,
+                Math.max(
+                    this.trajectoryFactSequences.get(`${event.goalId}\u0000${event.runId}`) ?? 0,
+                    event.sequence,
+                ),
+            );
+        }
     }
 
     private runNotFound(ref: RunRef): RunnerResult {
@@ -626,14 +709,26 @@ export class Runner {
         }
 
         throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            actionId: pendingAction.action.actionId,
+            eventType: "action_recovered",
+            payload: {
+                type: "action_recovered",
+                actionId: pendingAction.action.actionId,
+                replayPolicy: validated.tool.replayPolicy,
+            },
+        }, control);
         const recoveredRun = this.applyTransition(goal.state.run, {
             kind: "recover_action",
             actionId: pendingAction.action.actionId,
         });
         const recoveredGoal = this.withRun(goal, recoveredRun);
 
-        await this.saveCheckpoint(recoveredGoal, control);
-        return { ok: true, state: recoveredRun };
+        const checkpoint = await this.saveCheckpoint(recoveredGoal, control);
+        return { ok: true, state: checkpoint.state.run };
     }
 
     private hasMatchingTransientAuthorization(
@@ -684,6 +779,23 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: goal.state.workflow.phase,
+            ...(goal.state.run.pendingAction === undefined
+                ? {}
+                : { actionId: goal.state.run.pendingAction.action.actionId }),
+            eventType: "execution_error",
+            payload: {
+                type: "execution_error",
+                code: error.code,
+                message: error.message,
+                ...(goal.state.run.pendingAction === undefined
+                    ? {}
+                    : { actionId: goal.state.run.pendingAction.action.actionId }),
+            },
+        }, control);
         const failedRun = this.applyTransition(goal.state.run, {
             kind: "execution_error",
             code: error.code,
@@ -691,14 +803,15 @@ export class Runner {
         });
         const failedGoal = this.withRun(goal, failedRun);
 
-        await this.saveCheckpoint(failedGoal, control);
-        return { ok: true, state: failedRun };
+        const checkpoint = await this.saveCheckpoint(failedGoal, control);
+        return { ok: true, state: checkpoint.state.run };
     }
 
     private async executeToolAndObserve(
         goal: Goal,
         tool: Tool,
         action: ToolCallAction,
+        executionUnitId: string,
         control?: ExecutionControl,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
@@ -708,6 +821,20 @@ export class Runner {
 
         try {
             throwIfAborted(control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                actionId: action.actionId,
+                eventType: "tool_started",
+                payload: {
+                    type: "tool_started",
+                    actionId: action.actionId,
+                    toolId: action.toolId,
+                    input: action.input,
+                },
+            }, control);
             const rawObservation = await tool.execute({
                 actionId: action.actionId,
                 input: action.input,
@@ -735,6 +862,33 @@ export class Runner {
         }
 
         throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: action.actionId,
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId: action.actionId,
+                toolId: action.toolId,
+                observation,
+            },
+        }, control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: action.actionId,
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: action.actionId,
+                observation,
+            },
+        }, control);
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
             actionId: action.actionId,
@@ -743,8 +897,8 @@ export class Runner {
         const observedGoal = this.withRun(goal, observedRun);
 
         // If this save fails, the already-saved goal remains the recovery baseline.
-        await this.saveCheckpoint(observedGoal, control);
-        return { kind: "observed", goal: observedGoal };
+        const checkpoint = await this.saveCheckpoint(observedGoal, control);
+        return { kind: "observed", goal: checkpoint };
     }
 
     private async runLoop(
@@ -798,6 +952,7 @@ export class Runner {
                     goal,
                     validated.tool,
                     pendingAction.action,
+                    createExecutionUnitId(),
                     control,
                 );
                 transientAuthorization = undefined;
@@ -819,12 +974,23 @@ export class Runner {
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
-
-                await this.saveCheckpoint(failedGoal, control);
-                return { ok: true, state: failedGoal.state.run };
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "run_failed",
+                    payload: {
+                        type: "run_failed",
+                        code: "MAX_STEPS_EXCEEDED",
+                        message: "The configured maximum step count was exceeded",
+                    },
+                }, control);
+                const checkpoint = await this.saveCheckpoint(failedGoal, control);
+                return { ok: true, state: checkpoint.state.run };
             }
 
             let normalized: NormalizedExecution;
+            const executionUnitId = createExecutionUnitId();
 
             try {
                 throwIfAborted(control);
@@ -857,6 +1023,18 @@ export class Runner {
                         ? error.message
                         : String(error),
                 };
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "execution_error",
+                    payload: {
+                        type: "execution_error",
+                        code: "EXECUTOR_FAILURE",
+                        message: error instanceof Error ? error.message : String(error),
+                    },
+                }, control);
                 const nextRun = this.applyTransition(goal.state.run, {
                     kind: "decision",
                     decision,
@@ -866,10 +1044,18 @@ export class Runner {
                     decision,
                 );
 
-                await this.saveCheckpoint(nextGoal, control);
-                goal = nextGoal;
+                goal = await this.saveCheckpoint(nextGoal, control);
                 continue;
             }
+
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                eventType: "decision_received",
+                payload: { type: "decision_received", decision: normalized.decision },
+            }, control);
 
             if (normalized.decision.kind === "tool_call") {
                 let validated;
@@ -925,10 +1111,22 @@ export class Runner {
                         action: normalized.decision.action,
                         status: "awaiting_approval",
                     });
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        actionId: normalized.decision.action.actionId,
+                        eventType: "action_staged",
+                        payload: {
+                            type: "action_staged",
+                            action: normalized.decision.action,
+                            approvalStatus: "awaiting_approval",
+                        },
+                    }, control);
                     const stagedGoal = this.withRun(goal, stagedRun);
 
-                    await this.saveCheckpoint(stagedGoal, control);
-                    goal = stagedGoal;
+                    goal = await this.saveCheckpoint(stagedGoal, control);
                     continue;
                 }
 
@@ -939,15 +1137,29 @@ export class Runner {
                     action: normalized.decision.action,
                     status: "approved",
                 });
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    actionId: normalized.decision.action.actionId,
+                    eventType: "action_staged",
+                    payload: {
+                        type: "action_staged",
+                        action: normalized.decision.action,
+                        approvalStatus: "approved",
+                    },
+                }, control);
                 const stagedGoal = this.withRun(goal, stagedRun);
 
                 // Durable intent must exist before the Tool can produce an effect.
-                await this.saveCheckpoint(stagedGoal, control);
+                const stagedCheckpoint = await this.saveCheckpoint(stagedGoal, control);
 
                 const outcome = await this.executeToolAndObserve(
-                    stagedGoal,
+                    stagedCheckpoint,
                     validated.tool,
                     normalized.decision.action,
+                    executionUnitId,
                     control,
                 );
 
@@ -970,8 +1182,39 @@ export class Runner {
                 normalized.decision,
             );
 
-            await this.saveCheckpoint(nextGoal, control);
-            goal = nextGoal;
+            if (normalized.decision.kind === "complete") {
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "run_completed",
+                    payload: { type: "run_completed", summary: normalized.decision.summary },
+                }, control);
+            } else if (normalized.decision.kind === "wait") {
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "run_waiting",
+                    payload: { type: "run_waiting", reason: normalized.decision.reason },
+                }, control);
+            } else {
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "run_failed",
+                    payload: {
+                        type: "run_failed",
+                        code: "AGENT_DECISION_FAILED",
+                        message: normalized.decision.error,
+                    },
+                }, control);
+            }
+            goal = await this.saveCheckpoint(nextGoal, control);
         }
 
         return { ok: true, state: goal.state.run };

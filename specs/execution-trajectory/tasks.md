@@ -7,7 +7,7 @@
   - 增加 Runtime 单元测试，覆盖事实 payload 不携带派生状态、事件 metadata 校验和诊断通道分离。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [2.4](./requirements.md#req-2-4), [5.1](./requirements.md#req-5-1), [8.1](./requirements.md#req-8-1)_
 
-- [ ] //TODO 2. 将 Domain Event 接入 GoalCoordinator 与 Runner 生命周期
+- [x] //TODO 2. 将 Domain Event 接入 GoalCoordinator 与 Runner 生命周期
 
   - 为 `RunState` 和 Snapshot 内部状态增加 `committedThroughSequence`，由 Runtime 在一次执行单元开始时生成并贯穿 decision、Action、Tool、Observation 和提交事件。
   - 在 Preparation、Executing、Action 审批/拒绝/恢复和终态转换处按设计顺序追加 Domain Event；保存 Snapshot 前更新提交边界，保存成功后追加 `state_committed`。

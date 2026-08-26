@@ -20,6 +20,11 @@ import {
     type ExecutionControl,
 } from "./execution-control";
 import { transition } from "./transition";
+import {
+    createNoopTrajectoryRecorder,
+    type TrajectoryEventDraft,
+    type TrajectorySink,
+} from "./trajectory";
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
@@ -134,6 +139,8 @@ export interface GoalCoordinatorDependencies {
      * 处理，因此不会向 Preparation Executor 提供任何 Tool。
      */
     readonly toolRegistry?: ToolRegistry;
+    /** 可选 Domain Event 追加边界；省略时保持旧调用方行为。 */
+    readonly trajectorySink?: TrajectorySink;
 }
 
 /**
@@ -158,6 +165,9 @@ export class GoalCoordinator {
     private readonly preparationExecutor: PreparationExecutor;
     private readonly scheduler: RunScheduler;
     private readonly toolRegistry: ToolRegistry;
+    private readonly trajectorySink: TrajectorySink;
+    private readonly trajectoryEnabled: boolean;
+    private readonly trajectoryFactSequences = new Map<string, number>();
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -165,6 +175,9 @@ export class GoalCoordinator {
         this.preparationExecutor = dependencies.preparationExecutor;
         this.scheduler = dependencies.scheduler;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
+        this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
+        this.trajectorySink = dependencies.trajectorySink
+            ?? createNoopTrajectoryRecorder();
     }
 
     /**
@@ -205,11 +218,25 @@ export class GoalCoordinator {
                 throwIfAborted(control);
                 const result = await this.preparationExecutor.execute(goal, [], control);
                 throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: workflow.phase,
+                    eventType: "preparation_result",
+                    payload: { type: "preparation_result", result: result.kind },
+                }, control);
 
                 if (result.kind === "question") {
                     throwIfAborted(control);
                     goal = this.withQuestion(goal, result.question);
-                    await this.saveCheckpoint(goal, control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "gathering_context",
+                        eventType: "run_waiting",
+                        payload: { type: "run_waiting", reason: "question" },
+                    }, control);
+                    goal = await this.saveCheckpoint(goal, control);
                     return {
                         ok: true,
                         kind: "waiting",
@@ -225,7 +252,7 @@ export class GoalCoordinator {
 
                 goal = this.withPlanning(goal);
                 throwIfAborted(control);
-                await this.saveCheckpoint(goal, control);
+                goal = await this.saveCheckpoint(goal, control);
                 continue;
             }
 
@@ -244,6 +271,13 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const result = await this.preparationExecutor.execute(goal, tools, control);
             throwIfAborted(control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: workflow.phase,
+                eventType: "preparation_result",
+                payload: { type: "preparation_result", result: result.kind },
+            }, control);
 
             if (result.kind !== "task_proposal") {
                 return this.invalidPhaseResult(workflow.phase, result);
@@ -251,7 +285,14 @@ export class GoalCoordinator {
 
             goal = this.withProposal(goal, result);
             throwIfAborted(control);
-            await this.saveCheckpoint(goal, control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "planning",
+                eventType: "run_waiting",
+                payload: { type: "run_waiting", reason: "approval" },
+            }, control);
+            goal = await this.saveCheckpoint(goal, control);
             return {
                 ok: true,
                 kind: "waiting",
@@ -350,6 +391,13 @@ export class GoalCoordinator {
                 request.action.content,
             );
             throwIfAborted(control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "gathering_context",
+                eventType: "run_resumed",
+                payload: { type: "run_resumed" },
+            }, control);
             await this.saveCheckpoint(resumedGoal, control);
             return this.advance(request.ref, control);
         }
@@ -369,6 +417,13 @@ export class GoalCoordinator {
                     request.action.content,
                 );
                 throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "planning",
+                    eventType: "run_resumed",
+                    payload: { type: "run_resumed" },
+                }, control);
                 await this.saveCheckpoint(resumedGoal, control);
                 return this.advance(request.ref, control);
             }
@@ -387,6 +442,13 @@ export class GoalCoordinator {
 
             const approvedGoal = this.withApprovedTask(goal, proposal);
             throwIfAborted(control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "planning",
+                eventType: "run_resumed",
+                payload: { type: "run_resumed" },
+            }, control);
             await this.saveCheckpoint(approvedGoal, control);
             return this.advance(request.ref, control);
         }
@@ -434,6 +496,17 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    eventType: "action_approved",
+                    payload: {
+                        type: "action_approved",
+                        actionId: request.action.actionId,
+                    },
+                }, control);
                 await this.saveCheckpoint(approvedGoal, control);
                 throwIfAborted(control);
                 const scheduled = await this.scheduler.schedule(
@@ -480,6 +553,30 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    eventType: "action_rejected",
+                    payload: {
+                        type: "action_rejected",
+                        actionId: request.action.actionId,
+                        reason: request.action.reason,
+                    },
+                }, control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    actionId: request.action.actionId,
+                    eventType: "observation_recorded",
+                    payload: {
+                        type: "observation_recorded",
+                        actionId: request.action.actionId,
+                        observation: { kind: "rejected", reason: request.action.reason },
+                    },
+                }, control);
                 await this.saveCheckpoint(rejectedGoal, control);
                 return this.advance(request.ref, control);
             }
@@ -519,6 +616,13 @@ export class GoalCoordinator {
             },
         };
         throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "run_resumed",
+            payload: { type: "run_resumed" },
+        }, control);
         await this.saveCheckpoint(resumedGoal, control);
         return this.advance(request.ref, control);
     }
@@ -545,10 +649,70 @@ export class GoalCoordinator {
     private async saveCheckpoint(
         goal: Goal,
         control?: ExecutionControl,
+    ): Promise<Goal> {
+        throwIfAborted(control);
+
+        if (!this.trajectoryEnabled) {
+            await this.store.save(goal);
+            throwIfAborted(control);
+            return goal;
+        }
+
+        const key = this.trajectoryKey(goal);
+        const committedThroughSequence = Math.max(
+            goal.state.run.committedThroughSequence ?? 0,
+            this.trajectoryFactSequences.get(key) ?? 0,
+        );
+        const checkpoint = committedThroughSequence === (
+            goal.state.run.committedThroughSequence ?? 0
+        )
+            ? goal
+            : {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: {
+                        ...goal.state.run,
+                        committedThroughSequence,
+                    },
+                },
+            };
+
+        await this.store.save(checkpoint);
+        throwIfAborted(control);
+        await this.appendTrajectory({
+            goalId: checkpoint.id,
+            runId: checkpoint.state.run.id,
+            phase: checkpoint.state.workflow.phase,
+            eventType: "state_committed",
+            payload: {
+                type: "state_committed",
+                committedThroughSequence,
+            },
+        }, control, false);
+        return checkpoint;
+    }
+
+    private trajectoryKey(goal: Goal): string {
+        return `${goal.id}\u0000${goal.state.run.id}`;
+    }
+
+    private async appendTrajectory(
+        draft: TrajectoryEventDraft,
+        control?: ExecutionControl,
+        countAsFact = true,
     ): Promise<void> {
+        if (!this.trajectoryEnabled) return;
         throwIfAborted(control);
-        await this.store.save(goal);
+        const event = await this.trajectorySink.append(draft);
         throwIfAborted(control);
+        if (countAsFact && event.payload.type !== "state_committed") {
+            const key = `${event.goalId}\u0000${event.runId}`;
+            this.trajectoryFactSequences.set(
+                key,
+                Math.max(this.trajectoryFactSequences.get(key) ?? 0, event.sequence),
+            );
+        }
     }
 
     private async afterSchedule(
