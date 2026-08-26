@@ -1,10 +1,11 @@
 ---
 feature: three-view-architecture
-status: active
+status: needs-review
+status_reason: "当前 Snapshot Codec 已从 v5 扩展为 v6，并新增 committedThroughSequence；原 D2 仍描述 v5，需后续维护审查。"
 summary: "Runtime/Storage/LLM 三视图分层、Codec/Projector 转换边界与 Legacy 删除"
 source_spec: specs/three-view-architecture/
 distilled_at: 2026-08-19
-reviewed_at: 2026-08-23
+reviewed_at: 2026-08-26
 tags: [three-view, codec, projector, dependency-boundary, storage, agent, legacy-removal]
 authorities: [docs/architecture/README.md, docs/architecture/runtime.md, docs/architecture/storage.md, docs/architecture/agent.md, packages/storage/src/goal-snapshot-codec.ts, packages/agent/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
 supersedes: [project-memory/features/goal-session-persistence.md]
