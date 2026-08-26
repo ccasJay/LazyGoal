@@ -121,6 +121,7 @@ export {
     createNoopTrajectoryRecorder,
     freezeTrajectoryEvent,
     projectTrajectoryEvent,
+    readTrajectoryAtSnapshot,
 } from "./trajectory";
 export type {
     DiagnosticTraceSink,

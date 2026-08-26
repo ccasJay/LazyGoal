@@ -42,7 +42,7 @@
   - 增加 Agent、TUI Composition Root 和 CLI 兼容测试，覆盖 Trace 故障隔离及现有机器可读报告边界。
   - _Requirements: [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 7. 接入 Trajectory 只读消费者与 Context Adapter
+- [x] //TODO 7. 接入 Trajectory 只读消费者与 Context Adapter
 
   - 在 TUI/Report 读取入口暴露按 Goal、Run 和 sequence 查询的不可变 Domain Events，并展示执行单元、Action、Tool、Observation 关联及未提交 tail。
   - 在 `packages/agent` 增加 `TrajectoryContextUnitAdapter`，将事件投影为 `ContextUnit`，不修改 Runtime、Snapshot 或原始事件，也不自动注入当前 Prompt。

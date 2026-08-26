@@ -5,6 +5,7 @@ import type {
     Observation,
     ToolCallAction,
 } from "./domain";
+import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
 
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
@@ -284,6 +285,36 @@ export interface TrajectoryReadQuery {
 export interface TrajectoryReadResult {
     readonly committed: readonly TrajectoryEvent[];
     readonly uncommittedTail: readonly TrajectoryEvent[];
+}
+
+/**
+ * 读取 Trajectory 并使用最新有效 Goal Snapshot 的提交边界完成分类。
+ *
+ * @param goalStore - 提供恢复权威 Snapshot 的只读 Port。
+ * @param trajectoryStore - 提供事件读取的只读/追加 Port；本函数不会追加事件。
+ * @param query - Goal/Run 标识和可选序列范围。
+ * @returns 已提交事件与未提交 tail；缺少 Snapshot 或 Run 不匹配时全部事件归入 tail。
+ * @throws 底层 Snapshot 或 Trajectory 读取失败时拒绝。
+ * @example
+ * ```ts
+ * const result = await readTrajectoryAtSnapshot(
+ *     goalStore,
+ *     trajectoryStore,
+ *     { goalId: "goal-1", runId: "run-1" },
+ * );
+ * ```
+ */
+export async function readTrajectoryAtSnapshot(
+    goalStore: GoalStore,
+    trajectoryStore: TrajectoryStore,
+    query: TrajectoryReadQuery,
+): Promise<Readonly<TrajectoryReadResult>> {
+    const goal = await goalStore.restore(query.goalId);
+    const committedThroughSequence = goal?.state.run.id === query.runId
+        ? goal.state.run.committedThroughSequence ?? 0
+        : 0;
+
+    return trajectoryStore.readWithBoundary(query, committedThroughSequence);
 }
 
 /**

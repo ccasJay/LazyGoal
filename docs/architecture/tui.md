@@ -105,5 +105,6 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
   `ExecutionAbortedError`，不会生成 fail Step、`execution_error` 或新快照。
 - `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
   当前限制决定。
-- TUI 只把 Trajectory/Trace 作为共享写入依赖装配；当前界面和最终报告不自动展示
-  轨迹，读取与展示由后续独立消费者入口提供。
+- TUI 只把 Trajectory/Trace 作为共享写入依赖装配；`CompositionRoot.readTrajectory`
+  提供按 Goal/Run 和序列范围的只读入口，并以最新 Snapshot 边界返回 committed/tail
+  分类。当前界面和最终报告仍不自动展示轨迹，展示由上层消费者决定。

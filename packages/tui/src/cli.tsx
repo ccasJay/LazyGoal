@@ -15,11 +15,14 @@ import {
     InMemoryToolRegistry,
     InlineScheduler,
     Runner,
+    readTrajectoryAtSnapshot,
     launch,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
     type ExitPort,
+    type TrajectoryReadQuery,
+    type TrajectoryReadResult,
     type ToolPolicy,
 } from "../../runtime/src/index";
 import {
@@ -365,6 +368,14 @@ export interface CompositionRoot {
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** 共享的独立诊断 Trace Sink。 */
     readonly traceSink: JsonFileDiagnosticTraceSink;
+    /**
+     * 只读读取指定 Goal/Run 的轨迹，并以最新 Snapshot 边界分类 committed/tail。
+     * @param query - Goal、Run 与可选序列范围。
+     * @returns 不修改 Runtime 或事件源的轨迹视图。
+     */
+    readTrajectory(
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>>;
     /** 保护项目级 Store 写入边界的单向检查点闸门。 */
     readonly checkpointStore: CheckpointGateGoalStore;
     /** 当前进程拥有的可关闭资源注册表。 */
@@ -553,6 +564,11 @@ export async function createCompositionRoot(
             : { gracePeriodMs: options.gracePeriodMs }),
     });
 
+    const readTrajectory = (
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>> =>
+        readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
+
     return {
         workspaceRoot,
         goalsDirectory,
@@ -569,6 +585,7 @@ export async function createCompositionRoot(
         store,
         trajectoryStore,
         traceSink,
+        readTrajectory,
         checkpointStore,
         resources,
         abortController,

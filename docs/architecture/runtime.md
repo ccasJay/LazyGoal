@@ -16,7 +16,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore 契约](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal 的 Port 与 `GoalCatalogEntry` 摘要；快照中的 `committedThroughSequence` 是轨迹恢复边界 | 历史与事件查询、文件格式 |
-| [Trajectory 契约](../../packages/runtime/src/trajectory.ts) | 追加事实型 Domain Event、记录提交 marker，并为只读消费者提供事件查询/提交边界分类 Port | Runtime State、Snapshot 恢复或 Diagnostic Trace |
+| [Trajectory 契约](../../packages/runtime/src/trajectory.ts) | 追加事实型 Domain Event、记录提交 marker，并为只读消费者提供事件查询、Snapshot 边界分类和读取辅助函数 | Runtime State、Snapshot 恢复或 Diagnostic Trace |
 | [GoalCatalog 契约](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要的 Port | 写入快照或返回历史版本 |
 | [CheckpointGateGoalStore](../../packages/runtime/src/checkpoint-gate.ts) | 关闭流程中冻结新快照写入并等待已进入保存 | 回滚快照或修改 Goal 状态 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
