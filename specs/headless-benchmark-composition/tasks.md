@@ -35,7 +35,7 @@
   - 增加 adapter-to-Root 与 Profile/Tool 授权集成测试，确认模型声明 `complete` 但环境未获胜时不会被通用层判为成功。
   - _Requirements: [4.1](./requirements.md#req-4-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 完成 package 接线、架构文档与全量回归验证
+- [x] //TODO 6. 完成 package 接线、架构文档与全量回归验证
 
   - 更新 `benchmarks` 的 TypeScript 包含范围、导出/脚本和 `docs/architecture/benchmarks.md`，说明通用 Root、持久化绑定与 ALFWorld adapter 的实现边界。
   - 增加普通 LazyGoal CLI/TUI 不加载 benchmark 的回归检查，并确认新增 benchmark 不修改 `packages/*` 生产接口。

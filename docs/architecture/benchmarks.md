@@ -3,8 +3,11 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-ALFWorld TextWorld 的 Profile、固定 Manifest、Python JSONL sidecar、专用 Tool、
-Goal 驱动 Episode Runner 和机器可读报告；Conda/数据缺失只影响显式评测命令。
+通用单 task Headless Composition Root，以及 ALFWorld TextWorld 的 Profile、固定
+Manifest、Python JSONL sidecar、专用 Tool 和机器可读报告；Conda/数据缺失只影响
+显式评测命令。通用 Root 位于 [`benchmarks/src/`](../../benchmarks/src/)，只负责
+LazyGoal 生命周期、依赖注入和持久化接线；具体 benchmark 在自己的目录提供任务、
+Episode 和评分适配。
 
 ## Entry point
 
@@ -34,10 +37,14 @@ ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.jso
 ## Episode lifecycle
 
 [`EvaluationRunner`](../../benchmarks/alfworld/src/evaluation-runner.ts) 按 Manifest 顺序
-为每个任务创建隔离的内存 GoalStore、Profile ToolRegistry、自动放行 Policy、
-`LLMStepExecutor` 和 Runtime `Runner`。每个 Episode 绑定一个 sidecar 会话，任务
-终态、错误或中止后关闭会话；基础设施重试追加新的 Attempt，不覆盖原始记录。
-报告的成功事实只有环境返回的 `won=true`，模型 `complete` 不能覆盖环境失败。
+把每个任务委托给通用 [`HeadlessCompositionRoot`](../../benchmarks/src/headless-composition-root.ts)，
+由 Root 创建隔离的 Goal/Run、Profile ToolRegistry、自动放行 Policy、`LLMStepExecutor`
+和 Runtime `Runner`。ALFWorld adapter 绑定一个任务级 sidecar 会话；任务终态、错误
+或中止后关闭会话。每个 task 默认写入 `.lazygoal/benchmarks/` 下独立的 LazyGoal
+Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snapshot 的
+`committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。
+基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
+`won=true`，模型 `complete` 不能覆盖环境失败。
 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
 归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。
 TextWorld 不提供部分目标完成率时，sidecar 以 `won` 生成二值完成率。
@@ -46,5 +53,7 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 才使用 `unknown`。
 
 [`EvaluationReport`](../../benchmarks/alfworld/src/report.ts) 只保存任务、环境统计、
-配置标识、重试序号和失败类别，不保存完整 Observation 轨迹、Goal Snapshot 或
-模型凭据。
+配置标识、重试序号和失败类别；完整 Goal Snapshot、事实 Trajectory 和可选诊断 Trace
+由 Root 的持久化绑定单独保存，不混入报告 JSON，也不保存模型凭据。未来 benchmark
+只需实现通用 adapter，并将 task 映射到自己的持久化 namespace；不应复制 Storage
+编解码或 Runtime 提交语义。
