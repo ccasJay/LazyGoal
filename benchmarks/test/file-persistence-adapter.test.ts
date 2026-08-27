@@ -18,6 +18,7 @@ import {
 import {
     JsonFileBenchmarkPersistenceAdapter,
 } from "../src/file-persistence-adapter.js";
+import { readHeadlessTrajectoryAtSnapshot } from "../src/headless-composition-root.js";
 
 const profile: AgentProfile = {
     id: "persistence-test",
@@ -139,6 +140,73 @@ test("encodes benchmark and task namespaces instead of allowing path traversal",
             await bindings.trajectoryStore.read({ goalId: "goal", runId: "run" }).then((events) => events.length),
             1,
         );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("reads trajectory using the latest Goal Snapshot boundary", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-benchmark-boundary-"));
+
+    try {
+        const adapter = new JsonFileBenchmarkPersistenceAdapter<{ readonly id: string }>({
+            rootDirectory: directory,
+            namespaceFor: (task) => task.id,
+        });
+        const bindings = await adapter.open({
+            benchmarkId: "fake",
+            namespace: "task-1",
+            goalId: "goal-1",
+            runId: "run-1",
+        });
+        const goal = createGoal({
+            id: "goal-1",
+            intent: "boundary",
+            promptBundleVersion: 3,
+            profile,
+            runId: "run-1",
+            maxSteps: 1,
+        });
+        await bindings.goalStore.save({
+            ...goal,
+            state: {
+                ...goal.state,
+                run: {
+                    ...goal.state.run,
+                    committedThroughSequence: 2,
+                },
+            },
+        });
+        await bindings.trajectoryStore.append({
+            goalId: "goal-1",
+            runId: "run-1",
+            phase: "gathering_context",
+            eventType: "goal_created",
+            payload: { type: "goal_created", intent: "boundary" },
+        });
+        await bindings.trajectoryStore.append({
+            goalId: "goal-1",
+            runId: "run-1",
+            phase: "gathering_context",
+            eventType: "state_committed",
+            payload: { type: "state_committed", committedThroughSequence: 1 },
+        });
+        await bindings.trajectoryStore.append({
+            goalId: "goal-1",
+            runId: "run-1",
+            phase: "planning",
+            eventType: "run_waiting",
+            payload: { type: "run_waiting", reason: "approval" },
+        });
+
+        const view = await readHeadlessTrajectoryAtSnapshot(
+            bindings,
+            { goalId: "goal-1", runId: "run-1" },
+        );
+
+        assert.deepEqual(view.committed.map((event) => event.sequence), [1, 2]);
+        assert.deepEqual(view.uncommittedTail.map((event) => event.sequence), [3]);
+        assert.equal(view.uncommittedTail[0]?.eventType, "run_waiting");
     } finally {
         await rm(directory, { recursive: true, force: true });
     }

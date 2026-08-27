@@ -21,9 +21,12 @@ import {
     type GoalStore,
     type PreparationExecutor,
     type RunIdGenerator,
+    readTrajectoryAtSnapshot,
     type RunnerResult,
     type ToolPolicy,
     type ToolRegistry,
+    type TrajectoryReadQuery,
+    type TrajectoryReadResult,
     type TrajectoryStore,
     type DiagnosticTraceSink,
 } from "../../packages/runtime/src/index.js";
@@ -606,6 +609,39 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
     }
 }
 
+/**
+ * 按最新 Goal Snapshot 的提交边界读取 benchmark task 的 Trajectory。
+ *
+ * @remarks
+ * 该函数只是 LazyGoal 既有读取 Port 的 benchmark 便捷适配，不复制事件分类或
+ * 恢复逻辑。`committed` 与 `uncommittedTail` 均为审计读取结果，未提交 tail
+ * 不会被 Root 自动 replay。
+ *
+ * @param bindings - 当前 task 打开的 GoalStore 与 TrajectoryStore。
+ * @param query - 目标 Goal/Run 标识及可选序列范围。
+ * @returns 以最新有效 Snapshot 的 `committedThroughSequence` 分开的事件。
+ * @throws Snapshot 或 Trajectory 读取失败时传播 LazyGoal 原始错误。
+ *
+ * @example
+ * ```ts
+ * const view = await readHeadlessTrajectoryAtSnapshot(bindings, {
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ * });
+ * console.log(view.uncommittedTail.length);
+ * ```
+ */
+export function readHeadlessTrajectoryAtSnapshot(
+    bindings: Pick<BenchmarkPersistenceBindings, "goalStore" | "trajectoryStore">,
+    query: TrajectoryReadQuery,
+): Promise<Readonly<TrajectoryReadResult>> {
+    return readTrajectoryAtSnapshot(
+        bindings.goalStore,
+        bindings.trajectoryStore,
+        query,
+    );
+}
+
 function createSingleProfileRegistry(profile: AgentProfile): AgentProfileRegistry {
     return {
         get(profileId) {
@@ -702,10 +738,38 @@ function validateBindings(
     if (!bindings || typeof bindings !== "object") {
         throw new TypeError("Persistence adapter returned invalid bindings");
     }
+    if (
+        typeof bindings.goalStore?.save !== "function"
+        || typeof bindings.goalStore.restore !== "function"
+    ) {
+        throw new TypeError("Persistence bindings must provide a GoalStore");
+    }
+    if (
+        typeof bindings.trajectoryStore?.append !== "function"
+        || typeof bindings.trajectoryStore.read !== "function"
+        || typeof bindings.trajectoryStore.readWithBoundary !== "function"
+    ) {
+        throw new TypeError("Persistence bindings must provide a TrajectoryStore");
+    }
+    if (!bindings.locator || typeof bindings.locator !== "object") {
+        throw new TypeError("Persistence bindings must provide a locator");
+    }
     validateIdentifier(bindings.locator.goalSnapshot, "goalSnapshot locator");
     validateIdentifier(bindings.locator.trajectory, "trajectory locator");
     if (bindings.locator.diagnosticTrace !== undefined) {
         validateIdentifier(bindings.locator.diagnosticTrace, "diagnosticTrace locator");
+    }
+    if (
+        bindings.traceSink !== undefined
+        && typeof bindings.traceSink.append !== "function"
+    ) {
+        throw new TypeError("Persistence bindings traceSink must provide append");
+    }
+    if (
+        (bindings.traceSink === undefined)
+        !== (bindings.locator.diagnosticTrace === undefined)
+    ) {
+        throw new TypeError("Trace sink and diagnosticTrace locator must be enabled together");
     }
 }
 

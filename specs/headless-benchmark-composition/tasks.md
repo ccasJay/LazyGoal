@@ -21,7 +21,7 @@
   - 使用内存替身和临时目录测试 Snapshot、Trajectory、Trace 的标识共享与相互隔离、Trace 旁路失败、必要写入失败及多 task namespace 隔离。
   - _Requirements: [4.2](./requirements.md#req-4-2), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 4. 固化 Snapshot 恢复边界与持久化失败语义
+- [x] //TODO 4. 固化 Snapshot 恢复边界与持久化失败语义
 
   - 在 Root 返回结果和持久化集成中沿用最新 Goal Snapshot 的 `committedThroughSequence` 作为恢复边界，保留未提交 tail 且禁止隐式 replay。
   - 覆盖初始 Snapshot、Trajectory 追加、commit marker 和 Trace 写入失败的组合场景，确保真实主状态、未确定状态与持久化故障可区分。
