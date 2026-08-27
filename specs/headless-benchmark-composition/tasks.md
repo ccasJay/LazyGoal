@@ -28,7 +28,7 @@
   - 验证结果对象包含 Runner 状态、模型完成事实、环境 outcome 和稳定 locator，同时不把环境评分字段硬编码到通用层。
   - _Requirements: [1.2](./requirements.md#req-1-2), [5.1](./requirements.md#req-5-1), [6.3](./requirements.md#req-6-3), [8.5](./requirements.md#req-8-5)_
 
-- [ ] //TODO 5. 将 ALFWorld evaluator 接入通用 Root 并保留评分边界
+- [x] //TODO 5. 将 ALFWorld evaluator 接入通用 Root 并保留评分边界
 
   - 新增 ALFWorld adapter，把 Manifest task、SidecarClient 和现有 ToolSet 转换为通用 Episode；将 `evaluation-runner.ts` 的单 task 执行委托给 Root。
   - 保留 ALFWorld 的 `won`、`done`、步数、重试、失败分类和报告聚合逻辑；由 evaluator 判定成功，不由 Root 解释领域结果。

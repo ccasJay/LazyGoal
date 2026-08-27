@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
 import { test } from "node:test";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
     ExecutionAbortedError,
@@ -7,7 +10,7 @@ import {
 } from "../../../packages/runtime/src/index.js";
 import {
     EvaluationRunner,
-    createRunnerEpisodeExecutor,
+    createAlfworldEpisodeExecutor,
     type EpisodeExecutionContext,
 } from "../src/evaluation-runner.js";
 import {
@@ -20,6 +23,7 @@ import {
     type AlfworldManifest,
 } from "../src/manifest.js";
 import type {
+    SidecarClient,
     SidecarResetResult,
     SidecarStepResult,
 } from "../src/sidecar-client.js";
@@ -133,96 +137,181 @@ test("report serialization remains machine-readable and contains only bounded fa
     assert.equal(serialized.endsWith("\n"), true);
 });
 
-test("Runner Episode executor assembles the isolated store, authorized tools and sidecar facts", async () => {
-    let closed = 0;
-    const executeEpisode = createRunnerEpisodeExecutor({
-        profile,
-        promptBundleVersion: 3,
-        adapter: { generate: async () => ({ content: "" }) },
-        renderer: { render: () => "" },
-        contextCompactor: { compact: async (units) => units },
-        workspaceRoot: "/workspace",
-        createClient: () => ({
-            async reset(): Promise<SidecarResetResult> {
-                return {
-                    taskId: "task-1",
-                    gameFile: "valid_seen/task-1/game.tw-pddl",
-                    observation: "initial",
-                    admissibleCommands: ["look"],
-                };
-            },
-            async step(): Promise<SidecarStepResult> {
-                return {
-                    observation: "won",
-                    done: true,
-                    won: true,
-                    goalConditionSuccessRate: 1,
-                    admissibleCommands: [],
-                    accepted: true,
-                    error: null,
-                };
-            },
-            async close(): Promise<void> {
-                closed += 1;
-            },
-        }),
-        createRunner: (dependencies) => ({
-            async run(ref) {
-                const goal = await dependencies.store.restore(ref.goalId);
-                assert.ok(goal);
-                const registry = dependencies.toolRegistry;
-                assert.ok(registry);
-                const reset = registry.get("alfworld_reset");
-                const step = registry.get("alfworld_step");
-                assert.ok(reset);
-                assert.ok(step);
-                await reset.execute({ actionId: "reset-1", input: {} });
-                await step.execute({ actionId: "step-1", input: { command: "look" } });
-                return {
-                    ok: true,
-                    state: {
-                        ...goal.state.run,
-                        status: "completed",
-                        stepCount: 2,
-                        lastStep: {
-                            kind: "decision",
-                            result: {
-                                kind: "complete",
-                                checkpoint: "won",
-                                summary: "done",
-                            },
-                        },
-                    },
-                };
-            },
-        }),
-    });
+async function withTempPersistence<T>(run: (persistenceRoot: string) => Promise<T>): Promise<T> {
+    const persistenceRoot = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-test-"));
+    try {
+        return await run(persistenceRoot);
+    } finally {
+        await rm(persistenceRoot, { recursive: true, force: true });
+    }
+}
 
-    const context: EpisodeExecutionContext = {
-        task: manifest.tasks[0]!,
-        profile,
-    };
-    const result = await executeEpisode(context);
-    assert.deepEqual(result.environment, {
-        done: true,
-        won: true,
-        steps: 1,
-        goalConditionSuccessRate: 1,
+function decision(content: unknown): string {
+    return JSON.stringify(content);
+}
+
+test("ALFWorld adapter runs through the headless Root with authorized tools and facts", async () => {
+    await withTempPersistence(async (persistenceRoot) => {
+        let closed = 0;
+        const responses: unknown[] = [
+            {
+                kind: "tool_call",
+                checkpoint: "initialize",
+                action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+            },
+            {
+                kind: "tool_call",
+                checkpoint: "act",
+                action: { actionId: "step-1", toolId: "alfworld_step", input: { command: "look" } },
+            },
+            { kind: "complete", checkpoint: "won", summary: "environment won" },
+        ];
+        const executeEpisode = createAlfworldEpisodeExecutor({
+            profile,
+            promptBundleVersion: 3,
+            adapter: {
+                generate: async () => {
+                    const next = responses.shift();
+                    if (next === undefined) throw new Error("fake LLM responses exhausted");
+                    return { content: decision(next) };
+                },
+            },
+            renderer: { render: () => "system" },
+            contextCompactor: { compact: async (units) => units },
+            workspaceRoot: process.cwd(),
+            persistenceRoot,
+            enableTrace: true,
+            createClient: () => ({
+                async reset(): Promise<SidecarResetResult> {
+                    return {
+                        taskId: "task-1",
+                        gameFile: "valid_seen/task-1/game.tw-pddl",
+                        observation: "initial",
+                        admissibleCommands: ["look"],
+                    };
+                },
+                async step(): Promise<SidecarStepResult> {
+                    return {
+                        observation: "won",
+                        done: true,
+                        won: true,
+                        goalConditionSuccessRate: 1,
+                        admissibleCommands: [],
+                        accepted: true,
+                        error: null,
+                    };
+                },
+                async close(): Promise<void> {
+                    closed += 1;
+                },
+            }),
+            goalIdFactory: () => "goal-alfworld",
+            runIdFactory: () => "run-alfworld",
+        });
+
+        const result = await executeEpisode({
+            task: manifest.tasks[0]!,
+            profile,
+        });
+        assert.deepEqual(result.environment, {
+            done: true,
+            won: true,
+            steps: 1,
+            goalConditionSuccessRate: 1,
+        });
+        assert.deepEqual(result.model, { runStatus: "completed", completed: true });
+        assert.equal(result.failure, undefined);
+        assert.equal(closed, 1);
     });
-    assert.deepEqual(result.model, { runStatus: "completed", completed: true });
-    assert.equal(result.failure, undefined);
-    assert.equal(closed, 1);
 });
 
-test("Runner execution errors remain visible in Episode execution facts", async () => {
-    const executeEpisode = createRunnerEpisodeExecutor({
-        profile,
-        promptBundleVersion: 3,
-        adapter: { generate: async () => ({ content: "" }) },
-        renderer: { render: () => "" },
-        contextCompactor: { compact: async (units) => units },
-        workspaceRoot: "/workspace",
-        createClient: () => ({
+test("ALFWorld model completion without an environment win remains evaluator-owned", async () => {
+    await withTempPersistence(async (persistenceRoot) => {
+        const executeEpisode = createAlfworldEpisodeExecutor({
+            profile,
+            promptBundleVersion: 3,
+            adapter: {
+                generate: async () => ({
+                    content: decision({ kind: "complete", checkpoint: "done", summary: "claimed" }),
+                }),
+            },
+            renderer: { render: () => "system" },
+            contextCompactor: { compact: async (units) => units },
+            workspaceRoot: process.cwd(),
+            persistenceRoot,
+            createClient: () => ({
+                async reset(): Promise<SidecarResetResult> {
+                    return {
+                        taskId: "task-1",
+                        gameFile: "valid_seen/task-1/game.tw-pddl",
+                        observation: "initial",
+                        admissibleCommands: [],
+                    };
+                },
+                async step(): Promise<SidecarStepResult> {
+                    throw new Error("step should not be called");
+                },
+                async close(): Promise<void> {},
+            }),
+        });
+        const result = await executeEpisode({ task: manifest.tasks[0]!, profile });
+        assert.deepEqual(result.environment, {
+            done: false,
+            won: false,
+            steps: 0,
+            goalConditionSuccessRate: 0,
+        });
+        assert.deepEqual(result.model, { runStatus: "completed", completed: true });
+        assert.equal(result.failure, undefined);
+
+        const evaluator = new EvaluationRunner({
+            metadata,
+            executeEpisode,
+        });
+        const report = await evaluator.run();
+        assert.equal(report.attempts[0]?.failureCategory, "model_complete_without_win");
+    });
+});
+
+test("ALFWorld sidecar errors remain infrastructure failures", async () => {
+    await withTempPersistence(async (persistenceRoot) => {
+        const executeEpisode = createAlfworldEpisodeExecutor({
+            profile,
+            promptBundleVersion: 3,
+            adapter: {
+                generate: async () => ({
+                    content: decision({
+                        kind: "tool_call",
+                        checkpoint: "initialize",
+                        action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+                    }),
+                }),
+            },
+            renderer: { render: () => "system" },
+            contextCompactor: { compact: async (units) => units },
+            workspaceRoot: process.cwd(),
+            persistenceRoot,
+            createClient: () => ({
+                async reset(): Promise<SidecarResetResult> {
+                    throw new Error("sidecar reset failed");
+                },
+                async step(): Promise<SidecarStepResult> {
+                    throw new Error("step should not be called");
+                },
+                async close(): Promise<void> {},
+            }),
+        });
+        const result = await executeEpisode({ task: manifest.tasks[0]!, profile });
+        assert.deepEqual(result.failure, {
+            category: "infrastructure",
+            code: "TOOL_EXECUTION_ERROR",
+        });
+    });
+});
+
+test("ALFWorld max-step and model-fail termination keep report failure semantics", async () => {
+    await withTempPersistence(async (persistenceRoot) => {
+        const resetClient = (): Pick<SidecarClient, "reset" | "step" | "close"> => ({
             async reset(): Promise<SidecarResetResult> {
                 return {
                     taskId: "task-1",
@@ -235,132 +324,51 @@ test("Runner execution errors remain visible in Episode execution facts", async 
                 throw new Error("step should not be called");
             },
             async close(): Promise<void> {},
-        }),
-        createRunner: (dependencies) => ({
-            async run(ref) {
-                const goal = await dependencies.store.restore(ref.goalId);
-                assert.ok(goal);
-                return {
-                    ok: true,
-                    state: {
-                        ...goal.state.run,
-                        status: "failed",
-                        stopReason: {
-                            kind: "execution_error",
-                            code: "TOOL_EXECUTION_ERROR",
-                            message: "sidecar reset failed",
-                        },
-                    },
-                };
+        });
+        const maxStepExecutor = createAlfworldEpisodeExecutor({
+            profile,
+            promptBundleVersion: 3,
+            adapter: {
+                generate: async () => ({
+                    content: decision({
+                        kind: "tool_call",
+                        checkpoint: "initialize",
+                        action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+                    }),
+                }),
             },
-        }),
-    });
+            renderer: { render: () => "system" },
+            contextCompactor: { compact: async (units) => units },
+            workspaceRoot: process.cwd(),
+            persistenceRoot: join(persistenceRoot, "max-step"),
+            createClient: () => resetClient(),
+        });
+        const maxStepTask = { ...manifest.tasks[0]!, maxSteps: 1 };
+        const maxStepResult = await maxStepExecutor({ task: maxStepTask, profile });
+        assert.deepEqual(maxStepResult.failure, {
+            category: "task_not_won",
+            code: "MAX_STEPS_EXCEEDED",
+        });
 
-    const result = await executeEpisode({
-        task: manifest.tasks[0]!,
-        profile,
-    });
-
-    assert.deepEqual(result.failure, {
-        category: "infrastructure",
-        code: "TOOL_EXECUTION_ERROR",
-    });
-});
-
-test("Runner max-step termination is reported as an unfinished task", async () => {
-    const executeEpisode = createRunnerEpisodeExecutor({
-        profile,
-        promptBundleVersion: 3,
-        adapter: { generate: async () => ({ content: "" }) },
-        renderer: { render: () => "" },
-        contextCompactor: { compact: async (units) => units },
-        workspaceRoot: "/workspace",
-        createClient: () => ({
-            async reset(): Promise<SidecarResetResult> {
-                return {
-                    taskId: "task-1",
-                    gameFile: "valid_seen/task-1/game.tw-pddl",
-                    observation: "initial",
-                    admissibleCommands: [],
-                };
+        const modelFailExecutor = createAlfworldEpisodeExecutor({
+            profile,
+            promptBundleVersion: 3,
+            adapter: {
+                generate: async () => ({
+                    content: decision({ kind: "fail", checkpoint: "failed", error: "model failed" }),
+                }),
             },
-            async step(): Promise<SidecarStepResult> {
-                throw new Error("step should not be called");
-            },
-            async close(): Promise<void> {},
-        }),
-        createRunner: (dependencies) => ({
-            async run(ref) {
-                const goal = await dependencies.store.restore(ref.goalId);
-                assert.ok(goal);
-                return {
-                    ok: true,
-                    state: {
-                        ...goal.state.run,
-                        status: "failed",
-                        stopReason: { kind: "max_steps_exceeded" },
-                    },
-                };
-            },
-        }),
-    });
-
-    const result = await executeEpisode({
-        task: manifest.tasks[0]!,
-        profile,
-    });
-
-    assert.deepEqual(result.failure, {
-        category: "task_not_won",
-        code: "MAX_STEPS_EXCEEDED",
-    });
-});
-
-test("Runner model fail termination is reported as an unfinished task", async () => {
-    const executeEpisode = createRunnerEpisodeExecutor({
-        profile,
-        promptBundleVersion: 3,
-        adapter: { generate: async () => ({ content: "" }) },
-        renderer: { render: () => "" },
-        contextCompactor: { compact: async (units) => units },
-        workspaceRoot: "/workspace",
-        createClient: () => ({
-            async reset(): Promise<SidecarResetResult> {
-                return {
-                    taskId: "task-1",
-                    gameFile: "valid_seen/task-1/game.tw-pddl",
-                    observation: "initial",
-                    admissibleCommands: [],
-                };
-            },
-            async step(): Promise<SidecarStepResult> {
-                throw new Error("step should not be called");
-            },
-            async close(): Promise<void> {},
-        }),
-        createRunner: (dependencies) => ({
-            async run(ref) {
-                const goal = await dependencies.store.restore(ref.goalId);
-                assert.ok(goal);
-                return {
-                    ok: true,
-                    state: {
-                        ...goal.state.run,
-                        status: "failed",
-                    },
-                };
-            },
-        }),
-    });
-
-    const result = await executeEpisode({
-        task: manifest.tasks[0]!,
-        profile,
-    });
-
-    assert.deepEqual(result.failure, {
-        category: "task_not_won",
-        code: "MODEL_FAILED",
+            renderer: { render: () => "system" },
+            contextCompactor: { compact: async (units) => units },
+            workspaceRoot: process.cwd(),
+            persistenceRoot: join(persistenceRoot, "model-fail"),
+            createClient: () => resetClient(),
+        });
+        const modelFailResult = await modelFailExecutor({ task: manifest.tasks[0]!, profile });
+        assert.deepEqual(modelFailResult.failure, {
+            category: "task_not_won",
+            code: "MODEL_FAILED",
+        });
     });
 });
 

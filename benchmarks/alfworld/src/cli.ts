@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -10,7 +10,7 @@ import {
 } from "../../../packages/agent/src/index.js";
 import { OpenAICompatible } from "../../../packages/llm/src/openai-compatible.js";
 import {
-    createRunnerEpisodeExecutor,
+    createAlfworldEpisodeExecutor,
     EvaluationRunner,
 } from "./evaluation-runner.js";
 import {
@@ -305,13 +305,15 @@ async function runDefaultEvaluation(
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
     const scriptPath = fileURLToPath(new URL("../python/sidecar.py", import.meta.url));
-    const executeEpisode = createRunnerEpisodeExecutor({
+    const executeEpisode = createAlfworldEpisodeExecutor({
         profile: context.profile.profile,
         promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
         adapter,
         renderer,
         contextCompactor,
         workspaceRoot: context.workspaceRoot,
+        persistenceRoot: join(context.workspaceRoot, ".lazygoal", "benchmarks"),
+        enableTrace: true,
         createClient: () => new SidecarClient({
             pythonExecutable: context.environment.pythonExecutable,
             scriptPath,
