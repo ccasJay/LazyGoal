@@ -1,6 +1,6 @@
 # 实现任务清单
 
-- [ ] //TODO 1. 建立通用 headless Composition Root 与 benchmark adapter 契约
+- [x] //TODO 1. 建立通用 headless Composition Root 与 benchmark adapter 契约
 
   - 在 `benchmarks/src/` 定义 `BenchmarkTaskDescriptor`、`BenchmarkEpisode`、`BenchmarkAdapter`、Root 输入与结果类型，并实现单 task 的 Preparation、Planning、Approval、Executing 装配。
   - 通过现有 `Launcher`、`GoalCoordinator`、`InlineScheduler`、`Runner` 和 `LLMStepExecutor` 完成依赖注入；headless 使用确定性的 Preparation 结果和自动批准策略。
