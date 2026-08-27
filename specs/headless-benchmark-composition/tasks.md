@@ -7,7 +7,7 @@
   - 使用两个不同任务类型、结果类型的 fake adapter 编写生命周期与契约测试，并确认通用层不导入 ALFWorld。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 2. 完成 Episode 生命周期、结果封装与错误中止处理
+- [x] //TODO 2. 完成 Episode 生命周期、结果封装与错误中止处理
 
   - 在 Root 中实现每次任务独立创建 Episode/Tool Registry、收集不透明 outcome、等待或终态返回，以及所有退出路径的幂等 `close()`。
   - 保持现有 Tool/Profile 授权、领域错误、基础设施错误和 `ExecutionAbortedError` 语义，处理 close 失败而不覆盖主结果或伪造成功。

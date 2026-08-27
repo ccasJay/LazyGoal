@@ -4,7 +4,11 @@ import { test } from "node:test";
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
+    ExecutionAbortedError,
     type AgentProfile,
+    type Goal,
+    type GoalStore,
+    isExecutionAbortedError,
     type TrajectoryEvent,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
@@ -13,6 +17,7 @@ import {
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     HeadlessCompositionRoot,
+    HeadlessEpisodeCleanupError,
     type BenchmarkAdapter,
     type BenchmarkPersistenceAdapter,
     type HeadlessCompositionRootDependencies,
@@ -167,4 +172,137 @@ test("the same Root contract supports a different task and outcome shape", async
 
     assert.equal(result.model.completed, true);
     assert.deepEqual(result.outcome, { accepted: true, count: 3 });
+});
+
+test("reports a cleanup failure without changing a successful outcome", async () => {
+    const cleanupError = new Error("environment close failed");
+    const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run a cleanup test",
+            objective: "Finish the cleanup test",
+            completionCriteria: ["The test environment accepts completion"],
+            maxSteps: 1,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: true }),
+            close: async () => {
+                throw cleanupError;
+            },
+        }),
+    };
+    const root = new HeadlessCompositionRoot(
+        createDependencies(adapter, new InMemoryTrajectoryStore()),
+    );
+
+    const result = await root.run({ id: "cleanup" });
+
+    assert.equal(result.model.completed, true);
+    assert.strictEqual(result.cleanupError, cleanupError);
+    assert.deepEqual(result.outcome, { ok: true });
+});
+
+test("preserves the primary failure when execution and cleanup both fail", async () => {
+    const primaryError = new Error("model failed");
+    const cleanupError = new Error("environment close failed");
+    const goalStore = new InMemoryGoalStore();
+    let saveCalls = 0;
+    const failingGoalStore: GoalStore = {
+        save: async (goal: Goal) => {
+            saveCalls += 1;
+            if (saveCalls === 2) throw primaryError;
+            await goalStore.save(goal);
+        },
+        restore: (goalId) => goalStore.restore(goalId),
+    };
+    const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run a failure test",
+            objective: "Reach the failure boundary",
+            completionCriteria: ["The failure is reported"],
+            maxSteps: 1,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: false }),
+            close: async () => {
+                throw cleanupError;
+            },
+        }),
+    };
+    const dependencies = createDependencies(
+        adapter,
+        new InMemoryTrajectoryStore(),
+    );
+    dependencies.persistence.open = async () => ({
+        goalStore: failingGoalStore,
+        trajectoryStore: new InMemoryTrajectoryStore(),
+        locator: {
+            goalSnapshot: "memory://fake/goal",
+            trajectory: "memory://fake/trajectory",
+        },
+    });
+    dependencies.llmAdapter.generate = async () => ({
+        content: JSON.stringify({
+            kind: "complete",
+            checkpoint: "done",
+            summary: "done",
+        }),
+    });
+    const root = new HeadlessCompositionRoot(dependencies);
+
+    await assert.rejects(
+        () => root.run({ id: "failure" }),
+        (error: unknown) => {
+            assert.ok(error instanceof HeadlessEpisodeCleanupError);
+            assert.strictEqual(error.primaryError, primaryError);
+            assert.strictEqual(error.cleanupError, cleanupError);
+            return true;
+        },
+    );
+});
+
+test("keeps abort semantics and closes an episode exactly once", async () => {
+    const controller = new AbortController();
+    let closed = 0;
+    const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run an abort test",
+            objective: "Stop after cancellation",
+            completionCriteria: ["The call reports an abort"],
+            maxSteps: 1,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: false }),
+            close: async () => {
+                closed += 1;
+            },
+        }),
+    };
+    const dependencies = createDependencies(
+        adapter,
+        new InMemoryTrajectoryStore(),
+    );
+    dependencies.llmAdapter.generate = async () => {
+        controller.abort();
+        return {
+            content: JSON.stringify({
+                kind: "complete",
+                checkpoint: "should not commit",
+                summary: "should not commit",
+            }),
+        };
+    };
+    const root = new HeadlessCompositionRoot(dependencies);
+
+    await assert.rejects(
+        () => root.run({ id: "abort" }, { signal: controller.signal }),
+        (error: unknown) => {
+            assert.equal(isExecutionAbortedError(error), true);
+            assert.ok(error instanceof ExecutionAbortedError);
+            return true;
+        },
+    );
+    assert.equal(closed, 1);
 });

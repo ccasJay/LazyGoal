@@ -9,8 +9,10 @@ import type {
 import {
     GoalCoordinator,
     InlineScheduler,
+    isExecutionAbortedError,
     launch,
     Runner,
+    throwIfAborted,
     type AgentProfile,
     type AgentProfileRegistry,
     type ExecutionControl,
@@ -282,6 +284,45 @@ export interface HeadlessEpisodeResult<TOutcome> {
     readonly outcome: TOutcome;
     /** Goal、Trajectory 和可选 Trace 的稳定定位。 */
     readonly persistence: BenchmarkPersistenceLocator;
+    /** Episode 关闭失败时附加的原始错误；关闭成功时省略。 */
+    readonly cleanupError?: unknown;
+}
+
+/**
+ * 主执行失败且 Episode 关闭也失败时的组合错误。
+ *
+ * @remarks
+ * `primaryError` 保留模型、Runtime 或环境的原始失败，`cleanupError` 记录资源释放
+ * 故障。中止错误不会被该类型包装，以便调用方继续识别中止语义。
+ *
+ * @example
+ * ```ts
+ * try {
+ *     await root.run(task);
+ * } catch (error) {
+ *     if (error instanceof HeadlessEpisodeCleanupError) {
+ *         console.error(error.primaryError, error.cleanupError);
+ *     }
+ * }
+ * ```
+ */
+export class HeadlessEpisodeCleanupError extends Error {
+    readonly code = "HEADLESS_EPISODE_CLEANUP_FAILED" as const;
+
+    /** 主执行路径抛出的原始错误。 */
+    readonly primaryError: unknown;
+    /** Episode 关闭路径抛出的原始错误。 */
+    readonly cleanupError: unknown;
+
+    /** @param primaryError 主执行错误；@param cleanupError 关闭错误。 */
+    constructor(primaryError: unknown, cleanupError: unknown) {
+        super("Headless benchmark episode execution and cleanup both failed", {
+            cause: primaryError,
+        });
+        this.name = "HeadlessEpisodeCleanupError";
+        this.primaryError = primaryError;
+        this.cleanupError = cleanupError;
+    }
 }
 
 /**
@@ -386,9 +427,12 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         task: TTask,
         options: HeadlessRunOptions = {},
     ): Promise<HeadlessEpisodeResult<TOutcome>> {
+        const control = toExecutionControl(options.signal);
+        throwIfAborted(control);
         const descriptor = validateTaskDescriptor(
             this.dependencies.adapter.describeTask(task),
         );
+        throwIfAborted(control);
         const goalId = createIdentifier(
             this.dependencies.goalIdGenerator,
             "goal",
@@ -407,9 +451,13 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             goalId,
             runId,
         });
+        throwIfAborted(control);
         validateBindings(bindings);
 
         let episode: BenchmarkEpisode<TOutcome> | undefined;
+        let result: HeadlessEpisodeResult<TOutcome> | undefined;
+        let primaryError: unknown;
+        let executionFailed = false;
 
         try {
             episode = await this.dependencies.adapter.createEpisode(task, {
@@ -417,6 +465,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 profile: this.dependencies.profile,
                 ...(options.signal === undefined ? {} : { signal: options.signal }),
             });
+            throwIfAborted(control);
             validateEpisode(episode);
 
             const profileRegistry = createSingleProfileRegistry(this.dependencies.profile);
@@ -468,7 +517,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     trajectorySink: bindings.trajectoryStore,
                     ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
                 },
-                toExecutionControl(options.signal),
+                control,
             );
             const progress = await this.approvePlanning(
                 launched,
@@ -482,7 +531,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 throw new Error("Headless Root could not restore its final Goal");
             }
 
-            return {
+            result = {
                 goal,
                 progress,
                 runner: runnerResult ?? null,
@@ -490,11 +539,45 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 outcome: episode.readOutcome(),
                 persistence: bindings.locator,
             };
-        } finally {
-            if (episode !== undefined) {
+        } catch (error) {
+            executionFailed = true;
+            primaryError = error;
+        }
+
+        let cleanupError: unknown;
+        let cleanupFailed = false;
+        if (episode !== undefined) {
+            try {
                 await episode.close();
+            } catch (error) {
+                cleanupFailed = true;
+                cleanupError = error;
             }
         }
+
+        if (executionFailed) {
+            if (cleanupFailed && isExecutionAbortedError(primaryError)) {
+                attachCleanupError(primaryError, cleanupError);
+            } else if (cleanupFailed) {
+                throw new HeadlessEpisodeCleanupError(primaryError, cleanupError);
+            }
+            throw primaryError;
+        }
+
+        if (cleanupFailed) {
+            if (result === undefined) {
+                throw cleanupError;
+            }
+            return {
+                ...result,
+                cleanupError,
+            };
+        }
+
+        if (result === undefined) {
+            throw new Error("Headless Root completed without a result");
+        }
+        return result;
     }
 
     private async approvePlanning(
@@ -632,9 +715,27 @@ function validateEpisode<TOutcome>(
     if (!episode || typeof episode !== "object") {
         throw new TypeError("Benchmark adapter returned invalid Episode");
     }
-    if (typeof episode.readOutcome !== "function" || typeof episode.close !== "function") {
+    if (
+        !episode.registry
+        || typeof episode.registry.get !== "function"
+        || typeof episode.readOutcome !== "function"
+        || typeof episode.close !== "function"
+    ) {
         throw new TypeError("Benchmark Episode must provide readOutcome and close");
     }
+}
+
+function attachCleanupError(
+    error: unknown,
+    cleanupError: unknown,
+): void {
+    if (typeof error !== "object" || error === null) return;
+    Object.defineProperty(error, "cleanupError", {
+        configurable: true,
+        enumerable: false,
+        value: cleanupError,
+        writable: false,
+    });
 }
 
 function createIdentifier(
