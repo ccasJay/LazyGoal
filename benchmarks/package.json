@@ -3,9 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test alfworld/test/*.test.ts",
+    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts",
     "alfworld:test-python": "python -B -m unittest discover -s alfworld/python -p 'test_*.py'",
     "alfworld:init": "tsx alfworld/scripts/init-alfworld.ts",
     "alfworld:download": "tsx alfworld/scripts/download-alfworld.ts",

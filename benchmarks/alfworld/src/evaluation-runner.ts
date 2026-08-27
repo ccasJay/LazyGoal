@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 
 import type {
     ContextCompactor,
@@ -7,34 +7,27 @@ import type {
     PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
 import {
-    LLMStepExecutor,
-} from "../../../packages/agent/src/index.js";
-import {
-    createGoal,
     ExecutionAbortedError,
     isExecutionAbortedError,
-    Runner,
     type AgentProfile,
-    type ExecutionControl,
-    type Goal,
-    type RunnerDependencies,
     type RunnerResult,
     type ToolPolicy,
 } from "../../../packages/runtime/src/index.js";
-import { InMemoryGoalStore } from "../../../packages/storage/src/index.js";
+import {
+    HeadlessCompositionRoot,
+    HeadlessEpisodeCleanupError,
+    type HeadlessCompositionRootDependencies,
+} from "../../src/headless-composition-root.js";
+import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import type {
     AlfworldManifest,
     AlfworldManifestTask,
 } from "./manifest.js";
 import {
-    createAlfworldToolSet,
-} from "./alfworld-tools.js";
-import {
     SidecarError,
     type SidecarClient,
-    type SidecarStepResult,
-    type SidecarTask,
 } from "./sidecar-client.js";
+import { AlfworldBenchmarkAdapter } from "./alfworld-adapter.js";
 import {
     aggregateEvaluationReport,
     createEpisodeAttempt,
@@ -42,7 +35,6 @@ import {
     type EpisodeExecutionFacts,
     type EpisodeFailureCategory,
     type EpisodeAttempt,
-    type EpisodeModelFacts,
     type EvaluationReport,
     type EvaluationReportMetadata,
 } from "./report.js";
@@ -80,7 +72,7 @@ export type EpisodeExecutor = (
  *
  * @remarks
  * `executeEpisode` 是唯一需要接触 sidecar 的边界；Runner、GoalStore 和 LLM
- * 的组合由 `createRunnerEpisodeExecutor` 提供。这样报告聚合可以在没有 Conda
+ * 的组合由 `createAlfworldEpisodeExecutor` 提供。这样报告聚合可以在没有 Conda
  * 或模型凭据的测试中独立验证。
  *
  * @example
@@ -195,130 +187,23 @@ export class EvaluationRunner {
 }
 
 /**
- * 创建使用现有 `LLMStepExecutor` 与 Runtime `Runner` 的 Episode 执行器。
+ * ALFWorld Episode 执行器的 Composition Root 依赖。
  *
  * @remarks
- * 每次调用创建新的内存 GoalStore、ToolRegistry 和 ALFWorld 会话；Runner 只
- * 看到 Profile 授权的基础 Tool 与专用环境 Tool。`createClient` 必须返回任务级
- * sidecar 客户端，调用结束后由执行器关闭。
+ * 单 task 的 Goal、Runner、Snapshot、Trajectory 和 Episode 生命周期由通用
+ * `HeadlessCompositionRoot` 组装；此接口只保留 ALFWorld evaluator 需要注入的
+ * Profile、LLM、Sidecar 工厂和文件持久化根目录。`createClient` 必须返回只服务
+ * 当前 Manifest task 的 sidecar 客户端。
  *
  * @example
  * ```ts
- * const executeEpisode = createRunnerEpisodeExecutor({
- *   profile, promptBundleVersion: 3, adapter, renderer,
- *   contextCompactor, workspaceRoot, createClient,
- * });
- * ```
- */
-export function createRunnerEpisodeExecutor(
-    dependencies: RunnerEpisodeExecutorDependencies,
-): EpisodeExecutor {
-    return async (context) => {
-        if (context.profile.id !== dependencies.profile.id) {
-            throw new Error("Episode Profile does not match the assembled evaluation Profile");
-        }
-        const environment: EpisodeEnvironmentFacts = {
-            done: false,
-            won: false,
-            steps: 0,
-            goalConditionSuccessRate: 0,
-        };
-        let latestEnvironment = environment;
-        const client = dependencies.createClient(context.task);
-        const trackingClient: Pick<SidecarClient, "reset" | "step" | "close"> = {
-            reset: async (task, signal) => {
-                const result = await client.reset(task, signal);
-                latestEnvironment = {
-                    done: false,
-                    won: false,
-                    steps: 0,
-                    goalConditionSuccessRate: 0,
-                };
-                return result;
-            },
-            step: async (command, signal): Promise<SidecarStepResult> => {
-                const result = await client.step(command, signal);
-                latestEnvironment = {
-                    done: result.done,
-                    won: result.won,
-                    steps: latestEnvironment.steps + 1,
-                    goalConditionSuccessRate: result.goalConditionSuccessRate,
-                };
-                return result;
-            },
-            close: () => client.close(),
-        };
-        const toolSet = createAlfworldToolSet(
-            dependencies.workspaceRoot,
-            toSidecarTask(context.task),
-            trackingClient,
-        );
-        const store = new InMemoryGoalStore();
-        const runnerDependencies: RunnerDependencies = {
-            store,
-            executor: new LLMStepExecutor({
-                adapter: dependencies.adapter,
-                renderer: dependencies.renderer,
-                contextCompactor: dependencies.contextCompactor,
-            }),
-            toolRegistry: toolSet.registry,
-            toolPolicy: ALLOW_EVALUATION_TOOLS,
-        };
-        const runner = dependencies.createRunner?.(runnerDependencies)
-            ?? new Runner(runnerDependencies);
-        const goal = createExecutingGoal(
-            { ...context, profile: dependencies.profile },
-            dependencies.promptBundleVersion,
-            dependencies.goalIdFactory?.() ?? randomUUID(),
-            dependencies.runIdFactory?.() ?? randomUUID(),
-        );
-        await store.save(goal);
-
-        let model: EpisodeModelFacts = { runStatus: null, completed: false };
-        let failure: EpisodeExecutionFacts["failure"];
-
-        try {
-            const control = context.signal === undefined
-                ? undefined
-                : { signal: context.signal } satisfies ExecutionControl;
-            const result = await runner.run(
-                { goalId: goal.id, runId: goal.state.run.id },
-                {},
-                control,
-            );
-            model = modelFactsFromResult(result);
-            failure = failureFromRunnerResult(result);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            failure = failureDescriptor(error);
-        } finally {
-            try {
-                await toolSet.session.close();
-            } catch (error) {
-                if (failure === undefined) failure = failureDescriptor(error);
-            }
-        }
-
-        return {
-            environment: latestEnvironment,
-            model,
-            ...(failure === undefined ? {} : { failure }),
-        };
-    };
-}
-
-/**
- * 真实 Runner Episode 执行器的依赖；LLM 与 sidecar 均由 Composition Root 注入。
- *
- * @example
- * ```ts
- * const dependencies: RunnerEpisodeExecutorDependencies = {
+ * const dependencies: AlfworldEpisodeExecutorDependencies = {
  *   profile, promptBundleVersion: 3, adapter, renderer, contextCompactor,
  *   workspaceRoot, createClient,
  * };
  * ```
  */
-export interface RunnerEpisodeExecutorDependencies {
+export interface AlfworldEpisodeExecutorDependencies {
     readonly profile: AgentProfile;
     readonly promptBundleVersion: number;
     readonly adapter: LLMAdapter;
@@ -328,9 +213,10 @@ export interface RunnerEpisodeExecutorDependencies {
     readonly createClient: (
         task: AlfworldManifestTask,
     ) => Pick<SidecarClient, "reset" | "step" | "close">;
-    readonly createRunner?: (
-        dependencies: RunnerDependencies,
-    ) => Pick<Runner, "run">;
+    /** Benchmark Goal/Trajectory/Trace 文件的根目录；省略时使用 workspace 下的默认目录。 */
+    readonly persistenceRoot?: string;
+    /** 是否写入每个 task 的 Diagnostic Trace 文件；默认关闭。 */
+    readonly enableTrace?: boolean;
     readonly goalIdFactory?: () => string;
     readonly runIdFactory?: () => string;
 }
@@ -341,65 +227,97 @@ export const ALLOW_EVALUATION_TOOLS: ToolPolicy = {
 };
 
 /**
- * 为一个 Manifest 任务构造已完成 Preparation 的 executing Goal。
+ * 创建委托通用 Headless Root 的 ALFWorld Episode 执行器。
  *
- * @param context - 当前任务和已校验 Profile。
- * @param promptBundleVersion - 冻结到 Goal 的 Prompt Bundle 版本。
- * @param goalId - Goal 稳定标识。
- * @param runId - Run 稳定标识。
- * @returns 可直接交给 Runner 的 executing Goal。
+ * @remarks
+ * Root 负责完整 LazyGoal 生命周期与持久化；该边界只把 ALFWorld Manifest task、
+ * Sidecar 会话和四个授权 Tool 转换为 Episode，并把 Root 的 Runtime 结果映射回
+ * evaluator 使用的环境事实、模型事实和失败分类。`won` 不在此处或 Root 中解释，
+ * 仍由 `EvaluationRunner` 的报告逻辑判定成功。
+ *
+ * @param dependencies - LLM、Profile、Sidecar 工厂和 benchmark 持久化配置。
+ * @returns 可直接注入 `EvaluationRunner` 的单 task 执行函数。
+ * @throws 依赖配置无效时抛出异常；单 task 的运行或持久化错误由返回函数传播。
  * @example
  * ```ts
- * const goal = createExecutingGoal(context, 3, "goal-1", "run-1");
+ * const executeEpisode = createAlfworldEpisodeExecutor({
+ *   profile, promptBundleVersion: 3, adapter, renderer,
+ *   contextCompactor, workspaceRoot, createClient,
+ * });
  * ```
  */
-export function createExecutingGoal(
-    context: EpisodeExecutionContext,
-    promptBundleVersion: number,
-    goalId: string,
-    runId: string,
-): Goal {
-    const initial = createGoal({
-        id: goalId,
-        intent: `Evaluate fixed ALFWorld task ${context.task.taskId}`,
-        promptBundleVersion,
-        profile: context.profile,
-        runId,
-        maxSteps: context.task.maxSteps,
+export function createAlfworldEpisodeExecutor(
+    dependencies: AlfworldEpisodeExecutorDependencies,
+): EpisodeExecutor {
+    const benchmarkAdapter = new AlfworldBenchmarkAdapter({
+        workspaceRoot: dependencies.workspaceRoot,
+        createClient: dependencies.createClient,
     });
-    return {
-        ...initial,
-        state: {
-            ...initial.state,
-            workflow: {
-                phase: "executing",
-                preparation: { status: "completed" },
-                task: {
-                    objective: `Complete ALFWorld task ${context.task.taskId}`,
-                    completionCriteria: ["The environment reports won=true"],
-                },
-            },
-        },
+    const persistence = new JsonFileBenchmarkPersistenceAdapter<AlfworldManifestTask>({
+        rootDirectory: dependencies.persistenceRoot
+            ?? join(dependencies.workspaceRoot, ".lazygoal", "benchmarks"),
+        namespaceFor: (task) => task.taskId,
+        enableTrace: dependencies.enableTrace ?? false,
+    });
+    const rootDependencies: HeadlessCompositionRootDependencies<
+        AlfworldManifestTask,
+        EpisodeEnvironmentFacts
+    > = {
+        benchmarkId: "alfworld",
+        workspaceRoot: dependencies.workspaceRoot,
+        profile: dependencies.profile,
+        promptBundleVersion: dependencies.promptBundleVersion,
+        llmAdapter: dependencies.adapter,
+        renderer: dependencies.renderer,
+        contextCompactor: dependencies.contextCompactor,
+        adapter: benchmarkAdapter,
+        persistence,
+        toolPolicy: ALLOW_EVALUATION_TOOLS,
+        ...(dependencies.goalIdFactory === undefined
+            ? {}
+            : { goalIdGenerator: dependencies.goalIdFactory }),
+        ...(dependencies.runIdFactory === undefined
+            ? {}
+            : { runIdGenerator: dependencies.runIdFactory }),
+    };
+    const root = new HeadlessCompositionRoot(rootDependencies);
+
+    return async (context) => {
+        if (context.profile.id !== dependencies.profile.id) {
+            throw new Error("Episode Profile does not match the assembled evaluation Profile");
+        }
+        const result = await root.run(
+            context.task,
+            context.signal === undefined ? {} : { signal: context.signal },
+        );
+        const failure = failureFromHeadlessResult(result);
+        return {
+            environment: result.outcome,
+            model: result.model,
+            ...(failure === undefined ? {} : { failure }),
+        };
     };
 }
 
-function toSidecarTask(task: AlfworldManifestTask): SidecarTask {
-    return {
-        taskId: task.taskId,
-        gameFile: task.gameFile,
-        split: task.split,
-        seed: task.seed,
-        maxSteps: task.maxSteps,
-    };
-}
-
-function modelFactsFromResult(result: RunnerResult): EpisodeModelFacts {
-    if (!result.ok) return { runStatus: null, completed: false };
-    return {
-        runStatus: result.state.status,
-        completed: result.state.lastStep?.kind === "decision"
-            && result.state.lastStep.result.kind === "complete",
-    };
+function failureFromHeadlessResult(
+    result: Awaited<ReturnType<HeadlessCompositionRoot<
+        AlfworldManifestTask,
+        EpisodeEnvironmentFacts
+    >["run"]>>,
+): EpisodeExecutionFacts["failure"] {
+    if (result.cleanupError !== undefined) {
+        return failureDescriptor(result.cleanupError);
+    }
+    if (!result.progress.ok) {
+        return {
+            category: "infrastructure",
+            code: result.progress.error.code,
+        };
+    }
+    if (result.runner !== null) {
+        return failureFromRunnerResult(result.runner);
+    }
+    return undefined;
 }
 
 function failureFromRunnerResult(
@@ -442,6 +360,9 @@ function failureExecution(error: unknown): EpisodeExecutionFacts {
 }
 
 function failureDescriptor(error: unknown): NonNullable<EpisodeExecutionFacts["failure"]> {
+    if (error instanceof HeadlessEpisodeCleanupError) {
+        return failureDescriptor(error.primaryError);
+    }
     if (error instanceof SidecarError) {
         const category: EpisodeFailureCategory = error.code === "TIMEOUT"
             ? "timeout"

@@ -14,5 +14,11 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["alfworld/src/**/*.ts", "alfworld/scripts/**/*.ts", "alfworld/test/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "alfworld/src/**/*.ts",
+    "alfworld/scripts/**/*.ts",
+    "alfworld/test/**/*.ts"
+  ]
 }
