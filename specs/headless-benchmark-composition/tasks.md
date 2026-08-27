@@ -14,7 +14,7 @@
   - 增加终态、waiting、环境异常、关闭异常和 Abort 的自动化测试，验证模型或环境调用不会在中止后继续发生。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 3. 接入 LazyGoal 持久化 Port 与任务命名空间适配
+- [x] //TODO 3. 接入 LazyGoal 持久化 Port 与任务命名空间适配
 
   - 实现 `BenchmarkPersistenceAdapter` 及其 bindings/locator，将 task 映射到独立 namespace，并把同一组 `GoalStore`、`TrajectoryStore` 和可选 `DiagnosticTraceSink` 注入 Root。
   - 默认文件实现复用现有 `JsonFileGoalStore`、`JsonFileTrajectoryStore` 和 `JsonFileDiagnosticTraceSink`；不新增 benchmark 专用编解码或事件协议。
