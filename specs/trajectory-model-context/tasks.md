@@ -24,7 +24,7 @@
   - 增加超限、无 artifact、稳定重复投影、hash 和原始 Observation 不变测试。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 5. 实现 WarmReducer 与分区语义淘汰
+- [x] //TODO 5. 实现 WarmReducer 与分区语义淘汰
 
   - 增加 Warm Entry、分区配额、stable ID/source hash 合并、状态失效、retained/overflow 切分及确定性语义 LRU。
   - 增加分类容量、保护上限、reinforcement 合法来源、稳定 tie-break 和 Warm 淘汰不修改 Trajectory 的测试。

@@ -44,6 +44,24 @@ export type {
     TrajectoryEventProjectorOptions,
 } from "./trajectory-event-projector";
 export {
+    WarmReducer,
+    createDefaultWarmPartitionQuotas,
+    reinforceWarmEntry,
+    DEFAULT_WARM_PARTITION_QUOTA,
+    WARM_ENTRY_KINDS,
+} from "./warm-reducer";
+export type {
+    WarmCompactEntry,
+    WarmEntryKind,
+    WarmEntryStatus,
+    WarmPartitionQuota,
+    WarmPartitionQuotas,
+    WarmReducerOptions,
+    WarmReductionResult,
+    WarmReinforcementReason,
+    WarmReinforcementInput,
+} from "./warm-reducer";
+export {
     CharacterModelInputEstimator,
     createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,
