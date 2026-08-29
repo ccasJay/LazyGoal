@@ -8,6 +8,7 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import type {
+    PreparationExecutionInput,
     PreparationExecutor,
     PreparationResult,
 } from "../../runtime/src/preparation-executor";
@@ -73,11 +74,27 @@ export class LLMPreparationExecutor implements PreparationExecutor {
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
+    async execute(input: PreparationExecutionInput): Promise<PreparationResult>;
+    /** @deprecated 使用对象式 {@link PreparationExecutionInput} 输入。 */
     async execute(
         goal: Goal,
         tools: readonly ToolDefinition[],
         control?: ExecutionControl,
+    ): Promise<PreparationResult>;
+    async execute(
+        inputOrGoal: PreparationExecutionInput | Goal,
+        legacyTools: readonly ToolDefinition[] = [],
+        legacyControl?: ExecutionControl,
     ): Promise<PreparationResult> {
+        const input: PreparationExecutionInput = "goal" in inputOrGoal
+            ? inputOrGoal
+            : {
+                goal: inputOrGoal,
+                authorizedTools: legacyTools,
+                ...(legacyControl === undefined ? {} : { control: legacyControl }),
+            };
+        const { goal, authorizedTools: tools, control } = input;
+
         throwIfAborted(control);
         const workflow = goal.state.workflow;
 

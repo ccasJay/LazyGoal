@@ -16,8 +16,10 @@ import type {
     GoalProgressResult,
     GoalStore,
     LaunchResult,
+    PreparationExecutionInput,
     PreparationExecutor,
     PreparationResult,
+    StepExecutionInput,
     StepExecutor,
 } from "../src/index";
 
@@ -72,7 +74,7 @@ class WorkflowPreparationExecutor implements PreparationExecutor {
 
     constructor(private readonly events: string[]) {}
 
-    async execute(goal: Goal): Promise<PreparationResult> {
+    async execute({ goal }: PreparationExecutionInput): Promise<PreparationResult> {
         this.events.push(`prepare:${goal.state.workflow.phase}`);
         const result = this.results[this.callCount];
         this.callCount += 1;
@@ -102,7 +104,7 @@ class WorkflowStepExecutor implements StepExecutor {
 
     constructor(private readonly events: string[]) {}
 
-    async execute(goal: Goal): Promise<AgentDecision> {
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.events.push(`step:${goal.state.run.stepCount}`);
         const decision = this.decisions[this.callCount];
         this.callCount += 1;

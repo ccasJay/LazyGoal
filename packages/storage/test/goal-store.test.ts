@@ -32,6 +32,7 @@ import type {
     Goal,
     GoalMessage,
     RunStatus,
+    StepExecutionInput,
 } from "../../runtime/src/index";
 
 const profile: AgentProfile = {
@@ -1418,7 +1419,7 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         const runner = new Runner({
             store,
             executor: {
-                async execute(currentGoal: Goal) {
+                async execute({ goal: currentGoal }: StepExecutionInput) {
                     receivedGoals.push(currentGoal);
                     return {
                         kind: "complete" as const,

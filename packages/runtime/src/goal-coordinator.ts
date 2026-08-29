@@ -225,7 +225,11 @@ export class GoalCoordinator {
                 }
 
                 throwIfAborted(control);
-                const result = await this.preparationExecutor.execute(goal, [], control);
+                const result = await this.preparationExecutor.execute({
+                    goal,
+                    authorizedTools: [],
+                    ...(control === undefined ? {} : { control }),
+                });
                 throwIfAborted(control);
                 await this.appendTrajectory({
                     goalId: goal.id,
@@ -278,7 +282,11 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
             throwIfAborted(control);
-            const result = await this.preparationExecutor.execute(goal, tools, control);
+                const result = await this.preparationExecutor.execute({
+                    goal,
+                    authorizedTools: tools,
+                    ...(control === undefined ? {} : { control }),
+                });
             throwIfAborted(control);
             await this.appendTrajectory({
                 goalId: goal.id,

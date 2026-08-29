@@ -10,7 +10,10 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import type { ToolDefinition } from "../../runtime/src/tool";
-import type { StepExecutor } from "../../runtime/src/step-executor";
+import type {
+    StepExecutionInput,
+    StepExecutor,
+} from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
@@ -80,11 +83,27 @@ export class LLMStepExecutor implements StepExecutor {
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
+    async execute(input: StepExecutionInput): Promise<AgentDecision>;
+    /** @deprecated 使用对象式 {@link StepExecutionInput} 输入。 */
     async execute(
         goal: Goal,
         tools: readonly ToolDefinition[],
         control?: ExecutionControl,
+    ): Promise<AgentDecision>;
+    async execute(
+        inputOrGoal: StepExecutionInput | Goal,
+        legacyTools: readonly ToolDefinition[] = [],
+        legacyControl?: ExecutionControl,
     ): Promise<AgentDecision> {
+        const input: StepExecutionInput = "goal" in inputOrGoal
+            ? inputOrGoal
+            : {
+                goal: inputOrGoal,
+                authorizedTools: legacyTools,
+                ...(legacyControl === undefined ? {} : { control: legacyControl }),
+            };
+        const { goal, authorizedTools: tools, control } = input;
+
         throwIfAborted(control);
         const request = await buildStepRequest(
             goal,

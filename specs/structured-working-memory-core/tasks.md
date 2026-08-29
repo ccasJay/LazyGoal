@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 定义 Runtime Working Memory 与冻结协议契约
+- [x] //TODO 1. 定义 Runtime Working Memory 与冻结协议契约
 
   - 在 `packages/runtime/src/domain.ts`、Executor Port 与公共入口中增加 `MemoryProtocol`、Memory Entry/Patch/Revision、对象式执行输入和 `GoalProtocolValidator`，保持 Runtime 执行状态为独立权威来源。
   - 为新增或扩展的公共 Interface 补充中文契约级 TSDoc 与最小示例，并增加协议组合、字段隔离和 DTO 不变量测试。

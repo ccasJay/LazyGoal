@@ -1045,7 +1045,11 @@ export class Runner {
             try {
                 throwIfAborted(control);
                 const tools = this.getAuthorizedToolDefinitions(goal, control);
-                const execution = await this.executor.execute(goal, tools, control);
+                const execution = await this.executor.execute({
+                    goal,
+                    authorizedTools: tools,
+                    ...(control === undefined ? {} : { control }),
+                });
                 throwIfAborted(control);
                 normalized = {
                     decision: validateAgentDecision(execution),

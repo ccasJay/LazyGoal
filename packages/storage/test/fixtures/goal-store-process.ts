@@ -3,6 +3,7 @@ import { Runner } from "../../../runtime/src/index";
 import type {
     Goal,
     GoalStore,
+    StepExecutionInput,
     StepExecutor,
     Tool,
 } from "../../../runtime/src/index";
@@ -55,7 +56,7 @@ async function main(): Promise<void> {
         const result = await new Runner({
             store: new JsonFileGoalStore(directory),
             executor: {
-                async execute(goal: Goal) {
+                async execute({ goal }: StepExecutionInput) {
                     const lastStep = goal.state.run.lastStep;
 
                     observedActionId = lastStep?.kind === "action"
@@ -119,7 +120,7 @@ async function main(): Promise<void> {
             },
         };
         const executor: StepExecutor = {
-            async execute(currentGoal) {
+            async execute({ goal: currentGoal }: StepExecutionInput) {
                 events.push(`executor:${currentGoal.state.run.stepCount}`);
 
                 if (currentGoal.state.run.stepCount === 0) {

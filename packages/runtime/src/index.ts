@@ -1,6 +1,11 @@
 export {
     createGoal,
+    createEmptyWorkingMemory,
     createRun,
+    GOAL_PROTOCOL_ERROR_CODE,
+    GoalProtocolError,
+    isMemoryProtocol,
+    resolveMemoryProtocol,
 } from "./domain";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
@@ -32,7 +37,15 @@ export type {
 export type {
     AssistantMessage,
     AgentDecision,
+    AddFinding,
+    Blocker,
+    BlockerUpdate,
+    CanonicalMemoryOperation,
+    EvidenceBackedFinding,
     ExecutionErrorCode,
+    GoalPhase,
+    GoalProtocolValidationInput,
+    GoalProtocolValidator,
     Goal,
     GoalCreationInput,
     GoalDefinition,
@@ -40,8 +53,24 @@ export type {
     GoalState,
     GoalTask,
     GoalWorkflowState,
+    Hypothesis,
+    HypothesisUpdate,
     JsonObject,
     JsonValue,
+    MemoryEntry,
+    MemoryEntryBase,
+    MemoryEntryKind,
+    MemoryEntryScope,
+    MemoryEntryStatus,
+    MemoryPatch,
+    MemoryPatchAcceptedPayload,
+    MemoryPatchOperation,
+    MemoryProtocol,
+    MemoryRevision,
+    NextAction,
+    NextActionUpdate,
+    PlanItem,
+    PlanItemUpdate,
     RunInput,
     RunExecutionOptions,
     RunRef,
@@ -54,6 +83,8 @@ export type {
     ToolCallAction,
     TransitionResult,
     UserMessage,
+    WorkingMemory,
+    WorkingMemoryPatch,
 } from "./domain";
 export { transition } from "./transition";
 export type {
@@ -62,8 +93,10 @@ export type {
     GoalStore,
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
+export type { StepExecutionInput } from "./step-executor";
 export type {
     PreparationExecutor,
+    PreparationExecutionInput,
     PreparationResult,
 } from "./preparation-executor";
 export { Runner } from "./runner";
