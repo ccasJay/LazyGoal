@@ -80,6 +80,8 @@ export interface ContextLookupMatch {
     readonly preview: string;
     /** 预览或文档是否被有界输出替代。 */
     readonly truncated: boolean;
+    /** 是否为排名之外、用于保持因果关系的相邻文档。 */
+    readonly adjacent?: boolean;
     /** 该命中永远是历史来源，不代表当前 Workspace 状态。 */
     readonly historical: true;
     /** 原始 committed 事件引用。 */
@@ -92,6 +94,10 @@ export type ContextLookupResult =
         readonly status: "found";
         readonly lookupId: string;
         readonly committedThroughSequence: number;
+        /** 规范化 query/filters 的稳定摘要；缺失时由 Runtime 补齐。 */
+        readonly queryHash?: string;
+        /** 产生该结果的索引协议版本；缺失时由 Runtime 补齐。 */
+        readonly indexVersion?: string;
         readonly matches: readonly ContextLookupMatch[];
         readonly truncated: boolean;
     }
@@ -211,6 +217,30 @@ export const CONTEXT_LOOKUP_INVALID_RESULT_CODE =
 export const CONTEXT_LOOKUP_MAX_QUESTION_LENGTH = 1024;
 export const CONTEXT_LOOKUP_MAX_FILTER_ITEMS = 16;
 
+/** Context Lookup 结果的固定协议版本。 */
+export const CONTEXT_LOOKUP_RESULT_VERSION = "context-lookup-result-v1" as const;
+
+/** BM25-lite 结果未显式携带版本时使用的索引版本。 */
+export const CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION = "fielded-bm25-lite-v1" as const;
+
+/** 单次查询允许返回的完整文档命中上限（主命中与相邻扩展合计）。 */
+export const CONTEXT_LOOKUP_MAX_MATCHES = 15;
+
+/** 单个历史预览的 UTF-16 字符上限；原始文档仍保留在 Trajectory。 */
+export const CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH = 8_192;
+
+/** lookup reason 的字符上限。 */
+export const CONTEXT_LOOKUP_MAX_REASON_LENGTH = 512;
+
+/** lookup error code 的字符上限。 */
+export const CONTEXT_LOOKUP_MAX_ERROR_CODE_LENGTH = 128;
+
+/** lookup error message 的字符上限。 */
+export const CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH = 2_048;
+
+/** Context Lookup 结果 DTO 的 UTF-8 JSON 字节上限。 */
+export const CONTEXT_LOOKUP_MAX_RESULT_BYTES = 24 * 1024;
+
 /** Context Lookup 请求违反结构或资源限制时抛出的错误。 */
 export class ContextLookupProtocolError extends Error {
     readonly code = CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE;
@@ -295,13 +325,25 @@ export function validateContextLookupResult(
     }
 
     if (value.status === "not_found") {
+        assertExactKeys(value, [
+            "status",
+            "lookupId",
+            "committedThroughSequence",
+            "reason",
+        ]);
         if (value.committedThroughSequence !== undefined) {
             assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
             if (value.committedThroughSequence > boundary) {
                 throw new ContextLookupProtocolError("result boundary exceeds request boundary");
             }
         }
-        if (value.reason !== undefined) assertNonEmptyString(value.reason, "reason");
+        if (value.reason !== undefined) {
+            assertBoundedString(
+                value.reason,
+                "reason",
+                CONTEXT_LOOKUP_MAX_REASON_LENGTH,
+            );
+        }
         return {
             status: "not_found",
             lookupId,
@@ -313,8 +355,23 @@ export function validateContextLookupResult(
     }
 
     if (value.status === "lookup_error") {
-        assertNonEmptyString(value.code, "error code");
-        assertNonEmptyString(value.message, "error message");
+        assertExactKeys(value, [
+            "status",
+            "lookupId",
+            "code",
+            "message",
+            "committedThroughSequence",
+        ]);
+        assertBoundedString(
+            value.code,
+            "error code",
+            CONTEXT_LOOKUP_MAX_ERROR_CODE_LENGTH,
+        );
+        assertBoundedString(
+            value.message,
+            "error message",
+            CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH,
+        );
         if (value.committedThroughSequence !== undefined) {
             assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
             if (value.committedThroughSequence > boundary) {
@@ -332,6 +389,15 @@ export function validateContextLookupResult(
         };
     }
 
+    assertExactKeys(value, [
+        "status",
+        "lookupId",
+        "committedThroughSequence",
+        "queryHash",
+        "indexVersion",
+        "matches",
+        "truncated",
+    ]);
     assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
     if (value.committedThroughSequence > boundary) {
         throw new ContextLookupProtocolError("result boundary exceeds request boundary");
@@ -339,17 +405,136 @@ export function validateContextLookupResult(
     if (!Array.isArray(value.matches) || value.matches.length === 0) {
         throw new ContextLookupProtocolError("found result requires at least one match");
     }
+    if (value.matches.length > CONTEXT_LOOKUP_MAX_MATCHES) {
+        throw new ContextLookupProtocolError(
+            `found result contains more than ${CONTEXT_LOOKUP_MAX_MATCHES} matches`,
+        );
+    }
     if (typeof value.truncated !== "boolean") {
         throw new ContextLookupProtocolError("found result truncated must be boolean");
     }
+    if (value.queryHash !== undefined) {
+        assertBoundedString(value.queryHash, "queryHash", 256);
+    }
+    if (value.indexVersion !== undefined) {
+        assertBoundedString(value.indexVersion, "indexVersion", 128);
+    }
     const matches = value.matches.map((match, index) => validateContextLookupMatch(match, boundary, index));
-    return {
+    const documentIds = new Set<string>();
+    const sourceEventIds = new Set<string>();
+    for (const match of matches) {
+        if (documentIds.has(match.documentId)) {
+            throw new ContextLookupProtocolError(
+                `found result contains duplicate document ${match.documentId}`,
+            );
+        }
+        documentIds.add(match.documentId);
+        for (const eventId of match.sourceEventIds) {
+            if (sourceEventIds.has(eventId)) {
+                throw new ContextLookupProtocolError(
+                    `found result contains duplicate source event ${eventId}`,
+                );
+            }
+            sourceEventIds.add(eventId);
+        }
+    }
+    if (matches.some((match) => match.truncated) && !value.truncated) {
+        throw new ContextLookupProtocolError(
+            "found result must mark truncation when a match preview is truncated",
+        );
+    }
+    const result = {
         status: "found",
         lookupId,
         committedThroughSequence: value.committedThroughSequence,
+        ...(value.queryHash === undefined ? {} : { queryHash: value.queryHash }),
+        ...(value.indexVersion === undefined ? {} : { indexVersion: value.indexVersion }),
         matches,
         truncated: value.truncated,
-    };
+    } as const;
+    if (Buffer.byteLength(JSON.stringify(result), "utf8") > CONTEXT_LOOKUP_MAX_RESULT_BYTES) {
+        throw new ContextLookupProtocolError(
+            `found result exceeds ${CONTEXT_LOOKUP_MAX_RESULT_BYTES} UTF-8 bytes`,
+        );
+    }
+    return result;
+}
+
+/**
+ * 规范化检索结果并补齐当前请求的 query hash、索引版本和缺省边界。
+ *
+ * @param value - 检索端口返回的未知 DTO。
+ * @param lookupId - Runtime 为当前查询计算的稳定 ID。
+ * @param boundary - 当前 Snapshot 的 committed boundary。
+ * @param request - 可选规范化请求；提供时会补齐 found 的 query hash。
+ * @returns 可提交 Trajectory 且不共享输入引用的结果。
+ * @throws ContextLookupProtocolError 当结果不符合有界协议时。
+ * @example
+ * ```ts
+ * const result = normalizeContextLookupResult(raw, lookupId, boundary, request);
+ * ```
+ */
+export function normalizeContextLookupResult(
+    value: unknown,
+    lookupId: string,
+    boundary: number,
+    request?: ContextLookupRequest,
+): ContextLookupResult {
+    const result = validateContextLookupResult(value, lookupId, boundary);
+    if (result.status === "found") {
+        return Object.freeze({
+            ...result,
+            ...(result.queryHash === undefined && request === undefined
+                ? {}
+                : {
+                    queryHash: result.queryHash
+                        ?? createContextLookupQueryHash(request!),
+                }),
+            indexVersion: result.indexVersion
+                ?? CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
+            matches: Object.freeze(result.matches.map((match) => Object.freeze({
+                ...match,
+                ...(match.adjacent === undefined ? {} : { adjacent: match.adjacent }),
+                matchedFields: Object.freeze([...match.matchedFields]),
+                sourceEventIds: Object.freeze([...match.sourceEventIds]),
+            }))),
+        });
+    }
+    if (result.committedThroughSequence === undefined) {
+        return Object.freeze({ ...result, committedThroughSequence: boundary });
+    }
+    return result;
+}
+
+/**
+ * 校验 found 结果的 Goal/Run 所有权。
+ *
+ * @remarks Context Lookup 只能引用当前 Goal/Run 的 committed 文档；该校验不把
+ * 历史命中升级为当前事实，也不接受来自其它 Session 的 source ref。
+ *
+ * @param result - 已通过结构和预算校验的 found 结果。
+ * @param goalId - 当前 Goal ID。
+ * @param runId - 当前 Run ID。
+ * @throws ContextLookupProtocolError 当命中身份不匹配时。
+ * @example
+ * ```ts
+ * assertContextLookupResultOwnership(result, goal.id, goal.state.run.id);
+ * ```
+ */
+export function assertContextLookupResultOwnership(
+    result: Extract<ContextLookupResult, { readonly status: "found" }>,
+    goalId: string,
+    runId: string,
+): void {
+    assertNonEmptyString(goalId, "goalId");
+    assertNonEmptyString(runId, "runId");
+    for (const match of result.matches) {
+        if (match.goalId !== goalId || match.runId !== runId) {
+            throw new ContextLookupProtocolError(
+                "found result references a different Goal/Run",
+            );
+        }
+    }
 }
 
 /** 为同一 Goal/Run 与规范化请求计算跨进程稳定的 lookupId。 */
@@ -363,6 +548,18 @@ export function createContextLookupId(
     const normalized = normalizeContextLookupRequest(request);
     const canonical = stableJson({ version: 1, goalId, runId, request: normalized });
     return `lookup-${createHash("sha256").update(canonical, "utf8").digest("hex").slice(0, 32)}`;
+}
+
+/** 为规范化请求计算不含 Goal/Run 的稳定 query hash。 */
+export function createContextLookupQueryHash(
+    request: ContextLookupRequest,
+): string {
+    const normalized = normalizeContextLookupRequest(request);
+    const canonical = stableJson({
+        version: CONTEXT_LOOKUP_RESULT_VERSION,
+        request: normalized,
+    });
+    return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
 /**
@@ -430,11 +627,19 @@ export async function invokeContextLookup(
                 ...(input.control === undefined ? {} : { control: input.control }),
             });
             throwIfAborted(input.control);
-            result = validateContextLookupResult(
+            result = normalizeContextLookupResult(
                 rawResult,
                 lookupId,
                 committedThroughSequence,
+                request,
             );
+            if (result.status === "found") {
+                assertContextLookupResultOwnership(
+                    result,
+                    input.goal.id,
+                    input.goal.state.run.id,
+                );
+            }
             if (
                 result.status !== "found"
                 && result.committedThroughSequence === undefined
@@ -628,12 +833,18 @@ function validateContextLookupMatch(
         "score",
         "preview",
         "truncated",
+        "adjacent",
         "historical",
         "sourceEventIds",
     ]);
-    for (const [field, valueToCheck] of [["documentId", value.documentId], ["goalId", value.goalId], ["runId", value.runId], ["preview", value.preview]] as const) {
+    for (const [field, valueToCheck] of [["documentId", value.documentId], ["goalId", value.goalId], ["runId", value.runId]] as const) {
         assertNonEmptyString(valueToCheck, field);
     }
+    assertBoundedString(
+        value.preview,
+        "preview",
+        CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH,
+    );
     if (
         !Number.isSafeInteger(value.firstSequence)
         || !Number.isSafeInteger(value.lastSequence)
@@ -643,8 +854,8 @@ function validateContextLookupMatch(
     ) {
         throw new ContextLookupProtocolError(`matches[${index}] sequence range is invalid`);
     }
-    if (!Array.isArray(value.matchedFields) || value.matchedFields.length === 0) {
-        throw new ContextLookupProtocolError(`matches[${index}] matchedFields is empty`);
+    if (!Array.isArray(value.matchedFields)) {
+        throw new ContextLookupProtocolError(`matches[${index}] matchedFields is invalid`);
     }
     const fields = uniqueSorted(value.matchedFields.map((field) => {
         if (typeof field !== "string" || !MATCHED_FIELDS.has(field as ContextLookupMatchedField)) {
@@ -657,6 +868,17 @@ function validateContextLookupMatch(
     }
     if (typeof value.truncated !== "boolean" || value.historical !== true) {
         throw new ContextLookupProtocolError(`matches[${index}] truncation/history flags are invalid`);
+    }
+    if (value.adjacent !== undefined && typeof value.adjacent !== "boolean") {
+        throw new ContextLookupProtocolError(`matches[${index}] adjacent flag is invalid`);
+    }
+    if (fields.length === 0 && value.adjacent !== true) {
+        throw new ContextLookupProtocolError(`matches[${index}] matchedFields is empty`);
+    }
+    if (value.adjacent === true && value.score !== 0) {
+        throw new ContextLookupProtocolError(
+            `matches[${index}] adjacent score must be zero`,
+        );
     }
     if (!Array.isArray(value.sourceEventIds) || value.sourceEventIds.length === 0) {
         throw new ContextLookupProtocolError(`matches[${index}] sourceEventIds is empty`);
@@ -682,6 +904,7 @@ function validateContextLookupMatch(
         score: roundScore(value.score),
         preview,
         truncated,
+        ...(value.adjacent === undefined ? {} : { adjacent: value.adjacent }),
         historical: true,
         sourceEventIds,
     };
@@ -702,6 +925,19 @@ function assertExactKeys(value: Record<string, unknown>, keys: readonly string[]
 function assertNonEmptyString(value: unknown, field: string): asserts value is string {
     if (typeof value !== "string" || value.trim().length === 0) {
         throw new ContextLookupProtocolError(`${field} must be a non-empty string`);
+    }
+}
+
+function assertBoundedString(
+    value: unknown,
+    field: string,
+    maximumLength: number,
+): asserts value is string {
+    assertNonEmptyString(value, field);
+    if (value.length > maximumLength) {
+        throw new ContextLookupProtocolError(
+            `${field} exceeds ${maximumLength} characters`,
+        );
     }
 }
 

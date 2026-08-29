@@ -23,10 +23,11 @@ import {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
+    assertContextLookupResultOwnership,
     createContextLookupId,
     invokeContextLookup,
     normalizeContextLookupRequest,
-    validateContextLookupResult,
+    normalizeContextLookupResult,
     type ContextLookupPort,
     type ContextLookupRequest,
     type ContextLookupResult,
@@ -983,20 +984,28 @@ export class GoalCoordinator {
         if (createContextLookupId(goal.id, goal.state.run.id, request) !== lookupId) {
             throw new ContextLookupProtocolError("committed lookupId does not match request");
         }
+        const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
+            const result = normalizeContextLookupResult(
+                value,
+                lookupId,
+                boundary,
+                request,
+            );
+            if (result.status === "found") {
+                assertContextLookupResultOwnership(
+                    result,
+                    goal.id,
+                    goal.state.run.id,
+                );
+            }
+            return result;
+        };
 
         if (lastFact.eventType === "context_lookup_completed") {
-            return validateContextLookupResult(
-                lastFact.payload.result,
-                lookupId,
-                boundary,
-            );
+            return normalizeRestoredResult(lastFact.payload.result);
         }
         if (lastFact.eventType === "context_lookup_not_found") {
-            return validateContextLookupResult(
-                lastFact.payload.result,
-                lookupId,
-                boundary,
-            );
+            return normalizeRestoredResult(lastFact.payload.result);
         }
 
         const failedResult: ContextLookupResult = {
@@ -1006,7 +1015,7 @@ export class GoalCoordinator {
             message: lastFact.payload.message,
             committedThroughSequence: boundary,
         };
-        return validateContextLookupResult(failedResult, lookupId, boundary);
+        return normalizeRestoredResult(failedResult);
     }
 
     private acceptPreparationPatch(

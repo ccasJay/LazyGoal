@@ -183,6 +183,103 @@ export interface ModelCompletionEvidence {
 }
 
 /**
+ * 模型可见的历史 Context Lookup 命中；它保留原始来源但不代表当前状态。
+ *
+ * @remarks
+ * `sourceEventIds` 只用于回查原始 committed Trajectory；该 DTO 本身不是
+ * Finding/Completion Evidence，也不能证明当前 Workspace 内容仍然相同。
+ *
+ * @example
+ * ```ts
+ * const match: ModelContextLookupMatch = {
+ *   documentId: "doc-1",
+ *   goalId: "goal-1",
+ *   runId: "run-1",
+ *   firstSequence: 3,
+ *   lastSequence: 4,
+ *   matchedFields: ["path"],
+ *   score: 2,
+ *   preview: "src/index.ts",
+ *   truncated: false,
+ *   historical: true,
+ *   sourceEventIds: ["event-3"],
+ * };
+ * ```
+ */
+export interface ModelContextLookupMatch {
+    readonly documentId: string;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly firstSequence: number;
+    readonly lastSequence: number;
+    readonly matchedFields: readonly import("../../runtime/src/context-retrieval").ContextLookupMatchedField[];
+    readonly score: number;
+    readonly preview: string;
+    readonly truncated: boolean;
+    readonly adjacent?: boolean;
+    readonly historical: true;
+    readonly sourceEventIds: readonly string[];
+}
+
+/**
+ * 提醒模型历史结果可能描述已变化的 Workspace/Environment。
+ *
+ * @example
+ * ```ts
+ * const freshness: ModelContextLookupFreshness = {
+ *   kind: "historical",
+ *   committedThroughSequence: 4,
+ *   warning: "需要重新观察当前状态",
+ * };
+ * ```
+ */
+export interface ModelContextLookupFreshness {
+    readonly kind: "historical";
+    readonly committedThroughSequence: number;
+    readonly warning: string;
+}
+
+/**
+ * Context Lookup Result 的模型投影。
+ *
+ * @remarks
+ * found 结果携带固定的历史时效提示；模型不能把 Lookup 事件或预览文本本身
+ * 当作完成证据，若当前状态可能变化，仍须通过授权 Tool 重新观察。
+ *
+ * @example
+ * ```ts
+ * const result: ModelContextLookupResult = {
+ *   status: "not_found",
+ *   lookupId: "lookup-1",
+ * };
+ * ```
+ */
+export type ModelContextLookupResult =
+    | {
+        readonly status: "found";
+        readonly lookupId: string;
+        readonly committedThroughSequence: number;
+        readonly queryHash?: string;
+        readonly indexVersion?: string;
+        readonly matches: readonly ModelContextLookupMatch[];
+        readonly truncated: boolean;
+        readonly freshness: ModelContextLookupFreshness;
+    }
+    | {
+        readonly status: "not_found";
+        readonly lookupId: string;
+        readonly committedThroughSequence?: number;
+        readonly reason?: string;
+    }
+    | {
+        readonly status: "lookup_error";
+        readonly lookupId: string;
+        readonly code: string;
+        readonly message: string;
+        readonly committedThroughSequence?: number;
+    };
+
+/**
  * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
  *
  * @remarks

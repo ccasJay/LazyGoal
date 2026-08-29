@@ -7,6 +7,7 @@ import {
     type WorkingMemory,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
     ModelConversationMessage,
     ModelInferenceView,
@@ -20,9 +21,11 @@ import type {
     ModelContextProtocol,
     ModelContextRetrievalProtocol,
     ModelTrajectoryContext,
+    ModelContextLookupResult,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
+import { projectContextLookupResult } from "./context-lookup-projection";
 import { compareCodeUnits } from "./prompting/environment";
 
 /**
@@ -173,6 +176,23 @@ export class ModelInferenceProjector {
             ...structuredClone(view),
             trajectoryContext: structuredClone(trajectoryContext),
         });
+    }
+
+    /**
+     * 将 Runtime Lookup Result 投影为带历史时效边界的模型 DTO。
+     *
+     * @param result - 当前调用级的 Context Lookup Result。
+     * @returns 不共享输入、可安全交给模型渲染的结果投影。
+     * @throws ContextLookupProtocolError 当 Result 不符合有界协议时。
+     * @example
+     * ```ts
+     * const modelResult = projector.projectContextLookupResult(result);
+     * ```
+     */
+    projectContextLookupResult(
+        result: ContextLookupResult,
+    ): ModelContextLookupResult {
+        return projectContextLookupResult(result);
     }
 
     /** @param goal - 见 {@link project}。 */

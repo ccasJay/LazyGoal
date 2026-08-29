@@ -14,6 +14,11 @@ export {
     ModelInferenceProjector,
 } from "./model-inference-projector";
 export {
+    CONTEXT_LOOKUP_FRESHNESS_WARNING,
+    projectContextLookupResult,
+    projectLookupResult,
+} from "./context-lookup-projection";
+export {
     MODEL_CONTEXT_ASSEMBLY_ERROR_CODE,
     ModelContextAssemblyError,
     TrajectoryModelContextAssembler,
@@ -136,6 +141,9 @@ export type {
     ModelBlocker,
     ModelNextAction,
     ModelCompletionEvidence,
+    ModelContextLookupFreshness,
+    ModelContextLookupMatch,
+    ModelContextLookupResult,
     ModelWorkingMemory,
     ModelInferenceView,
     ModelTrajectoryContext,

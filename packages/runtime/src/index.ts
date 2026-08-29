@@ -136,15 +136,26 @@ export {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_FAILED_CODE,
     CONTEXT_LOOKUP_INVALID_RESULT_CODE,
+    CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
+    CONTEXT_LOOKUP_MAX_ERROR_CODE_LENGTH,
+    CONTEXT_LOOKUP_MAX_ERROR_MESSAGE_LENGTH,
     CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
+    CONTEXT_LOOKUP_MAX_MATCHES,
+    CONTEXT_LOOKUP_MAX_PREVIEW_LENGTH,
     CONTEXT_LOOKUP_MAX_QUESTION_LENGTH,
+    CONTEXT_LOOKUP_MAX_REASON_LENGTH,
+    CONTEXT_LOOKUP_MAX_RESULT_BYTES,
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    CONTEXT_LOOKUP_RESULT_VERSION,
     CONTEXT_LOOKUP_UNAVAILABLE_CODE,
     ContextLookupProtocolError,
+    assertContextLookupResultOwnership,
     createContextLookupId,
+    createContextLookupQueryHash,
     createContextLookupFacts,
     invokeContextLookup,
     isContextLookupRequest,
+    normalizeContextLookupResult,
     normalizeContextLookupRequest,
     validateContextLookupResult,
 } from "./context-retrieval";
@@ -160,6 +171,18 @@ export type {
     ContextLookupRequest,
     ContextLookupResult,
 } from "./context-retrieval";
+export {
+    CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,
+    CONTEXT_LOOKUP_RESULT_BUDGET_CODE,
+    CONTEXT_LOOKUP_RESULT_ERROR_CODE,
+    ContextLookupResultError,
+    buildContextLookupResultFromRanking,
+    contextLookupResultFromRanking,
+    createContextLookupResultFromRanking,
+} from "./context-lookup-result";
+export type {
+    ContextLookupResultBuildInput,
+} from "./context-lookup-result";
 export {
     CONTEXT_DOCUMENT_SOURCE_ERROR_CODE,
     ContextDocumentBuilder,
@@ -246,9 +269,12 @@ export {
     WORKING_MEMORY_EVIDENCE_ERROR_CODE,
     EvidenceGateError,
     buildCommittedEvidenceIndex,
+    CONTEXT_LOOKUP_EVENT_TYPES,
     createEvidenceGate,
+    isContextLookupEventType,
     isEvidenceEventType,
     validateCanonicalFindingEvidence,
+    validateContextLookupSourceReferences,
     validateFindingEvidence,
     validateMemoryPatchEvidence,
 } from "./evidence-gate";

@@ -1,6 +1,20 @@
 import { z } from "zod";
 
-import type { ContextLookupFilters, ContextLookupNeed } from "../../runtime/src/context-retrieval";
+type SnapshotContextLookupNeed = "historical_execution" | "decision_rationale";
+
+interface SnapshotContextLookupFilters {
+    readonly eventTypes?: readonly string[];
+    readonly toolIds?: readonly string[];
+    readonly actionIds?: readonly string[];
+    readonly stepIndexes?: readonly number[];
+    readonly paths?: readonly string[];
+    readonly errorCodes?: readonly string[];
+    readonly objectIds?: readonly string[];
+    readonly sequenceRange?: {
+        readonly from: number;
+        readonly to: number;
+    };
+}
 
 /** Snapshot 中 Tool 输入与 Observation 输出允许的递归 JSON 值。 */
 export type SnapshotJsonValue =
@@ -471,9 +485,9 @@ export type GoalSnapshotStructuredDecisionResultV7 =
  */
 export interface GoalSnapshotContextLookupDecisionResultV9 {
     readonly kind: "context_lookup";
-    readonly need: ContextLookupNeed;
+    readonly need: SnapshotContextLookupNeed;
     readonly question: string;
-    readonly filters?: ContextLookupFilters | undefined;
+    readonly filters?: SnapshotContextLookupFilters | undefined;
 
 }
 

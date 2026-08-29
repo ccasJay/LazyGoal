@@ -21,10 +21,11 @@ import type { StepExecutor } from "./step-executor";
 import {
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
+    assertContextLookupResultOwnership,
     createContextLookupId,
     invokeContextLookup,
     normalizeContextLookupRequest,
-    validateContextLookupResult,
+    normalizeContextLookupResult,
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
@@ -754,11 +755,28 @@ export class Runner {
         const lastFact = committed.find((event) => event.eventType !== "state_committed");
         if (lastFact === undefined) return undefined;
 
+        const request = normalizeContextLookupRequest(lastStep.result);
         const expectedLookupId = createContextLookupId(
             goal.id,
             goal.state.run.id,
-            normalizeContextLookupRequest(lastStep.result),
+            request,
         );
+        const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
+            const result = normalizeContextLookupResult(
+                value,
+                expectedLookupId,
+                boundary,
+                request,
+            );
+            if (result.status === "found") {
+                assertContextLookupResultOwnership(
+                    result,
+                    goal.id,
+                    goal.state.run.id,
+                );
+            }
+            return result;
+        };
         if (
             (lastFact.eventType !== "context_lookup_completed"
                 && lastFact.eventType !== "context_lookup_not_found"
@@ -780,21 +798,13 @@ export class Runner {
         }
 
         if (lastFact.eventType === "context_lookup_completed") {
-            return validateContextLookupResult(
-                lastFact.payload.result,
-                expectedLookupId,
-                boundary,
-            );
+            return normalizeRestoredResult(lastFact.payload.result);
         }
         if (lastFact.eventType === "context_lookup_not_found") {
-            return validateContextLookupResult(
-                lastFact.payload.result,
-                expectedLookupId,
-                boundary,
-            );
+            return normalizeRestoredResult(lastFact.payload.result);
         }
 
-        return validateContextLookupResult(
+        return normalizeRestoredResult(
             {
                 status: "lookup_error",
                 lookupId: expectedLookupId,
@@ -802,8 +812,6 @@ export class Runner {
                 message: lastFact.payload.message,
                 committedThroughSequence: boundary,
             },
-            expectedLookupId,
-            boundary,
         );
     }
 

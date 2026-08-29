@@ -30,7 +30,7 @@
   - 增加评分 golden tests，覆盖路径/对象/Tool/Action/错误码优先、正文相关性、recency 仅作 tie-break 和完整单元预算。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 6. 实现 Lookup Result、Not Found 与 Evidence 边界
+- [x] //TODO 6. 实现 Lookup Result、Not Found 与 Evidence 边界
 
   - 增加有界 found/not_found/lookup_error DTO，返回 source refs、matched fields、rounded score、历史/截断标识，并严格区分低分与检索故障。
   - 扩展 Evidence Gate 与模型投影，禁止 lookup 事件本身成为 Finding/Completion Evidence，并提示可变历史状态必须重新观察。

@@ -12,6 +12,7 @@ import type {
     TrajectoryEventType,
 } from "./trajectory";
 import { freezeTrajectoryEvent } from "./trajectory";
+import type { ContextLookupResult } from "./context-retrieval";
 
 /** Evidence Gate 校验失败的稳定错误码。 */
 export const WORKING_MEMORY_EVIDENCE_ERROR_CODE = "INVALID_MEMORY_EVIDENCE" as const;
@@ -20,6 +21,14 @@ export const WORKING_MEMORY_EVIDENCE_ERROR_CODE = "INVALID_MEMORY_EVIDENCE" as c
 export const EVIDENCE_EVENT_TYPES: readonly TrajectoryEventType[] = [
     "observation_recorded",
     "tool_finished",
+];
+
+/** Context Lookup 事实类型；这些事件只描述查询过程，不能直接成为证据。 */
+export const CONTEXT_LOOKUP_EVENT_TYPES: readonly TrajectoryEventType[] = [
+    "context_lookup_requested",
+    "context_lookup_completed",
+    "context_lookup_not_found",
+    "context_lookup_failed",
 ];
 
 /**
@@ -78,6 +87,73 @@ export interface CommittedEvidenceIndex {
      * @returns 是否存在对应 committed 事件。
      */
     has(sequence: number): boolean;
+}
+
+/**
+ * 校验 found 结果的原始 source refs 是否仍属于当前 committed Trajectory。
+ *
+ * @remarks
+ * 该校验只确认 lookup 结果的来源完整性，不把 source ref 自动升级为 Finding
+ * 证据。调用方仍必须把允许的原始 sequence 交给 `validateFindingEvidence`；查询
+ * 请求、结果、not_found 与 lookup_error 事件始终会被拒绝。
+ *
+ * @param result - 已通过 Result DTO 结构校验的 found 结果。
+ * @param index - 当前 Goal/Run 的 committed 事件索引。
+ * @throws EvidenceGateError 当来源缺失、越界、跨身份、重复或属于 lookup 事件时。
+ * @example
+ * ```ts
+ * validateContextLookupSourceReferences(foundResult, evidenceIndex);
+ * ```
+ */
+export function validateContextLookupSourceReferences(
+    result: Extract<ContextLookupResult, { readonly status: "found" }>,
+    index: CommittedEvidenceIndex,
+): void {
+    if (result.committedThroughSequence > index.committedThroughSequence) {
+        throw new EvidenceGateError(
+            "Context Lookup result boundary exceeds committed evidence boundary",
+        );
+    }
+    const seenEventIds = new Set<string>();
+    const knownEventIds = new Map<string, Readonly<TrajectoryEvent>>();
+    for (const event of index.events.values()) {
+        if (knownEventIds.has(event.eventId)) {
+            throw new EvidenceGateError("Trajectory contains duplicate event ID");
+        }
+        knownEventIds.set(event.eventId, event);
+    }
+
+    for (const match of result.matches) {
+        if (match.goalId !== index.goalId || match.runId !== index.runId) {
+            throw new EvidenceGateError(
+                "Context Lookup source ref belongs to a different Goal/Run",
+            );
+        }
+        if (match.lastSequence > result.committedThroughSequence) {
+            throw new EvidenceGateError("Context Lookup source range exceeds result boundary");
+        }
+        for (const eventId of match.sourceEventIds) {
+            if (seenEventIds.has(eventId)) {
+                throw new EvidenceGateError("Context Lookup contains duplicate source ref");
+            }
+            seenEventIds.add(eventId);
+            const event = knownEventIds.get(eventId);
+            if (event === undefined) {
+                throw new EvidenceGateError("Context Lookup source ref is not committed");
+            }
+            if (
+                event.sequence < match.firstSequence
+                || event.sequence > match.lastSequence
+            ) {
+                throw new EvidenceGateError("Context Lookup source ref is outside its document range");
+            }
+            if (isContextLookupEventType(event.eventType)) {
+                throw new EvidenceGateError(
+                    "Context Lookup events cannot be used as evidence",
+                );
+            }
+        }
+    }
 }
 
 /**
@@ -309,6 +385,17 @@ export interface EvidenceGate {
     validateFinding(evidenceSequences: readonly number[]): void;
     /** @param patch - 待接受的模型 Patch；可选当前 Memory 用于补全 update。 */
     validatePatch(patch: unknown, workingMemory?: WorkingMemory): void;
+    /**
+     * @param result - 带原始 source refs 的 found Lookup Result。
+     * @remarks 该方法只校验来源；最终 Finding 仍须引用允许的原始 sequence。
+     * @example
+     * ```ts
+     * gate.validateContextLookup(foundResult);
+     * ```
+     */
+    validateContextLookup(
+        result: Extract<ContextLookupResult, { readonly status: "found" }>,
+    ): void;
 }
 
 /**
@@ -323,12 +410,21 @@ export function createEvidenceGate(index: CommittedEvidenceIndex): EvidenceGate 
             validateFindingEvidence(evidenceSequences, index),
         validatePatch: (patch: unknown, workingMemory?: WorkingMemory): asserts patch is MemoryPatch =>
             validateMemoryPatchEvidence(patch, index, workingMemory),
+        validateContextLookup: (result: Extract<ContextLookupResult, { readonly status: "found" }>) =>
+            validateContextLookupSourceReferences(result, index),
     });
 }
 
 /** 供调用方快速判断 Trajectory 事件是否属于允许 Evidence 类别。 */
 export function isEvidenceEventType(eventType: string): eventType is typeof EVIDENCE_EVENT_TYPES[number] {
     return (EVIDENCE_EVENT_TYPES as readonly string[]).includes(eventType);
+}
+
+/** 判断事件是否属于只记录查询过程、不可作为完成证据的 Context Lookup 类型。 */
+export function isContextLookupEventType(
+    eventType: string,
+): eventType is typeof CONTEXT_LOOKUP_EVENT_TYPES[number] {
+    return (CONTEXT_LOOKUP_EVENT_TYPES as readonly string[]).includes(eventType);
 }
 
 /** 将 Evidence 事件类型限制为稳定的字符串集合，避免调用方复制常量。 */
