@@ -280,6 +280,22 @@ export function createAlfworldEpisodeExecutor(
                 protocolValidator: createDefaultPromptBundleProtocolValidator(),
             }
             : {}),
+        ...(dependencies.promptBundleVersion >= 5
+            ? {
+                modelContextProtocol: {
+                    kind: "trajectory-layered" as const,
+                    version: 1 as const,
+                },
+            }
+            : {}),
+        ...(dependencies.promptBundleVersion >= 6
+            ? {
+                contextRetrievalProtocol: {
+                    kind: "bm25-lite" as const,
+                    version: 1 as const,
+                },
+            }
+            : {}),
         ...(dependencies.goalIdFactory === undefined
             ? {}
             : { goalIdGenerator: dependencies.goalIdFactory }),

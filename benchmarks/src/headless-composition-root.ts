@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 
-import type {
-    ContextCompactor,
-    LLMAdapter,
-    ModelConversationMessage,
-    PromptBundleRenderer,
+import {
+    createDefaultModelContextBudgetPolicy,
+    LLMStepExecutor,
+    TrajectoryModelContextAssembler,
+    type ContextCompactor,
+    type LLMAdapter,
+    type ModelConversationMessage,
+    type PromptBundleRenderer,
 } from "../../packages/agent/src/index.js";
 import {
     DEFAULT_WORKING_MEMORY_LIMITS,
@@ -18,12 +21,14 @@ import {
     throwIfAborted,
     type AgentProfile,
     type AgentProfileRegistry,
+    type ContextRetrievalProtocol,
     type ExecutionControl,
     type Goal,
     type GoalProgressResult,
     type GoalProtocolValidator,
     type GoalStore,
     type MemoryProtocol,
+    type ModelContextProtocol,
     type PreparationExecutor,
     type RunIdGenerator,
     readTrajectoryAtSnapshot,
@@ -37,8 +42,6 @@ import {
     TrajectoryCheckpointCommitter,
     type WorkingMemoryLimits,
 } from "../../packages/runtime/src/index.js";
-import { LLMStepExecutor } from "../../packages/agent/src/index.js";
-
 /**
  * Benchmark 任务转换后的通用 Goal 描述。
  *
@@ -383,6 +386,10 @@ export interface HeadlessCompositionRootDependencies<TTask, TOutcome> {
      * 创建 Goal 时冻结的 Memory 协议；legacy v1–v3 可省略，v4/structured 必须显式提供。
      */
     readonly memoryProtocol?: MemoryProtocol;
+    /** 创建 Goal 时冻结的模型上下文协议；省略时按 `conversation@1` 兼容。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
+    /** 创建 Goal 时冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
     /**
      * 在首次保存或模型调用前校验 Prompt/Memory 组合的适配器；structured Goal 必须提供。
      */
@@ -497,6 +504,11 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 trajectorySink: bindings.trajectoryStore,
                 ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
             });
+            const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
+                trajectoryStore: bindings.trajectoryStore,
+                policy: createDefaultModelContextBudgetPolicy(),
+                ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
+            });
             const runner = new Runner({
                 store: bindings.goalStore,
                 executor: new LLMStepExecutor({
@@ -504,6 +516,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     renderer: this.dependencies.renderer,
                     contextCompactor: this.dependencies.contextCompactor,
                     ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
+                    trajectoryContextAssembler,
                 }),
                 toolRegistry: episode.registry,
                 ...(this.dependencies.toolPolicy === undefined
@@ -556,6 +569,12 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     ...(this.dependencies.memoryProtocol === undefined
                         ? {}
                         : { memoryProtocol: this.dependencies.memoryProtocol }),
+                    ...(this.dependencies.modelContextProtocol === undefined
+                        ? {}
+                        : { modelContextProtocol: this.dependencies.modelContextProtocol }),
+                    ...(this.dependencies.contextRetrievalProtocol === undefined
+                        ? {}
+                        : { contextRetrievalProtocol: this.dependencies.contextRetrievalProtocol }),
                     ...(this.dependencies.protocolValidator === undefined
                         ? {}
                         : { protocolValidator: this.dependencies.protocolValidator }),
@@ -773,6 +792,12 @@ function validateRootDependencies<TTask, TOutcome>(
             promptBundleVersion: dependencies.promptBundleVersion,
             memoryProtocol: dependencies.memoryProtocol
                 ?? { kind: "checkpoint", version: 1 },
+            ...(dependencies.modelContextProtocol === undefined
+                ? {}
+                : { modelContextProtocol: dependencies.modelContextProtocol }),
+            ...(dependencies.contextRetrievalProtocol === undefined
+                ? {}
+                : { contextRetrievalProtocol: dependencies.contextRetrievalProtocol }),
         });
     }
 }
