@@ -170,12 +170,34 @@ export {
 export type {
     ContextDocumentBuildInput,
     ContextDocumentBuildResult,
+    ContextDocumentFieldName,
     ContextDocumentFields,
     ContextDocumentKind,
     ContextDocumentSourceRange,
     ContextDocumentStoreInput,
     ContextSearchDocument,
 } from "./context-document";
+export {
+    CONTEXT_DOCUMENT_FIELD_NAMES,
+    CONTEXT_INVERTED_INDEX_SCHEMA_VERSION,
+    CONTEXT_TOKENIZER_ERROR_CODE,
+    CONTEXT_TOKENIZER_VERSION,
+    ContextTokenizerError,
+    FieldTokenizer,
+    FieldTokenizer as ContextFieldTokenizer,
+    buildContextIndex,
+    buildContextInvertedIndex,
+    tokenizeContextDocument,
+} from "./context-tokenizer";
+export type {
+    ContextFieldStatistics,
+    ContextIndexPosting,
+    ContextInvertedIndex,
+    ContextToken,
+    ContextTokenKind,
+    ContextTokenizedField,
+    TokenizedContextDocument,
+} from "./context-tokenizer";
 export type {
     NormalizedWorkingMemoryPatch,
     WorkingMemoryLimits,

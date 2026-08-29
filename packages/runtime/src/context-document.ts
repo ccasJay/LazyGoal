@@ -47,6 +47,17 @@ export interface ContextDocumentSourceRange {
     readonly lastSequence: number;
 }
 
+/** Context Document 可建立倒排索引的字段名称。 */
+export type ContextDocumentFieldName =
+    | "eventType"
+    | "toolId"
+    | "actionId"
+    | "stepIndex"
+    | "path"
+    | "errorCode"
+    | "objectId"
+    | "body";
+
 /**
  * Context Document 的可检索字段。
  *

@@ -18,7 +18,7 @@
   - 增加全量/增量等价、闭合单元、身份与 sequence 校验、损坏来源 fail-closed 和输入不变测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 4. 实现版本化 Field Tokenizer 与索引统计
+- [x] //TODO 4. 实现版本化 Field Tokenizer 与索引统计
 
   - 增加字段提取、NFKC/case normalization、raw exact Token、路径与 snake/camel/数字拆分，以及倒排表、df 和字段长度统计。
   - 使用 golden/property tests 覆盖代码标识、Unicode、locale 隔离、重复构建和 Tokenizer 版本确定性。
