@@ -54,7 +54,7 @@
   - 增加 Runner 集成测试，覆盖允许、需批准和拒绝 Action、非法 Patch 不污染 Session、Tool 外部作用顺序、criteria 精确覆盖与证据不足时禁止完成。
   - _Requirements: [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 10. 完成 Composition Root 接线与跨包回归
+- [x] //TODO 10. 完成 Composition Root 接线与跨包回归
 
   - 在 Launcher/TUI Composition Root 为新 Goal 冻结 v4/`structured@1`，注入 Validator、Limits、Session、Committer 与 Store，并在首次保存或模型副作用前拒绝缺失依赖和协议错配。
   - 更新受影响的 `docs/architecture/` 当前实现说明，并增加新旧 Goal、缺失 Trajectory、恢复中断和协议兼容的自动化集成测试。

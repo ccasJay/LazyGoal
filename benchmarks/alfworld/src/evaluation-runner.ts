@@ -18,6 +18,7 @@ import {
     HeadlessEpisodeCleanupError,
     type HeadlessCompositionRootDependencies,
 } from "../../src/headless-composition-root.js";
+import { createDefaultPromptBundleProtocolValidator } from "../../../packages/agent/src/index.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import type {
     AlfworldManifest,
@@ -273,6 +274,12 @@ export function createAlfworldEpisodeExecutor(
         adapter: benchmarkAdapter,
         persistence,
         toolPolicy: ALLOW_EVALUATION_TOOLS,
+        ...(dependencies.promptBundleVersion >= 4
+            ? {
+                memoryProtocol: { kind: "structured" as const, version: 1 as const },
+                protocolValidator: createDefaultPromptBundleProtocolValidator(),
+            }
+            : {}),
         ...(dependencies.goalIdFactory === undefined
             ? {}
             : { goalIdGenerator: dependencies.goalIdFactory }),

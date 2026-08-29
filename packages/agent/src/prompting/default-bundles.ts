@@ -22,6 +22,12 @@ import {
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
+import {
+    GoalProtocolError,
+    isMemoryProtocol,
+    type GoalProtocolValidator,
+    type MemoryProtocol,
+} from "../../../runtime/src/domain";
 import type {
     PromptBundleManifest,
     PromptBundleRenderer,
@@ -36,7 +42,7 @@ import type {
  * 该值归 Agent 所有，由 TUI Composition Root 注入 Runtime 的
  * `LauncherDependencies.promptBundleVersion`，从而在新 Goal 创建时冻结。
  */
-export const CURRENT_PROMPT_BUNDLE_VERSION = 3;
+export const CURRENT_PROMPT_BUNDLE_VERSION = 4;
 
 /**
  * 通用的 Profile 展示模板资产，归 prompting 基础设施所有。
@@ -109,8 +115,8 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
  *
  * @remarks
  * Global Overview 与三个 Phase Protocol 均使用独立的 v2 模板，Profile 与
- * Authorized Tools 继续复用不可变的 v1 展示模板。本常量不改变新 Goal 当前冻结的
- * 默认版本。
+ * Authorized Tools 继续复用不可变的 v1 展示模板。v2 仅供历史 Goal 回放，
+ * 不改变新 Goal 当前冻结的默认版本。
  */
 export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     version: 2,
@@ -159,7 +165,7 @@ export const PROMPT_BUNDLE_V3_MANIFEST: PromptBundleManifest = {
  *
  * @remarks
  * 三个 Phase 都切换到结构化 MemoryPatch/CompletionEvidence 提示，且显式冻结
- * `structured@1`；旧 v1–v3 Manifest 与默认版本保持不变，供历史 Goal 回放。
+ * `structured@1`；旧 v1–v3 Manifest 继续供历史 Goal 回放。
  */
 export const PROMPT_BUNDLE_V4_MANIFEST: PromptBundleManifest = {
     version: 4,
@@ -179,8 +185,64 @@ export const PROMPT_BUNDLE_V4_MANIFEST: PromptBundleManifest = {
     ],
 };
 
-/** 当前新 Goal 使用的 v3 Manifest。 */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V3_MANIFEST;
+/** 当前新 Goal 使用的 v4 Structured Working Memory Manifest。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V4_MANIFEST;
+
+/**
+ * 创建默认 Prompt Bundle 的冻结协议校验器。
+ *
+ * @remarks
+ * v1–v3 只兼容 `checkpoint@1`，v4 只兼容 `structured@1`。校验器不读取文件、
+ * 不调用模型，也不修改输入；组合根应在首次保存 Goal 或调用模型前调用它，
+ * 使未知版本和交叉协议 fail-closed。该适配器依赖 Runtime 的稳定协议错误，
+ * 但不把 Prompt 模板文本泄漏到 Runtime。
+ *
+ * @returns 可注入 Launcher、Coordinator 与 Runner 的只读协议校验器。
+ *
+ * @example
+ * ```ts
+ * const validator = createDefaultPromptBundleProtocolValidator();
+ * validator.validate({
+ *     promptBundleVersion: 4,
+ *     memoryProtocol: { kind: "structured", version: 1 },
+ * });
+ * ```
+ */
+export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValidator {
+    const expectedByBundle = new Map<number, MemoryProtocol>([
+        [1, { kind: "checkpoint", version: 1 }],
+        [2, { kind: "checkpoint", version: 1 }],
+        [3, { kind: "checkpoint", version: 1 }],
+        [4, { kind: "structured", version: 1 }],
+    ]);
+
+    return {
+        validate(input): void {
+            const expected = expectedByBundle.get(input.promptBundleVersion);
+
+            if (expected === undefined) {
+                throw new GoalProtocolError(
+                    `不支持的 Prompt Bundle 版本：${String(input.promptBundleVersion)}`,
+                );
+            }
+
+            if (!isMemoryProtocol(input.memoryProtocol)) {
+                throw new GoalProtocolError(
+                    "Memory 协议必须是 checkpoint@1 或 structured@1",
+                );
+            }
+
+            if (
+                input.memoryProtocol.kind !== expected.kind
+                || input.memoryProtocol.version !== expected.version
+            ) {
+                throw new GoalProtocolError(
+                    `Prompt Bundle v${input.promptBundleVersion} 与 ${input.memoryProtocol.kind}@${input.memoryProtocol.version} 不兼容`,
+                );
+            }
+        },
+    };
+}
 
 async function loadAsset(
     asset: PromptTemplateAsset,

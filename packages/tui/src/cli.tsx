@@ -8,6 +8,7 @@ import { render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
+    DEFAULT_WORKING_MEMORY_LIMITS,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
@@ -15,15 +16,18 @@ import {
     InMemoryToolRegistry,
     InlineScheduler,
     Runner,
+    TrajectoryCheckpointCommitter,
     readTrajectoryAtSnapshot,
     launch,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
     type ExitPort,
+    type GoalProtocolValidator,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type ToolPolicy,
+    type WorkingMemoryLimits,
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -34,6 +38,7 @@ import {
 } from "../../storage/src/index";
 import {
     createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
@@ -368,6 +373,12 @@ export interface CompositionRoot {
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** 共享的独立诊断 Trace Sink。 */
     readonly traceSink: JsonFileDiagnosticTraceSink;
+    /** Launcher、Coordinator 与 Runner 共享的 Prompt/Memory 协议校验器。 */
+    readonly protocolValidator: GoalProtocolValidator;
+    /** structured@1 Patch 接受时共享的不可变限制配置。 */
+    readonly workingMemoryLimits: WorkingMemoryLimits;
+    /** Coordinator 与 Runner 共享的 Trajectory/Snapshot 提交器。 */
+    readonly checkpointCommitter: TrajectoryCheckpointCommitter;
     /**
      * 只读读取指定 Goal/Run 的轨迹，并以最新 Snapshot 边界分类 committed/tail。
      * @param query - Goal、Run 与可选序列范围。
@@ -497,6 +508,13 @@ export async function createCompositionRoot(
     const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
     const checkpointStore = new CheckpointGateGoalStore(store);
+    const protocolValidator = createDefaultPromptBundleProtocolValidator();
+    const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
+    const checkpointCommitter = new TrajectoryCheckpointCommitter({
+        store: checkpointStore,
+        trajectorySink: trajectoryStore,
+        traceSink,
+    });
     const abortController = new AbortController();
     const resources = new ManagedResourceRegistry();
     const runner = new Runner({
@@ -511,6 +529,10 @@ export async function createCompositionRoot(
         toolPolicy: createDefaultToolPolicy(),
         trajectorySink: trajectoryStore,
         traceSink,
+        trajectoryStore,
+        workingMemoryLimits,
+        protocolValidator,
+        checkpointCommitter,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
@@ -525,6 +547,10 @@ export async function createCompositionRoot(
         toolRegistry,
         trajectorySink: trajectoryStore,
         traceSink,
+        trajectoryStore,
+        workingMemoryLimits,
+        protocolValidator,
+        checkpointCommitter,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -538,6 +564,8 @@ export async function createCompositionRoot(
                     store: checkpointStore,
                     coordinator,
                     promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
+                    memoryProtocol: { kind: "structured", version: 1 },
+                    protocolValidator,
                     trajectorySink: trajectoryStore,
                     traceSink,
                 },
@@ -585,6 +613,9 @@ export async function createCompositionRoot(
         store,
         trajectoryStore,
         traceSink,
+        protocolValidator,
+        workingMemoryLimits,
+        checkpointCommitter,
         readTrajectory,
         checkpointStore,
         resources,

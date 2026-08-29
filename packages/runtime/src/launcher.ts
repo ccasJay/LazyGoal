@@ -1,5 +1,11 @@
 import type { AgentProfileRegistry } from "./agent-profile";
-import { createGoal } from "./domain";
+import {
+    createGoal,
+    GoalProtocolError,
+    isMemoryProtocol,
+    type MemoryProtocol,
+    type GoalProtocolValidator,
+} from "./domain";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -88,6 +94,16 @@ export interface LauncherDependencies {
     readonly coordinator: Pick<GoalCoordinator, "advance">;
     /** Agent 当前生效、由 Composition Root 注入并在新 Goal 创建时冻结的 Prompt Bundle 版本。 */
     readonly promptBundleVersion: number;
+    /**
+     * 新 Goal 冻结的 Memory 协议；legacy v1–v3 省略时按 `checkpoint@1` 兼容。
+     * v4/structured Goal 必须显式提供该字段。
+     */
+    readonly memoryProtocol?: MemoryProtocol;
+    /**
+     * 在首次 Profile lookup、保存或模型调用前校验 Prompt/Memory 组合的适配器。
+     * structured Goal 缺少该依赖时 Launcher fail-closed。
+     */
+    readonly protocolValidator?: GoalProtocolValidator;
     /** 可选 Domain Event Sink；省略时保留旧 Launcher 持久化行为。 */
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断边界；写入失败不回滚已保存的初始 Snapshot。 */
@@ -135,6 +151,17 @@ export async function launch(
         return invalidGoalInput("maxSteps must be a non-negative integer");
     }
 
+    const memoryProtocol = resolveLaunchMemoryProtocol(dependencies);
+    if (memoryProtocol.kind === "structured" && dependencies.protocolValidator === undefined) {
+        throw new GoalProtocolError(
+            "structured@1 Goal requires an injected GoalProtocolValidator",
+        );
+    }
+    dependencies.protocolValidator?.validate({
+        promptBundleVersion: dependencies.promptBundleVersion,
+        memoryProtocol,
+    });
+
     const profile = dependencies.profiles.get(request.profileId);
     throwIfAborted(control);
 
@@ -154,6 +181,9 @@ export async function launch(
         id: request.goalId,
         intent: request.intent,
         promptBundleVersion: dependencies.promptBundleVersion,
+        ...(dependencies.memoryProtocol === undefined
+            ? {}
+            : { memoryProtocol }),
         profile,
         runId,
         maxSteps,
@@ -233,6 +263,35 @@ export async function launch(
     const result = await dependencies.coordinator.advance(ref, control);
     throwIfAborted(control);
     return result;
+}
+
+function resolveLaunchMemoryProtocol(
+    dependencies: Pick<LauncherDependencies, "promptBundleVersion" | "memoryProtocol">,
+): MemoryProtocol {
+    if (dependencies.memoryProtocol !== undefined) {
+        if (!isMemoryProtocol(dependencies.memoryProtocol)) {
+            throw new GoalProtocolError(
+                "Memory 协议必须是 checkpoint@1 或 structured@1",
+            );
+        }
+
+        return {
+            kind: dependencies.memoryProtocol.kind,
+            version: dependencies.memoryProtocol.version,
+        };
+    }
+
+    if (
+        Number.isInteger(dependencies.promptBundleVersion)
+        && dependencies.promptBundleVersion >= 1
+        && dependencies.promptBundleVersion <= 3
+    ) {
+        return { kind: "checkpoint", version: 1 };
+    }
+
+    throw new GoalProtocolError(
+        "structured Goal 必须显式提供 memoryProtocol",
+    );
 }
 
 function invalidGoalInput(message: string): LaunchResult {

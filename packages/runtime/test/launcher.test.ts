@@ -11,6 +11,7 @@ import type {
     GoalStore,
     RunRef,
 } from "../src/index";
+import { GoalProtocolError } from "../src/index";
 
 function createProfile(): AgentProfile {
     return {
@@ -336,4 +337,72 @@ test("launch returns Coordinator business failures unchanged", async () => {
     );
 
     assert.strictEqual(result, coordinatorResult);
+});
+
+test("launch rejects a structured Goal before Profile, Run ID, or Snapshot side effects when Validator is missing", async () => {
+    const profiles = new FakeProfileRegistry([createProfile()]);
+    const store = new RecordingGoalStore();
+    const coordinator = new FakeCoordinator(unusedResult);
+    let generatorCalls = 0;
+
+    await assert.rejects(
+        () => launch(
+            { goalId: "goal-structured", intent: "Use structured memory", profileId: "profile-1" },
+            {
+                profiles,
+                runIdGenerator: () => {
+                    generatorCalls += 1;
+                    return "run-structured";
+                },
+                store,
+                coordinator,
+                promptBundleVersion: 4,
+                memoryProtocol: { kind: "structured", version: 1 },
+            },
+        ),
+        (error: unknown) => {
+            assert.ok(error instanceof GoalProtocolError);
+            return true;
+        },
+    );
+
+    assert.deepEqual(profiles.requestedProfileIds, []);
+    assert.equal(generatorCalls, 0);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(coordinator.receivedRefs, []);
+});
+
+test("launch rejects a Prompt/Memory protocol mismatch before any external dependency", async () => {
+    const profiles = new FakeProfileRegistry([createProfile()]);
+    const store = new RecordingGoalStore();
+    const coordinator = new FakeCoordinator(unusedResult);
+    let generatorCalls = 0;
+
+    await assert.rejects(
+        () => launch(
+            { goalId: "goal-mismatch", intent: "Reject mismatch", profileId: "profile-1" },
+            {
+                profiles,
+                runIdGenerator: () => {
+                    generatorCalls += 1;
+                    return "run-mismatch";
+                },
+                store,
+                coordinator,
+                promptBundleVersion: 4,
+                memoryProtocol: { kind: "checkpoint", version: 1 },
+                protocolValidator: {
+                    validate: () => {
+                        throw new GoalProtocolError("Prompt/Memory 协议不匹配");
+                    },
+                },
+            },
+        ),
+        /GOAL_PROTOCOL_ERROR/,
+    );
+
+    assert.deepEqual(profiles.requestedProfileIds, []);
+    assert.equal(generatorCalls, 0);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(coordinator.receivedRefs, []);
 });

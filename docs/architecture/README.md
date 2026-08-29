@@ -2,7 +2,7 @@
 
 > 当前架构的极简入口。以源码为事实来源；功能演进过程见 `specs/`，接口细节见源码 TSDoc。
 
-LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期和持久化 Port，`storage` 提供 Goal Snapshot 与 Profile 的 JSON 文件持久化实现（含 Snapshot Codec），`agent` 通过 Projector 与 Renderer 把完整 Goal 转为一次模型调用，`llm` 隔离具体模型供应商。每个 Step 完成后，Runner 先保存最新完整 Goal，再决定继续、等待或结束。
+LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期、结构化 Working Memory 和持久化 Port，`storage` 提供 Goal Snapshot 与 Profile 的 JSON 文件持久化实现（含 Snapshot Codec），`agent` 通过 Projector 与 Renderer 把完整 Goal 转为一次模型调用，`llm` 隔离具体模型供应商。新 Goal 冻结 v4/`structured@1`；旧 Goal 继续按 v1–v3 的 `checkpoint@1` 语义运行。每个业务边界先提交事实与 accepted Memory Patch，再保存最新完整 Goal，最后决定继续、等待或结束。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -12,6 +12,8 @@ LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命�
 | Profile | 创建 Goal 时复制的 Agent 配置 |
 | Prompt Bundle | 由 Goal 冻结版本、由 Agent 解析的版本化 Prompt 组合（Global Overview + Phase Protocol） |
 | Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
+| Working Memory | 从已提交 `memory_patch_accepted` 事实临时归约的结构化模型上下文，不进入 Snapshot |
+| Memory revision | Snapshot 指向的 accepted Patch 链头，用于中断后确定性重建 |
 
 ## 模块关系
 
@@ -25,6 +27,7 @@ flowchart LR
     G --> PE[PreparationExecutor Port]
     G --> Q[RunScheduler] --> R[Runner]
     R --> GS
+    R --> WM[WorkingMemorySession]
     R --> SE[StepExecutor Port]
 
     GS -->|实现| ST[Storage: Store + Snapshot Codec]
@@ -36,13 +39,13 @@ flowchart LR
 
 ## 主流程
 
-1. Launcher 校验原始 intent，创建并保存 `gathering_context/active` Goal，再调用 Coordinator。
+1. Launcher 校验原始 intent 与 Prompt/Memory 协议，创建并保存 `gathering_context/active` Goal，再调用 Coordinator。
 2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
-5. Agent Executor 按 Goal 冻结的 Prompt Bundle 版本渲染唯一 system 消息（Global Overview → Profile → Phase Protocol → 授权 ToolDefinition）并生成 AgentDecision；Runner 做严格协议、Profile、Registry、输入和 Policy 校验。
-6. 自动允许的 Action 按 `stage_action → Tool → observe_action` 顺序保存；需要批准的 Action 保存为等待点，领域 failure 继续下一轮，基础设施异常保存 `execution_error`。
-7. Coordinator 对 Action 执行 `approve_action`/`reject_action`：批准先保存再以瞬时授权调度，拒绝写入 rejected Observation；终止决策或正数 `maxSteps` 使 Run 停止。
+5. Agent Executor 按 Goal 冻结的 Prompt Bundle 版本渲染唯一 system 消息（Global Overview → Profile → Phase Protocol → 授权 ToolDefinition），结构化 Goal 同时接收从 Trajectory 重建的 Working Memory；Runner 做严格协议、Profile、Registry、输入、Policy 和 Evidence 校验。
+6. Coordinator/Runner 通过共享 `TrajectoryCheckpointCommitter` 追加事实与 accepted Patch，保存 Snapshot 的提交边界和 revision；Snapshot 成功后才更新本轮临时 Memory。自动允许的 Action 按 `stage_action → Tool → observe_action` 顺序保存，需要批准的 Action 保存为等待点。
+7. Coordinator 对 Action 执行 `approve_action`/`reject_action`：批准先保存再以瞬时授权调度，拒绝写入 rejected Observation；终止决策或正数 `maxSteps` 使 Run 停止。缺失或损坏的结构化 Trajectory 在模型调用前 fail-closed。
 
 ## 跨模块不变量
 
@@ -51,6 +54,9 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
+- 新 Goal 的 v4 Prompt Bundle 与 `structured@1` 由 Composition Root 一起冻结，并在首次保存、状态推进和模型调用前由 `GoalProtocolValidator` 校验；旧 v1–v3 Goal 省略 Memory 字段时按 `checkpoint@1` 兼容。
+- Working Memory 只在 Coordinator/Runner 调用链内存在；`WorkingMemorySession` 从 Snapshot 的 `memoryRevision` 与 `committedThroughSequence` 重建，原始 Trajectory 永不被 Compact 或归约覆盖。
+- accepted Patch、Runtime 生命周期 Patch、Action/Observation 和终态事实共享同一提交顺序；Patch 追加或 Snapshot 保存失败时，模型上下文和外部 Tool 不继续推进。
 - Prompt Bundle（Global Overview 与 Phase Protocol）是 Agent 拥有的上层模型契约，Profile 只补充不冲突的角色与领域细节；Tool 权限和状态合法性仍由 Runtime 强制执行。
 - 分层依赖方向由 `npm run check:dependencies` 自动校验：View DTO、Prompt Renderer 与 Storage DTO/Schema 不得反向引用 Runtime，只有 Codec 与 Projector 允许同时看到两侧；脚本同时拒绝任何 package 反向加载 Storage 或 Agent。
 - 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝、瞬时授权以及 safe/manual 中断恢复。

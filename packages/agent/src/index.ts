@@ -97,6 +97,7 @@ export type { LLMResponseProtocolErrorDetails } from "./errors";
 
 export {
     createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DEFAULT_PROMPT_TEMPLATE_ASSETS,

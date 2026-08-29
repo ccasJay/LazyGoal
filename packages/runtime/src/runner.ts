@@ -9,6 +9,7 @@ import type {
     RunState,
     ToolCallAction,
     MemoryProtocol,
+    GoalProtocolValidator,
 } from "./domain";
 import { resolveMemoryProtocol } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -513,6 +514,11 @@ export interface RunnerDependencies {
     readonly trajectoryStore?: TrajectoryStore;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
+    /**
+     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
+     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     */
+    readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Runner 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
 }
@@ -546,6 +552,7 @@ export class Runner {
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
+    private readonly protocolValidator: GoalProtocolValidator | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -555,6 +562,7 @@ export class Runner {
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
+        this.protocolValidator = dependencies.protocolValidator;
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -598,6 +606,8 @@ export class Runner {
         if (goal === undefined) {
             return this.runNotFound(ref);
         }
+
+        this.validateGoalProtocol(goal);
 
         if (goal.state.workflow.phase !== "executing") {
             return { ok: true, state: goal.state.run };
@@ -673,6 +683,15 @@ export class Runner {
         }
 
         return goal;
+    }
+
+    private validateGoalProtocol(goal: Goal): void {
+        if (this.protocolValidator === undefined) return;
+
+        this.protocolValidator.validate({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            memoryProtocol: resolveMemoryProtocol(goal.definition),
+        });
     }
 
     private async saveCheckpoint(

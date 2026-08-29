@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { PromptContext } from "../src/model-inference-view";
 import {
     createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
@@ -143,6 +144,9 @@ function buildContext(
     return {
         promptBundleVersion,
         phase,
+        ...(promptBundleVersion === 4
+            ? { memoryProtocol: { kind: "structured" as const, version: 1 as const } }
+            : {}),
         profile: {
             id: "profile-1",
             systemPrompt: "SYS",
@@ -189,15 +193,17 @@ test("v1 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 system �
     );
 });
 
-test("默认 Renderer 同时注册隔离的 v1/v2/v3，且当前版本激活 v3", async () => {
+test("默认 Renderer 同时注册隔离的 v1-v4，且当前版本激活 v4", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const v1 = renderer.render(buildContext("planning", 1));
     const v2 = renderer.render(buildContext("planning", 2));
+    const v4 = renderer.render(buildContext("planning", 4));
 
-    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 3);
-    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V3_MANIFEST);
+    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 4);
+    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V4_MANIFEST);
     assert.equal(PROMPT_BUNDLE_V2_MANIFEST.version, 2);
     assert.equal(PROMPT_BUNDLE_V3_MANIFEST.version, 3);
+    assert.equal(PROMPT_BUNDLE_V4_MANIFEST.version, 4);
     assert.equal(
         v1,
         [GLOBAL_OVERVIEW, PROFILE_FRAGMENT, PLANNING_PROTOCOL, TOOLS_FRAGMENT]
@@ -210,6 +216,8 @@ test("默认 Renderer 同时注册隔离的 v1/v2/v3，且当前版本激活 v3"
     );
     assert.ok(!v1.includes("Only an Observation in Working Context"));
     assert.ok(v2.includes("Only an Observation in Working Context"));
+    assert.ok(v4.includes("Active Phase Protocol: planning (structured@1)"));
+    assert.ok(v4.includes("MemoryPatch"));
 });
 
 test("v2 Global 明确指令优先级、事实输入与 Runtime Observation 边界", async () => {
@@ -494,6 +502,7 @@ test("空 Instructions 与空 Tools 具有固定空值表示", async () => {
     const output = renderer.render({
         promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
         phase: "gathering_context",
+        memoryProtocol: { kind: "structured", version: 1 },
         profile: { id: "profile-1", systemPrompt: "SYS", instructions: [] },
         authorizedTools: [],
     });
@@ -517,4 +526,30 @@ test("v4 Bundle 显式绑定 structured@1 并渲染三阶段协议", async () =>
     assert.ok(output.includes("Active Phase Protocol: executing (structured@1)"));
     assert.ok(output.includes("completionEvidence"));
     assert.ok(output.includes("MemoryPatch"));
+});
+
+test("默认 Prompt Bundle Validator 拒绝未知版本和交叉协议", () => {
+    const validator = createDefaultPromptBundleProtocolValidator();
+
+    validator.validate({
+        promptBundleVersion: 3,
+        memoryProtocol: { kind: "checkpoint", version: 1 },
+    });
+    validator.validate({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "structured", version: 1 },
+    });
+
+    assert.throws(() => validator.validate({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "checkpoint", version: 1 },
+    }), /GOAL_PROTOCOL_ERROR/);
+    assert.throws(() => validator.validate({
+        promptBundleVersion: 3,
+        memoryProtocol: { kind: "structured", version: 1 },
+    }), /GOAL_PROTOCOL_ERROR/);
+    assert.throws(() => validator.validate({
+        promptBundleVersion: 99,
+        memoryProtocol: { kind: "checkpoint", version: 1 },
+    }), /GOAL_PROTOCOL_ERROR/);
 });

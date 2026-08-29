@@ -4,6 +4,7 @@ import type {
     Goal,
     GoalTask,
     GoalPhase,
+    GoalProtocolValidator,
     MemoryPatch,
     RunRef,
     WorkingMemory,
@@ -168,6 +169,11 @@ export interface GoalCoordinatorDependencies {
     readonly trajectoryStore?: TrajectoryStore;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
+    /**
+     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
+     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     */
+    readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
 }
@@ -197,6 +203,7 @@ export class GoalCoordinator {
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
+    private readonly protocolValidator: GoalProtocolValidator | undefined;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -206,6 +213,7 @@ export class GoalCoordinator {
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
+        this.protocolValidator = dependencies.protocolValidator;
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -239,6 +247,8 @@ export class GoalCoordinator {
         if (goal === undefined) {
             return this.runNotFound(ref);
         }
+
+        this.validateGoalProtocol(goal);
 
         while (goal.state.workflow.phase !== "executing") {
             const workflow = goal.state.workflow;
@@ -470,6 +480,8 @@ export class GoalCoordinator {
         if (goal === undefined) {
             return this.runNotFound(request.ref);
         }
+
+        this.validateGoalProtocol(goal);
 
         const workflow = goal.state.workflow;
 
@@ -940,6 +952,15 @@ export class GoalCoordinator {
         }
 
         return goal;
+    }
+
+    private validateGoalProtocol(goal: Goal): void {
+        if (this.protocolValidator === undefined) return;
+
+        this.protocolValidator.validate({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            memoryProtocol: resolveMemoryProtocol(goal.definition),
+        });
     }
 
     private async saveCheckpoint(
