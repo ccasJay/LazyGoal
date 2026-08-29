@@ -30,7 +30,7 @@
   - 增加分类容量、保护上限、reinforcement 合法来源、稳定 tie-break 和 Warm 淘汰不修改 Trajectory 的测试。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 6. 实现严格 ContextCompactAdapter 与失败回退
+- [x] //TODO 6. 实现严格 ContextCompactAdapter 与失败回退
 
   - 在 `packages/agent` 增加一次性 Compact 调用、严格输入/输出 Schema、来源与预算校验，以及独立 `context_compact_*` Diagnostic Trace。
   - 增加阈值触发、确定性优先、单次调用、非法/无来源/超限响应、中止、Provider 失败和已有 Sidecar 不污染测试。

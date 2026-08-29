@@ -62,6 +62,20 @@ export type {
     WarmReinforcementInput,
 } from "./warm-reducer";
 export {
+    ContextCompactAdapter,
+    ContextCompactResponseSchema,
+    ContextCompactWarmEntrySchema,
+    CONTEXT_COMPACT_ENTRY_KINDS,
+    CONTEXT_COMPACT_SCHEMA_VERSION,
+    CONTEXT_COMPACTOR_VERSION,
+} from "./context-compact-adapter";
+export type {
+    ContextCompactAdapterOptions,
+    ContextCompactFailureReason,
+    ContextCompactInput,
+    ContextCompactResult,
+} from "./context-compact-adapter";
+export {
     CharacterModelInputEstimator,
     createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,

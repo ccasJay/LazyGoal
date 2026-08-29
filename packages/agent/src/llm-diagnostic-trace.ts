@@ -18,7 +18,13 @@ const TRUNCATED = "[TRUNCATED]";
 const SENSITIVE_KEY_PATTERN = /api[-_]?key|authorization|cookie|password|secret|token/i;
 
 /** Agent LLM 诊断事件的稳定内部类型。 */
-type LlmTraceKind = "model_request" | "model_response" | "model_error";
+type LlmTraceKind =
+    | "model_request"
+    | "model_response"
+    | "model_error"
+    | "context_compact_request"
+    | "context_compact_response"
+    | "context_compact_error";
 
 /**
  * 将 LLM 诊断写入独立 Trace 通道；Trace 不可用时静默隔离失败。
@@ -51,6 +57,42 @@ export async function recordLlmDiagnosticTrace(input: {
         await input.sink.append(record);
     } catch {
         // Diagnostic Trace is deliberately best effort and must not change Runtime semantics.
+    }
+}
+
+/**
+ * 记录独立 Context Compact 调用的诊断。
+ *
+ * @remarks
+ * Compact 诊断与主模型调用使用同一个旁路 Sink，但拥有独立稳定 kind；写入失败
+ * 只被隔离，不会把候选结果升级为权威状态，也不会改变主调用结果。
+ *
+ * @param input - Goal/Run 身份、Compact kind 和待脱敏 payload。
+ * @returns Sink 完成或被隔离后 resolve。
+ */
+export async function recordContextCompactDiagnosticTrace(input: {
+    readonly sink: DiagnosticTraceSink | undefined;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly kind: Extract<
+        LlmTraceKind,
+        "context_compact_request" | "context_compact_response" | "context_compact_error"
+    >;
+    readonly payload: unknown;
+}): Promise<void> {
+    if (input.sink === undefined) return;
+
+    const record = allocateDiagnosticTraceRecord({
+        goalId: input.goalId,
+        runId: input.runId,
+        kind: input.kind,
+        payload: boundJsonValue(input.payload),
+    });
+
+    try {
+        await input.sink.append(record);
+    } catch {
+        // Compact Trace is best effort and must not change fallback semantics.
     }
 }
 
