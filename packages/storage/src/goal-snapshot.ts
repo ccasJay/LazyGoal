@@ -61,6 +61,36 @@ export type GoalSnapshotV6 = Omit<GoalSnapshotV5, "metadata" | "state"> & {
 };
 
 /**
+ * Goal Snapshot v7 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v7 显式冻结 Goal 的 Memory 协议，并在 Run 中保存 accepted Patch revision
+ * 指针；它只保存指针，不保存 Working Memory 集合。v5/v6 仍可只读解码，下一次
+ * 正常保存时由 Codec 生成 v7。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV7 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 7 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 4,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV7 = Omit<GoalSnapshotV6, "metadata" | "definition" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV7;
+    readonly definition: GoalSnapshotDefinitionV7;
+    readonly state: GoalSnapshotStateV7;
+};
+
+/**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
  * ```ts
@@ -74,6 +104,11 @@ export interface GoalSnapshotMetadataV5 {
 /** v6 Snapshot 顶层协议元数据。 */
 export interface GoalSnapshotMetadataV6 {
     readonly schemaVersion: 6;
+}
+
+/** v7 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV7 {
+    readonly schemaVersion: 7;
 }
 
 /**
@@ -98,6 +133,27 @@ export interface GoalSnapshotDefinitionV5 {
         readonly maxSteps: number;
     };
 }
+
+/**
+ * v7 Snapshot 中冻结的 Memory 协议选择。
+ *
+ * @remarks 只有 `checkpoint@1` 与 `structured@1` 被当前 Runtime 支持。
+ * @example
+ * ```ts
+ * const protocol: GoalSnapshotMemoryProtocolV7 = {
+ *     kind: "structured",
+ *     version: 1,
+ * };
+ * ```
+ */
+export type GoalSnapshotMemoryProtocolV7 =
+    | { readonly kind: "checkpoint"; readonly version: 1 }
+    | { readonly kind: "structured"; readonly version: 1 };
+
+/** v7 Snapshot 中带显式 Memory 协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV7 = GoalSnapshotDefinitionV5 & {
+    readonly memoryProtocol: GoalSnapshotMemoryProtocolV7;
+};
 
 /**
  * Snapshot 持久化的 Agent Profile 表示。
@@ -140,6 +196,11 @@ export interface GoalSnapshotStateV5 {
 /** v6 Snapshot 的工作流、消息与带提交边界的 Run 状态。 */
 export type GoalSnapshotStateV6 = Omit<GoalSnapshotStateV5, "run"> & {
     readonly run: GoalSnapshotRunStateV6;
+};
+
+/** v7 Snapshot 的工作流、消息与带 Memory revision 的 Run 状态。 */
+export type GoalSnapshotStateV7 = Omit<GoalSnapshotStateV6, "run"> & {
+    readonly run: GoalSnapshotRunStateV7;
 };
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
@@ -224,6 +285,17 @@ export type GoalSnapshotRunStateV6 = Omit<GoalSnapshotRunStateV5, "lastStep" | "
     readonly checkpoint?: string | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV5 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV5 | undefined;
+};
+
+/** v7 Run 状态中指向最新 accepted Memory Patch 的 revision。 */
+export interface GoalSnapshotMemoryRevisionV7 {
+    readonly eventId: string;
+    readonly sequence: number;
+}
+
+/** v7 Run 执行状态，新增可选 Memory revision 指针。 */
+export type GoalSnapshotRunStateV7 = GoalSnapshotRunStateV6 & {
+    readonly memoryRevision?: GoalSnapshotMemoryRevisionV7 | undefined;
 };
 
 /** Run 生命周期状态。 */
@@ -457,6 +529,22 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const MemoryProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("checkpoint"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("structured"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
+const MemoryRevisionSchema = z.object({
+    eventId: NonEmptyStringSchema,
+    sequence: z.number().int().positive(),
+}).strict();
+
 const RunStateSchema = z.object({
     id: z.string(),
     status: RunStatusSchema,
@@ -501,7 +589,8 @@ function addInvariantIssue(
 
 function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotBaseSchema>
-        | z.infer<typeof GoalSnapshotV6BaseSchema>,
+        | z.infer<typeof GoalSnapshotV6BaseSchema>
+        | z.infer<typeof GoalSnapshotV7BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
@@ -677,6 +766,51 @@ function validateSnapshotInvariants(
             "running Run can only preserve a resumed wait decision",
         );
     }
+
+    if ("memoryProtocol" in goal.definition) {
+        const memoryProtocol = goal.definition.memoryProtocol;
+        const runWithMemory = run as typeof run & {
+            readonly committedThroughSequence: number;
+            readonly memoryRevision?: {
+                readonly eventId: string;
+                readonly sequence: number;
+            };
+        };
+
+        if (
+            memoryProtocol.kind === "checkpoint"
+            && runWithMemory.memoryRevision !== undefined
+        ) {
+            addInvariantIssue(
+                context,
+                "checkpoint Memory protocol cannot contain memoryRevision",
+                ["state", "run", "memoryRevision"],
+            );
+        }
+
+        if (
+            memoryProtocol.kind === "structured"
+            && run.checkpoint !== undefined
+        ) {
+            addInvariantIssue(
+                context,
+                "structured Memory protocol cannot contain legacy run.checkpoint",
+                ["state", "run", "checkpoint"],
+            );
+        }
+
+        const revision = runWithMemory.memoryRevision;
+        if (
+            revision !== undefined
+            && revision.sequence > runWithMemory.committedThroughSequence
+        ) {
+            addInvariantIssue(
+                context,
+                "memoryRevision.sequence cannot exceed committedThroughSequence",
+                ["state", "run", "memoryRevision", "sequence"],
+            );
+        }
+    }
 }
 
 const GoalSnapshotBaseSchema = z.object({
@@ -717,6 +851,28 @@ const GoalSnapshotV6BaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const GoalSnapshotV7BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(7) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -747,6 +903,22 @@ export const GoalSnapshotV5Schema = GoalSnapshotBaseSchema.superRefine(
  * ```
  */
 export const GoalSnapshotV6Schema = GoalSnapshotV6BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v7 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v7 显式保存 Memory 协议与可选 revision 指针；Schema 同时拒绝 legacy 与
+ * structured 协议的跨字段混用。Working Memory 本体和 Trajectory 事件不在快照中。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV7Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV7Schema = GoalSnapshotV7BaseSchema.superRefine(
     validateSnapshotInvariants,
 );
 

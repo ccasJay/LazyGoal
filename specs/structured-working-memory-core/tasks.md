@@ -24,7 +24,7 @@
   - 增加提交与故障测试，覆盖业务拒绝、Event 追加失败、Snapshot 失败孤儿分支、revision 只在保存副本中推进，以及 marker 失败后仍以 Snapshot 为提交权威。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5)_
 
-- [ ] //TODO 5. 扩展 Storage 到 Snapshot v7 Memory 协议
+- [x] //TODO 5. 扩展 Storage 到 Snapshot v7 Memory 协议
 
   - 在 `packages/storage` 增加 v7 DTO、Schema 与 Codec，保存 `definition.memoryProtocol` 和 `state.run.memoryRevision`，并强制 structured/legacy 跨字段不变量。
   - 增加 v5/v6 只读 legacy 恢复、v7 round-trip、未知协议、损坏 revision、恢复不写回及现有 fixture 兼容测试。
