@@ -12,7 +12,7 @@
   - 增加 Token 优先、字符兜底、Warm 回借、配置校验、固定输入软超限和输入不可变测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 实现 Trajectory Execution Unit Adapter 与 Hot Window
+- [x] //TODO 3. 实现 Trajectory Execution Unit Adapter 与 Hot Window
 
   - 收窄现有 Trajectory Adapter，只从 Snapshot committed boundary 内构造完整 execution units，并实现按预算选择连续最新后缀的 `HotWindowSelector`。
   - 增加 Action/Tool/Observation 分组、首个超限停止、禁止拆分/跳选、tail/marker/非法单元排除和跨身份拒绝测试。
