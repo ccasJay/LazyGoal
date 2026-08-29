@@ -122,6 +122,21 @@ export type {
     WorkingMemoryPatchValidationContext,
 } from "./working-memory-core";
 export {
+    WORKING_MEMORY_RECOVERY_ERROR_CODE,
+    WORKING_MEMORY_SESSION_CLOSED_CODE,
+    WORKING_MEMORY_TRAJECTORY_REQUIRED_CODE,
+    WorkingMemoryRecoveryError,
+    WorkingMemorySession,
+    WorkingMemorySessionClosedError,
+    WorkingMemoryTrajectoryRequiredError,
+    rebuildWorkingMemory,
+    restoreWorkingMemory,
+} from "./working-memory-session";
+export type {
+    RebuiltWorkingMemory,
+    WorkingMemorySessionDependencies,
+} from "./working-memory-session";
+export {
     EVIDENCE_EVENT_TYPES,
     WORKING_MEMORY_EVIDENCE_ERROR_CODE,
     EvidenceGateError,

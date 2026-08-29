@@ -30,7 +30,7 @@
   - 增加 v5/v6 只读 legacy 恢复、v7 round-trip、未知协议、损坏 revision、恢复不写回及现有 fixture 兼容测试。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [5.1](./requirements.md#req-5-1), [5.5](./requirements.md#req-5-5)_
 
-- [ ] //TODO 6. 实现 WorkingMemorySession 的 revision 链恢复
+- [x] //TODO 6. 实现 WorkingMemorySession 的 revision 链恢复
 
   - 从 Snapshot `memoryRevision` 反查 accepted Patch 链，校验边界与 parent 连续性后按 sequence 正序归约，并排除孤儿 Patch、未提交 tail 和原始 Decision。
   - 增加 Session 恢复测试，覆盖 genesis、无 Patch 提交、重复构建幂等、缺失 Trajectory/提交边界、跨 Run/循环链和进程缓存丢弃后的重建。
