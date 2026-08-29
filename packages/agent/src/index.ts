@@ -14,6 +14,17 @@ export {
     ModelInferenceProjector,
 } from "./model-inference-projector";
 export {
+    MODEL_CONTEXT_ASSEMBLY_ERROR_CODE,
+    ModelContextAssemblyError,
+    TrajectoryModelContextAssembler,
+} from "./trajectory-model-context-assembler";
+export type {
+    TrajectoryModelContextAssemblerOptions,
+    TrajectoryModelContextAssemblyInput,
+    TrajectoryWarmEntryExtractionInput,
+    TrajectoryWarmEntryExtractor,
+} from "./trajectory-model-context-assembler";
+export {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "./conversation-context-unit-adapter";
@@ -125,6 +136,7 @@ export type {
     ModelCompletionEvidence,
     ModelWorkingMemory,
     ModelInferenceView,
+    ModelTrajectoryContext,
     ModelPendingAction,
     ModelProfileView,
     ModelStepRecord,

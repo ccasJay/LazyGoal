@@ -42,7 +42,7 @@
   - 增加有效/落后 Sidecar 增量恢复、领先/损坏/版本/hash 失配回退、删除重建和读写故障隔离测试。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 8. 将分层 Context Assembler 接入 Agent Executor
+- [x] //TODO 8. 将分层 Context Assembler 接入 Agent Executor
 
   - 扩展 `ModelInferenceView` 与 Projector，在 Conversation 裁剪后统一组装 Working Memory、Hot、Warm 和预算报告，并保证权威控制字段不重复。
   - 接入 Preparation/Step Executor 的调用级 Session 生命周期，增加三阶段输入、无状态重建、等待/中断/终止丢弃和所有来源不回写测试。

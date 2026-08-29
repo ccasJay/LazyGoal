@@ -20,6 +20,7 @@ import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
 import { parseAgentDecision } from "./response-schema";
 import type { PromptBundleRenderer } from "./prompting/types";
+import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
 import {
     recordLlmError,
@@ -47,6 +48,11 @@ export interface LLMStepExecutorDependencies {
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /**
+     * trajectory-layered@1 的调用级上下文组装器；未配置时 legacy 协议仍可执行，
+     * 分层 Goal 会在主模型调用前失败。
+     */
+    readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
 }
 
 /**
@@ -66,6 +72,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
@@ -73,6 +80,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
+        this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
     }
 
     /**
@@ -113,6 +121,7 @@ export class LLMStepExecutor implements StepExecutor {
             this.contextCompactor,
             control?.signal,
             input.workingMemory,
+            this.trajectoryContextAssembler,
         );
         throwIfAborted(control);
         const startedAt = Date.now();

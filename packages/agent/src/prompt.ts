@@ -10,7 +10,11 @@ import type { ModelConversationMessage } from "./model-inference-view";
 import type { ModelInferenceView } from "./model-inference-view";
 import { ModelInferenceProjector } from "./model-inference-projector";
 import type { PromptBundleRenderer } from "./prompting/types";
-import { renderRequest } from "./render";
+import { renderRequest, renderWorkingContextMessage } from "./render";
+import {
+    ModelContextAssemblyError,
+    type TrajectoryModelContextAssembler,
+} from "./trajectory-model-context-assembler";
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
@@ -24,6 +28,50 @@ function project(
 }
 
 const conversationAdapter = new ConversationContextUnitAdapter();
+
+async function assembleTrajectoryContext(
+    goal: Goal,
+    view: ModelInferenceView,
+    renderer: PromptBundleRenderer,
+    signal: AbortSignal | undefined,
+    assembler: TrajectoryModelContextAssembler | undefined,
+): Promise<ModelInferenceView> {
+    if (view.prompt.modelContextProtocol?.kind !== "trajectory-layered") {
+        if (view.trajectoryContext !== undefined) {
+            throw new ModelContextAssemblyError(
+                "conversation model context must omit Trajectory Context",
+            );
+        }
+        return view;
+    }
+
+    if (assembler === undefined) {
+        throw new ModelContextAssemblyError(
+            "trajectory-layered model context requires a Context Assembler",
+        );
+    }
+
+    const fixedInput = {
+        messages: [
+            {
+                role: "system" as const,
+                content: renderer.render(view.prompt),
+            },
+            ...view.conversation.map((message) => ({
+                role: message.role,
+                content: message.content,
+            })),
+            renderWorkingContextMessage(view.workingContext, view.workingMemory),
+        ],
+    };
+
+    return assembler.assemble({
+        goal,
+        view,
+        fixedInput,
+        ...(signal === undefined ? {} : { control: { signal } }),
+    });
+}
 
 async function compactConversation(
     view: ModelInferenceView,
@@ -58,6 +106,7 @@ export async function buildStepRequest(
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
     workingMemory?: WorkingMemory,
+    trajectoryContextAssembler?: TrajectoryModelContextAssembler,
 ): Promise<LLMRequest> {
     const projected = project(goal, tools, workingMemory);
 
@@ -71,7 +120,15 @@ export async function buildStepRequest(
         signal,
     );
 
-    return renderRequest(view, renderer);
+    const assembled = await assembleTrajectoryContext(
+        goal,
+        view,
+        renderer,
+        signal,
+        trajectoryContextAssembler,
+    );
+
+    return renderRequest(assembled, renderer);
 }
 
 /**
@@ -97,6 +154,7 @@ export async function buildPreparationRequest(
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
     workingMemory?: WorkingMemory,
+    trajectoryContextAssembler?: TrajectoryModelContextAssembler,
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
@@ -117,5 +175,13 @@ export async function buildPreparationRequest(
         signal,
     );
 
-    return renderRequest(view, renderer);
+    const assembled = await assembleTrajectoryContext(
+        goal,
+        view,
+        renderer,
+        signal,
+        trajectoryContextAssembler,
+    );
+
+    return renderRequest(assembled, renderer);
 }

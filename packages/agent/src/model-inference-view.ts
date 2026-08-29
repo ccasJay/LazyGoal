@@ -1,3 +1,7 @@
+import type { ModelContextBudgetPlan } from "./model-context-budget";
+import type { ModelExecutionUnitProjection } from "./trajectory-event-projector";
+import type { WarmCompactEntry } from "./warm-reducer";
+
 /**
  * ModelInferenceView 的独立 DTO 契约。
  *
@@ -217,6 +221,40 @@ export type ModelWorkingContext =
     };
 
 /**
+ * 分层模型上下文的本轮不可变投影。
+ *
+ * @remarks
+ * `hot` 只包含 committed Trajectory 中完整且连续的执行单元，`warm` 是可丢弃的
+ * 有损语义条目；两者都不承载 Task、pending Action 或 Run 控制状态，这些字段
+ * 继续由 `workingContext` 和 `workingMemory` 的权威投影提供。`budget` 是本轮
+ * 固定输入、响应预留及历史分层配额的报告。该 DTO 只存在于一次模型调用中，
+ * 不写回 Goal、Snapshot、Working Memory 或 Trajectory。
+ *
+ * @example
+ * ```ts
+ * const context: ModelTrajectoryContext = {
+ *     measuredAs: "character",
+ *     softOverflow: false,
+ *     hot: [],
+ *     warm: [],
+ *     budget,
+ * };
+ * ```
+ */
+export interface ModelTrajectoryContext {
+    /** 本轮 Hot/Warm 使用的统一计量单位。 */
+    readonly measuredAs: "token" | "character";
+    /** 固定输入已达到历史预算边界时的软超限标记。 */
+    readonly softOverflow: boolean;
+    /** 从最新完整执行单元开始选择的连续 Hot 后缀。 */
+    readonly hot: readonly ModelExecutionUnitProjection[];
+    /** 按语义分区归约后保留的有损 Warm 条目。 */
+    readonly warm: readonly WarmCompactEntry[];
+    /** 本轮固定输入与 Hot/Warm 配额报告。 */
+    readonly budget: ModelContextBudgetPlan;
+}
+
+/**
  * 一次模型推理的完整输入投影。
  *
  * @remarks
@@ -224,7 +262,8 @@ export type ModelWorkingContext =
  * `PromptContext`、真实会话、阶段化 Working Context。它不包含 Storage
  * schemaVersion、迁移标记、Run 状态字段或瞬时执行授权。`PromptContext` 单独承载
  * Prompt Bundle 版本、Phase、冻结 Profile 与授权 Tool 描述，供 Renderer 只读消费；
- * 真实会话与 Working Context 独立承载，不得进入模板环境。Renderer 对未知 Prompt
+ * 真实会话与 Working Context 独立承载，不得进入模板环境；分层协议额外通过
+ * `trajectoryContext` 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt
  * Bundle 版本直接失败，不回退到最新版。
  *
  * @example
@@ -248,4 +287,6 @@ export interface ModelInferenceView {
     readonly workingContext: ModelWorkingContext;
     /** structured@1 的即时 Memory 投影；checkpoint@1 必须省略。 */
     readonly workingMemory?: ModelWorkingMemory;
+    /** trajectory-layered@1 的即时 Hot/Warm 投影；conversation@1 必须省略。 */
+    readonly trajectoryContext?: ModelTrajectoryContext;
 }

@@ -17,6 +17,7 @@ import type {
     ModelWorkingContext,
     ModelMemoryProtocol,
     ModelContextProtocol,
+    ModelTrajectoryContext,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
@@ -41,6 +42,9 @@ export class ModelInferenceProjector {
     /**
      * @param goal - 当前完整 Goal 快照。
      * @param tools - 当前 Profile 已授权且由 Registry 解析出的 Tool 描述。
+     * @param workingMemory - structured@1 的即时 Working Memory 投影。
+     * @param trajectoryContext - trajectory-layered@1 的本轮 Hot/Warm 投影；由
+     * Assembler 在 Conversation 裁剪后提供。
      * @returns 与当前 phase 对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -48,6 +52,7 @@ export class ModelInferenceProjector {
         goal: Goal,
         tools: readonly ToolDefinition[] = [],
         workingMemory?: WorkingMemory,
+        trajectoryContext?: ModelTrajectoryContext,
     ): ModelInferenceView {
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
         const modelContextProtocol = resolveModelContextProtocol(goal.definition);
@@ -73,6 +78,23 @@ export class ModelInferenceProjector {
             );
         }
 
+        if (
+            modelContextProtocol.kind === "conversation"
+            && trajectoryContext !== undefined
+        ) {
+            throw new Error(
+                "conversation model context must not receive a Trajectory Context projection",
+            );
+        }
+
+        if (
+            trajectoryContext !== undefined
+            && trajectoryContext.measuredAs !== "token"
+            && trajectoryContext.measuredAs !== "character"
+        ) {
+            throw new Error("Trajectory Context measurement unit is invalid");
+        }
+
         const workingContext = this.projectWorkingContext(goal);
 
         const prompt: PromptContext = deepFreeze({
@@ -96,7 +118,43 @@ export class ModelInferenceProjector {
             ...(workingMemory === undefined
                 ? {}
                 : { workingMemory: deepFreeze(projectWorkingMemory(workingMemory)) }),
+            ...(trajectoryContext === undefined
+                ? {}
+                : { trajectoryContext: deepFreeze(structuredClone(trajectoryContext)) }),
         };
+    }
+
+    /**
+     * 将已经完成 Conversation 裁剪的基础 View 与本轮分层上下文合并。
+     *
+     * @remarks
+     * 该方法供 Context Assembler 在异步读取 Trajectory 后调用，避免在读取完成前
+     * 伪造一个不完整的 `trajectory-layered@1` View。输入 View 和上下文都会被复制
+     * 并深冻结，原始 Goal、Working Memory 与 Trajectory 不会被修改。
+     *
+     * @param view - 已由 {@link project} 产生且完成 Conversation 裁剪的基础 View。
+     * @param trajectoryContext - 当前调用选择出的 Hot/Warm 与预算报告。
+     * @returns 带分层上下文的新 View。
+     * @throws 当 View 不是 `trajectory-layered@1` 时抛出 Error。
+     * @example
+     * ```ts
+     * const assembled = projector.withTrajectoryContext(baseView, context);
+     * ```
+     */
+    withTrajectoryContext(
+        view: ModelInferenceView,
+        trajectoryContext: ModelTrajectoryContext,
+    ): ModelInferenceView {
+        if (view.prompt.modelContextProtocol?.kind !== "trajectory-layered") {
+            throw new Error(
+                "Trajectory Context projection requires trajectory-layered model context",
+            );
+        }
+
+        return deepFreeze({
+            ...structuredClone(view),
+            trajectoryContext: structuredClone(trajectoryContext),
+        });
     }
 
     /** @param goal - 见 {@link project}。 */
