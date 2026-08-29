@@ -36,7 +36,7 @@
   - 增加阈值触发、确定性优先、单次调用、非法/无来源/超限响应、中止、Provider 失败和已有 Sidecar 不污染测试。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 7. 实现 Warm Sidecar Port、文件 Store 与恢复
+- [x] //TODO 7. 实现 Warm Sidecar Port、文件 Store 与恢复
 
   - 在 Runtime 定义 `WarmContextSidecarStore`，在 Storage 实现安全路径、严格 Codec、来源摘要校验、受限权限和原子替换。
   - 增加有效/落后 Sidecar 增量恢复、领先/损坏/版本/hash 失配回退、删除重建和读写故障隔离测试。

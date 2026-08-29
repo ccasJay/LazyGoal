@@ -92,6 +92,14 @@ export type {
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
+export type {
+    WarmContextSidecar,
+    WarmContextSidecarEntry,
+    WarmContextSidecarEntryKind,
+    WarmContextSidecarEntryStatus,
+    WarmContextSidecarRestoreOptions,
+    WarmContextSidecarStore,
+} from "./warm-context-sidecar";
 export { transition } from "./transition";
 export type {
     GoalCatalog,

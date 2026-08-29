@@ -68,3 +68,14 @@ export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export {
     JsonFileDiagnosticTraceSink,
 } from "./json-file-diagnostic-trace-sink";
+export {
+    JsonFileWarmContextSidecarStore,
+    WarmContextSidecarProtocolError,
+    WarmContextSidecarSchema,
+    WARM_SIDECAR_PROTOCOL_ERROR_CODE,
+    computeTrajectorySourceDigest,
+    warmContextSidecarCodec,
+} from "./warm-context-sidecar";
+export type {
+    WarmContextSidecarCodec,
+} from "./warm-context-sidecar";
