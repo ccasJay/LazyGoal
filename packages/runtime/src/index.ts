@@ -99,6 +99,28 @@ export type {
     PreparationExecutionInput,
     PreparationResult,
 } from "./preparation-executor";
+export {
+    DEFAULT_WORKING_MEMORY_LIMITS,
+    WORKING_MEMORY_LIMITS_ERROR_CODE,
+    WORKING_MEMORY_PATCH_ERROR_CODE,
+    WorkingMemoryLimitsError,
+    WorkingMemoryPatchError,
+    applyMemoryPatch,
+    assertValidWorkingMemory,
+    createSupersedeScopeOperation,
+    mergeNormalizedMemoryPatches,
+    normalizeMemoryPatch,
+    reduceWorkingMemory,
+    resolveWorkingMemoryLimits,
+    validateMemoryPatch,
+} from "./working-memory-core";
+export type {
+    NormalizedWorkingMemoryPatch,
+    WorkingMemoryLimits,
+    WorkingMemoryLimitsInput,
+    WorkingMemoryPatchNormalizationContext,
+    WorkingMemoryPatchValidationContext,
+} from "./working-memory-core";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

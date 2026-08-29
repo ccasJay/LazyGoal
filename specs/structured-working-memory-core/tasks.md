@@ -6,7 +6,7 @@
   - 为新增或扩展的公共 Interface 补充中文契约级 TSDoc 与最小示例，并增加协议组合、字段隔离和 DTO 不变量测试。
   - _Requirements: [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 2. 实现 Patch Validator、Normalizer、Reducer 与 Limits
+- [x] //TODO 2. 实现 Patch Validator、Normalizer、Reducer 与 Limits
 
   - 在 `packages/runtime` 增加纯 Working Memory Core，原子校验操作、stable ID、状态转换、来源、集合容量和大小限制，并生成规范化操作。
   - 增加单元测试覆盖无 Patch、重复 ID、非法更新、控制状态注入、全有或全无应用、确定性归约以及拒绝截断。
