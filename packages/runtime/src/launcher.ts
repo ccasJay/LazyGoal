@@ -3,6 +3,8 @@ import {
     createGoal,
     GoalProtocolError,
     isMemoryProtocol,
+    resolveModelContextProtocol,
+    type ModelContextProtocol,
     type MemoryProtocol,
     type GoalProtocolValidator,
 } from "./domain";
@@ -99,6 +101,8 @@ export interface LauncherDependencies {
      * v4/structured Goal 必须显式提供该字段。
      */
     readonly memoryProtocol?: MemoryProtocol;
+    /** 新 Goal 冻结的模型上下文协议；省略时按 `conversation@1` 兼容。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
     /**
      * 在首次 Profile lookup、保存或模型调用前校验 Prompt/Memory 组合的适配器。
      * structured Goal 缺少该依赖时 Launcher fail-closed。
@@ -160,6 +164,7 @@ export async function launch(
     dependencies.protocolValidator?.validate({
         promptBundleVersion: dependencies.promptBundleVersion,
         memoryProtocol,
+        modelContextProtocol: resolveModelContextProtocol(dependencies),
     });
 
     const profile = dependencies.profiles.get(request.profileId);
@@ -184,6 +189,9 @@ export async function launch(
         ...(dependencies.memoryProtocol === undefined
             ? {}
             : { memoryProtocol }),
+        ...(dependencies.modelContextProtocol === undefined
+            ? {}
+            : { modelContextProtocol: resolveModelContextProtocol(dependencies) }),
         profile,
         runId,
         maxSteps,

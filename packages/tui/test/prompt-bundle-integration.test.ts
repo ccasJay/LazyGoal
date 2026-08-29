@@ -286,7 +286,7 @@ test("Composition Root 激活 v4/structured@1 并保持旧 Bundle 三阶段逐�
                 readonly memoryProtocol?: unknown;
             };
         };
-        assert.equal(snapshot.metadata.schemaVersion, 7);
+    assert.equal(snapshot.metadata.schemaVersion, 8);
         assert.equal(snapshot.definition.promptBundleVersion, 4);
         assert.deepEqual(snapshot.definition.memoryProtocol, {
             kind: "structured",

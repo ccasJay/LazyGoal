@@ -5,6 +5,7 @@ import type {
     GoalTask,
     GoalWorkflowState,
     MemoryProtocol,
+    ModelContextProtocol,
     Observation,
     PendingAction,
     StepRecord,
@@ -16,8 +17,12 @@ import {
     GoalSnapshotV5Schema,
     GoalSnapshotV6Schema,
     GoalSnapshotV7Schema,
+    GoalSnapshotV8Schema,
 } from "./goal-snapshot";
-import { resolveMemoryProtocol } from "../../runtime/src/index";
+import {
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
+} from "../../runtime/src/index";
 import type {
     GoalSnapshotMessageV5,
     GoalSnapshotObservationV5,
@@ -31,17 +36,19 @@ import type {
     GoalSnapshotV5,
     GoalSnapshotV6,
     GoalSnapshotV7,
+    GoalSnapshotV8,
+    GoalSnapshotDefinitionV8,
     GoalSnapshotWorkflowV5,
 } from "./goal-snapshot";
 
 /**
- * Runtime Goal 与 Storage v7 Snapshot 之间的双向转换边界。
+ * Runtime Goal 与 Storage v8 Snapshot 之间的双向转换边界。
  *
  * @remarks
  * Codec 是唯一同时看到 Runtime 领域类型与 Snapshot DTO 的模块。decode 只
- * 接受严格 v5/v6/v7：v1 至 v4、未知版本以及快照中的非法结构统一抛出
+ * 接受严格 v5/v6/v7/v8：v1 至 v4、未知版本以及快照中的非法结构统一抛出
  * {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
- * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 7 }` 并再次
+ * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 8 }` 并再次
  * 执行跨字段校验，两侧对象互不共享引用；JSON 值的深复制基于 Node 内置
  * `structuredClone` 实现。
  *
@@ -55,16 +62,16 @@ import type {
 export interface GoalSnapshotCodec {
     /**
      * @param goal - 完整的 Runtime Goal 聚合。
-     * @returns 通过严格 v7 校验、与输入不共享引用的 Snapshot DTO。
-     * @throws Goal 违反 v7 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
+     * @returns 通过严格 v8 校验、与输入不共享引用的 Snapshot DTO。
+     * @throws Goal 违反 v8 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
      */
-    encode(goal: Goal): GoalSnapshotV7;
+    encode(goal: Goal): GoalSnapshotV8;
 
     /**
      * @param input - 已解析的快照 JSON 值（通常来自 `JSON.parse`）。
      * @returns 与输入不共享引用、语义等价的 Runtime Goal；v5 输入的提交边界归一化为 `0`。
-     * v5/v6 会按 legacy `checkpoint@1` 解释，下一次 encode 时升级为 v7。
-     * @throws v1 至 v4、未知版本或 v5/v6/v7 结构损坏时抛出
+     * v5/v6/v7 会按 legacy Memory 与 `conversation@1` 解释，下一次 encode 时升级为 v8。
+     * @throws v1 至 v4、未知版本或 v5/v6/v7/v8 结构损坏时抛出
      *   GoalSnapshotProtocolError；本方法不执行任何 I/O，因此失败时不会
      *   改写任何文件。
      */
@@ -97,16 +104,18 @@ function describeLegacyStep(input: unknown): string | undefined {
 
 /** Codec 的默认实现；转换失败统一抛出稳定协议错误。 */
 export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
-    encode(goal: Goal): GoalSnapshotV7 {
+    encode(goal: Goal): GoalSnapshotV8 {
         // 先按同一严格 Schema 校验输入：拒绝 Runtime 侧的多余字段、
         // legacy StepRecord 与不成立的跨字段组合，再逐字段深复制构造 DTO。
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
+        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
         const candidate = {
             ...goal,
-            metadata: { schemaVersion: 7 as const },
+            metadata: { schemaVersion: 8 as const },
             definition: {
                 ...goal.definition,
                 memoryProtocol,
+                modelContextProtocol,
             },
             state: {
                 ...goal.state,
@@ -116,7 +125,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
                 },
             },
         };
-        const validation = GoalSnapshotV7Schema.safeParse(candidate);
+        const validation = GoalSnapshotV8Schema.safeParse(candidate);
 
         if (!validation.success) {
             throw new GoalSnapshotProtocolError(
@@ -127,8 +136,12 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
 
         return {
             id: goal.id,
-            metadata: { schemaVersion: 7 },
-            definition: encodeDefinition(goal, memoryProtocol),
+            metadata: { schemaVersion: 8 },
+            definition: encodeDefinition(
+                goal,
+                memoryProtocol,
+                modelContextProtocol,
+            ),
             state: encodeState(goal),
         };
     }
@@ -136,7 +149,12 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
     decode(input: unknown): Goal {
         const schemaVersion = readSchemaVersion(input);
 
-        if (schemaVersion !== 5 && schemaVersion !== 6 && schemaVersion !== 7) {
+        if (
+            schemaVersion !== 5
+            && schemaVersion !== 6
+            && schemaVersion !== 7
+            && schemaVersion !== 8
+        ) {
             const legacyHint = schemaVersion === 1
                 || schemaVersion === 2
                 || schemaVersion === 3
@@ -153,7 +171,9 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             ? GoalSnapshotV5Schema.safeParse(input)
             : schemaVersion === 6
                 ? GoalSnapshotV6Schema.safeParse(input)
-                : GoalSnapshotV7Schema.safeParse(input);
+                : schemaVersion === 7
+                    ? GoalSnapshotV7Schema.safeParse(input)
+                    : GoalSnapshotV8Schema.safeParse(input);
 
         if (!result.success) {
             throw new GoalSnapshotProtocolError(
@@ -163,10 +183,10 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
         }
 
         return decodeSnapshot(
-            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7,
+            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8,
             schemaVersion === 5
                 ? 0
-                : (result.data as GoalSnapshotV6 | GoalSnapshotV7)
+                : (result.data as GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8)
                     .state.run.committedThroughSequence,
         );
     }
@@ -175,7 +195,8 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
 function encodeDefinition(
     goal: Goal,
     memoryProtocol: MemoryProtocol,
-) {
+    modelContextProtocol: ModelContextProtocol,
+): GoalSnapshotDefinitionV8 {
     const profile = goal.definition.profile;
 
     return {
@@ -184,6 +205,10 @@ function encodeDefinition(
         memoryProtocol: {
             kind: memoryProtocol.kind,
             version: memoryProtocol.version,
+        },
+        modelContextProtocol: {
+            kind: modelContextProtocol.kind,
+            version: modelContextProtocol.version,
         },
         profile: {
             id: profile.id,
@@ -580,7 +605,7 @@ function decodeStep(
 }
 
 function decodeSnapshot(
-    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7,
+    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8,
     committedThroughSequence: number,
 ): Goal {
     const state = snapshot.state;
@@ -591,6 +616,13 @@ function decodeSnapshot(
             version: snapshot.definition.memoryProtocol.version,
         }
         : { kind: "checkpoint", version: 1 };
+    const modelContextProtocol: ModelContextProtocol =
+        "modelContextProtocol" in snapshot.definition
+            ? {
+                kind: snapshot.definition.modelContextProtocol.kind,
+                version: snapshot.definition.modelContextProtocol.version,
+            }
+            : { kind: "conversation", version: 1 };
     const decodedRun = {
         id: run.id,
         status: run.status,
@@ -663,9 +695,27 @@ function decodeSnapshot(
         // Checkpoint snapshots are semantically legacy. Keep this compatibility
         // field non-enumerable so reading a legacy Runtime object does not change
         // its historical serialized shape. The next encode still sees the field
-        // and upgrades it to v7.
+        // and upgrades it to v8.
         Object.defineProperty(definition, "memoryProtocol", {
             value: { kind: "checkpoint", version: 1 },
+            enumerable: false,
+            writable: false,
+            configurable: true,
+        });
+    }
+
+    if ("modelContextProtocol" in snapshot.definition) {
+        Object.defineProperty(definition, "modelContextProtocol", {
+            value: modelContextProtocol,
+            enumerable: modelContextProtocol.kind === "trajectory-layered",
+            writable: false,
+            configurable: true,
+        });
+    } else {
+        // v5-v7 have no model-context field. Keep the resolved compatibility value
+        // available to new consumers without changing the enumerable legacy shape.
+        Object.defineProperty(definition, "modelContextProtocol", {
+            value: modelContextProtocol,
             enumerable: false,
             writable: false,
             configurable: true,

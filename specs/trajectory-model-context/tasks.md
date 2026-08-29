@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 冻结 Model Context 协议并扩展 Snapshot v8
+- [x] //TODO 1. 冻结 Model Context 协议并扩展 Snapshot v8
 
   - 在 Runtime Domain、Prompt Bundle Manifest 与 Storage Codec 中增加 `conversation@1`/`trajectory-layered@1`、Snapshot v8 及 v5–v7 只读映射。
   - 增加协议矩阵、未知组合、恢复不写回和 legacy Conversation 行为测试，并为新增公共 Interface 补齐契约级 TSDoc。

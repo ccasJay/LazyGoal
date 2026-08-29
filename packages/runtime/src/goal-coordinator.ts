@@ -9,7 +9,10 @@ import type {
     RunRef,
     WorkingMemory,
 } from "./domain";
-import { resolveMemoryProtocol } from "./domain";
+import {
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
+} from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     PreparationExecutor,
@@ -960,6 +963,7 @@ export class GoalCoordinator {
         this.protocolValidator.validate({
             promptBundleVersion: goal.definition.promptBundleVersion,
             memoryProtocol: resolveMemoryProtocol(goal.definition),
+            modelContextProtocol: resolveModelContextProtocol(goal.definition),
         });
     }
 

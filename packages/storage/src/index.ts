@@ -11,6 +11,7 @@ export {
     GoalSnapshotV5Schema,
     GoalSnapshotV6Schema,
     GoalSnapshotV7Schema,
+    GoalSnapshotV8Schema,
     INVALID_GOAL_SNAPSHOT_CODE,
 } from "./goal-snapshot";
 export type {
@@ -31,12 +32,16 @@ export type {
     GoalSnapshotV5,
     GoalSnapshotV6,
     GoalSnapshotV7,
+    GoalSnapshotV8,
     GoalSnapshotMetadataV6,
     GoalSnapshotMetadataV7,
+    GoalSnapshotMetadataV8,
     GoalSnapshotRunStateV6,
     GoalSnapshotStateV6,
     GoalSnapshotStateV7,
+    GoalSnapshotStateV8,
     GoalSnapshotDefinitionV7,
+    GoalSnapshotDefinitionV8,
     GoalSnapshotMemoryProtocolV7,
     GoalSnapshotMemoryRevisionV7,
     GoalSnapshotMemoryPatchV7,
@@ -45,6 +50,8 @@ export type {
     GoalSnapshotDecisionResultV7,
     GoalSnapshotStepRecordV7,
     GoalSnapshotRunStateV7,
+    GoalSnapshotRunStateV8,
+    GoalSnapshotModelContextProtocolV8,
     GoalSnapshotWorkflowV5,
     SnapshotJsonValue,
 } from "./goal-snapshot";

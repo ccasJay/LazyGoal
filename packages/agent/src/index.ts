@@ -35,6 +35,7 @@ export {
 } from "./render";
 export type {
     ModelConversationMessage,
+    ModelContextProtocol,
     ModelMemoryProtocol,
     ModelMemoryEntryBase,
     ModelFinding,

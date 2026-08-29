@@ -1,5 +1,6 @@
 import {
     resolveMemoryProtocol,
+    resolveModelContextProtocol,
     type Goal,
     type StepRecord,
     type WorkingMemory,
@@ -15,6 +16,7 @@ import type {
     ModelToolDefinition,
     ModelWorkingContext,
     ModelMemoryProtocol,
+    ModelContextProtocol,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
@@ -48,6 +50,16 @@ export class ModelInferenceProjector {
         workingMemory?: WorkingMemory,
     ): ModelInferenceView {
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
+        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+
+        if (
+            modelContextProtocol.kind === "trajectory-layered"
+            && memoryProtocol.kind !== "structured"
+        ) {
+            throw new Error(
+                "trajectory-layered model context requires structured Memory protocol",
+            );
+        }
 
         if (memoryProtocol.kind === "structured" && workingMemory === undefined) {
             throw new Error(
@@ -71,6 +83,9 @@ export class ModelInferenceProjector {
             authorizedTools: projectTools(tools),
             ...(memoryProtocol.kind === "structured"
                 ? { memoryProtocol: projectMemoryProtocol(memoryProtocol) }
+                : {}),
+            ...(modelContextProtocol.kind === "trajectory-layered"
+                ? { modelContextProtocol: projectModelContextProtocol(modelContextProtocol) }
                 : {}),
         });
 
@@ -225,6 +240,15 @@ function projectPendingAction(
 function projectMemoryProtocol(
     protocol: ReturnType<typeof resolveMemoryProtocol>,
 ): ModelMemoryProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectModelContextProtocol(
+    protocol: ReturnType<typeof resolveModelContextProtocol>,
+): ModelContextProtocol {
     return {
         kind: protocol.kind,
         version: protocol.version,

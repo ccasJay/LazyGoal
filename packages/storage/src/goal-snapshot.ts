@@ -91,6 +91,35 @@ export type GoalSnapshotV7 = Omit<GoalSnapshotV6, "metadata" | "definition" | "s
 };
 
 /**
+ * Goal Snapshot v8 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v8 在 v7 的 Memory 协议和 revision 基础上显式冻结模型上下文协议。旧 v5–v7
+ * 快照只读恢复为 `conversation@1`，不会在读取时写回；下一次正常保存才生成 v8。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV8 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 8 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 5,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV8 = Omit<GoalSnapshotV7, "metadata" | "definition"> & {
+    readonly metadata: GoalSnapshotMetadataV8;
+    readonly definition: GoalSnapshotDefinitionV8;
+};
+
+/**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
  * ```ts
@@ -109,6 +138,11 @@ export interface GoalSnapshotMetadataV6 {
 /** v7 Snapshot 顶层协议元数据。 */
 export interface GoalSnapshotMetadataV7 {
     readonly schemaVersion: 7;
+}
+
+/** v8 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV8 {
+    readonly schemaVersion: 8;
 }
 
 /**
@@ -153,6 +187,16 @@ export type GoalSnapshotMemoryProtocolV7 =
 /** v7 Snapshot 中带显式 Memory 协议的 Goal 定义。 */
 export type GoalSnapshotDefinitionV7 = GoalSnapshotDefinitionV5 & {
     readonly memoryProtocol: GoalSnapshotMemoryProtocolV7;
+};
+
+/** v8 Snapshot 中冻结的模型上下文协议选择。 */
+export type GoalSnapshotModelContextProtocolV8 =
+    | { readonly kind: "conversation"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+
+/** v8 Snapshot 中同时冻结 Memory 与模型上下文协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV8 = GoalSnapshotDefinitionV7 & {
+    readonly modelContextProtocol: GoalSnapshotModelContextProtocolV8;
 };
 
 /**
@@ -202,6 +246,9 @@ export type GoalSnapshotStateV6 = Omit<GoalSnapshotStateV5, "run"> & {
 export type GoalSnapshotStateV7 = Omit<GoalSnapshotStateV6, "run"> & {
     readonly run: GoalSnapshotRunStateV7;
 };
+
+/** v8 Snapshot 的工作流、消息与协议边界；状态字段沿用 v7。 */
+export type GoalSnapshotStateV8 = GoalSnapshotStateV7;
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
 export type GoalSnapshotWorkflowV5 =
@@ -298,6 +345,9 @@ export type GoalSnapshotRunStateV7 = Omit<GoalSnapshotRunStateV6, "lastStep"> & 
     readonly lastStep?: GoalSnapshotStepRecordV7 | undefined;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV7 | undefined;
 };
+
+/** v8 Run 状态；模型上下文协议位于 Snapshot definition。 */
+export type GoalSnapshotRunStateV8 = GoalSnapshotRunStateV7;
 
 /** Run 生命周期状态。 */
 export type GoalSnapshotRunStatusV5 =
@@ -707,6 +757,17 @@ const MemoryProtocolSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const ModelContextProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("conversation"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("trajectory-layered"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
 const MemoryRevisionSchema = z.object({
     eventId: NonEmptyStringSchema,
     sequence: z.number().int().positive(),
@@ -757,7 +818,8 @@ function addInvariantIssue(
 function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotBaseSchema>
         | z.infer<typeof GoalSnapshotV6BaseSchema>
-        | z.infer<typeof GoalSnapshotV7BaseSchema>,
+        | z.infer<typeof GoalSnapshotV7BaseSchema>
+        | z.infer<typeof GoalSnapshotV8BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
@@ -766,6 +828,20 @@ function validateSnapshotInvariants(
     const structuredMemory =
         "memoryProtocol" in goal.definition
         && goal.definition.memoryProtocol.kind === "structured";
+    const modelContextProtocol = "modelContextProtocol" in goal.definition
+        ? goal.definition.modelContextProtocol
+        : { kind: "conversation" as const, version: 1 as const };
+
+    if (
+        modelContextProtocol.kind === "trajectory-layered"
+        && !structuredMemory
+    ) {
+        addInvariantIssue(
+            context,
+            "trajectory-layered model context requires structured Memory protocol",
+            ["definition", "modelContextProtocol"],
+        );
+    }
 
     if ((run.stepCount > 0) !== (step !== undefined)) {
         addInvariantIssue(
@@ -1083,6 +1159,30 @@ const GoalSnapshotV7BaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const GoalSnapshotV8BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(8) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV7Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -1129,6 +1229,23 @@ export const GoalSnapshotV6Schema = GoalSnapshotV6BaseSchema.superRefine(
  * ```
  */
 export const GoalSnapshotV7Schema = GoalSnapshotV7BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v8 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v8 在 v7 的 Memory 协议基础上要求显式保存模型上下文协议，并拒绝
+ * `checkpoint@1` 与 `trajectory-layered@1` 的不兼容组合。Working Memory 本体、
+ * Hot/Warm 缓存和 Trajectory 事件仍不进入快照。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV8Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV8Schema = GoalSnapshotV8BaseSchema.superRefine(
     validateSnapshotInvariants,
 );
 

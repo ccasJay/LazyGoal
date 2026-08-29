@@ -384,7 +384,7 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
                 readonly summary?: unknown;
             };
         };
-        assert.equal(snapshot.metadata.schemaVersion, 7);
+    assert.equal(snapshot.metadata.schemaVersion, 8);
         assert.deepEqual(snapshot.state.messages, persistedMessages);
         assert.equal(snapshot.state.summary, undefined);
     } finally {

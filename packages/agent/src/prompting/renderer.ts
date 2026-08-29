@@ -134,6 +134,7 @@ export function createPromptBundleRenderer(input: {
             const manifest = registry.getManifest(
                 context.promptBundleVersion,
                 context.memoryProtocol,
+                context.modelContextProtocol,
             );
             const fragments = manifest.sections.map((section) =>
                 renderSection(environment, section, context),

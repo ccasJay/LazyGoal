@@ -1,4 +1,8 @@
-import type { ModelMemoryProtocol, PromptPhase } from "../model-inference-view";
+import type {
+    ModelContextProtocol,
+    ModelMemoryProtocol,
+    PromptPhase,
+} from "../model-inference-view";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
@@ -137,13 +141,20 @@ function buildManifestIndex(
 function protocolMatches(
     manifest: PromptBundleManifest,
     protocol: ModelMemoryProtocol | undefined,
+    modelContextProtocol: ModelContextProtocol | undefined,
 ): boolean {
-    if (protocol === undefined) {
-        return manifest.memoryProtocol === undefined;
-    }
+    const requestedMemory = protocol ?? { kind: "checkpoint" as const, version: 1 as const };
+    const manifestMemory = manifest.memoryProtocol
+        ?? { kind: "checkpoint" as const, version: 1 as const };
+    const requestedContext = modelContextProtocol
+        ?? { kind: "conversation" as const, version: 1 as const };
+    const manifestContext = manifest.modelContextProtocol
+        ?? { kind: "conversation" as const, version: 1 as const };
 
-    return manifest.memoryProtocol?.kind === protocol.kind
-        && manifest.memoryProtocol.version === protocol.version;
+    return manifestMemory.kind === requestedMemory.kind
+        && manifestMemory.version === requestedMemory.version
+        && manifestContext.kind === requestedContext.kind
+        && manifestContext.version === requestedContext.version;
 }
 
 /**
@@ -204,12 +215,20 @@ export class PromptBundleRegistry {
     getManifest(
         version: number,
         memoryProtocol?: ModelMemoryProtocol,
+        modelContextProtocol?: ModelContextProtocol,
     ): PromptBundleManifest {
         const manifest = this.manifests.get(version);
 
-        if (manifest === undefined || !protocolMatches(manifest, memoryProtocol)) {
+        if (
+            manifest === undefined
+            || !protocolMatches(manifest, memoryProtocol, modelContextProtocol)
+        ) {
             const compatibleVersions = [...this.manifests.entries()]
-                .filter(([, candidate]) => protocolMatches(candidate, memoryProtocol))
+                .filter(([, candidate]) => protocolMatches(
+                    candidate,
+                    memoryProtocol,
+                    modelContextProtocol,
+                ))
                 .map(([candidateVersion]) => candidateVersion)
                 .sort((a, b) => a - b);
             throw new UnsupportedPromptBundleVersionError(

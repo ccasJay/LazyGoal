@@ -17,6 +17,11 @@ export type MemoryProtocol =
     | { readonly kind: "checkpoint"; readonly version: 1 }
     | { readonly kind: "structured"; readonly version: 1 };
 
+/** Goal 创建后冻结的模型上下文协议。 */
+export type ModelContextProtocol =
+    | { readonly kind: "conversation"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+
 /** Working Memory 条目的生命周期状态。 */
 export type MemoryEntryStatus = "active" | "resolved" | "superseded";
 
@@ -273,6 +278,8 @@ export interface WorkingMemory {
 export interface GoalProtocolValidationInput {
     readonly promptBundleVersion: number;
     readonly memoryProtocol: MemoryProtocol;
+    /** Goal 冻结的模型上下文协议；省略仅用于向后兼容的调用方，按 `conversation@1` 解释。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
 }
 
 /**
@@ -345,6 +352,22 @@ export function isMemoryProtocol(value: unknown): value is MemoryProtocol {
     );
 }
 
+/** 判断未知值是否为受支持的模型上下文协议判别联合。 */
+export function isModelContextProtocol(
+    value: unknown,
+): value is ModelContextProtocol {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    return (
+        (candidate.kind === "conversation" || candidate.kind === "trajectory-layered")
+        && candidate.version === 1
+        && Object.keys(candidate).every((key) => key === "kind" || key === "version")
+    );
+}
+
 /**
  * 将旧 Goal 的省略字段解释为 legacy checkpoint 协议。
  *
@@ -362,6 +385,30 @@ export function resolveMemoryProtocol(
 
     if (!isMemoryProtocol(protocol)) {
         throw new GoalProtocolError("Memory 协议必须是 checkpoint@1 或 structured@1");
+    }
+
+    return { kind: protocol.kind, version: protocol.version };
+}
+
+/**
+ * 将旧 Goal 的省略字段解释为 Conversation 模型上下文协议。
+ *
+ * @param definition - Goal 冻结定义的模型上下文协议字段。
+ * @returns 独立的模型上下文协议对象；省略字段返回 `conversation@1`。
+ * @throws GoalProtocolError 当显式值不是受支持协议时。
+ */
+export function resolveModelContextProtocol(
+    definition: Pick<GoalDefinition, "modelContextProtocol">,
+): ModelContextProtocol {
+    const protocol = definition.modelContextProtocol;
+    if (protocol === undefined) {
+        return { kind: "conversation", version: 1 };
+    }
+
+    if (!isModelContextProtocol(protocol)) {
+        throw new GoalProtocolError(
+            "模型上下文协议必须是 conversation@1 或 trajectory-layered@1",
+        );
     }
 
     return { kind: protocol.kind, version: protocol.version };
@@ -501,6 +548,14 @@ export interface GoalDefinition {
      * 该字段只描述协议选择，不把 Working Memory 内容写入 Goal 定义。
      */
     readonly memoryProtocol?: MemoryProtocol;
+    /**
+     * Goal 创建时冻结的模型上下文协议；旧 Goal 省略时按 `conversation@1` 解释。
+     *
+     * @remarks
+     * `trajectory-layered@1` 只适用于结构化 Working Memory；该字段只描述模型
+     * 输入来源选择，不把 Hot/Warm 内容写入 Goal 定义。
+     */
+    readonly modelContextProtocol?: ModelContextProtocol;
     readonly profile: AgentProfile;
     readonly executionPolicy: {
         /** 正整数表示上限，`0` 表示不以 Step 数量限制执行。 */
@@ -967,6 +1022,8 @@ export interface GoalCreationInput {
     readonly promptBundleVersion: number;
     /** 新 Goal 使用的冻结 Memory 协议；省略时保持 legacy checkpoint 兼容语义。 */
     readonly memoryProtocol?: MemoryProtocol;
+    /** 新 Goal 使用的冻结模型上下文协议；省略时保持 Conversation 兼容语义。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
     readonly maxSteps?: number;
@@ -1019,6 +1076,9 @@ export function createGoal(input: GoalCreationInput): Goal {
             ...(input.memoryProtocol === undefined
                 ? {}
                 : { memoryProtocol: resolveMemoryProtocol(input) }),
+            ...(input.modelContextProtocol === undefined
+                ? {}
+                : { modelContextProtocol: resolveModelContextProtocol(input) }),
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },

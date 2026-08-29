@@ -11,7 +11,10 @@ import type {
     MemoryProtocol,
     GoalProtocolValidator,
 } from "./domain";
-import { resolveMemoryProtocol } from "./domain";
+import {
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
+} from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
 import type {
@@ -691,6 +694,7 @@ export class Runner {
         this.protocolValidator.validate({
             promptBundleVersion: goal.definition.promptBundleVersion,
             memoryProtocol: resolveMemoryProtocol(goal.definition),
+            modelContextProtocol: resolveModelContextProtocol(goal.definition),
         });
     }
 

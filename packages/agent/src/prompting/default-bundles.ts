@@ -24,9 +24,11 @@ import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import {
     GoalProtocolError,
+    isModelContextProtocol,
     isMemoryProtocol,
     type GoalProtocolValidator,
     type MemoryProtocol,
+    type ModelContextProtocol,
 } from "../../../runtime/src/domain";
 import type {
     PromptBundleManifest,
@@ -95,6 +97,7 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
  */
 export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
     version: 1,
+    modelContextProtocol: { kind: "conversation", version: 1 },
     sections: [
         { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V1.id },
         { slot: "profile", templateId: PROFILE_TEMPLATE.id },
@@ -120,6 +123,7 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
  */
 export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
     version: 2,
+    modelContextProtocol: { kind: "conversation", version: 1 },
     sections: [
         { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V2.id },
         { slot: "profile", templateId: PROFILE_TEMPLATE.id },
@@ -145,6 +149,7 @@ export const PROMPT_BUNDLE_V2_MANIFEST: PromptBundleManifest = {
  */
 export const PROMPT_BUNDLE_V3_MANIFEST: PromptBundleManifest = {
     version: 3,
+    modelContextProtocol: { kind: "conversation", version: 1 },
     sections: [
         { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V2.id },
         { slot: "profile", templateId: PROFILE_TEMPLATE.id },
@@ -170,6 +175,7 @@ export const PROMPT_BUNDLE_V3_MANIFEST: PromptBundleManifest = {
 export const PROMPT_BUNDLE_V4_MANIFEST: PromptBundleManifest = {
     version: 4,
     memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "conversation", version: 1 },
     sections: [
         { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V3.id },
         { slot: "profile", templateId: PROFILE_TEMPLATE.id },
@@ -209,11 +215,26 @@ export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V4_MANIFEST;
  * ```
  */
 export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValidator {
-    const expectedByBundle = new Map<number, MemoryProtocol>([
-        [1, { kind: "checkpoint", version: 1 }],
-        [2, { kind: "checkpoint", version: 1 }],
-        [3, { kind: "checkpoint", version: 1 }],
-        [4, { kind: "structured", version: 1 }],
+    const expectedByBundle = new Map<number, {
+        readonly memory: MemoryProtocol;
+        readonly modelContext: ModelContextProtocol;
+    }>([
+        [1, {
+            memory: { kind: "checkpoint", version: 1 },
+            modelContext: { kind: "conversation", version: 1 },
+        }],
+        [2, {
+            memory: { kind: "checkpoint", version: 1 },
+            modelContext: { kind: "conversation", version: 1 },
+        }],
+        [3, {
+            memory: { kind: "checkpoint", version: 1 },
+            modelContext: { kind: "conversation", version: 1 },
+        }],
+        [4, {
+            memory: { kind: "structured", version: 1 },
+            modelContext: { kind: "conversation", version: 1 },
+        }],
     ]);
 
     return {
@@ -232,12 +253,23 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
                 );
             }
 
+            const modelContextProtocol = input.modelContextProtocol
+                ?? { kind: "conversation" as const, version: 1 as const };
+
+            if (!isModelContextProtocol(modelContextProtocol)) {
+                throw new GoalProtocolError(
+                    "模型上下文协议必须是 conversation@1 或 trajectory-layered@1",
+                );
+            }
+
             if (
-                input.memoryProtocol.kind !== expected.kind
-                || input.memoryProtocol.version !== expected.version
+                input.memoryProtocol.kind !== expected.memory.kind
+                || input.memoryProtocol.version !== expected.memory.version
+                || modelContextProtocol.kind !== expected.modelContext.kind
+                || modelContextProtocol.version !== expected.modelContext.version
             ) {
                 throw new GoalProtocolError(
-                    `Prompt Bundle v${input.promptBundleVersion} 与 ${input.memoryProtocol.kind}@${input.memoryProtocol.version} 不兼容`,
+                    `Prompt Bundle v${input.promptBundleVersion} 与 ${input.memoryProtocol.kind}@${input.memoryProtocol.version}/${modelContextProtocol.kind}@${modelContextProtocol.version} 不兼容`,
                 );
             }
         },

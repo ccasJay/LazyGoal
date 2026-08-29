@@ -1,4 +1,5 @@
 import type {
+    ModelContextProtocol,
     ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
@@ -90,6 +91,8 @@ export interface PromptBundleManifest {
     readonly sections: readonly PromptBundleSection[];
     /** 该 Bundle 唯一兼容的 Memory 协议；legacy Bundle 可省略以保持旧文件语义。 */
     readonly memoryProtocol?: ModelMemoryProtocol;
+    /** 该 Bundle 唯一兼容的模型上下文协议；省略时按 `conversation@1` 解释。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
 }
 
 /**

@@ -6,6 +6,8 @@ export {
     GoalProtocolError,
     isMemoryProtocol,
     resolveMemoryProtocol,
+    isModelContextProtocol,
+    resolveModelContextProtocol,
 } from "./domain";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
@@ -70,6 +72,7 @@ export type {
     MemoryPatchOperation,
     MemoryProtocol,
     MemoryRevision,
+    ModelContextProtocol,
     NextAction,
     NextActionUpdate,
     PlanItem,

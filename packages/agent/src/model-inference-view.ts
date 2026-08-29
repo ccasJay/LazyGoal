@@ -82,6 +82,11 @@ export type ModelMemoryProtocol =
     | { readonly kind: "checkpoint"; readonly version: 1 }
     | { readonly kind: "structured"; readonly version: 1 };
 
+/** Agent 可消费的冻结模型上下文协议标识。 */
+export type ModelContextProtocol =
+    | { readonly kind: "conversation"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+
 /** 模型可见的 Memory 条目公共元数据。 */
 export interface ModelMemoryEntryBase {
     readonly id: string;
@@ -180,6 +185,8 @@ export interface PromptContext {
     readonly authorizedTools: readonly ModelToolDefinition[];
     /** Goal 冻结的 Memory 协议；legacy Bundle 为保持兼容可省略。 */
     readonly memoryProtocol?: ModelMemoryProtocol;
+    /** Goal 冻结的模型上下文协议；省略时按 `conversation@1` 解释。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */

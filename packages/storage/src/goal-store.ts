@@ -17,20 +17,20 @@ import type {
     GoalStore,
 } from "../../runtime/src/index";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
-import type { GoalSnapshotV7 } from "./goal-snapshot";
+import type { GoalSnapshotV8 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
 
 /**
  * 单进程内的 Goal 快照存储。
  *
  * @remarks
- * `save` 先将 Goal 编码为严格 v7 Snapshot，`restore` 再解码回 Runtime
+ * `save` 先将 Goal 编码为严格 v8 Snapshot，`restore` 再解码回 Runtime
  * Goal；两侧都执行完整协议校验，调用方不能通过修改原对象或恢复结果污染
  * Store 内部保存的快照。数据只存在于当前 Store 实例的内存中，不支持跨
  * 实例或进程恢复。
  */
 export class InMemoryGoalStore implements GoalStore {
-    private readonly snapshots = new Map<string, GoalSnapshotV7>();
+    private readonly snapshots = new Map<string, GoalSnapshotV8>();
 
     async save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);

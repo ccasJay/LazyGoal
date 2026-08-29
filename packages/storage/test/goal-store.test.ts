@@ -21,7 +21,7 @@ import {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV7Schema,
+    GoalSnapshotV8Schema,
     goalSnapshotCodec,
     InMemoryGoalStore,
     INVALID_GOAL_SNAPSHOT_CODE,
@@ -314,7 +314,7 @@ test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", (
     const goal = createSnapshot();
     const encoded = goalSnapshotCodec.encode(goal);
 
-    assert.equal(encoded.metadata.schemaVersion, 7);
+    assert.equal(encoded.metadata.schemaVersion, 8);
     assert.equal(encoded.definition.promptBundleVersion, 1);
     assert.deepEqual(goalSnapshotCodec.decode(encoded), goal);
 
@@ -349,7 +349,11 @@ test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", (
 test("GoalSnapshotCodec reads legacy v5 with a zero Trajectory boundary without rewriting it", () => {
     const encoded = goalSnapshotCodec.encode(createSnapshot("run-v5-boundary"));
     const { committedThroughSequence: _boundary, ...legacyRun } = encoded.state.run;
-    const { memoryProtocol: _memoryProtocol, ...legacyDefinition } = encoded.definition;
+    const {
+        memoryProtocol: _memoryProtocol,
+        modelContextProtocol: _modelContext,
+        ...legacyDefinition
+    } = encoded.definition;
     const legacy = {
         ...encoded,
         metadata: { schemaVersion: 5 as const },
@@ -391,7 +395,7 @@ test("GoalSnapshotCodec round-trips bounded Action memory and approval state", (
     const actionGoal = createActionSnapshot();
     const encodedAction = goalSnapshotCodec.encode(actionGoal);
 
-    assert.equal(encodedAction.metadata.schemaVersion, 7);
+    assert.equal(encodedAction.metadata.schemaVersion, 8);
     assert.deepEqual(goalSnapshotCodec.decode(encodedAction), actionGoal);
 
     const pendingGoal: Goal = {
@@ -638,7 +642,7 @@ test("GoalSnapshotCodec rejects v1-v4, invalid v5, and unknown versions without 
     assert.equal(JSON.stringify(invalidV5), invalidV5Source);
 });
 
-test("GoalSnapshotV7Schema rejects invalid v7 cross-field combinations", () => {
+test("GoalSnapshotV8Schema rejects invalid v8 cross-field combinations", () => {
     const encoded = goalSnapshotCodec.encode(createSnapshot("run-invalid-v4"));
     const action = {
         actionId: "action-invalid",
@@ -730,11 +734,11 @@ test("GoalSnapshotV7Schema rejects invalid v7 cross-field combinations", () => {
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotV7Schema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV8Schema.safeParse(invalidSnapshot).success, false);
     }
 });
 
-test("GoalSnapshotV7Schema enforces workflow and Run cross-field invariants", () => {
+test("GoalSnapshotV8Schema enforces workflow and Run cross-field invariants", () => {
     const encoded = goalSnapshotCodec.encode(createSnapshot());
     const waitStep = {
         kind: "decision",
@@ -828,7 +832,7 @@ test("GoalSnapshotV7Schema enforces workflow and Run cross-field invariants", ()
     ];
 
     for (const invalidSnapshot of invalidSnapshots) {
-        assert.equal(GoalSnapshotV7Schema.safeParse(invalidSnapshot).success, false);
+        assert.equal(GoalSnapshotV8Schema.safeParse(invalidSnapshot).success, false);
     }
 });
 
