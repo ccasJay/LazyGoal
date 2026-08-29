@@ -91,6 +91,14 @@ export type ModelContextProtocol =
     | { readonly kind: "conversation"; readonly version: 1 }
     | { readonly kind: "trajectory-layered"; readonly version: 1 };
 
+/** Agent 可消费的冻结 Cold Trajectory 检索协议标识。 */
+export type ModelContextRetrievalProtocol =
+    | { readonly kind: "none"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 1 };
+
+/** `ModelContextRetrievalProtocol` 的简短兼容别名。 */
+export type ModelRetrievalProtocol = ModelContextRetrievalProtocol;
+
 /** 模型可见的 Memory 条目公共元数据。 */
 export interface ModelMemoryEntryBase {
     readonly id: string;
@@ -191,6 +199,8 @@ export interface PromptContext {
     readonly memoryProtocol?: ModelMemoryProtocol;
     /** Goal 冻结的模型上下文协议；省略时按 `conversation@1` 解释。 */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /** Goal 冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 解释。 */
+    readonly contextRetrievalProtocol?: ModelContextRetrievalProtocol;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */

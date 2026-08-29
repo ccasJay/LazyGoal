@@ -1,9 +1,12 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import {
     createGoal,
+    isContextRetrievalProtocol,
     GoalProtocolError,
     isMemoryProtocol,
+    resolveContextRetrievalProtocol,
     resolveModelContextProtocol,
+    type ContextRetrievalProtocol,
     type ModelContextProtocol,
     type MemoryProtocol,
     type GoalProtocolValidator,
@@ -103,6 +106,8 @@ export interface LauncherDependencies {
     readonly memoryProtocol?: MemoryProtocol;
     /** 新 Goal 冻结的模型上下文协议；省略时按 `conversation@1` 兼容。 */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /** 新 Goal 冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
     /**
      * 在首次 Profile lookup、保存或模型调用前校验 Prompt/Memory 组合的适配器。
      * structured Goal 缺少该依赖时 Launcher fail-closed。
@@ -156,6 +161,7 @@ export async function launch(
     }
 
     const memoryProtocol = resolveLaunchMemoryProtocol(dependencies);
+    const contextRetrievalProtocol = resolveLaunchContextRetrievalProtocol(dependencies);
     if (memoryProtocol.kind === "structured" && dependencies.protocolValidator === undefined) {
         throw new GoalProtocolError(
             "structured@1 Goal requires an injected GoalProtocolValidator",
@@ -165,6 +171,7 @@ export async function launch(
         promptBundleVersion: dependencies.promptBundleVersion,
         memoryProtocol,
         modelContextProtocol: resolveModelContextProtocol(dependencies),
+        contextRetrievalProtocol,
     });
 
     const profile = dependencies.profiles.get(request.profileId);
@@ -192,6 +199,9 @@ export async function launch(
         ...(dependencies.modelContextProtocol === undefined
             ? {}
             : { modelContextProtocol: resolveModelContextProtocol(dependencies) }),
+        ...(dependencies.contextRetrievalProtocol === undefined
+            ? {}
+            : { contextRetrievalProtocol }),
         profile,
         runId,
         maxSteps,
@@ -300,6 +310,22 @@ function resolveLaunchMemoryProtocol(
     throw new GoalProtocolError(
         "structured Goal 必须显式提供 memoryProtocol",
     );
+}
+
+function resolveLaunchContextRetrievalProtocol(
+    dependencies: Pick<LauncherDependencies, "contextRetrievalProtocol">,
+): ContextRetrievalProtocol {
+    if (dependencies.contextRetrievalProtocol !== undefined) {
+        if (!isContextRetrievalProtocol(dependencies.contextRetrievalProtocol)) {
+            throw new GoalProtocolError(
+                "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
+            );
+        }
+
+        return resolveContextRetrievalProtocol(dependencies);
+    }
+
+    return { kind: "none", version: 1 };
 }
 
 function invalidGoalInput(message: string): LaunchResult {

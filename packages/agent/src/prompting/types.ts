@@ -1,5 +1,6 @@
 import type {
     ModelContextProtocol,
+    ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
@@ -93,6 +94,8 @@ export interface PromptBundleManifest {
     readonly memoryProtocol?: ModelMemoryProtocol;
     /** 该 Bundle 唯一兼容的模型上下文协议；省略时按 `conversation@1` 解释。 */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /** 该 Bundle 唯一兼容的 Cold Trajectory 检索协议；省略时按 `none@1` 解释。 */
+    readonly contextRetrievalProtocol?: ModelContextRetrievalProtocol;
 }
 
 /**

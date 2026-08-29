@@ -291,7 +291,7 @@ test("Composition Root 激活 v5/trajectory-layered@1 并保持旧 Bundle 三阶
                 readonly modelContextProtocol?: unknown;
             };
         };
-    assert.equal(snapshot.metadata.schemaVersion, 8);
+    assert.equal(snapshot.metadata.schemaVersion, 9);
         assert.equal(snapshot.definition.promptBundleVersion, 5);
         assert.deepEqual(snapshot.definition.memoryProtocol, {
             kind: "structured",

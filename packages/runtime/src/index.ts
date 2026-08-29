@@ -8,6 +8,8 @@ export {
     resolveMemoryProtocol,
     isModelContextProtocol,
     resolveModelContextProtocol,
+    isContextRetrievalProtocol,
+    resolveContextRetrievalProtocol,
 } from "./domain";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
@@ -46,6 +48,7 @@ export type {
     Blocker,
     BlockerUpdate,
     CanonicalMemoryOperation,
+    ContextRetrievalProtocol,
     EvidenceBackedFinding,
     ExecutionErrorCode,
     GoalPhase,
@@ -73,6 +76,7 @@ export type {
     MemoryProtocol,
     MemoryRevision,
     ModelContextProtocol,
+    RetrievalProtocol,
     NextAction,
     NextActionUpdate,
     PlanItem,

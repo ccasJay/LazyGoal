@@ -4,6 +4,7 @@ import type {
     GoalMessage,
     GoalTask,
     GoalWorkflowState,
+    ContextRetrievalProtocol,
     MemoryProtocol,
     ModelContextProtocol,
     Observation,
@@ -18,10 +19,12 @@ import {
     GoalSnapshotV6Schema,
     GoalSnapshotV7Schema,
     GoalSnapshotV8Schema,
+    GoalSnapshotV9Schema,
 } from "./goal-snapshot";
 import {
     resolveMemoryProtocol,
     resolveModelContextProtocol,
+    resolveContextRetrievalProtocol,
 } from "../../runtime/src/index";
 import type {
     GoalSnapshotMessageV5,
@@ -37,18 +40,19 @@ import type {
     GoalSnapshotV6,
     GoalSnapshotV7,
     GoalSnapshotV8,
-    GoalSnapshotDefinitionV8,
+    GoalSnapshotV9,
+    GoalSnapshotDefinitionV9,
     GoalSnapshotWorkflowV5,
 } from "./goal-snapshot";
 
 /**
- * Runtime Goal 与 Storage v8 Snapshot 之间的双向转换边界。
+ * Runtime Goal 与 Storage v9 Snapshot 之间的双向转换边界。
  *
  * @remarks
  * Codec 是唯一同时看到 Runtime 领域类型与 Snapshot DTO 的模块。decode 只
- * 接受严格 v5/v6/v7/v8：v1 至 v4、未知版本以及快照中的非法结构统一抛出
+ * 接受严格 v5/v6/v7/v8/v9：v1 至 v4、未知版本以及快照中的非法结构统一抛出
  * {@link GoalSnapshotProtocolError}，且不产生任何写回副作用。
- * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 8 }` 并再次
+ * encode 从 Goal 逐字段深复制构造 DTO、补入 `{ schemaVersion: 9 }` 并再次
  * 执行跨字段校验，两侧对象互不共享引用；JSON 值的深复制基于 Node 内置
  * `structuredClone` 实现。
  *
@@ -62,16 +66,16 @@ import type {
 export interface GoalSnapshotCodec {
     /**
      * @param goal - 完整的 Runtime Goal 聚合。
-     * @returns 通过严格 v8 校验、与输入不共享引用的 Snapshot DTO。
-     * @throws Goal 违反 v8 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
+     * @returns 通过严格 v9 校验、与输入不共享引用的 Snapshot DTO。
+     * @throws Goal 违反 v9 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
      */
-    encode(goal: Goal): GoalSnapshotV8;
+    encode(goal: Goal): GoalSnapshotV9;
 
     /**
      * @param input - 已解析的快照 JSON 值（通常来自 `JSON.parse`）。
      * @returns 与输入不共享引用、语义等价的 Runtime Goal；v5 输入的提交边界归一化为 `0`。
-     * v5/v6/v7 会按 legacy Memory 与 `conversation@1` 解释，下一次 encode 时升级为 v8。
-     * @throws v1 至 v4、未知版本或 v5/v6/v7/v8 结构损坏时抛出
+     * v5/v6/v7/v8 会按 legacy Memory、`conversation@1` 与 `none@1` 解释，下一次 encode 时升级为 v9。
+     * @throws v1 至 v4、未知版本或 v5/v6/v7/v8/v9 结构损坏时抛出
      *   GoalSnapshotProtocolError；本方法不执行任何 I/O，因此失败时不会
      *   改写任何文件。
      */
@@ -104,18 +108,20 @@ function describeLegacyStep(input: unknown): string | undefined {
 
 /** Codec 的默认实现；转换失败统一抛出稳定协议错误。 */
 export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
-    encode(goal: Goal): GoalSnapshotV8 {
+    encode(goal: Goal): GoalSnapshotV9 {
         // 先按同一严格 Schema 校验输入：拒绝 Runtime 侧的多余字段、
         // legacy StepRecord 与不成立的跨字段组合，再逐字段深复制构造 DTO。
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
         const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+        const contextRetrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
         const candidate = {
             ...goal,
-            metadata: { schemaVersion: 8 as const },
+            metadata: { schemaVersion: 9 as const },
             definition: {
                 ...goal.definition,
                 memoryProtocol,
                 modelContextProtocol,
+                contextRetrievalProtocol,
             },
             state: {
                 ...goal.state,
@@ -125,7 +131,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
                 },
             },
         };
-        const validation = GoalSnapshotV8Schema.safeParse(candidate);
+        const validation = GoalSnapshotV9Schema.safeParse(candidate);
 
         if (!validation.success) {
             throw new GoalSnapshotProtocolError(
@@ -136,11 +142,12 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
 
         return {
             id: goal.id,
-            metadata: { schemaVersion: 8 },
+            metadata: { schemaVersion: 9 },
             definition: encodeDefinition(
                 goal,
                 memoryProtocol,
                 modelContextProtocol,
+                contextRetrievalProtocol,
             ),
             state: encodeState(goal),
         };
@@ -154,6 +161,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             && schemaVersion !== 6
             && schemaVersion !== 7
             && schemaVersion !== 8
+            && schemaVersion !== 9
         ) {
             const legacyHint = schemaVersion === 1
                 || schemaVersion === 2
@@ -173,7 +181,9 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
                 ? GoalSnapshotV6Schema.safeParse(input)
                 : schemaVersion === 7
                     ? GoalSnapshotV7Schema.safeParse(input)
-                    : GoalSnapshotV8Schema.safeParse(input);
+                    : schemaVersion === 8
+                        ? GoalSnapshotV8Schema.safeParse(input)
+                        : GoalSnapshotV9Schema.safeParse(input);
 
         if (!result.success) {
             throw new GoalSnapshotProtocolError(
@@ -183,10 +193,10 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
         }
 
         return decodeSnapshot(
-            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8,
+            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9,
             schemaVersion === 5
                 ? 0
-                : (result.data as GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8)
+                : (result.data as GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9)
                     .state.run.committedThroughSequence,
         );
     }
@@ -196,7 +206,8 @@ function encodeDefinition(
     goal: Goal,
     memoryProtocol: MemoryProtocol,
     modelContextProtocol: ModelContextProtocol,
-): GoalSnapshotDefinitionV8 {
+    contextRetrievalProtocol: ContextRetrievalProtocol,
+): GoalSnapshotDefinitionV9 {
     const profile = goal.definition.profile;
 
     return {
@@ -209,6 +220,10 @@ function encodeDefinition(
         modelContextProtocol: {
             kind: modelContextProtocol.kind,
             version: modelContextProtocol.version,
+        },
+        contextRetrievalProtocol: {
+            kind: contextRetrievalProtocol.kind,
+            version: contextRetrievalProtocol.version,
         },
         profile: {
             id: profile.id,
@@ -605,7 +620,7 @@ function decodeStep(
 }
 
 function decodeSnapshot(
-    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8,
+    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9,
     committedThroughSequence: number,
 ): Goal {
     const state = snapshot.state;
@@ -623,6 +638,13 @@ function decodeSnapshot(
                 version: snapshot.definition.modelContextProtocol.version,
             }
             : { kind: "conversation", version: 1 };
+    const contextRetrievalProtocol: ContextRetrievalProtocol =
+        "contextRetrievalProtocol" in snapshot.definition
+            ? {
+                kind: snapshot.definition.contextRetrievalProtocol.kind,
+                version: snapshot.definition.contextRetrievalProtocol.version,
+            }
+            : { kind: "none", version: 1 };
     const decodedRun = {
         id: run.id,
         status: run.status,
@@ -695,7 +717,7 @@ function decodeSnapshot(
         // Checkpoint snapshots are semantically legacy. Keep this compatibility
         // field non-enumerable so reading a legacy Runtime object does not change
         // its historical serialized shape. The next encode still sees the field
-        // and upgrades it to v8.
+        // and upgrades it to v9.
         Object.defineProperty(definition, "memoryProtocol", {
             value: { kind: "checkpoint", version: 1 },
             enumerable: false,
@@ -716,6 +738,28 @@ function decodeSnapshot(
         // available to new consumers without changing the enumerable legacy shape.
         Object.defineProperty(definition, "modelContextProtocol", {
             value: modelContextProtocol,
+            enumerable: false,
+            writable: false,
+            configurable: true,
+        });
+    }
+
+    if ("contextRetrievalProtocol" in snapshot.definition) {
+        Object.defineProperty(definition, "contextRetrievalProtocol", {
+            value: contextRetrievalProtocol,
+            // `none@1` is the compatibility default and remains non-enumerable,
+            // matching the existing legacy handling for conversation@1.  The
+            // explicit bm25 capability is enumerable so a restored Goal carries
+            // a visible frozen opt-in for callers that inspect its definition.
+            enumerable: contextRetrievalProtocol.kind === "bm25-lite",
+            writable: false,
+            configurable: true,
+        });
+    } else {
+        // v5-v8 have no retrieval field. Keep the compatibility value available to
+        // new consumers without changing the enumerable legacy object shape.
+        Object.defineProperty(definition, "contextRetrievalProtocol", {
+            value: contextRetrievalProtocol,
             enumerable: false,
             writable: false,
             configurable: true,

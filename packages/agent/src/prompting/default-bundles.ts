@@ -28,9 +28,11 @@ import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import {
     GoalProtocolError,
+    isContextRetrievalProtocol,
     isModelContextProtocol,
     isMemoryProtocol,
     type GoalProtocolValidator,
+    type ContextRetrievalProtocol,
     type MemoryProtocol,
     type ModelContextProtocol,
 } from "../../../runtime/src/domain";
@@ -247,26 +249,32 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
     const expectedByBundle = new Map<number, {
         readonly memory: MemoryProtocol;
         readonly modelContext: ModelContextProtocol;
+        readonly contextRetrieval: ContextRetrievalProtocol;
     }>([
         [1, {
             memory: { kind: "checkpoint", version: 1 },
             modelContext: { kind: "conversation", version: 1 },
+            contextRetrieval: { kind: "none", version: 1 },
         }],
         [2, {
             memory: { kind: "checkpoint", version: 1 },
             modelContext: { kind: "conversation", version: 1 },
+            contextRetrieval: { kind: "none", version: 1 },
         }],
         [3, {
             memory: { kind: "checkpoint", version: 1 },
             modelContext: { kind: "conversation", version: 1 },
+            contextRetrieval: { kind: "none", version: 1 },
         }],
         [4, {
             memory: { kind: "structured", version: 1 },
             modelContext: { kind: "conversation", version: 1 },
+            contextRetrieval: { kind: "none", version: 1 },
         }],
         [5, {
             memory: { kind: "structured", version: 1 },
             modelContext: { kind: "trajectory-layered", version: 1 },
+            contextRetrieval: { kind: "none", version: 1 },
         }],
     ]);
 
@@ -295,14 +303,25 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
                 );
             }
 
+            const contextRetrievalProtocol = input.contextRetrievalProtocol
+                ?? { kind: "none" as const, version: 1 as const };
+
+            if (!isContextRetrievalProtocol(contextRetrievalProtocol)) {
+                throw new GoalProtocolError(
+                    "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
+                );
+            }
+
             if (
                 input.memoryProtocol.kind !== expected.memory.kind
                 || input.memoryProtocol.version !== expected.memory.version
                 || modelContextProtocol.kind !== expected.modelContext.kind
                 || modelContextProtocol.version !== expected.modelContext.version
+                || contextRetrievalProtocol.kind !== expected.contextRetrieval.kind
+                || contextRetrievalProtocol.version !== expected.contextRetrieval.version
             ) {
                 throw new GoalProtocolError(
-                    `Prompt Bundle v${input.promptBundleVersion} 与 ${input.memoryProtocol.kind}@${input.memoryProtocol.version}/${modelContextProtocol.kind}@${modelContextProtocol.version} 不兼容`,
+                    `Prompt Bundle v${input.promptBundleVersion} 与 ${input.memoryProtocol.kind}@${input.memoryProtocol.version}/${modelContextProtocol.kind}@${modelContextProtocol.version}/${contextRetrievalProtocol.kind}@${contextRetrievalProtocol.version} 不兼容`,
                 );
             }
         },

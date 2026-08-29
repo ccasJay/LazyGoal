@@ -126,6 +126,8 @@ export {
 export type {
     ModelConversationMessage,
     ModelContextProtocol,
+    ModelContextRetrievalProtocol,
+    ModelRetrievalProtocol,
     ModelMemoryProtocol,
     ModelMemoryEntryBase,
     ModelFinding,

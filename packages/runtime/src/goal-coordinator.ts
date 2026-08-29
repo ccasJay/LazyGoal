@@ -10,6 +10,7 @@ import type {
     WorkingMemory,
 } from "./domain";
 import {
+    resolveContextRetrievalProtocol,
     resolveMemoryProtocol,
     resolveModelContextProtocol,
 } from "./domain";
@@ -964,6 +965,7 @@ export class GoalCoordinator {
             promptBundleVersion: goal.definition.promptBundleVersion,
             memoryProtocol: resolveMemoryProtocol(goal.definition),
             modelContextProtocol: resolveModelContextProtocol(goal.definition),
+            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
         });
     }
 

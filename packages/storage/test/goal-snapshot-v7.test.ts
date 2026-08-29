@@ -8,7 +8,7 @@ import {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV8Schema,
+    GoalSnapshotV9Schema,
     goalSnapshotCodec,
 } from "../src/index";
 
@@ -38,7 +38,7 @@ function assertProtocolError(error: unknown): boolean {
     return true;
 }
 
-test("Snapshot v8 round-trips structured protocol and Memory revision", () => {
+test("Snapshot v9 round-trips structured protocol and Memory revision", () => {
     const goal = createGoalForProtocol({ kind: "structured", version: 1 });
     const withRevision: Goal = {
         ...goal,
@@ -57,7 +57,7 @@ test("Snapshot v8 round-trips structured protocol and Memory revision", () => {
 
     const snapshot = goalSnapshotCodec.encode(withRevision);
 
-    assert.equal(snapshot.metadata.schemaVersion, 8);
+    assert.equal(snapshot.metadata.schemaVersion, 9);
     assert.deepEqual(snapshot.definition.memoryProtocol, {
         kind: "structured",
         version: 1,
@@ -69,11 +69,11 @@ test("Snapshot v8 round-trips structured protocol and Memory revision", () => {
     assert.deepEqual(goalSnapshotCodec.decode(snapshot), withRevision);
 });
 
-test("Snapshot v8 persists checkpoint protocol without a revision and preserves legacy access", () => {
+test("Snapshot v9 persists checkpoint protocol without a revision and preserves legacy access", () => {
     const goal = createGoalForProtocol({ kind: "checkpoint", version: 1 });
     const snapshot = goalSnapshotCodec.encode(goal);
 
-    assert.equal(snapshot.metadata.schemaVersion, 8);
+    assert.equal(snapshot.metadata.schemaVersion, 9);
     assert.deepEqual(snapshot.definition.memoryProtocol, {
         kind: "checkpoint",
         version: 1,
@@ -90,6 +90,7 @@ test("v5 and v6 decode as read-only legacy and upgrade only on the next encode",
     const {
         memoryProtocol: _protocol,
         modelContextProtocol: _modelContext,
+        contextRetrievalProtocol: _retrieval,
         ...legacyDefinition
     } = encoded.definition;
     const { committedThroughSequence: _boundary, ...v5Run } = encoded.state.run;
@@ -112,11 +113,11 @@ test("v5 and v6 decode as read-only legacy and upgrade only on the next encode",
             version: 1,
         });
         assert.equal(JSON.stringify(legacy), source);
-        assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 8);
+        assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 9);
     }
 });
 
-test("Snapshot v8 rejects unknown protocols, corrupt revisions, and cross-protocol fields", () => {
+test("Snapshot v9 rejects unknown protocols, corrupt revisions, and cross-protocol fields", () => {
     const structured = goalSnapshotCodec.encode(
         createGoalForProtocol({ kind: "structured", version: 1 }),
     );
@@ -177,7 +178,7 @@ test("Snapshot v8 rejects unknown protocols, corrupt revisions, and cross-protoc
     ];
 
     for (const invalid of invalidSnapshots) {
-        assert.equal(GoalSnapshotV8Schema.safeParse(invalid).success, false);
+        assert.equal(GoalSnapshotV9Schema.safeParse(invalid).success, false);
         assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
     }
 });

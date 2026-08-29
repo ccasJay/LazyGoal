@@ -28,7 +28,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-Goal 将创建后冻结的 intent、`promptBundleVersion`、Memory 协议、Model Context 协议、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有 Prompt Bundle/Model Context 的通用版本标识，不持有或渲染文本；Composition Root 为新 Goal 冻结 v5/`structured@1` + `trajectory-layered@1`，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。旧 v1–v3 Goal 省略协议字段时按 `checkpoint@1` 解释，v4 structured Goal 按 `conversation@1` 继续恢复。Run 可保存 legacy 有界 `checkpoint`、最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence` 和 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal 将创建后冻结的 intent、`promptBundleVersion`、Memory 协议、Model Context 协议、Cold Trajectory Retrieval 协议、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有 Prompt Bundle/Model Context/Retrieval 的通用版本标识，不持有或渲染文本；Composition Root 为新 Goal 冻结协议，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。旧 Goal 省略 Retrieval 字段时按 `none@1` 解释，不要求索引或 Sidecar。Run 可保存 legacy 有界 `checkpoint`、最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence` 和 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileAgentProfileStore`
 按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`

@@ -9,7 +9,7 @@ import {
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
-    GoalSnapshotV8Schema,
+    GoalSnapshotV9Schema,
     goalSnapshotCodec,
 } from "../src/index";
 
@@ -32,11 +32,11 @@ function createLayeredGoal(): Goal {
     });
 }
 
-test("Snapshot v8 显式保存并恢复 trajectory-layered 协议", () => {
+test("Snapshot v9 显式保存并恢复 trajectory-layered 协议", () => {
     const goal = createLayeredGoal();
     const snapshot = goalSnapshotCodec.encode(goal);
 
-    assert.equal(snapshot.metadata.schemaVersion, 8);
+    assert.equal(snapshot.metadata.schemaVersion, 9);
     assert.deepEqual(snapshot.definition.modelContextProtocol, {
         kind: "trajectory-layered",
         version: 1,
@@ -47,9 +47,13 @@ test("Snapshot v8 显式保存并恢复 trajectory-layered 协议", () => {
     );
 });
 
-test("v5-v7 只读恢复默认 conversation@1，下一次保存升级到 v8", () => {
+test("v5-v8 只读恢复默认 conversation@1 与 none@1，下一次保存升级到 v9", () => {
     const encoded = goalSnapshotCodec.encode(createLayeredGoal());
-    const { modelContextProtocol: _modelContext, ...v7Definition } = encoded.definition;
+    const {
+        modelContextProtocol: _modelContext,
+        contextRetrievalProtocol: _retrieval,
+        ...v7Definition
+    } = encoded.definition;
     const legacy = {
         ...encoded,
         metadata: { schemaVersion: 7 as const },
@@ -64,10 +68,10 @@ test("v5-v7 只读恢复默认 conversation@1，下一次保存升级到 v8", ()
         kind: "conversation",
         version: 1,
     });
-    assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 8);
+    assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 9);
 });
 
-test("Snapshot v8 拒绝未知模型上下文与 checkpoint/trajectory-layered 交叉组合", () => {
+test("Snapshot v9 拒绝未知模型上下文、检索协议与交叉组合", () => {
     const layered = goalSnapshotCodec.encode(createLayeredGoal());
     const invalid: unknown[] = [
         {
@@ -84,10 +88,17 @@ test("Snapshot v8 拒绝未知模型上下文与 checkpoint/trajectory-layered �
                 memoryProtocol: { kind: "checkpoint", version: 1 },
             },
         },
+        {
+            ...layered,
+            definition: {
+                ...layered.definition,
+                contextRetrievalProtocol: { kind: "future", version: 1 },
+            },
+        },
     ];
 
     for (const candidate of invalid) {
-        assert.equal(GoalSnapshotV8Schema.safeParse(candidate).success, false);
+        assert.equal(GoalSnapshotV9Schema.safeParse(candidate).success, false);
         assert.throws(
             () => goalSnapshotCodec.decode(candidate),
             (error: unknown) => error instanceof GoalSnapshotProtocolError,

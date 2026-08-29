@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createGoal, createRun } from "../src/index";
+import {
+    createGoal,
+    createRun,
+    isContextRetrievalProtocol,
+    resolveContextRetrievalProtocol,
+} from "../src/index";
 import type { AgentProfile, GoalMessage } from "../src/index";
 
 const profile: AgentProfile = {
@@ -149,4 +154,44 @@ test("createRun creates a deterministic core RunState", () => {
         status: "created",
         stepCount: 0,
     });
+});
+
+test("Context Retrieval protocol defaults to none and freezes explicit bm25-lite", () => {
+    const legacy = createGoal({
+        id: "goal-retrieval-legacy",
+        intent: "兼容检索协议",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-retrieval-legacy",
+    });
+    assert.deepEqual(resolveContextRetrievalProtocol(legacy.definition), {
+        kind: "none",
+        version: 1,
+    });
+
+    const goal = createGoal({
+        id: "goal-retrieval-bm25",
+        intent: "显式检索协议",
+        promptBundleVersion: 5,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        profile,
+        runId: "run-retrieval-bm25",
+    });
+    assert.deepEqual(goal.definition.contextRetrievalProtocol, {
+        kind: "bm25-lite",
+        version: 1,
+    });
+    assert.equal(isContextRetrievalProtocol({ kind: "bm25-lite", version: 1 }), true);
+    assert.equal(
+        isContextRetrievalProtocol({ kind: "bm25-lite", version: 1, extra: true }),
+        false,
+    );
+    assert.throws(
+        () => resolveContextRetrievalProtocol({
+            contextRetrievalProtocol: { kind: "future", version: 1 } as never,
+        }),
+        /Context Retrieval/,
+    );
 });

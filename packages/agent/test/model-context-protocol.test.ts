@@ -7,6 +7,7 @@ import {
     type AgentProfile,
 } from "../../runtime/src/index";
 import {
+    createDefaultPromptBundleProtocolValidator,
     createDefaultPromptBundleRenderer,
     ModelInferenceProjector,
 } from "../src/index";
@@ -81,5 +82,36 @@ test("Projector 拒绝 checkpoint Memory 与 layered 模型上下文交叉组合
     assert.throws(
         () => new ModelInferenceProjector().project(goal),
         /trajectory-layered model context requires structured Memory protocol/,
+    );
+});
+
+test("Prompt/Memory/Model Context/Retrieval 协议矩阵只接受 v5 的 none@1", () => {
+    const validator = createDefaultPromptBundleProtocolValidator();
+
+    validator.validate({
+        promptBundleVersion: 5,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "none", version: 1 },
+    });
+
+    assert.throws(
+        () => validator.validate({
+            promptBundleVersion: 5,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        }),
+        /不兼容/,
+    );
+
+    assert.throws(
+        () => validator.validate({
+            promptBundleVersion: 5,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "future", version: 1 } as never,
+        }),
+        /Context Retrieval 协议必须是 none@1 或 bm25-lite@1/,
     );
 });

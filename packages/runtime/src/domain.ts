@@ -22,6 +22,14 @@ export type ModelContextProtocol =
     | { readonly kind: "conversation"; readonly version: 1 }
     | { readonly kind: "trajectory-layered"; readonly version: 1 };
 
+/** Goal 创建后冻结的 Cold Trajectory 检索协议。 */
+export type ContextRetrievalProtocol =
+    | { readonly kind: "none"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 1 };
+
+/** `ContextRetrievalProtocol` 的兼容别名，供模型侧类型使用。 */
+export type RetrievalProtocol = ContextRetrievalProtocol;
+
 /** Working Memory 条目的生命周期状态。 */
 export type MemoryEntryStatus = "active" | "resolved" | "superseded";
 
@@ -280,6 +288,8 @@ export interface GoalProtocolValidationInput {
     readonly memoryProtocol: MemoryProtocol;
     /** Goal 冻结的模型上下文协议；省略仅用于向后兼容的调用方，按 `conversation@1` 解释。 */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /** Goal 冻结的 Cold Trajectory 检索协议；省略按 `none@1` 解释。 */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
 }
 
 /**
@@ -368,6 +378,22 @@ export function isModelContextProtocol(
     );
 }
 
+/** 判断未知值是否为受支持的 Cold Trajectory 检索协议。 */
+export function isContextRetrievalProtocol(
+    value: unknown,
+): value is ContextRetrievalProtocol {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const candidate = value as Record<string, unknown>;
+    return (
+        (candidate.kind === "none" || candidate.kind === "bm25-lite")
+        && candidate.version === 1
+        && Object.keys(candidate).every((key) => key === "kind" || key === "version")
+    );
+}
+
 /**
  * 将旧 Goal 的省略字段解释为 legacy checkpoint 协议。
  *
@@ -408,6 +434,36 @@ export function resolveModelContextProtocol(
     if (!isModelContextProtocol(protocol)) {
         throw new GoalProtocolError(
             "模型上下文协议必须是 conversation@1 或 trajectory-layered@1",
+        );
+    }
+
+    return { kind: protocol.kind, version: protocol.version };
+}
+
+/**
+ * 将旧 Goal 的省略字段解释为无检索协议。
+ *
+ * @param definition - Goal 冻结定义的检索协议字段。
+ * @returns 独立的检索协议对象；省略字段返回 `none@1`。
+ * @throws GoalProtocolError 当显式值不是受支持协议时。
+ * @example
+ * ```ts
+ * const protocol = resolveContextRetrievalProtocol({
+ *     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+ * });
+ * ```
+ */
+export function resolveContextRetrievalProtocol(
+    definition: Pick<GoalDefinition, "contextRetrievalProtocol">,
+): ContextRetrievalProtocol {
+    const protocol = definition.contextRetrievalProtocol;
+    if (protocol === undefined) {
+        return { kind: "none", version: 1 };
+    }
+
+    if (!isContextRetrievalProtocol(protocol)) {
+        throw new GoalProtocolError(
+            "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
         );
     }
 
@@ -556,6 +612,13 @@ export interface GoalDefinition {
      * 输入来源选择，不把 Hot/Warm 内容写入 Goal 定义。
      */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /**
+     * Goal 创建时冻结的 Cold Trajectory 检索协议；旧 Goal 省略时按 `none@1` 解释。
+     *
+     * @remarks `bm25-lite@1` 只允许和 structured/trajectory-layered 组合；该字段
+     * 只描述检索能力，不把索引或查询缓存写入 Goal。
+     */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly executionPolicy: {
         /** 正整数表示上限，`0` 表示不以 Step 数量限制执行。 */
@@ -1024,6 +1087,8 @@ export interface GoalCreationInput {
     readonly memoryProtocol?: MemoryProtocol;
     /** 新 Goal 使用的冻结模型上下文协议；省略时保持 Conversation 兼容语义。 */
     readonly modelContextProtocol?: ModelContextProtocol;
+    /** 新 Goal 使用的冻结 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
     readonly maxSteps?: number;
@@ -1079,6 +1144,9 @@ export function createGoal(input: GoalCreationInput): Goal {
             ...(input.modelContextProtocol === undefined
                 ? {}
                 : { modelContextProtocol: resolveModelContextProtocol(input) }),
+            ...(input.contextRetrievalProtocol === undefined
+                ? {}
+                : { contextRetrievalProtocol: resolveContextRetrievalProtocol(input) }),
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },

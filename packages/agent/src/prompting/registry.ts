@@ -1,8 +1,14 @@
 import type {
     ModelContextProtocol,
+    ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
     PromptPhase,
 } from "../model-inference-view";
+import {
+    isContextRetrievalProtocol,
+    isModelContextProtocol,
+    isMemoryProtocol,
+} from "../../../runtime/src/domain";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
@@ -81,6 +87,30 @@ function validateManifest(
         );
     }
 
+    if (manifest.memoryProtocol !== undefined && !isMemoryProtocol(manifest.memoryProtocol)) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的 Memory 协议无效`,
+        );
+    }
+
+    if (
+        manifest.modelContextProtocol !== undefined
+        && !isModelContextProtocol(manifest.modelContextProtocol)
+    ) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的模型上下文协议无效`,
+        );
+    }
+
+    if (
+        manifest.contextRetrievalProtocol !== undefined
+        && !isContextRetrievalProtocol(manifest.contextRetrievalProtocol)
+    ) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的 Context Retrieval 协议无效`,
+        );
+    }
+
     const slots = manifest.sections.map((section) => section.slot);
 
     if (slots.length !== SLOT_ORDER.length) {
@@ -142,6 +172,7 @@ function protocolMatches(
     manifest: PromptBundleManifest,
     protocol: ModelMemoryProtocol | undefined,
     modelContextProtocol: ModelContextProtocol | undefined,
+    contextRetrievalProtocol: ModelContextRetrievalProtocol | undefined,
 ): boolean {
     const requestedMemory = protocol ?? { kind: "checkpoint" as const, version: 1 as const };
     const manifestMemory = manifest.memoryProtocol
@@ -150,11 +181,17 @@ function protocolMatches(
         ?? { kind: "conversation" as const, version: 1 as const };
     const manifestContext = manifest.modelContextProtocol
         ?? { kind: "conversation" as const, version: 1 as const };
+    const requestedRetrieval = contextRetrievalProtocol
+        ?? { kind: "none" as const, version: 1 as const };
+    const manifestRetrieval = manifest.contextRetrievalProtocol
+        ?? { kind: "none" as const, version: 1 as const };
 
     return manifestMemory.kind === requestedMemory.kind
         && manifestMemory.version === requestedMemory.version
         && manifestContext.kind === requestedContext.kind
-        && manifestContext.version === requestedContext.version;
+        && manifestContext.version === requestedContext.version
+        && manifestRetrieval.kind === requestedRetrieval.kind
+        && manifestRetrieval.version === requestedRetrieval.version;
 }
 
 /**
@@ -216,18 +253,25 @@ export class PromptBundleRegistry {
         version: number,
         memoryProtocol?: ModelMemoryProtocol,
         modelContextProtocol?: ModelContextProtocol,
+        contextRetrievalProtocol?: ModelContextRetrievalProtocol,
     ): PromptBundleManifest {
         const manifest = this.manifests.get(version);
 
         if (
             manifest === undefined
-            || !protocolMatches(manifest, memoryProtocol, modelContextProtocol)
+            || !protocolMatches(
+                manifest,
+                memoryProtocol,
+                modelContextProtocol,
+                contextRetrievalProtocol,
+            )
         ) {
             const compatibleVersions = [...this.manifests.entries()]
                 .filter(([, candidate]) => protocolMatches(
                     candidate,
                     memoryProtocol,
                     modelContextProtocol,
+                    contextRetrievalProtocol,
                 ))
                 .map(([candidateVersion]) => candidateVersion)
                 .sort((a, b) => a - b);

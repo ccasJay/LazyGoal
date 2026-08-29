@@ -1,4 +1,5 @@
 import {
+    resolveContextRetrievalProtocol,
     resolveMemoryProtocol,
     resolveModelContextProtocol,
     type Goal,
@@ -17,6 +18,7 @@ import type {
     ModelWorkingContext,
     ModelMemoryProtocol,
     ModelContextProtocol,
+    ModelContextRetrievalProtocol,
     ModelTrajectoryContext,
     PreparationPhase,
     PromptContext,
@@ -56,6 +58,7 @@ export class ModelInferenceProjector {
     ): ModelInferenceView {
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
         const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+        const contextRetrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
 
         if (
             modelContextProtocol.kind === "trajectory-layered"
@@ -63,6 +66,18 @@ export class ModelInferenceProjector {
         ) {
             throw new Error(
                 "trajectory-layered model context requires structured Memory protocol",
+            );
+        }
+
+        if (
+            contextRetrievalProtocol.kind === "bm25-lite"
+            && (
+                memoryProtocol.kind !== "structured"
+                || modelContextProtocol.kind !== "trajectory-layered"
+            )
+        ) {
+            throw new Error(
+                "bm25-lite retrieval requires structured Memory and trajectory-layered model context",
             );
         }
 
@@ -108,6 +123,9 @@ export class ModelInferenceProjector {
                 : {}),
             ...(modelContextProtocol.kind === "trajectory-layered"
                 ? { modelContextProtocol: projectModelContextProtocol(modelContextProtocol) }
+                : {}),
+            ...(contextRetrievalProtocol.kind === "bm25-lite"
+                ? { contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol) }
                 : {}),
         });
 
@@ -307,6 +325,15 @@ function projectMemoryProtocol(
 function projectModelContextProtocol(
     protocol: ReturnType<typeof resolveModelContextProtocol>,
 ): ModelContextProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectContextRetrievalProtocol(
+    protocol: ReturnType<typeof resolveContextRetrievalProtocol>,
+): ModelContextRetrievalProtocol {
     return {
         kind: protocol.kind,
         version: protocol.version,

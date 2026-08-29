@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 冻结 Retrieval 协议并扩展 Snapshot v9
+- [x] //TODO 1. 冻结 Retrieval 协议并扩展 Snapshot v9
 
   - 在 Runtime Domain、Prompt Manifest、Agent Response 类型与 Storage Codec 中增加 `none@1`/`bm25-lite@1`、Snapshot v9 及 v5–v8 只读映射。
   - 增加 Prompt/Memory/Model Context/Retrieval 协议矩阵、未知组合、恢复不写回和 legacy 分支不变测试，并补齐公共 Interface 契约 TSDoc。

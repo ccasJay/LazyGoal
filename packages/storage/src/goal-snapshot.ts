@@ -120,6 +120,37 @@ export type GoalSnapshotV8 = Omit<GoalSnapshotV7, "metadata" | "definition"> & {
 };
 
 /**
+ * Goal Snapshot v9 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v9 在 v8 的 Memory 与模型上下文协议基础上显式冻结 Cold Trajectory 检索协议。
+ * v5–v8 仍可只读解码为 `none@1`，读取过程不会写回旧文件；下一次正常保存才会
+ * 生成 v9。索引、查询缓存和 Working Memory 内容仍不进入 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV9 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 9 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 6,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV9 = Omit<GoalSnapshotV8, "metadata" | "definition"> & {
+    readonly metadata: GoalSnapshotMetadataV9;
+    readonly definition: GoalSnapshotDefinitionV9;
+};
+
+/**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
  * ```ts
@@ -143,6 +174,11 @@ export interface GoalSnapshotMetadataV7 {
 /** v8 Snapshot 顶层协议元数据。 */
 export interface GoalSnapshotMetadataV8 {
     readonly schemaVersion: 8;
+}
+
+/** v9 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV9 {
+    readonly schemaVersion: 9;
 }
 
 /**
@@ -199,6 +235,19 @@ export type GoalSnapshotDefinitionV8 = GoalSnapshotDefinitionV7 & {
     readonly modelContextProtocol: GoalSnapshotModelContextProtocolV8;
 };
 
+/** v9 Snapshot 中冻结的 Cold Trajectory 检索协议选择。 */
+export type GoalSnapshotContextRetrievalProtocolV9 =
+    | { readonly kind: "none"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 1 };
+
+/** v9 Snapshot 中同时冻结三项上下文协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV9 = GoalSnapshotDefinitionV8 & {
+    readonly contextRetrievalProtocol: GoalSnapshotContextRetrievalProtocolV9;
+};
+
+/** `GoalSnapshotContextRetrievalProtocolV9` 的兼容别名。 */
+export type GoalSnapshotRetrievalProtocolV9 = GoalSnapshotContextRetrievalProtocolV9;
+
 /**
  * Snapshot 持久化的 Agent Profile 表示。
  *
@@ -249,6 +298,9 @@ export type GoalSnapshotStateV7 = Omit<GoalSnapshotStateV6, "run"> & {
 
 /** v8 Snapshot 的工作流、消息与协议边界；状态字段沿用 v7。 */
 export type GoalSnapshotStateV8 = GoalSnapshotStateV7;
+
+/** v9 Snapshot 的工作流、消息与协议边界；状态字段沿用 v8。 */
+export type GoalSnapshotStateV9 = GoalSnapshotStateV8;
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
 export type GoalSnapshotWorkflowV5 =
@@ -819,7 +871,8 @@ function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotBaseSchema>
         | z.infer<typeof GoalSnapshotV6BaseSchema>
         | z.infer<typeof GoalSnapshotV7BaseSchema>
-        | z.infer<typeof GoalSnapshotV8BaseSchema>,
+        | z.infer<typeof GoalSnapshotV8BaseSchema>
+        | z.infer<typeof GoalSnapshotV9BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
@@ -831,6 +884,9 @@ function validateSnapshotInvariants(
     const modelContextProtocol = "modelContextProtocol" in goal.definition
         ? goal.definition.modelContextProtocol
         : { kind: "conversation" as const, version: 1 as const };
+    const contextRetrievalProtocol = "contextRetrievalProtocol" in goal.definition
+        ? goal.definition.contextRetrievalProtocol
+        : { kind: "none" as const, version: 1 as const };
 
     if (
         modelContextProtocol.kind === "trajectory-layered"
@@ -840,6 +896,20 @@ function validateSnapshotInvariants(
             context,
             "trajectory-layered model context requires structured Memory protocol",
             ["definition", "modelContextProtocol"],
+        );
+    }
+
+    if (
+        contextRetrievalProtocol.kind === "bm25-lite"
+        && (
+            !structuredMemory
+            || modelContextProtocol.kind !== "trajectory-layered"
+        )
+    ) {
+        addInvariantIssue(
+            context,
+            "bm25-lite retrieval requires structured Memory and trajectory-layered model context",
+            ["definition", "contextRetrievalProtocol"],
         );
     }
 
@@ -1183,6 +1253,42 @@ const GoalSnapshotV8BaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const ContextRetrievalProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("none"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("bm25-lite"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
+const GoalSnapshotV9BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(9) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolSchema,
+        contextRetrievalProtocol: ContextRetrievalProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV7Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -1246,6 +1352,23 @@ export const GoalSnapshotV7Schema = GoalSnapshotV7BaseSchema.superRefine(
  * ```
  */
 export const GoalSnapshotV8Schema = GoalSnapshotV8BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v9 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v9 要求显式保存 `none@1` 或 `bm25-lite@1` 检索协议，并拒绝后者与旧 Memory
+ * 或 Conversation 模型上下文的交叉组合。检索索引、查询缓存和 Working Memory
+ * 本体仍不进入快照。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV9Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV9Schema = GoalSnapshotV9BaseSchema.superRefine(
     validateSnapshotInvariants,
 );
 

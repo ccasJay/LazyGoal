@@ -12,6 +12,7 @@ import type {
     GoalProtocolValidator,
 } from "./domain";
 import {
+    resolveContextRetrievalProtocol,
     resolveMemoryProtocol,
     resolveModelContextProtocol,
 } from "./domain";
@@ -695,6 +696,7 @@ export class Runner {
             promptBundleVersion: goal.definition.promptBundleVersion,
             memoryProtocol: resolveMemoryProtocol(goal.definition),
             modelContextProtocol: resolveModelContextProtocol(goal.definition),
+            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
         });
     }
 
