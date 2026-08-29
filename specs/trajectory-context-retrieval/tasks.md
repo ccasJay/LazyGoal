@@ -12,7 +12,7 @@
   - 在 Coordinator/Runner 中实现 Executing 单 Step、Preparation 三次链式上限、稳定 lookupId、中断恢复和非法请求无副作用测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 3. 实现 committed ContextDocumentBuilder
+- [x] //TODO 3. 实现 committed ContextDocumentBuilder
 
   - 从 Trajectory committed boundary 构建完整 execution/preparation 文档，排除 tail、marker、lookup 周期并生成稳定字段与 source ranges。
   - 增加全量/增量等价、闭合单元、身份与 sequence 校验、损坏来源 fail-closed 和输入不变测试。

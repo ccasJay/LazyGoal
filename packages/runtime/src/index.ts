@@ -160,6 +160,22 @@ export type {
     ContextLookupRequest,
     ContextLookupResult,
 } from "./context-retrieval";
+export {
+    CONTEXT_DOCUMENT_SOURCE_ERROR_CODE,
+    ContextDocumentBuilder,
+    ContextDocumentSourceError,
+    buildCommittedContextDocuments,
+    buildCommittedContextDocumentsFromStore,
+} from "./context-document";
+export type {
+    ContextDocumentBuildInput,
+    ContextDocumentBuildResult,
+    ContextDocumentFields,
+    ContextDocumentKind,
+    ContextDocumentSourceRange,
+    ContextDocumentStoreInput,
+    ContextSearchDocument,
+} from "./context-document";
 export type {
     NormalizedWorkingMemoryPatch,
     WorkingMemoryLimits,
