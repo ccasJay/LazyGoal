@@ -592,6 +592,11 @@ test("v6 Bundle 显式绑定 bm25-lite@1 并声明封闭来源路由", async () 
         "Current Workspace, Environment, and verification status require an Authorized Tool Observation",
     ));
     assert.ok(output.includes("Context Lookup response is exclusive"));
+    assert.ok(output.includes("If no committed Observation supports a useful entry yet, omit memoryPatch"));
+    assert.ok(output.includes(
+        '{"type":"add_finding","finding":{"id":"finding-1","statement":"observed fact","evidenceSequences":[12]}}',
+    ));
+    assert.ok(output.includes("Do not use legacy keys such as op, findingId, content, or checkpoint"));
 });
 
 test("默认 Prompt Bundle Validator 拒绝未知版本和交叉协议", () => {
