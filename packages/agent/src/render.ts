@@ -4,6 +4,7 @@ import type {
     ModelTrajectoryContext,
     ModelWorkingMemory,
     ModelWorkingContext,
+    ModelContextLookupResult,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
 
@@ -24,17 +25,20 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * @param context - 已投影的阶段化 Working Context。
  * @param workingMemory - structured@1 的即时 Memory；legacy 时省略。
  * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm；legacy 时省略。
+ * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */
 export function renderWorkingContextMessage(
     context: ModelWorkingContext,
     workingMemory?: ModelWorkingMemory,
     trajectoryContext?: ModelTrajectoryContext,
+    contextLookupResult?: ModelContextLookupResult,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     const payload = {
         ...context,
         ...(workingMemory === undefined ? {} : { workingMemory }),
         ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
+        ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
     };
 
     return {
@@ -76,6 +80,7 @@ export function renderRequest(
                 view.workingContext,
                 view.workingMemory,
                 view.trajectoryContext,
+                view.contextLookupResult,
             ),
         ],
     };

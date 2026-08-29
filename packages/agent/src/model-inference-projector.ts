@@ -50,6 +50,8 @@ export class ModelInferenceProjector {
      * @param workingMemory - structured@1 的即时 Working Memory 投影。
      * @param trajectoryContext - trajectory-layered@1 的本轮 Hot/Warm 投影；由
      * Assembler 在 Conversation 裁剪后提供。
+     * @param contextLookupResult - 上一轮已提交的历史查询结果；只在启用
+     * `bm25-lite@1` 时允许提供，且只存在于当前模型调用。
      * @returns 与当前 phase 对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -58,6 +60,7 @@ export class ModelInferenceProjector {
         tools: readonly ToolDefinition[] = [],
         workingMemory?: WorkingMemory,
         trajectoryContext?: ModelTrajectoryContext,
+        contextLookupResult?: ContextLookupResult,
     ): ModelInferenceView {
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
         const modelContextProtocol = resolveModelContextProtocol(goal.definition);
@@ -113,6 +116,19 @@ export class ModelInferenceProjector {
             throw new Error("Trajectory Context measurement unit is invalid");
         }
 
+        if (
+            contextLookupResult !== undefined
+            && contextRetrievalProtocol.kind !== "bm25-lite"
+        ) {
+            throw new Error(
+                "Context Lookup Result requires bm25-lite retrieval",
+            );
+        }
+
+        const projectedContextLookupResult = contextLookupResult === undefined
+            ? undefined
+            : projectContextLookupResult(contextLookupResult);
+
         const workingContext = this.projectWorkingContext(goal);
 
         const prompt: PromptContext = deepFreeze({
@@ -142,6 +158,9 @@ export class ModelInferenceProjector {
             ...(trajectoryContext === undefined
                 ? {}
                 : { trajectoryContext: deepFreeze(structuredClone(trajectoryContext)) }),
+            ...(projectedContextLookupResult === undefined
+                ? {}
+                : { contextLookupResult: projectedContextLookupResult }),
         };
     }
 

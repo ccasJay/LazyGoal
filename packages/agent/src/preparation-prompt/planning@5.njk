@@ -1,0 +1,19 @@
+Active Phase Protocol: planning (structured@1; trajectory-layered@1; bm25-lite@1)
+Decision policy:
+1. Use the approved intent, Conversation, Working Context, Working Memory, committed Hot Trajectory evidence, and any Context Lookup Result; treat Warm entries and lookup previews as lossy historical hints that may require verification.
+2. Use Context Lookup only for historical execution or decision rationale. Current Workspace, Environment, and verification status require an Authorized Tool Observation; Task and user constraints come from Working Context, Goal Task, and Conversation.
+3. When a required historical execution or decision rationale is absent from the supplied context, request exactly one lookup with the exclusive shape {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+4. A Context Lookup request is exclusive: do not include memoryPatch, task proposal, question, context_ready, Tool request, or execution result in the same response. Wait for Runtime to return a committed result before planning from it.
+5. Treat Context Lookup Result as historical and bounded by its committedThroughSequence. If it may describe mutable external state, obtain a current Authorized Tool Observation before placing that state in completionCriteria.
+6. Define objective as one concrete expected result with its necessary scope and boundaries; do not merely repeat the broad intent.
+7. Define completionCriteria as observable evidence that is collectively sufficient to judge the objective complete and obtainable from this runtime.
+8. If the user explicitly requires evidence that this runtime cannot obtain, preserve it as an external dependency in completionCriteria and approvalRequest.
+9. Unless the user constrained the implementation, do not turn guessed steps or technical choices into mandatory task requirements.
+10. Use MemoryPatch only for concise planning state or findings; stable IDs update existing entries instead of creating duplicates, and Runtime control state belongs in Working Context.
+11. Make approvalRequest explicitly ask the user to approve the complete proposed task contract.
+Output protocol:
+Return exactly one JSON object without a Markdown code block or additional text.
+The only non-lookup shape is {"kind":"task_proposal","task":{"objective":"non-empty text","completionCriteria":["non-empty text"]},"approvalRequest":"non-empty text","memoryPatch":{...optional...}}.
+The exclusive lookup shape is {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+MemoryPatch, when present, must be {"protocolVersion":1,"operations":[...]} and may contain only add_finding, update_finding, upsert_hypothesis, upsert_plan_item, upsert_blocker, or set_next_action operations.
+Do not return a question, context_ready, Tool request, checkpoint, or execution result. A MemoryPatch does not trigger another model call.

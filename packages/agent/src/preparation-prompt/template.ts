@@ -30,6 +30,12 @@ export const GATHERING_CONTEXT_TEMPLATE_V4: PromptTemplateAsset = {
     sourceUrl: new URL("./gathering-context@4.njk", import.meta.url),
 };
 
+/** v5 bm25-lite Context Lookup 与来源路由模板。 */
+export const GATHERING_CONTEXT_TEMPLATE_V5: PromptTemplateAsset = {
+    id: "gathering-context@5",
+    sourceUrl: new URL("./gathering-context@5.njk", import.meta.url),
+};
+
 /**
  * v1 gathering_context 模板的兼容别名。
  *
@@ -65,6 +71,12 @@ export const PLANNING_TEMPLATE_V3: PromptTemplateAsset = {
 export const PLANNING_TEMPLATE_V4: PromptTemplateAsset = {
     id: "planning@4",
     sourceUrl: new URL("./planning@4.njk", import.meta.url),
+};
+
+/** v5 bm25-lite Context Lookup 与来源路由模板。 */
+export const PLANNING_TEMPLATE_V5: PromptTemplateAsset = {
+    id: "planning@5",
+    sourceUrl: new URL("./planning@5.njk", import.meta.url),
 };
 
 /**

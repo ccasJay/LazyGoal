@@ -152,7 +152,7 @@ function createLegacyGoal(
     };
 }
 
-test("Composition Root 激活 v5/trajectory-layered@1 并保持旧 Bundle 三阶段逐字恢复", async () => {
+test("Composition Root 激活 v6/bm25-lite@1 并保持旧 Bundle 三阶段逐字恢复", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v2-"));
     await writeDefaultProfile(workspace);
     const responses = [
@@ -267,13 +267,17 @@ test("Composition Root 激活 v5/trajectory-layered@1 并保持旧 Bundle 三阶
         }
         assert.equal(planningView.phase, "planning");
         assert.equal(planningView.waitingFor, "approval");
-        assert.equal(planningView.goal.definition.promptBundleVersion, 5);
+        assert.equal(planningView.goal.definition.promptBundleVersion, 6);
         assert.deepEqual(planningView.goal.definition.memoryProtocol, {
             kind: "structured",
             version: 1,
         });
         assert.deepEqual(planningView.goal.definition.modelContextProtocol, {
             kind: "trajectory-layered",
+            version: 1,
+        });
+        assert.deepEqual(planningView.goal.definition.contextRetrievalProtocol, {
+            kind: "bm25-lite",
             version: 1,
         });
 
@@ -289,16 +293,21 @@ test("Composition Root 激活 v5/trajectory-layered@1 并保持旧 Bundle 三阶
                 readonly promptBundleVersion: number;
                 readonly memoryProtocol?: unknown;
                 readonly modelContextProtocol?: unknown;
+                readonly contextRetrievalProtocol?: unknown;
             };
         };
     assert.equal(snapshot.metadata.schemaVersion, 9);
-        assert.equal(snapshot.definition.promptBundleVersion, 5);
+        assert.equal(snapshot.definition.promptBundleVersion, 6);
         assert.deepEqual(snapshot.definition.memoryProtocol, {
             kind: "structured",
             version: 1,
         });
         assert.deepEqual(snapshot.definition.modelContextProtocol, {
             kind: "trajectory-layered",
+            version: 1,
+        });
+        assert.deepEqual(snapshot.definition.contextRetrievalProtocol, {
+            kind: "bm25-lite",
             version: 1,
         });
 
@@ -315,10 +324,10 @@ test("Composition Root 激活 v5/trajectory-layered@1 并保持旧 Bundle 三阶
 
         const structuredSystems = requests.slice(0, 3).map(systemContent);
         assert.ok(structuredSystems[0]?.includes(
-            "Active Phase Protocol: gathering_context (structured@1; trajectory-layered@1)",
+            "Active Phase Protocol: gathering_context (structured@1; trajectory-layered@1; bm25-lite@1)",
         ));
-        assert.ok(structuredSystems[1]?.includes("Active Phase Protocol: planning (structured@1; trajectory-layered@1)"));
-        assert.ok(structuredSystems[2]?.includes("Active Phase Protocol: executing (structured@1; trajectory-layered@1)"));
+        assert.ok(structuredSystems[1]?.includes("Active Phase Protocol: planning (structured@1; trajectory-layered@1; bm25-lite@1)"));
+        assert.ok(structuredSystems[2]?.includes("Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)"));
         assert.ok(structuredSystems[0]?.includes("MemoryPatch"));
         assert.ok(structuredSystems[2]?.includes("completionEvidence"));
         assert.deepEqual(parseAuthorizedTools(structuredSystems[0] ?? ""), []);

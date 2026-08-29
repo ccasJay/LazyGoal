@@ -1,5 +1,6 @@
 import type { LLMRequest } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
@@ -23,8 +24,15 @@ function project(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     workingMemory?: WorkingMemory,
+    contextLookupResult?: ContextLookupResult,
 ): ModelInferenceView {
-    return new ModelInferenceProjector().project(goal, tools, workingMemory);
+    return new ModelInferenceProjector().project(
+        goal,
+        tools,
+        workingMemory,
+        undefined,
+        contextLookupResult,
+    );
 }
 
 const conversationAdapter = new ConversationContextUnitAdapter();
@@ -61,7 +69,12 @@ async function assembleTrajectoryContext(
                 role: message.role,
                 content: message.content,
             })),
-            renderWorkingContextMessage(view.workingContext, view.workingMemory),
+            renderWorkingContextMessage(
+                view.workingContext,
+                view.workingMemory,
+                undefined,
+                view.contextLookupResult,
+            ),
         ],
     };
 
@@ -96,6 +109,9 @@ async function compactConversation(
  * @param renderer - 与 Executor 共享的 Prompt Bundle Renderer。
  * @param contextCompactor - 与其它阶段共享的异步 Conversation 裁剪策略。
  * @param signal - 可选的调用级中止信号，原样传给 Compactor。
+ * @param workingMemory - structured@1 的即时 Working Memory。
+ * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
+ * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
  * @returns 完成上下文裁剪与渲染后的单轮 LLM 请求。
  * @throws Goal 不处于 running executing 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -107,8 +123,14 @@ export async function buildStepRequest(
     signal?: AbortSignal,
     workingMemory?: WorkingMemory,
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
+    contextLookupResult?: ContextLookupResult,
 ): Promise<LLMRequest> {
-    const projected = project(goal, tools, workingMemory);
+    const projected = project(
+        goal,
+        tools,
+        workingMemory,
+        contextLookupResult,
+    );
 
     if (projected.workingContext.phase !== "executing") {
         throw new Error("Step request requires a running executing Goal");
@@ -144,6 +166,9 @@ export async function buildStepRequest(
  * @param renderer - 与 Executor 共享的 Prompt Bundle Renderer。
  * @param contextCompactor - 与执行阶段共享的异步 Conversation 裁剪策略。
  * @param signal - 可选的调用级中止信号，原样传给 Compactor。
+ * @param workingMemory - structured@1 的即时 Working Memory。
+ * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
+ * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
  * @returns 保持真实消息顺序并附带当前阶段控制消息的请求。
  * @throws Goal 不处于 active Preparation 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -155,6 +180,7 @@ export async function buildPreparationRequest(
     signal?: AbortSignal,
     workingMemory?: WorkingMemory,
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
+    contextLookupResult?: ContextLookupResult,
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
@@ -163,6 +189,7 @@ export async function buildPreparationRequest(
             ? tools
         : [],
         workingMemory,
+        contextLookupResult,
     );
 
     if (projected.workingContext.phase === "executing") {

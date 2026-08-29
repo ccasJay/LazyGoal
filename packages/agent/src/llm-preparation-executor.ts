@@ -126,6 +126,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             control?.signal,
             input.workingMemory,
             this.trajectoryContextAssembler,
+            input.contextLookupResult,
         );
         throwIfAborted(control);
         const startedAt = Date.now();

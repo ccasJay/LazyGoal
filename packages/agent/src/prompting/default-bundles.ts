@@ -6,16 +6,19 @@ import {
     GLOBAL_OVERVIEW_TEMPLATE_V2,
     GLOBAL_OVERVIEW_TEMPLATE_V3,
     GLOBAL_OVERVIEW_TEMPLATE_V4,
+    GLOBAL_OVERVIEW_TEMPLATE_V5,
 } from "../global-system-prompt/template";
 import {
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
     GATHERING_CONTEXT_TEMPLATE_V3,
     GATHERING_CONTEXT_TEMPLATE_V4,
+    GATHERING_CONTEXT_TEMPLATE_V5,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
     PLANNING_TEMPLATE_V3,
     PLANNING_TEMPLATE_V4,
+    PLANNING_TEMPLATE_V5,
 } from "../preparation-prompt/template";
 import {
     AGENT_DECISION_TEMPLATE_V1,
@@ -23,6 +26,7 @@ import {
     AGENT_DECISION_TEMPLATE_V3,
     AGENT_DECISION_TEMPLATE_V4,
     AGENT_DECISION_TEMPLATE_V5,
+    AGENT_DECISION_TEMPLATE_V6,
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
@@ -50,7 +54,7 @@ import type {
  * 该值归 Agent 所有，由 TUI Composition Root 注入 Runtime 的
  * `LauncherDependencies.promptBundleVersion`，从而在新 Goal 创建时冻结。
  */
-export const CURRENT_PROMPT_BUNDLE_VERSION = 5;
+export const CURRENT_PROMPT_BUNDLE_VERSION = 6;
 
 /**
  * 通用的 Profile 展示模板资产，归 prompting 基础设施所有。
@@ -81,20 +85,24 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V2,
     GLOBAL_OVERVIEW_TEMPLATE_V3,
     GLOBAL_OVERVIEW_TEMPLATE_V4,
+    GLOBAL_OVERVIEW_TEMPLATE_V5,
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
     GATHERING_CONTEXT_TEMPLATE_V3,
     GATHERING_CONTEXT_TEMPLATE_V4,
+    GATHERING_CONTEXT_TEMPLATE_V5,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
     PLANNING_TEMPLATE_V3,
     PLANNING_TEMPLATE_V4,
+    PLANNING_TEMPLATE_V5,
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V3,
     AGENT_DECISION_TEMPLATE_V4,
     AGENT_DECISION_TEMPLATE_V5,
+    AGENT_DECISION_TEMPLATE_V6,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -221,15 +229,36 @@ export const PROMPT_BUNDLE_V5_MANIFEST: PromptBundleManifest = {
     ],
 };
 
-/** 当前新 Goal 使用的 v5 Structured Working Memory + Trajectory Manifest。 */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V5_MANIFEST;
+/** v6 Structured Working Memory + Trajectory + bm25-lite Retrieval Bundle Manifest。 */
+export const PROMPT_BUNDLE_V6_MANIFEST: PromptBundleManifest = {
+    version: 6,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V5.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V5.id,
+                planning: PLANNING_TEMPLATE_V5.id,
+                executing: AGENT_DECISION_TEMPLATE_V6.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
+/** 当前新 Goal 使用的 v6 Structured Working Memory + Trajectory + Retrieval Manifest。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V6_MANIFEST;
 
 /**
  * 创建默认 Prompt Bundle 的冻结协议校验器。
  *
  * @remarks
  * v1–v3 只兼容 `checkpoint@1`，v4 兼容 `structured@1`/`conversation@1`，v5 兼容
- * `structured@1`/`trajectory-layered@1`。校验器不读取文件、
+ * `structured@1`/`trajectory-layered@1`，v6 额外冻结 `bm25-lite@1`。校验器不读取文件、
  * 不调用模型，也不修改输入；组合根应在首次保存 Goal 或调用模型前调用它，
  * 使未知版本和交叉协议 fail-closed。该适配器依赖 Runtime 的稳定协议错误，
  * 但不把 Prompt 模板文本泄漏到 Runtime。
@@ -275,6 +304,11 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
             memory: { kind: "structured", version: 1 },
             modelContext: { kind: "trajectory-layered", version: 1 },
             contextRetrieval: { kind: "none", version: 1 },
+        }],
+        [6, {
+            memory: { kind: "structured", version: 1 },
+            modelContext: { kind: "trajectory-layered", version: 1 },
+            contextRetrieval: { kind: "bm25-lite", version: 1 },
         }],
     ]);
 
@@ -366,6 +400,7 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
             PROMPT_BUNDLE_V3_MANIFEST,
             PROMPT_BUNDLE_V4_MANIFEST,
             PROMPT_BUNDLE_V5_MANIFEST,
+            PROMPT_BUNDLE_V6_MANIFEST,
         ],
     });
 }

@@ -211,6 +211,7 @@ export {
     PROMPT_BUNDLE_V3_MANIFEST,
     PROMPT_BUNDLE_V4_MANIFEST,
     PROMPT_BUNDLE_V5_MANIFEST,
+    PROMPT_BUNDLE_V6_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";

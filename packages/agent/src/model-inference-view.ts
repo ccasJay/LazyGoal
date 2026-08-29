@@ -402,4 +402,10 @@ export interface ModelInferenceView {
     readonly workingMemory?: ModelWorkingMemory;
     /** trajectory-layered@1 的即时 Hot/Warm 投影；conversation@1 必须省略。 */
     readonly trajectoryContext?: ModelTrajectoryContext;
+    /**
+     * 上一轮已提交的历史 Lookup 结果；仅属于当前模型调用，不写入 Goal、
+     * Snapshot 或 Working Memory。结果带 committed boundary，不能替代当前
+     * Workspace/Environment 的授权 Tool Observation。
+     */
+    readonly contextLookupResult?: ModelContextLookupResult;
 }

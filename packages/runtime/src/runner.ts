@@ -29,6 +29,10 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
+import {
+    ContextSourceRouter,
+    ContextSourceRouterError,
+} from "./context-source-router";
 import type {
     Tool,
     ToolDefinition,
@@ -552,6 +556,11 @@ export interface RunnerDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /**
+     * Context Source Router；省略时使用无状态默认 Router，确保 lookup 只查询
+     * 历史 Trajectory，不替代当前 Workspace/Environment 或任务权威来源。
+     */
+    readonly contextSourceRouter?: ContextSourceRouter;
 }
 
 /**
@@ -585,6 +594,7 @@ export class Runner {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly contextSourceRouter: ContextSourceRouter;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -596,6 +606,8 @@ export class Runner {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
+        this.contextSourceRouter = dependencies.contextSourceRouter
+            ?? new ContextSourceRouter();
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -1511,12 +1523,24 @@ export class Runner {
                         );
                     }
 
+                    let routedRequest;
+                    try {
+                        routedRequest = this.contextSourceRouter.routeContextLookup(
+                            normalized.decision,
+                        );
+                    } catch (error) {
+                        if (error instanceof ContextSourceRouterError) {
+                            return this.invalidContextLookup(error.message);
+                        }
+                        throw error;
+                    }
+
                     throwIfAborted(control);
                     let invocation;
                     try {
                         invocation = await invokeContextLookup({
                             goal,
-                            request: normalized.decision,
+                            request: routedRequest.request,
                             phase: "executing",
                             ...(this.contextLookupPort === undefined
                                 ? {}

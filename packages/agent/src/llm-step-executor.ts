@@ -122,6 +122,7 @@ export class LLMStepExecutor implements StepExecutor {
             control?.signal,
             input.workingMemory,
             this.trajectoryContextAssembler,
+            input.contextLookupResult,
         );
         throwIfAborted(control);
         const startedAt = Date.now();

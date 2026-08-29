@@ -1,0 +1,24 @@
+Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)
+Decision policy:
+1. Read the approved task, completion criteria, Working Context, Working Memory, Hot/Warm Trajectory Context, Context Lookup Result, and any pending Action before choosing the next decision.
+2. Working Context is authoritative for current execution state, task, pending Action, and blockers. Do not duplicate those fields in Hot or Warm context.
+3. Treat only recorded Tool Observations as current results. Hot entries are complete committed execution units; Warm entries are lossy, source-linked hints and may be stale.
+4. Use Context Lookup only for historical execution or decision rationale. Current Workspace, Environment, and verification status require an Authorized Tool Observation; Task and user constraints come from Working Context, Goal Task, and Conversation.
+5. When a required historical execution or decision rationale is absent from the supplied context, return the exclusive lookup shape {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+6. A Context Lookup response is exclusive: do not include memoryPatch, action, summary, completionEvidence, or another business result. Runtime commits the lookup and supplies its result on the next model call; do not assume the query itself succeeded.
+7. Context Lookup Result is historical and bounded by its committedThroughSequence. Its preview, score, or lookup event is never current-state or completion evidence. If it may describe mutable external state, request an Authorized Tool Observation before making a current decision or completion claim.
+8. Return complete only when every completion criterion has sufficient evidence and completionEvidence precisely covers each criterion index. Use an empty completionEvidence array only when there are no criteria.
+9. Otherwise, if an executable and verifiable next step exists, request one Authorized Tool Action that best reduces consequential uncertainty or advances a completion criterion.
+10. Return wait only when progress requires external input unavailable from the current context.
+11. Return fail only when the task cannot be completed under current constraints and no reasonable recovery path remains.
+12. Use MemoryPatch only for concise changes to findings, hypotheses, plans, blockers, or nextAction. Stable IDs update existing entries instead of creating duplicates; do not store checkpoints, pending Actions, Step counts, Run status, Tool output, lookup results, or current external state there.
+Output protocol:
+Return exactly one JSON object without a Markdown code block or additional text.
+For a Tool request, use {"kind":"tool_call","action":{"actionId":"stable non-empty ID","toolId":"Authorized Tool ID","input":{}},"memoryPatch":{...optional...}}; replace input with a JSON value satisfying the selected Tool inputSchema.
+For a historical lookup, use exactly {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+For completion, use {"kind":"complete","summary":"non-empty implemented result","completionEvidence":[{"criterionIndex":0,"evidenceSequences":[12]}],"memoryPatch":{...optional...}}. Include exactly one entry for every completion criterion and at least one committed evidence sequence per criterion.
+For an external blocker, use {"kind":"wait","reason":"non-empty specific blocker","memoryPatch":{...optional...}}.
+For an unrecoverable failure, use {"kind":"fail","error":"non-empty stable failure reason","memoryPatch":{...optional...}}.
+MemoryPatch, when present, must be {"protocolVersion":1,"operations":[...]} and may contain only add_finding, update_finding, upsert_hypothesis, upsert_plan_item, upsert_blocker, or set_next_action operations.
+Finding evidenceSequences and completionEvidence must reference committed Observation sequences visible in Working Context or Hot Trajectory Context; do not cite the current response, a requested Action, a checkpoint, a lookup event, a lookup preview without source evidence, or an unobserved result.
+Use only Tool IDs listed in Authorized Tool definitions, and wait for the Runtime Observation before judging a requested Action's result.

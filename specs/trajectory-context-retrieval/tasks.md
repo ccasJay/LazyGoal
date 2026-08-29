@@ -42,7 +42,7 @@
   - 实现 64 项查询 LRU 与包含 canonical query/filters/boundary/version 的 key，测试损坏/领先/hash 失配回退、跨边界隔离和删除重建。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 8. 接入 ContextSourceRouter 与 Prompt Bundle v6
+- [x] //TODO 8. 接入 ContextSourceRouter 与 Prompt Bundle v6
 
   - 实现历史执行/决策理由的封闭查询路由，将当前 Workspace/Environment/验证状态保留给授权 Tool，并从 Goal Task/Conversation 提供任务契约。
   - 在三阶段 Prompt 与 Executor 中接入 lookup 结果和历史时效提示，增加错误路由、无外部 Tool 副作用及下一轮恢复测试。

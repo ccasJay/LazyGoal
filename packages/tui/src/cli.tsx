@@ -625,6 +625,10 @@ export async function createCompositionRoot(
                         kind: "trajectory-layered",
                         version: 1,
                     },
+                    contextRetrievalProtocol: {
+                        kind: "bm25-lite",
+                        version: 1,
+                    },
                     protocolValidator,
                     trajectorySink: trajectoryStore,
                     traceSink,

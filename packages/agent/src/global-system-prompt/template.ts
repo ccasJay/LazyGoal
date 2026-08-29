@@ -30,6 +30,12 @@ export const GLOBAL_OVERVIEW_TEMPLATE_V4: PromptTemplateAsset = {
     sourceUrl: new URL("./global-overview@4.njk", import.meta.url),
 };
 
+/** v5 Context Source 路由、历史 Lookup 时效与当前观察边界模板。 */
+export const GLOBAL_OVERVIEW_TEMPLATE_V5: PromptTemplateAsset = {
+    id: "global-overview@5",
+    sourceUrl: new URL("./global-overview@5.njk", import.meta.url),
+};
+
 /**
  * v1 Global Overview 的兼容别名。
  *

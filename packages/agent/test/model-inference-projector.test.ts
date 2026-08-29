@@ -372,3 +372,67 @@ test("Projector 为 structured@1 独立投影并冻结 Working Memory", () => {
         /requires a WorkingMemory projection/,
     );
 });
+
+test("Projector 只向 v6 bm25-lite Goal 投影即时历史 Lookup Result", () => {
+    const goal = createGoal({
+        promptBundleVersion: 6,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        id: "goal-lookup",
+        intent,
+        profile,
+        runId: "run-lookup",
+    });
+    const result = {
+        status: "found" as const,
+        lookupId: "lookup-1",
+        committedThroughSequence: 4,
+        matches: [{
+            documentId: "doc-1",
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            firstSequence: 3,
+            lastSequence: 4,
+            matchedFields: ["path" as const],
+            score: 2,
+            preview: "src/config.ts",
+            truncated: false,
+            historical: true as const,
+            sourceEventIds: ["event-3"],
+        }],
+        truncated: false,
+    };
+    const view = projector.project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+        undefined,
+        result,
+    );
+
+    assert.equal(view.contextLookupResult?.status, "found");
+    assert.equal(view.contextLookupResult?.lookupId, "lookup-1");
+    assert.equal(view.contextLookupResult?.freshness.kind, "historical");
+    assert.ok(Object.isFrozen(view.contextLookupResult));
+    assert.notStrictEqual(view.contextLookupResult, result);
+
+    const legacyGoal = createGoal({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "structured", version: 1 },
+        id: "goal-no-lookup",
+        intent,
+        profile,
+        runId: "run-no-lookup",
+    });
+    assert.throws(
+        () => projector.project(
+            legacyGoal,
+            [],
+            createEmptyWorkingMemory(),
+            undefined,
+            result,
+        ),
+        /Context Lookup Result requires bm25-lite retrieval/,
+    );
+});
