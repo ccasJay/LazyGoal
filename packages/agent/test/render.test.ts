@@ -146,3 +146,24 @@ test("renderWorkingContextMessage 逐字符固定为 JSON 控制的 user 消息"
         content: JSON.stringify(workingContext, null, 2),
     });
 });
+
+test("structured 请求在控制消息中独立携带 Working Memory", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "gathering_context",
+        intent: "完成示例任务",
+    };
+    const workingMemory = {
+        protocolVersion: 1 as const,
+        derivedThroughSequence: 3,
+        findings: [],
+        hypotheses: [],
+        plan: [],
+        blockers: [],
+    };
+    const rendered = renderWorkingContextMessage(workingContext, workingMemory);
+
+    assert.deepEqual(JSON.parse(rendered.content), {
+        ...workingContext,
+        workingMemory,
+    });
+});

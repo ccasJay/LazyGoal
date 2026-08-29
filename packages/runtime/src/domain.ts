@@ -587,26 +587,45 @@ export type Observation =
     };
 
 /**
- * Agent 对当前执行轮次作出的唯一结构化决策。
+ * Structured `complete` Decision 对每个完成标准提交的事实序列引用。
  *
  * @remarks
- * 每个分支都必须带非空、已吸收当前 Working Context 的累计 checkpoint；
- * `tool_call` 才会产生待执行 Action，其余分支直接结束本轮。
+ * `criterionIndex` 按当前 Goal Task 的 `completionCriteria` 零基索引；Runtime
+ * 只验证索引覆盖、引用已提交且属于允许证据类别，不判断自然语言摘要是否真实。
+ * 空完成标准必须使用空数组，不能伪造无关证据。
  *
  * @example
  * ```ts
- * const decision: AgentDecision = {
- *   kind: "tool_call",
- *   checkpoint: "已定位需要读取的配置文件",
- *   action: {
- *     actionId: "action-1",
- *     toolId: "read_file",
- *     input: { path: "config.json" },
- *   },
+ * const evidence: CompletionEvidence = {
+ *   criterionIndex: 0,
+ *   evidenceSequences: [18, 21],
  * };
  * ```
  */
-export type AgentDecision =
+export interface CompletionEvidence {
+    /** 当前 Goal Task completionCriteria 的零基索引。 */
+    readonly criterionIndex: number;
+    /** 支持该标准的已提交 Observation/事实 sequence。 */
+    readonly evidenceSequences: readonly number[];
+}
+
+/**
+ * 旧 `checkpoint@1` 协议的 AgentDecision。
+ *
+ * @remarks
+ * 该类型保留历史 Prompt Bundle v1–v3 的 checkpoint 语义；新 Goal 不应将它与
+ * structured Decision 混用。
+ *
+ * @example
+ * ```ts
+ * const decision: LegacyAgentDecision = {
+ *   kind: "complete",
+ *   checkpoint: "已完成目标",
+ *   summary: "目标完成",
+ * };
+ * ```
+ */
+export type LegacyAgentDecision =
     | {
         readonly kind: "tool_call";
         readonly checkpoint: string;
@@ -627,6 +646,49 @@ export type AgentDecision =
         readonly checkpoint: string;
         readonly error: string;
     };
+
+/**
+ * 新 `structured@1` 协议的 AgentDecision。
+ *
+ * @remarks
+ * Structured Decision 不携带 checkpoint；Working Memory 的增量由可选
+ * `memoryPatch` 承载，`complete` 还必须提供按 criterion index 对齐的
+ * `completionEvidence`。Runtime 仍负责 Action、Observation、Step 与 Run 状态。
+ *
+ * @example
+ * ```ts
+ * const decision: StructuredAgentDecision = {
+ *   kind: "complete",
+ *   summary: "所有标准均已验证",
+ *   completionEvidence: [],
+ * };
+ * ```
+ */
+export type StructuredAgentDecision =
+    | {
+        readonly kind: "tool_call";
+        readonly action: ToolCallAction;
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
+        readonly completionEvidence: readonly CompletionEvidence[];
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        readonly kind: "wait";
+        readonly reason: string;
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        readonly kind: "fail";
+        readonly error: string;
+        readonly memoryPatch?: WorkingMemoryPatch;
+    };
+
+/** Agent 当前冻结协议对应的四分支决策联合。 */
+export type AgentDecision = LegacyAgentDecision | StructuredAgentDecision;
 
 /**
  * 当前未完成 Action 的持久化意图。
@@ -833,7 +895,8 @@ export type RunInput =
     | { readonly kind: "start" }
     | {
         readonly kind: "stage_action";
-        readonly checkpoint: string;
+        /** legacy checkpoint；structured@1 Action 不携带该字段。 */
+        readonly checkpoint?: string;
         readonly action: ToolCallAction;
         readonly status?: "approved" | "awaiting_approval";
     }

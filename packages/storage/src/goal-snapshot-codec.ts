@@ -9,6 +9,7 @@ import type {
     PendingAction,
     StepRecord,
     ToolCallAction,
+    WorkingMemoryPatch,
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
@@ -23,6 +24,7 @@ import type {
     GoalSnapshotPendingActionV5,
     GoalSnapshotProfileV5,
     GoalSnapshotStateV5,
+    GoalSnapshotStepRecordV7,
     GoalSnapshotStepRecordV5,
     GoalSnapshotStopReasonV5,
     GoalSnapshotToolCallActionV5,
@@ -268,7 +270,16 @@ function encodeObservation(
     }
 }
 
-function encodeStep(step: StepRecord): GoalSnapshotStepRecordV5 {
+function cloneMemoryPatch(
+    patch: unknown,
+): WorkingMemoryPatch {
+    return structuredClone(patch) as WorkingMemoryPatch;
+}
+
+function encodeStep(
+    step: StepRecord,
+    memoryProtocol: MemoryProtocol,
+): GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7 {
     switch (step.kind) {
         case "action":
             return {
@@ -278,6 +289,57 @@ function encodeStep(step: StepRecord): GoalSnapshotStepRecordV5 {
             };
         case "decision": {
             const result = step.result;
+
+            if (memoryProtocol.kind === "structured") {
+                if ("checkpoint" in result) {
+                    throw new GoalSnapshotProtocolError(
+                        "structured Decision cannot contain checkpoint",
+                    );
+                }
+
+                return {
+                    kind: "decision",
+                    result: result.kind === "complete"
+                        ? {
+                            kind: "complete",
+                            summary: result.summary,
+                            completionEvidence: result.completionEvidence.map((evidence) => ({
+                                criterionIndex: evidence.criterionIndex,
+                                evidenceSequences: [...evidence.evidenceSequences],
+                            })),
+                            ...(result.memoryPatch === undefined
+                                ? {}
+                                : {
+                                    memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                }),
+                        }
+                        : result.kind === "wait"
+                            ? {
+                                kind: "wait",
+                                reason: result.reason,
+                                ...(result.memoryPatch === undefined
+                                    ? {}
+                                    : {
+                                        memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                    }),
+                            }
+                            : {
+                                kind: "fail",
+                                error: result.error,
+                                ...(result.memoryPatch === undefined
+                                    ? {}
+                                    : {
+                                        memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                    }),
+                            },
+                };
+            }
+
+            if (!("checkpoint" in result)) {
+                throw new GoalSnapshotProtocolError(
+                    "checkpoint Decision must contain checkpoint",
+                );
+            }
 
             return {
                 kind: "decision",
@@ -305,6 +367,7 @@ function encodeStep(step: StepRecord): GoalSnapshotStepRecordV5 {
 
 function encodeState(goal: Goal) {
     const run = goal.state.run;
+    const memoryProtocol = resolveMemoryProtocol(goal.definition);
 
     return {
         workflow: encodeWorkflow(goal.state.workflow),
@@ -332,7 +395,7 @@ function encodeState(goal: Goal) {
                 }),
             ...(run.lastStep === undefined
                 ? {}
-                : { lastStep: encodeStep(run.lastStep) }),
+                : { lastStep: encodeStep(run.lastStep, memoryProtocol) }),
             ...(run.checkpoint === undefined ? {} : { checkpoint: run.checkpoint }),
             ...(run.pendingAction === undefined
                 ? {}
@@ -427,7 +490,10 @@ function decodeObservation(
     }
 }
 
-function decodeStep(step: GoalSnapshotStepRecordV5): StepRecord {
+function decodeStep(
+    step: GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7,
+    memoryProtocol: MemoryProtocol,
+): StepRecord {
     switch (step.kind) {
         case "action":
             return {
@@ -437,6 +503,57 @@ function decodeStep(step: GoalSnapshotStepRecordV5): StepRecord {
             };
         case "decision": {
             const result = step.result;
+
+            if (memoryProtocol.kind === "structured") {
+                if ("checkpoint" in result) {
+                    throw new GoalSnapshotProtocolError(
+                        "structured Decision cannot contain checkpoint",
+                    );
+                }
+
+                return {
+                    kind: "decision",
+                    result: result.kind === "complete"
+                        ? {
+                            kind: "complete",
+                            summary: result.summary,
+                            completionEvidence: result.completionEvidence.map((evidence) => ({
+                                criterionIndex: evidence.criterionIndex,
+                                evidenceSequences: [...evidence.evidenceSequences],
+                            })),
+                            ...(result.memoryPatch === undefined
+                                ? {}
+                                : {
+                                    memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                }),
+                        }
+                        : result.kind === "wait"
+                            ? {
+                                kind: "wait",
+                                reason: result.reason,
+                                ...(result.memoryPatch === undefined
+                                    ? {}
+                                    : {
+                                    memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                    }),
+                            }
+                            : {
+                                kind: "fail",
+                                error: result.error,
+                                ...(result.memoryPatch === undefined
+                                    ? {}
+                                    : {
+                                    memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                    }),
+                            },
+                };
+            }
+
+            if (!("checkpoint" in result)) {
+                throw new GoalSnapshotProtocolError(
+                    "checkpoint Decision must contain checkpoint",
+                );
+            }
 
             return {
                 kind: "decision",
@@ -468,13 +585,19 @@ function decodeSnapshot(
 ): Goal {
     const state = snapshot.state;
     const run = state.run;
+    const memoryProtocol: MemoryProtocol = "memoryProtocol" in snapshot.definition
+        ? {
+            kind: snapshot.definition.memoryProtocol.kind,
+            version: snapshot.definition.memoryProtocol.version,
+        }
+        : { kind: "checkpoint", version: 1 };
     const decodedRun = {
         id: run.id,
         status: run.status,
         stepCount: run.stepCount,
         ...(run.lastStep === undefined
             ? {}
-            : { lastStep: decodeStep(run.lastStep) }),
+            : { lastStep: decodeStep(run.lastStep, memoryProtocol) }),
         ...(run.checkpoint === undefined
             ? {}
             : { checkpoint: run.checkpoint }),

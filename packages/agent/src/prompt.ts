@@ -1,5 +1,5 @@
 import type { LLMRequest } from "../../llm/src/core/types";
-import type { Goal } from "../../runtime/src/domain";
+import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
@@ -15,8 +15,12 @@ import { renderRequest } from "./render";
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
 
-function project(goal: Goal, tools: readonly ToolDefinition[] = []): ModelInferenceView {
-    return new ModelInferenceProjector().project(goal, tools);
+function project(
+    goal: Goal,
+    tools: readonly ToolDefinition[] = [],
+    workingMemory?: WorkingMemory,
+): ModelInferenceView {
+    return new ModelInferenceProjector().project(goal, tools, workingMemory);
 }
 
 const conversationAdapter = new ConversationContextUnitAdapter();
@@ -53,8 +57,9 @@ export async function buildStepRequest(
     renderer: PromptBundleRenderer,
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
+    workingMemory?: WorkingMemory,
 ): Promise<LLMRequest> {
-    const projected = project(goal, tools);
+    const projected = project(goal, tools, workingMemory);
 
     if (projected.workingContext.phase !== "executing") {
         throw new Error("Step request requires a running executing Goal");
@@ -91,13 +96,15 @@ export async function buildPreparationRequest(
     renderer: PromptBundleRenderer,
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
+    workingMemory?: WorkingMemory,
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
         goal.definition.promptBundleVersion >= 2
             && goal.state.workflow.phase === "planning"
             ? tools
-            : [],
+        : [],
+        workingMemory,
     );
 
     if (projected.workingContext.phase === "executing") {

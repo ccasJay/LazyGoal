@@ -293,8 +293,9 @@ export interface GoalSnapshotMemoryRevisionV7 {
     readonly sequence: number;
 }
 
-/** v7 Run 执行状态，新增可选 Memory revision 指针。 */
-export type GoalSnapshotRunStateV7 = GoalSnapshotRunStateV6 & {
+/** v7 Run 执行状态，新增结构化 Decision 与可选 Memory revision 指针。 */
+export type GoalSnapshotRunStateV7 = Omit<GoalSnapshotRunStateV6, "lastStep"> & {
+    readonly lastStep?: GoalSnapshotStepRecordV7 | undefined;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV7 | undefined;
 };
 
@@ -323,6 +324,54 @@ export type GoalSnapshotStepRecordV5 =
         readonly kind: "decision";
         readonly result: GoalSnapshotDecisionResultV5;
     };
+
+/** v7 structured Decision 的持久化结果分支。 */
+export type GoalSnapshotStructuredDecisionResultV7 =
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
+        readonly completionEvidence: readonly GoalSnapshotCompletionEvidenceV7[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    }
+    | {
+        readonly kind: "wait";
+        readonly reason: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    }
+    | {
+        readonly kind: "fail";
+        readonly error: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    };
+
+/** v7 Decision 结果联合，按 Goal 冻结协议选择 legacy 或 structured 分支。 */
+export type GoalSnapshotDecisionResultV7 =
+    | GoalSnapshotDecisionResultV5
+    | GoalSnapshotStructuredDecisionResultV7;
+
+/** v7 最近 Step 记录，允许 structured AgentDecision。 */
+export type GoalSnapshotStepRecordV7 =
+    | {
+        readonly kind: "action";
+        readonly action: GoalSnapshotToolCallActionV5;
+        readonly observation: GoalSnapshotObservationV5;
+    }
+    | {
+        readonly kind: "decision";
+        readonly result: GoalSnapshotDecisionResultV7;
+    };
+
+/** Structured complete Decision 的持久化完成证据。 */
+export interface GoalSnapshotCompletionEvidenceV7 {
+    readonly criterionIndex: number;
+    readonly evidenceSequences: readonly number[];
+}
+
+/** v7 accepted Memory Patch 的持久化输入结构。 */
+export interface GoalSnapshotMemoryPatchV7 {
+    readonly protocolVersion: 1;
+    readonly operations: readonly Record<string, unknown>[];
+}
 
 /**
  * Tool Action 调用的持久化表示。
@@ -486,6 +535,110 @@ const DecisionResultSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const MemoryPatchOperationSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("add_finding"),
+        finding: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema,
+            evidenceSequences: z.array(z.number().int().positive()),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("update_finding"),
+        finding: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema.optional(),
+            evidenceSequences: z.array(z.number().int().positive()).optional(),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_hypothesis"),
+        hypothesis: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema,
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_plan_item"),
+        planItem: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema,
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_blocker"),
+        blocker: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema,
+            scope: z.enum(["goal", "phase"]),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("set_next_action"),
+        nextAction: z.union([
+            z.object({
+                id: NonEmptyStringSchema,
+                description: NonEmptyStringSchema,
+                status: z.enum(["active", "resolved", "superseded"]).optional(),
+            }).strict(),
+            z.null(),
+        ]),
+    }).strict(),
+]);
+
+const MemoryPatchV7Schema = z.object({
+    protocolVersion: z.literal(1),
+    operations: z.array(MemoryPatchOperationSchema),
+}).strict();
+
+const CompletionEvidenceV7Schema = z.object({
+    criterionIndex: z.number().int().nonnegative(),
+    evidenceSequences: z.array(z.number().int().positive()),
+}).strict();
+
+const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("complete"),
+        summary: NonEmptyStringSchema,
+        completionEvidence: z.array(CompletionEvidenceV7Schema),
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        reason: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        error: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+]);
+
+const DecisionResultV7Schema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        checkpoint: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        checkpoint: NonEmptyStringSchema,
+        reason: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        checkpoint: NonEmptyStringSchema,
+        error: NonEmptyStringSchema,
+    }).strict(),
+    ...StructuredDecisionResultSchema.options,
+]);
+
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
@@ -500,6 +653,18 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("decision"),
         result: DecisionResultSchema,
+    }).strict(),
+]);
+
+const StepRecordV7Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("action"),
+        action: ToolCallActionSchema,
+        observation: ObservationSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("decision"),
+        result: DecisionResultV7Schema,
     }).strict(),
 ]);
 
@@ -810,6 +975,45 @@ function validateSnapshotInvariants(
                 ["state", "run", "memoryRevision", "sequence"],
             );
         }
+
+        if (step?.kind === "decision") {
+            const decisionResult = step.result as {
+                readonly kind: string;
+                readonly checkpoint?: unknown;
+                readonly completionEvidence?: unknown;
+                readonly memoryPatch?: unknown;
+            };
+
+            if (memoryProtocol.kind === "structured") {
+                if (decisionResult.checkpoint !== undefined) {
+                    addInvariantIssue(
+                        context,
+                        "structured Decision cannot contain checkpoint",
+                        ["state", "run", "lastStep", "result", "checkpoint"],
+                    );
+                }
+                if (
+                    decisionResult.kind === "complete"
+                    && !Array.isArray(decisionResult.completionEvidence)
+                ) {
+                    addInvariantIssue(
+                        context,
+                        "structured complete Decision requires completionEvidence",
+                        ["state", "run", "lastStep", "result", "completionEvidence"],
+                    );
+                }
+            } else if (
+                decisionResult.checkpoint === undefined
+                || decisionResult.completionEvidence !== undefined
+                || decisionResult.memoryPatch !== undefined
+            ) {
+                addInvariantIssue(
+                    context,
+                    "checkpoint Decision must use the legacy response shape",
+                    ["state", "run", "lastStep", "result"],
+                );
+            }
+        }
     }
 }
 
@@ -869,6 +1073,7 @@ const GoalSnapshotV7BaseSchema = z.object({
         run: RunStateSchema.extend({
             committedThroughSequence: z.number().int().nonnegative(),
             memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV7Schema.optional(),
         }).strict(),
     }).strict(),
 }).strict();

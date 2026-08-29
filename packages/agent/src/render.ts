@@ -1,6 +1,7 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     ModelInferenceView,
+    ModelWorkingMemory,
     ModelWorkingContext,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -22,10 +23,15 @@ import type { PromptBundleRenderer } from "./prompting/types";
  */
 export function renderWorkingContextMessage(
     context: ModelWorkingContext,
+    workingMemory?: ModelWorkingMemory,
 ): Extract<LLMMessage, { readonly role: "user" }> {
+    const payload = workingMemory === undefined
+        ? context
+        : { ...context, workingMemory };
+
     return {
         role: "user",
-        content: JSON.stringify(context, null, 2),
+        content: JSON.stringify(payload, null, 2),
     };
 }
 
@@ -58,7 +64,7 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
-            renderWorkingContextMessage(view.workingContext),
+            renderWorkingContextMessage(view.workingContext, view.workingMemory),
         ],
     };
 }

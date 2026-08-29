@@ -3,6 +3,7 @@ import type {
     AgentDecision,
     Goal,
 } from "../../runtime/src/domain";
+import { resolveMemoryProtocol } from "../../runtime/src/domain";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -111,6 +112,7 @@ export class LLMStepExecutor implements StepExecutor {
             this.renderer,
             this.contextCompactor,
             control?.signal,
+            input.workingMemory,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
@@ -148,7 +150,10 @@ export class LLMStepExecutor implements StepExecutor {
         let decision: AgentDecision;
 
         try {
-            decision = parseAgentDecision(response.content);
+            decision = parseAgentDecision(
+                response.content,
+                resolveMemoryProtocol(goal.definition),
+            );
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

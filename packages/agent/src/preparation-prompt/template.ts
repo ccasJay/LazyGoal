@@ -18,6 +18,12 @@ export const GATHERING_CONTEXT_TEMPLATE_V2: PromptTemplateAsset = {
     sourceUrl: new URL("./gathering-context@2.njk", import.meta.url),
 };
 
+/** v3 structured@1 gathering_context 与 MemoryPatch 协议模板。 */
+export const GATHERING_CONTEXT_TEMPLATE_V3: PromptTemplateAsset = {
+    id: "gathering-context@3",
+    sourceUrl: new URL("./gathering-context@3.njk", import.meta.url),
+};
+
 /**
  * v1 gathering_context 模板的兼容别名。
  *
@@ -41,6 +47,12 @@ export const PLANNING_TEMPLATE_V1: PromptTemplateAsset = {
 export const PLANNING_TEMPLATE_V2: PromptTemplateAsset = {
     id: "planning@2",
     sourceUrl: new URL("./planning@2.njk", import.meta.url),
+};
+
+/** v3 structured@1 planning 与 MemoryPatch 协议模板。 */
+export const PLANNING_TEMPLATE_V3: PromptTemplateAsset = {
+    id: "planning@3",
+    sourceUrl: new URL("./planning@3.njk", import.meta.url),
 };
 
 /**

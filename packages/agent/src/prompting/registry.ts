@@ -1,4 +1,4 @@
-import type { PromptPhase } from "../model-inference-view";
+import type { ModelMemoryProtocol, PromptPhase } from "../model-inference-view";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
@@ -134,6 +134,18 @@ function buildManifestIndex(
     return index;
 }
 
+function protocolMatches(
+    manifest: PromptBundleManifest,
+    protocol: ModelMemoryProtocol | undefined,
+): boolean {
+    if (protocol === undefined) {
+        return manifest.memoryProtocol === undefined;
+    }
+
+    return manifest.memoryProtocol?.kind === protocol.kind
+        && manifest.memoryProtocol.version === protocol.version;
+}
+
 /**
  * 以内存模板 ID 与 Bundle 版本为索引的 Prompt Bundle Registry。
  *
@@ -189,13 +201,20 @@ export class PromptBundleRegistry {
      * @returns 与该版本对应的 Manifest。
      * @throws UnsupportedPromptBundleVersionError 版本未注册时抛出，不回退到其他版本。
      */
-    getManifest(version: number): PromptBundleManifest {
+    getManifest(
+        version: number,
+        memoryProtocol?: ModelMemoryProtocol,
+    ): PromptBundleManifest {
         const manifest = this.manifests.get(version);
 
-        if (manifest === undefined) {
+        if (manifest === undefined || !protocolMatches(manifest, memoryProtocol)) {
+            const compatibleVersions = [...this.manifests.entries()]
+                .filter(([, candidate]) => protocolMatches(candidate, memoryProtocol))
+                .map(([candidateVersion]) => candidateVersion)
+                .sort((a, b) => a - b);
             throw new UnsupportedPromptBundleVersionError(
                 version,
-                [...this.manifests.keys()].sort((a, b) => a - b),
+                compatibleVersions,
             );
         }
 

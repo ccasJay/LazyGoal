@@ -18,6 +18,12 @@ export const GLOBAL_OVERVIEW_TEMPLATE_V2: PromptTemplateAsset = {
     sourceUrl: new URL("./global-overview@2.njk", import.meta.url),
 };
 
+/** v3 Structured Working Memory 与证据边界模板。 */
+export const GLOBAL_OVERVIEW_TEMPLATE_V3: PromptTemplateAsset = {
+    id: "global-overview@3",
+    sourceUrl: new URL("./global-overview@3.njk", import.meta.url),
+};
+
 /**
  * v1 Global Overview 的兼容别名。
  *

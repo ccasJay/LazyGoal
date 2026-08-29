@@ -8,7 +8,9 @@ import type {
     RunRef,
     RunState,
     ToolCallAction,
+    MemoryProtocol,
 } from "./domain";
+import { resolveMemoryProtocol } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
 import type {
@@ -132,9 +134,75 @@ function invalidAgentDecision(message: string): never {
     throw new RunnerExecutionError("INVALID_AGENT_DECISION", message);
 }
 
-function validateAgentDecision(value: unknown): AgentDecision {
+function validateAgentDecision(
+    value: unknown,
+    memoryProtocol: MemoryProtocol,
+): AgentDecision {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
+    }
+
+    if (memoryProtocol.kind === "structured") {
+        const memoryPatch = value.memoryPatch;
+        if (
+            memoryPatch !== undefined
+            && (
+                !isRecord(memoryPatch)
+                || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
+                || memoryPatch.protocolVersion !== 1
+                || !Array.isArray(memoryPatch.operations)
+            )
+        ) {
+            return invalidAgentDecision("structured memoryPatch 不符合基础协议");
+        }
+
+        if (value.kind === "tool_call") {
+            if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
+                return invalidAgentDecision("structured tool_call 包含协议外字段");
+            }
+
+            const action = value.action;
+
+            if (
+                !isRecord(action)
+                || !hasOnlyKeys(action, ["actionId", "toolId", "input"])
+                || !isNonEmptyText(action.actionId)
+                || !isNonEmptyText(action.toolId)
+                || !isJsonValue(action.input)
+            ) {
+                return invalidAgentDecision("structured tool_call action 不符合严格协议");
+            }
+
+            return value as unknown as AgentDecision;
+        }
+
+        const structuredTextFields: Record<string, "summary" | "reason" | "error"> = {
+            complete: "summary",
+            wait: "reason",
+            fail: "error",
+        };
+        const textField = structuredTextFields[value.kind];
+
+        if (textField === undefined) {
+            return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
+        }
+
+        const allowed = ["kind", textField, "memoryPatch"];
+        if (value.kind === "complete") {
+            allowed.push("completionEvidence");
+            if (!Array.isArray(value.completionEvidence)) {
+                return invalidAgentDecision("structured complete 必须包含 completionEvidence");
+            }
+        }
+
+        if (
+            !hasOnlyKeys(value, allowed)
+            || !isNonEmptyText(value[textField])
+        ) {
+            return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
+        }
+
+        return value as unknown as AgentDecision;
     }
 
     if (!isNonEmptyText(value.checkpoint)) {
@@ -968,7 +1036,10 @@ export class Runner {
                 });
                 throwIfAborted(control);
                 normalized = {
-                    decision: validateAgentDecision(execution),
+                    decision: validateAgentDecision(
+                        execution,
+                        resolveMemoryProtocol(goal.definition),
+                    ),
                 };
             } catch (error) {
                 if (isExecutionAbortedError(error)) {
@@ -985,14 +1056,22 @@ export class Runner {
 
                 // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
                 // checkpoint，不存在时使用稳定值；错误文本保持用户可见内容。
-                const decision = {
-                    kind: "fail" as const,
-                    checkpoint: goal.state.run.checkpoint
-                        ?? EXECUTOR_FAILURE_CHECKPOINT,
-                    error: error instanceof Error
-                        ? error.message
-                        : String(error),
-                };
+                const memoryProtocol = resolveMemoryProtocol(goal.definition);
+                const decision: AgentDecision = memoryProtocol.kind === "structured"
+                    ? {
+                        kind: "fail",
+                        error: error instanceof Error
+                            ? error.message
+                            : String(error),
+                    }
+                    : {
+                        kind: "fail",
+                        checkpoint: goal.state.run.checkpoint
+                            ?? EXECUTOR_FAILURE_CHECKPOINT,
+                        error: error instanceof Error
+                            ? error.message
+                            : String(error),
+                    };
                 await this.appendTrajectory({
                     goalId: goal.id,
                     runId: goal.state.run.id,
@@ -1077,7 +1156,11 @@ export class Runner {
                     throwIfAborted(control);
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
-                        checkpoint: normalized.decision.checkpoint,
+                        ...(
+                            "checkpoint" in normalized.decision
+                                ? { checkpoint: normalized.decision.checkpoint }
+                                : {}
+                        ),
                         action: normalized.decision.action,
                         status: "awaiting_approval",
                     });
@@ -1103,7 +1186,11 @@ export class Runner {
                 throwIfAborted(control);
                 const stagedRun = this.applyTransition(goal.state.run, {
                     kind: "stage_action",
-                    checkpoint: normalized.decision.checkpoint,
+                    ...(
+                        "checkpoint" in normalized.decision
+                            ? { checkpoint: normalized.decision.checkpoint }
+                            : {}
+                    ),
                     action: normalized.decision.action,
                     status: "approved",
                 });

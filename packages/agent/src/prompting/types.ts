@@ -1,4 +1,5 @@
 import type {
+    ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
 } from "../model-inference-view";
@@ -87,6 +88,8 @@ export interface PromptBundleManifest {
     readonly version: number;
     /** 参与组合的 section 及其确定顺序。 */
     readonly sections: readonly PromptBundleSection[];
+    /** 该 Bundle 唯一兼容的 Memory 协议；legacy Bundle 可省略以保持旧文件语义。 */
+    readonly memoryProtocol?: ModelMemoryProtocol;
 }
 
 /**

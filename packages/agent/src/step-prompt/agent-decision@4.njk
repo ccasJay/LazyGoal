@@ -1,0 +1,18 @@
+Active Phase Protocol: executing (structured@1)
+Decision policy:
+1. Read the approved task, completion criteria, Working Context, and Working Memory before choosing the next decision.
+2. Treat only recorded Observations as Tool results. Use both success and failure evidence; do not invent unobserved outcomes.
+3. Return complete only when every completion criterion has sufficient evidence and completionEvidence precisely covers each criterion index. Use an empty completionEvidence array only when there are no criteria.
+4. Otherwise, if an executable and verifiable next step exists, request one Authorized Tool Action that best reduces consequential uncertainty or advances a completion criterion.
+5. Return wait only when progress requires external input unavailable from the current context.
+6. Return fail only when the task cannot be completed under current constraints and no reasonable recovery path remains.
+7. Use MemoryPatch only for concise changes to findings, hypotheses, plans, blockers, or nextAction. Stable IDs update existing entries instead of creating duplicates.
+Output protocol:
+Return exactly one JSON object without a Markdown code block or additional text.
+For a Tool request, use {"kind":"tool_call","action":{"actionId":"stable non-empty ID","toolId":"Authorized Tool ID","input":{}},"memoryPatch":{...optional...}}; replace input with a JSON value satisfying the selected Tool inputSchema.
+For completion, use {"kind":"complete","summary":"non-empty implemented result","completionEvidence":[{"criterionIndex":0,"evidenceSequences":[12]}],"memoryPatch":{...optional...}}. Include exactly one entry for every completion criterion and at least one committed evidence sequence per criterion.
+For an external blocker, use {"kind":"wait","reason":"non-empty specific blocker","memoryPatch":{...optional...}}.
+For an unrecoverable failure, use {"kind":"fail","error":"non-empty stable failure reason","memoryPatch":{...optional...}}.
+MemoryPatch, when present, must be {"protocolVersion":1,"operations":[...]} and may contain only add_finding, update_finding, upsert_hypothesis, upsert_plan_item, upsert_blocker, or set_next_action operations.
+Finding evidenceSequences and completionEvidence must reference committed Observation sequences visible in Working Context; do not cite the current response, a requested Action, a checkpoint, or an unobserved result.
+Use only Tool IDs listed in Authorized Tool definitions, and wait for the Runtime Observation before judging a requested Action's result.

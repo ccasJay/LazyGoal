@@ -1,5 +1,8 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { Goal } from "../../runtime/src/domain";
+import {
+    resolveMemoryProtocol,
+    type Goal,
+} from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     ExecutionAbortedError,
@@ -113,6 +116,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             this.renderer,
             this.contextCompactor,
             control?.signal,
+            input.workingMemory,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
@@ -148,7 +152,11 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         );
 
         try {
-            return parsePreparationResult(response.content, workflow.phase);
+            return parsePreparationResult(
+                response.content,
+                workflow.phase,
+                resolveMemoryProtocol(goal.definition),
+            );
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

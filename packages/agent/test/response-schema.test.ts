@@ -20,6 +20,7 @@ import {
     TaskProposalPreparationResultSchema,
     ToolCallActionSchema,
     ToolCallAgentDecisionSchema,
+    StructuredAgentDecisionSchema,
     WaitAgentDecisionSchema,
 } from "../src/response-schema";
 
@@ -305,4 +306,84 @@ test("PreparationResult 与当前 phase 不匹配时返回稳定协议错误", (
             },
         );
     }
+});
+
+test("structured@1 AgentDecision 支持 MemoryPatch 与 CompletionEvidence 且拒绝 checkpoint", () => {
+    const protocol = { kind: "structured", version: 1 } as const;
+    const memoryPatch = {
+        protocolVersion: 1 as const,
+        operations: [{
+            type: "add_finding" as const,
+            finding: {
+                id: "finding-1",
+                statement: "配置文件存在",
+                evidenceSequences: [12],
+            },
+        }],
+    };
+    const content = JSON.stringify({
+        kind: "complete",
+        summary: "目标完成",
+        completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+        memoryPatch,
+    });
+
+    assert.deepEqual(parseAgentDecision(content, protocol), {
+        kind: "complete",
+        summary: "目标完成",
+        completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+        memoryPatch,
+    });
+    assert.equal(StructuredAgentDecisionSchema.safeParse(JSON.parse(content)).success, true);
+    assertProtocolErrorForProtocol(JSON.stringify({
+        kind: "wait",
+        checkpoint: "不应出现",
+        reason: "需要输入",
+    }), protocol);
+    assertProtocolErrorForProtocol(JSON.stringify({
+        kind: "complete",
+        summary: "完成",
+        completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+        extra: true,
+    }), protocol);
+});
+
+function assertProtocolErrorForProtocol(
+    content: string,
+    protocol: { readonly kind: "structured"; readonly version: 1 },
+): void {
+    assert.throws(
+        () => parseAgentDecision(content, protocol),
+        (error: unknown) => error instanceof LLMResponseProtocolError,
+    );
+}
+
+test("structured@1 PreparationResult 可在同一响应携带 MemoryPatch", () => {
+    const protocol = { kind: "structured", version: 1 } as const;
+    const content = JSON.stringify({
+        kind: "context_ready",
+        memoryPatch: {
+            protocolVersion: 1,
+            operations: [{
+                type: "set_next_action",
+                nextAction: {
+                    id: "next-1",
+                    description: "进入规划阶段",
+                },
+            }],
+        },
+    });
+
+    assert.deepEqual(
+        parsePreparationResult(content, "gathering_context", protocol),
+        JSON.parse(content),
+    );
+    assert.throws(
+        () => parsePreparationResult(
+            JSON.stringify({ kind: "context_ready", checkpoint: "legacy" }),
+            "gathering_context",
+            protocol,
+        ),
+        LLMResponseProtocolError,
+    );
 });

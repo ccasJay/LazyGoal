@@ -51,7 +51,14 @@ export type ModelStepRecord =
         readonly result:
             | { readonly kind: "complete"; readonly checkpoint: string; readonly summary: string }
             | { readonly kind: "wait"; readonly checkpoint: string; readonly reason: string }
-            | { readonly kind: "fail"; readonly checkpoint: string; readonly error: string };
+            | { readonly kind: "fail"; readonly checkpoint: string; readonly error: string }
+            | {
+                readonly kind: "complete";
+                readonly summary: string;
+                readonly completionEvidence: readonly ModelCompletionEvidence[];
+            }
+            | { readonly kind: "wait"; readonly reason: string }
+            | { readonly kind: "fail"; readonly error: string };
     };
 
 /** 模型可见的待执行 Action 投影。 */
@@ -69,6 +76,88 @@ export interface ModelToolDefinition {
 
 /** Prompt Bundle 渲染时区分的三种业务阶段。 */
 export type PromptPhase = "gathering_context" | "planning" | "executing";
+
+/** Agent 可消费的冻结 Memory 协议标识。 */
+export type ModelMemoryProtocol =
+    | { readonly kind: "checkpoint"; readonly version: 1 }
+    | { readonly kind: "structured"; readonly version: 1 };
+
+/** 模型可见的 Memory 条目公共元数据。 */
+export interface ModelMemoryEntryBase {
+    readonly id: string;
+    readonly originPhase: PromptPhase;
+    readonly originSequence: number;
+    readonly scope: "goal" | "phase";
+    readonly status: "active" | "resolved" | "superseded";
+}
+
+/** 模型可见的事实 Finding 投影。 */
+export interface ModelFinding extends ModelMemoryEntryBase {
+    readonly kind: "finding";
+    readonly statement: string;
+    readonly evidenceSequences: readonly number[];
+}
+
+/** 模型可见的 Hypothesis 投影。 */
+export interface ModelHypothesis extends ModelMemoryEntryBase {
+    readonly kind: "hypothesis";
+    readonly statement: string;
+}
+
+/** 模型可见的计划条目投影。 */
+export interface ModelPlanItem extends ModelMemoryEntryBase {
+    readonly kind: "plan";
+    readonly description: string;
+}
+
+/** 模型可见的阻塞条目投影。 */
+export interface ModelBlocker extends ModelMemoryEntryBase {
+    readonly kind: "blocker";
+    readonly description: string;
+}
+
+/** 模型可见的下一步意图投影。 */
+export interface ModelNextAction extends ModelMemoryEntryBase {
+    readonly kind: "next_action";
+    readonly description: string;
+}
+
+/**
+ * Structured 协议的 Working Memory 模型视图。
+ *
+ * @remarks
+ * 这是 Runtime WorkingMemory 的只读投影，不包含 checkpoint、pending Action、
+ * Step 计数、Run 状态或原始 Tool 输出。只有 active 条目通常会被模型当作当前
+ * 上下文使用，历史状态仍保留其生命周期字段供解释变更。
+ *
+ * @example
+ * ```ts
+ * const memory: ModelWorkingMemory = {
+ *   protocolVersion: 1,
+ *   derivedThroughSequence: 12,
+ *   findings: [],
+ *   hypotheses: [],
+ *   plan: [],
+ *   blockers: [],
+ * };
+ * ```
+ */
+export interface ModelWorkingMemory {
+    readonly protocolVersion: 1;
+    readonly derivedThroughSequence: number;
+    readonly revision?: { readonly eventId: string; readonly sequence: number };
+    readonly findings: readonly ModelFinding[];
+    readonly hypotheses: readonly ModelHypothesis[];
+    readonly plan: readonly ModelPlanItem[];
+    readonly blockers: readonly ModelBlocker[];
+    readonly nextAction?: ModelNextAction;
+}
+
+/** Structured complete Decision 使用的模型视图。 */
+export interface ModelCompletionEvidence {
+    readonly criterionIndex: number;
+    readonly evidenceSequences: readonly number[];
+}
 
 /**
  * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
@@ -89,6 +178,8 @@ export interface PromptContext {
     readonly profile: ModelProfileView;
     /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
     readonly authorizedTools: readonly ModelToolDefinition[];
+    /** Goal 冻结的 Memory 协议；legacy Bundle 为保持兼容可省略。 */
+    readonly memoryProtocol?: ModelMemoryProtocol;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
@@ -148,4 +239,6 @@ export interface ModelInferenceView {
     readonly prompt: PromptContext;
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
+    /** structured@1 的即时 Memory 投影；checkpoint@1 必须省略。 */
+    readonly workingMemory?: ModelWorkingMemory;
 }

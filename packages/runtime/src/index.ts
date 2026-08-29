@@ -37,6 +37,9 @@ export type {
 export type {
     AssistantMessage,
     AgentDecision,
+    CompletionEvidence,
+    LegacyAgentDecision,
+    StructuredAgentDecision,
     AddFinding,
     Blocker,
     BlockerUpdate,

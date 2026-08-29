@@ -23,6 +23,12 @@ export const AGENT_DECISION_TEMPLATE_V3: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@3.njk", import.meta.url),
 };
 
+/** v4 structured@1 MemoryPatch 与 CompletionEvidence 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V4: PromptTemplateAsset = {
+    id: "agent-decision@4",
+    sourceUrl: new URL("./agent-decision@4.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

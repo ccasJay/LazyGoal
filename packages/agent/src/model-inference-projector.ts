@@ -1,13 +1,20 @@
-import type { Goal, StepRecord } from "../../runtime/src/domain";
+import {
+    resolveMemoryProtocol,
+    type Goal,
+    type StepRecord,
+    type WorkingMemory,
+} from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type {
     ModelConversationMessage,
     ModelInferenceView,
+    ModelWorkingMemory,
     ModelPendingAction,
     ModelProfileView,
     ModelStepRecord,
     ModelToolDefinition,
     ModelWorkingContext,
+    ModelMemoryProtocol,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
@@ -38,7 +45,22 @@ export class ModelInferenceProjector {
     project(
         goal: Goal,
         tools: readonly ToolDefinition[] = [],
+        workingMemory?: WorkingMemory,
     ): ModelInferenceView {
+        const memoryProtocol = resolveMemoryProtocol(goal.definition);
+
+        if (memoryProtocol.kind === "structured" && workingMemory === undefined) {
+            throw new Error(
+                "Structured Memory protocol requires a WorkingMemory projection",
+            );
+        }
+
+        if (memoryProtocol.kind === "checkpoint" && workingMemory !== undefined) {
+            throw new Error(
+                "Checkpoint Memory protocol must not receive a WorkingMemory projection",
+            );
+        }
+
         const workingContext = this.projectWorkingContext(goal);
 
         const prompt: PromptContext = deepFreeze({
@@ -47,12 +69,18 @@ export class ModelInferenceProjector {
             phase: workingContext.phase,
             profile: projectProfile(goal),
             authorizedTools: projectTools(tools),
+            ...(memoryProtocol.kind === "structured"
+                ? { memoryProtocol: projectMemoryProtocol(memoryProtocol) }
+                : {}),
         });
 
         return {
             prompt,
             conversation: projectConversation(goal),
             workingContext,
+            ...(workingMemory === undefined
+                ? {}
+                : { workingMemory: deepFreeze(projectWorkingMemory(workingMemory)) }),
         };
     }
 
@@ -192,4 +220,19 @@ function projectPendingAction(
     pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
 ): ModelPendingAction {
     return structuredClone(pendingAction);
+}
+
+function projectMemoryProtocol(
+    protocol: ReturnType<typeof resolveMemoryProtocol>,
+): ModelMemoryProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectWorkingMemory(
+    memory: WorkingMemory,
+): ModelWorkingMemory {
+    return structuredClone(memory);
 }

@@ -12,6 +12,7 @@ import {
     PROMPT_BUNDLE_V1_MANIFEST,
     PROMPT_BUNDLE_V2_MANIFEST,
     PROMPT_BUNDLE_V3_MANIFEST,
+    PROMPT_BUNDLE_V4_MANIFEST,
 } from "../src/prompting/default-bundles";
 import { normalizeNewlines } from "../src/prompting/environment";
 import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
@@ -499,4 +500,21 @@ test("空 Instructions 与空 Tools 具有固定空值表示", async () => {
 
     assert.ok(output.includes("Profile Instructions:\n(No additional instructions.)"));
     assert.ok(output.endsWith("Authorized Tool definitions (only these Tool IDs may be requested):\n[]"));
+});
+
+test("v4 Bundle 显式绑定 structured@1 并渲染三阶段协议", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const context = {
+        ...buildContext("executing", 4),
+        memoryProtocol: { kind: "structured" as const, version: 1 as const },
+    };
+    const output = renderer.render(context);
+
+    assert.deepEqual(PROMPT_BUNDLE_V4_MANIFEST.memoryProtocol, {
+        kind: "structured",
+        version: 1,
+    });
+    assert.ok(output.includes("Active Phase Protocol: executing (structured@1)"));
+    assert.ok(output.includes("completionEvidence"));
+    assert.ok(output.includes("MemoryPatch"));
 });

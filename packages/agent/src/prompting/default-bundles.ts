@@ -4,17 +4,21 @@ import { fileURLToPath } from "node:url";
 import {
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     GLOBAL_OVERVIEW_TEMPLATE_V2,
+    GLOBAL_OVERVIEW_TEMPLATE_V3,
 } from "../global-system-prompt/template";
 import {
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
+    GATHERING_CONTEXT_TEMPLATE_V3,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
+    PLANNING_TEMPLATE_V3,
 } from "../preparation-prompt/template";
 import {
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V3,
+    AGENT_DECISION_TEMPLATE_V4,
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
@@ -61,14 +65,18 @@ const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
 export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     GLOBAL_OVERVIEW_TEMPLATE_V2,
+    GLOBAL_OVERVIEW_TEMPLATE_V3,
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
+    GATHERING_CONTEXT_TEMPLATE_V3,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
+    PLANNING_TEMPLATE_V3,
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V3,
+    AGENT_DECISION_TEMPLATE_V4,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -146,6 +154,31 @@ export const PROMPT_BUNDLE_V3_MANIFEST: PromptBundleManifest = {
     ],
 };
 
+/**
+ * v4 Structured Working Memory Bundle Manifest。
+ *
+ * @remarks
+ * 三个 Phase 都切换到结构化 MemoryPatch/CompletionEvidence 提示，且显式冻结
+ * `structured@1`；旧 v1–v3 Manifest 与默认版本保持不变，供历史 Goal 回放。
+ */
+export const PROMPT_BUNDLE_V4_MANIFEST: PromptBundleManifest = {
+    version: 4,
+    memoryProtocol: { kind: "structured", version: 1 },
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V3.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V3.id,
+                planning: PLANNING_TEMPLATE_V3.id,
+                executing: AGENT_DECISION_TEMPLATE_V4.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
 /** 当前新 Goal 使用的 v3 Manifest。 */
 export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V3_MANIFEST;
 
@@ -185,6 +218,7 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
             PROMPT_BUNDLE_V1_MANIFEST,
             PROMPT_BUNDLE_V2_MANIFEST,
             PROMPT_BUNDLE_V3_MANIFEST,
+            PROMPT_BUNDLE_V4_MANIFEST,
         ],
     });
 }

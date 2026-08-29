@@ -1,4 +1,9 @@
-import type { Goal, GoalTask, WorkingMemory } from "./domain";
+import type {
+    Goal,
+    GoalTask,
+    WorkingMemory,
+    WorkingMemoryPatch,
+} from "./domain";
 import type { ExecutionControl } from "./execution-control";
 import type { ToolDefinition } from "./tool";
 
@@ -11,12 +16,23 @@ import type { ToolDefinition } from "./tool";
  * 待持久化消息，阶段推进和消息规范化由 Coordinator 负责。
  */
 export type PreparationResult =
-    | { readonly kind: "question"; readonly question: string }
-    | { readonly kind: "context_ready" }
+    | {
+        readonly kind: "question";
+        readonly question: string;
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        readonly kind: "context_ready";
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
     | {
         readonly kind: "task_proposal";
         readonly task: GoalTask;
         readonly approvalRequest: string;
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
     };
 
 /**

@@ -35,6 +35,15 @@ export {
 } from "./render";
 export type {
     ModelConversationMessage,
+    ModelMemoryProtocol,
+    ModelMemoryEntryBase,
+    ModelFinding,
+    ModelHypothesis,
+    ModelPlanItem,
+    ModelBlocker,
+    ModelNextAction,
+    ModelCompletionEvidence,
+    ModelWorkingMemory,
     ModelInferenceView,
     ModelPendingAction,
     ModelProfileView,
@@ -49,6 +58,8 @@ export type {
 
 export {
     AgentDecisionSchema,
+    CompletionEvidenceSchema,
+    MemoryPatchSchema,
     CompleteAgentDecisionSchema,
     ContextReadyPreparationResultSchema,
     FailAgentDecisionSchema,
@@ -60,6 +71,16 @@ export {
     TaskProposalPreparationResultSchema,
     ToolCallActionSchema,
     ToolCallAgentDecisionSchema,
+    StructuredAgentDecisionSchema,
+    StructuredToolCallAgentDecisionSchema,
+    StructuredCompleteAgentDecisionSchema,
+    StructuredWaitAgentDecisionSchema,
+    StructuredFailAgentDecisionSchema,
+    StructuredGatheringContextPreparationResultSchema,
+    StructuredQuestionPreparationResultSchema,
+    StructuredContextReadyPreparationResultSchema,
+    StructuredPlanningPreparationResultSchema,
+    StructuredTaskProposalPreparationResultSchema,
     WaitAgentDecisionSchema,
 } from "./response-schema";
 export type {
@@ -82,6 +103,7 @@ export {
     PROMPT_BUNDLE_V1_MANIFEST,
     PROMPT_BUNDLE_V2_MANIFEST,
     PROMPT_BUNDLE_V3_MANIFEST,
+    PROMPT_BUNDLE_V4_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";

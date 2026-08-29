@@ -36,7 +36,7 @@
   - 增加 Session 恢复测试，覆盖 genesis、无 Patch 提交、重复构建幂等、缺失 Trajectory/提交边界、跨 Run/循环链和进程缓存丢弃后的重建。
   - _Requirements: [1.4](./requirements.md#req-1-4), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [5.5](./requirements.md#req-5-5)_
 
-- [ ] //TODO 7. 增加 Agent Prompt Bundle v4 与结构化响应协议
+- [x] //TODO 7. 增加 Agent Prompt Bundle v4 与结构化响应协议
 
   - 在 `packages/agent` 增加 v4 三阶段 Prompt、Manifest Memory 协议、structured Preparation/AgentDecision Schema 与 `ModelInferenceView.workingMemory` 投影，structured Decision 不再携带 checkpoint。
   - 更新 LLM Preparation/Step Executor 使用对象式输入和冻结协议解析；固定 v1-v3 Prompt、Schema、checkpoint 与无 Trajectory 行为的回归测试。
