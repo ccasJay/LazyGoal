@@ -12,7 +12,7 @@
   - 增加单元测试覆盖无 Patch、重复 ID、非法更新、控制状态注入、全有或全无应用、确定性归约以及拒绝截断。
   - _Requirements: [2.3](./requirements.md#req-2-3), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 3. 实现 committed Evidence Index 与 Evidence Gate
+- [x] //TODO 3. 实现 committed Evidence Index 与 Evidence Gate
 
   - 基于当前 Goal/Run 和 Snapshot 旧提交边界构建 sequence 索引，校验 Finding evidence 的存在性、事件类别、归属和提交状态。
   - 增加 Evidence Gate 测试，覆盖跨 Goal/Run、未提交 tail、Decision、marker、Compact、无结果查询以及 Finding/Hypothesis 降级边界。

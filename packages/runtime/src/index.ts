@@ -121,6 +121,24 @@ export type {
     WorkingMemoryPatchNormalizationContext,
     WorkingMemoryPatchValidationContext,
 } from "./working-memory-core";
+export {
+    EVIDENCE_EVENT_TYPES,
+    WORKING_MEMORY_EVIDENCE_ERROR_CODE,
+    EvidenceGateError,
+    buildCommittedEvidenceIndex,
+    createEvidenceGate,
+    isEvidenceEventType,
+    validateCanonicalFindingEvidence,
+    validateFindingEvidence,
+    validateMemoryPatchEvidence,
+} from "./evidence-gate";
+export type {
+    CommittedEvidenceIndex,
+    CommittedEvidenceIndexInput,
+    EvidenceEventType,
+    EvidenceGate,
+    FindingEvidence,
+} from "./evidence-gate";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
