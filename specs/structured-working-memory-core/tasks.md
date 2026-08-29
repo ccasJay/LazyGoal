@@ -18,7 +18,7 @@
   - 增加 Evidence Gate 测试，覆盖跨 Goal/Run、未提交 tail、Decision、marker、Compact、无结果查询以及 Finding/Hypothesis 降级边界。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 4. 扩展 Trajectory Patch 事实并统一 Snapshot 提交器
+- [x] //TODO 4. 扩展 Trajectory Patch 事实并统一 Snapshot 提交器
 
   - 在 `packages/runtime/src/trajectory.ts` 增加 `memory_patch_accepted` payload，并以共享 `TrajectoryCheckpointCommitter` 替换 Coordinator 与 Runner 重复的提交边界和 marker 顺序。
   - 增加提交与故障测试，覆盖业务拒绝、Event 追加失败、Snapshot 失败孤儿分支、revision 只在保存副本中推进，以及 marker 失败后仍以 Snapshot 为提交权威。

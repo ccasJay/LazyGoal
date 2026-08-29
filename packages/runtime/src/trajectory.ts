@@ -4,6 +4,7 @@ import type {
     JsonValue,
     Observation,
     ToolCallAction,
+    MemoryPatchAcceptedPayload,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
@@ -30,6 +31,7 @@ export type TrajectoryEventPayload =
         readonly type: "decision_received";
         readonly decision: AgentDecision;
     }
+    | MemoryPatchAcceptedPayload
     | {
         readonly type: "action_staged";
         readonly action: ToolCallAction;
@@ -167,6 +169,7 @@ export type TrajectoryEvent = {
 export type TrajectoryEventCategory =
     | "lifecycle"
     | "decision"
+    | "memory"
     | "action"
     | "tool"
     | "observation"
@@ -456,6 +459,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_resumed",
     "preparation_result",
     "decision_received",
+    "memory_patch_accepted",
     "action_staged",
     "action_approved",
     "action_rejected",
@@ -673,6 +677,8 @@ export function classifyTrajectoryEvent(
             return "decision";
         case "decision_received":
             return "decision";
+        case "memory_patch_accepted":
+            return "memory";
         case "action_staged":
         case "action_approved":
         case "action_rejected":

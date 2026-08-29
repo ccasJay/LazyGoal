@@ -139,6 +139,16 @@ export type {
     EvidenceGate,
     FindingEvidence,
 } from "./evidence-gate";
+export {
+    TrajectoryCheckpointCommitter,
+} from "./trajectory-checkpoint-committer";
+export type {
+    AcceptedMemoryPatchInput,
+    MemoryPatchProducer,
+    TrajectoryCheckpointCommitRequest,
+    TrajectoryCheckpointCommitResult,
+    TrajectoryCheckpointCommitterDependencies,
+} from "./trajectory-checkpoint-committer";
 export { Runner } from "./runner";
 export type { RunnerDependencies, RunnerResult } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";

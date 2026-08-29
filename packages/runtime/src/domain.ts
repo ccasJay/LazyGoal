@@ -716,6 +716,13 @@ export interface RunState {
      * 旧内存调用方可能省略该字段；Storage 在读取旧快照时将其解释为 `0`。
      */
     readonly committedThroughSequence?: number;
+    /**
+     * 当前 Snapshot 选择的最新 accepted Memory Patch 链头。
+     *
+     * @remarks 仅 structured 协议使用；省略表示尚未提交任何 Patch。该指针不携带
+     * Memory 内容，恢复时由 Trajectory 反查并重放。
+     */
+    readonly memoryRevision?: MemoryRevision;
     readonly lastStep?: StepRecord;
     readonly checkpoint?: string;
     readonly pendingAction?: PendingAction;
