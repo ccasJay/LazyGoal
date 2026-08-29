@@ -22,6 +22,7 @@ type LlmTraceKind =
     | "model_request"
     | "model_response"
     | "model_error"
+    | "model_context_soft_overflow"
     | "context_compact_request"
     | "context_compact_response"
     | "context_compact_error";
@@ -153,6 +154,33 @@ export function recordLlmError(
         kind: "model_error",
         payload: { stage, durationMs, error: details },
     });
+}
+
+/**
+ * 记录固定模型输入超过历史预算的软超限诊断。
+ *
+ * @param input - Goal/Run 身份和已脱敏的预算报告字段。
+ * @returns Trace 写入完成或被隔离后 resolve。
+ * @remarks
+ * 软超限不会阻止主模型调用；该记录只说明 Hot/Warm 被置空，不能作为 Goal
+ * 状态或 Snapshot 恢复依据。
+ */
+export function recordModelContextSoftOverflowDiagnosticTrace(input: {
+    readonly sink: DiagnosticTraceSink | undefined;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly payload: unknown;
+}): Promise<void> {
+    if (input.sink === undefined) return Promise.resolve();
+
+    const record = allocateDiagnosticTraceRecord({
+        goalId: input.goalId,
+        runId: input.runId,
+        kind: "model_context_soft_overflow",
+        payload: boundJsonValue(input.payload),
+    });
+
+    return input.sink.append(record).catch(() => undefined);
 }
 
 function readProviderMetadata(response: unknown): unknown {

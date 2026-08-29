@@ -44,10 +44,10 @@ flowchart LR
 
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
 `.lazygoal/goals`，事实事件放在 `.lazygoal/trajectories`，诊断 Trace 放在
-`.lazygoal/traces`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
+`.lazygoal/traces`，可删除 Warm Sidecar 放在 `.lazygoal/context-sidecars`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
 `OpenAICompatible`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
 `GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
-Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`、根
+Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileWarmContextSidecarStore`、`JsonFileDiagnosticTraceSink`、根
 `AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
 Trajectory Store 和 Trace Sink 实例。Runner 注入
 `createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
@@ -71,10 +71,13 @@ Profile 文件不会由程序自动生成，构造根本身也不会创建 `.laz
 当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。Profile 只补充
 Prompt Bundle（Global Overview 与 Phase Protocol）未规定的角色和工作细节；Tool 权限
 仍由 Runtime 强制执行。`create` 校验非空 intent 后只生成一个 goalId，并委托 Launcher；
-Composition Root 同时创建一次共享的默认 Prompt Bundle Renderer、v4/`structured@1`
-Protocol Validator、Working Memory 限制和 `TrajectoryCheckpointCommitter`，并把同一组
-依赖注入 Launcher、Coordinator 与 Runner。Launcher 创建的新 Goal 自动冻结 v4/structured@1；
-恢复已有 Goal 时保留其冻结版本，v1–v3 Goal 继续使用原 checkpoint Prompt 字符。`resume` 先查询
+Composition Root 同时创建一次共享的默认 Prompt Bundle Renderer、v5/`structured@1` +
+`trajectory-layered@1` Protocol Validator、Working Memory 限制和
+`TrajectoryCheckpointCommitter`，并把同一组依赖注入 Launcher、Coordinator 与 Runner；
+模型上下文预算、Trajectory Assembler、独立 Compact Adapter 和 Sidecar Store 则注入
+两个 Agent Executor。Launcher 创建的新 Goal 自动冻结 v5/structured/trajectory-layered；
+恢复已有 Goal 时保留其冻结版本，v1–v3 Goal 继续使用原 checkpoint Prompt 字符，v4
+structured Goal 使用 conversation 上下文。`resume` 先查询
 按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
 直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准
 和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal
@@ -106,7 +109,8 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
   `ExecutionAbortedError`，不会生成 fail Step、`execution_error` 或新快照。
 - `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
   当前限制决定。
-- TUI 把 Trajectory/Trace、Working Memory 限制、Protocol Validator 和共享提交器作为
-  Composition Root 依赖装配；`CompositionRoot.readTrajectory` 提供按 Goal/Run 和序列范围的
-  只读入口，并以最新 Snapshot 边界返回 committed/tail 分类。当前界面和最终报告仍不自动
-  展示轨迹或 Memory，展示由上层消费者决定。
+- TUI 把 Trajectory/Trace、Warm Sidecar、Working Memory 限制、Model Context Assembler、
+  Protocol Validator 和共享提交器作为 Composition Root 依赖装配；
+  `CompositionRoot.readTrajectory` 提供按 Goal/Run 和序列范围的只读入口，并以最新 Snapshot
+  边界返回 committed/tail 分类。当前界面和最终报告仍不自动展示轨迹或 Memory，展示由上层
+  消费者决定；Sidecar 删除后下一轮由 committed Trajectory 重新派生。

@@ -29,6 +29,12 @@ export const AGENT_DECISION_TEMPLATE_V4: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@4.njk", import.meta.url),
 };
 
+/** v5 trajectory-layered AgentDecision 与来源优先级模板。 */
+export const AGENT_DECISION_TEMPLATE_V5: PromptTemplateAsset = {
+    id: "agent-decision@5",
+    sourceUrl: new URL("./agent-decision@5.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

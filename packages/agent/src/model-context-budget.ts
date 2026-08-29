@@ -331,16 +331,19 @@ export function createModelContextBudgetPolicy(
 /**
  * 创建字符兜底模式的默认上下文预算策略。
  *
- * @returns 使用 `196608` 字符总预算和设计默认比例的策略。
+ * @param estimator - 可选的 Token/字符计量器；省略时使用字符兜底。
+ * @returns 使用 `196608` 总预算和设计默认比例的策略。
  * @example
  * ```ts
  * const policy = createDefaultModelContextBudgetPolicy();
  * ```
  */
-export function createDefaultModelContextBudgetPolicy(): ModelContextBudgetPolicy {
+export function createDefaultModelContextBudgetPolicy(
+    estimator: ModelInputEstimator = new CharacterModelInputEstimator(),
+): ModelContextBudgetPolicy {
     return createModelContextBudgetPolicy({
         modelInputBudget: DEFAULT_MODEL_INPUT_CHARACTER_BUDGET,
-    });
+    }, estimator);
 }
 
 /** 选择目标模型 Token 计量器，缺失时使用字符兜底。 */

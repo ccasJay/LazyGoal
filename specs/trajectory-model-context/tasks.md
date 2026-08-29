@@ -48,7 +48,7 @@
   - 接入 Preparation/Step Executor 的调用级 Session 生命周期，增加三阶段输入、无状态重建、等待/中断/终止丢弃和所有来源不回写测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 9. 完成 Prompt v5、Composition Root 与跨包回归
+- [x] //TODO 9. 完成 Prompt v5、Composition Root 与跨包回归
 
   - 注册 Prompt Bundle v5，接线 Estimator、Policy、Trajectory/Sidecar Store、Compact Adapter，并在任何模型或缓存副作用前校验协议和配置。
   - 更新受影响的 `docs/architecture/` 当前实现说明，增加新旧 Goal、Sidecar 删除恢复、软超限和 Compact 故障的跨包自动化测试。

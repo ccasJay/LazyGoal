@@ -24,6 +24,12 @@ export const GLOBAL_OVERVIEW_TEMPLATE_V3: PromptTemplateAsset = {
     sourceUrl: new URL("./global-overview@3.njk", import.meta.url),
 };
 
+/** v4 分层 Trajectory Context 来源优先级与非猜测边界模板。 */
+export const GLOBAL_OVERVIEW_TEMPLATE_V4: PromptTemplateAsset = {
+    id: "global-overview@4",
+    sourceUrl: new URL("./global-overview@4.njk", import.meta.url),
+};
+
 /**
  * v1 Global Overview 的兼容别名。
  *

@@ -14,6 +14,7 @@ import {
     PROMPT_BUNDLE_V2_MANIFEST,
     PROMPT_BUNDLE_V3_MANIFEST,
     PROMPT_BUNDLE_V4_MANIFEST,
+    PROMPT_BUNDLE_V5_MANIFEST,
 } from "../src/prompting/default-bundles";
 import { normalizeNewlines } from "../src/prompting/environment";
 import { UnsupportedPromptBundleVersionError } from "../src/prompting/errors";
@@ -144,8 +145,18 @@ function buildContext(
     return {
         promptBundleVersion,
         phase,
-        ...(promptBundleVersion === 4
-            ? { memoryProtocol: { kind: "structured" as const, version: 1 as const } }
+        ...(promptBundleVersion === 4 || promptBundleVersion === 5
+            ? {
+                memoryProtocol: { kind: "structured" as const, version: 1 as const },
+                ...(promptBundleVersion === 5
+                    ? {
+                        modelContextProtocol: {
+                            kind: "trajectory-layered" as const,
+                            version: 1 as const,
+                        },
+                    }
+                    : {}),
+            }
             : {}),
         profile: {
             id: "profile-1",
@@ -193,17 +204,19 @@ test("v1 Bundle 对三个 Phase 产生字符级稳定且顺序固定的 system �
     );
 });
 
-test("默认 Renderer 同时注册隔离的 v1-v4，且当前版本激活 v4", async () => {
+test("默认 Renderer 同时注册隔离的 v1-v5，且当前版本激活 v5", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const v1 = renderer.render(buildContext("planning", 1));
     const v2 = renderer.render(buildContext("planning", 2));
     const v4 = renderer.render(buildContext("planning", 4));
+    const v5 = renderer.render(buildContext("planning", 5));
 
-    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 4);
-    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V4_MANIFEST);
+    assert.equal(CURRENT_PROMPT_BUNDLE_VERSION, 5);
+    assert.strictEqual(DEFAULT_PROMPT_BUNDLE_MANIFEST, PROMPT_BUNDLE_V5_MANIFEST);
     assert.equal(PROMPT_BUNDLE_V2_MANIFEST.version, 2);
     assert.equal(PROMPT_BUNDLE_V3_MANIFEST.version, 3);
     assert.equal(PROMPT_BUNDLE_V4_MANIFEST.version, 4);
+    assert.equal(PROMPT_BUNDLE_V5_MANIFEST.version, 5);
     assert.equal(
         v1,
         [GLOBAL_OVERVIEW, PROFILE_FRAGMENT, PLANNING_PROTOCOL, TOOLS_FRAGMENT]
@@ -218,6 +231,8 @@ test("默认 Renderer 同时注册隔离的 v1-v4，且当前版本激活 v4", a
     assert.ok(v2.includes("Only an Observation in Working Context"));
     assert.ok(v4.includes("Active Phase Protocol: planning (structured@1)"));
     assert.ok(v4.includes("MemoryPatch"));
+    assert.ok(v5.includes("Active Phase Protocol: planning (structured@1; trajectory-layered@1)"));
+    assert.ok(v5.includes("Current Tool Observations and the current workspace are more authoritative"));
 });
 
 test("v2 Global 明确指令优先级、事实输入与 Runtime Observation 边界", async () => {
@@ -503,6 +518,7 @@ test("空 Instructions 与空 Tools 具有固定空值表示", async () => {
         promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
         phase: "gathering_context",
         memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         profile: { id: "profile-1", systemPrompt: "SYS", instructions: [] },
         authorizedTools: [],
     });
@@ -528,6 +544,22 @@ test("v4 Bundle 显式绑定 structured@1 并渲染三阶段协议", async () =>
     assert.ok(output.includes("MemoryPatch"));
 });
 
+test("v5 Bundle 显式绑定 trajectory-layered@1 并声明来源优先级", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const output = renderer.render(buildContext("executing", 5));
+
+    assert.deepEqual(PROMPT_BUNDLE_V5_MANIFEST.modelContextProtocol, {
+        kind: "trajectory-layered",
+        version: 1,
+    });
+    assert.ok(output.includes(
+        "Active Phase Protocol: executing (structured@1; trajectory-layered@1)",
+    ));
+    assert.ok(output.includes("Source authority for current control state is Working Context"));
+    assert.ok(output.includes("never guess"));
+    assert.ok(output.includes("completionEvidence"));
+});
+
 test("默认 Prompt Bundle Validator 拒绝未知版本和交叉协议", () => {
     const validator = createDefaultPromptBundleProtocolValidator();
 
@@ -539,6 +571,11 @@ test("默认 Prompt Bundle Validator 拒绝未知版本和交叉协议", () => {
         promptBundleVersion: 4,
         memoryProtocol: { kind: "structured", version: 1 },
     });
+    validator.validate({
+        promptBundleVersion: 5,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    });
 
     assert.throws(() => validator.validate({
         promptBundleVersion: 4,
@@ -547,6 +584,15 @@ test("默认 Prompt Bundle Validator 拒绝未知版本和交叉协议", () => {
     assert.throws(() => validator.validate({
         promptBundleVersion: 3,
         memoryProtocol: { kind: "structured", version: 1 },
+    }), /GOAL_PROTOCOL_ERROR/);
+    assert.throws(() => validator.validate({
+        promptBundleVersion: 5,
+        memoryProtocol: { kind: "structured", version: 1 },
+    }), /GOAL_PROTOCOL_ERROR/);
+    assert.throws(() => validator.validate({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
     }), /GOAL_PROTOCOL_ERROR/);
     assert.throws(() => validator.validate({
         promptBundleVersion: 99,
