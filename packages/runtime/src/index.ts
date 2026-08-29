@@ -242,6 +242,36 @@ export type {
     ContextRankingQuery,
     ContextRankingResult,
 } from "./context-ranking";
+export {
+    CONTEXT_RETRIEVAL_INDEX_ERROR_CODE,
+    CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
+    CONTEXT_RETRIEVAL_INDEX_VERSION,
+    CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
+    ContextRetrievalIndexError,
+    ContextRetrievalQueryCache,
+    buildContextRetrievalIndexSidecar,
+    canonicalizeContextRetrievalQuery,
+    computeContextRetrievalSourceDigest,
+    computeRetrievalIndexSourceDigest,
+    createContextRetrievalQueryKey,
+    openContextRetrievalIndexSession,
+    restoreContextInvertedIndex,
+    snapshotContextInvertedIndex,
+} from "./context-retrieval-index";
+export type {
+    ContextRetrievalIndexSession,
+    ContextRetrievalIndexSessionInput,
+    ContextRetrievalIndexSessionMode,
+    ContextRetrievalIndexSidecar,
+    ContextRetrievalIndexSnapshot,
+    ContextRetrievalIndexRestoreOptions,
+    ContextRetrievalQuery,
+    ContextRetrievalQueryCacheEntry,
+    ContextRetrievalIndexStore,
+    RetrievalIndexSidecarStore,
+    RetrievalIndexStore,
+    TrajectoryRetrievalIndexStore,
+} from "./context-retrieval-index";
 export type {
     NormalizedWorkingMemoryPatch,
     WorkingMemoryLimits,

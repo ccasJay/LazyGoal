@@ -17,6 +17,7 @@
 | [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
 | [JsonFileDiagnosticTraceSink](../../packages/storage/src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
 | [JsonFileWarmContextSidecarStore](../../packages/storage/src/warm-context-sidecar.ts) | 以安全编码路径保存、恢复、原子替换和删除可丢弃 Warm Context Sidecar；按 Snapshot 边界、来源摘要和 compactor 版本拒绝失配缓存 | Goal Snapshot、Trajectory 事实提交、模型 Compact 调用 |
+| [JsonFileContextRetrievalIndexStore](../../packages/storage/src/context-retrieval-index-sidecar.ts) | 以安全编码路径保存、恢复、原子替换和删除 Retrieval Index Sidecar；严格校验倒排快照、来源摘要、版本与 64 项查询缓存 | 推导 committed boundary、读取 Workspace、修改 Goal 或 Trajectory |
 
 ## 生命周期与错误
 
@@ -36,6 +37,8 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按同一�
 恢复边界。
 
 `JsonFileWarmContextSidecarStore` 将 Sidecar 写入 `<directory>/<base64url(goalId)>/<base64url(runId)>/warm-v1.json`，保存先编码校验，再使用临时文件 + rename 原子替换；`remove` 是幂等的，缺失、损坏、版本/来源失配或领先 Snapshot 的 Sidecar 在恢复时统一返回 `undefined`。Sidecar 只是可重建缓存，Assembler 读取它但不负责写入；调用方应在对应 Snapshot 成功提交后再保存派生结果。
+
+`JsonFileContextRetrievalIndexStore` 将索引缓存写入 `<directory>/<base64url(goalId)>/<base64url(runId)>/retrieval-v1.json`，保存前由严格 Codec 验证文档、倒排表、字段统计和查询结果，再以临时文件 + `fsync` + rename 原子替换；目录为 `0700`、文件为 `0600`。读取时缺失、JSON/Schema 损坏、Goal/Run 不一致、版本失配或 Sidecar 领先当前 boundary 返回 `undefined`。落后 Sidecar 可以先恢复为候选，由 Runtime 根据旧 committed 前缀摘要校验后增量更新；Sidecar 的查询缓存按 canonical query 的键保持 oldest → newest 的确定性顺序，删除或写入失败不会影响领域状态。
 
 ## 当前限制与背景
 

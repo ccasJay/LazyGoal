@@ -86,3 +86,16 @@ export {
 export type {
     WarmContextSidecarCodec,
 } from "./warm-context-sidecar";
+export {
+    CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE,
+    ContextRetrievalIndexSidecarProtocolError,
+    ContextRetrievalIndexSidecarSchema,
+    JsonFileContextRetrievalIndexStore,
+    JsonFileRetrievalIndexStore,
+    JsonFileRetrievalIndexSidecarStore,
+    contextRetrievalIndexSidecarCodec,
+    retrievalIndexSidecarCodec,
+} from "./context-retrieval-index-sidecar";
+export type {
+    ContextRetrievalIndexSidecarCodec,
+} from "./context-retrieval-index-sidecar";

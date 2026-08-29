@@ -36,7 +36,7 @@
   - 扩展 Evidence Gate 与模型投影，禁止 lookup 事件本身成为 Finding/Completion Evidence，并提示可变历史状态必须重新观察。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 7. 实现 Retrieval Index Sidecar 与查询 LRU
+- [x] //TODO 7. 实现 Retrieval Index Sidecar 与查询 LRU
 
   - 在 Runtime 定义索引 Store Port，在 Storage 实现安全路径、严格 Codec、来源摘要、原子替换、权限和落后边界增量更新。
   - 实现 64 项查询 LRU 与包含 canonical query/filters/boundary/version 的 key，测试损坏/领先/hash 失配回退、跨边界隔离和删除重建。
