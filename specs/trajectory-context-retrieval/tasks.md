@@ -24,7 +24,7 @@
   - 使用 golden/property tests 覆盖代码标识、Unicode、locale 隔离、重复构建和 Tokenizer 版本确定性。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 5. 实现 Fielded BM25-lite 排序与相邻扩展
+- [x] //TODO 5. 实现 Fielded BM25-lite 排序与相邻扩展
 
   - 按设计固定 k1/b、字段权重、精确 boost、6 位舍入和稳定 tie-break，实现 filters、Top-K 去重及有界前后相邻文档扩展。
   - 增加评分 golden tests，覆盖路径/对象/Tool/Action/错误码优先、正文相关性、recency 仅作 tie-break 和完整单元预算。

@@ -19,6 +19,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Context Lookup 契约](../../packages/runtime/src/context-retrieval.ts) | 校验历史查询、生成稳定 lookupId、归一化结果与 requested/outcome 事实 | 读取 Workspace/Environment、执行 Tool、持久化 Goal 或实现索引算法 |
 | [ContextDocumentBuilder](../../packages/runtime/src/context-document.ts) | 按 Snapshot committed boundary 将完整 execution/preparation 事实构建为稳定字段和来源范围文档 | 读取未提交 tail、索引 lookup 事件、执行 BM25 或写入 Sidecar |
 | [FieldTokenizer/Index](../../packages/runtime/src/context-tokenizer.ts) | 对文档执行版本化 NFKC/标识拆分并建立确定性倒排、df 与字段长度统计 | 修改 Trajectory、执行查询排序或持久化 Sidecar |
+| [Fielded BM25-lite](../../packages/runtime/src/context-ranking.ts) | 按字段权重、精确标识加分、过滤、稳定 tie-break 和完整文档预算完成排名与相邻扩展 | 改写文档、使用 recency 替代相关性或跨边界查询 |
 | [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
 | [GoalStore 契约](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal 的 Port 与 `GoalCatalogEntry` 摘要；快照中的 `committedThroughSequence` 是轨迹恢复边界 | 历史与事件查询、文件格式 |
 | [Trajectory 契约](../../packages/runtime/src/trajectory.ts) | 追加事实型 Domain Event、记录提交 marker，并为只读消费者提供事件查询、Snapshot 边界分类和读取辅助函数 | Runtime State、Snapshot 恢复或 Diagnostic Trace |
@@ -108,4 +109,4 @@ JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runtime 已提供 ContextLookupPort、lookup 生命周期、committed ContextDocumentBuilder、版本化 FieldTokenizer 和倒排统计，但尚未内置 BM25 排名、Retrieval Index Sidecar 或查询缓存；模型上下文预算、Hot/Warm/Compact 仍由 Agent 负责，也不提供并发恢复保护；Tool 外部系统仍不承诺 exactly-once。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runtime 已提供 ContextLookupPort、lookup 生命周期、committed ContextDocumentBuilder、版本化 FieldTokenizer、倒排统计和 BM25-lite 排名，但尚未内置 Retrieval Index Sidecar 或查询缓存；模型上下文预算、Hot/Warm/Compact 仍由 Agent 负责，也不提供并发恢复保护；Tool 外部系统仍不承诺 exactly-once。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。

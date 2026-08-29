@@ -198,6 +198,27 @@ export type {
     ContextTokenizedField,
     TokenizedContextDocument,
 } from "./context-tokenizer";
+export {
+    CONTEXT_BM25_B,
+    CONTEXT_BM25_K1,
+    CONTEXT_EXACT_MATCH_MULTIPLIERS,
+    CONTEXT_FIELD_WEIGHTS,
+    CONTEXT_RANKING_DEFAULT_MINIMUM_SCORE,
+    CONTEXT_RANKING_DEFAULT_RESULT_BUDGET_BYTES,
+    CONTEXT_RANKING_DEFAULT_TOP_K,
+    CONTEXT_RANKING_ERROR_CODE,
+    CONTEXT_RANKING_VERSION,
+    ContextRankingError,
+    FieldedBm25LiteRanker,
+    rankContextDocuments,
+    rankFieldedBm25Lite,
+} from "./context-ranking";
+export type {
+    ContextRankedMatch,
+    ContextRankingOptions,
+    ContextRankingQuery,
+    ContextRankingResult,
+} from "./context-ranking";
 export type {
     NormalizedWorkingMemoryPatch,
     WorkingMemoryLimits,

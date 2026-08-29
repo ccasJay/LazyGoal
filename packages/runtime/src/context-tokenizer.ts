@@ -142,8 +142,10 @@ export interface ContextInvertedIndex {
     readonly tokenizerVersion: typeof CONTEXT_TOKENIZER_VERSION;
     /** 按稳定文档 ID 排列的文档 ID。 */
     readonly documentIds: readonly string[];
-    /** Token 化文档的只读映射。 */
-    readonly documents: Readonly<Record<string, TokenizedContextDocument>>;
+    /** 原始 Context Documents 的只读映射，供结果层引用来源范围和字段。 */
+    readonly documents: Readonly<Record<string, ContextSearchDocument>>;
+    /** Token 化文档的只读映射，供排名器读取词频和字段长度。 */
+    readonly tokenizedDocuments: Readonly<Record<string, TokenizedContextDocument>>;
     /** 按字段、Token 建立的倒排 Posting。 */
     readonly postings: Readonly<Record<
         ContextDocumentFieldName,
@@ -305,7 +307,8 @@ export function buildContextInvertedIndex(
         seenDocumentIds.add(document.documentId);
     }
 
-    const documentMap = {} as Record<string, TokenizedContextDocument>;
+    const documentMap = {} as Record<string, ContextSearchDocument>;
+    const tokenizedDocumentMap = {} as Record<string, TokenizedContextDocument>;
     const postings = {} as Record<
         ContextDocumentFieldName,
         Record<string, ContextIndexPosting[]>
@@ -318,7 +321,12 @@ export function buildContextInvertedIndex(
         let totalTokenCount = 0;
 
         for (const document of tokenized) {
-            documentMap[document.documentId] = document;
+            const sourceDocument = documents.find((candidate) => candidate.documentId === document.documentId);
+            if (sourceDocument === undefined) {
+                throw new ContextTokenizerError(`source document is missing: ${document.documentId}`);
+            }
+            documentMap[document.documentId] = sourceDocument;
+            tokenizedDocumentMap[document.documentId] = document;
             const field = document.fields[fieldName];
             totalTokenCount += field.length;
             const counts = new Map<string, { termFrequency: number; exactFrequency: number; splitFrequency: number }>();
@@ -365,6 +373,7 @@ export function buildContextInvertedIndex(
 
     const documentIds = Object.freeze(tokenized.map((document) => document.documentId));
     const frozenDocuments = Object.freeze(documentMap);
+    const frozenTokenizedDocuments = Object.freeze(tokenizedDocumentMap);
     const frozenPostings = {} as Record<
         ContextDocumentFieldName,
         Readonly<Record<string, readonly ContextIndexPosting[]>>
@@ -378,6 +387,7 @@ export function buildContextInvertedIndex(
         tokenizerVersion: CONTEXT_TOKENIZER_VERSION,
         documentIds,
         documents: frozenDocuments,
+        tokenizedDocuments: frozenTokenizedDocuments,
         postings: Object.freeze(frozenPostings),
         fieldStats: Object.freeze(fieldStats),
         getPostings(field, term) {
