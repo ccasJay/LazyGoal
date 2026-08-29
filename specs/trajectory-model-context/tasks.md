@@ -18,7 +18,7 @@
   - 增加 Action/Tool/Observation 分组、首个超限停止、禁止拆分/跳选、tail/marker/非法单元排除和跨身份拒绝测试。
   - _Requirements: [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 4. 实现大型 Trajectory 输出的模型投影
+- [x] //TODO 4. 实现大型 Trajectory 输出的模型投影
 
   - 在 Agent View DTO 与 Trajectory Projector 中增加有界 preview、SHA-256、sequence range、截断状态及可选 artifact availability/reference。
   - 增加超限、无 artifact、稳定重复投影、hash 和原始 Observation 不变测试。

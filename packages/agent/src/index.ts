@@ -31,6 +31,19 @@ export type {
     TrajectoryExecutionUnitAdapterOptions,
 } from "./trajectory-execution-unit-adapter";
 export {
+    TrajectoryEventProjector,
+} from "./trajectory-event-projector";
+export type {
+    CompleteModelOutputProjection,
+    ModelExecutionUnitProjection,
+    ModelOutputProjection,
+    ModelTrajectoryEvent,
+    PreviewedModelOutputProjection,
+    TrajectoryArtifactReference,
+    TrajectoryArtifactResolver,
+    TrajectoryEventProjectorOptions,
+} from "./trajectory-event-projector";
+export {
     CharacterModelInputEstimator,
     createDefaultModelContextBudgetPolicy,
     createModelContextBudgetPolicy,
