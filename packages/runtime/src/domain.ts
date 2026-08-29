@@ -743,6 +743,7 @@ export type ExecutionErrorCode =
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
     | "INVALID_TOOL_INPUT"
+    | "INVALID_MEMORY_PATCH"
     | "INVALID_AGENT_DECISION"
     | "TOOL_EXECUTION_ERROR";
 

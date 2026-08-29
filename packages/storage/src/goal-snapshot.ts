@@ -454,6 +454,7 @@ export type GoalSnapshotStopReasonV5 =
             | "TOOL_NOT_AUTHORIZED"
             | "TOOL_NOT_FOUND"
             | "INVALID_TOOL_INPUT"
+            | "INVALID_MEMORY_PATCH"
             | "INVALID_AGENT_DECISION"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
@@ -687,6 +688,7 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
             "TOOL_NOT_AUTHORIZED",
             "TOOL_NOT_FOUND",
             "INVALID_TOOL_INPUT",
+            "INVALID_MEMORY_PATCH",
             "INVALID_AGENT_DECISION",
             "TOOL_EXECUTION_ERROR",
         ]),
@@ -761,6 +763,9 @@ function validateSnapshotInvariants(
     const { run, workflow } = goal.state;
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
+    const structuredMemory =
+        "memoryProtocol" in goal.definition
+        && goal.definition.memoryProtocol.kind === "structured";
 
     if ((run.stepCount > 0) !== (step !== undefined)) {
         addInvariantIssue(
@@ -810,7 +815,7 @@ function validateSnapshotInvariants(
             );
         }
 
-        if (run.checkpoint === undefined) {
+        if (!structuredMemory && run.checkpoint === undefined) {
             addInvariantIssue(
                 context,
                 "pendingAction requires a checkpoint",

@@ -8,6 +8,7 @@ import type {
 import { resolveMemoryProtocol, createEmptyWorkingMemory } from "./domain";
 import {
     buildCommittedEvidenceIndex,
+    validateFindingEvidence,
     validateMemoryPatchEvidence,
     type CommittedEvidenceIndex,
     validateCanonicalFindingEvidence,
@@ -639,6 +640,24 @@ export class WorkingMemorySession {
             this.currentEvidenceIndex,
             validationMemory,
         );
+    }
+
+    /**
+     * 校验一组完成声明使用的 committed Evidence sequence。
+     *
+     * @param evidenceSequences - 当前 Goal/Run 的证据序列。
+     * @throws WorkingMemorySessionClosedError Session 已关闭；EvidenceGateError
+     * 当序列缺失、越界或事件类别不允许。
+     * @example
+     * ```ts
+     * session.validateEvidence([12]);
+     * ```
+     */
+    validateEvidence(evidenceSequences: readonly number[]): void {
+        if (this.currentMemory === undefined || this.currentEvidenceIndex === undefined) {
+            throw new WorkingMemorySessionClosedError();
+        }
+        validateFindingEvidence(evidenceSequences, this.currentEvidenceIndex);
     }
 
     /** 丢弃进程内 Memory；不会改写 Snapshot 或 Trajectory。 */

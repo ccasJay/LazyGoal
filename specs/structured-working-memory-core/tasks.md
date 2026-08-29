@@ -48,7 +48,7 @@
   - 增加 Coordinator 集成测试，覆盖三个 Preparation 分支、每轮单次模型调用、无 Patch 不变、阶段失效、stable ID 更新、Snapshot 失败及批准任务契约隔离。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 9. 将 Working Memory 与 Completion Evidence 接入 Runner
+- [x] //TODO 9. 将 Working Memory 与 Completion Evidence 接入 Runner
 
   - 在 Runner 中按冻结协议验证 structured Decision、Patch、Tool Policy/Input/Action 与 `completionEvidence`，并将 Action/终态事实和 accepted Patch 纳入同一次 Snapshot 提交。
   - 增加 Runner 集成测试，覆盖允许、需批准和拒绝 Action、非法 Patch 不污染 Session、Tool 外部作用顺序、criteria 精确覆盖与证据不足时禁止完成。
