@@ -33,6 +33,7 @@ import type {
     GoalSnapshotProfileV5,
     GoalSnapshotStateV5,
     GoalSnapshotStepRecordV7,
+    GoalSnapshotStepRecordV9,
     GoalSnapshotStepRecordV5,
     GoalSnapshotStopReasonV5,
     GoalSnapshotToolCallActionV5,
@@ -319,7 +320,7 @@ function cloneMemoryPatch(
 function encodeStep(
     step: StepRecord,
     memoryProtocol: MemoryProtocol,
-): GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7 {
+): GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7 | GoalSnapshotStepRecordV9 {
     switch (step.kind) {
         case "action":
             return {
@@ -363,15 +364,24 @@ function encodeStep(
                                         memoryPatch: cloneMemoryPatch(result.memoryPatch),
                                     }),
                             }
-                            : {
-                                kind: "fail",
-                                error: result.error,
-                                ...(result.memoryPatch === undefined
-                                    ? {}
-                                    : {
-                                        memoryPatch: cloneMemoryPatch(result.memoryPatch),
-                                    }),
-                            },
+                            : result.kind === "fail"
+                                ? {
+                                    kind: "fail",
+                                    error: result.error,
+                                    ...(result.memoryPatch === undefined
+                                        ? {}
+                                        : {
+                                            memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                        }),
+                                }
+                                : {
+                                    kind: "context_lookup",
+                                    need: result.need,
+                                    question: result.question,
+                                    ...(result.filters === undefined
+                                        ? {}
+                                        : { filters: structuredClone(result.filters) }),
+                                },
                 };
             }
 
@@ -531,7 +541,7 @@ function decodeObservation(
 }
 
 function decodeStep(
-    step: GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7,
+    step: GoalSnapshotStepRecordV5 | GoalSnapshotStepRecordV7 | GoalSnapshotStepRecordV9,
     memoryProtocol: MemoryProtocol,
 ): StepRecord {
     switch (step.kind) {
@@ -577,15 +587,24 @@ function decodeStep(
                                     memoryPatch: cloneMemoryPatch(result.memoryPatch),
                                     }),
                             }
-                            : {
-                                kind: "fail",
-                                error: result.error,
-                                ...(result.memoryPatch === undefined
-                                    ? {}
-                                    : {
-                                    memoryPatch: cloneMemoryPatch(result.memoryPatch),
-                                    }),
-                            },
+                            : result.kind === "fail"
+                                ? {
+                                    kind: "fail",
+                                    error: result.error,
+                                    ...(result.memoryPatch === undefined
+                                        ? {}
+                                        : {
+                                            memoryPatch: cloneMemoryPatch(result.memoryPatch),
+                                        }),
+                                }
+                                : {
+                                    kind: "context_lookup",
+                                    need: result.need,
+                                    question: result.question,
+                                    ...(result.filters === undefined
+                                        ? {}
+                                        : { filters: structuredClone(result.filters) }),
+                                },
                 };
             }
 

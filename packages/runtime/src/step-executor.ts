@@ -3,6 +3,7 @@ import type {
     Goal,
     WorkingMemory,
 } from "./domain";
+import type { ContextLookupResult } from "./context-retrieval";
 import type { ToolDefinition } from "./tool";
 import type { ExecutionControl } from "./execution-control";
 
@@ -32,6 +33,8 @@ export interface StepExecutionInput {
     readonly workingMemory?: WorkingMemory;
     /** 当前 Run 推进调用的瞬时中止控制。 */
     readonly control?: ExecutionControl;
+    /** 上一轮已提交 lookup 的瞬时结果；调用结束后由 Runtime 丢弃。 */
+    readonly contextLookupResult?: ContextLookupResult;
 }
 
 /**

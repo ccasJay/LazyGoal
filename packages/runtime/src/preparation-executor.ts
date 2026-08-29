@@ -4,6 +4,7 @@ import type {
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
+import type { ContextLookupResult } from "./context-retrieval";
 import type { ExecutionControl } from "./execution-control";
 import type { ToolDefinition } from "./tool";
 
@@ -11,9 +12,10 @@ import type { ToolDefinition } from "./tool";
  * Preparation Executor 单轮返回的结构化决策。
  *
  * @remarks
- * `question` 与 `context_ready` 仅属于 `gathering_context`；
- * `task_proposal` 仅属于 `planning`。该结果不会消费 Run Step，也不直接包含
- * 待持久化消息，阶段推进和消息规范化由 Coordinator 负责。
+ * `question`、`context_ready` 与 `context_lookup` 属于准备阶段；
+ * `task_proposal` 仅属于 `planning`。`context_lookup` 不携带 Memory Patch，且
+ * 不消费 Run Step。该结果不直接包含待持久化消息，阶段推进和消息规范化由
+ * Coordinator 负责。
  */
 export type PreparationResult =
     | {
@@ -33,6 +35,13 @@ export type PreparationResult =
         readonly approvalRequest: string;
         /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
         readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        /** 请求从 committed Trajectory 查询历史信息；该分支不携带 Memory Patch。 */
+        readonly kind: "context_lookup";
+        readonly need: "historical_execution" | "decision_rationale";
+        readonly question: string;
+        readonly filters?: import("./context-retrieval").ContextLookupFilters;
     };
 
 /**
@@ -62,6 +71,8 @@ export interface PreparationExecutionInput {
     readonly workingMemory?: WorkingMemory;
     /** 当前 Goal 推进调用的瞬时中止控制。 */
     readonly control?: ExecutionControl;
+    /** 上一轮 lookup 的瞬时结果；只在本次模型调用中可见，不写入 Goal。 */
+    readonly contextLookupResult?: ContextLookupResult;
 }
 
 /**

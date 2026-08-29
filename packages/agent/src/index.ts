@@ -173,8 +173,11 @@ export {
     StructuredGatheringContextPreparationResultSchema,
     StructuredQuestionPreparationResultSchema,
     StructuredContextReadyPreparationResultSchema,
+    StructuredContextLookupAgentDecisionSchema,
+    StructuredContextLookupPreparationResultSchema,
     StructuredPlanningPreparationResultSchema,
     StructuredTaskProposalPreparationResultSchema,
+    ContextLookupRequestSchema,
     WaitAgentDecisionSchema,
 } from "./response-schema";
 export type {

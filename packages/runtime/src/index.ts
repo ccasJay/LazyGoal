@@ -132,6 +132,34 @@ export {
     resolveWorkingMemoryLimits,
     validateMemoryPatch,
 } from "./working-memory-core";
+export {
+    CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
+    CONTEXT_LOOKUP_FAILED_CODE,
+    CONTEXT_LOOKUP_INVALID_RESULT_CODE,
+    CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
+    CONTEXT_LOOKUP_MAX_QUESTION_LENGTH,
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    CONTEXT_LOOKUP_UNAVAILABLE_CODE,
+    ContextLookupProtocolError,
+    createContextLookupId,
+    createContextLookupFacts,
+    invokeContextLookup,
+    isContextLookupRequest,
+    normalizeContextLookupRequest,
+    validateContextLookupResult,
+} from "./context-retrieval";
+export type {
+    ContextLookupExecutionInput,
+    ContextLookupInvocation,
+    ContextLookupInvocationInput,
+    ContextLookupFilters,
+    ContextLookupMatch,
+    ContextLookupMatchedField,
+    ContextLookupNeed,
+    ContextLookupPort,
+    ContextLookupRequest,
+    ContextLookupResult,
+} from "./context-retrieval";
 export type {
     NormalizedWorkingMemoryPatch,
     WorkingMemoryLimits,

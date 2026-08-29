@@ -62,7 +62,13 @@ export type ModelStepRecord =
                 readonly completionEvidence: readonly ModelCompletionEvidence[];
             }
             | { readonly kind: "wait"; readonly reason: string }
-            | { readonly kind: "fail"; readonly error: string };
+            | { readonly kind: "fail"; readonly error: string }
+            | {
+                readonly kind: "context_lookup";
+                readonly need: "historical_execution" | "decision_rationale";
+                readonly question: string;
+                readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
+            };
     };
 
 /** 模型可见的待执行 Action 投影。 */

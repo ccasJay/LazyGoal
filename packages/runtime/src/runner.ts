@@ -18,6 +18,16 @@ import {
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
+import {
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    ContextLookupProtocolError,
+    createContextLookupId,
+    invokeContextLookup,
+    normalizeContextLookupRequest,
+    validateContextLookupResult,
+    type ContextLookupPort,
+    type ContextLookupResult,
+} from "./context-retrieval";
 import type {
     Tool,
     ToolDefinition,
@@ -153,6 +163,16 @@ function validateAgentDecision(
 ): AgentDecision {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
+    }
+
+    if (value.kind === "context_lookup") {
+        if (memoryProtocol.kind !== "structured") {
+            throw new ContextLookupProtocolError(
+                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: legacy Goal 不支持 Context Lookup`,
+            );
+        }
+
+        return normalizeContextLookupRequest(value);
     }
 
     if (memoryProtocol.kind === "structured") {
@@ -478,7 +498,11 @@ export type RunnerResult =
     | {
         readonly ok: false;
         readonly error: {
-            readonly code: "RUN_NOT_FOUND" | "ACTION_NOT_AUTHORIZED";
+            readonly code:
+                | "RUN_NOT_FOUND"
+                | "ACTION_NOT_AUTHORIZED"
+                | "INVALID_CONTEXT_LOOKUP"
+                | "CONTEXT_LOOKUP_CHAIN_LIMIT";
             readonly message: string;
         };
     };
@@ -525,6 +549,8 @@ export interface RunnerDependencies {
     readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Runner 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
+    /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
+    readonly contextLookupPort?: ContextLookupPort;
 }
 
 /**
@@ -557,6 +583,7 @@ export class Runner {
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
+    private readonly contextLookupPort: ContextLookupPort | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -567,6 +594,7 @@ export class Runner {
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
+        this.contextLookupPort = dependencies.contextLookupPort;
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -629,6 +657,9 @@ export class Runner {
             return this.actionNotAuthorized(ref, options.authorizedActionId);
         }
 
+        const contextLookupResult = options.contextLookupResult
+            ?? await this.restoreContextLookupResult(goal, effectiveControl);
+
         if (goal.state.run.status === "created") {
             throwIfAborted(effectiveControl);
             await this.appendTrajectory({
@@ -647,10 +678,16 @@ export class Runner {
                 checkpoint,
                 options.authorizedActionId,
                 effectiveControl,
+                contextLookupResult,
             );
         }
 
-        return this.runLoop(goal, options.authorizedActionId, effectiveControl);
+        return this.runLoop(
+            goal,
+            options.authorizedActionId,
+            effectiveControl,
+            contextLookupResult,
+        );
     }
 
     /**
@@ -687,6 +724,87 @@ export class Runner {
         }
 
         return goal;
+    }
+
+    private async restoreContextLookupResult(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<ContextLookupResult | undefined> {
+        const trajectoryStore = this.trajectoryStore;
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const lastStep = goal.state.run.lastStep;
+        if (
+            trajectoryStore === undefined
+            || boundary <= 0
+            || lastStep?.kind !== "decision"
+            || lastStep.result.kind !== "context_lookup"
+        ) {
+            return undefined;
+        }
+
+        throwIfAborted(control);
+        const raw = await trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            boundary,
+        );
+        throwIfAborted(control);
+        const committed = [...raw.committed]
+            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
+            .sort((left, right) => right.sequence - left.sequence);
+        const lastFact = committed.find((event) => event.eventType !== "state_committed");
+        if (lastFact === undefined) return undefined;
+
+        const expectedLookupId = createContextLookupId(
+            goal.id,
+            goal.state.run.id,
+            normalizeContextLookupRequest(lastStep.result),
+        );
+        if (
+            (lastFact.eventType !== "context_lookup_completed"
+                && lastFact.eventType !== "context_lookup_not_found"
+                && lastFact.eventType !== "context_lookup_failed")
+            || lastFact.payload.lookupId !== expectedLookupId
+        ) {
+            return undefined;
+        }
+
+        const requested = committed.find((event) =>
+            event.eventType === "context_lookup_requested"
+            && event.payload.lookupId === expectedLookupId
+            && event.sequence < lastFact.sequence,
+        );
+        if (requested === undefined) {
+            throw new ContextLookupProtocolError(
+                "committed lookup result has no preceding requested fact",
+            );
+        }
+
+        if (lastFact.eventType === "context_lookup_completed") {
+            return validateContextLookupResult(
+                lastFact.payload.result,
+                expectedLookupId,
+                boundary,
+            );
+        }
+        if (lastFact.eventType === "context_lookup_not_found") {
+            return validateContextLookupResult(
+                lastFact.payload.result,
+                expectedLookupId,
+                boundary,
+            );
+        }
+
+        return validateContextLookupResult(
+            {
+                status: "lookup_error",
+                lookupId: expectedLookupId,
+                code: lastFact.payload.code,
+                message: lastFact.payload.message,
+                committedThroughSequence: boundary,
+            },
+            expectedLookupId,
+            boundary,
+        );
     }
 
     private validateGoalProtocol(goal: Goal): void {
@@ -927,6 +1045,16 @@ export class Runner {
                 message: actionId === undefined
                     ? `Run "${ref.runId}" requires a matching transient Action authorization`
                     : `Action "${actionId}" is not the approved pending Action for Run "${ref.runId}"`,
+            },
+        };
+    }
+
+    private invalidContextLookup(message: string): RunnerResult {
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_CONTEXT_LOOKUP",
+                message,
             },
         };
     }
@@ -1172,9 +1300,11 @@ export class Runner {
         initialGoal: Goal,
         authorizedActionId?: string,
         control?: ExecutionControl,
+        initialContextLookupResult?: ContextLookupResult,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
+        let contextLookupResult = initialContextLookupResult;
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
@@ -1229,6 +1359,7 @@ export class Runner {
                 }
 
                 goal = outcome.goal;
+                contextLookupResult = undefined;
                 continue;
             }
 
@@ -1271,6 +1402,9 @@ export class Runner {
                             ? {}
                             : { workingMemory: session.workingMemory }),
                         ...(control === undefined ? {} : { control }),
+                        ...(contextLookupResult === undefined
+                            ? {}
+                            : { contextLookupResult }),
                     });
                     throwIfAborted(control);
                     normalized = {
@@ -1290,6 +1424,9 @@ export class Runner {
                     const stableError = toStableExecutionError(error);
                     if (stableError !== undefined) {
                         return this.stopWithExecutionError(goal, stableError, control);
+                    }
+                    if (error instanceof ContextLookupProtocolError) {
+                        return this.invalidContextLookup(error.message);
                     }
 
                     // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
@@ -1332,6 +1469,7 @@ export class Runner {
                     );
 
                     goal = await this.saveCheckpoint(nextGoal, control);
+                    contextLookupResult = undefined;
                     continue;
                 }
 
@@ -1355,6 +1493,63 @@ export class Runner {
                             error instanceof Error ? error.message : String(error),
                         );
                     return this.stopWithExecutionError(goal, stableError, control);
+                }
+
+                if (normalized.decision.kind === "context_lookup") {
+                    const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+                    if (retrievalProtocol.kind !== "bm25-lite") {
+                        return this.invalidContextLookup(
+                            `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
+                        );
+                    }
+
+                    throwIfAborted(control);
+                    let invocation;
+                    try {
+                        invocation = await invokeContextLookup({
+                            goal,
+                            request: normalized.decision,
+                            phase: "executing",
+                            ...(this.contextLookupPort === undefined
+                                ? {}
+                                : { port: this.contextLookupPort }),
+                            executionUnitId,
+                            ...(control === undefined ? {} : { control }),
+                        });
+                    } catch (error) {
+                        if (error instanceof ContextLookupProtocolError) {
+                            return this.invalidContextLookup(error.message);
+                        }
+                        throw error;
+                    }
+                    throwIfAborted(control);
+
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "context_lookup",
+                        request: invocation.request,
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: invocation.request,
+                                },
+                            },
+                            ...invocation.facts,
+                        ],
+                        undefined,
+                        control,
+                    );
+                    contextLookupResult = invocation.result;
+                    continue;
                 }
 
                 await this.appendTrajectory({
@@ -1493,6 +1688,7 @@ export class Runner {
                     }
 
                     goal = outcome.goal;
+                    contextLookupResult = undefined;
                     continue;
                 }
 
@@ -1546,6 +1742,7 @@ export class Runner {
                     acceptedPatch,
                     control,
                 );
+                contextLookupResult = undefined;
             } finally {
                 session?.close();
             }
@@ -1566,7 +1763,10 @@ export class Runner {
 
     private appendDecisionMessage(
         goal: Goal,
-        decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>,
+        decision: Exclude<
+            AgentDecision,
+            { readonly kind: "tool_call" } | { readonly kind: "context_lookup" }
+        >,
     ): Goal {
         const content = decision.kind === "complete"
             ? decision.summary

@@ -1,4 +1,8 @@
 import type { AgentProfile } from "./agent-profile";
+import type {
+    ContextLookupRequest,
+    ContextLookupResult,
+} from "./context-retrieval";
 
 /** Goal 的稳定任务定义，不包含执行过程中产生的状态。 */
 export interface GoalTask {
@@ -803,9 +807,10 @@ export type StructuredAgentDecision =
         readonly kind: "fail";
         readonly error: string;
         readonly memoryPatch?: WorkingMemoryPatch;
-    };
+    }
+    | ContextLookupRequest;
 
-/** Agent 当前冻结协议对应的四分支决策联合。 */
+/** Agent 当前冻结协议对应的决策联合；structured@1 额外允许独占 Context Lookup。 */
 export type AgentDecision = LegacyAgentDecision | StructuredAgentDecision;
 
 /**
@@ -974,6 +979,8 @@ export interface RunExecutionOptions {
     readonly authorizedActionId?: string;
     /** 可选的调用级中止信号；不会写入 Goal 快照。 */
     readonly signal?: AbortSignal;
+    /** 上一轮已提交 Context Lookup 的瞬时结果；不会写入 Snapshot。 */
+    readonly contextLookupResult?: ContextLookupResult;
 }
 
 /** Run 生命周期状态；completed、failed、cancelled 是终态。 */
@@ -1027,6 +1034,11 @@ export type RunInput =
     | {
         readonly kind: "decision";
         readonly decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>;
+    }
+    | {
+        /** 完成一个 Context Lookup Step，但保持 Run running。 */
+        readonly kind: "context_lookup";
+        readonly request: ContextLookupRequest;
     }
     | {
         readonly kind: "reject_action";

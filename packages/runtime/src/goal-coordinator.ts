@@ -19,6 +19,18 @@ import type {
     PreparationExecutor,
     PreparationResult,
 } from "./preparation-executor";
+import {
+    CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    ContextLookupProtocolError,
+    createContextLookupId,
+    invokeContextLookup,
+    normalizeContextLookupRequest,
+    validateContextLookupResult,
+    type ContextLookupPort,
+    type ContextLookupRequest,
+    type ContextLookupResult,
+} from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
 import {
     InMemoryToolRegistry,
@@ -32,6 +44,7 @@ import {
 import { transition } from "./transition";
 import {
     type DiagnosticTraceSink,
+    type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryStore,
     type TrajectorySink,
@@ -52,13 +65,19 @@ import {
     type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 
+type PreparationLookupOutcome =
+    | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
+    | Extract<GoalProgressResult, { readonly ok: false }>;
+
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
     | "RUN_NOT_FOUND"
     | "GOAL_NOT_WAITING"
     | "INVALID_GOAL_INPUT"
     | "INVALID_PHASE_RESULT"
-    | "ACTION_NOT_AUTHORIZED";
+    | "ACTION_NOT_AUTHORIZED"
+    | "INVALID_CONTEXT_LOOKUP"
+    | "CONTEXT_LOOKUP_CHAIN_LIMIT";
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
@@ -180,6 +199,8 @@ export interface GoalCoordinatorDependencies {
     readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
+    /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
+    readonly contextLookupPort?: ContextLookupPort;
 }
 
 /**
@@ -208,6 +229,7 @@ export class GoalCoordinator {
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
+    private readonly contextLookupPort: ContextLookupPort | undefined;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -218,6 +240,7 @@ export class GoalCoordinator {
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
+        this.contextLookupPort = dependencies.contextLookupPort;
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -254,6 +277,9 @@ export class GoalCoordinator {
 
         this.validateGoalProtocol(goal);
 
+        let contextLookupResult = await this.restoreContextLookupResult(goal, control);
+        let preparationLookupCount = 0;
+
         while (goal.state.workflow.phase !== "executing") {
             const workflow = goal.state.workflow;
 
@@ -278,8 +304,26 @@ export class GoalCoordinator {
                             ? {}
                             : { workingMemory: session.workingMemory }),
                         ...(control === undefined ? {} : { control }),
+                        ...(contextLookupResult === undefined
+                            ? {}
+                            : { contextLookupResult }),
                     });
                     throwIfAborted(control);
+
+                    if (result.kind === "context_lookup") {
+                        const lookup = await this.prepareContextLookup(
+                            goal,
+                            result,
+                            workflow.phase,
+                            preparationLookupCount,
+                            control,
+                        );
+                        if (!lookup.ok) return lookup;
+                        goal = lookup.goal;
+                        contextLookupResult = lookup.result;
+                        preparationLookupCount += 1;
+                        continue;
+                    }
 
                     const preparationFact: TrajectoryEventDraft = {
                         goalId: goal.id,
@@ -341,6 +385,7 @@ export class GoalCoordinator {
                         acceptedPatch,
                         control,
                     );
+                    contextLookupResult = undefined;
                 } finally {
                     session?.close();
                 }
@@ -369,8 +414,26 @@ export class GoalCoordinator {
                         ? {}
                         : { workingMemory: session.workingMemory }),
                     ...(control === undefined ? {} : { control }),
+                    ...(contextLookupResult === undefined
+                        ? {}
+                        : { contextLookupResult }),
                 });
                 throwIfAborted(control);
+
+                if (result.kind === "context_lookup") {
+                    const lookup = await this.prepareContextLookup(
+                        goal,
+                        result,
+                        workflow.phase,
+                        preparationLookupCount,
+                        control,
+                    );
+                    if (!lookup.ok) return lookup;
+                    goal = lookup.goal;
+                    contextLookupResult = lookup.result;
+                    preparationLookupCount += 1;
+                    continue;
+                }
 
                 if (result.kind !== "task_proposal") {
                     return this.invalidPhaseResult(workflow.phase, result);
@@ -789,6 +852,161 @@ export class GoalCoordinator {
         });
         throwIfAborted(control);
         return session;
+    }
+
+    private async prepareContextLookup(
+        goal: Goal,
+        rawRequest: Extract<PreparationResult, { readonly kind: "context_lookup" }>,
+        phase: "gathering_context" | "planning",
+        lookupCount: number,
+        control?: ExecutionControl,
+    ): Promise<PreparationLookupOutcome> {
+        const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+        if (retrievalProtocol.kind !== "bm25-lite") {
+            return this.invalidContextLookup(
+                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
+            );
+        }
+
+        if (lookupCount >= 3) {
+            return {
+                ok: false,
+                error: {
+                    code: CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
+                    message: `${CONTEXT_LOOKUP_CHAIN_LIMIT_CODE}: Preparation lookup chain exceeds 3 queries`,
+                },
+            };
+        }
+
+        let request: ContextLookupRequest;
+        try {
+            request = normalizeContextLookupRequest(rawRequest);
+        } catch (error) {
+            return this.invalidContextLookup(
+                error instanceof Error
+                    ? error.message
+                    : `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: request is invalid`,
+            );
+        }
+
+        throwIfAborted(control);
+        let invocation;
+        try {
+            invocation = await invokeContextLookup({
+                goal,
+                request,
+                phase,
+                ...(this.contextLookupPort === undefined
+                    ? {}
+                    : { port: this.contextLookupPort }),
+                ...(control === undefined ? {} : { control }),
+            });
+        } catch (error) {
+            if (error instanceof ContextLookupProtocolError) {
+                return this.invalidContextLookup(error.message);
+            }
+            throw error;
+        }
+        throwIfAborted(control);
+
+        const preparationFact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase,
+            eventType: "preparation_result",
+            payload: { type: "preparation_result", result: "context_lookup" },
+        };
+        const committedGoal = await this.commitPreparation(
+            goal,
+            [preparationFact, ...invocation.facts],
+            undefined,
+            control,
+        );
+        return {
+            ok: true,
+            goal: committedGoal,
+            result: invocation.result,
+        };
+    }
+
+    private invalidContextLookup(message: string): PreparationLookupOutcome {
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_CONTEXT_LOOKUP",
+                message,
+            },
+        };
+    }
+
+    private async restoreContextLookupResult(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<ContextLookupResult | undefined> {
+        const trajectoryStore = this.trajectoryStore;
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        if (trajectoryStore === undefined || boundary <= 0) return undefined;
+
+        throwIfAborted(control);
+        const raw = await trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            boundary,
+        );
+        throwIfAborted(control);
+        const committed = [...raw.committed]
+            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
+            .sort((left, right) => right.sequence - left.sequence);
+        const lastFact = committed.find((event) => event.eventType !== "state_committed");
+        if (
+            lastFact === undefined
+            || (
+                lastFact.eventType !== "context_lookup_completed"
+                && lastFact.eventType !== "context_lookup_not_found"
+                && lastFact.eventType !== "context_lookup_failed"
+            )
+        ) {
+            return undefined;
+        }
+
+        const lookupId = lastFact.payload.lookupId;
+        const requested = committed.find((event) =>
+            event.eventType === "context_lookup_requested"
+            && event.payload.lookupId === lookupId
+            && event.sequence < lastFact.sequence,
+        ) as Extract<TrajectoryEvent, { readonly eventType: "context_lookup_requested" }> | undefined;
+        if (requested === undefined) {
+            throw new ContextLookupProtocolError(
+                "committed lookup result has no preceding requested fact",
+            );
+        }
+        const request = normalizeContextLookupRequest(requested.payload.request);
+        if (createContextLookupId(goal.id, goal.state.run.id, request) !== lookupId) {
+            throw new ContextLookupProtocolError("committed lookupId does not match request");
+        }
+
+        if (lastFact.eventType === "context_lookup_completed") {
+            return validateContextLookupResult(
+                lastFact.payload.result,
+                lookupId,
+                boundary,
+            );
+        }
+        if (lastFact.eventType === "context_lookup_not_found") {
+            return validateContextLookupResult(
+                lastFact.payload.result,
+                lookupId,
+                boundary,
+            );
+        }
+
+        const failedResult: ContextLookupResult = {
+            status: "lookup_error",
+            lookupId,
+            code: lastFact.payload.code,
+            message: lastFact.payload.message,
+            committedThroughSequence: boundary,
+        };
+        return validateContextLookupResult(failedResult, lookupId, boundary);
     }
 
     private acceptPreparationPatch(

@@ -6,7 +6,7 @@
   - 增加 Prompt/Memory/Model Context/Retrieval 协议矩阵、未知组合、恢复不写回和 legacy 分支不变测试，并补齐公共 Interface 契约 TSDoc。
   - _Requirements: [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 2. 实现 Context Lookup 分支与 Runtime 生命周期
+- [x] //TODO 2. 实现 Context Lookup 分支与 Runtime 生命周期
 
   - 为 Preparation Result、AgentDecision、StepRecord 和 Trajectory 增加独占 lookup 请求及 requested/completed/not_found/failed 事实，统一 Snapshot 提交顺序。
   - 在 Coordinator/Runner 中实现 Executing 单 Step、Preparation 三次链式上限、稳定 lookupId、中断恢复和非法请求无副作用测试。

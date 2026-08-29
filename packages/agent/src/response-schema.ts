@@ -4,6 +4,10 @@ import type {
     AgentDecision,
     MemoryProtocol,
 } from "../../runtime/src/domain";
+import {
+    CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
+    CONTEXT_LOOKUP_MAX_QUESTION_LENGTH,
+} from "../../runtime/src/context-retrieval";
 import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import { LLMResponseProtocolError } from "./errors";
 import type { PreparationPhase } from "./model-inference-view";
@@ -11,6 +15,37 @@ import type { PreparationPhase } from "./model-inference-view";
 const nonEmptyText = z.string().trim().min(1);
 const positiveInteger = z.number().int().positive();
 const nonNegativeInteger = z.number().int().nonnegative();
+
+const contextLookupStringList = z.array(nonEmptyText).max(CONTEXT_LOOKUP_MAX_FILTER_ITEMS);
+const contextLookupIntegerList = z.array(nonNegativeInteger).max(CONTEXT_LOOKUP_MAX_FILTER_ITEMS);
+const ContextLookupFiltersSchema = z.object({
+    eventTypes: contextLookupStringList.optional(),
+    toolIds: contextLookupStringList.optional(),
+    actionIds: contextLookupStringList.optional(),
+    stepIndexes: contextLookupIntegerList.optional(),
+    paths: contextLookupStringList.optional(),
+    errorCodes: contextLookupStringList.optional(),
+    objectIds: contextLookupStringList.optional(),
+    sequenceRange: z.object({
+        from: nonNegativeInteger,
+        to: nonNegativeInteger,
+    }).strict().optional(),
+}).strict().superRefine((filters, context) => {
+    if (
+        filters.sequenceRange !== undefined
+        && filters.sequenceRange.to < filters.sequenceRange.from
+    ) {
+        context.addIssue({ code: "custom", message: "sequenceRange must not be inverted" });
+    }
+});
+
+/** Agent 请求查询 committed Trajectory 历史的严格 Schema。 */
+export const ContextLookupRequestSchema = z.object({
+    kind: z.literal("context_lookup"),
+    need: z.enum(["historical_execution", "decision_rationale"]),
+    question: z.string().trim().min(1).max(CONTEXT_LOOKUP_MAX_QUESTION_LENGTH),
+    filters: ContextLookupFiltersSchema.optional(),
+}).strict();
 
 const memoryEntryStatus = z.enum(["active", "resolved", "superseded"]);
 const memoryEntryScope = z.enum(["goal", "phase"]);
@@ -139,7 +174,7 @@ export const FailAgentDecisionSchema = z.object({
     error: nonEmptyText,
 }).strict();
 
-/** AgentDecision 的四分支严格联合协议。 */
+/** legacy AgentDecision 的四分支严格联合协议。 */
 export const AgentDecisionSchema = z.discriminatedUnion("kind", [
     ToolCallAgentDecisionSchema,
     CompleteAgentDecisionSchema,
@@ -176,12 +211,16 @@ export const StructuredFailAgentDecisionSchema = z.object({
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
+/** Structured Context Lookup 的独占 AgentDecision 分支。 */
+export const StructuredContextLookupAgentDecisionSchema = ContextLookupRequestSchema;
+
 /** Structured `structured@1` AgentDecision 的严格联合 Schema。 */
 export const StructuredAgentDecisionSchema = z.discriminatedUnion("kind", [
     StructuredToolCallAgentDecisionSchema,
     StructuredCompleteAgentDecisionSchema,
     StructuredWaitAgentDecisionSchema,
     StructuredFailAgentDecisionSchema,
+    StructuredContextLookupAgentDecisionSchema,
 ]);
 
 export const QuestionPreparationResultSchema = z.object({
@@ -226,12 +265,16 @@ export const StructuredContextReadyPreparationResultSchema = z.object({
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
+/** Structured gathering_context/planning 的独占 Context Lookup 分支。 */
+export const StructuredContextLookupPreparationResultSchema = ContextLookupRequestSchema;
+
 /** Structured gathering_context 结果联合 Schema。 */
 export const StructuredGatheringContextPreparationResultSchema = z.discriminatedUnion(
     "kind",
     [
         StructuredQuestionPreparationResultSchema,
         StructuredContextReadyPreparationResultSchema,
+        StructuredContextLookupPreparationResultSchema,
     ],
 );
 
@@ -248,7 +291,10 @@ export const StructuredTaskProposalPreparationResultSchema = z.object({
 
 /** Structured planning 结果联合 Schema。 */
 export const StructuredPlanningPreparationResultSchema =
-    StructuredTaskProposalPreparationResultSchema;
+    z.union([
+        StructuredTaskProposalPreparationResultSchema,
+        StructuredContextLookupPreparationResultSchema,
+    ]);
 
 export type { PreparationPhase } from "./model-inference-view";
 
