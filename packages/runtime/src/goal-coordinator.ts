@@ -1,9 +1,14 @@
 import type {
     AssistantMessage,
+    CanonicalMemoryOperation,
     Goal,
     GoalTask,
+    GoalPhase,
+    MemoryPatch,
     RunRef,
+    WorkingMemory,
 } from "./domain";
+import { resolveMemoryProtocol } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     PreparationExecutor,
@@ -23,10 +28,22 @@ import { transition } from "./transition";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
+    type TrajectoryStore,
     type TrajectorySink,
 } from "./trajectory";
 import {
+    createSupersedeScopeOperation,
+    mergeNormalizedMemoryPatches,
+    normalizeMemoryPatch,
+    reduceWorkingMemory,
+    type NormalizedWorkingMemoryPatch,
+    WorkingMemoryPatchError,
+    type WorkingMemoryLimitsInput,
+} from "./working-memory-core";
+import { WorkingMemorySession } from "./working-memory-session";
+import {
     TrajectoryCheckpointCommitter,
+    type AcceptedMemoryPatchInput,
     type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 
@@ -147,6 +164,10 @@ export interface GoalCoordinatorDependencies {
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
+    readonly trajectoryStore?: TrajectoryStore;
+    /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
+    readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
 }
@@ -174,6 +195,8 @@ export class GoalCoordinator {
     private readonly scheduler: RunScheduler;
     private readonly toolRegistry: ToolRegistry;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
+    private readonly trajectoryStore: TrajectoryStore | undefined;
+    private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -181,12 +204,15 @@ export class GoalCoordinator {
         this.preparationExecutor = dependencies.preparationExecutor;
         this.scheduler = dependencies.scheduler;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
+        this.trajectoryStore = dependencies.trajectoryStore;
+        this.workingMemoryLimits = dependencies.workingMemoryLimits;
+        const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
-                ...(dependencies.trajectorySink === undefined
+                ...(trajectorySink === undefined
                     ? {}
-                    : { trajectorySink: dependencies.trajectorySink }),
+                    : { trajectorySink }),
                 ...(dependencies.traceSink === undefined
                     ? {}
                     : { traceSink: dependencies.traceSink }),
@@ -229,47 +255,81 @@ export class GoalCoordinator {
                 }
 
                 throwIfAborted(control);
-                const result = await this.preparationExecutor.execute({
-                    goal,
-                    authorizedTools: [],
-                    ...(control === undefined ? {} : { control }),
-                });
-                throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: workflow.phase,
-                    eventType: "preparation_result",
-                    payload: { type: "preparation_result", result: result.kind },
-                }, control);
-
-                if (result.kind === "question") {
+                const session = await this.openWorkingMemorySession(goal, control);
+                try {
+                    const result = await this.preparationExecutor.execute({
+                        goal,
+                        authorizedTools: [],
+                        ...(session === undefined
+                            ? {}
+                            : { workingMemory: session.workingMemory }),
+                        ...(control === undefined ? {} : { control }),
+                    });
                     throwIfAborted(control);
-                    goal = this.withQuestion(goal, result.question);
-                    await this.appendTrajectory({
+
+                    const preparationFact: TrajectoryEventDraft = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
-                        phase: "gathering_context",
-                        eventType: "run_waiting",
-                        payload: { type: "run_waiting", reason: "question" },
-                    }, control);
-                    goal = await this.saveCheckpoint(goal, control);
-                    return {
-                        ok: true,
-                        kind: "waiting",
-                        phase: "gathering_context",
-                        waitingFor: "question",
-                        goal,
+                        phase: workflow.phase,
+                        eventType: "preparation_result",
+                        payload: { type: "preparation_result", result: result.kind },
                     };
-                }
 
-                if (result.kind !== "context_ready") {
-                    return this.invalidPhaseResult(workflow.phase, result);
-                }
+                    if (result.kind === "question") {
+                        const acceptedPatch = this.acceptPreparationPatch(
+                            goal,
+                            result.memoryPatch,
+                            workflow.phase,
+                            session,
+                        );
+                        throwIfAborted(control);
+                        goal = this.withQuestion(goal, result.question);
+                        goal = await this.commitPreparation(
+                            goal,
+                            [
+                                preparationFact,
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "gathering_context",
+                                    eventType: "run_waiting",
+                                    payload: { type: "run_waiting", reason: "question" },
+                                },
+                            ],
+                            acceptedPatch,
+                            control,
+                        );
+                        return {
+                            ok: true,
+                            kind: "waiting",
+                            phase: "gathering_context",
+                            waitingFor: "question",
+                            goal,
+                        };
+                    }
 
-                goal = this.withPlanning(goal);
-                throwIfAborted(control);
-                goal = await this.saveCheckpoint(goal, control);
+                    if (result.kind !== "context_ready") {
+                        return this.invalidPhaseResult(workflow.phase, result);
+                    }
+
+                    const acceptedPatch = this.acceptPreparationPatch(
+                        goal,
+                        result.memoryPatch,
+                        workflow.phase,
+                        session,
+                        this.contextReadyLifecycle(session),
+                    );
+                    goal = this.withPlanning(goal);
+                    throwIfAborted(control);
+                    goal = await this.commitPreparation(
+                        goal,
+                        [preparationFact],
+                        acceptedPatch,
+                        control,
+                    );
+                } finally {
+                    session?.close();
+                }
                 continue;
             }
 
@@ -286,34 +346,55 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
             throwIfAborted(control);
+            const session = await this.openWorkingMemorySession(goal, control);
+            try {
                 const result = await this.preparationExecutor.execute({
                     goal,
                     authorizedTools: tools,
+                    ...(session === undefined
+                        ? {}
+                        : { workingMemory: session.workingMemory }),
                     ...(control === undefined ? {} : { control }),
                 });
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: workflow.phase,
-                eventType: "preparation_result",
-                payload: { type: "preparation_result", result: result.kind },
-            }, control);
+                throwIfAborted(control);
 
-            if (result.kind !== "task_proposal") {
-                return this.invalidPhaseResult(workflow.phase, result);
+                if (result.kind !== "task_proposal") {
+                    return this.invalidPhaseResult(workflow.phase, result);
+                }
+
+                const acceptedPatch = this.acceptPreparationPatch(
+                    goal,
+                    result.memoryPatch,
+                    workflow.phase,
+                    session,
+                );
+                const preparationFact: TrajectoryEventDraft = {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: workflow.phase,
+                    eventType: "preparation_result",
+                    payload: { type: "preparation_result", result: result.kind },
+                };
+                goal = this.withProposal(goal, result);
+                throwIfAborted(control);
+                goal = await this.commitPreparation(
+                    goal,
+                    [
+                        preparationFact,
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "planning",
+                            eventType: "run_waiting",
+                            payload: { type: "run_waiting", reason: "approval" },
+                        },
+                    ],
+                    acceptedPatch,
+                    control,
+                );
+            } finally {
+                session?.close();
             }
-
-            goal = this.withProposal(goal, result);
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "planning",
-                eventType: "run_waiting",
-                payload: { type: "run_waiting", reason: "approval" },
-            }, control);
-            goal = await this.saveCheckpoint(goal, control);
             return {
                 ok: true,
                 kind: "waiting",
@@ -437,15 +518,28 @@ export class GoalCoordinator {
                     goal,
                     request.action.content,
                 );
-                throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "planning",
-                    eventType: "run_resumed",
-                    payload: { type: "run_resumed" },
-                }, control);
-                await this.saveCheckpoint(resumedGoal, control);
+                const session = await this.openWorkingMemorySession(goal, control);
+                try {
+                    const acceptedPatch = this.lifecyclePatch(
+                        goal,
+                        session,
+                    );
+                    throwIfAborted(control);
+                    await this.commitPreparation(
+                        resumedGoal,
+                        [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "planning",
+                            eventType: "run_resumed",
+                            payload: { type: "run_resumed" },
+                        }],
+                        acceptedPatch,
+                        control,
+                    );
+                } finally {
+                    session?.close();
+                }
                 return this.advance(request.ref, control);
             }
 
@@ -462,15 +556,28 @@ export class GoalCoordinator {
             }
 
             const approvedGoal = this.withApprovedTask(goal, proposal);
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "planning",
-                eventType: "run_resumed",
-                payload: { type: "run_resumed" },
-            }, control);
-            await this.saveCheckpoint(approvedGoal, control);
+            const session = await this.openWorkingMemorySession(goal, control);
+            try {
+                const acceptedPatch = this.lifecyclePatch(
+                    goal,
+                    session,
+                );
+                throwIfAborted(control);
+                await this.commitPreparation(
+                    approvedGoal,
+                    [{
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "planning",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
+                    }],
+                    acceptedPatch,
+                    control,
+                );
+            } finally {
+                session?.close();
+            }
             return this.advance(request.ref, control);
         }
 
@@ -646,6 +753,174 @@ export class GoalCoordinator {
         }, control);
         await this.saveCheckpoint(resumedGoal, control);
         return this.advance(request.ref, control);
+    }
+
+    private async openWorkingMemorySession(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<WorkingMemorySession | undefined> {
+        throwIfAborted(control);
+        const protocol = resolveMemoryProtocol(goal.definition);
+        if (protocol.kind !== "structured") return undefined;
+
+        const session = await WorkingMemorySession.restore(goal, {
+            ...(this.trajectoryStore === undefined
+                ? {}
+                : { trajectoryStore: this.trajectoryStore }),
+            ...(this.workingMemoryLimits === undefined
+                ? {}
+                : { limits: this.workingMemoryLimits }),
+        });
+        throwIfAborted(control);
+        return session;
+    }
+
+    private acceptPreparationPatch(
+        goal: Goal,
+        memoryPatch: MemoryPatch | undefined,
+        phase: GoalPhase,
+        session: WorkingMemorySession | undefined,
+        lifecycleOperations: readonly CanonicalMemoryOperation[] = [],
+    ): AcceptedMemoryPatchInput | undefined {
+        const protocol = resolveMemoryProtocol(goal.definition);
+        if (protocol.kind !== "structured") {
+            if (memoryPatch !== undefined || lifecycleOperations.length > 0) {
+                throw new WorkingMemoryPatchError(
+                    "checkpoint protocol cannot accept structured Memory Patch",
+                );
+            }
+            return undefined;
+        }
+
+        if (session === undefined) {
+            throw new Error(
+                "GoalCoordinator invariant violated: structured Memory Session is missing",
+            );
+        }
+
+        let modelPatch: NormalizedWorkingMemoryPatch | undefined;
+        if (memoryPatch !== undefined) {
+            const memorySession: WorkingMemorySession = session;
+            const currentMemory = memorySession.workingMemory;
+            const workingMemory = lifecycleOperations.length === 0
+                ? currentMemory
+                : reduceWorkingMemory(currentMemory, lifecycleOperations, {
+                    ...(this.workingMemoryLimits === undefined
+                        ? {}
+                        : { limits: this.workingMemoryLimits }),
+                });
+            memorySession.validatePatch(memoryPatch, workingMemory);
+            modelPatch = normalizeMemoryPatch(memoryPatch, {
+                phase,
+                originSequence: Math.max(
+                    1,
+                    (goal.state.run.committedThroughSequence ?? 0) + 1,
+                ),
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
+        }
+
+        if (
+            modelPatch === undefined
+            && lifecycleOperations.length === 0
+        ) {
+            return undefined;
+        }
+
+        // 生命周期失效必须先于模型操作，避免 context-ready/feedback 把刚生成的
+        // 新控制条目一并清除；模型操作仍保持其在同一 Patch 中的声明顺序。
+        const merged = mergeNormalizedMemoryPatches(
+            undefined,
+            [
+                ...lifecycleOperations,
+                ...(modelPatch?.operations ?? []),
+            ],
+        );
+        if (merged.operations.length === 0) return undefined;
+
+        const hasModelOperations = (modelPatch?.operations.length ?? 0) > 0;
+
+        return {
+            phase,
+            producers: [
+                ...(hasModelOperations ? ["model" as const] : []),
+                ...(lifecycleOperations.length === 0
+                    ? []
+                    : ["runtime_lifecycle" as const]),
+            ],
+            operations: merged.operations,
+        };
+    }
+
+    private contextReadyLifecycle(
+        session: WorkingMemorySession | undefined,
+    ): readonly CanonicalMemoryOperation[] {
+        if (session === undefined) return [];
+        return this.lifecycleOperations(
+            session.workingMemory,
+            "gathering_context",
+            ["hypothesis", "next_action"],
+        );
+    }
+
+    private lifecyclePatch(
+        goal: Goal,
+        session: WorkingMemorySession | undefined,
+    ): AcceptedMemoryPatchInput | undefined {
+        const operations = session === undefined
+            ? []
+            : this.lifecycleOperations(
+                session.workingMemory,
+                "planning",
+                ["plan", "hypothesis", "next_action", "blocker"],
+            );
+        return this.acceptPreparationPatch(
+            goal,
+            undefined,
+            "planning",
+            session,
+            operations,
+        );
+    }
+
+    private lifecycleOperations(
+        memory: WorkingMemory,
+        phase: GoalPhase,
+        kinds: readonly ("finding" | "hypothesis" | "plan" | "blocker" | "next_action")[],
+    ): readonly CanonicalMemoryOperation[] {
+        const entries = [
+            ...memory.findings,
+            ...memory.hypotheses,
+            ...memory.plan,
+            ...memory.blockers,
+            ...(memory.nextAction === undefined ? [] : [memory.nextAction]),
+        ];
+        const hasActiveEntry = entries.some((entry) =>
+            entry.status === "active"
+            && entry.scope === "phase"
+            && entry.originPhase === phase
+            && kinds.includes(entry.kind),
+        );
+        if (!hasActiveEntry) return [];
+
+        return [createSupersedeScopeOperation("phase", { phase, kinds })];
+    }
+
+    private async commitPreparation(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        acceptedPatch: AcceptedMemoryPatchInput | undefined,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const result = await this.checkpointCommitter.commit(goal, {
+            facts,
+            ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        return result.goal;
     }
 
     private async restore(

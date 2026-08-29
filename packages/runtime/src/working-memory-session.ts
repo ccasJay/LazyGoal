@@ -1,5 +1,6 @@
 import type {
     Goal,
+    MemoryPatch,
     MemoryPatchAcceptedPayload,
     MemoryRevision,
     WorkingMemory,
@@ -7,6 +8,8 @@ import type {
 import { resolveMemoryProtocol, createEmptyWorkingMemory } from "./domain";
 import {
     buildCommittedEvidenceIndex,
+    validateMemoryPatchEvidence,
+    type CommittedEvidenceIndex,
     validateCanonicalFindingEvidence,
 } from "./evidence-gate";
 import {
@@ -129,6 +132,11 @@ export interface RebuiltWorkingMemory {
     readonly committedThroughSequence: number;
     /** 被选中的 revision；无 Patch 提交时省略。 */
     readonly revision?: MemoryRevision;
+}
+
+interface RebuiltWorkingMemoryInternal extends RebuiltWorkingMemory {
+    /** 本次 Snapshot 边界对应的 Evidence Gate 索引，仅供当前 Session 使用。 */
+    readonly evidenceIndex: CommittedEvidenceIndex;
 }
 
 type AcceptedPatchEvent = Readonly<TrajectoryEvent & {
@@ -351,7 +359,7 @@ function decodeAcceptedPatchEvent(
 async function rebuild(
     goal: Goal,
     dependencies: WorkingMemorySessionDependencies,
-): Promise<RebuiltWorkingMemory> {
+): Promise<RebuiltWorkingMemoryInternal> {
     const protocol = resolveMemoryProtocol(goal.definition);
     if (protocol.kind !== "structured") {
         throw new WorkingMemoryRecoveryError(
@@ -435,6 +443,7 @@ async function rebuild(
         return {
             memory: createEmptyWorkingMemory(committedThroughSequence),
             committedThroughSequence,
+            evidenceIndex,
         };
     }
 
@@ -500,6 +509,7 @@ async function rebuild(
         memory,
         committedThroughSequence,
         revision: snapshotRevision,
+        evidenceIndex,
     };
 }
 
@@ -520,7 +530,12 @@ export async function rebuildWorkingMemory(
     goal: Goal,
     dependencies: WorkingMemorySessionDependencies,
 ): Promise<RebuiltWorkingMemory> {
-    return rebuild(goal, dependencies);
+    const restored = await rebuild(goal, dependencies);
+    return {
+        memory: restored.memory,
+        committedThroughSequence: restored.committedThroughSequence,
+        ...(restored.revision === undefined ? {} : { revision: restored.revision }),
+    };
 }
 
 /** `rebuildWorkingMemory` 的语义别名，供恢复调用方按 Session 语义命名。 */
@@ -548,6 +563,7 @@ export async function restoreWorkingMemory(
  */
 export class WorkingMemorySession {
     private currentMemory: WorkingMemory | undefined;
+    private currentEvidenceIndex: CommittedEvidenceIndex | undefined;
 
     /**
      * @param goal - 与恢复结果关联的 Goal 身份。
@@ -556,8 +572,10 @@ export class WorkingMemorySession {
     constructor(
         private readonly goal: Pick<Goal, "id" | "state">,
         memory: WorkingMemory,
+        evidenceIndex?: CommittedEvidenceIndex,
     ) {
         this.currentMemory = structuredClone(memory);
+        this.currentEvidenceIndex = evidenceIndex;
     }
 
     /** 从 Goal Snapshot 和 Trajectory 打开新的 Session。 */
@@ -566,7 +584,7 @@ export class WorkingMemorySession {
         dependencies: WorkingMemorySessionDependencies,
     ): Promise<WorkingMemorySession> {
         const restored = await rebuild(goal, dependencies);
-        return new WorkingMemorySession(goal, restored.memory);
+        return new WorkingMemorySession(goal, restored.memory, restored.evidenceIndex);
     }
 
     /** `restore` 的语义别名，便于调用方表达首次打开。 */
@@ -596,8 +614,36 @@ export class WorkingMemorySession {
         return structuredClone(this.currentMemory);
     }
 
+    /**
+     * 在当前 committed Snapshot 边界内校验模型提出的 Memory Patch。
+     *
+     * @param patch - 尚未接受的模型 Patch。
+     * @param workingMemory - 可选的校验起点；省略时使用 Session 当前投影。
+     * @throws WorkingMemorySessionClosedError Session 已关闭；
+     * WorkingMemoryPatchError 或 EvidenceGateError 当 Patch 或证据引用非法。
+     * @example
+     * ```ts
+     * session.validatePatch(result.memoryPatch);
+     * ```
+     */
+    validatePatch(
+        patch: unknown,
+        workingMemory?: WorkingMemory,
+    ): asserts patch is MemoryPatch {
+        if (this.currentMemory === undefined || this.currentEvidenceIndex === undefined) {
+            throw new WorkingMemorySessionClosedError();
+        }
+        const validationMemory = workingMemory ?? this.currentMemory;
+        validateMemoryPatchEvidence(
+            patch,
+            this.currentEvidenceIndex,
+            validationMemory,
+        );
+    }
+
     /** 丢弃进程内 Memory；不会改写 Snapshot 或 Trajectory。 */
     close(): void {
         this.currentMemory = undefined;
+        this.currentEvidenceIndex = undefined;
     }
 }

@@ -42,7 +42,7 @@
   - 更新 LLM Preparation/Step Executor 使用对象式输入和冻结协议解析；固定 v1-v3 Prompt、Schema、checkpoint 与无 Trajectory 行为的回归测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 8. 将 Working Memory 接入 Preparation 生命周期
+- [x] //TODO 8. 将 Working Memory 接入 Preparation 生命周期
 
   - 在 GoalCoordinator 中于模型调用前重建 Session、校验可选 Patch，并将模型操作与 context-ready、planning feedback、planning approval 的 Runtime lifecycle 操作合并提交。
   - 增加 Coordinator 集成测试，覆盖三个 Preparation 分支、每轮单次模型调用、无 Patch 不变、阶段失效、stable ID 更新、Snapshot 失败及批准任务契约隔离。
