@@ -19,6 +19,28 @@ export {
 } from "./conversation-context-unit-adapter";
 export { TrajectoryContextUnitAdapter } from "./trajectory-context-unit-adapter";
 export {
+    CharacterModelInputEstimator,
+    createDefaultModelContextBudgetPolicy,
+    createModelContextBudgetPolicy,
+    createTokenModelInputEstimator,
+    resolveModelInputEstimator,
+    DEFAULT_MODEL_INPUT_CHARACTER_BUDGET,
+    DEFAULT_MODEL_RESPONSE_RESERVE_RATIO,
+    DEFAULT_MODEL_WARM_SHARE,
+    DEFAULT_MODEL_COMPACT_TRIGGER_RATIO,
+    DEFAULT_MODEL_LARGE_OUTPUT_TOKEN_PREVIEW_LIMIT,
+    DEFAULT_MODEL_LARGE_OUTPUT_CHARACTER_PREVIEW_LIMIT,
+} from "./model-context-budget";
+export type {
+    ModelInputMeasurementUnit,
+    ModelInputEstimate,
+    ModelInputEstimator,
+    ModelContextBudgetPolicyInput,
+    ModelContextBudgetPolicy,
+    ModelContextBudgetPlanInput,
+    ModelContextBudgetPlan,
+} from "./model-context-budget";
+export {
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
 } from "./context-compactor";

@@ -6,7 +6,7 @@
   - 增加协议矩阵、未知组合、恢复不写回和 legacy Conversation 行为测试，并为新增公共 Interface 补齐契约级 TSDoc。
   - _Requirements: [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 2. 实现完整请求 Estimator 与 BudgetPlanner
+- [x] //TODO 2. 实现完整请求 Estimator 与 BudgetPlanner
 
   - 在 `packages/agent` 增加 Token/字符 Estimator、`ModelContextBudgetPolicy` 和预算报告，计量渲染后的固定 View、响应预留及 Hot/Warm 可用量。
   - 增加 Token 优先、字符兜底、Warm 回借、配置校验、固定输入软超限和输入不可变测试。
