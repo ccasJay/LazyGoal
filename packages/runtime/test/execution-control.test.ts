@@ -89,11 +89,7 @@ test("Runner propagates control into an executor and preserves the last snapshot
         started = resolve;
     });
     const executor: StepExecutor = {
-        async execute(
-            _goal,
-            _tools,
-            control,
-        ): Promise<AgentDecision> {
+        async execute({ control }): Promise<AgentDecision> {
             assert.strictEqual(control?.signal, controller.signal);
             started?.();
             await new Promise<void>((resolve) => {
@@ -274,7 +270,7 @@ test("GoalCoordinator does not save a preparation result after abort", async () 
     const store = new InMemoryGoalStore();
     await store.save(goal);
     const preparationExecutor: PreparationExecutor = {
-        async execute(_goal, _tools, control) {
+        async execute({ control }) {
             assert.strictEqual(control?.signal, controller.signal);
             controller.abort();
             return { kind: "context_ready" };

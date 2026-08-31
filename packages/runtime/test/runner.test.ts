@@ -19,6 +19,7 @@ import type {
     RunnerResult,
     RunRef,
     RunState,
+    StepExecutionInput,
     StepExecutor,
     Tool,
     ToolDefinition,
@@ -52,7 +53,7 @@ class FakeStepExecutor implements StepExecutor {
         private readonly events: string[] = [],
     ) {}
 
-    async execute(goal: Goal): Promise<AgentDecision> {
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
         this.events.push(`execute:${goal.state.run.status}:${goal.state.run.stepCount}`);
@@ -70,11 +71,8 @@ class FakeDecisionExecutor implements StepExecutor {
 
     constructor(private readonly decision: AgentDecision) {}
 
-    async execute(
-        _goal: Goal,
-        tools: readonly ToolDefinition[],
-    ): Promise<AgentDecision> {
-        this.receivedTools.push([...tools]);
+    async execute({ authorizedTools }: StepExecutionInput): Promise<AgentDecision> {
+        this.receivedTools.push([...authorizedTools]);
         return structuredClone(this.decision);
     }
 }
@@ -88,10 +86,7 @@ class SequenceDecisionExecutor implements StepExecutor {
         private readonly events: string[] = [],
     ) {}
 
-    async execute(
-        goal: Goal,
-        _tools: readonly ToolDefinition[],
-    ): Promise<AgentDecision> {
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.receivedGoals.push(goal);
         this.events.push(`executor:${goal.state.run.stepCount}`);
         const decision = this.decisions[this.index];
@@ -1315,8 +1310,8 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     };
     let executorCalls = 0;
     const executor: StepExecutor = {
-        async execute(_goal, tools) {
-            events.push(`executor:${tools.length}`);
+        async execute({ authorizedTools }) {
+            events.push(`executor:${authorizedTools.length}`);
 
             if (executorCalls++ > 0) {
                 return {

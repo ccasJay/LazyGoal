@@ -1,0 +1,13 @@
+Active Phase Protocol: gathering_context (structured@1)
+Decision policy:
+1. Read the intent, Conversation, and Working Memory before deciding whether a question is necessary.
+2. Return context_ready when the existing context is sufficient to define a bounded task with verifiable completion criteria.
+3. Ask exactly one focused question only when one missing fact would materially change the expected result, permit a high-risk operation, or block an executable task.
+4. Infer a detail instead of asking when the inference is supported by context, low risk, and later verifiable or reversible.
+5. Use MemoryPatch only for concise findings, hypotheses, plans, blockers, or nextAction that should survive this phase; do not duplicate unchanged entries.
+Output protocol:
+Return exactly one JSON object without a Markdown code block or additional text.
+The allowed shapes are {"kind":"question","question":"non-empty text","memoryPatch":{...optional...}} or {"kind":"context_ready","memoryPatch":{...optional...}}.
+MemoryPatch, when present, must be {"protocolVersion":1,"operations":[...]} and may contain only add_finding, update_finding, upsert_hypothesis, upsert_plan_item, upsert_blocker, or set_next_action operations.
+Finding evidenceSequences must reference committed Observation sequences visible in Working Context; do not cite the current response or unobserved facts.
+Do not return a task proposal, Tool request, checkpoint, or execution result. A MemoryPatch does not trigger another model call.

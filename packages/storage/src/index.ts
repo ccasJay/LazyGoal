@@ -10,6 +10,10 @@ export {
     GoalSnapshotProtocolError,
     GoalSnapshotV5Schema,
     GoalSnapshotV6Schema,
+    GoalSnapshotV7Schema,
+    GoalSnapshotV8Schema,
+    GoalSnapshotV9Schema,
+    GoalSnapshotV10Schema,
     INVALID_GOAL_SNAPSHOT_CODE,
 } from "./goal-snapshot";
 export type {
@@ -29,9 +33,41 @@ export type {
     GoalSnapshotToolCallActionV5,
     GoalSnapshotV5,
     GoalSnapshotV6,
+    GoalSnapshotV7,
+    GoalSnapshotV8,
+    GoalSnapshotV9,
+    GoalSnapshotV10,
     GoalSnapshotMetadataV6,
+    GoalSnapshotMetadataV7,
+    GoalSnapshotMetadataV8,
+    GoalSnapshotMetadataV9,
+    GoalSnapshotMetadataV10,
     GoalSnapshotRunStateV6,
     GoalSnapshotStateV6,
+    GoalSnapshotStateV7,
+    GoalSnapshotStateV8,
+    GoalSnapshotStateV9,
+    GoalSnapshotStateV10,
+    GoalSnapshotDefinitionV7,
+    GoalSnapshotDefinitionV8,
+    GoalSnapshotDefinitionV9,
+    GoalSnapshotMemoryProtocolV7,
+    GoalSnapshotMemoryRevisionV7,
+    GoalSnapshotMemoryPatchV7,
+    GoalSnapshotMemoryPatchV10,
+    GoalSnapshotCompletionEvidenceV7,
+    GoalSnapshotStructuredDecisionResultV7,
+    GoalSnapshotStructuredDecisionResultV10,
+    GoalSnapshotDecisionResultV7,
+    GoalSnapshotDecisionResultV10,
+    GoalSnapshotStepRecordV7,
+    GoalSnapshotStepRecordV10,
+    GoalSnapshotRunStateV7,
+    GoalSnapshotRunStateV8,
+    GoalSnapshotRunStateV10,
+    GoalSnapshotModelContextProtocolV8,
+    GoalSnapshotContextRetrievalProtocolV9,
+    GoalSnapshotRetrievalProtocolV9,
     GoalSnapshotWorkflowV5,
     SnapshotJsonValue,
 } from "./goal-snapshot";
@@ -48,3 +84,27 @@ export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export {
     JsonFileDiagnosticTraceSink,
 } from "./json-file-diagnostic-trace-sink";
+export {
+    JsonFileWarmContextSidecarStore,
+    WarmContextSidecarProtocolError,
+    WarmContextSidecarSchema,
+    WARM_SIDECAR_PROTOCOL_ERROR_CODE,
+    computeTrajectorySourceDigest,
+    warmContextSidecarCodec,
+} from "./warm-context-sidecar";
+export type {
+    WarmContextSidecarCodec,
+} from "./warm-context-sidecar";
+export {
+    CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE,
+    ContextRetrievalIndexSidecarProtocolError,
+    ContextRetrievalIndexSidecarSchema,
+    JsonFileContextRetrievalIndexStore,
+    JsonFileRetrievalIndexStore,
+    JsonFileRetrievalIndexSidecarStore,
+    contextRetrievalIndexSidecarCodec,
+    retrievalIndexSidecarCodec,
+} from "./context-retrieval-index-sidecar";
+export type {
+    ContextRetrievalIndexSidecarCodec,
+} from "./context-retrieval-index-sidecar";

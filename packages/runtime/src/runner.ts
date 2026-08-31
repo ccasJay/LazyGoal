@@ -8,9 +8,32 @@ import type {
     RunRef,
     RunState,
     ToolCallAction,
+    MemoryProtocol,
+    WorkingMemoryPatch,
+    GoalProtocolValidator,
+} from "./domain";
+import {
+    resolveContextRetrievalProtocol,
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
+import {
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    ContextLookupProtocolError,
+    assertContextLookupResultOwnership,
+    createContextLookupId,
+    invokeContextLookup,
+    normalizeContextLookupRequest,
+    normalizeContextLookupResult,
+    type ContextLookupPort,
+    type ContextLookupResult,
+} from "./context-retrieval";
+import {
+    ContextSourceRouter,
+    ContextSourceRouterError,
+} from "./context-source-router";
 import type {
     Tool,
     ToolDefinition,
@@ -26,15 +49,31 @@ import {
 } from "./execution-control";
 import { transition } from "./transition";
 import {
-    allocateDiagnosticTraceRecord,
-    createNoopTrajectoryRecorder,
     TrajectoryAppendError,
-    TrajectoryCommitMarkerError,
+    allocateDiagnosticTraceRecord,
     type DiagnosticTraceSink,
-    type TrajectoryEventDraft,
     type TrajectoryEvent,
+    type TrajectoryEventDraft,
+    type TrajectoryStore,
     type TrajectorySink,
 } from "./trajectory";
+import {
+    createSupersedeScopeOperation,
+    normalizeMemoryPatch,
+    type NormalizedWorkingMemoryPatch,
+    type WorkingMemoryLimitsInput,
+} from "./working-memory-core";
+import { WorkingMemorySession } from "./working-memory-session";
+import {
+    createNoopToolMemoryProjectorRegistry,
+    normalizeToolMemoryProjectionResult,
+    type ToolMemoryProjectorRegistry,
+} from "./tool-memory-projector";
+import {
+    TrajectoryCheckpointCommitter,
+    type AcceptedMemoryPatchInput,
+    type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
+} from "./trajectory-checkpoint-committer";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -132,9 +171,85 @@ function invalidAgentDecision(message: string): never {
     throw new RunnerExecutionError("INVALID_AGENT_DECISION", message);
 }
 
-function validateAgentDecision(value: unknown): AgentDecision {
+function validateAgentDecision(
+    value: unknown,
+    memoryProtocol: MemoryProtocol,
+): AgentDecision {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
+    }
+
+    if (value.kind === "context_lookup") {
+        if (memoryProtocol.kind !== "structured") {
+            throw new ContextLookupProtocolError(
+                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: legacy Goal 不支持 Context Lookup`,
+            );
+        }
+
+        return normalizeContextLookupRequest(value);
+    }
+
+    if (memoryProtocol.kind === "structured") {
+        const memoryPatch = value.memoryPatch;
+        if (
+            memoryPatch !== undefined
+            && (
+                !isRecord(memoryPatch)
+                || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
+                || memoryPatch.protocolVersion !== 1
+                || !Array.isArray(memoryPatch.operations)
+            )
+        ) {
+            return invalidAgentDecision("structured memoryPatch 不符合基础协议");
+        }
+
+        if (value.kind === "tool_call") {
+            if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
+                return invalidAgentDecision("structured tool_call 包含协议外字段");
+            }
+
+            const action = value.action;
+
+            if (
+                !isRecord(action)
+                || !hasOnlyKeys(action, ["actionId", "toolId", "input"])
+                || !isNonEmptyText(action.actionId)
+                || !isNonEmptyText(action.toolId)
+                || !isJsonValue(action.input)
+            ) {
+                return invalidAgentDecision("structured tool_call action 不符合严格协议");
+            }
+
+            return value as unknown as AgentDecision;
+        }
+
+        const structuredTextFields: Record<string, "summary" | "reason" | "error"> = {
+            complete: "summary",
+            wait: "reason",
+            fail: "error",
+        };
+        const textField = structuredTextFields[value.kind];
+
+        if (textField === undefined) {
+            return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
+        }
+
+        const allowed = ["kind", textField, "memoryPatch"];
+        if (value.kind === "complete") {
+            allowed.push("completionEvidence");
+            if (!Array.isArray(value.completionEvidence)) {
+                return invalidAgentDecision("structured complete 必须包含 completionEvidence");
+            }
+        }
+
+        if (
+            !hasOnlyKeys(value, allowed)
+            || !isNonEmptyText(value[textField])
+        ) {
+            return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
+        }
+
+        return value as unknown as AgentDecision;
     }
 
     if (!isNonEmptyText(value.checkpoint)) {
@@ -397,7 +512,11 @@ export type RunnerResult =
     | {
         readonly ok: false;
         readonly error: {
-            readonly code: "RUN_NOT_FOUND" | "ACTION_NOT_AUTHORIZED";
+            readonly code:
+                | "RUN_NOT_FOUND"
+                | "ACTION_NOT_AUTHORIZED"
+                | "INVALID_CONTEXT_LOOKUP"
+                | "CONTEXT_LOOKUP_CHAIN_LIMIT";
             readonly message: string;
         };
     };
@@ -433,6 +552,26 @@ export interface RunnerDependencies {
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** 可选 Tool Observation 事实投影表；省略时不生成 Runtime Fact proposal。 */
+    readonly toolMemoryProjectors?: ToolMemoryProjectorRegistry;
+    /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
+    readonly trajectoryStore?: TrajectoryStore;
+    /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
+    readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
+    /**
+     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
+     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     */
+    readonly protocolValidator?: GoalProtocolValidator;
+    /** 可选共享提交器；省略时由 Runner 按当前依赖创建。 */
+    readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
+    /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
+    readonly contextLookupPort?: ContextLookupPort;
+    /**
+     * Context Source Router；省略时使用无状态默认 Router，确保 lookup 只查询
+     * 历史 Trajectory，不替代当前 Workspace/Environment 或任务权威来源。
+     */
+    readonly contextSourceRouter?: ContextSourceRouter;
 }
 
 /**
@@ -461,10 +600,14 @@ export class Runner {
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
-    private readonly trajectorySink: TrajectorySink;
-    private readonly trajectoryEnabled: boolean;
-    private readonly trajectoryFactSequences = new Map<string, number>();
+    private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
+    private readonly trajectoryStore: TrajectoryStore | undefined;
+    private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
+    private readonly protocolValidator: GoalProtocolValidator | undefined;
+    private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly contextSourceRouter: ContextSourceRouter;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -472,10 +615,26 @@ export class Runner {
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
-        this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
-        this.trajectorySink = dependencies.trajectorySink
-            ?? createNoopTrajectoryRecorder();
+        this.trajectoryStore = dependencies.trajectoryStore;
+        this.workingMemoryLimits = dependencies.workingMemoryLimits;
+        this.protocolValidator = dependencies.protocolValidator;
+        this.contextLookupPort = dependencies.contextLookupPort;
+        this.contextSourceRouter = dependencies.contextSourceRouter
+            ?? new ContextSourceRouter();
         this.traceSink = dependencies.traceSink;
+        this.toolMemoryProjectors = dependencies.toolMemoryProjectors
+            ?? createNoopToolMemoryProjectorRegistry();
+        const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
+        this.checkpointCommitter = dependencies.checkpointCommitter
+            ?? new TrajectoryCheckpointCommitter({
+                store: dependencies.store,
+                ...(trajectorySink === undefined
+                    ? {}
+                    : { trajectorySink }),
+                ...(dependencies.traceSink === undefined
+                    ? {}
+                    : { traceSink: dependencies.traceSink }),
+            });
     }
 
     /**
@@ -509,6 +668,8 @@ export class Runner {
             return this.runNotFound(ref);
         }
 
+        this.validateGoalProtocol(goal);
+
         if (goal.state.workflow.phase !== "executing") {
             return { ok: true, state: goal.state.run };
         }
@@ -524,6 +685,9 @@ export class Runner {
         if (!this.hasMatchingTransientAuthorization(goal, options)) {
             return this.actionNotAuthorized(ref, options.authorizedActionId);
         }
+
+        const contextLookupResult = options.contextLookupResult
+            ?? await this.restoreContextLookupResult(goal, effectiveControl);
 
         if (goal.state.run.status === "created") {
             throwIfAborted(effectiveControl);
@@ -543,10 +707,16 @@ export class Runner {
                 checkpoint,
                 options.authorizedActionId,
                 effectiveControl,
+                contextLookupResult,
             );
         }
 
-        return this.runLoop(goal, options.authorizedActionId, effectiveControl);
+        return this.runLoop(
+            goal,
+            options.authorizedActionId,
+            effectiveControl,
+            contextLookupResult,
+        );
     }
 
     /**
@@ -585,92 +755,123 @@ export class Runner {
         return goal;
     }
 
+    private async restoreContextLookupResult(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<ContextLookupResult | undefined> {
+        const trajectoryStore = this.trajectoryStore;
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const lastStep = goal.state.run.lastStep;
+        if (
+            trajectoryStore === undefined
+            || boundary <= 0
+            || lastStep?.kind !== "decision"
+            || lastStep.result.kind !== "context_lookup"
+        ) {
+            return undefined;
+        }
+
+        throwIfAborted(control);
+        const raw = await trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            boundary,
+        );
+        throwIfAborted(control);
+        const committed = [...raw.committed]
+            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
+            .sort((left, right) => right.sequence - left.sequence);
+        const lastFact = committed.find((event) => event.eventType !== "state_committed");
+        if (lastFact === undefined) return undefined;
+
+        const request = normalizeContextLookupRequest(lastStep.result);
+        const expectedLookupId = createContextLookupId(
+            goal.id,
+            goal.state.run.id,
+            request,
+        );
+        const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
+            const result = normalizeContextLookupResult(
+                value,
+                expectedLookupId,
+                boundary,
+                request,
+            );
+            if (result.status === "found") {
+                assertContextLookupResultOwnership(
+                    result,
+                    goal.id,
+                    goal.state.run.id,
+                );
+            }
+            return result;
+        };
+        if (
+            (lastFact.eventType !== "context_lookup_completed"
+                && lastFact.eventType !== "context_lookup_not_found"
+                && lastFact.eventType !== "context_lookup_failed")
+            || lastFact.payload.lookupId !== expectedLookupId
+        ) {
+            return undefined;
+        }
+
+        const requested = committed.find((event) =>
+            event.eventType === "context_lookup_requested"
+            && event.payload.lookupId === expectedLookupId
+            && event.sequence < lastFact.sequence,
+        );
+        if (requested === undefined) {
+            throw new ContextLookupProtocolError(
+                "committed lookup result has no preceding requested fact",
+            );
+        }
+
+        if (lastFact.eventType === "context_lookup_completed") {
+            return normalizeRestoredResult(lastFact.payload.result);
+        }
+        if (lastFact.eventType === "context_lookup_not_found") {
+            return normalizeRestoredResult(lastFact.payload.result);
+        }
+
+        return normalizeRestoredResult(
+            {
+                status: "lookup_error",
+                lookupId: expectedLookupId,
+                code: lastFact.payload.code,
+                message: lastFact.payload.message,
+                committedThroughSequence: boundary,
+            },
+        );
+    }
+
+    private validateGoalProtocol(goal: Goal): void {
+        if (this.protocolValidator === undefined) return;
+
+        this.protocolValidator.validate({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            memoryProtocol: resolveMemoryProtocol(goal.definition),
+            modelContextProtocol: resolveModelContextProtocol(goal.definition),
+            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
+        });
+    }
+
     private async saveCheckpoint(
         goal: Goal,
         control?: ExecutionControl,
     ): Promise<Goal> {
-        throwIfAborted(control);
-
-        if (!this.trajectoryEnabled) {
-            await this.store.save(goal);
-            throwIfAborted(control);
-            return goal;
-        }
-
-        const key = this.trajectoryKey(goal);
-        const committedThroughSequence = Math.max(
-            goal.state.run.committedThroughSequence ?? 0,
-            this.trajectoryFactSequences.get(key) ?? 0,
-        );
-        const checkpoint = committedThroughSequence === (
-            goal.state.run.committedThroughSequence ?? 0
-        )
-            ? goal
-            : this.withRun(goal, {
-                ...goal.state.run,
-                committedThroughSequence,
-            });
-
-        await this.store.save(checkpoint);
-        throwIfAborted(control);
-        try {
-            await this.appendTrajectory({
-                goalId: checkpoint.id,
-                runId: checkpoint.state.run.id,
-                phase: checkpoint.state.workflow.phase,
-                eventType: "state_committed",
-                payload: {
-                    type: "state_committed",
-                    committedThroughSequence,
-                },
-            }, control, false);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            await this.recordTrajectoryDiagnostic(checkpoint, "state_committed", error);
-            throw new TrajectoryCommitMarkerError(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-            );
-        }
-        return checkpoint;
-    }
-
-    private trajectoryKey(goal: Goal): string {
-        return `${goal.id}\u0000${goal.state.run.id}`;
+        return this.checkpointCommitter.saveCheckpoint(goal, control);
     }
 
     private async appendTrajectory(
         draft: TrajectoryEventDraft,
         control?: ExecutionControl,
         countAsFact = true,
-    ): Promise<void> {
-        if (!this.trajectoryEnabled) return;
-        throwIfAborted(control);
-        let event: Readonly<TrajectoryEvent>;
-        try {
-            event = await this.trajectorySink.append(draft);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            throw new TrajectoryAppendError(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-            );
-        }
-        throwIfAborted(control);
-        if (countAsFact && event.payload.type !== "state_committed") {
-            this.trajectoryFactSequences.set(
-                `${event.goalId}\u0000${event.runId}`,
-                Math.max(
-                    this.trajectoryFactSequences.get(`${event.goalId}\u0000${event.runId}`) ?? 0,
-                    event.sequence,
-                ),
-            );
-        }
+    ): Promise<Readonly<TrajectoryEvent> | undefined> {
+        return this.checkpointCommitter.append(draft, control, countAsFact);
     }
 
-    private async recordTrajectoryDiagnostic(
+    private async recordToolProjectorDiagnostic(
         goal: Goal,
-        kind: string,
+        action: ToolCallAction,
         error: unknown,
     ): Promise<void> {
         if (this.traceSink === undefined) return;
@@ -678,15 +879,305 @@ export class Runner {
             await this.traceSink.append(allocateDiagnosticTraceRecord({
                 goalId: goal.id,
                 runId: goal.state.run.id,
-                kind: "trajectory_commit_marker_failed",
+                kind: "tool_memory_projector_failed",
                 payload: {
-                    eventType: kind,
+                    toolId: action.toolId,
+                    actionId: action.actionId,
                     error: error instanceof Error ? error.message : String(error),
                 },
             }));
         } catch {
-            // Diagnostic Trace 是旁路；其自身故障不能覆盖 marker 缺口。
+            // Diagnostic Trace 是旁路，不能覆盖 Observation 提交语义。
         }
+    }
+
+    private async projectToolMemoryPatch(
+        goal: Goal,
+        action: ToolCallAction,
+        observation: ToolObservation,
+        observationSequence: number,
+        control?: ExecutionControl,
+    ): Promise<AcceptedMemoryPatchInput | undefined> {
+        const projector = this.toolMemoryProjectors.get(action.toolId);
+        if (projector === undefined) return undefined;
+        if (resolveMemoryProtocol(goal.definition).kind !== "structured") return undefined;
+
+        const session = await this.openWorkingMemorySession(goal, control);
+        if (session === undefined) return undefined;
+        try {
+            const projected = normalizeToolMemoryProjectionResult(projector.project({
+                goal: structuredClone(goal),
+                action: structuredClone(action),
+                observation: structuredClone(observation),
+                observationSequence,
+                workingMemory: structuredClone(session.workingMemory),
+            }));
+            if (projected.status !== "changed") return undefined;
+
+            for (const fact of projected.facts) {
+                if (!fact.evidenceSequences.includes(observationSequence)) {
+                    throw new TypeError(
+                        "ToolMemoryProjector Fact must reference the current observation sequence",
+                    );
+                }
+                const committedEvidence = fact.evidenceSequences.filter(
+                    (sequence) => sequence !== observationSequence,
+                );
+                if (committedEvidence.length > 0) session.validateEvidence(committedEvidence);
+            }
+
+            const patch: WorkingMemoryPatch = {
+                protocolVersion: 1,
+                operations: projected.facts.map((fact) => ({
+                    type: "upsert_fact" as const,
+                    fact,
+                })),
+            };
+            const normalized = normalizeMemoryPatch(patch, {
+                phase: "executing",
+                originSequence: observationSequence + 2,
+                source: "tool_projector",
+                workingMemory: session.workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
+            if (normalized.operations.length === 0) return undefined;
+            return {
+                phase: "executing",
+                producers: ["tool_projector"],
+                operations: normalized.operations,
+                actionId: action.actionId,
+            };
+        } catch (error) {
+            await this.recordToolProjectorDiagnostic(goal, action, error);
+            return undefined;
+        } finally {
+            session.close();
+        }
+    }
+
+    private async openWorkingMemorySession(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<WorkingMemorySession | undefined> {
+        throwIfAborted(control);
+        const protocol = resolveMemoryProtocol(goal.definition);
+        if (protocol.kind !== "structured") return undefined;
+
+        const session = await WorkingMemorySession.restore(goal, {
+            ...(this.trajectoryStore === undefined
+                ? {}
+                : { trajectoryStore: this.trajectoryStore }),
+            ...(this.workingMemoryLimits === undefined
+                ? {}
+                : { limits: this.workingMemoryLimits }),
+        });
+        throwIfAborted(control);
+        return session;
+    }
+
+    private normalizeDecisionPatch(
+        goal: Goal,
+        decision: AgentDecision,
+        session: WorkingMemorySession | undefined,
+        factCount: number,
+    ): AcceptedMemoryPatchInput | undefined {
+        const protocol = resolveMemoryProtocol(goal.definition);
+        const memoryPatch = "memoryPatch" in decision
+            ? decision.memoryPatch
+            : undefined;
+
+        if (protocol.kind !== "structured") {
+            if (memoryPatch !== undefined) {
+                throw new RunnerExecutionError(
+                    "INVALID_MEMORY_PATCH",
+                    "checkpoint protocol cannot accept structured Memory Patch",
+                );
+            }
+            return undefined;
+        }
+
+        if (session === undefined) {
+            throw new RunnerExecutionError(
+                "INVALID_MEMORY_PATCH",
+                "structured Memory Session is missing",
+            );
+        }
+        const workingMemory = session.workingMemory;
+        try {
+            let normalized: NormalizedWorkingMemoryPatch = {
+                protocolVersion: 1,
+                operations: [],
+                suppressed: [],
+            };
+            if (memoryPatch !== undefined) {
+                const validationSession: WorkingMemorySession = session;
+                validationSession.validatePatch(memoryPatch);
+                normalized = normalizeMemoryPatch(memoryPatch, {
+                    phase: "executing",
+                    originSequence: Math.max(
+                        1,
+                        (goal.state.run.committedThroughSequence ?? 0) + factCount + 1,
+                    ),
+                    workingMemory,
+                    ...(this.workingMemoryLimits === undefined
+                        ? {}
+                        : { limits: this.workingMemoryLimits }),
+                });
+            }
+            const terminalLifecycle = decision.kind === "complete" || decision.kind === "fail"
+                ? [createSupersedeScopeOperation("phase", {
+                    phase: "executing",
+                    kinds: ["hypothesis", "plan", "blocker"],
+                })]
+                : [];
+            const operations = [...normalized.operations, ...terminalLifecycle];
+            if (operations.length === 0) return undefined;
+            return {
+                phase: "executing",
+                producers: [
+                    ...(normalized.operations.length === 0 ? [] : ["model" as const]),
+                    ...(terminalLifecycle.length === 0 ? [] : ["runtime_lifecycle" as const]),
+                ],
+                operations,
+            };
+        } catch (error) {
+            if (error instanceof RunnerExecutionError) throw error;
+            throw new RunnerExecutionError(
+                "INVALID_MEMORY_PATCH",
+                error instanceof Error ? error.message : String(error),
+            );
+        }
+    }
+
+    private async createTerminalLifecyclePatch(
+        goal: Goal,
+        factCount: number,
+        control?: ExecutionControl,
+    ): Promise<AcceptedMemoryPatchInput | undefined> {
+        const session = await this.openWorkingMemorySession(goal, control);
+        if (session === undefined) return undefined;
+
+        try {
+            return this.normalizeDecisionPatch(
+                goal,
+                { kind: "fail", error: "Runtime terminal lifecycle cleanup" },
+                session,
+                factCount,
+            );
+        } finally {
+            session.close();
+        }
+    }
+
+    private validateCompletionEvidence(
+        goal: Goal,
+        decision: AgentDecision,
+        session: WorkingMemorySession | undefined,
+    ): void {
+        if (decision.kind !== "complete") return;
+        if (resolveMemoryProtocol(goal.definition).kind !== "structured") return;
+
+        if (session === undefined) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "structured complete requires a Working Memory Session",
+            );
+        }
+
+        const workflow = goal.state.workflow;
+        if (workflow.phase !== "executing") {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "structured complete requires an executing Goal Task",
+            );
+        }
+
+        const task = workflow.task;
+        if (task === undefined) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "structured complete requires an approved Goal Task",
+            );
+        }
+
+        if (!("completionEvidence" in decision)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "structured complete must include completionEvidence",
+            );
+        }
+
+        const evidence = decision.completionEvidence;
+        if (!Array.isArray(evidence) || evidence.length !== task.completionCriteria.length) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "completionEvidence must cover every completion criterion exactly once",
+            );
+        }
+
+        const seen = new Set<number>();
+        for (const item of evidence as readonly unknown[]) {
+            const criterionIndexValue = isRecord(item)
+                ? item.criterionIndex
+                : undefined;
+            if (
+                !isRecord(item)
+                || !hasOnlyKeys(item, ["criterionIndex", "evidenceSequences"])
+                || typeof criterionIndexValue !== "number"
+                || !Number.isSafeInteger(criterionIndexValue)
+                || criterionIndexValue < 0
+                || criterionIndexValue >= task.completionCriteria.length
+                || !Array.isArray(item.evidenceSequences)
+            ) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "completionEvidence item is invalid",
+                );
+            }
+
+            const criterionIndex = criterionIndexValue;
+            if (seen.has(criterionIndex)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "completionEvidence contains duplicate criterionIndex",
+                );
+            }
+            seen.add(criterionIndex);
+
+            try {
+                session.validateEvidence(item.evidenceSequences as readonly number[]);
+            } catch (error) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+        }
+
+        for (let index = 0; index < task.completionCriteria.length; index += 1) {
+            if (!seen.has(index)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "completionEvidence is missing a criterion",
+                );
+            }
+        }
+    }
+
+    private async commitDecision(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        acceptedPatch: AcceptedMemoryPatchInput | undefined,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const result = await this.checkpointCommitter.commit(goal, {
+            facts,
+            ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        return result.goal;
     }
 
     private runNotFound(ref: RunRef): RunnerResult {
@@ -710,6 +1201,16 @@ export class Runner {
                 message: actionId === undefined
                     ? `Run "${ref.runId}" requires a matching transient Action authorization`
                     : `Action "${actionId}" is not the approved pending Action for Run "${ref.runId}"`,
+            },
+        };
+    }
+
+    private invalidContextLookup(message: string): RunnerResult {
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_CONTEXT_LOOKUP",
+                message,
             },
         };
     }
@@ -826,7 +1327,12 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         throwIfAborted(control);
-        await this.appendTrajectory({
+        const lifecyclePatch = await this.createTerminalLifecyclePatch(
+            goal,
+            1,
+            control,
+        );
+        const executionErrorFact: TrajectoryEventDraft = {
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: goal.state.workflow.phase,
@@ -842,7 +1348,7 @@ export class Runner {
                     ? {}
                     : { actionId: goal.state.run.pendingAction.action.actionId }),
             },
-        }, control);
+        };
         const failedRun = this.applyTransition(goal.state.run, {
             kind: "execution_error",
             code: error.code,
@@ -850,7 +1356,12 @@ export class Runner {
         });
         const failedGoal = this.withRun(goal, failedRun);
 
-        const checkpoint = await this.saveCheckpoint(failedGoal, control);
+        const checkpoint = await this.commitDecision(
+            failedGoal,
+            [executionErrorFact],
+            lifecyclePatch,
+            control,
+        );
         return { ok: true, state: checkpoint.state.run };
     }
 
@@ -912,7 +1423,7 @@ export class Runner {
         }
 
         throwIfAborted(control);
-        await this.appendTrajectory({
+        const toolFinishedEvent = await this.appendTrajectory({
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
@@ -926,19 +1437,15 @@ export class Runner {
                 observation,
             },
         }, control);
-        await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            executionUnitId,
-            actionId: action.actionId,
-            eventType: "observation_recorded",
-            payload: {
-                type: "observation_recorded",
-                actionId: action.actionId,
+        const projectorPatch = toolFinishedEvent === undefined
+            ? undefined
+            : await this.projectToolMemoryPatch(
+                goal,
+                action,
                 observation,
-            },
-        }, control);
+                toolFinishedEvent.sequence,
+                control,
+            );
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
             actionId: action.actionId,
@@ -946,8 +1453,26 @@ export class Runner {
         });
         const observedGoal = this.withRun(goal, observedRun);
 
-        // If this save fails, the already-saved goal remains the recovery baseline.
-        const checkpoint = await this.saveCheckpoint(observedGoal, control);
+        // Observation、Projector Patch 与 Snapshot 共用提交边界；Projector 失败只会
+        // 省略 accepted Patch，原始 Observation 仍然提交。
+        const committed = await this.checkpointCommitter.commit(observedGoal, {
+            facts: [{
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                actionId: action.actionId,
+                eventType: "observation_recorded",
+                payload: {
+                    type: "observation_recorded",
+                    actionId: action.actionId,
+                    observation,
+                },
+            }],
+            ...(projectorPatch === undefined ? {} : { acceptedPatch: projectorPatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        const checkpoint = committed.goal;
         return { kind: "observed", goal: checkpoint };
     }
 
@@ -955,9 +1480,11 @@ export class Runner {
         initialGoal: Goal,
         authorizedActionId?: string,
         control?: ExecutionControl,
+        initialContextLookupResult?: ContextLookupResult,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
+        let contextLookupResult = initialContextLookupResult;
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
@@ -1012,6 +1539,7 @@ export class Runner {
                 }
 
                 goal = outcome.goal;
+                contextLookupResult = undefined;
                 continue;
             }
 
@@ -1019,12 +1547,17 @@ export class Runner {
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
+                const lifecyclePatch = await this.createTerminalLifecyclePatch(
+                    goal,
+                    1,
+                    control,
+                );
                 const failedGoal = this.withRun(goal, {
                     ...goal.state.run,
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
-                await this.appendTrajectory({
+                const checkpoint = await this.commitDecision(failedGoal, [{
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
@@ -1034,90 +1567,103 @@ export class Runner {
                         code: "MAX_STEPS_EXCEEDED",
                         message: "The configured maximum step count was exceeded",
                     },
-                }, control);
-                const checkpoint = await this.saveCheckpoint(failedGoal, control);
+                }], lifecyclePatch, control);
                 return { ok: true, state: checkpoint.state.run };
             }
 
-            let normalized: NormalizedExecution;
             const executionUnitId = createExecutionUnitId();
+            const session = await this.openWorkingMemorySession(goal, control);
 
             try {
-                throwIfAborted(control);
-                const tools = this.getAuthorizedToolDefinitions(goal, control);
-                const execution = await this.executor.execute(goal, tools, control);
-                throwIfAborted(control);
-                normalized = {
-                    decision: validateAgentDecision(execution),
-                };
-            } catch (error) {
-                if (isExecutionAbortedError(error)) {
-                    throw error;
-                }
-
-                throwIfAborted(control);
-
-                const stableError = toStableExecutionError(error);
-
-                if (stableError !== undefined) {
-                    return this.stopWithExecutionError(goal, stableError, control);
-                }
-
-                // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
-                // checkpoint，不存在时使用稳定值；错误文本保持用户可见内容。
-                const decision = {
-                    kind: "fail" as const,
-                    checkpoint: goal.state.run.checkpoint
-                        ?? EXECUTOR_FAILURE_CHECKPOINT,
-                    error: error instanceof Error
-                        ? error.message
-                        : String(error),
-                };
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "execution_error",
-                    payload: {
-                        type: "execution_error",
-                        code: "EXECUTOR_FAILURE",
-                        message: error instanceof Error ? error.message : String(error),
-                    },
-                }, control);
-                const nextRun = this.applyTransition(goal.state.run, {
-                    kind: "decision",
-                    decision,
-                });
-                const nextGoal = this.appendDecisionMessage(
-                    this.withRun(goal, nextRun),
-                    decision,
-                );
-
-                goal = await this.saveCheckpoint(nextGoal, control);
-                continue;
-            }
-
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                executionUnitId,
-                eventType: "decision_received",
-                payload: { type: "decision_received", decision: normalized.decision },
-            }, control);
-
-            if (normalized.decision.kind === "tool_call") {
-                let validated;
-
+                let normalized: NormalizedExecution;
                 try {
-                    validated = validateToolAction(
+                    throwIfAborted(control);
+                    const tools = this.getAuthorizedToolDefinitions(goal, control);
+                    const execution = await this.executor.execute({
                         goal,
-                        normalized.decision.action,
-                        this.toolRegistry,
-                        this.toolPolicy,
-                        true,
-                        control,
+                        authorizedTools: tools,
+                        ...(session === undefined
+                            ? {}
+                            : { workingMemory: session.workingMemory }),
+                        ...(control === undefined ? {} : { control }),
+                        ...(contextLookupResult === undefined
+                            ? {}
+                            : { contextLookupResult }),
+                    });
+                    throwIfAborted(control);
+                    normalized = {
+                        decision: validateAgentDecision(
+                            execution,
+                            resolveMemoryProtocol(goal.definition),
+                        ),
+                    };
+                    this.validateCompletionEvidence(goal, normalized.decision, session);
+                } catch (error) {
+                    if (isExecutionAbortedError(error)) {
+                        throw error;
+                    }
+
+                    throwIfAborted(control);
+
+                    const stableError = toStableExecutionError(error);
+                    if (stableError !== undefined) {
+                        return this.stopWithExecutionError(goal, stableError, control);
+                    }
+                    if (error instanceof ContextLookupProtocolError) {
+                        return this.invalidContextLookup(error.message);
+                    }
+
+                    // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
+                    // checkpoint，不存在时使用稳定值；错误文本保持用户可见内容。
+                    const memoryProtocol = resolveMemoryProtocol(goal.definition);
+                    const decision: AgentDecision = memoryProtocol.kind === "structured"
+                        ? {
+                            kind: "fail",
+                            error: error instanceof Error
+                                ? error.message
+                                : String(error),
+                        }
+                        : {
+                            kind: "fail",
+                            checkpoint: goal.state.run.checkpoint
+                                ?? EXECUTOR_FAILURE_CHECKPOINT,
+                            error: error instanceof Error
+                                ? error.message
+                                : String(error),
+                        };
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "execution_error",
+                        payload: {
+                            type: "execution_error",
+                            code: "EXECUTOR_FAILURE",
+                            message: error instanceof Error ? error.message : String(error),
+                        },
+                    }, control);
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "decision",
+                        decision,
+                    });
+                    const nextGoal = this.appendDecisionMessage(
+                        this.withRun(goal, nextRun),
+                        decision,
+                    );
+
+                    goal = await this.saveCheckpoint(nextGoal, control);
+                    contextLookupResult = undefined;
+                    continue;
+                }
+
+                let acceptedPatch: AcceptedMemoryPatchInput | undefined;
+                try {
+                    acceptedPatch = this.normalizeDecisionPatch(
+                        goal,
+                        normalized.decision,
+                        session,
+                        2,
                     );
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
@@ -1125,146 +1671,277 @@ export class Runner {
                     }
 
                     throwIfAborted(control);
-
                     const stableError = toStableExecutionError(error)
                         ?? new RunnerExecutionError(
-                            "TOOL_EXECUTION_ERROR",
+                            "INVALID_MEMORY_PATCH",
                             error instanceof Error ? error.message : String(error),
                         );
-
                     return this.stopWithExecutionError(goal, stableError, control);
                 }
 
-                try {
-                    validateActionLifecycle(goal, normalized.decision.action);
-                } catch (error) {
-                    if (isExecutionAbortedError(error)) {
+                if (normalized.decision.kind === "context_lookup") {
+                    const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+                    if (retrievalProtocol.kind !== "bm25-lite") {
+                        return this.invalidContextLookup(
+                            `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
+                        );
+                    }
+
+                    let routedRequest;
+                    try {
+                        routedRequest = this.contextSourceRouter.routeContextLookup(
+                            normalized.decision,
+                        );
+                    } catch (error) {
+                        if (error instanceof ContextSourceRouterError) {
+                            return this.invalidContextLookup(error.message);
+                        }
                         throw error;
                     }
 
                     throwIfAborted(control);
+                    let invocation;
+                    try {
+                        invocation = await invokeContextLookup({
+                            goal,
+                            request: routedRequest.request,
+                            phase: "executing",
+                            ...(this.contextLookupPort === undefined
+                                ? {}
+                                : { port: this.contextLookupPort }),
+                            executionUnitId,
+                            ...(control === undefined ? {} : { control }),
+                        });
+                    } catch (error) {
+                        if (error instanceof ContextLookupProtocolError) {
+                            return this.invalidContextLookup(error.message);
+                        }
+                        throw error;
+                    }
+                    throwIfAborted(control);
 
-                    const stableError = toStableExecutionError(error)
-                        ?? new RunnerExecutionError(
-                            "INVALID_AGENT_DECISION",
-                            error instanceof Error ? error.message : String(error),
-                        );
-
-                    return this.stopWithExecutionError(goal, stableError, control);
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "context_lookup",
+                        request: invocation.request,
+                    });
+                    const nextGoal = this.withRun(goal, nextRun);
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: invocation.request,
+                                },
+                            },
+                            ...invocation.facts,
+                        ],
+                        undefined,
+                        control,
+                    );
+                    contextLookupResult = invocation.result;
+                    continue;
                 }
 
-                if (validated.policy !== "allow") {
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "decision_received",
+                    payload: { type: "decision_received", decision: normalized.decision },
+                }, control);
+
+                if (normalized.decision.kind === "tool_call") {
+                    let validated;
+
+                    try {
+                        validated = validateToolAction(
+                            goal,
+                            normalized.decision.action,
+                            this.toolRegistry,
+                            this.toolPolicy,
+                            true,
+                            control,
+                        );
+                    } catch (error) {
+                        if (isExecutionAbortedError(error)) {
+                            throw error;
+                        }
+
+                        throwIfAborted(control);
+
+                        const stableError = toStableExecutionError(error)
+                            ?? new RunnerExecutionError(
+                                "TOOL_EXECUTION_ERROR",
+                                error instanceof Error ? error.message : String(error),
+                            );
+
+                        return this.stopWithExecutionError(goal, stableError, control);
+                    }
+
+                    try {
+                        validateActionLifecycle(goal, normalized.decision.action);
+                    } catch (error) {
+                        if (isExecutionAbortedError(error)) {
+                            throw error;
+                        }
+
+                        throwIfAborted(control);
+
+                        const stableError = toStableExecutionError(error)
+                            ?? new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                error instanceof Error ? error.message : String(error),
+                            );
+
+                        return this.stopWithExecutionError(goal, stableError, control);
+                    }
+
+                    if (validated.policy !== "allow") {
+                        throwIfAborted(control);
+                        const stagedRun = this.applyTransition(goal.state.run, {
+                            kind: "stage_action",
+                            ...(
+                                "checkpoint" in normalized.decision
+                                    ? { checkpoint: normalized.decision.checkpoint }
+                                    : {}
+                            ),
+                            action: normalized.decision.action,
+                            status: "awaiting_approval",
+                        });
+                        const stagedGoal = this.withRun(goal, stagedRun);
+
+                        goal = await this.commitDecision(
+                            stagedGoal,
+                            [{
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                actionId: normalized.decision.action.actionId,
+                                eventType: "action_staged",
+                                payload: {
+                                    type: "action_staged",
+                                    action: normalized.decision.action,
+                                    approvalStatus: "awaiting_approval",
+                                },
+                            }],
+                            acceptedPatch,
+                            control,
+                        );
+                        continue;
+                    }
+
                     throwIfAborted(control);
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
-                        checkpoint: normalized.decision.checkpoint,
+                        ...(
+                            "checkpoint" in normalized.decision
+                                ? { checkpoint: normalized.decision.checkpoint }
+                                : {}
+                        ),
                         action: normalized.decision.action,
-                        status: "awaiting_approval",
+                        status: "approved",
                     });
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        executionUnitId,
-                        actionId: normalized.decision.action.actionId,
-                        eventType: "action_staged",
-                        payload: {
-                            type: "action_staged",
-                            action: normalized.decision.action,
-                            approvalStatus: "awaiting_approval",
-                        },
-                    }, control);
                     const stagedGoal = this.withRun(goal, stagedRun);
 
-                    goal = await this.saveCheckpoint(stagedGoal, control);
+                    // Durable intent must exist before the Tool can produce an effect.
+                    const stagedCheckpoint = await this.commitDecision(
+                        stagedGoal,
+                        [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId,
+                            actionId: normalized.decision.action.actionId,
+                            eventType: "action_staged",
+                            payload: {
+                                type: "action_staged",
+                                action: normalized.decision.action,
+                                approvalStatus: "approved",
+                            },
+                        }],
+                        acceptedPatch,
+                        control,
+                    );
+
+                    const outcome = await this.executeToolAndObserve(
+                        stagedCheckpoint,
+                        validated.tool,
+                        normalized.decision.action,
+                        executionUnitId,
+                        control,
+                    );
+
+                    if (outcome.kind === "stopped") {
+                        return outcome.result;
+                    }
+
+                    goal = outcome.goal;
+                    contextLookupResult = undefined;
                     continue;
                 }
 
                 throwIfAborted(control);
-                const stagedRun = this.applyTransition(goal.state.run, {
-                    kind: "stage_action",
-                    checkpoint: normalized.decision.checkpoint,
-                    action: normalized.decision.action,
-                    status: "approved",
+                const nextRun = this.applyTransition(goal.state.run, {
+                    kind: "decision",
+                    decision: normalized.decision,
                 });
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    actionId: normalized.decision.action.actionId,
-                    eventType: "action_staged",
-                    payload: {
-                        type: "action_staged",
-                        action: normalized.decision.action,
-                        approvalStatus: "approved",
-                    },
-                }, control);
-                const stagedGoal = this.withRun(goal, stagedRun);
-
-                // Durable intent must exist before the Tool can produce an effect.
-                const stagedCheckpoint = await this.saveCheckpoint(stagedGoal, control);
-
-                const outcome = await this.executeToolAndObserve(
-                    stagedCheckpoint,
-                    validated.tool,
-                    normalized.decision.action,
-                    executionUnitId,
-                    control,
+                const transitionedGoal = this.withRun(goal, nextRun);
+                const nextGoal = this.appendDecisionMessage(
+                    transitionedGoal,
+                    normalized.decision,
                 );
 
-                if (outcome.kind === "stopped") {
-                    return outcome.result;
+                let terminalFact: TrajectoryEventDraft;
+                if (normalized.decision.kind === "complete") {
+                    terminalFact = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_completed",
+                        payload: { type: "run_completed", summary: normalized.decision.summary },
+                    };
+                } else if (normalized.decision.kind === "wait") {
+                    terminalFact = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_waiting",
+                        payload: { type: "run_waiting", reason: normalized.decision.reason },
+                    };
+                } else {
+                    terminalFact = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_failed",
+                        payload: {
+                            type: "run_failed",
+                            code: "AGENT_DECISION_FAILED",
+                            message: normalized.decision.error,
+                        },
+                    };
                 }
-
-                goal = outcome.goal;
-                continue;
+                goal = await this.commitDecision(
+                    nextGoal,
+                    [terminalFact],
+                    acceptedPatch,
+                    control,
+                );
+                contextLookupResult = undefined;
+            } finally {
+                session?.close();
             }
-
-            throwIfAborted(control);
-            const nextRun = this.applyTransition(goal.state.run, {
-                kind: "decision",
-                decision: normalized.decision,
-            });
-            const transitionedGoal = this.withRun(goal, nextRun);
-            const nextGoal = this.appendDecisionMessage(
-                transitionedGoal,
-                normalized.decision,
-            );
-
-            if (normalized.decision.kind === "complete") {
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "run_completed",
-                    payload: { type: "run_completed", summary: normalized.decision.summary },
-                }, control);
-            } else if (normalized.decision.kind === "wait") {
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "run_waiting",
-                    payload: { type: "run_waiting", reason: normalized.decision.reason },
-                }, control);
-            } else {
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "run_failed",
-                    payload: {
-                        type: "run_failed",
-                        code: "AGENT_DECISION_FAILED",
-                        message: normalized.decision.error,
-                    },
-                }, control);
-            }
-            goal = await this.saveCheckpoint(nextGoal, control);
         }
 
         return { ok: true, state: goal.state.run };
@@ -1282,7 +1959,10 @@ export class Runner {
 
     private appendDecisionMessage(
         goal: Goal,
-        decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>,
+        decision: Exclude<
+            AgentDecision,
+            { readonly kind: "tool_call" } | { readonly kind: "context_lookup" }
+        >,
     ): Goal {
         const content = decision.kind === "complete"
             ? decision.summary

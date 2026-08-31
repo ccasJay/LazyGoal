@@ -1,4 +1,14 @@
-import type { PromptPhase } from "../model-inference-view";
+import type {
+    ModelContextProtocol,
+    ModelContextRetrievalProtocol,
+    ModelMemoryProtocol,
+    PromptPhase,
+} from "../model-inference-view";
+import {
+    isContextRetrievalProtocol,
+    isModelContextProtocol,
+    isMemoryProtocol,
+} from "../../../runtime/src/domain";
 import {
     PromptBundleConfigurationError,
     UnsupportedPromptBundleVersionError,
@@ -77,6 +87,30 @@ function validateManifest(
         );
     }
 
+    if (manifest.memoryProtocol !== undefined && !isMemoryProtocol(manifest.memoryProtocol)) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的 Memory 协议无效`,
+        );
+    }
+
+    if (
+        manifest.modelContextProtocol !== undefined
+        && !isModelContextProtocol(manifest.modelContextProtocol)
+    ) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的模型上下文协议无效`,
+        );
+    }
+
+    if (
+        manifest.contextRetrievalProtocol !== undefined
+        && !isContextRetrievalProtocol(manifest.contextRetrievalProtocol)
+    ) {
+        throw new PromptBundleConfigurationError(
+            `${label} 的 Context Retrieval 协议无效`,
+        );
+    }
+
     const slots = manifest.sections.map((section) => section.slot);
 
     if (slots.length !== SLOT_ORDER.length) {
@@ -134,6 +168,32 @@ function buildManifestIndex(
     return index;
 }
 
+function protocolMatches(
+    manifest: PromptBundleManifest,
+    protocol: ModelMemoryProtocol | undefined,
+    modelContextProtocol: ModelContextProtocol | undefined,
+    contextRetrievalProtocol: ModelContextRetrievalProtocol | undefined,
+): boolean {
+    const requestedMemory = protocol ?? { kind: "checkpoint" as const, version: 1 as const };
+    const manifestMemory = manifest.memoryProtocol
+        ?? { kind: "checkpoint" as const, version: 1 as const };
+    const requestedContext = modelContextProtocol
+        ?? { kind: "conversation" as const, version: 1 as const };
+    const manifestContext = manifest.modelContextProtocol
+        ?? { kind: "conversation" as const, version: 1 as const };
+    const requestedRetrieval = contextRetrievalProtocol
+        ?? { kind: "none" as const, version: 1 as const };
+    const manifestRetrieval = manifest.contextRetrievalProtocol
+        ?? { kind: "none" as const, version: 1 as const };
+
+    return manifestMemory.kind === requestedMemory.kind
+        && manifestMemory.version === requestedMemory.version
+        && manifestContext.kind === requestedContext.kind
+        && manifestContext.version === requestedContext.version
+        && manifestRetrieval.kind === requestedRetrieval.kind
+        && manifestRetrieval.version === requestedRetrieval.version;
+}
+
 /**
  * 以内存模板 ID 与 Bundle 版本为索引的 Prompt Bundle Registry。
  *
@@ -189,13 +249,35 @@ export class PromptBundleRegistry {
      * @returns 与该版本对应的 Manifest。
      * @throws UnsupportedPromptBundleVersionError 版本未注册时抛出，不回退到其他版本。
      */
-    getManifest(version: number): PromptBundleManifest {
+    getManifest(
+        version: number,
+        memoryProtocol?: ModelMemoryProtocol,
+        modelContextProtocol?: ModelContextProtocol,
+        contextRetrievalProtocol?: ModelContextRetrievalProtocol,
+    ): PromptBundleManifest {
         const manifest = this.manifests.get(version);
 
-        if (manifest === undefined) {
+        if (
+            manifest === undefined
+            || !protocolMatches(
+                manifest,
+                memoryProtocol,
+                modelContextProtocol,
+                contextRetrievalProtocol,
+            )
+        ) {
+            const compatibleVersions = [...this.manifests.entries()]
+                .filter(([, candidate]) => protocolMatches(
+                    candidate,
+                    memoryProtocol,
+                    modelContextProtocol,
+                    contextRetrievalProtocol,
+                ))
+                .map(([candidateVersion]) => candidateVersion)
+                .sort((a, b) => a - b);
             throw new UnsupportedPromptBundleVersionError(
                 version,
-                [...this.manifests.keys()].sort((a, b) => a - b),
+                compatibleVersions,
             );
         }
 

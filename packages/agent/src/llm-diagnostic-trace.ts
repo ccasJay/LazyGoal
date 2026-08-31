@@ -18,7 +18,14 @@ const TRUNCATED = "[TRUNCATED]";
 const SENSITIVE_KEY_PATTERN = /api[-_]?key|authorization|cookie|password|secret|token/i;
 
 /** Agent LLM 诊断事件的稳定内部类型。 */
-type LlmTraceKind = "model_request" | "model_response" | "model_error";
+type LlmTraceKind =
+    | "model_request"
+    | "model_response"
+    | "model_error"
+    | "model_context_soft_overflow"
+    | "context_compact_request"
+    | "context_compact_response"
+    | "context_compact_error";
 
 /**
  * 将 LLM 诊断写入独立 Trace 通道；Trace 不可用时静默隔离失败。
@@ -51,6 +58,42 @@ export async function recordLlmDiagnosticTrace(input: {
         await input.sink.append(record);
     } catch {
         // Diagnostic Trace is deliberately best effort and must not change Runtime semantics.
+    }
+}
+
+/**
+ * 记录独立 Context Compact 调用的诊断。
+ *
+ * @remarks
+ * Compact 诊断与主模型调用使用同一个旁路 Sink，但拥有独立稳定 kind；写入失败
+ * 只被隔离，不会把候选结果升级为权威状态，也不会改变主调用结果。
+ *
+ * @param input - Goal/Run 身份、Compact kind 和待脱敏 payload。
+ * @returns Sink 完成或被隔离后 resolve。
+ */
+export async function recordContextCompactDiagnosticTrace(input: {
+    readonly sink: DiagnosticTraceSink | undefined;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly kind: Extract<
+        LlmTraceKind,
+        "context_compact_request" | "context_compact_response" | "context_compact_error"
+    >;
+    readonly payload: unknown;
+}): Promise<void> {
+    if (input.sink === undefined) return;
+
+    const record = allocateDiagnosticTraceRecord({
+        goalId: input.goalId,
+        runId: input.runId,
+        kind: input.kind,
+        payload: boundJsonValue(input.payload),
+    });
+
+    try {
+        await input.sink.append(record);
+    } catch {
+        // Compact Trace is best effort and must not change fallback semantics.
     }
 }
 
@@ -111,6 +154,33 @@ export function recordLlmError(
         kind: "model_error",
         payload: { stage, durationMs, error: details },
     });
+}
+
+/**
+ * 记录固定模型输入超过历史预算的软超限诊断。
+ *
+ * @param input - Goal/Run 身份和已脱敏的预算报告字段。
+ * @returns Trace 写入完成或被隔离后 resolve。
+ * @remarks
+ * 软超限不会阻止主模型调用；该记录只说明 Hot/Warm 被置空，不能作为 Goal
+ * 状态或 Snapshot 恢复依据。
+ */
+export function recordModelContextSoftOverflowDiagnosticTrace(input: {
+    readonly sink: DiagnosticTraceSink | undefined;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly payload: unknown;
+}): Promise<void> {
+    if (input.sink === undefined) return Promise.resolve();
+
+    const record = allocateDiagnosticTraceRecord({
+        goalId: input.goalId,
+        runId: input.runId,
+        kind: "model_context_soft_overflow",
+        payload: boundJsonValue(input.payload),
+    });
+
+    return input.sink.append(record).catch(() => undefined);
 }
 
 function readProviderMetadata(response: unknown): unknown {

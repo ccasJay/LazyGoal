@@ -1,4 +1,7 @@
 import type {
+    ModelContextProtocol,
+    ModelContextRetrievalProtocol,
+    ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
 } from "../model-inference-view";
@@ -87,6 +90,12 @@ export interface PromptBundleManifest {
     readonly version: number;
     /** 参与组合的 section 及其确定顺序。 */
     readonly sections: readonly PromptBundleSection[];
+    /** 该 Bundle 唯一兼容的 Memory 协议；legacy Bundle 可省略以保持旧文件语义。 */
+    readonly memoryProtocol?: ModelMemoryProtocol;
+    /** 该 Bundle 唯一兼容的模型上下文协议；省略时按 `conversation@1` 解释。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
+    /** 该 Bundle 唯一兼容的 Cold Trajectory 检索协议；省略时按 `none@1` 解释。 */
+    readonly contextRetrievalProtocol?: ModelContextRetrievalProtocol;
 }
 
 /**

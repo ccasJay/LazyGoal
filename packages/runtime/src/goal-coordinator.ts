@@ -1,14 +1,41 @@
 import type {
     AssistantMessage,
+    CanonicalMemoryOperation,
     Goal,
     GoalTask,
+    GoalPhase,
+    GoalProtocolValidator,
+    MemoryPatch,
     RunRef,
+    WorkingMemory,
+} from "./domain";
+import {
+    resolveContextRetrievalProtocol,
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     PreparationExecutor,
     PreparationResult,
 } from "./preparation-executor";
+import {
+    CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
+    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
+    ContextLookupProtocolError,
+    assertContextLookupResultOwnership,
+    createContextLookupId,
+    invokeContextLookup,
+    normalizeContextLookupRequest,
+    normalizeContextLookupResult,
+    type ContextLookupPort,
+    type ContextLookupRequest,
+    type ContextLookupResult,
+} from "./context-retrieval";
+import {
+    ContextSourceRouter,
+    ContextSourceRouterError,
+} from "./context-source-router";
 import type { RunScheduler } from "./scheduler";
 import {
     InMemoryToolRegistry,
@@ -16,20 +43,36 @@ import {
     type ToolRegistry,
 } from "./tool";
 import {
-    isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
 import { transition } from "./transition";
 import {
-    allocateDiagnosticTraceRecord,
-    createNoopTrajectoryRecorder,
-    TrajectoryAppendError,
-    TrajectoryCommitMarkerError,
     type DiagnosticTraceSink,
+    type TrajectoryEvent,
     type TrajectoryEventDraft,
+    type TrajectoryStore,
     type TrajectorySink,
 } from "./trajectory";
+import {
+    createSupersedeScopeOperation,
+    mergeNormalizedMemoryPatches,
+    normalizeMemoryPatch,
+    reduceWorkingMemory,
+    type NormalizedWorkingMemoryPatch,
+    WorkingMemoryPatchError,
+    type WorkingMemoryLimitsInput,
+} from "./working-memory-core";
+import { WorkingMemorySession } from "./working-memory-session";
+import {
+    TrajectoryCheckpointCommitter,
+    type AcceptedMemoryPatchInput,
+    type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
+} from "./trajectory-checkpoint-committer";
+
+type PreparationLookupOutcome =
+    | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
+    | Extract<GoalProgressResult, { readonly ok: false }>;
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
@@ -37,7 +80,9 @@ export type GoalProgressErrorCode =
     | "GOAL_NOT_WAITING"
     | "INVALID_GOAL_INPUT"
     | "INVALID_PHASE_RESULT"
-    | "ACTION_NOT_AUTHORIZED";
+    | "ACTION_NOT_AUTHORIZED"
+    | "INVALID_CONTEXT_LOOKUP"
+    | "CONTEXT_LOOKUP_CHAIN_LIMIT";
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
@@ -148,6 +193,24 @@ export interface GoalCoordinatorDependencies {
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
+    readonly trajectoryStore?: TrajectoryStore;
+    /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
+    readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
+    /**
+     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
+     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     */
+    readonly protocolValidator?: GoalProtocolValidator;
+    /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
+    readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
+    /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
+    readonly contextLookupPort?: ContextLookupPort;
+    /**
+     * Context Source Router；省略时使用无状态默认 Router，拒绝用历史 lookup
+     * 替代当前 Workspace/Environment 或任务权威来源。
+     */
+    readonly contextSourceRouter?: ContextSourceRouter;
 }
 
 /**
@@ -172,10 +235,12 @@ export class GoalCoordinator {
     private readonly preparationExecutor: PreparationExecutor;
     private readonly scheduler: RunScheduler;
     private readonly toolRegistry: ToolRegistry;
-    private readonly trajectorySink: TrajectorySink;
-    private readonly trajectoryEnabled: boolean;
-    private readonly trajectoryFactSequences = new Map<string, number>();
-    private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
+    private readonly trajectoryStore: TrajectoryStore | undefined;
+    private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
+    private readonly protocolValidator: GoalProtocolValidator | undefined;
+    private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly contextSourceRouter: ContextSourceRouter;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -183,10 +248,23 @@ export class GoalCoordinator {
         this.preparationExecutor = dependencies.preparationExecutor;
         this.scheduler = dependencies.scheduler;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
-        this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
-        this.trajectorySink = dependencies.trajectorySink
-            ?? createNoopTrajectoryRecorder();
-        this.traceSink = dependencies.traceSink;
+        this.trajectoryStore = dependencies.trajectoryStore;
+        this.workingMemoryLimits = dependencies.workingMemoryLimits;
+        this.protocolValidator = dependencies.protocolValidator;
+        this.contextLookupPort = dependencies.contextLookupPort;
+        this.contextSourceRouter = dependencies.contextSourceRouter
+            ?? new ContextSourceRouter();
+        const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
+        this.checkpointCommitter = dependencies.checkpointCommitter
+            ?? new TrajectoryCheckpointCommitter({
+                store: dependencies.store,
+                ...(trajectorySink === undefined
+                    ? {}
+                    : { trajectorySink }),
+                ...(dependencies.traceSink === undefined
+                    ? {}
+                    : { traceSink: dependencies.traceSink }),
+            });
     }
 
     /**
@@ -210,6 +288,11 @@ export class GoalCoordinator {
             return this.runNotFound(ref);
         }
 
+        this.validateGoalProtocol(goal);
+
+        let contextLookupResult = await this.restoreContextLookupResult(goal, control);
+        let preparationLookupCount = 0;
+
         while (goal.state.workflow.phase !== "executing") {
             const workflow = goal.state.workflow;
 
@@ -225,43 +308,100 @@ export class GoalCoordinator {
                 }
 
                 throwIfAborted(control);
-                const result = await this.preparationExecutor.execute(goal, [], control);
-                throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: workflow.phase,
-                    eventType: "preparation_result",
-                    payload: { type: "preparation_result", result: result.kind },
-                }, control);
-
-                if (result.kind === "question") {
+                const session = await this.openWorkingMemorySession(goal, control);
+                try {
+                    const result = await this.preparationExecutor.execute({
+                        goal,
+                        authorizedTools: [],
+                        ...(session === undefined
+                            ? {}
+                            : { workingMemory: session.workingMemory }),
+                        ...(control === undefined ? {} : { control }),
+                        ...(contextLookupResult === undefined
+                            ? {}
+                            : { contextLookupResult }),
+                    });
                     throwIfAborted(control);
-                    goal = this.withQuestion(goal, result.question);
-                    await this.appendTrajectory({
+
+                    if (result.kind === "context_lookup") {
+                        const lookup = await this.prepareContextLookup(
+                            goal,
+                            result,
+                            workflow.phase,
+                            preparationLookupCount,
+                            control,
+                        );
+                        if (!lookup.ok) return lookup;
+                        goal = lookup.goal;
+                        contextLookupResult = lookup.result;
+                        preparationLookupCount += 1;
+                        continue;
+                    }
+
+                    const preparationFact: TrajectoryEventDraft = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
-                        phase: "gathering_context",
-                        eventType: "run_waiting",
-                        payload: { type: "run_waiting", reason: "question" },
-                    }, control);
-                    goal = await this.saveCheckpoint(goal, control);
-                    return {
-                        ok: true,
-                        kind: "waiting",
-                        phase: "gathering_context",
-                        waitingFor: "question",
-                        goal,
+                        phase: workflow.phase,
+                        eventType: "preparation_result",
+                        payload: { type: "preparation_result", result: result.kind },
                     };
-                }
 
-                if (result.kind !== "context_ready") {
-                    return this.invalidPhaseResult(workflow.phase, result);
-                }
+                    if (result.kind === "question") {
+                        const acceptedPatch = this.acceptPreparationPatch(
+                            goal,
+                            result.memoryPatch,
+                            workflow.phase,
+                            session,
+                        );
+                        throwIfAborted(control);
+                        goal = this.withQuestion(goal, result.question);
+                        goal = await this.commitPreparation(
+                            goal,
+                            [
+                                preparationFact,
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "gathering_context",
+                                    eventType: "run_waiting",
+                                    payload: { type: "run_waiting", reason: "question" },
+                                },
+                            ],
+                            acceptedPatch,
+                            control,
+                        );
+                        return {
+                            ok: true,
+                            kind: "waiting",
+                            phase: "gathering_context",
+                            waitingFor: "question",
+                            goal,
+                        };
+                    }
 
-                goal = this.withPlanning(goal);
-                throwIfAborted(control);
-                goal = await this.saveCheckpoint(goal, control);
+                    if (result.kind !== "context_ready") {
+                        return this.invalidPhaseResult(workflow.phase, result);
+                    }
+
+                    const acceptedPatch = this.acceptPreparationPatch(
+                        goal,
+                        result.memoryPatch,
+                        workflow.phase,
+                        session,
+                        this.contextReadyLifecycle(session),
+                    );
+                    goal = this.withPlanning(goal);
+                    throwIfAborted(control);
+                    goal = await this.commitPreparation(
+                        goal,
+                        [preparationFact],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                } finally {
+                    session?.close();
+                }
                 continue;
             }
 
@@ -278,30 +418,73 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
             throwIfAborted(control);
-            const result = await this.preparationExecutor.execute(goal, tools, control);
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: workflow.phase,
-                eventType: "preparation_result",
-                payload: { type: "preparation_result", result: result.kind },
-            }, control);
+            const session = await this.openWorkingMemorySession(goal, control);
+            try {
+                const result = await this.preparationExecutor.execute({
+                    goal,
+                    authorizedTools: tools,
+                    ...(session === undefined
+                        ? {}
+                        : { workingMemory: session.workingMemory }),
+                    ...(control === undefined ? {} : { control }),
+                    ...(contextLookupResult === undefined
+                        ? {}
+                        : { contextLookupResult }),
+                });
+                throwIfAborted(control);
 
-            if (result.kind !== "task_proposal") {
-                return this.invalidPhaseResult(workflow.phase, result);
+                if (result.kind === "context_lookup") {
+                    const lookup = await this.prepareContextLookup(
+                        goal,
+                        result,
+                        workflow.phase,
+                        preparationLookupCount,
+                        control,
+                    );
+                    if (!lookup.ok) return lookup;
+                    goal = lookup.goal;
+                    contextLookupResult = lookup.result;
+                    preparationLookupCount += 1;
+                    continue;
+                }
+
+                if (result.kind !== "task_proposal") {
+                    return this.invalidPhaseResult(workflow.phase, result);
+                }
+
+                const acceptedPatch = this.acceptPreparationPatch(
+                    goal,
+                    result.memoryPatch,
+                    workflow.phase,
+                    session,
+                );
+                const preparationFact: TrajectoryEventDraft = {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: workflow.phase,
+                    eventType: "preparation_result",
+                    payload: { type: "preparation_result", result: result.kind },
+                };
+                goal = this.withProposal(goal, result);
+                throwIfAborted(control);
+                goal = await this.commitPreparation(
+                    goal,
+                    [
+                        preparationFact,
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "planning",
+                            eventType: "run_waiting",
+                            payload: { type: "run_waiting", reason: "approval" },
+                        },
+                    ],
+                    acceptedPatch,
+                    control,
+                );
+            } finally {
+                session?.close();
             }
-
-            goal = this.withProposal(goal, result);
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "planning",
-                eventType: "run_waiting",
-                payload: { type: "run_waiting", reason: "approval" },
-            }, control);
-            goal = await this.saveCheckpoint(goal, control);
             return {
                 ok: true,
                 kind: "waiting",
@@ -378,6 +561,8 @@ export class GoalCoordinator {
             return this.runNotFound(request.ref);
         }
 
+        this.validateGoalProtocol(goal);
+
         const workflow = goal.state.workflow;
 
         if (workflow.phase === "gathering_context") {
@@ -425,15 +610,28 @@ export class GoalCoordinator {
                     goal,
                     request.action.content,
                 );
-                throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "planning",
-                    eventType: "run_resumed",
-                    payload: { type: "run_resumed" },
-                }, control);
-                await this.saveCheckpoint(resumedGoal, control);
+                const session = await this.openWorkingMemorySession(goal, control);
+                try {
+                    const acceptedPatch = this.lifecyclePatch(
+                        goal,
+                        session,
+                    );
+                    throwIfAborted(control);
+                    await this.commitPreparation(
+                        resumedGoal,
+                        [{
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "planning",
+                            eventType: "run_resumed",
+                            payload: { type: "run_resumed" },
+                        }],
+                        acceptedPatch,
+                        control,
+                    );
+                } finally {
+                    session?.close();
+                }
                 return this.advance(request.ref, control);
             }
 
@@ -450,15 +648,28 @@ export class GoalCoordinator {
             }
 
             const approvedGoal = this.withApprovedTask(goal, proposal);
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "planning",
-                eventType: "run_resumed",
-                payload: { type: "run_resumed" },
-            }, control);
-            await this.saveCheckpoint(approvedGoal, control);
+            const session = await this.openWorkingMemorySession(goal, control);
+            try {
+                const acceptedPatch = this.lifecyclePatch(
+                    goal,
+                    session,
+                );
+                throwIfAborted(control);
+                await this.commitPreparation(
+                    approvedGoal,
+                    [{
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "planning",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
+                    }],
+                    acceptedPatch,
+                    control,
+                );
+            } finally {
+                session?.close();
+            }
             return this.advance(request.ref, control);
         }
 
@@ -636,6 +847,345 @@ export class GoalCoordinator {
         return this.advance(request.ref, control);
     }
 
+    private async openWorkingMemorySession(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<WorkingMemorySession | undefined> {
+        throwIfAborted(control);
+        const protocol = resolveMemoryProtocol(goal.definition);
+        if (protocol.kind !== "structured") return undefined;
+
+        const session = await WorkingMemorySession.restore(goal, {
+            ...(this.trajectoryStore === undefined
+                ? {}
+                : { trajectoryStore: this.trajectoryStore }),
+            ...(this.workingMemoryLimits === undefined
+                ? {}
+                : { limits: this.workingMemoryLimits }),
+        });
+        throwIfAborted(control);
+        return session;
+    }
+
+    private async prepareContextLookup(
+        goal: Goal,
+        rawRequest: Extract<PreparationResult, { readonly kind: "context_lookup" }>,
+        phase: "gathering_context" | "planning",
+        lookupCount: number,
+        control?: ExecutionControl,
+    ): Promise<PreparationLookupOutcome> {
+        const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+        if (retrievalProtocol.kind !== "bm25-lite") {
+            return this.invalidContextLookup(
+                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
+            );
+        }
+
+        if (lookupCount >= 3) {
+            return {
+                ok: false,
+                error: {
+                    code: CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
+                    message: `${CONTEXT_LOOKUP_CHAIN_LIMIT_CODE}: Preparation lookup chain exceeds 3 queries`,
+                },
+            };
+        }
+
+        let request: ContextLookupRequest;
+        try {
+            request = normalizeContextLookupRequest(rawRequest);
+        } catch (error) {
+            return this.invalidContextLookup(
+                error instanceof Error
+                    ? error.message
+                    : `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: request is invalid`,
+            );
+        }
+
+        let routedRequest;
+        try {
+            routedRequest = this.contextSourceRouter.routeContextLookup(request);
+        } catch (error) {
+            if (error instanceof ContextSourceRouterError) {
+                return this.invalidContextLookup(error.message);
+            }
+            throw error;
+        }
+
+        throwIfAborted(control);
+        let invocation;
+        try {
+            invocation = await invokeContextLookup({
+                goal,
+                request: routedRequest.request,
+                phase,
+                ...(this.contextLookupPort === undefined
+                    ? {}
+                    : { port: this.contextLookupPort }),
+                ...(control === undefined ? {} : { control }),
+            });
+        } catch (error) {
+            if (error instanceof ContextLookupProtocolError) {
+                return this.invalidContextLookup(error.message);
+            }
+            throw error;
+        }
+        throwIfAborted(control);
+
+        const preparationFact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase,
+            eventType: "preparation_result",
+            payload: { type: "preparation_result", result: "context_lookup" },
+        };
+        const committedGoal = await this.commitPreparation(
+            goal,
+            [preparationFact, ...invocation.facts],
+            undefined,
+            control,
+        );
+        return {
+            ok: true,
+            goal: committedGoal,
+            result: invocation.result,
+        };
+    }
+
+    private invalidContextLookup(message: string): PreparationLookupOutcome {
+        return {
+            ok: false,
+            error: {
+                code: "INVALID_CONTEXT_LOOKUP",
+                message,
+            },
+        };
+    }
+
+    private async restoreContextLookupResult(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<ContextLookupResult | undefined> {
+        const trajectoryStore = this.trajectoryStore;
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        if (trajectoryStore === undefined || boundary <= 0) return undefined;
+
+        throwIfAborted(control);
+        const raw = await trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            boundary,
+        );
+        throwIfAborted(control);
+        const committed = [...raw.committed]
+            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
+            .sort((left, right) => right.sequence - left.sequence);
+        const lastFact = committed.find((event) => event.eventType !== "state_committed");
+        if (
+            lastFact === undefined
+            || (
+                lastFact.eventType !== "context_lookup_completed"
+                && lastFact.eventType !== "context_lookup_not_found"
+                && lastFact.eventType !== "context_lookup_failed"
+            )
+        ) {
+            return undefined;
+        }
+
+        const lookupId = lastFact.payload.lookupId;
+        const requested = committed.find((event) =>
+            event.eventType === "context_lookup_requested"
+            && event.payload.lookupId === lookupId
+            && event.sequence < lastFact.sequence,
+        ) as Extract<TrajectoryEvent, { readonly eventType: "context_lookup_requested" }> | undefined;
+        if (requested === undefined) {
+            throw new ContextLookupProtocolError(
+                "committed lookup result has no preceding requested fact",
+            );
+        }
+        const request = normalizeContextLookupRequest(requested.payload.request);
+        if (createContextLookupId(goal.id, goal.state.run.id, request) !== lookupId) {
+            throw new ContextLookupProtocolError("committed lookupId does not match request");
+        }
+        const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
+            const result = normalizeContextLookupResult(
+                value,
+                lookupId,
+                boundary,
+                request,
+            );
+            if (result.status === "found") {
+                assertContextLookupResultOwnership(
+                    result,
+                    goal.id,
+                    goal.state.run.id,
+                );
+            }
+            return result;
+        };
+
+        if (lastFact.eventType === "context_lookup_completed") {
+            return normalizeRestoredResult(lastFact.payload.result);
+        }
+        if (lastFact.eventType === "context_lookup_not_found") {
+            return normalizeRestoredResult(lastFact.payload.result);
+        }
+
+        const failedResult: ContextLookupResult = {
+            status: "lookup_error",
+            lookupId,
+            code: lastFact.payload.code,
+            message: lastFact.payload.message,
+            committedThroughSequence: boundary,
+        };
+        return normalizeRestoredResult(failedResult);
+    }
+
+    private acceptPreparationPatch(
+        goal: Goal,
+        memoryPatch: MemoryPatch | undefined,
+        phase: GoalPhase,
+        session: WorkingMemorySession | undefined,
+        lifecycleOperations: readonly CanonicalMemoryOperation[] = [],
+    ): AcceptedMemoryPatchInput | undefined {
+        const protocol = resolveMemoryProtocol(goal.definition);
+        if (protocol.kind !== "structured") {
+            if (memoryPatch !== undefined || lifecycleOperations.length > 0) {
+                throw new WorkingMemoryPatchError(
+                    "checkpoint protocol cannot accept structured Memory Patch",
+                );
+            }
+            return undefined;
+        }
+
+        if (session === undefined) {
+            throw new Error(
+                "GoalCoordinator invariant violated: structured Memory Session is missing",
+            );
+        }
+
+        let modelPatch: NormalizedWorkingMemoryPatch | undefined;
+        if (memoryPatch !== undefined) {
+            const memorySession: WorkingMemorySession = session;
+            const currentMemory = memorySession.workingMemory;
+            const workingMemory = lifecycleOperations.length === 0
+                ? currentMemory
+                : reduceWorkingMemory(currentMemory, lifecycleOperations, {
+                    ...(this.workingMemoryLimits === undefined
+                        ? {}
+                        : { limits: this.workingMemoryLimits }),
+                });
+            memorySession.validatePatch(memoryPatch, workingMemory);
+            modelPatch = normalizeMemoryPatch(memoryPatch, {
+                phase,
+                originSequence: Math.max(
+                    1,
+                    (goal.state.run.committedThroughSequence ?? 0) + 1,
+                ),
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
+        }
+
+        if (
+            modelPatch === undefined
+            && lifecycleOperations.length === 0
+        ) {
+            return undefined;
+        }
+
+        // 生命周期失效必须先于模型操作，避免 context-ready/feedback 把刚生成的
+        // 新控制条目一并清除；模型操作仍保持其在同一 Patch 中的声明顺序。
+        const merged = mergeNormalizedMemoryPatches(
+            undefined,
+            [
+                ...lifecycleOperations,
+                ...(modelPatch?.operations ?? []),
+            ],
+        );
+        if (merged.operations.length === 0) return undefined;
+
+        const hasModelOperations = (modelPatch?.operations.length ?? 0) > 0;
+
+        return {
+            phase,
+            producers: [
+                ...(hasModelOperations ? ["model" as const] : []),
+                ...(lifecycleOperations.length === 0
+                    ? []
+                    : ["runtime_lifecycle" as const]),
+            ],
+            operations: merged.operations,
+        };
+    }
+
+    private contextReadyLifecycle(
+        session: WorkingMemorySession | undefined,
+    ): readonly CanonicalMemoryOperation[] {
+        if (session === undefined) return [];
+        return this.lifecycleOperations(
+            session.workingMemory,
+            "gathering_context",
+            ["hypothesis"],
+        );
+    }
+
+    private lifecyclePatch(
+        goal: Goal,
+        session: WorkingMemorySession | undefined,
+    ): AcceptedMemoryPatchInput | undefined {
+        const operations = session === undefined
+            ? []
+            : this.lifecycleOperations(
+                session.workingMemory,
+                "planning",
+                ["plan", "hypothesis", "blocker"],
+            );
+        return this.acceptPreparationPatch(
+            goal,
+            undefined,
+            "planning",
+            session,
+            operations,
+        );
+    }
+
+    private lifecycleOperations(
+        memory: WorkingMemory,
+        phase: GoalPhase,
+        kinds: readonly ("hypothesis" | "plan" | "blocker")[],
+    ): readonly CanonicalMemoryOperation[] {
+        const entries = [
+            ...memory.hypotheses,
+            ...memory.plan,
+            ...memory.blockers,
+        ];
+        const hasActiveEntry = entries.some((entry) =>
+            entry.status === "active"
+            && entry.scope === "phase"
+            && entry.originPhase === phase
+            && kinds.includes(entry.kind),
+        );
+        if (!hasActiveEntry) return [];
+
+        return [createSupersedeScopeOperation("phase", { phase, kinds })];
+    }
+
+    private async commitPreparation(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        acceptedPatch: AcceptedMemoryPatchInput | undefined,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const result = await this.checkpointCommitter.commit(goal, {
+            facts,
+            ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        return result.goal;
+    }
+
     private async restore(
         ref: RunRef,
         control?: ExecutionControl,
@@ -655,66 +1205,25 @@ export class GoalCoordinator {
         return goal;
     }
 
+    private validateGoalProtocol(goal: Goal): void {
+        if (this.protocolValidator === undefined) return;
+
+        this.protocolValidator.validate({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            memoryProtocol: resolveMemoryProtocol(goal.definition),
+            modelContextProtocol: resolveModelContextProtocol(goal.definition),
+            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
+        });
+    }
+
     private async saveCheckpoint(
         goal: Goal,
         control?: ExecutionControl,
     ): Promise<Goal> {
-        throwIfAborted(control);
-
-        if (!this.trajectoryEnabled) {
-            await this.store.save(goal);
-            throwIfAborted(control);
-            return goal;
-        }
-
-        const key = this.trajectoryKey(goal);
-        const committedThroughSequence = Math.max(
-            goal.state.run.committedThroughSequence ?? 0,
-            this.trajectoryFactSequences.get(key) ?? 0,
-        );
-        const checkpoint = committedThroughSequence === (
-            goal.state.run.committedThroughSequence ?? 0
-        )
-            ? goal
-            : {
-                ...goal,
-                state: {
-                    ...goal.state,
-                    run: {
-                        ...goal.state.run,
-                        committedThroughSequence,
-                    },
-                },
-            };
-
-        await this.store.save(checkpoint);
-        throwIfAborted(control);
-        try {
-            await this.appendTrajectory({
-                goalId: checkpoint.id,
-                runId: checkpoint.state.run.id,
-                phase: checkpoint.state.workflow.phase,
-                eventType: "state_committed",
-                payload: {
-                    type: "state_committed",
-                    committedThroughSequence,
-                },
-            }, control, false);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-            await this.recordTrajectoryDiagnostic(checkpoint, "state_committed", error);
-            throw new TrajectoryCommitMarkerError(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-            );
-        }
-        return checkpoint;
-    }
-
-    private trajectoryKey(goal: Goal): string {
-        return `${goal.id}\u0000${goal.state.run.id}`;
+        const result = await this.checkpointCommitter.commit(goal, {
+            ...(control === undefined ? {} : { control }),
+        });
+        return result.goal;
     }
 
     private async appendTrajectory(
@@ -722,49 +1231,7 @@ export class GoalCoordinator {
         control?: ExecutionControl,
         countAsFact = true,
     ): Promise<void> {
-        if (!this.trajectoryEnabled) return;
-        throwIfAborted(control);
-        let event;
-        try {
-            event = await this.trajectorySink.append(draft);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-            throw new TrajectoryAppendError(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-            );
-        }
-        throwIfAborted(control);
-        if (countAsFact && event.payload.type !== "state_committed") {
-            const key = `${event.goalId}\u0000${event.runId}`;
-            this.trajectoryFactSequences.set(
-                key,
-                Math.max(this.trajectoryFactSequences.get(key) ?? 0, event.sequence),
-            );
-        }
-    }
-
-    private async recordTrajectoryDiagnostic(
-        goal: Goal,
-        kind: string,
-        error: unknown,
-    ): Promise<void> {
-        if (this.traceSink === undefined) return;
-        try {
-            await this.traceSink.append(allocateDiagnosticTraceRecord({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                kind: "trajectory_commit_marker_failed",
-                payload: {
-                    eventType: kind,
-                    error: error instanceof Error ? error.message : String(error),
-                },
-            }));
-        } catch {
-            // Diagnostic Trace 是旁路；其自身故障不能覆盖 marker 缺口。
-        }
+        await this.checkpointCommitter.append(draft, control, countAsFact);
     }
 
     private async afterSchedule(

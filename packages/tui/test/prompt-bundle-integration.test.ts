@@ -152,7 +152,7 @@ function createLegacyGoal(
     };
 }
 
-test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async () => {
+test("Composition Root 激活 v7/bm25-lite@1 并保持旧 Bundle 三阶段逐字恢复", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v2-"));
     await writeDefaultProfile(workspace);
     const responses = [
@@ -160,15 +160,15 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
         JSON.stringify({
             kind: "task_proposal",
             task: {
-                objective: "Verify the v2 workflow",
-                completionCriteria: ["All three v2 phases are observed"],
+                objective: "Verify the structured workflow",
+                completionCriteria: [],
             },
-            approvalRequest: "Approve the complete v2 task contract?",
+            approvalRequest: "Approve the complete structured task contract?",
         }),
         JSON.stringify({
             kind: "complete",
-            checkpoint: "The v2 criterion has sufficient evidence",
-            summary: "The v2 workflow completed",
+            summary: "The structured workflow completed",
+            completionEvidence: [],
         }),
         JSON.stringify({
             kind: "question",
@@ -267,7 +267,19 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
         }
         assert.equal(planningView.phase, "planning");
         assert.equal(planningView.waitingFor, "approval");
-        assert.equal(planningView.goal.definition.promptBundleVersion, 3);
+        assert.equal(planningView.goal.definition.promptBundleVersion, 7);
+        assert.deepEqual(planningView.goal.definition.memoryProtocol, {
+            kind: "structured",
+            version: 1,
+        });
+        assert.deepEqual(planningView.goal.definition.modelContextProtocol, {
+            kind: "trajectory-layered",
+            version: 1,
+        });
+        assert.deepEqual(planningView.goal.definition.contextRetrievalProtocol, {
+            kind: "bm25-lite",
+            version: 1,
+        });
 
         const files = (await readdir(root.goalsDirectory))
             .filter((file) => file.endsWith(".json"));
@@ -277,10 +289,27 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
             "utf8",
         )) as {
             readonly metadata: { readonly schemaVersion: number };
-            readonly definition: { readonly promptBundleVersion: number };
+            readonly definition: {
+                readonly promptBundleVersion: number;
+                readonly memoryProtocol?: unknown;
+                readonly modelContextProtocol?: unknown;
+                readonly contextRetrievalProtocol?: unknown;
+            };
         };
-        assert.equal(snapshot.metadata.schemaVersion, 6);
-        assert.equal(snapshot.definition.promptBundleVersion, 3);
+        assert.equal(snapshot.metadata.schemaVersion, 10);
+        assert.equal(snapshot.definition.promptBundleVersion, 7);
+        assert.deepEqual(snapshot.definition.memoryProtocol, {
+            kind: "structured",
+            version: 1,
+        });
+        assert.deepEqual(snapshot.definition.modelContextProtocol, {
+            kind: "trajectory-layered",
+            version: 1,
+        });
+        assert.deepEqual(snapshot.definition.contextRetrievalProtocol, {
+            kind: "bm25-lite",
+            version: 1,
+        });
 
         await root.controller.dispatch({ kind: "approveTask" });
         const completedView = root.controller.getSnapshot();
@@ -293,15 +322,17 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
         assert.equal(completedView.terminal?.status, "completed");
         assert.equal(requests.length, 3);
 
-        const v2Systems = requests.slice(0, 3).map(systemContent);
-        assert.ok(v2Systems[0]?.includes(
-            "Active Phase Protocol: gathering_context",
+        const structuredSystems = requests.slice(0, 3).map(systemContent);
+        assert.ok(structuredSystems[0]?.includes(
+            "Active Phase Protocol: gathering_context (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)",
         ));
-        assert.ok(v2Systems[1]?.includes("Active Phase Protocol: planning"));
-        assert.ok(v2Systems[2]?.includes("Active Phase Protocol: executing"));
-        assert.deepEqual(parseAuthorizedTools(v2Systems[0] ?? ""), []);
-        const planningTools = parseAuthorizedTools(v2Systems[1] ?? "");
-        const executingTools = parseAuthorizedTools(v2Systems[2] ?? "");
+        assert.ok(structuredSystems[1]?.includes("Active Phase Protocol: planning (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)"));
+        assert.ok(structuredSystems[2]?.includes("Active Phase Protocol: executing (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)"));
+        assert.ok(structuredSystems[0]?.includes("memoryPatch"));
+        assert.ok(structuredSystems[2]?.includes("completionEvidence"));
+        assert.deepEqual(parseAuthorizedTools(structuredSystems[0] ?? ""), []);
+        const planningTools = parseAuthorizedTools(structuredSystems[1] ?? "");
+        const executingTools = parseAuthorizedTools(structuredSystems[2] ?? "");
 
         assert.deepEqual(planningTools, executingTools);
         assert.deepEqual(
@@ -309,13 +340,11 @@ test("Composition Root 激活 v3 并保持 v1/v2 三阶段逐字恢复", async (
                 .map((tool) => tool.id),
             ["read_file"],
         );
-        assert.ok(v2Systems[2]?.includes("Tool selection policy:"));
-        assert.ok(v2Systems[2]?.includes(
-            "For repository text search, prefer the authorized `grep` Tool when it is available.",
-        ));
-        assert.ok(v2Systems[2]?.includes(
-            "bound output by bytes or an equivalent bounded-output strategy; line-count truncation alone is not sufficient.",
-        ));
+        assert.ok(!structuredSystems[2]?.includes('"checkpoint"'));
+        const firstControl = JSON.parse(requests[0]?.messages.at(-1)?.content ?? "{}") as {
+            readonly trajectoryContext?: unknown;
+        };
+        assert.ok(firstControl.trajectoryContext !== undefined);
 
         const legacyProfile: AgentProfile = {
             id: "legacy-profile",

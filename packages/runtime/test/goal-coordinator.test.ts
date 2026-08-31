@@ -14,6 +14,7 @@ import type {
     Goal,
     GoalProgressResult,
     GoalStore,
+    PreparationExecutionInput,
     PreparationExecutor,
     PreparationResult,
     RunnerResult,
@@ -58,13 +59,10 @@ class FakePreparationExecutor implements PreparationExecutor {
         private readonly events: string[] = [],
     ) {}
 
-    async execute(
-        goal: Goal,
-        tools: readonly ToolDefinition[],
-    ): Promise<PreparationResult> {
+    async execute({ goal, authorizedTools }: PreparationExecutionInput): Promise<PreparationResult> {
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
-        this.receivedTools.push(structuredClone([...tools]));
+        this.receivedTools.push(structuredClone([...authorizedTools]));
         this.events.push(`execute:${goal.state.workflow.phase}`);
 
         if (action === undefined) {

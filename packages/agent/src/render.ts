@@ -1,7 +1,10 @@
 import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     ModelInferenceView,
+    ModelTrajectoryContext,
+    ModelWorkingMemory,
     ModelWorkingContext,
+    ModelContextLookupResult,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
 
@@ -11,21 +14,36 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * @remarks
  * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。system 消息由
  * 注入的 `PromptBundleRenderer` 依据 `PromptContext` 生成；真实会话与 Working
- * Context 只作为原始消息追加，绝不进入模板环境。
+ * Context 只作为原始消息追加，绝不进入模板环境。分层协议的 Trajectory
+ * Context 也作为本轮控制消息的独立字段追加；legacy View 未提供该字段时输出
+ * 保持原有结构。
  */
 
 /**
  * 构造 Working Context 控制消息。
  *
  * @param context - 已投影的阶段化 Working Context。
+ * @param workingMemory - structured@1 的即时 Memory；legacy 时省略。
+ * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm；legacy 时省略。
+ * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */
 export function renderWorkingContextMessage(
     context: ModelWorkingContext,
+    workingMemory?: ModelWorkingMemory,
+    trajectoryContext?: ModelTrajectoryContext,
+    contextLookupResult?: ModelContextLookupResult,
 ): Extract<LLMMessage, { readonly role: "user" }> {
+    const payload = {
+        ...context,
+        ...(workingMemory === undefined ? {} : { workingMemory }),
+        ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
+        ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
+    };
+
     return {
         role: "user",
-        content: JSON.stringify(context, null, 2),
+        content: JSON.stringify(payload, null, 2),
     };
 }
 
@@ -35,8 +53,8 @@ export function renderWorkingContextMessage(
  * @remarks
  * 使用注入的 `PromptBundleRenderer` 依据 `view.prompt` 中的冻结 Bundle 版本与当前
  * Phase 生成唯一一条 system 消息；随后按原样追加真实 Conversation，最后追加 JSON
- * Working Context 控制消息。Conversation 与 Working Context 中的任何 Nunjucks
- * 语法都保持原始文本，不会被再次执行。
+ * Working Context 控制消息。Conversation、Working Context 与分层 Trajectory
+ * Context 中的任何 Nunjucks 语法都保持原始文本，不会被再次执行。
  *
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
@@ -58,7 +76,12 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
-            renderWorkingContextMessage(view.workingContext),
+            renderWorkingContextMessage(
+                view.workingContext,
+                view.workingMemory,
+                view.trajectoryContext,
+                view.contextLookupResult,
+            ),
         ],
     };
 }

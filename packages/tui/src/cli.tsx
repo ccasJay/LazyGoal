@@ -8,6 +8,7 @@ import { render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
+    DEFAULT_WORKING_MEMORY_LIMITS,
     ManagedResourceRegistry,
     ProcessExitPort,
     ShutdownCoordinator,
@@ -15,15 +16,18 @@ import {
     InMemoryToolRegistry,
     InlineScheduler,
     Runner,
+    TrajectoryCheckpointCommitter,
     readTrajectoryAtSnapshot,
     launch,
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
     type ExitPort,
+    type GoalProtocolValidator,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type ToolPolicy,
+    type WorkingMemoryLimits,
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -31,14 +35,24 @@ import {
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
     JsonFileTrajectoryStore,
+    JsonFileWarmContextSidecarStore,
 } from "../../storage/src/index";
 import {
+    ContextCompactAdapter,
+    createDefaultModelContextBudgetPolicy,
     createDefaultPromptBundleRenderer,
+    createDefaultPromptBundleProtocolValidator,
+    createModelContextBudgetPolicy,
     CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
+    resolveModelInputEstimator,
+    type ModelContextBudgetPolicy,
+    type ModelContextBudgetPolicyInput,
+    type ModelInputEstimator,
+    TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
 import {
@@ -320,6 +334,10 @@ export interface CompositionRootOptions {
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；默认 2 秒。 */
     readonly gracePeriodMs?: number;
+    /** 可选的目标模型 Token 计量器；省略时使用 UTF-16 字符兜底。 */
+    readonly modelInputEstimator?: ModelInputEstimator;
+    /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
+    readonly modelContextBudget?: ModelContextBudgetPolicyInput;
 }
 
 /**
@@ -346,12 +364,22 @@ export interface CompositionRoot {
     readonly trajectoriesDirectory: string;
     /** 项目级 Diagnostic Trace JSONL 目录。 */
     readonly tracesDirectory: string;
+    /** 项目级可删除 Warm Context Sidecar 目录。 */
+    readonly contextSidecarsDirectory: string;
     /** 已校验的 OpenAI-compatible 配置。 */
     readonly llmConfig: LlmConfig;
     /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
     readonly conversationCharBudget: number;
     /** Preparation 与 Step Executor 共享的无状态上下文裁剪实例。 */
     readonly contextCompactor: DropOldestContextCompactor;
+    /** 本轮 Hot/Warm 组装使用的只读输入计量器。 */
+    readonly modelInputEstimator: ModelInputEstimator;
+    /** 本轮 Hot/Warm/Compact 使用的不可变预算策略。 */
+    readonly modelContextPolicy: ModelContextBudgetPolicy;
+    /** 独立 Compact 优化调用的 Adapter。 */
+    readonly contextCompactAdapter: ContextCompactAdapter;
+    /** 从 committed Trajectory/Sidecar 组装分层模型上下文的无状态组件。 */
+    readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     /** 组合根使用的 LLM Adapter。 */
     readonly adapter: OpenAICompatible;
     /** 从当前 workspace Profile 文件加载的生效 Agent Profile。 */
@@ -366,8 +394,16 @@ export interface CompositionRoot {
     readonly store: JsonFileGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: JsonFileTrajectoryStore;
+    /** 可重建、可删除的 Warm Context Sidecar Store。 */
+    readonly sidecarStore: JsonFileWarmContextSidecarStore;
     /** 共享的独立诊断 Trace Sink。 */
     readonly traceSink: JsonFileDiagnosticTraceSink;
+    /** Launcher、Coordinator 与 Runner 共享的 Prompt/Memory 协议校验器。 */
+    readonly protocolValidator: GoalProtocolValidator;
+    /** structured@1 Patch 接受时共享的不可变限制配置。 */
+    readonly workingMemoryLimits: WorkingMemoryLimits;
+    /** Coordinator 与 Runner 共享的 Trajectory/Snapshot 提交器。 */
+    readonly checkpointCommitter: TrajectoryCheckpointCommitter;
     /**
      * 只读读取指定 Goal/Run 的轨迹，并以最新 Snapshot 边界分类 committed/tail。
      * @param query - Goal、Run 与可选序列范围。
@@ -440,6 +476,11 @@ export async function createCompositionRoot(
         "trajectories",
     );
     const tracesDirectory = join(workspaceRoot, ".lazygoal", "traces");
+    const contextSidecarsDirectory = join(
+        workspaceRoot,
+        ".lazygoal",
+        "context-sidecars",
+    );
     const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
     const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
     const profilePath = join(
@@ -493,10 +534,41 @@ export async function createCompositionRoot(
     const contextCompactor = new DropOldestContextCompactor(
         conversationCharBudget,
     );
+    const modelInputEstimator = resolveModelInputEstimator(
+        options.modelInputEstimator,
+    );
+    const modelContextPolicy = options.modelContextBudget === undefined
+        ? createDefaultModelContextBudgetPolicy(modelInputEstimator)
+        : createModelContextBudgetPolicy(
+            options.modelContextBudget,
+            modelInputEstimator,
+        );
     const store = new JsonFileGoalStore(goalsDirectory);
     const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
+    const sidecarStore = new JsonFileWarmContextSidecarStore(
+        contextSidecarsDirectory,
+    );
+    const contextCompactAdapter = new ContextCompactAdapter({
+        adapter: new OpenAICompatible(llmConfig),
+        estimator: modelInputEstimator,
+        traceSink,
+    });
+    const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
+        trajectoryStore,
+        sidecarStore,
+        policy: modelContextPolicy,
+        compactAdapter: contextCompactAdapter,
+        traceSink,
+    });
     const checkpointStore = new CheckpointGateGoalStore(store);
+    const protocolValidator = createDefaultPromptBundleProtocolValidator();
+    const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
+    const checkpointCommitter = new TrajectoryCheckpointCommitter({
+        store: checkpointStore,
+        trajectorySink: trajectoryStore,
+        traceSink,
+    });
     const abortController = new AbortController();
     const resources = new ManagedResourceRegistry();
     const runner = new Runner({
@@ -506,11 +578,16 @@ export async function createCompositionRoot(
             renderer,
             contextCompactor,
             traceSink,
+            trajectoryContextAssembler,
         }),
         toolRegistry,
         toolPolicy: createDefaultToolPolicy(),
         trajectorySink: trajectoryStore,
         traceSink,
+        trajectoryStore,
+        workingMemoryLimits,
+        protocolValidator,
+        checkpointCommitter,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
@@ -520,11 +597,16 @@ export async function createCompositionRoot(
             renderer,
             contextCompactor,
             traceSink,
+            trajectoryContextAssembler,
         }),
         scheduler,
         toolRegistry,
         trajectorySink: trajectoryStore,
         traceSink,
+        trajectoryStore,
+        workingMemoryLimits,
+        protocolValidator,
+        checkpointCommitter,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -538,6 +620,16 @@ export async function createCompositionRoot(
                     store: checkpointStore,
                     coordinator,
                     promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
+                    memoryProtocol: { kind: "structured", version: 1 },
+                    modelContextProtocol: {
+                        kind: "trajectory-layered",
+                        version: 1,
+                    },
+                    contextRetrievalProtocol: {
+                        kind: "bm25-lite",
+                        version: 1,
+                    },
+                    protocolValidator,
                     trajectorySink: trajectoryStore,
                     traceSink,
                 },
@@ -574,9 +666,14 @@ export async function createCompositionRoot(
         goalsDirectory,
         trajectoriesDirectory,
         tracesDirectory,
+        contextSidecarsDirectory,
         llmConfig,
         conversationCharBudget,
         contextCompactor,
+        modelInputEstimator,
+        modelContextPolicy,
+        contextCompactAdapter,
+        trajectoryContextAssembler,
         adapter,
         profile,
         profiles,
@@ -584,7 +681,11 @@ export async function createCompositionRoot(
         toolRegistry,
         store,
         trajectoryStore,
+        sidecarStore,
         traceSink,
+        protocolValidator,
+        workingMemoryLimits,
+        checkpointCommitter,
         readTrajectory,
         checkpointStore,
         resources,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import { createGoal } from "../../runtime/src/domain";
+import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
 import type {
     Goal,
     GoalMessage,
@@ -332,4 +332,107 @@ test("Projector 对非可推理状态保持前置条件错误", () => {
 
     assert.throws(() => projector.project(waiting), /active preparation/);
     assert.throws(() => projector.project(created), /running executing/);
+});
+
+test("Projector 为 structured@1 独立投影并冻结 Working Memory", () => {
+    const structuredGoal = createGoal({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "structured", version: 1 },
+        id: "goal-structured",
+        intent,
+        profile,
+        runId: "run-structured",
+    });
+    const memory = {
+        ...createEmptyWorkingMemory(12, { eventId: "patch-12", sequence: 12 }),
+        findings: [{
+            id: "finding-1",
+            kind: "finding" as const,
+            statement: "配置文件存在",
+            evidenceSequences: [10],
+            originPhase: "gathering_context" as const,
+            originSequence: 12,
+            scope: "goal" as const,
+            status: "active" as const,
+        }],
+    };
+
+    const view = projector.project(structuredGoal, [], memory);
+
+    assert.deepEqual(view.prompt.memoryProtocol, {
+        kind: "structured",
+        version: 1,
+    });
+    assert.deepEqual(view.workingMemory, memory);
+    assert.notStrictEqual(view.workingMemory, memory);
+    assert.ok(Object.isFrozen(view.workingMemory));
+    assert.equal("checkpoint" in view.prompt, false);
+    assert.throws(
+        () => projector.project(structuredGoal),
+        /requires a WorkingMemory projection/,
+    );
+});
+
+test("Projector 只向 v6 bm25-lite Goal 投影即时历史 Lookup Result", () => {
+    const goal = createGoal({
+        promptBundleVersion: 6,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        id: "goal-lookup",
+        intent,
+        profile,
+        runId: "run-lookup",
+    });
+    const result = {
+        status: "found" as const,
+        lookupId: "lookup-1",
+        committedThroughSequence: 4,
+        matches: [{
+            documentId: "doc-1",
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            firstSequence: 3,
+            lastSequence: 4,
+            matchedFields: ["path" as const],
+            score: 2,
+            preview: "src/config.ts",
+            truncated: false,
+            historical: true as const,
+            sourceEventIds: ["event-3"],
+        }],
+        truncated: false,
+    };
+    const view = projector.project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+        undefined,
+        result,
+    );
+
+    assert.equal(view.contextLookupResult?.status, "found");
+    assert.equal(view.contextLookupResult?.lookupId, "lookup-1");
+    assert.equal(view.contextLookupResult?.freshness.kind, "historical");
+    assert.ok(Object.isFrozen(view.contextLookupResult));
+    assert.notStrictEqual(view.contextLookupResult, result);
+
+    const legacyGoal = createGoal({
+        promptBundleVersion: 4,
+        memoryProtocol: { kind: "structured", version: 1 },
+        id: "goal-no-lookup",
+        intent,
+        profile,
+        runId: "run-no-lookup",
+    });
+    assert.throws(
+        () => projector.project(
+            legacyGoal,
+            [],
+            createEmptyWorkingMemory(),
+            undefined,
+            result,
+        ),
+        /Context Lookup Result requires bm25-lite retrieval/,
+    );
 });

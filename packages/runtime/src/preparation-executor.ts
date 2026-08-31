@@ -1,4 +1,10 @@
-import type { Goal, GoalTask } from "./domain";
+import type {
+    Goal,
+    GoalTask,
+    WorkingMemory,
+    WorkingMemoryPatch,
+} from "./domain";
+import type { ContextLookupResult } from "./context-retrieval";
 import type { ExecutionControl } from "./execution-control";
 import type { ToolDefinition } from "./tool";
 
@@ -6,18 +12,68 @@ import type { ToolDefinition } from "./tool";
  * Preparation Executor 单轮返回的结构化决策。
  *
  * @remarks
- * `question` 与 `context_ready` 仅属于 `gathering_context`；
- * `task_proposal` 仅属于 `planning`。该结果不会消费 Run Step，也不直接包含
- * 待持久化消息，阶段推进和消息规范化由 Coordinator 负责。
+ * `question`、`context_ready` 与 `context_lookup` 属于准备阶段；
+ * `task_proposal` 仅属于 `planning`。`context_lookup` 不携带 Memory Patch，且
+ * 不消费 Run Step。该结果不直接包含待持久化消息，阶段推进和消息规范化由
+ * Coordinator 负责。
  */
 export type PreparationResult =
-    | { readonly kind: "question"; readonly question: string }
-    | { readonly kind: "context_ready" }
+    | {
+        readonly kind: "question";
+        readonly question: string;
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        readonly kind: "context_ready";
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
     | {
         readonly kind: "task_proposal";
         readonly task: GoalTask;
         readonly approvalRequest: string;
+        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
+        readonly memoryPatch?: WorkingMemoryPatch;
+    }
+    | {
+        /** 请求从 committed Trajectory 查询历史信息；该分支不携带 Memory Patch。 */
+        readonly kind: "context_lookup";
+        readonly need: "historical_execution" | "decision_rationale";
+        readonly question: string;
+        readonly filters?: import("./context-retrieval").ContextLookupFilters;
     };
+
+/**
+ * Preparation Executor 的单轮对象式输入。
+ *
+ * @remarks
+ * `goal` 是只读的完整快照；`authorizedTools` 是 Runtime 已解析的工具描述，
+ * 不代表已执行的工具；`workingMemory` 仅在结构化协议下提供，旧协议应省略；
+ * `control` 只属于当前调用，不得写入 Goal。Executor 不得通过本对象修改 Runtime
+ * 状态或自行持久化。
+ *
+ * @example
+ * ```ts
+ * const input: PreparationExecutionInput = {
+ *     goal,
+ *     authorizedTools: [],
+ *     workingMemory,
+ * };
+ * ```
+ */
+export interface PreparationExecutionInput {
+    /** 当前处于 active Preparation 的完整 Goal 快照。 */
+    readonly goal: Goal;
+    /** 当前 Profile 白名单与 Registry 的交集 Tool 描述。 */
+    readonly authorizedTools: readonly ToolDefinition[];
+    /** 结构化协议的临时 Working Memory；legacy 协议必须省略。 */
+    readonly workingMemory?: WorkingMemory;
+    /** 当前 Goal 推进调用的瞬时中止控制。 */
+    readonly control?: ExecutionControl;
+    /** 上一轮 lookup 的瞬时结果；只在本次模型调用中可见，不写入 Goal。 */
+    readonly contextLookupResult?: ContextLookupResult;
+}
 
 /**
  * Goal 准备阶段可替换的单轮执行边界。
@@ -30,7 +86,7 @@ export type PreparationResult =
  * @example
  * ```ts
  * const executor: PreparationExecutor = {
- *   async execute(goal, tools) {
+ *   async execute({ goal }) {
  *     return goal.state.workflow.phase === "gathering_context"
  *       ? { kind: "context_ready" }
  *       : {
@@ -44,17 +100,11 @@ export type PreparationResult =
  */
 export interface PreparationExecutor {
     /**
-     * @param goal - 当前处于 active Preparation 阶段的完整 Goal 快照。
-     * @param tools - Runtime 已解析的授权 Tool 描述；实现仍须按当前 Phase 与
-     *   Prompt Bundle 版本决定是否向模型展示，不得据此执行 Tool。
-     * @param control - 当前 Goal 推进调用共享的中止控制。
+     * @param input - 当前处于 active Preparation 阶段的 Goal、授权 Tool 描述、
+     *   可选 Working Memory 与瞬时中止控制。
      * @returns 本轮结构化准备决策；不会产生或消费 Step。
      * @throws 底层模型、协议或扩展实现失败时传播对应异常；中止时抛出
      *   `ExecutionAbortedError`。
      */
-    execute(
-        goal: Goal,
-        tools: readonly ToolDefinition[],
-        control?: ExecutionControl,
-    ): Promise<PreparationResult>;
+    execute(input: PreparationExecutionInput): Promise<PreparationResult>;
 }

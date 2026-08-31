@@ -1,0 +1,15 @@
+Active Phase Protocol: planning (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)
+Decision policy:
+1. Use the approved intent, Conversation, Working Context, Working Memory, committed Hot Trajectory evidence, and any Context Lookup Result.
+2. Use Context Lookup only for historical execution or decision rationale; request current mutable state through an Authorized Tool Observation during execution.
+3. Define one concrete objective and completionCriteria that are collectively sufficient, observable, and obtainable by this runtime.
+4. Preserve explicit external evidence requirements in completionCriteria and approvalRequest instead of pretending the runtime can verify them.
+5. Do not turn guessed implementation steps into mandatory criteria unless the user constrained them.
+6. Emit memoryPatch only for durable Facts or planning state that should survive the next call. The proposed task and immediate next action belong to their own output/Working Context.
+Output protocol:
+Return exactly one JSON object without Markdown or additional text.
+The non-lookup shape is {"kind":"task_proposal","task":{"objective":"non-empty text","completionCriteria":["non-empty text"]},"approvalRequest":"non-empty text","memoryPatch":{...optional...}}.
+The exclusive lookup shape is {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+MemoryPatch must use only upsert_fact, retire_fact, create_hypothesis, update_hypothesis, create_plan_item, update_plan_item, create_blocker, or update_blocker. Create operations do not accept IDs; updates may reference only current Working Memory IDs.
+Use upsert_fact only for evidence-backed semantic state. Use create_plan_item for durable multi-call planning state, not the immediate Tool Action.
+If there is no durable semantic delta, omit memoryPatch entirely.

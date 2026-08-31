@@ -1,16 +1,31 @@
-import type { Goal, StepRecord } from "../../runtime/src/domain";
+import {
+    resolveContextRetrievalProtocol,
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
+    type Goal,
+    type StepRecord,
+    type WorkingMemory,
+} from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
     ModelConversationMessage,
     ModelInferenceView,
+    ModelWorkingMemory,
     ModelPendingAction,
     ModelProfileView,
     ModelStepRecord,
     ModelToolDefinition,
     ModelWorkingContext,
+    ModelMemoryProtocol,
+    ModelContextProtocol,
+    ModelContextRetrievalProtocol,
+    ModelTrajectoryContext,
+    ModelContextLookupResult,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
+import { projectContextLookupResult } from "./context-lookup-projection";
 import { compareCodeUnits } from "./prompting/environment";
 
 /**
@@ -32,13 +47,88 @@ export class ModelInferenceProjector {
     /**
      * @param goal - 当前完整 Goal 快照。
      * @param tools - 当前 Profile 已授权且由 Registry 解析出的 Tool 描述。
+     * @param workingMemory - structured@1 的即时 Working Memory 投影。
+     * @param trajectoryContext - trajectory-layered@1 的本轮 Hot/Warm 投影；由
+     * Assembler 在 Conversation 裁剪后提供。
+     * @param contextLookupResult - 上一轮已提交的历史查询结果；只在启用
+     * `bm25-lite@1` 时允许提供，且只存在于当前模型调用。
      * @returns 与当前 phase 对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
     project(
         goal: Goal,
         tools: readonly ToolDefinition[] = [],
+        workingMemory?: WorkingMemory,
+        trajectoryContext?: ModelTrajectoryContext,
+        contextLookupResult?: ContextLookupResult,
     ): ModelInferenceView {
+        const memoryProtocol = resolveMemoryProtocol(goal.definition);
+        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+        const contextRetrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+
+        if (
+            modelContextProtocol.kind === "trajectory-layered"
+            && memoryProtocol.kind !== "structured"
+        ) {
+            throw new Error(
+                "trajectory-layered model context requires structured Memory protocol",
+            );
+        }
+
+        if (
+            contextRetrievalProtocol.kind === "bm25-lite"
+            && (
+                memoryProtocol.kind !== "structured"
+                || modelContextProtocol.kind !== "trajectory-layered"
+            )
+        ) {
+            throw new Error(
+                "bm25-lite retrieval requires structured Memory and trajectory-layered model context",
+            );
+        }
+
+        if (memoryProtocol.kind === "structured" && workingMemory === undefined) {
+            throw new Error(
+                "Structured Memory protocol requires a WorkingMemory projection",
+            );
+        }
+
+        if (memoryProtocol.kind === "checkpoint" && workingMemory !== undefined) {
+            throw new Error(
+                "Checkpoint Memory protocol must not receive a WorkingMemory projection",
+            );
+        }
+
+        if (
+            modelContextProtocol.kind === "conversation"
+            && trajectoryContext !== undefined
+        ) {
+            throw new Error(
+                "conversation model context must not receive a Trajectory Context projection",
+            );
+        }
+
+        if (
+            trajectoryContext !== undefined
+            && trajectoryContext.measuredAs !== "token"
+            && trajectoryContext.measuredAs !== "character"
+        ) {
+            throw new Error("Trajectory Context measurement unit is invalid");
+        }
+
+        if (
+            contextLookupResult !== undefined
+            && contextRetrievalProtocol.kind !== "bm25-lite"
+        ) {
+            throw new Error(
+                "Context Lookup Result requires bm25-lite retrieval",
+            );
+        }
+
+        const projectedContextLookupResult = contextLookupResult === undefined
+            ? undefined
+            : projectContextLookupResult(contextLookupResult);
+
         const workingContext = this.projectWorkingContext(goal);
 
         const prompt: PromptContext = deepFreeze({
@@ -47,13 +137,81 @@ export class ModelInferenceProjector {
             phase: workingContext.phase,
             profile: projectProfile(goal),
             authorizedTools: projectTools(tools),
+            ...(memoryProtocol.kind === "structured"
+                ? { memoryProtocol: projectMemoryProtocol(memoryProtocol) }
+                : {}),
+            ...(modelContextProtocol.kind === "trajectory-layered"
+                ? { modelContextProtocol: projectModelContextProtocol(modelContextProtocol) }
+                : {}),
+            ...(contextRetrievalProtocol.kind === "bm25-lite"
+                ? { contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol) }
+                : {}),
         });
 
         return {
             prompt,
             conversation: projectConversation(goal),
             workingContext,
+            ...(workingMemory === undefined
+                ? {}
+                : { workingMemory: deepFreeze(projectWorkingMemory(workingMemory)) }),
+            ...(trajectoryContext === undefined
+                ? {}
+                : { trajectoryContext: deepFreeze(structuredClone(trajectoryContext)) }),
+            ...(projectedContextLookupResult === undefined
+                ? {}
+                : { contextLookupResult: projectedContextLookupResult }),
         };
+    }
+
+    /**
+     * 将已经完成 Conversation 裁剪的基础 View 与本轮分层上下文合并。
+     *
+     * @remarks
+     * 该方法供 Context Assembler 在异步读取 Trajectory 后调用，避免在读取完成前
+     * 伪造一个不完整的 `trajectory-layered@1` View。输入 View 和上下文都会被复制
+     * 并深冻结，原始 Goal、Working Memory 与 Trajectory 不会被修改。
+     *
+     * @param view - 已由 {@link project} 产生且完成 Conversation 裁剪的基础 View。
+     * @param trajectoryContext - 当前调用选择出的 Hot/Warm 与预算报告。
+     * @returns 带分层上下文的新 View。
+     * @throws 当 View 不是 `trajectory-layered@1` 时抛出 Error。
+     * @example
+     * ```ts
+     * const assembled = projector.withTrajectoryContext(baseView, context);
+     * ```
+     */
+    withTrajectoryContext(
+        view: ModelInferenceView,
+        trajectoryContext: ModelTrajectoryContext,
+    ): ModelInferenceView {
+        if (view.prompt.modelContextProtocol?.kind !== "trajectory-layered") {
+            throw new Error(
+                "Trajectory Context projection requires trajectory-layered model context",
+            );
+        }
+
+        return deepFreeze({
+            ...structuredClone(view),
+            trajectoryContext: structuredClone(trajectoryContext),
+        });
+    }
+
+    /**
+     * 将 Runtime Lookup Result 投影为带历史时效边界的模型 DTO。
+     *
+     * @param result - 当前调用级的 Context Lookup Result。
+     * @returns 不共享输入、可安全交给模型渲染的结果投影。
+     * @throws ContextLookupProtocolError 当 Result 不符合有界协议时。
+     * @example
+     * ```ts
+     * const modelResult = projector.projectContextLookupResult(result);
+     * ```
+     */
+    projectContextLookupResult(
+        result: ContextLookupResult,
+    ): ModelContextLookupResult {
+        return projectContextLookupResult(result);
     }
 
     /** @param goal - 见 {@link project}。 */
@@ -192,4 +350,37 @@ function projectPendingAction(
     pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
 ): ModelPendingAction {
     return structuredClone(pendingAction);
+}
+
+function projectMemoryProtocol(
+    protocol: ReturnType<typeof resolveMemoryProtocol>,
+): ModelMemoryProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectModelContextProtocol(
+    protocol: ReturnType<typeof resolveModelContextProtocol>,
+): ModelContextProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectContextRetrievalProtocol(
+    protocol: ReturnType<typeof resolveContextRetrievalProtocol>,
+): ModelContextRetrievalProtocol {
+    return {
+        kind: protocol.kind,
+        version: protocol.version,
+    };
+}
+
+function projectWorkingMemory(
+    memory: WorkingMemory,
+): ModelWorkingMemory {
+    return structuredClone(memory);
 }

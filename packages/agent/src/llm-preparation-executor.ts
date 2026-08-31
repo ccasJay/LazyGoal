@@ -1,5 +1,8 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { Goal } from "../../runtime/src/domain";
+import {
+    resolveMemoryProtocol,
+    type Goal,
+} from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     ExecutionAbortedError,
@@ -8,6 +11,7 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import type {
+    PreparationExecutionInput,
     PreparationExecutor,
     PreparationResult,
 } from "../../runtime/src/preparation-executor";
@@ -16,6 +20,7 @@ import type { ModelConversationMessage } from "./model-inference-view";
 import { buildPreparationRequest } from "./prompt";
 import { parsePreparationResult } from "./response-schema";
 import type { PromptBundleRenderer } from "./prompting/types";
+import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
 import {
     recordLlmError,
@@ -44,6 +49,11 @@ export interface LLMPreparationExecutorDependencies {
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /**
+     * trajectory-layered@1 的调用级上下文组装器；未配置时 legacy 协议仍可执行，
+     * 分层 Goal 会在主模型调用前失败。
+     */
+    readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
 }
 
 /** 使用 LLMAdapter 生成严格 PreparationResult 的准备阶段执行器。 */
@@ -52,6 +62,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMPreparationExecutorDependencies) {
@@ -59,6 +70,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
+        this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
     }
 
     /**
@@ -73,11 +85,27 @@ export class LLMPreparationExecutor implements PreparationExecutor {
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
+    async execute(input: PreparationExecutionInput): Promise<PreparationResult>;
+    /** @deprecated 使用对象式 {@link PreparationExecutionInput} 输入。 */
     async execute(
         goal: Goal,
         tools: readonly ToolDefinition[],
         control?: ExecutionControl,
+    ): Promise<PreparationResult>;
+    async execute(
+        inputOrGoal: PreparationExecutionInput | Goal,
+        legacyTools: readonly ToolDefinition[] = [],
+        legacyControl?: ExecutionControl,
     ): Promise<PreparationResult> {
+        const input: PreparationExecutionInput = "goal" in inputOrGoal
+            ? inputOrGoal
+            : {
+                goal: inputOrGoal,
+                authorizedTools: legacyTools,
+                ...(legacyControl === undefined ? {} : { control: legacyControl }),
+            };
+        const { goal, authorizedTools: tools, control } = input;
+
         throwIfAborted(control);
         const workflow = goal.state.workflow;
 
@@ -96,6 +124,9 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             this.renderer,
             this.contextCompactor,
             control?.signal,
+            input.workingMemory,
+            this.trajectoryContextAssembler,
+            input.contextLookupResult,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
@@ -131,7 +162,11 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         );
 
         try {
-            return parsePreparationResult(response.content, workflow.phase);
+            return parsePreparationResult(
+                response.content,
+                workflow.phase,
+                resolveMemoryProtocol(goal.definition),
+            );
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

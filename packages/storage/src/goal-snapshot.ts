@@ -1,5 +1,21 @@
 import { z } from "zod";
 
+type SnapshotContextLookupNeed = "historical_execution" | "decision_rationale";
+
+interface SnapshotContextLookupFilters {
+    readonly eventTypes?: readonly string[];
+    readonly toolIds?: readonly string[];
+    readonly actionIds?: readonly string[];
+    readonly stepIndexes?: readonly number[];
+    readonly paths?: readonly string[];
+    readonly errorCodes?: readonly string[];
+    readonly objectIds?: readonly string[];
+    readonly sequenceRange?: {
+        readonly from: number;
+        readonly to: number;
+    };
+}
+
 /** Snapshot 中 Tool 输入与 Observation 输出允许的递归 JSON 值。 */
 export type SnapshotJsonValue =
     | string
@@ -61,6 +77,119 @@ export type GoalSnapshotV6 = Omit<GoalSnapshotV5, "metadata" | "state"> & {
 };
 
 /**
+ * Goal Snapshot v7 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v7 显式冻结 Goal 的 Memory 协议，并在 Run 中保存 accepted Patch revision
+ * 指针；它只保存指针，不保存 Working Memory 集合。v5/v6 仍可只读解码，下一次
+ * 正常保存时由 Codec 生成 v7。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV7 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 7 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 4,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV7 = Omit<GoalSnapshotV6, "metadata" | "definition" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV7;
+    readonly definition: GoalSnapshotDefinitionV7;
+    readonly state: GoalSnapshotStateV7;
+};
+
+/**
+ * Goal Snapshot v8 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v8 在 v7 的 Memory 协议和 revision 基础上显式冻结模型上下文协议。旧 v5–v7
+ * 快照只读恢复为 `conversation@1`，不会在读取时写回；下一次正常保存才生成 v8。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV8 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 8 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 5,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV8 = Omit<GoalSnapshotV7, "metadata" | "definition"> & {
+    readonly metadata: GoalSnapshotMetadataV8;
+    readonly definition: GoalSnapshotDefinitionV8;
+};
+
+/**
+ * Goal Snapshot v9 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v9 在 v8 的 Memory 与模型上下文协议基础上显式冻结 Cold Trajectory 检索协议。
+ * v5–v8 仍可只读解码为 `none@1`，读取过程不会写回旧文件；下一次正常保存才会
+ * 生成 v9。索引、查询缓存和 Working Memory 内容仍不进入 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV9 = {
+ *     id: "goal-1",
+ *     metadata: { schemaVersion: 9 },
+ *     definition: {
+ *         intent: "实现恢复",
+ *         promptBundleVersion: 6,
+ *         memoryProtocol: { kind: "structured", version: 1 },
+ *         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+ *         profile,
+ *         executionPolicy: { maxSteps: 0 },
+ *     },
+ *     state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV9 = Omit<GoalSnapshotV8, "metadata" | "definition" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV9;
+    readonly definition: GoalSnapshotDefinitionV9;
+    readonly state: GoalSnapshotStateV9;
+};
+
+/**
+ * Goal Snapshot v10 文件协议的顶层 DTO。
+ *
+ * @remarks
+ * v10 将 structured Decision 中的 Memory Patch 切换为实体 Fact shape。v7–v9
+ * 继续只读解码，但不能作为当前 structured Goal 执行。
+ *
+ * @example
+ * ```ts
+ * const snapshot: GoalSnapshotV10 = {
+ *   id: "goal-1",
+ *   metadata: { schemaVersion: 10 },
+ *   definition,
+ *   state,
+ * };
+ * ```
+ */
+export type GoalSnapshotV10 = Omit<GoalSnapshotV9, "metadata" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV10;
+    readonly state: GoalSnapshotStateV10;
+};
+
+/**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
  * ```ts
@@ -74,6 +203,26 @@ export interface GoalSnapshotMetadataV5 {
 /** v6 Snapshot 顶层协议元数据。 */
 export interface GoalSnapshotMetadataV6 {
     readonly schemaVersion: 6;
+}
+
+/** v7 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV7 {
+    readonly schemaVersion: 7;
+}
+
+/** v8 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV8 {
+    readonly schemaVersion: 8;
+}
+
+/** v9 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV9 {
+    readonly schemaVersion: 9;
+}
+
+/** v10 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV10 {
+    readonly schemaVersion: 10;
 }
 
 /**
@@ -98,6 +247,50 @@ export interface GoalSnapshotDefinitionV5 {
         readonly maxSteps: number;
     };
 }
+
+/**
+ * v7 Snapshot 中冻结的 Memory 协议选择。
+ *
+ * @remarks 只有 `checkpoint@1` 与 `structured@1` 被当前 Runtime 支持。
+ * @example
+ * ```ts
+ * const protocol: GoalSnapshotMemoryProtocolV7 = {
+ *     kind: "structured",
+ *     version: 1,
+ * };
+ * ```
+ */
+export type GoalSnapshotMemoryProtocolV7 =
+    | { readonly kind: "checkpoint"; readonly version: 1 }
+    | { readonly kind: "structured"; readonly version: 1 };
+
+/** v7 Snapshot 中带显式 Memory 协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV7 = GoalSnapshotDefinitionV5 & {
+    readonly memoryProtocol: GoalSnapshotMemoryProtocolV7;
+};
+
+/** v8 Snapshot 中冻结的模型上下文协议选择。 */
+export type GoalSnapshotModelContextProtocolV8 =
+    | { readonly kind: "conversation"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+
+/** v8 Snapshot 中同时冻结 Memory 与模型上下文协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV8 = GoalSnapshotDefinitionV7 & {
+    readonly modelContextProtocol: GoalSnapshotModelContextProtocolV8;
+};
+
+/** v9 Snapshot 中冻结的 Cold Trajectory 检索协议选择。 */
+export type GoalSnapshotContextRetrievalProtocolV9 =
+    | { readonly kind: "none"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 1 };
+
+/** v9 Snapshot 中同时冻结三项上下文协议的 Goal 定义。 */
+export type GoalSnapshotDefinitionV9 = GoalSnapshotDefinitionV8 & {
+    readonly contextRetrievalProtocol: GoalSnapshotContextRetrievalProtocolV9;
+};
+
+/** `GoalSnapshotContextRetrievalProtocolV9` 的兼容别名。 */
+export type GoalSnapshotRetrievalProtocolV9 = GoalSnapshotContextRetrievalProtocolV9;
 
 /**
  * Snapshot 持久化的 Agent Profile 表示。
@@ -140,6 +333,24 @@ export interface GoalSnapshotStateV5 {
 /** v6 Snapshot 的工作流、消息与带提交边界的 Run 状态。 */
 export type GoalSnapshotStateV6 = Omit<GoalSnapshotStateV5, "run"> & {
     readonly run: GoalSnapshotRunStateV6;
+};
+
+/** v7 Snapshot 的工作流、消息与带 Memory revision 的 Run 状态。 */
+export type GoalSnapshotStateV7 = Omit<GoalSnapshotStateV6, "run"> & {
+    readonly run: GoalSnapshotRunStateV7;
+};
+
+/** v8 Snapshot 的工作流、消息与协议边界；状态字段沿用 v7。 */
+export type GoalSnapshotStateV8 = GoalSnapshotStateV7;
+
+/** v9 Snapshot 的工作流、消息与协议边界；Run 可保存 Context Lookup Step。 */
+export type GoalSnapshotStateV9 = Omit<GoalSnapshotStateV8, "run"> & {
+    readonly run: GoalSnapshotRunStateV9;
+};
+
+/** v10 Snapshot 状态；最近 Step 使用实体 Fact Memory Patch。 */
+export type GoalSnapshotStateV10 = Omit<GoalSnapshotStateV9, "run"> & {
+    readonly run: GoalSnapshotRunStateV10;
 };
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
@@ -226,6 +437,31 @@ export type GoalSnapshotRunStateV6 = Omit<GoalSnapshotRunStateV5, "lastStep" | "
     readonly stopReason?: GoalSnapshotStopReasonV5 | undefined;
 };
 
+/** v7 Run 状态中指向最新 accepted Memory Patch 的 revision。 */
+export interface GoalSnapshotMemoryRevisionV7 {
+    readonly eventId: string;
+    readonly sequence: number;
+}
+
+/** v7 Run 执行状态，新增结构化 Decision 与可选 Memory revision 指针。 */
+export type GoalSnapshotRunStateV7 = Omit<GoalSnapshotRunStateV6, "lastStep"> & {
+    readonly lastStep?: GoalSnapshotStepRecordV7 | undefined;
+    readonly memoryRevision?: GoalSnapshotMemoryRevisionV7 | undefined;
+};
+
+/** v8 Run 状态；模型上下文协议位于 Snapshot definition。 */
+export type GoalSnapshotRunStateV8 = GoalSnapshotRunStateV7;
+
+/** v9 Run 状态；最近 Step 允许结构化 Context Lookup。 */
+export type GoalSnapshotRunStateV9 = Omit<GoalSnapshotRunStateV8, "lastStep"> & {
+    readonly lastStep?: GoalSnapshotStepRecordV9 | undefined;
+};
+
+/** v10 Run 状态；最近 Step 使用 v10 Decision shape。 */
+export type GoalSnapshotRunStateV10 = Omit<GoalSnapshotRunStateV9, "lastStep"> & {
+    readonly lastStep?: GoalSnapshotStepRecordV10 | undefined;
+};
+
 /** Run 生命周期状态。 */
 export type GoalSnapshotRunStatusV5 =
     | "created"
@@ -251,6 +487,140 @@ export type GoalSnapshotStepRecordV5 =
         readonly kind: "decision";
         readonly result: GoalSnapshotDecisionResultV5;
     };
+
+/** v7 structured Decision 的持久化结果分支。 */
+export type GoalSnapshotStructuredDecisionResultV7 =
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
+        readonly completionEvidence: readonly GoalSnapshotCompletionEvidenceV7[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    }
+    | {
+        readonly kind: "wait";
+        readonly reason: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    }
+    | {
+        readonly kind: "fail";
+        readonly error: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV7 | undefined;
+    }
+    ;
+
+/**
+ * v9 structured Decision 的独占 Context Lookup 结果分支。
+ *
+ * @example
+ * ```ts
+ * const result: GoalSnapshotContextLookupDecisionResultV9 = {
+ *     kind: "context_lookup",
+ *     need: "historical_execution",
+ *     question: "之前执行过什么？",
+ * };
+ * ```
+ */
+export interface GoalSnapshotContextLookupDecisionResultV9 {
+    readonly kind: "context_lookup";
+    readonly need: SnapshotContextLookupNeed;
+    readonly question: string;
+    readonly filters?: SnapshotContextLookupFilters | undefined;
+
+}
+
+/** v9 structured Decision 结果，较 v7 增加 Context Lookup。 */
+export type GoalSnapshotStructuredDecisionResultV9 =
+    | GoalSnapshotStructuredDecisionResultV7
+    | GoalSnapshotContextLookupDecisionResultV9;
+
+/** v7 Decision 结果联合，按 Goal 冻结协议选择 legacy 或 structured 分支。 */
+export type GoalSnapshotDecisionResultV7 =
+    | GoalSnapshotDecisionResultV5
+    | GoalSnapshotStructuredDecisionResultV7;
+
+/** v9 Decision 结果联合，按 v9 Retrieval 协议允许 Context Lookup。 */
+export type GoalSnapshotDecisionResultV9 =
+    | GoalSnapshotDecisionResultV5
+    | GoalSnapshotStructuredDecisionResultV9;
+
+/** v7 最近 Step 记录，允许 structured AgentDecision。 */
+export type GoalSnapshotStepRecordV7 =
+    | {
+        readonly kind: "action";
+        readonly action: GoalSnapshotToolCallActionV5;
+        readonly observation: GoalSnapshotObservationV5;
+    }
+    | {
+        readonly kind: "decision";
+        readonly result: GoalSnapshotDecisionResultV7;
+    };
+
+/** v9 最近 Step 记录，允许 structured Context Lookup。 */
+export type GoalSnapshotStepRecordV9 =
+    | {
+        readonly kind: "action";
+        readonly action: GoalSnapshotToolCallActionV5;
+        readonly observation: GoalSnapshotObservationV5;
+    }
+    | {
+        readonly kind: "decision";
+        readonly result: GoalSnapshotDecisionResultV9;
+    };
+
+/** v10 structured Decision 的持久化结果分支。 */
+export type GoalSnapshotStructuredDecisionResultV10 =
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
+        readonly completionEvidence: readonly GoalSnapshotCompletionEvidenceV7[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV10 | undefined;
+    }
+    | {
+        readonly kind: "wait";
+        readonly reason: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV10 | undefined;
+    }
+    | {
+        readonly kind: "fail";
+        readonly error: string;
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV10 | undefined;
+    }
+    | GoalSnapshotContextLookupDecisionResultV9;
+
+/** v10 Decision 联合。 */
+export type GoalSnapshotDecisionResultV10 =
+    | GoalSnapshotDecisionResultV5
+    | GoalSnapshotStructuredDecisionResultV10;
+
+/** v10 最近 Step 记录。 */
+export type GoalSnapshotStepRecordV10 =
+    | {
+        readonly kind: "action";
+        readonly action: GoalSnapshotToolCallActionV5;
+        readonly observation: GoalSnapshotObservationV5;
+    }
+    | {
+        readonly kind: "decision";
+        readonly result: GoalSnapshotDecisionResultV10;
+    };
+
+/** Structured complete Decision 的持久化完成证据。 */
+export interface GoalSnapshotCompletionEvidenceV7 {
+    readonly criterionIndex: number;
+    readonly evidenceSequences: readonly number[];
+}
+
+/** v7 accepted Memory Patch 的持久化输入结构。 */
+export interface GoalSnapshotMemoryPatchV7 {
+    readonly protocolVersion: 1;
+    readonly operations: readonly Record<string, unknown>[];
+}
+
+/** v10 实体 Fact Memory Patch 的持久化输入结构。 */
+export interface GoalSnapshotMemoryPatchV10 {
+    readonly protocolVersion: 1;
+    readonly operations: readonly Record<string, unknown>[];
+}
 
 /**
  * Tool Action 调用的持久化表示。
@@ -333,6 +703,7 @@ export type GoalSnapshotStopReasonV5 =
             | "TOOL_NOT_AUTHORIZED"
             | "TOOL_NOT_FOUND"
             | "INVALID_TOOL_INPUT"
+            | "INVALID_MEMORY_PATCH"
             | "INVALID_AGENT_DECISION"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
@@ -414,6 +785,235 @@ const DecisionResultSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
+const MemoryPatchOperationSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("add_finding"),
+        finding: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema,
+            evidenceSequences: z.array(z.number().int().positive()),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("update_finding"),
+        finding: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema.optional(),
+            evidenceSequences: z.array(z.number().int().positive()).optional(),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_hypothesis"),
+        hypothesis: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema,
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_plan_item"),
+        planItem: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema,
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("upsert_blocker"),
+        blocker: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema,
+            scope: z.enum(["goal", "phase"]),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("set_next_action"),
+        nextAction: z.union([
+            z.object({
+                id: NonEmptyStringSchema,
+                description: NonEmptyStringSchema,
+                status: z.enum(["active", "resolved", "superseded"]).optional(),
+            }).strict(),
+            z.null(),
+        ]),
+    }).strict(),
+]);
+
+const MemoryPatchV7Schema = z.object({
+    protocolVersion: z.literal(1),
+    operations: z.array(MemoryPatchOperationSchema),
+}).strict();
+
+const MemoryPatchOperationV10Schema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("upsert_fact"),
+        fact: z.object({
+            subject: NonEmptyStringSchema,
+            predicate: NonEmptyStringSchema,
+            value: JsonValueSchema,
+            stability: z.enum(["stable", "last_observed"]),
+            evidenceSequences: z.array(z.number().int().positive()),
+            scope: z.enum(["goal", "phase"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("retire_fact"),
+        fact: z.object({
+            id: NonEmptyStringSchema,
+            evidenceSequences: z.array(z.number().int().positive()),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("create_hypothesis"),
+        hypothesis: z.object({
+            statement: NonEmptyStringSchema,
+            scope: z.enum(["goal", "phase"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("update_hypothesis"),
+        hypothesis: z.object({
+            id: NonEmptyStringSchema,
+            statement: NonEmptyStringSchema.optional(),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict().refine(
+            (value) => value.statement !== undefined || value.status !== undefined,
+        ),
+    }).strict(),
+    z.object({
+        type: z.literal("create_plan_item"),
+        planItem: z.object({
+            description: NonEmptyStringSchema,
+            status: z.enum(["pending", "active", "blocked"]).optional(),
+            dependsOnFactIds: z.array(NonEmptyStringSchema).optional(),
+            dependsOnPlanItemIds: z.array(NonEmptyStringSchema).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("update_plan_item"),
+        planItem: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema.optional(),
+            status: z.enum(["pending", "active", "completed", "blocked", "superseded"]).optional(),
+            dependsOnFactIds: z.array(NonEmptyStringSchema).optional(),
+            dependsOnPlanItemIds: z.array(NonEmptyStringSchema).optional(),
+            completionEvidenceSequences: z.array(z.number().int().positive()).optional(),
+        }).strict().refine((value) => Object.keys(value).some((key) => key !== "id")),
+    }).strict(),
+    z.object({
+        type: z.literal("create_blocker"),
+        blocker: z.object({
+            description: NonEmptyStringSchema,
+            scope: z.enum(["goal", "phase"]).optional(),
+        }).strict(),
+    }).strict(),
+    z.object({
+        type: z.literal("update_blocker"),
+        blocker: z.object({
+            id: NonEmptyStringSchema,
+            description: NonEmptyStringSchema.optional(),
+            status: z.enum(["active", "resolved", "superseded"]).optional(),
+        }).strict().refine(
+            (value) => value.description !== undefined || value.status !== undefined,
+        ),
+    }).strict(),
+]);
+
+const MemoryPatchV10Schema = z.object({
+    protocolVersion: z.literal(1),
+    operations: z.array(MemoryPatchOperationV10Schema),
+}).strict();
+
+const CompletionEvidenceV7Schema = z.object({
+    criterionIndex: z.number().int().nonnegative(),
+    evidenceSequences: z.array(z.number().int().positive()),
+}).strict();
+
+const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("complete"),
+        summary: NonEmptyStringSchema,
+        completionEvidence: z.array(CompletionEvidenceV7Schema),
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        reason: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        error: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV7Schema.optional(),
+    }).strict(),
+]);
+
+const StructuredDecisionResultV10Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("complete"),
+        summary: NonEmptyStringSchema,
+        completionEvidence: z.array(CompletionEvidenceV7Schema),
+        memoryPatch: MemoryPatchV10Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        reason: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV10Schema.optional(),
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        error: NonEmptyStringSchema,
+        memoryPatch: MemoryPatchV10Schema.optional(),
+    }).strict(),
+]);
+
+const ContextLookupDecisionResultSchema = z.object({
+    kind: z.literal("context_lookup"),
+    need: z.enum(["historical_execution", "decision_rationale"]),
+    question: NonEmptyStringSchema.max(1024),
+    filters: z.object({
+        eventTypes: z.array(NonEmptyStringSchema).max(16).optional(),
+        toolIds: z.array(NonEmptyStringSchema).max(16).optional(),
+        actionIds: z.array(NonEmptyStringSchema).max(16).optional(),
+        stepIndexes: z.array(z.number().int().nonnegative().safe()).max(16).optional(),
+        paths: z.array(NonEmptyStringSchema).max(16).optional(),
+        errorCodes: z.array(NonEmptyStringSchema).max(16).optional(),
+        objectIds: z.array(NonEmptyStringSchema).max(16).optional(),
+        sequenceRange: z.object({
+            from: z.number().int().nonnegative().safe(),
+            to: z.number().int().nonnegative().safe(),
+        }).strict().optional(),
+    }).strict().superRefine((filters, context) => {
+        if (
+            filters.sequenceRange !== undefined
+            && filters.sequenceRange.to < filters.sequenceRange.from
+        ) {
+            context.addIssue({ code: "custom", message: "sequenceRange must not be inverted" });
+        }
+    }).optional(),
+}).strict();
+
+const DecisionResultV7Schema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        checkpoint: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        checkpoint: NonEmptyStringSchema,
+        reason: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        checkpoint: NonEmptyStringSchema,
+        error: NonEmptyStringSchema,
+    }).strict(),
+    ...StructuredDecisionResultSchema.options,
+]);
+
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
@@ -428,6 +1028,82 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("decision"),
         result: DecisionResultSchema,
+    }).strict(),
+]);
+
+const StepRecordV7Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("action"),
+        action: ToolCallActionSchema,
+        observation: ObservationSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("decision"),
+        result: DecisionResultV7Schema,
+    }).strict(),
+]);
+
+const DecisionResultV9Schema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        checkpoint: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        checkpoint: NonEmptyStringSchema,
+        reason: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        checkpoint: NonEmptyStringSchema,
+        error: NonEmptyStringSchema,
+    }).strict(),
+    ...StructuredDecisionResultSchema.options,
+    ContextLookupDecisionResultSchema,
+]);
+
+const StepRecordV9Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("action"),
+        action: ToolCallActionSchema,
+        observation: ObservationSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("decision"),
+        result: DecisionResultV9Schema,
+    }).strict(),
+]);
+
+const DecisionResultV10Schema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        checkpoint: NonEmptyStringSchema,
+        summary: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("wait"),
+        checkpoint: NonEmptyStringSchema,
+        reason: NonEmptyStringSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("fail"),
+        checkpoint: NonEmptyStringSchema,
+        error: NonEmptyStringSchema,
+    }).strict(),
+    ...StructuredDecisionResultV10Schema.options,
+    ContextLookupDecisionResultSchema,
+]);
+
+const StepRecordV10Schema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("action"),
+        action: ToolCallActionSchema,
+        observation: ObservationSchema,
+    }).strict(),
+    z.object({
+        kind: z.literal("decision"),
+        result: DecisionResultV10Schema,
     }).strict(),
 ]);
 
@@ -450,12 +1126,40 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
             "TOOL_NOT_AUTHORIZED",
             "TOOL_NOT_FOUND",
             "INVALID_TOOL_INPUT",
+            "INVALID_MEMORY_PATCH",
             "INVALID_AGENT_DECISION",
             "TOOL_EXECUTION_ERROR",
         ]),
         message: NonEmptyStringSchema,
     }).strict(),
 ]);
+
+const MemoryProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("checkpoint"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("structured"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
+const ModelContextProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("conversation"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("trajectory-layered"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
+const MemoryRevisionSchema = z.object({
+    eventId: NonEmptyStringSchema,
+    sequence: z.number().int().positive(),
+}).strict();
 
 const RunStateSchema = z.object({
     id: z.string(),
@@ -501,12 +1205,50 @@ function addInvariantIssue(
 
 function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotBaseSchema>
-        | z.infer<typeof GoalSnapshotV6BaseSchema>,
+        | z.infer<typeof GoalSnapshotV6BaseSchema>
+        | z.infer<typeof GoalSnapshotV7BaseSchema>
+        | z.infer<typeof GoalSnapshotV8BaseSchema>
+        | z.infer<typeof GoalSnapshotV9BaseSchema>
+        | z.infer<typeof GoalSnapshotV10BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
+    const structuredMemory =
+        "memoryProtocol" in goal.definition
+        && goal.definition.memoryProtocol.kind === "structured";
+    const modelContextProtocol = "modelContextProtocol" in goal.definition
+        ? goal.definition.modelContextProtocol
+        : { kind: "conversation" as const, version: 1 as const };
+    const contextRetrievalProtocol = "contextRetrievalProtocol" in goal.definition
+        ? goal.definition.contextRetrievalProtocol
+        : { kind: "none" as const, version: 1 as const };
+
+    if (
+        modelContextProtocol.kind === "trajectory-layered"
+        && !structuredMemory
+    ) {
+        addInvariantIssue(
+            context,
+            "trajectory-layered model context requires structured Memory protocol",
+            ["definition", "modelContextProtocol"],
+        );
+    }
+
+    if (
+        contextRetrievalProtocol.kind === "bm25-lite"
+        && (
+            !structuredMemory
+            || modelContextProtocol.kind !== "trajectory-layered"
+        )
+    ) {
+        addInvariantIssue(
+            context,
+            "bm25-lite retrieval requires structured Memory and trajectory-layered model context",
+            ["definition", "contextRetrievalProtocol"],
+        );
+    }
 
     if ((run.stepCount > 0) !== (step !== undefined)) {
         addInvariantIssue(
@@ -556,7 +1298,7 @@ function validateSnapshotInvariants(
             );
         }
 
-        if (run.checkpoint === undefined) {
+        if (!structuredMemory && run.checkpoint === undefined) {
             addInvariantIssue(
                 context,
                 "pendingAction requires a checkpoint",
@@ -652,7 +1394,8 @@ function validateSnapshotInvariants(
         if (run.stopReason?.kind === "max_steps_exceeded") {
             const maxSteps = goal.definition.executionPolicy.maxSteps;
             const validPreviousStep = step?.kind === "action"
-                || result?.kind === "wait";
+                || result?.kind === "wait"
+                || result?.kind === "context_lookup";
 
             if (
                 maxSteps <= 0
@@ -671,11 +1414,96 @@ function validateSnapshotInvariants(
         run.status === "running"
         && step?.kind === "decision"
         && result?.kind !== "wait"
+        && result?.kind !== "context_lookup"
     ) {
         addInvariantIssue(
             context,
-            "running Run can only preserve a resumed wait decision",
+            "running Run can only preserve a resumed wait or Context Lookup decision",
         );
+    }
+
+    if ("memoryProtocol" in goal.definition) {
+        const memoryProtocol = goal.definition.memoryProtocol;
+        const runWithMemory = run as typeof run & {
+            readonly committedThroughSequence: number;
+            readonly memoryRevision?: {
+                readonly eventId: string;
+                readonly sequence: number;
+            };
+        };
+
+        if (
+            memoryProtocol.kind === "checkpoint"
+            && runWithMemory.memoryRevision !== undefined
+        ) {
+            addInvariantIssue(
+                context,
+                "checkpoint Memory protocol cannot contain memoryRevision",
+                ["state", "run", "memoryRevision"],
+            );
+        }
+
+        if (
+            memoryProtocol.kind === "structured"
+            && run.checkpoint !== undefined
+        ) {
+            addInvariantIssue(
+                context,
+                "structured Memory protocol cannot contain legacy run.checkpoint",
+                ["state", "run", "checkpoint"],
+            );
+        }
+
+        const revision = runWithMemory.memoryRevision;
+        if (
+            revision !== undefined
+            && revision.sequence > runWithMemory.committedThroughSequence
+        ) {
+            addInvariantIssue(
+                context,
+                "memoryRevision.sequence cannot exceed committedThroughSequence",
+                ["state", "run", "memoryRevision", "sequence"],
+            );
+        }
+
+        if (step?.kind === "decision") {
+            const decisionResult = step.result as {
+                readonly kind: string;
+                readonly checkpoint?: unknown;
+                readonly completionEvidence?: unknown;
+                readonly memoryPatch?: unknown;
+            };
+
+            if (memoryProtocol.kind === "structured") {
+                if (decisionResult.checkpoint !== undefined) {
+                    addInvariantIssue(
+                        context,
+                        "structured Decision cannot contain checkpoint",
+                        ["state", "run", "lastStep", "result", "checkpoint"],
+                    );
+                }
+                if (
+                    decisionResult.kind === "complete"
+                    && !Array.isArray(decisionResult.completionEvidence)
+                ) {
+                    addInvariantIssue(
+                        context,
+                        "structured complete Decision requires completionEvidence",
+                        ["state", "run", "lastStep", "result", "completionEvidence"],
+                    );
+                }
+            } else if (
+                decisionResult.checkpoint === undefined
+                || decisionResult.completionEvidence !== undefined
+                || decisionResult.memoryPatch !== undefined
+            ) {
+                addInvariantIssue(
+                    context,
+                    "checkpoint Decision must use the legacy response shape",
+                    ["state", "run", "lastStep", "result"],
+                );
+            }
+        }
     }
 }
 
@@ -717,6 +1545,114 @@ const GoalSnapshotV6BaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const GoalSnapshotV7BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(7) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV7Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
+const GoalSnapshotV8BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(8) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV7Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
+const ContextRetrievalProtocolSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("none"),
+        version: z.literal(1),
+    }).strict(),
+    z.object({
+        kind: z.literal("bm25-lite"),
+        version: z.literal(1),
+    }).strict(),
+]);
+
+const GoalSnapshotV9BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(9) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolSchema,
+        contextRetrievalProtocol: ContextRetrievalProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV9Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
+const GoalSnapshotV10BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(10) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolSchema,
+        contextRetrievalProtocol: ContextRetrievalProtocolSchema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({
+            maxSteps: z.number().int().nonnegative(),
+        }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV10Schema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -747,6 +1683,72 @@ export const GoalSnapshotV5Schema = GoalSnapshotBaseSchema.superRefine(
  * ```
  */
 export const GoalSnapshotV6Schema = GoalSnapshotV6BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v7 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v7 显式保存 Memory 协议与可选 revision 指针；Schema 同时拒绝 legacy 与
+ * structured 协议的跨字段混用。Working Memory 本体和 Trajectory 事件不在快照中。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV7Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV7Schema = GoalSnapshotV7BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v8 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v8 在 v7 的 Memory 协议基础上要求显式保存模型上下文协议，并拒绝
+ * `checkpoint@1` 与 `trajectory-layered@1` 的不兼容组合。Working Memory 本体、
+ * Hot/Warm 缓存和 Trajectory 事件仍不进入快照。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV8Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV8Schema = GoalSnapshotV8BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v9 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v9 要求显式保存 `none@1` 或 `bm25-lite@1` 检索协议，并拒绝后者与旧 Memory
+ * 或 Conversation 模型上下文的交叉组合。检索索引、查询缓存和 Working Memory
+ * 本体仍不进入快照。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV9Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV9Schema = GoalSnapshotV9BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/**
+ * 严格 v10 Goal Snapshot Schema。
+ *
+ * @remarks
+ * v10 只改变 structured Decision 的 Memory Patch shape；Working Memory 内容仍由
+ * committed Trajectory 重建，不进入 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const result = GoalSnapshotV10Schema.safeParse(JSON.parse(text));
+ * ```
+ */
+export const GoalSnapshotV10Schema = GoalSnapshotV10BaseSchema.superRefine(
     validateSnapshotInvariants,
 );
 

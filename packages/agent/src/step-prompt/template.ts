@@ -23,6 +23,30 @@ export const AGENT_DECISION_TEMPLATE_V3: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@3.njk", import.meta.url),
 };
 
+/** v4 structured@1 MemoryPatch 与 CompletionEvidence 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V4: PromptTemplateAsset = {
+    id: "agent-decision@4",
+    sourceUrl: new URL("./agent-decision@4.njk", import.meta.url),
+};
+
+/** v5 trajectory-layered AgentDecision 与来源优先级模板。 */
+export const AGENT_DECISION_TEMPLATE_V5: PromptTemplateAsset = {
+    id: "agent-decision@5",
+    sourceUrl: new URL("./agent-decision@5.njk", import.meta.url),
+};
+
+/** v6 bm25-lite Context Lookup、来源路由与历史时效模板。 */
+export const AGENT_DECISION_TEMPLATE_V6: PromptTemplateAsset = {
+    id: "agent-decision@6",
+    sourceUrl: new URL("./agent-decision@6.njk", import.meta.url),
+};
+
+/** v7 实体 Fact、Runtime ID 与 durable semantic delta 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V7: PromptTemplateAsset = {
+    id: "agent-decision@7",
+    sourceUrl: new URL("./agent-decision@7.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

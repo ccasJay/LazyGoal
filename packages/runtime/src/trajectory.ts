@@ -4,7 +4,12 @@ import type {
     JsonValue,
     Observation,
     ToolCallAction,
+    MemoryPatchAcceptedPayload,
 } from "./domain";
+import type {
+    ContextLookupRequest,
+    ContextLookupResult,
+} from "./context-retrieval";
 import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
 
@@ -24,12 +29,34 @@ export type TrajectoryEventPayload =
     | { readonly type: "run_resumed" }
     | {
         readonly type: "preparation_result";
-        readonly result: "question" | "context_ready" | "task_proposal";
+        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup";
     }
     | {
         readonly type: "decision_received";
         readonly decision: AgentDecision;
     }
+    | {
+        readonly type: "context_lookup_requested";
+        readonly lookupId: string;
+        readonly request: ContextLookupRequest;
+    }
+    | {
+        readonly type: "context_lookup_completed";
+        readonly lookupId: string;
+        readonly result: Extract<ContextLookupResult, { readonly status: "found" }>;
+    }
+    | {
+        readonly type: "context_lookup_not_found";
+        readonly lookupId: string;
+        readonly result: Extract<ContextLookupResult, { readonly status: "not_found" }>;
+    }
+    | {
+        readonly type: "context_lookup_failed";
+        readonly lookupId: string;
+        readonly code: string;
+        readonly message: string;
+    }
+    | MemoryPatchAcceptedPayload
     | {
         readonly type: "action_staged";
         readonly action: ToolCallAction;
@@ -167,6 +194,7 @@ export type TrajectoryEvent = {
 export type TrajectoryEventCategory =
     | "lifecycle"
     | "decision"
+    | "memory"
     | "action"
     | "tool"
     | "observation"
@@ -456,6 +484,11 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_resumed",
     "preparation_result",
     "decision_received",
+    "context_lookup_requested",
+    "context_lookup_completed",
+    "context_lookup_not_found",
+    "context_lookup_failed",
+    "memory_patch_accepted",
     "action_staged",
     "action_approved",
     "action_rejected",
@@ -672,7 +705,13 @@ export function classifyTrajectoryEvent(
         case "preparation_result":
             return "decision";
         case "decision_received":
+        case "context_lookup_requested":
+        case "context_lookup_completed":
+        case "context_lookup_not_found":
+        case "context_lookup_failed":
             return "decision";
+        case "memory_patch_accepted":
+            return "memory";
         case "action_staged":
         case "action_approved":
         case "action_rejected":

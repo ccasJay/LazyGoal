@@ -106,6 +106,22 @@ test("非法 Conversation 预算在访问工作区或创建 Goal 数据前失败
     await assert.rejects(access(join(workspace, ".lazygoal")));
 });
 
+test("非法 Model Context 预算在创建 Goal Store 或 Sidecar 前失败", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-model-budget-"));
+    await writeDefaultProfile(workspace);
+
+    await assert.rejects(
+        createCompositionRoot({
+            cwd: workspace,
+            env: environment(),
+            modelContextBudget: { modelInputBudget: 0 },
+        }),
+        (error: unknown) => error instanceof RangeError,
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
+    await assert.rejects(access(join(workspace, ".lazygoal", "context-sidecars")));
+});
+
 test("missing default Profile fails before creating the workspace Store", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-profile-missing-"));
 
@@ -152,7 +168,16 @@ test("composition root isolates workspace, freezes the default identity, and doe
         root.tracesDirectory,
         join(root.workspaceRoot, ".lazygoal", "traces"),
     );
+    assert.equal(
+        root.contextSidecarsDirectory,
+        join(root.workspaceRoot, ".lazygoal", "context-sidecars"),
+    );
     assert.ok(root.trajectoryStore !== undefined);
+    assert.ok(root.sidecarStore !== undefined);
+    assert.ok(root.trajectoryContextAssembler !== undefined);
+    assert.ok(root.contextCompactAdapter !== undefined);
+    assert.equal(root.modelInputEstimator.unit, "character");
+    assert.equal(root.modelContextPolicy.modelInputBudget, 196608);
     assert.ok(root.traceSink !== undefined);
     assert.equal(root.conversationCharBudget, 196608);
     assert.ok(root.contextCompactor !== undefined);

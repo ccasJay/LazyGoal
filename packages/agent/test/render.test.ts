@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
 import type {
     ModelInferenceView,
+    ModelContextLookupResult,
     ModelProfileView,
     ModelToolDefinition,
     ModelWorkingContext,
@@ -47,6 +48,7 @@ function buildView(
         readonly promptBundleVersion?: number;
         readonly conversation?: ModelInferenceView["conversation"];
         readonly authorizedTools?: readonly ModelToolDefinition[];
+        readonly contextLookupResult?: ModelContextLookupResult;
     } = {},
 ): ModelInferenceView {
     return {
@@ -55,9 +57,25 @@ function buildView(
             phase,
             profile,
             authorizedTools: options.authorizedTools ?? [],
+            ...(options.promptBundleVersion === 6
+                ? {
+                    memoryProtocol: { kind: "structured" as const, version: 1 as const },
+                    modelContextProtocol: {
+                        kind: "trajectory-layered" as const,
+                        version: 1 as const,
+                    },
+                    contextRetrievalProtocol: {
+                        kind: "bm25-lite" as const,
+                        version: 1 as const,
+                    },
+                }
+                : {}),
         },
         conversation: options.conversation ?? conversation,
         workingContext,
+        ...(options.contextLookupResult === undefined
+            ? {}
+            : { contextLookupResult: options.contextLookupResult }),
     };
 }
 
@@ -144,5 +162,55 @@ test("renderWorkingContextMessage 逐字符固定为 JSON 控制的 user 消息"
     assert.deepEqual(renderWorkingContextMessage(workingContext), {
         role: "user",
         content: JSON.stringify(workingContext, null, 2),
+    });
+});
+
+test("structured 请求在控制消息中独立携带 Working Memory", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "gathering_context",
+        intent: "完成示例任务",
+    };
+    const workingMemory = {
+        protocolVersion: 1 as const,
+        derivedThroughSequence: 3,
+        facts: [],
+        hypotheses: [],
+        plan: [],
+        blockers: [],
+    };
+    const rendered = renderWorkingContextMessage(workingContext, workingMemory);
+
+    assert.deepEqual(JSON.parse(rendered.content), {
+        ...workingContext,
+        workingMemory,
+    });
+});
+
+test("v6 请求在控制消息中携带带时效边界的历史 Lookup Result", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "executing",
+        intent: "完成示例任务",
+        task: {
+            objective: "实现三阶段上下文",
+            completionCriteria: ["请求顺序稳定"],
+        },
+        execution: { stepCount: 1 },
+    };
+    const contextLookupResult: ModelContextLookupResult = {
+        status: "not_found",
+        lookupId: "lookup-1",
+        committedThroughSequence: 12,
+        reason: "no_context_match",
+    };
+    const rendered = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        undefined,
+        contextLookupResult,
+    );
+
+    assert.deepEqual(JSON.parse(rendered.content), {
+        ...workingContext,
+        contextLookupResult,
     });
 });

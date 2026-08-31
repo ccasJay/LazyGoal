@@ -6,10 +6,12 @@ import type {
     RunState,
     TransitionResult,
 } from "./domain";
+import { isContextLookupRequest } from "./context-retrieval";
+import type { ContextLookupRequest } from "./context-retrieval";
 
 type TerminalDecision = Exclude<
     AgentDecision,
-    { readonly kind: "tool_call" }
+    { readonly kind: "tool_call" } | { readonly kind: "context_lookup" }
 >;
 
 type ActionObservation = Exclude<
@@ -81,10 +83,10 @@ function completeAction(
  * 纯函数式推进一个 Run 状态。
  *
  * @remarks
- * 函数不会修改传入状态。Action 的 `stage_action` 只保存 checkpoint 和
+ * 函数不会修改传入状态。Action 的 `stage_action` 只保存可选 checkpoint 和
  * pendingAction，不增加 Step；`recover_action` 只将 approved Action 转为
- * `outcome_unknown` waiting；`observe_action`、`reject_action` 和非 Tool
- * `decision` 完成一个 Step。`execution_error` 进入 failed 且不增加 Step，
+ * `outcome_unknown` waiting；`observe_action`、`reject_action`、Context Lookup
+ * 和非 Tool `decision` 完成一个 Step。`execution_error` 进入 failed 且不增加 Step，
  * 如果已有 pendingAction，会将其标记为 `outcome_unknown`。
  *
  * 合法转换返回新状态；非法转换返回原对象和 `INVALID_TRANSITION`，由上层
@@ -179,14 +181,14 @@ export function transition(
                 }
 
                 if (
-                    !hasText(input.checkpoint)
+                    (input.checkpoint !== undefined && !hasText(input.checkpoint))
                     || !hasText(input.action.actionId)
                     || !hasText(input.action.toolId)
                 ) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "Action staging requires non-empty checkpoint, actionId, and toolId",
+                        "Action staging requires non-empty checkpoint when present, actionId, and toolId",
                     );
                 }
 
@@ -210,7 +212,9 @@ export function transition(
                         status: status === "awaiting_approval"
                             ? "waiting"
                             : "running",
-                        checkpoint: input.checkpoint,
+                        ...(input.checkpoint === undefined
+                            ? {}
+                            : { checkpoint: input.checkpoint }),
                         pendingAction: {
                             action: input.action,
                             status,
@@ -283,12 +287,15 @@ export function transition(
 
                 if (
                     !isTerminalDecision(input.decision)
-                    || !hasText(input.decision.checkpoint)
+                    || (
+                        "checkpoint" in input.decision
+                        && !hasText(input.decision.checkpoint)
+                    )
                 ) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "Decision requires a non-empty checkpoint and a terminal kind",
+                        "Decision requires a terminal kind and a non-empty checkpoint when present",
                     );
                 }
 
@@ -308,7 +315,42 @@ export function transition(
                             kind: "decision",
                             result: input.decision,
                         },
-                        checkpoint: input.decision.checkpoint,
+                        ...(
+                            "checkpoint" in input.decision
+                                ? { checkpoint: input.decision.checkpoint }
+                                : {}
+                        ),
+                    },
+                };
+            }
+
+            if (input.kind === "context_lookup") {
+                if (currentState.pendingAction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a Context Lookup while an Action is pending",
+                    );
+                }
+
+                if (!isContextLookupRequest(input.request)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Context Lookup request is invalid",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
+                        stepCount: currentState.stepCount + 1,
+                        lastStep: {
+                            kind: "decision",
+                            result: input.request,
+                        },
                     },
                 };
             }

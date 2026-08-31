@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import { createGoal } from "../../runtime/src/domain";
+import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
 import type {
     Goal,
     GoalMessage,
@@ -11,7 +11,11 @@ import type {
 } from "../../runtime/src/domain";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
-import type { PromptContext } from "../src/model-inference-view";
+import type {
+    ModelContextLookupResult,
+    ModelInferenceView,
+    PromptContext,
+} from "../src/model-inference-view";
 import type { PromptBundleRenderer } from "../src/prompting/types";
 import {
     buildPreparationRequest,
@@ -19,9 +23,12 @@ import {
 } from "../src/prompt";
 import {
     createDefaultPromptBundleRenderer,
+    createModelContextBudgetPolicy,
     DropOldestContextCompactor,
+    TrajectoryModelContextAssembler,
 } from "../src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
+import type { TrajectoryModelContextAssemblyInput } from "../src/trajectory-model-context-assembler";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -116,6 +123,38 @@ function createExecutingGoal(options: {
     };
 }
 
+class PassthroughTrajectoryAssembler extends TrajectoryModelContextAssembler {
+    constructor() {
+        super({
+            policy: createModelContextBudgetPolicy({ modelInputBudget: 10_000 }),
+        });
+    }
+
+    override async assemble(
+        input: TrajectoryModelContextAssemblyInput,
+    ): Promise<ModelInferenceView> {
+        return {
+            ...input.view,
+            trajectoryContext: {
+                measuredAs: "character",
+                softOverflow: false,
+                hot: [],
+                warm: [],
+                budget: {
+                    measuredAs: "character",
+                    modelInputBudget: 10_000,
+                    responseReserve: 1_000,
+                    fixedInput: { unit: "character", count: 0 },
+                    historyBudget: 9_000,
+                    warmBudget: 2_250,
+                    hotBudget: 6_750,
+                    softOverflow: false,
+                },
+            },
+        };
+    }
+}
+
 test("请求顺序固定为 system、真实历史、当前 Working Context", async () => {
     const messages: readonly GoalMessage[] = [
         { role: "user", content: "补充的真实输入" },
@@ -169,6 +208,45 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
     assert.match(systemContent, /AgentDecision 协议/);
+});
+
+test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {
+    const base = createExecutingGoal();
+    const goal: Goal = {
+        ...base,
+        definition: {
+            ...base.definition,
+            promptBundleVersion: 6,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        },
+    };
+    const lookupResult: ModelContextLookupResult = {
+        status: "not_found",
+        lookupId: "lookup-next-round",
+        committedThroughSequence: 7,
+        reason: "no_context_match",
+    };
+    const request = await buildStepRequest(
+        goal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        createEmptyWorkingMemory(),
+        new PassthroughTrajectoryAssembler(),
+        lookupResult,
+    );
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
+        readonly contextLookupResult?: ModelContextLookupResult;
+    };
+
+    assert.deepEqual(control.contextLookupResult, lookupResult);
+    assert.match(
+        request.messages[0]?.content ?? "",
+        /Current Workspace, Environment, and verification status require an Authorized Tool Observation/,
+    );
 });
 
 test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", async () => {
