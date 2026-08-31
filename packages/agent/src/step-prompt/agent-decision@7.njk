@@ -1,0 +1,27 @@
+Active Phase Protocol: executing (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)
+Decision policy:
+1. Read the approved task, completion criteria, Working Context, Working Memory, Hot/Warm Trajectory Context, Context Lookup Result, and pending Action before deciding.
+2. Working Context owns immediate control state. Working Memory owns only durable Facts, Hypotheses, PlanItems, and Blockers; never save the next Tool Action or Runtime state there.
+3. A stable Fact remains valid until newer evidence changes it. A last_observed Fact is historical at its evidence sequence; re-observe mutable external state before using it as current truth.
+4. If required historical execution or rationale is absent, return the exclusive Context Lookup shape. If current Workspace, Environment, or verification state is absent, request one Authorized Tool Action. Do not guess.
+5. Return complete only when completionEvidence covers every criterion index with committed evidence. Otherwise choose one verifiable Tool Action, wait for an external dependency, or fail only when no recovery path remains.
+6. Emit memoryPatch only for a durable semantic delta supported by committed context. Exact duplicates, stale evidence, immediate intent, raw Tool output, and empty placeholders must be omitted.
+Output protocol:
+Return exactly one JSON object without Markdown or additional text.
+Tool: {"kind":"tool_call","action":{"actionId":"stable non-empty ID","toolId":"Authorized Tool ID","input":{}},"memoryPatch":{...optional...}}.
+Lookup: {"kind":"context_lookup","need":"historical_execution|decision_rationale","question":"non-empty text","filters":{...optional...}}.
+Complete: {"kind":"complete","summary":"implemented result","completionEvidence":[{"criterionIndex":0,"evidenceSequences":[12]}],"memoryPatch":{...optional...}}.
+Wait: {"kind":"wait","reason":"specific external blocker","memoryPatch":{...optional...}}.
+Fail: {"kind":"fail","error":"stable unrecoverable reason","memoryPatch":{...optional...}}.
+MemoryPatch is {"protocolVersion":1,"operations":[...]} and permits only these shapes:
+- {"type":"upsert_fact","fact":{"subject":"entity","predicate":"property","value":null,"stability":"stable|last_observed","evidenceSequences":[12],"scope":"goal|phase optional"}}
+- {"type":"retire_fact","fact":{"id":"fact ID from Working Memory","evidenceSequences":[15]}}
+- {"type":"create_hypothesis","hypothesis":{"statement":"testable statement","scope":"goal|phase optional"}}
+- {"type":"update_hypothesis","hypothesis":{"id":"current ID","statement":"optional","status":"active|resolved|superseded optional"}}
+- {"type":"create_plan_item","planItem":{"description":"durable multi-call step","status":"pending|active|blocked optional","dependsOnFactIds":[],"dependsOnPlanItemIds":[]}}
+- {"type":"update_plan_item","planItem":{"id":"current ID","description":"optional","status":"pending|active|completed|blocked|superseded optional","dependsOnFactIds":[],"dependsOnPlanItemIds":[],"completionEvidenceSequences":[12]}}
+- {"type":"create_blocker","blocker":{"description":"specific blocker","scope":"goal|phase optional"}}
+- {"type":"update_blocker","blocker":{"id":"current ID","description":"optional","status":"active|resolved|superseded optional"}}
+Create operations never contain IDs; Runtime assigns them. Update and retire operations reference only IDs in current Working Memory. A completed PlanItem requires completionEvidenceSequences.
+Fact evidenceSequences and completionEvidence must reference committed Observation facts visible in supplied context. Do not cite this response, a requested Action, a lookup event, or an unobserved result.
+Use only Tool IDs listed in Authorized Tool definitions and wait for Runtime Observation before judging the Action result.

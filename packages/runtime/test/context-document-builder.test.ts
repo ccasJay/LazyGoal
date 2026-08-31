@@ -164,6 +164,7 @@ function committedSource(): readonly TrajectoryEvent[] {
                         kind: "hypothesis",
                         originPhase: "planning",
                         originSequence: 14,
+                        updatedAtSequence: 14,
                         scope: "goal",
                         status: "active",
                         statement: "历史读取结果可复用",

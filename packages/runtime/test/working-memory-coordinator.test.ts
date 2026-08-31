@@ -117,8 +117,10 @@ function structuredGoal(
         id,
         runId,
         intent: "推进结构化准备流程",
-        promptBundleVersion: 4,
+        promptBundleVersion: 7,
         memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         profile,
     });
     return {
@@ -178,10 +180,12 @@ test("Coordinator restores Memory once per preparation call and commits an optio
     const findingPatch = {
         protocolVersion: 1 as const,
         operations: [{
-            type: "add_finding" as const,
-            finding: {
-                id: "finding-config",
-                statement: "配置观察已提交",
+            type: "upsert_fact" as const,
+            fact: {
+                subject: "workspace",
+                predicate: "config_observed",
+                value: true,
+                stability: "stable" as const,
                 evidenceSequences: [1],
             },
         }],
@@ -190,7 +194,7 @@ test("Coordinator restores Memory once per preparation call and commits an optio
         { kind: "context_ready", memoryPatch: findingPatch },
         (input) => {
             assert.equal(input.goal.state.workflow.phase, "planning");
-            assert.equal(input.workingMemory?.findings[0]?.id, "finding-config");
+            assert.equal(input.workingMemory?.facts[0]?.predicate, "config_observed");
             return {
                 kind: "task_proposal",
                 task: { objective: "执行任务", completionCriteria: ["完成"] },
@@ -258,9 +262,13 @@ test("planning feedback commits lifecycle invalidation without promoting the pro
                     id: "plan-old",
                     originPhase: "planning",
                     originSequence: 1,
+                    updatedAtSequence: 1,
                     scope: "phase",
                     status: "active",
                     description: "旧方案",
+                    dependsOnFactIds: [],
+                    dependsOnPlanItemIds: [],
+                    completionEvidenceSequences: [],
                 },
             }],
         },
@@ -337,9 +345,13 @@ test("planning approval commits lifecycle invalidation before handing the approv
                     id: "plan-to-drop",
                     originPhase: "planning",
                     originSequence: 1,
+                    updatedAtSequence: 1,
                     scope: "phase",
                     status: "active",
                     description: "未批准计划",
+                    dependsOnFactIds: [],
+                    dependsOnPlanItemIds: [],
+                    completionEvidenceSequences: [],
                 },
             }],
         },
@@ -425,10 +437,12 @@ test("Snapshot failure leaves accepted Patch in the tail and does not expose it 
         memoryPatch: {
             protocolVersion: 1,
             operations: [{
-                type: "add_finding",
-                finding: {
-                    id: "orphan-finding",
-                    statement: "不应生效",
+                type: "upsert_fact",
+                fact: {
+                    subject: "workspace",
+                    predicate: "orphan_fact",
+                    value: true,
+                    stability: "stable",
                     evidenceSequences: [1],
                 },
             }],
@@ -449,6 +463,6 @@ test("Snapshot failure leaves accepted Patch in the tail and does not expose it 
     const persisted = await store.restore(goal.id);
     assert.ok(persisted);
     const rebuilt = await rebuildWorkingMemory(persisted, { trajectoryStore: trajectory });
-    assert.deepEqual(rebuilt.memory.findings, []);
+    assert.deepEqual(rebuilt.memory.facts, []);
     assert.equal(persisted.state.run.memoryRevision, undefined);
 });

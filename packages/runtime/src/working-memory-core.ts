@@ -1,22 +1,22 @@
+import { createHash } from "node:crypto";
+
 import type {
-    AddFinding,
     Blocker,
-    BlockerUpdate,
     CanonicalMemoryOperation,
-    EvidenceBackedFinding,
+    EvidenceBackedFact,
+    FactProposal,
     GoalPhase,
     Hypothesis,
-    HypothesisUpdate,
+    JsonObject,
+    JsonValue,
     MemoryEntry,
     MemoryEntryKind,
     MemoryEntryScope,
+    MemoryEntrySource,
     MemoryEntryStatus,
     MemoryPatchOperation,
-    NextAction,
-    NextActionUpdate,
     PlanItem,
-    PlanItemUpdate,
-    UpdateFinding,
+    PlanItemStatus,
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
@@ -28,63 +28,78 @@ export const WORKING_MEMORY_PATCH_ERROR_CODE = "INVALID_MEMORY_PATCH" as const;
 /** Working Memory Core 限制配置错误的稳定错误码。 */
 export const WORKING_MEMORY_LIMITS_ERROR_CODE = "INVALID_MEMORY_LIMITS" as const;
 
+/** 被 Runtime 抑制且不会进入 accepted Event 的稳定原因。 */
+export type MemorySuppressionReason =
+    | "duplicate"
+    | "stale_evidence"
+    | "covered_update"
+    | "capacity_low_utility";
+
 /**
- * Working Memory Patch 在接受前使用的有界资源配置。
+ * Working Memory Patch 与当前投影使用的确定性资源限制。
  *
  * @remarks
- * 限制只用于接受新的模型或生命周期 Patch；重放已经提交的 accepted Event 时不应
- * 使用可能变化的运行配置重新拒绝历史事实。所有字段均为 UTF-16 文本长度、UTF-8
- * 序列化字节数或集合元素数量上限，不会触发静默截断。
+ * 限制只在接受新 proposal 时计算；重放 accepted Event 时直接应用其中的
+ * `evict_entries`，因此恢复结果不依赖进程当前配置。
  *
  * @example
  * ```ts
  * const limits: WorkingMemoryLimits = {
  *   ...DEFAULT_WORKING_MEMORY_LIMITS,
- *   maxTextLength: 4096,
+ *   maxFacts: 32,
  * };
  * ```
  */
 export interface WorkingMemoryLimits {
-    /** 单个 Patch 最多包含的操作数量。 */
+    /** 单个 proposal Patch 最多包含的操作数。 */
     readonly maxOperations: number;
-    /** Patch JSON 序列化后的最大 UTF-8 字节数。 */
+    /** proposal Patch JSON 的最大 UTF-8 字节数。 */
     readonly maxSerializedBytes: number;
-    /** stable ID 的最大 UTF-16 code unit 数。 */
+    /** 当前 Working Memory 投影的最大 UTF-8 字节数。 */
+    readonly maxWorkingMemoryBytes: number;
+    /** 单个 Fact JSON 的最大 UTF-8 字节数。 */
+    readonly maxFactSerializedBytes: number;
+    /** Fact value 允许的最大 JSON 深度。 */
+    readonly maxJsonDepth: number;
+    /** Runtime 生成或模型引用 ID 的最大长度。 */
     readonly maxStableIdLength: number;
-    /** Finding、Hypothesis、Plan、Blocker 和 nextAction 文本的最大长度。 */
+    /** 人类可读字段的最大长度。 */
     readonly maxTextLength: number;
-    /** 一个 Finding 最多引用的 Trajectory sequence 数量。 */
+    /** 单个操作最多引用的 evidence sequences。 */
     readonly maxEvidenceReferences: number;
-    /** 当前有效 Finding 集合的最大容量。 */
-    readonly maxFindings: number;
-    /** 当前有效 Hypothesis 集合的最大容量。 */
+    /** 当前 Fact 数量上限。 */
+    readonly maxFacts: number;
+    /** 当前 Hypothesis 数量上限。 */
     readonly maxHypotheses: number;
-    /** 当前有效 Plan 集合的最大容量。 */
+    /** 当前 PlanItem 数量上限。 */
     readonly maxPlanItems: number;
-    /** 当前有效 Blocker 集合的最大容量。 */
+    /** 当前 Blocker 数量上限。 */
     readonly maxBlockers: number;
 }
 
-/** v1 结构化 Memory 的默认接受限制。 */
+/** v1 结构化 Working Memory 的默认限制。 */
 export const DEFAULT_WORKING_MEMORY_LIMITS: WorkingMemoryLimits = Object.freeze({
     maxOperations: 32,
     maxSerializedBytes: 32 * 1024,
+    maxWorkingMemoryBytes: 32 * 1024,
+    maxFactSerializedBytes: 4 * 1024,
+    maxJsonDepth: 6,
     maxStableIdLength: 128,
     maxTextLength: 2048,
     maxEvidenceReferences: 16,
-    maxFindings: 64,
-    maxHypotheses: 32,
-    maxPlanItems: 32,
-    maxBlockers: 16,
+    maxFacts: 64,
+    maxHypotheses: 8,
+    maxPlanItems: 16,
+    maxBlockers: 8,
 });
 
-/** 允许只覆盖部分默认限制的配置输入。 */
+/** 允许调用方覆盖部分默认限制。 */
 export type WorkingMemoryLimitsInput =
     | WorkingMemoryLimits
     | Partial<WorkingMemoryLimits>;
 
 /**
- * Patch 校验所需的当前 Memory 上下文。
+ * Patch 结构校验所需的当前投影上下文。
  *
  * @example
  * ```ts
@@ -92,67 +107,76 @@ export type WorkingMemoryLimitsInput =
  * ```
  */
 export interface WorkingMemoryPatchValidationContext {
-    /** 当前进程内从已提交事件归约出的 Memory；省略时按空 Memory 校验。 */
+    /** 当前 committed Working Memory；省略时按空投影处理。 */
     readonly workingMemory?: WorkingMemory;
-    /** 本次接受操作使用的限制；省略时使用 v1 默认限制。 */
+    /** 本次准入限制；省略时使用默认值。 */
     readonly limits?: WorkingMemoryLimitsInput;
 }
 
 /**
- * 将模型 Patch 归一化为 accepted Event 所需规范化操作的上下文。
+ * 将 proposal 归一化成 canonical Patch 的上下文。
  *
- * @remarks `originSequence` 必须是即将写入 accepted Patch Event 的正整数；模型
- * 不可自行提供来源阶段、sequence 或 scope，这些字段由 Runtime 补齐。
+ * @remarks
+ * `originSequence` 是即将写入的 accepted Patch Event sequence。`source` 决定同一
+ * evidence sequence 冲突时的优先级，但不能绕过 schema、引用或控制字段门。
  *
  * @example
  * ```ts
  * const context: WorkingMemoryPatchNormalizationContext = {
  *   phase: "executing",
  *   originSequence: 17,
+ *   source: "model",
  *   workingMemory,
  * };
  * ```
  */
 export interface WorkingMemoryPatchNormalizationContext
     extends WorkingMemoryPatchValidationContext {
-    /** 产生该 Patch 的 Runtime 阶段。 */
+    /** proposal 产生时的 Goal phase。 */
     readonly phase: GoalPhase;
-    /** accepted Patch Event 的 sequence。 */
+    /** accepted Patch Event 的预分配 sequence。 */
     readonly originSequence: number;
+    /** proposal 来源；模型调用省略时默认为 `model`。 */
+    readonly source?: MemoryEntrySource;
 }
 
 /**
- * 已补齐来源元数据、可写入 `memory_patch_accepted` 的规范化 Patch。
+ * 被抑制 proposal 的可诊断结果。
  *
- * @remarks 该 DTO 仍然只包含 Memory 领域操作；Runtime 控制状态不在其中。
+ * @example
+ * ```ts
+ * const item: SuppressedMemoryOperation = { index: 0, reason: "duplicate" };
+ * ```
+ */
+export interface SuppressedMemoryOperation {
+    /** 原 proposal operation index。 */
+    readonly index: number;
+    /** 不落 accepted Event 的稳定原因。 */
+    readonly reason: MemorySuppressionReason;
+}
+
+/**
+ * 可写入 `memory_patch_accepted` 的 canonical Patch。
+ *
+ * @remarks
+ * `operations` 为空表示 proposal 全部被抑制，调用方不得写 accepted Event。
+ * `suppressed` 只用于当前调用诊断，不参与 reducer 重放。
  *
  * @example
  * ```ts
  * const normalized = normalizeMemoryPatch(patch, {
- *   phase: "gathering_context",
- *   originSequence: 3,
+ *   phase: "executing",
+ *   originSequence: 8,
  * });
  * ```
  */
 export interface NormalizedWorkingMemoryPatch {
     readonly protocolVersion: 1;
     readonly operations: readonly CanonicalMemoryOperation[];
+    readonly suppressed: readonly SuppressedMemoryOperation[];
 }
 
-/**
- * 表示模型 Patch 没有通过原子协议校验。
- *
- * @remarks 抛出后调用方不得保存关联业务结果、执行外部 Tool 或更新进程 Memory。
- *
- * @example
- * ```ts
- * try {
- *   validateMemoryPatch(input);
- * } catch (error) {
- *   if (error instanceof WorkingMemoryPatchError) console.error(error.code);
- * }
- * ```
- */
+/** 表示 proposal 违反原子准入契约。 */
 export class WorkingMemoryPatchError extends Error {
     readonly code = WORKING_MEMORY_PATCH_ERROR_CODE;
 
@@ -163,7 +187,7 @@ export class WorkingMemoryPatchError extends Error {
     }
 }
 
-/** 表示注入的 Working Memory 限制本身无效。 */
+/** 表示注入的资源限制无效。 */
 export class WorkingMemoryLimitsError extends Error {
     readonly code = WORKING_MEMORY_LIMITS_ERROR_CODE;
 
@@ -174,37 +198,49 @@ export class WorkingMemoryLimitsError extends Error {
     }
 }
 
+type RecordValue = Record<string, unknown>;
+
 const MEMORY_ENTRY_KINDS: readonly MemoryEntryKind[] = [
-    "finding",
+    "fact",
     "hypothesis",
     "plan",
     "blocker",
-    "next_action",
 ];
-
+const MEMORY_ENTRY_SCOPES: readonly MemoryEntryScope[] = ["goal", "phase"];
 const MEMORY_ENTRY_STATUSES: readonly MemoryEntryStatus[] = [
     "active",
     "resolved",
     "superseded",
 ];
-
-const MEMORY_ENTRY_SCOPES: readonly MemoryEntryScope[] = ["goal", "phase"];
+const PLAN_ITEM_STATUSES: readonly PlanItemStatus[] = [
+    "pending",
+    "active",
+    "completed",
+    "blocked",
+    "superseded",
+];
+const FACT_STABILITIES = ["stable", "last_observed"] as const;
 const GOAL_PHASES: readonly GoalPhase[] = [
     "gathering_context",
     "planning",
     "executing",
 ];
-
-const PATCH_KEYS = ["protocolVersion", "operations"] as const;
-
-type RecordValue = Record<string, unknown>;
+const CONTROL_STATE_TERMS = new Set([
+    "checkpoint",
+    "run_status",
+    "runstatus",
+    "step",
+    "step_count",
+    "pending_action",
+    "pendingaction",
+    "previous_step",
+    "previousstep",
+    "done",
+    "won",
+]);
 
 function isRecord(value: unknown): value is RecordValue {
     return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function ownKeys(value: RecordValue): string[] {
-    return Object.keys(value);
 }
 
 function assertExactKeys(
@@ -212,39 +248,27 @@ function assertExactKeys(
     keys: readonly string[],
     label: string,
 ): asserts value is RecordValue {
-    if (!isRecord(value)) {
-        throw new WorkingMemoryPatchError(`${label} must be an object`);
-    }
-
+    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`);
     const expected = new Set(keys);
-    const actual = ownKeys(value);
-    if (
-        actual.length !== expected.size
-        || actual.some((key) => !expected.has(key))
-    ) {
+    const actual = Object.keys(value);
+    if (actual.length !== expected.size || actual.some((key) => !expected.has(key))) {
         throw new WorkingMemoryPatchError(`${label} contains unknown or missing fields`);
     }
 }
 
 function assertAllowedKeys(
     value: unknown,
-    requiredKeys: readonly string[],
-    allowedKeys: readonly string[],
+    required: readonly string[],
+    allowed: readonly string[],
     label: string,
 ): asserts value is RecordValue {
-    if (!isRecord(value)) {
-        throw new WorkingMemoryPatchError(`${label} must be an object`);
-    }
-
-    const allowed = new Set(allowedKeys);
-    const actual = ownKeys(value);
-    if (actual.some((key) => !allowed.has(key))) {
+    if (!isRecord(value)) throw new WorkingMemoryPatchError(`${label} must be an object`);
+    const allowedSet = new Set(allowed);
+    if (Object.keys(value).some((key) => !allowedSet.has(key))) {
         throw new WorkingMemoryPatchError(`${label} contains unknown fields`);
     }
-    for (const key of requiredKeys) {
-        if (!(key in value)) {
-            throw new WorkingMemoryPatchError(`${label} is missing ${key}`);
-        }
+    for (const key of required) {
+        if (!(key in value)) throw new WorkingMemoryPatchError(`${label} is missing ${key}`);
     }
 }
 
@@ -255,21 +279,13 @@ function assertNonEmptyString(value: unknown, label: string): asserts value is s
 }
 
 function assertPositiveInteger(value: unknown, label: string): asserts value is number {
-    if (
-        typeof value !== "number"
-        || !Number.isInteger(value)
-        || value <= 0
-    ) {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
         throw new WorkingMemoryPatchError(`${label} must be a positive integer`);
     }
 }
 
 function assertNonNegativeInteger(value: unknown, label: string): asserts value is number {
-    if (
-        typeof value !== "number"
-        || !Number.isInteger(value)
-        || value < 0
-    ) {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
         throw new WorkingMemoryPatchError(`${label} must be a non-negative integer`);
     }
 }
@@ -284,262 +300,183 @@ function assertOneOf<T extends string>(
     }
 }
 
-function assertLimitInteger(value: unknown, label: string, allowZero = true): void {
+function serializedByteLength(value: unknown): number {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined
+        ? Number.POSITIVE_INFINITY
+        : new TextEncoder().encode(serialized).byteLength;
+}
+
+function jsonDepth(value: JsonValue): number {
+    if (value === null || typeof value !== "object") return 0;
+    if (Array.isArray(value)) {
+        return 1 + value.reduce<number>((depth, item) => Math.max(depth, jsonDepth(item)), 0);
+    }
+    return 1 + Object.values(value).reduce<number>(
+        (depth, item) => Math.max(depth, jsonDepth(item)),
+        0,
+    );
+}
+
+function normalizeText(value: string): string {
+    return value.normalize("NFC").trim();
+}
+
+function canonicalizeJson(value: JsonValue): JsonValue {
+    if (Array.isArray(value)) return value.map(canonicalizeJson);
+    if (value !== null && typeof value === "object") {
+        const normalized: Record<string, JsonValue> = {};
+        for (const key of Object.keys(value).sort()) {
+            normalized[key] = canonicalizeJson((value as JsonObject)[key] as JsonValue);
+        }
+        return normalized;
+    }
+    return value;
+}
+
+function jsonEquals(left: JsonValue, right: JsonValue): boolean {
+    return JSON.stringify(canonicalizeJson(left)) === JSON.stringify(canonicalizeJson(right));
+}
+
+function assertJsonValue(value: unknown, label: string, depth = 0): asserts value is JsonValue {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return;
+    if (typeof value === "number") {
+        if (!Number.isFinite(value)) throw new WorkingMemoryPatchError(`${label} must be finite JSON`);
+        return;
+    }
+    if (Array.isArray(value)) {
+        for (let index = 0; index < value.length; index += 1) {
+            assertJsonValue(value[index], `${label}[${index}]`, depth + 1);
+        }
+        return;
+    }
+    if (isRecord(value)) {
+        for (const [key, item] of Object.entries(value)) {
+            if (key.length === 0) throw new WorkingMemoryPatchError(`${label} has an empty key`);
+            assertJsonValue(item, `${label}.${key}`, depth + 1);
+        }
+        return;
+    }
+    throw new WorkingMemoryPatchError(`${label} must be JSON-serializable`);
+}
+
+function assertLimit(value: unknown, label: string, positive = false): asserts value is number {
     if (
         typeof value !== "number"
         || !Number.isSafeInteger(value)
-        || (allowZero ? value < 0 : value <= 0)
+        || (positive ? value <= 0 : value < 0)
     ) {
         throw new WorkingMemoryLimitsError(
-            `${label} must be a ${allowZero ? "non-negative" : "positive"} safe integer`,
+            `${label} must be a ${positive ? "positive" : "non-negative"} safe integer`,
         );
     }
 }
 
-function mergeLimits(input?: WorkingMemoryLimitsInput): WorkingMemoryLimits {
-    const candidate = input ?? {};
-    if (!isRecord(candidate)) {
+/** 解析并冻结本次准入使用的完整限制。 */
+export function resolveWorkingMemoryLimits(
+    input?: WorkingMemoryLimitsInput,
+): WorkingMemoryLimits {
+    if (input !== undefined && !isRecord(input)) {
         throw new WorkingMemoryLimitsError("limits must be an object");
     }
-    const limits: WorkingMemoryLimits = {
-        ...DEFAULT_WORKING_MEMORY_LIMITS,
-        ...candidate,
-    };
-
-    assertLimitInteger(limits.maxOperations, "maxOperations");
-    assertLimitInteger(limits.maxSerializedBytes, "maxSerializedBytes", false);
-    assertLimitInteger(limits.maxStableIdLength, "maxStableIdLength", false);
-    assertLimitInteger(limits.maxTextLength, "maxTextLength", false);
-    assertLimitInteger(limits.maxEvidenceReferences, "maxEvidenceReferences");
-    assertLimitInteger(limits.maxFindings, "maxFindings");
-    assertLimitInteger(limits.maxHypotheses, "maxHypotheses");
-    assertLimitInteger(limits.maxPlanItems, "maxPlanItems");
-    assertLimitInteger(limits.maxBlockers, "maxBlockers");
-    return limits;
+    const limits = { ...DEFAULT_WORKING_MEMORY_LIMITS, ...(input ?? {}) };
+    assertLimit(limits.maxOperations, "maxOperations");
+    assertLimit(limits.maxSerializedBytes, "maxSerializedBytes", true);
+    assertLimit(limits.maxWorkingMemoryBytes, "maxWorkingMemoryBytes", true);
+    assertLimit(limits.maxFactSerializedBytes, "maxFactSerializedBytes", true);
+    assertLimit(limits.maxJsonDepth, "maxJsonDepth");
+    assertLimit(limits.maxStableIdLength, "maxStableIdLength", true);
+    assertLimit(limits.maxTextLength, "maxTextLength", true);
+    assertLimit(limits.maxEvidenceReferences, "maxEvidenceReferences");
+    assertLimit(limits.maxFacts, "maxFacts");
+    assertLimit(limits.maxHypotheses, "maxHypotheses");
+    assertLimit(limits.maxPlanItems, "maxPlanItems");
+    assertLimit(limits.maxBlockers, "maxBlockers");
+    return Object.freeze(limits);
 }
 
-function serializedByteLength(value: unknown): number {
-    const serialized = JSON.stringify(value);
-    if (serialized === undefined) return Number.POSITIVE_INFINITY;
-    return new TextEncoder().encode(serialized).byteLength;
-}
-
-function assertTextLimit(
-    value: string,
-    label: string,
-    limits: WorkingMemoryLimits,
-): void {
+function assertText(value: unknown, label: string, limits: WorkingMemoryLimits): asserts value is string {
+    assertNonEmptyString(value, label);
     if (value.length > limits.maxTextLength) {
-        throw new WorkingMemoryPatchError(
-            `${label} exceeds maxTextLength (${limits.maxTextLength})`,
-        );
+        throw new WorkingMemoryPatchError(`${label} exceeds maxTextLength (${limits.maxTextLength})`);
     }
 }
 
 function assertId(value: unknown, label: string, limits: WorkingMemoryLimits): asserts value is string {
     assertNonEmptyString(value, label);
     if (value.length > limits.maxStableIdLength) {
-        throw new WorkingMemoryPatchError(
-            `${label} exceeds maxStableIdLength (${limits.maxStableIdLength})`,
-        );
+        throw new WorkingMemoryPatchError(`${label} exceeds maxStableIdLength (${limits.maxStableIdLength})`);
     }
 }
 
-function assertEvidenceSequences(
+function assertStringIds(
     value: unknown,
     label: string,
     limits: WorkingMemoryLimits,
+): asserts value is readonly string[] {
+    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`);
+    const seen = new Set<string>();
+    for (const id of value) {
+        assertId(id, `${label} item`, limits);
+        if (seen.has(id)) throw new WorkingMemoryPatchError(`${label} contains duplicate ID`);
+        seen.add(id);
+    }
+}
+
+function assertEvidence(
+    value: unknown,
+    label: string,
+    limits: WorkingMemoryLimits,
+    allowEmpty = false,
 ): asserts value is readonly number[] {
-    if (!Array.isArray(value)) {
-        throw new WorkingMemoryPatchError(`${label} must be an array`);
+    if (!Array.isArray(value)) throw new WorkingMemoryPatchError(`${label} must be an array`);
+    if (!allowEmpty && value.length === 0) {
+        throw new WorkingMemoryPatchError(`${label} must not be empty`);
     }
     if (value.length > limits.maxEvidenceReferences) {
         throw new WorkingMemoryPatchError(
             `${label} exceeds maxEvidenceReferences (${limits.maxEvidenceReferences})`,
         );
     }
-
     const seen = new Set<number>();
     for (const sequence of value) {
         assertPositiveInteger(sequence, `${label} sequence`);
-        if (seen.has(sequence)) {
-            throw new WorkingMemoryPatchError(`${label} contains duplicate sequence`);
-        }
+        if (seen.has(sequence)) throw new WorkingMemoryPatchError(`${label} contains duplicate sequence`);
         seen.add(sequence);
     }
 }
 
-function assertStoredEvidenceSequences(value: unknown, label: string): asserts value is readonly number[] {
-    if (!Array.isArray(value)) {
-        throw new WorkingMemoryPatchError(`${label} must be an array`);
-    }
-    const seen = new Set<number>();
-    for (const sequence of value) {
-        assertPositiveInteger(sequence, `${label} sequence`);
-        if (seen.has(sequence)) {
-            throw new WorkingMemoryPatchError(`${label} contains duplicate sequence`);
-        }
-        seen.add(sequence);
-    }
-}
-
-function assertStatus(value: unknown, label: string): asserts value is MemoryEntryStatus {
-    assertOneOf(value, MEMORY_ENTRY_STATUSES, label);
-}
-
-function assertScope(value: unknown, label: string): asserts value is MemoryEntryScope {
-    assertOneOf(value, MEMORY_ENTRY_SCOPES, label);
-}
-
-function assertPhase(value: unknown, label: string): asserts value is GoalPhase {
-    assertOneOf(value, GOAL_PHASES, label);
-}
-
-function assertStoredEntry(value: unknown, label: string): asserts value is MemoryEntry {
-    if (!isRecord(value) || typeof value.kind !== "string") {
-        throw new WorkingMemoryPatchError(`${label} must be a memory entry object`);
-    }
-
-    switch (value.kind) {
-        case "finding":
-            assertExactKeys(
-                value,
-                [
-                    "kind",
-                    "id",
-                    "originPhase",
-                    "originSequence",
-                    "scope",
-                    "status",
-                    "statement",
-                    "evidenceSequences",
-                ],
-                label,
-            );
-            break;
-        case "hypothesis":
-            assertExactKeys(
-                value,
-                ["kind", "id", "originPhase", "originSequence", "scope", "status", "statement"],
-                label,
-            );
-            break;
-        case "plan":
-        case "blocker":
-        case "next_action":
-            assertExactKeys(
-                value,
-                ["kind", "id", "originPhase", "originSequence", "scope", "status", "description"],
-                label,
-            );
-            break;
-        default:
-            throw new WorkingMemoryPatchError(`${label}.kind is invalid`);
-    }
-
-    assertId(value.id, `${label}.id`, {
-        ...DEFAULT_WORKING_MEMORY_LIMITS,
-        maxStableIdLength: Number.MAX_SAFE_INTEGER,
-    });
-    assertPhase(value.originPhase, `${label}.originPhase`);
-    assertNonNegativeInteger(value.originSequence, `${label}.originSequence`);
-    assertScope(value.scope, `${label}.scope`);
-    assertStatus(value.status, `${label}.status`);
-    if (value.kind === "finding") {
-        if (value.scope !== "goal") {
-            throw new WorkingMemoryPatchError(`${label}.scope must be goal`);
-        }
-        assertNonEmptyString(value.statement, `${label}.statement`);
-        assertStoredEvidenceSequences(value.evidenceSequences, `${label}.evidenceSequences`);
-    } else {
-        if (value.kind !== "blocker" && value.scope !== "phase") {
-            throw new WorkingMemoryPatchError(`${label}.scope must be phase`);
-        }
-        assertNonEmptyString(
-            value.kind === "hypothesis" ? value.statement : value.description,
-            `${label}.text`,
-        );
-    }
-}
-
-function assertPatchObject(
-    patch: unknown,
-    limits: WorkingMemoryLimits,
-): asserts patch is WorkingMemoryPatch {
-    assertExactKeys(patch, PATCH_KEYS, "memoryPatch");
-    if (patch.protocolVersion !== 1) {
-        throw new WorkingMemoryPatchError("protocolVersion must be 1");
-    }
-    if (!Array.isArray(patch.operations)) {
-        throw new WorkingMemoryPatchError("operations must be an array");
-    }
-    if (patch.operations.length > limits.maxOperations) {
-        throw new WorkingMemoryPatchError(
-            `operations exceeds maxOperations (${limits.maxOperations})`,
-        );
-    }
-    if (serializedByteLength(patch) > limits.maxSerializedBytes) {
-        throw new WorkingMemoryPatchError(
-            `memoryPatch exceeds maxSerializedBytes (${limits.maxSerializedBytes})`,
-        );
-    }
-}
-
-function assertFindingInput(
+function assertFactProposal(
     value: unknown,
     label: string,
     limits: WorkingMemoryLimits,
-    update: boolean,
-): asserts value is AddFinding | UpdateFinding {
-    const keys = ["id", "statement", "evidenceSequences", "status"];
+): asserts value is FactProposal {
     assertAllowedKeys(
         value,
-        update ? ["id"] : ["id", "statement", "evidenceSequences"],
-        update ? keys : keys.slice(0, 3),
+        ["subject", "predicate", "value", "stability", "evidenceSequences"],
+        ["subject", "predicate", "value", "stability", "evidenceSequences", "scope"],
         label,
     );
-    assertId(value.id, `${label}.id`, limits);
-    if (!update || value.statement !== undefined) {
-        assertNonEmptyString(value.statement, `${label}.statement`);
-        assertTextLimit(value.statement, `${label}.statement`, limits);
+    assertText(value.subject, `${label}.subject`, limits);
+    assertText(value.predicate, `${label}.predicate`, limits);
+    assertJsonValue(value.value, `${label}.value`);
+    if (jsonDepth(value.value) > limits.maxJsonDepth) {
+        throw new WorkingMemoryPatchError(`${label}.value exceeds maxJsonDepth (${limits.maxJsonDepth})`);
     }
-    if (!update || value.evidenceSequences !== undefined) {
-        assertEvidenceSequences(
-            value.evidenceSequences,
-            `${label}.evidenceSequences`,
-            limits,
+    assertOneOf(value.stability, FACT_STABILITIES, `${label}.stability`);
+    assertEvidence(value.evidenceSequences, `${label}.evidenceSequences`, limits);
+    if (value.scope !== undefined) assertOneOf(value.scope, MEMORY_ENTRY_SCOPES, `${label}.scope`);
+    if (serializedByteLength(value) > limits.maxFactSerializedBytes) {
+        throw new WorkingMemoryPatchError(
+            `${label} exceeds maxFactSerializedBytes (${limits.maxFactSerializedBytes})`,
         );
     }
-    if (update && value.status !== undefined) {
-        assertStatus(value.status, `${label}.status`);
+    const controlKey = `${normalizeText(value.subject)} ${normalizeText(value.predicate)}`
+        .toLowerCase()
+        .replace(/[\s.-]+/g, "_");
+    if ([...CONTROL_STATE_TERMS].some((term) => controlKey.split("_").includes(term) || controlKey.includes(term))) {
+        throw new WorkingMemoryPatchError(`${label} attempts to store Runtime control state`);
     }
-    if (
-        update
-        && value.statement === undefined
-        && value.evidenceSequences === undefined
-        && value.status === undefined
-    ) {
-        throw new WorkingMemoryPatchError(`${label} must change at least one field`);
-    }
-}
-
-function assertDescriptionInput(
-    value: unknown,
-    label: string,
-    limits: WorkingMemoryLimits,
-    keys: readonly string[],
-): asserts value is HypothesisUpdate | PlanItemUpdate | BlockerUpdate | NextActionUpdate {
-    const required = ["id"];
-    if (keys.includes("statement")) required.push("statement");
-    if (keys.includes("description")) required.push("description");
-    if (keys.includes("scope")) required.push("scope");
-    assertAllowedKeys(value, required, keys, label);
-    assertId(value.id, `${label}.id`, limits);
-    const description = value.statement ?? value.description;
-    assertNonEmptyString(description, `${label}.description`);
-    assertTextLimit(description, `${label}.description`, limits);
-    if ("scope" in value) assertScope(value.scope, `${label}.scope`);
-    if (value.status !== undefined) assertStatus(value.status, `${label}.status`);
 }
 
 function assertOperation(
@@ -547,204 +484,122 @@ function assertOperation(
     index: number,
     limits: WorkingMemoryLimits,
 ): asserts value is MemoryPatchOperation {
-    if (!isRecord(value) || typeof value.type !== "string") {
-        throw new WorkingMemoryPatchError(`operations[${index}] must have a type`);
-    }
-
-    switch (value.type) {
-        case "add_finding":
-            assertExactKeys(value, ["type", "finding"], `operations[${index}]`);
-            assertFindingInput(value.finding, `operations[${index}].finding`, limits, false);
-            return;
-        case "update_finding":
-            assertExactKeys(value, ["type", "finding"], `operations[${index}]`);
-            assertFindingInput(value.finding, `operations[${index}].finding`, limits, true);
-            return;
-        case "upsert_hypothesis":
-            assertExactKeys(value, ["type", "hypothesis"], `operations[${index}]`);
-            assertDescriptionInput(
-                value.hypothesis,
-                `operations[${index}].hypothesis`,
-                limits,
-                ["id", "statement", "status"],
-            );
-            return;
-        case "upsert_plan_item":
-            assertExactKeys(value, ["type", "planItem"], `operations[${index}]`);
-            assertDescriptionInput(
-                value.planItem,
-                `operations[${index}].planItem`,
-                limits,
-                ["id", "description", "status"],
-            );
-            return;
-        case "upsert_blocker":
-            assertExactKeys(value, ["type", "blocker"], `operations[${index}]`);
-            assertDescriptionInput(
-                value.blocker,
-                `operations[${index}].blocker`,
-                limits,
-                ["id", "description", "scope", "status"],
-            );
-            return;
-        case "set_next_action":
-            assertExactKeys(value, ["type", "nextAction"], `operations[${index}]`);
-            if (value.nextAction === null) return;
-            assertDescriptionInput(
-                value.nextAction,
-                `operations[${index}].nextAction`,
-                limits,
-                ["id", "description", "status"],
-            );
-            return;
-        default:
-            throw new WorkingMemoryPatchError(
-                `operations[${index}] has unknown type`,
-            );
-    }
-}
-
-interface MemoryEntriesSource {
-    readonly findings: readonly EvidenceBackedFinding[];
-    readonly hypotheses: readonly Hypothesis[];
-    readonly plan: readonly PlanItem[];
-    readonly blockers: readonly Blocker[];
-    readonly nextAction?: NextAction;
-}
-
-function allEntries(memory: MemoryEntriesSource): MemoryEntry[] {
-    return [
-        ...memory.findings,
-        ...memory.hypotheses,
-        ...memory.plan,
-        ...memory.blockers,
-        ...(memory.nextAction === undefined ? [] : [memory.nextAction]),
-    ];
-}
-
-function findEntry(memory: MemoryEntriesSource, id: string): MemoryEntry | undefined {
-    return allEntries(memory).find((entry) => entry.id === id);
-}
-
-function entryKind(entry: MemoryEntry): MemoryEntryKind {
-    return entry.kind;
-}
-
-function assertWorkingMemoryShape(value: unknown): asserts value is WorkingMemory {
-    if (!isRecord(value)) {
-        throw new WorkingMemoryPatchError("workingMemory must be an object");
-    }
-    assertAllowedKeys(
-        value,
-        ["protocolVersion", "derivedThroughSequence", "findings", "hypotheses", "plan", "blockers"],
-        [
-            "protocolVersion",
-            "derivedThroughSequence",
-            "revision",
-            "findings",
-            "hypotheses",
-            "plan",
-            "blockers",
-            "nextAction",
-        ],
-        "workingMemory",
-    );
-    const memory = value as unknown as WorkingMemory;
-    if (memory.protocolVersion !== 1) {
-        throw new WorkingMemoryPatchError("workingMemory.protocolVersion must be 1");
-    }
-    if (
-        !Array.isArray(memory.findings)
-        || !Array.isArray(memory.hypotheses)
-        || !Array.isArray(memory.plan)
-        || !Array.isArray(memory.blockers)
-    ) {
-        throw new WorkingMemoryPatchError("workingMemory collections must be arrays");
-    }
-    if (memory.nextAction !== undefined) assertStoredEntry(memory.nextAction, "workingMemory.nextAction");
-    if (memory.nextAction !== undefined && memory.nextAction.kind !== "next_action") {
-        throw new WorkingMemoryPatchError("workingMemory.nextAction.kind must be next_action");
-    }
-    if (memory.revision !== undefined) {
-        assertExactKeys(memory.revision, ["eventId", "sequence"], "workingMemory.revision");
-        assertNonEmptyString(memory.revision.eventId, "workingMemory.revision.eventId");
-        assertNonNegativeInteger(memory.revision.sequence, "workingMemory.revision.sequence");
-        if (memory.revision.sequence > memory.derivedThroughSequence) {
-            throw new WorkingMemoryPatchError("workingMemory revision exceeds derivedThroughSequence");
-        }
-    }
-    assertNonNegativeInteger(
-        memory.derivedThroughSequence,
-        "workingMemory.derivedThroughSequence",
-    );
-    const ids = new Set<string>();
-    for (const entry of allEntries(memory)) {
-        assertStoredEntry(entry, "workingMemory entry");
-        if (ids.has(entry.id)) {
-            throw new WorkingMemoryPatchError("workingMemory contains duplicate stable ID");
-        }
-        ids.add(entry.id);
-        if (entry.originSequence > memory.derivedThroughSequence) {
-            throw new WorkingMemoryPatchError("workingMemory entry exceeds derivedThroughSequence");
-        }
-    }
-}
-
-function assertCanonicalOperation(
-    value: unknown,
-    label: string,
-): asserts value is CanonicalMemoryOperation {
+    const label = `operations[${index}]`;
     if (!isRecord(value) || typeof value.type !== "string") {
         throw new WorkingMemoryPatchError(`${label} must have a type`);
     }
     switch (value.type) {
-        case "add_finding":
-        case "update_finding":
-            assertExactKeys(value, ["type", "finding"], label);
-            assertStoredEntry(value.finding, `${label}.finding`);
-            if (value.finding.kind !== "finding") {
-                throw new WorkingMemoryPatchError(`${label}.finding.kind must be finding`);
-            }
+        case "upsert_fact":
+            assertExactKeys(value, ["type", "fact"], label);
+            assertFactProposal(value.fact, `${label}.fact`, limits);
             return;
-        case "upsert_hypothesis":
+        case "retire_fact":
+            assertExactKeys(value, ["type", "fact"], label);
+            assertExactKeys(value.fact, ["id", "evidenceSequences"], `${label}.fact`);
+            assertId(value.fact.id, `${label}.fact.id`, limits);
+            assertEvidence(value.fact.evidenceSequences, `${label}.fact.evidenceSequences`, limits);
+            return;
+        case "create_hypothesis":
             assertExactKeys(value, ["type", "hypothesis"], label);
-            assertStoredEntry(value.hypothesis, `${label}.hypothesis`);
-            if (value.hypothesis.kind !== "hypothesis") {
-                throw new WorkingMemoryPatchError(`${label}.hypothesis.kind must be hypothesis`);
+            assertAllowedKeys(value.hypothesis, ["statement"], ["statement", "scope"], `${label}.hypothesis`);
+            assertText(value.hypothesis.statement, `${label}.hypothesis.statement`, limits);
+            if (value.hypothesis.scope !== undefined) {
+                assertOneOf(value.hypothesis.scope, MEMORY_ENTRY_SCOPES, `${label}.hypothesis.scope`);
             }
             return;
-        case "upsert_plan_item":
+        case "update_hypothesis":
+            assertExactKeys(value, ["type", "hypothesis"], label);
+            assertAllowedKeys(value.hypothesis, ["id"], ["id", "statement", "status"], `${label}.hypothesis`);
+            assertId(value.hypothesis.id, `${label}.hypothesis.id`, limits);
+            if (value.hypothesis.statement !== undefined) {
+                assertText(value.hypothesis.statement, `${label}.hypothesis.statement`, limits);
+            }
+            if (value.hypothesis.status !== undefined) {
+                assertOneOf(value.hypothesis.status, MEMORY_ENTRY_STATUSES, `${label}.hypothesis.status`);
+            }
+            if (value.hypothesis.statement === undefined && value.hypothesis.status === undefined) {
+                throw new WorkingMemoryPatchError(`${label}.hypothesis must change a field`);
+            }
+            return;
+        case "create_plan_item":
             assertExactKeys(value, ["type", "planItem"], label);
-            assertStoredEntry(value.planItem, `${label}.planItem`);
-            if (value.planItem.kind !== "plan") {
-                throw new WorkingMemoryPatchError(`${label}.planItem.kind must be plan`);
+            assertAllowedKeys(
+                value.planItem,
+                ["description"],
+                ["description", "status", "dependsOnFactIds", "dependsOnPlanItemIds"],
+                `${label}.planItem`,
+            );
+            assertText(value.planItem.description, `${label}.planItem.description`, limits);
+            if (value.planItem.status !== undefined) {
+                assertOneOf(value.planItem.status, ["pending", "active", "blocked"] as const, `${label}.planItem.status`);
+            }
+            if (value.planItem.dependsOnFactIds !== undefined) {
+                assertStringIds(value.planItem.dependsOnFactIds, `${label}.planItem.dependsOnFactIds`, limits);
+            }
+            if (value.planItem.dependsOnPlanItemIds !== undefined) {
+                assertStringIds(value.planItem.dependsOnPlanItemIds, `${label}.planItem.dependsOnPlanItemIds`, limits);
             }
             return;
-        case "upsert_blocker":
+        case "update_plan_item":
+            assertExactKeys(value, ["type", "planItem"], label);
+            assertAllowedKeys(
+                value.planItem,
+                ["id"],
+                [
+                    "id",
+                    "description",
+                    "status",
+                    "dependsOnFactIds",
+                    "dependsOnPlanItemIds",
+                    "completionEvidenceSequences",
+                ],
+                `${label}.planItem`,
+            );
+            assertId(value.planItem.id, `${label}.planItem.id`, limits);
+            if (value.planItem.description !== undefined) {
+                assertText(value.planItem.description, `${label}.planItem.description`, limits);
+            }
+            if (value.planItem.status !== undefined) {
+                assertOneOf(value.planItem.status, PLAN_ITEM_STATUSES, `${label}.planItem.status`);
+            }
+            if (value.planItem.dependsOnFactIds !== undefined) {
+                assertStringIds(value.planItem.dependsOnFactIds, `${label}.planItem.dependsOnFactIds`, limits);
+            }
+            if (value.planItem.dependsOnPlanItemIds !== undefined) {
+                assertStringIds(value.planItem.dependsOnPlanItemIds, `${label}.planItem.dependsOnPlanItemIds`, limits);
+            }
+            if (value.planItem.completionEvidenceSequences !== undefined) {
+                assertEvidence(
+                    value.planItem.completionEvidenceSequences,
+                    `${label}.planItem.completionEvidenceSequences`,
+                    limits,
+                    true,
+                );
+            }
+            if (Object.keys(value.planItem).length === 1) {
+                throw new WorkingMemoryPatchError(`${label}.planItem must change a field`);
+            }
+            return;
+        case "create_blocker":
             assertExactKeys(value, ["type", "blocker"], label);
-            assertStoredEntry(value.blocker, `${label}.blocker`);
-            if (value.blocker.kind !== "blocker") {
-                throw new WorkingMemoryPatchError(`${label}.blocker.kind must be blocker`);
+            assertAllowedKeys(value.blocker, ["description"], ["description", "scope"], `${label}.blocker`);
+            assertText(value.blocker.description, `${label}.blocker.description`, limits);
+            if (value.blocker.scope !== undefined) {
+                assertOneOf(value.blocker.scope, MEMORY_ENTRY_SCOPES, `${label}.blocker.scope`);
             }
             return;
-        case "set_next_action":
-            assertExactKeys(value, ["type", "nextAction"], label);
-            if (value.nextAction !== null) {
-                assertStoredEntry(value.nextAction, `${label}.nextAction`);
-                if (value.nextAction.kind !== "next_action") {
-                    throw new WorkingMemoryPatchError(`${label}.nextAction.kind must be next_action`);
-                }
+        case "update_blocker":
+            assertExactKeys(value, ["type", "blocker"], label);
+            assertAllowedKeys(value.blocker, ["id"], ["id", "description", "status"], `${label}.blocker`);
+            assertId(value.blocker.id, `${label}.blocker.id`, limits);
+            if (value.blocker.description !== undefined) {
+                assertText(value.blocker.description, `${label}.blocker.description`, limits);
             }
-            return;
-        case "supersede_scope":
-            assertAllowedKeys(value, ["type", "scope"], ["type", "scope", "phase", "kinds"], label);
-            assertScope(value.scope, `${label}.scope`);
-            if (value.phase !== undefined) assertPhase(value.phase, `${label}.phase`);
-            if (value.kinds !== undefined) {
-                if (!Array.isArray(value.kinds)) {
-                    throw new WorkingMemoryPatchError(`${label}.kinds must be an array`);
-                }
-                for (const kind of value.kinds) assertOneOf(kind, MEMORY_ENTRY_KINDS, `${label}.kind`);
+            if (value.blocker.status !== undefined) {
+                assertOneOf(value.blocker.status, MEMORY_ENTRY_STATUSES, `${label}.blocker.status`);
+            }
+            if (value.blocker.description === undefined && value.blocker.status === undefined) {
+                throw new WorkingMemoryPatchError(`${label}.blocker must change a field`);
             }
             return;
         default:
@@ -752,538 +607,604 @@ function assertCanonicalOperation(
     }
 }
 
-function assertStatusTransition(
-    existing: MemoryEntry | undefined,
-    nextStatus: MemoryEntryStatus | undefined,
-    label: string,
-): void {
-    if (existing === undefined) {
-        if (nextStatus !== undefined && nextStatus !== "active") {
-            throw new WorkingMemoryPatchError(`${label} cannot create an inactive entry`);
-        }
-        return;
-    }
-
-    if (existing.status !== "active") {
-        throw new WorkingMemoryPatchError(`${label} targets an inactive entry`);
-    }
-
-    if (
-        nextStatus !== undefined
-        && nextStatus !== "active"
-        && nextStatus !== "resolved"
-        && nextStatus !== "superseded"
-    ) {
-        throw new WorkingMemoryPatchError(`${label}.status transition is invalid`);
-    }
-}
-
-function assertProjectedCapacity(
-    memory: WorkingMemory,
-    operations: readonly MemoryPatchOperation[],
+function assertPatch(
+    patch: unknown,
     limits: WorkingMemoryLimits,
-): void {
-    const projected = {
-        findings: memory.findings.length,
-        hypotheses: memory.hypotheses.length,
-        plan: memory.plan.length,
-        blockers: memory.blockers.length,
-    };
+): asserts patch is WorkingMemoryPatch {
+    assertExactKeys(patch, ["protocolVersion", "operations"], "memoryPatch");
+    if (patch.protocolVersion !== 1) {
+        throw new WorkingMemoryPatchError("memoryPatch.protocolVersion must be 1");
+    }
+    if (!Array.isArray(patch.operations)) {
+        throw new WorkingMemoryPatchError("memoryPatch.operations must be an array");
+    }
+    if (patch.operations.length > limits.maxOperations) {
+        throw new WorkingMemoryPatchError(`operations exceeds maxOperations (${limits.maxOperations})`);
+    }
+    if (serializedByteLength(patch) > limits.maxSerializedBytes) {
+        throw new WorkingMemoryPatchError(`memoryPatch exceeds maxSerializedBytes (${limits.maxSerializedBytes})`);
+    }
+    patch.operations.forEach((operation, index) => assertOperation(operation, index, limits));
+}
 
-    for (const operation of operations) {
-        if (operation.type === "add_finding" && findEntry(memory, operation.finding.id) === undefined) {
-            projected.findings += 1;
-        }
-        if (operation.type === "upsert_hypothesis") {
-            const existing = findEntry(memory, operation.hypothesis.id);
-            if (existing === undefined) projected.hypotheses += 1;
-        }
-        if (operation.type === "upsert_plan_item") {
-            const existing = findEntry(memory, operation.planItem.id);
-            if (existing === undefined) projected.plan += 1;
-        }
-        if (operation.type === "upsert_blocker") {
-            const existing = findEntry(memory, operation.blocker.id);
-            if (existing === undefined) projected.blockers += 1;
-        }
-    }
+function allEntries(memory: WorkingMemory): MemoryEntry[] {
+    return [...memory.facts, ...memory.hypotheses, ...memory.plan, ...memory.blockers];
+}
 
-    if (projected.findings > limits.maxFindings) {
-        throw new WorkingMemoryPatchError(`findings exceeds maxFindings (${limits.maxFindings})`);
+function assertBase(entry: MemoryEntry, memory: WorkingMemory): void {
+    assertNonEmptyString(entry.id, "workingMemory entry.id");
+    assertOneOf(entry.originPhase, GOAL_PHASES, "workingMemory entry.originPhase");
+    assertPositiveInteger(entry.originSequence, "workingMemory entry.originSequence");
+    assertPositiveInteger(entry.updatedAtSequence, "workingMemory entry.updatedAtSequence");
+    assertOneOf(entry.scope, MEMORY_ENTRY_SCOPES, "workingMemory entry.scope");
+    if (entry.originSequence > entry.updatedAtSequence) {
+        throw new WorkingMemoryPatchError("entry origin exceeds updated sequence");
     }
-    if (projected.hypotheses > limits.maxHypotheses) {
-        throw new WorkingMemoryPatchError(
-            `hypotheses exceeds maxHypotheses (${limits.maxHypotheses})`,
-        );
-    }
-    if (projected.plan > limits.maxPlanItems) {
-        throw new WorkingMemoryPatchError(`plan exceeds maxPlanItems (${limits.maxPlanItems})`);
-    }
-    if (projected.blockers > limits.maxBlockers) {
-        throw new WorkingMemoryPatchError(
-            `blockers exceeds maxBlockers (${limits.maxBlockers})`,
-        );
+    if (entry.updatedAtSequence > memory.derivedThroughSequence) {
+        throw new WorkingMemoryPatchError("entry exceeds derivedThroughSequence");
     }
 }
 
-/**
- * 校验限制配置并返回独立副本。
- *
- * @param input - 覆盖默认 v1 限制的配置。
- * @returns 不与调用方共享可变引用的完整限制。
- * @throws WorkingMemoryLimitsError 配置不是安全的非负/正整数时抛出。
- */
-export function resolveWorkingMemoryLimits(
-    input?: WorkingMemoryLimitsInput,
-): WorkingMemoryLimits {
-    return Object.freeze({ ...mergeLimits(input) });
-}
-
-/**
- * 校验当前 Working Memory 的结构和跨集合 stable ID 不变量。
- *
- * @param memory - 需要在归约前验证的 Memory 投影。
- * @throws WorkingMemoryPatchError 当存在控制字段、重复 ID、非法来源或损坏 revision 时抛出。
- */
+/** 校验当前 Working Memory 投影的结构与跨条目引用。 */
 export function assertValidWorkingMemory(memory: WorkingMemory): void {
-    assertWorkingMemoryShape(memory);
+    if (!isRecord(memory)) throw new WorkingMemoryPatchError("workingMemory must be an object");
+    assertAllowedKeys(
+        memory,
+        ["protocolVersion", "derivedThroughSequence", "facts", "hypotheses", "plan", "blockers"],
+        ["protocolVersion", "derivedThroughSequence", "revision", "facts", "hypotheses", "plan", "blockers"],
+        "workingMemory",
+    );
+    if (memory.protocolVersion !== 1) throw new WorkingMemoryPatchError("workingMemory.protocolVersion must be 1");
+    assertNonNegativeInteger(memory.derivedThroughSequence, "workingMemory.derivedThroughSequence");
+    if (!Array.isArray(memory.facts) || !Array.isArray(memory.hypotheses) || !Array.isArray(memory.plan) || !Array.isArray(memory.blockers)) {
+        throw new WorkingMemoryPatchError("workingMemory collections must be arrays");
+    }
+    if (memory.revision !== undefined) {
+        assertExactKeys(memory.revision, ["eventId", "sequence"], "workingMemory.revision");
+        assertNonEmptyString(memory.revision.eventId, "workingMemory.revision.eventId");
+        assertNonNegativeInteger(memory.revision.sequence, "workingMemory.revision.sequence");
+        if (memory.revision.sequence > memory.derivedThroughSequence) {
+            throw new WorkingMemoryPatchError("workingMemory revision exceeds derived boundary");
+        }
+    }
+    const ids = new Set<string>();
+    for (const entry of allEntries(memory)) {
+        assertBase(entry, memory);
+        if (ids.has(entry.id)) throw new WorkingMemoryPatchError("workingMemory contains duplicate ID");
+        ids.add(entry.id);
+        if (entry.kind === "fact") {
+            if (entry.id !== createCanonicalFactId(entry.subject, entry.predicate)) {
+                throw new WorkingMemoryPatchError("Fact ID does not match canonical identity");
+            }
+            assertJsonValue(entry.value, "workingMemory fact.value");
+            assertOneOf(entry.stability, FACT_STABILITIES, "workingMemory fact.stability");
+            assertEvidence(entry.evidenceSequences, "workingMemory fact.evidenceSequences", DEFAULT_WORKING_MEMORY_LIMITS);
+            assertPositiveInteger(entry.reinforcementCount, "workingMemory fact.reinforcementCount");
+            if (entry.lastEvidenceSequence !== Math.max(...entry.evidenceSequences)) {
+                throw new WorkingMemoryPatchError("Fact lastEvidenceSequence is inconsistent");
+            }
+        } else if (entry.kind === "plan") {
+            assertOneOf(entry.status, PLAN_ITEM_STATUSES, "workingMemory plan.status");
+            if (entry.dependsOnFactIds.some((id) => !memory.facts.some((fact) => fact.id === id))) {
+                throw new WorkingMemoryPatchError("Plan references a missing Fact");
+            }
+            if (entry.dependsOnPlanItemIds.some((id) => !memory.plan.some((item) => item.id === id))) {
+                throw new WorkingMemoryPatchError("Plan references a missing PlanItem");
+            }
+            if (entry.status === "completed" && entry.completionEvidenceSequences.length === 0) {
+                throw new WorkingMemoryPatchError("completed PlanItem requires evidence");
+            }
+        } else {
+            assertOneOf(entry.status, MEMORY_ENTRY_STATUSES, `workingMemory ${entry.kind}.status`);
+        }
+    }
 }
 
-/**
- * 原子校验模型提出的 Working Memory Patch。
- *
- * @remarks 函数只读输入；任一操作失败都会抛出，调用方不得应用其中部分操作。
- * Finding 的 sequence 这里只校验形状与数量，上下文归属由后续 Evidence Gate 校验。
- *
- * @param patch - 可能来自模型 JSON 的 Patch。
- * @param context - 当前 Memory 与接受限制。
- * @throws WorkingMemoryPatchError 当 schema、stable ID、状态、容量或大小不合法时抛出。
- * @example
- * ```ts
- * validateMemoryPatch({ protocolVersion: 1, operations: [] });
- * ```
- */
+/** 仅执行 proposal schema 与当前投影结构校验，不产生 canonical operations。 */
 export function validateMemoryPatch(
     patch: unknown,
     context: WorkingMemoryPatchValidationContext = {},
 ): asserts patch is WorkingMemoryPatch {
-    const limits = mergeLimits(context.limits);
-    const memory = context.workingMemory ?? createEmptyWorkingMemory();
-    assertWorkingMemoryShape(memory);
-    assertPatchObject(patch, limits);
+    const limits = resolveWorkingMemoryLimits(context.limits);
+    if (context.workingMemory !== undefined) assertValidWorkingMemory(context.workingMemory);
+    assertPatch(patch, limits);
+}
 
-    const operationIds = new Set<string>();
-    let nextActionTouched = false;
-    for (const [index, operation] of patch.operations.entries()) {
-        assertOperation(operation, index, limits);
+/** 根据规范化 `{subject, predicate}` 生成稳定 Fact ID。 */
+export function createCanonicalFactId(subject: string, predicate: string): string {
+    const identity = `${normalizeText(subject)}\u0000${normalizeText(predicate)}`;
+    return `fact:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
+}
 
-        if (operation.type === "set_next_action") {
-            if (nextActionTouched) {
-                throw new WorkingMemoryPatchError(
-                    "Patch may contain at most one set_next_action operation",
-                );
-            }
-            nextActionTouched = true;
-        }
+function runtimeId(kind: "hypothesis" | "plan" | "blocker", sequence: number, index: number): string {
+    return `${kind}:${sequence}:${index}`;
+}
 
-        const id = operation.type === "set_next_action"
-            ? operation.nextAction?.id
-            : operation.type === "add_finding" || operation.type === "update_finding"
-                ? operation.finding.id
-                : operation.type === "upsert_hypothesis"
-                    ? operation.hypothesis.id
-                    : operation.type === "upsert_plan_item"
-                        ? operation.planItem.id
-                        : operation.blocker.id;
+function sortedEvidence(evidence: readonly number[]): number[] {
+    return [...new Set(evidence)].sort((left, right) => left - right);
+}
 
-        if (id !== undefined) {
-            if (operationIds.has(id)) {
-                throw new WorkingMemoryPatchError("Patch contains duplicate stable ID");
-            }
-            operationIds.add(id);
-        }
+function sourcePriority(source: MemoryEntrySource): number {
+    if (source === "tool_projector") return 3;
+    if (source === "model") return 2;
+    return 1;
+}
 
-        if (operation.type === "add_finding") {
-            if (findEntry(memory, operation.finding.id) !== undefined) {
-                throw new WorkingMemoryPatchError("add_finding targets an existing stable ID");
-            }
-        } else if (operation.type === "update_finding") {
-            const existing = findEntry(memory, operation.finding.id);
-            if (existing === undefined || entryKind(existing) !== "finding") {
-                throw new WorkingMemoryPatchError("update_finding target does not exist");
-            }
-            assertStatusTransition(existing, operation.finding.status, "update_finding");
-        } else if (operation.type === "upsert_hypothesis") {
-            const existing = findEntry(memory, operation.hypothesis.id);
-            if (existing !== undefined && entryKind(existing) !== "hypothesis") {
-                throw new WorkingMemoryPatchError("upsert_hypothesis target kind mismatches");
-            }
-            assertStatusTransition(existing, operation.hypothesis.status, "upsert_hypothesis");
-        } else if (operation.type === "upsert_plan_item") {
-            const existing = findEntry(memory, operation.planItem.id);
-            if (existing !== undefined && entryKind(existing) !== "plan") {
-                throw new WorkingMemoryPatchError("upsert_plan_item target kind mismatches");
-            }
-            assertStatusTransition(existing, operation.planItem.status, "upsert_plan_item");
-        } else if (operation.type === "upsert_blocker") {
-            const existing = findEntry(memory, operation.blocker.id);
-            if (existing !== undefined && entryKind(existing) !== "blocker") {
-                throw new WorkingMemoryPatchError("upsert_blocker target kind mismatches");
-            }
-            if (existing !== undefined && existing.scope !== operation.blocker.scope) {
-                throw new WorkingMemoryPatchError("upsert_blocker cannot change scope");
-            }
-            assertStatusTransition(existing, operation.blocker.status, "upsert_blocker");
-        } else if (operation.nextAction !== null) {
-            const existing = findEntry(memory, operation.nextAction.id);
-            if (existing !== undefined && entryKind(existing) !== "next_action") {
-                throw new WorkingMemoryPatchError("set_next_action target kind mismatches");
-            }
-            assertStatusTransition(existing, operation.nextAction.status, "set_next_action");
+function findEntry(memory: WorkingMemory, id: string): MemoryEntry | undefined {
+    return allEntries(memory).find((entry) => entry.id === id);
+}
+
+function assertActiveReference<T extends MemoryEntry["kind"]>(
+    memory: WorkingMemory,
+    id: string,
+    kind: T,
+    label: string,
+): Extract<MemoryEntry, { kind: T }> {
+    const entry = findEntry(memory, id);
+    if (entry === undefined || entry.kind !== kind) {
+        throw new WorkingMemoryPatchError(`${label} does not reference a current ${kind}`);
+    }
+    return entry as Extract<MemoryEntry, { kind: T }>;
+}
+
+function assertLifecycleTransition(
+    current: MemoryEntryStatus,
+    next: MemoryEntryStatus,
+    label: string,
+): void {
+    if (current !== "active") throw new WorkingMemoryPatchError(`${label} is terminal`);
+    if (next === "active") return;
+    if (next !== "resolved" && next !== "superseded") {
+        throw new WorkingMemoryPatchError(`${label} transition is invalid`);
+    }
+}
+
+function assertPlanTransition(current: PlanItemStatus, next: PlanItemStatus): void {
+    const allowed: Record<PlanItemStatus, readonly PlanItemStatus[]> = {
+        pending: ["pending", "active", "blocked", "superseded"],
+        active: ["active", "blocked", "completed", "superseded"],
+        blocked: ["blocked", "active", "completed", "superseded"],
+        completed: [],
+        superseded: [],
+    };
+    if (!allowed[current].includes(next)) {
+        throw new WorkingMemoryPatchError(`PlanItem transition ${current} -> ${next} is invalid`);
+    }
+}
+
+function applyOne(memory: WorkingMemory, operation: CanonicalMemoryOperation): WorkingMemory {
+    const remove = (ids: ReadonlySet<string>): WorkingMemory => ({
+        ...memory,
+        facts: memory.facts.filter((entry) => !ids.has(entry.id)),
+        hypotheses: memory.hypotheses.filter((entry) => !ids.has(entry.id)),
+        plan: memory.plan.filter((entry) => !ids.has(entry.id)),
+        blockers: memory.blockers.filter((entry) => !ids.has(entry.id)),
+    });
+    switch (operation.type) {
+        case "upsert_fact":
+            return {
+                ...memory,
+                facts: [...memory.facts.filter((entry) => entry.id !== operation.fact.id), operation.fact],
+            };
+        case "retire_fact":
+            return { ...memory, facts: memory.facts.filter((entry) => entry.id !== operation.factId) };
+        case "upsert_hypothesis":
+            return operation.hypothesis.status === "active"
+                ? {
+                    ...memory,
+                    hypotheses: [
+                        ...memory.hypotheses.filter((entry) => entry.id !== operation.hypothesis.id),
+                        operation.hypothesis,
+                    ],
+                }
+                : remove(new Set([operation.hypothesis.id]));
+        case "upsert_plan_item":
+            return operation.planItem.status === "completed" || operation.planItem.status === "superseded"
+                ? remove(new Set([operation.planItem.id]))
+                : {
+                    ...memory,
+                    plan: [...memory.plan.filter((entry) => entry.id !== operation.planItem.id), operation.planItem],
+                };
+        case "upsert_blocker":
+            return operation.blocker.status === "active"
+                ? {
+                    ...memory,
+                    blockers: [...memory.blockers.filter((entry) => entry.id !== operation.blocker.id), operation.blocker],
+                }
+                : remove(new Set([operation.blocker.id]));
+        case "evict_entries":
+            return remove(new Set(operation.entryIds));
+        case "supersede_scope": {
+            const ids = new Set(
+                allEntries(memory)
+                    .filter((entry) => entry.scope === operation.scope)
+                    .filter((entry) => operation.phase === undefined || entry.originPhase === operation.phase)
+                    .filter((entry) => operation.kinds === undefined || operation.kinds.includes(entry.kind))
+                    .map((entry) => entry.id),
+            );
+            return remove(ids);
         }
     }
-
-    assertProjectedCapacity(memory, patch.operations, limits);
 }
 
-function cloneEvidenceSequences(value: readonly number[]): readonly number[] {
-    return [...value];
-}
-
-function activeOrInactive<T extends MemoryEntry>(entry: T): T | undefined {
-    return entry.status === "active" ? entry : undefined;
-}
-
-function normalizeFinding(
-    input: AddFinding | UpdateFinding,
-    existing: EvidenceBackedFinding | undefined,
-    context: WorkingMemoryPatchNormalizationContext,
-): EvidenceBackedFinding {
-    const statement = input.statement ?? existing?.statement;
-    const evidenceSequences = input.evidenceSequences ?? existing?.evidenceSequences;
-    if (statement === undefined || evidenceSequences === undefined) {
-        throw new WorkingMemoryPatchError("Finding update must provide complete content");
-    }
-    const status = "status" in input ? input.status : undefined;
+function withoutDerivedMetadata(memory: WorkingMemory): WorkingMemory {
     return {
-        kind: "finding",
-        id: input.id,
-        originPhase: existing?.originPhase ?? context.phase,
-        originSequence: context.originSequence,
-        scope: "goal",
-        status: status ?? existing?.status ?? "active",
-        statement,
-        evidenceSequences: cloneEvidenceSequences(evidenceSequences),
+        ...memory,
+        facts: [...memory.facts],
+        hypotheses: [...memory.hypotheses],
+        plan: [...memory.plan],
+        blockers: [...memory.blockers],
     };
 }
 
-function normalizeDescription(
-    kind: "hypothesis" | "plan" | "blocker" | "next_action",
-    input: HypothesisUpdate | PlanItemUpdate | BlockerUpdate | NextActionUpdate,
-    existing: MemoryEntry | undefined,
-    context: WorkingMemoryPatchNormalizationContext,
-): Hypothesis | PlanItem | Blocker | NextAction {
-    const description = "statement" in input ? input.statement : input.description;
-    const scope = kind === "blocker"
-        ? (input as BlockerUpdate).scope
-        : existing?.scope ?? "phase";
-    return {
-        kind,
-        id: input.id,
-        originPhase: existing?.originPhase ?? context.phase,
-        originSequence: context.originSequence,
-        scope,
-        status: input.status ?? existing?.status ?? "active",
-        ...(kind === "hypothesis"
-            ? { statement: description }
-            : { description }),
-    } as Hypothesis | PlanItem | Blocker | NextAction;
+function canonicalizeOperation(
+    operation: MemoryPatchOperation,
+    index: number,
+    context: Required<Pick<WorkingMemoryPatchNormalizationContext, "phase" | "originSequence">> & {
+        source: MemoryEntrySource;
+    },
+    memory: WorkingMemory,
+): { operation?: CanonicalMemoryOperation; suppression?: MemorySuppressionReason } {
+    const updatedAtSequence = context.originSequence;
+    switch (operation.type) {
+        case "upsert_fact": {
+            const subject = normalizeText(operation.fact.subject);
+            const predicate = normalizeText(operation.fact.predicate);
+            const id = createCanonicalFactId(subject, predicate);
+            const existing = memory.facts.find((fact) => fact.id === id);
+            const evidence = sortedEvidence(operation.fact.evidenceSequences);
+            const latest = Math.max(...evidence);
+            const value = canonicalizeJson(operation.fact.value);
+            if (existing !== undefined) {
+                const sameValue = jsonEquals(existing.value, value);
+                const newEvidence = evidence.some((sequence) => !existing.evidenceSequences.includes(sequence));
+                if (sameValue && !newEvidence) {
+                    return { suppression: latest < existing.lastEvidenceSequence ? "stale_evidence" : "duplicate" };
+                }
+                if (latest < existing.lastEvidenceSequence) return { suppression: "covered_update" };
+                if (
+                    !sameValue
+                    && latest === existing.lastEvidenceSequence
+                    && sourcePriority(context.source) <= sourcePriority(existing.source)
+                ) {
+                    throw new WorkingMemoryPatchError("Fact conflict lacks newer or higher-priority evidence");
+                }
+                const mergedEvidence = sameValue
+                    ? sortedEvidence([...existing.evidenceSequences, ...evidence])
+                    : evidence;
+                return {
+                    operation: {
+                        type: "upsert_fact",
+                        fact: {
+                            ...existing,
+                            subject,
+                            predicate,
+                            value,
+                            stability: operation.fact.stability,
+                            evidenceSequences: mergedEvidence,
+                            reinforcementCount: sameValue
+                                ? existing.reinforcementCount + 1
+                                : 1,
+                            lastEvidenceSequence: Math.max(...mergedEvidence),
+                            source: context.source,
+                            scope: operation.fact.scope ?? existing.scope,
+                            updatedAtSequence,
+                        },
+                    },
+                };
+            }
+            return {
+                operation: {
+                    type: "upsert_fact",
+                    fact: {
+                        kind: "fact",
+                        id,
+                        subject,
+                        predicate,
+                        value,
+                        stability: operation.fact.stability,
+                        evidenceSequences: evidence,
+                        reinforcementCount: 1,
+                        lastEvidenceSequence: latest,
+                        source: context.source,
+                        originPhase: context.phase,
+                        originSequence: context.originSequence,
+                        updatedAtSequence,
+                        scope: operation.fact.scope ?? "goal",
+                    },
+                },
+            };
+        }
+        case "retire_fact": {
+            const existing = assertActiveReference(memory, operation.fact.id, "fact", "retire_fact.id");
+            const latest = Math.max(...operation.fact.evidenceSequences);
+            if (latest <= existing.lastEvidenceSequence) return { suppression: "stale_evidence" };
+            return { operation: { type: "retire_fact", factId: existing.id } };
+        }
+        case "create_hypothesis":
+            return {
+                operation: {
+                    type: "upsert_hypothesis",
+                    hypothesis: {
+                        kind: "hypothesis",
+                        id: runtimeId("hypothesis", context.originSequence, index),
+                        statement: normalizeText(operation.hypothesis.statement),
+                        status: "active",
+                        scope: operation.hypothesis.scope ?? "phase",
+                        originPhase: context.phase,
+                        originSequence: context.originSequence,
+                        updatedAtSequence,
+                    },
+                },
+            };
+        case "update_hypothesis": {
+            const existing = assertActiveReference(memory, operation.hypothesis.id, "hypothesis", "update_hypothesis.id");
+            const status = operation.hypothesis.status ?? existing.status;
+            assertLifecycleTransition(existing.status, status, "Hypothesis");
+            const statement = operation.hypothesis.statement === undefined
+                ? existing.statement
+                : normalizeText(operation.hypothesis.statement);
+            if (status === existing.status && statement === existing.statement) return { suppression: "duplicate" };
+            return {
+                operation: {
+                    type: "upsert_hypothesis",
+                    hypothesis: { ...existing, statement, status, updatedAtSequence },
+                },
+            };
+        }
+        case "create_plan_item": {
+            const dependsOnFactIds = operation.planItem.dependsOnFactIds ?? [];
+            const dependsOnPlanItemIds = operation.planItem.dependsOnPlanItemIds ?? [];
+            dependsOnFactIds.forEach((id) => assertActiveReference(memory, id, "fact", "dependsOnFactIds"));
+            dependsOnPlanItemIds.forEach((id) => assertActiveReference(memory, id, "plan", "dependsOnPlanItemIds"));
+            return {
+                operation: {
+                    type: "upsert_plan_item",
+                    planItem: {
+                        kind: "plan",
+                        id: runtimeId("plan", context.originSequence, index),
+                        description: normalizeText(operation.planItem.description),
+                        status: operation.planItem.status ?? "pending",
+                        dependsOnFactIds: [...dependsOnFactIds],
+                        dependsOnPlanItemIds: [...dependsOnPlanItemIds],
+                        completionEvidenceSequences: [],
+                        scope: "phase",
+                        originPhase: context.phase,
+                        originSequence: context.originSequence,
+                        updatedAtSequence,
+                    },
+                },
+            };
+        }
+        case "update_plan_item": {
+            const existing = assertActiveReference(memory, operation.planItem.id, "plan", "update_plan_item.id");
+            const status = operation.planItem.status ?? existing.status;
+            assertPlanTransition(existing.status, status);
+            const dependsOnFactIds = operation.planItem.dependsOnFactIds ?? existing.dependsOnFactIds;
+            const dependsOnPlanItemIds = operation.planItem.dependsOnPlanItemIds ?? existing.dependsOnPlanItemIds;
+            dependsOnFactIds.forEach((id) => assertActiveReference(memory, id, "fact", "dependsOnFactIds"));
+            dependsOnPlanItemIds.forEach((id) => {
+                if (id === existing.id) throw new WorkingMemoryPatchError("PlanItem cannot depend on itself");
+                assertActiveReference(memory, id, "plan", "dependsOnPlanItemIds");
+            });
+            const completionEvidence = operation.planItem.completionEvidenceSequences
+                ?? existing.completionEvidenceSequences;
+            if (status === "completed" && completionEvidence.length === 0) {
+                throw new WorkingMemoryPatchError("completed PlanItem requires completion evidence");
+            }
+            const next: PlanItem = {
+                ...existing,
+                description: operation.planItem.description === undefined
+                    ? existing.description
+                    : normalizeText(operation.planItem.description),
+                status,
+                dependsOnFactIds: [...dependsOnFactIds],
+                dependsOnPlanItemIds: [...dependsOnPlanItemIds],
+                completionEvidenceSequences: sortedEvidence(completionEvidence),
+                updatedAtSequence,
+            };
+            const comparable = { ...next, updatedAtSequence: existing.updatedAtSequence };
+            if (JSON.stringify(comparable) === JSON.stringify(existing)) return { suppression: "duplicate" };
+            return { operation: { type: "upsert_plan_item", planItem: next } };
+        }
+        case "create_blocker":
+            return {
+                operation: {
+                    type: "upsert_blocker",
+                    blocker: {
+                        kind: "blocker",
+                        id: runtimeId("blocker", context.originSequence, index),
+                        description: normalizeText(operation.blocker.description),
+                        status: "active",
+                        scope: operation.blocker.scope ?? "phase",
+                        originPhase: context.phase,
+                        originSequence: context.originSequence,
+                        updatedAtSequence,
+                    },
+                },
+            };
+        case "update_blocker": {
+            const existing = assertActiveReference(memory, operation.blocker.id, "blocker", "update_blocker.id");
+            const status = operation.blocker.status ?? existing.status;
+            assertLifecycleTransition(existing.status, status, "Blocker");
+            const description = operation.blocker.description === undefined
+                ? existing.description
+                : normalizeText(operation.blocker.description);
+            if (status === existing.status && description === existing.description) return { suppression: "duplicate" };
+            return {
+                operation: {
+                    type: "upsert_blocker",
+                    blocker: { ...existing, description, status, updatedAtSequence },
+                },
+            };
+        }
+    }
+}
+
+function protectedIds(memory: WorkingMemory): Set<string> {
+    const protectedSet = new Set<string>();
+    for (const blocker of memory.blockers) {
+        if (blocker.status === "active") protectedSet.add(blocker.id);
+    }
+    for (const item of memory.plan) {
+        if (item.status !== "active") continue;
+        protectedSet.add(item.id);
+        item.dependsOnFactIds.forEach((id) => protectedSet.add(id));
+    }
+    return protectedSet;
+}
+
+function memoryViolatesLimits(memory: WorkingMemory, limits: WorkingMemoryLimits): boolean {
+    return memory.facts.length > limits.maxFacts
+        || memory.hypotheses.length > limits.maxHypotheses
+        || memory.plan.length > limits.maxPlanItems
+        || memory.blockers.length > limits.maxBlockers
+        || serializedByteLength(memory) > limits.maxWorkingMemoryBytes;
+}
+
+function utilityOrder(left: MemoryEntry, right: MemoryEntry): number {
+    const category = (entry: MemoryEntry): number => {
+        if (entry.kind === "hypothesis") return 0;
+        if (entry.kind === "fact" && entry.stability === "last_observed") return 1;
+        if (entry.kind === "fact") return 2;
+        return 3;
+    };
+    const categoryDelta = category(left) - category(right);
+    if (categoryDelta !== 0) return categoryDelta;
+    const reinforcementLeft = left.kind === "fact" ? left.reinforcementCount : 0;
+    const reinforcementRight = right.kind === "fact" ? right.reinforcementCount : 0;
+    if (reinforcementLeft !== reinforcementRight) return reinforcementLeft - reinforcementRight;
+    const evidenceLeft = left.kind === "fact" ? left.lastEvidenceSequence : 0;
+    const evidenceRight = right.kind === "fact" ? right.lastEvidenceSequence : 0;
+    if (evidenceLeft !== evidenceRight) return evidenceLeft - evidenceRight;
+    if (left.updatedAtSequence !== right.updatedAtSequence) {
+        return left.updatedAtSequence - right.updatedAtSequence;
+    }
+    return left.id.localeCompare(right.id);
+}
+
+function selectEvictions(
+    memory: WorkingMemory,
+    limits: WorkingMemoryLimits,
+): readonly string[] {
+    if (!memoryViolatesLimits(memory, limits)) return [];
+    const protectedSet = protectedIds(memory);
+    let protectedMemory = createEmptyWorkingMemory(memory.derivedThroughSequence, memory.revision);
+    for (const entry of allEntries(memory).filter((candidate) => protectedSet.has(candidate.id))) {
+        protectedMemory = applyOne(protectedMemory, entry.kind === "fact"
+            ? { type: "upsert_fact", fact: entry }
+            : entry.kind === "hypothesis"
+                ? { type: "upsert_hypothesis", hypothesis: entry }
+                : entry.kind === "plan"
+                    ? { type: "upsert_plan_item", planItem: entry }
+                    : { type: "upsert_blocker", blocker: entry });
+    }
+    if (memoryViolatesLimits(protectedMemory, limits)) {
+        throw new WorkingMemoryPatchError("protected Working Memory exceeds capacity");
+    }
+    const candidates = allEntries(memory)
+        .filter((entry) => !protectedSet.has(entry.id))
+        .sort(utilityOrder);
+    const evicted: string[] = [];
+    let selected = memory;
+    for (const entry of candidates) {
+        if (!memoryViolatesLimits(selected, limits)) break;
+        evicted.push(entry.id);
+        selected = applyOne(selected, { type: "evict_entries", entryIds: [entry.id] });
+    }
+    if (memoryViolatesLimits(selected, limits)) {
+        throw new WorkingMemoryPatchError("Working Memory capacity cannot be satisfied");
+    }
+    return evicted;
 }
 
 /**
- * 将已校验模型 Patch 转为带 Runtime 来源元数据的规范化操作。
+ * 将模型或 Projector proposal 归一化为 deterministic canonical Patch。
  *
- * @param patch - 模型提出的 v1 Patch。
- * @param context - 阶段、accepted sequence、当前 Memory 与限制。
- * @returns 新建的规范化 Patch；不会修改输入或当前 Memory。
- * @throws WorkingMemoryPatchError 当 Patch 不能在当前 Memory 上合法应用时抛出。
- * @example
- * ```ts
- * const normalized = normalizeMemoryPatch(patch, {
- *   phase: "planning",
- *   originSequence: 8,
- *   workingMemory,
- * });
- * ```
+ * @returns canonical operations 与抑制原因；全部抑制时 `operations` 为空。
+ * @throws WorkingMemoryPatchError 当任一操作违反 schema、证据新旧、引用或容量契约。
  */
 export function normalizeMemoryPatch(
     patch: unknown,
     context: WorkingMemoryPatchNormalizationContext,
 ): NormalizedWorkingMemoryPatch {
-    const memory = context.workingMemory ?? createEmptyWorkingMemory();
-    const limits = mergeLimits(context.limits);
+    assertOneOf(context.phase, GOAL_PHASES, "phase");
     assertPositiveInteger(context.originSequence, "originSequence");
-    assertPhase(context.phase, "phase");
-    validateMemoryPatch(patch, { workingMemory: memory, limits });
+    const source = context.source ?? "model";
+    assertOneOf(source, ["model", "tool_projector", "runtime"] as const, "source");
+    validateMemoryPatch(patch, context);
+    const limits = resolveWorkingMemoryLimits(context.limits);
+    const original = context.workingMemory ?? createEmptyWorkingMemory();
+    let draft = withoutDerivedMetadata(original);
+    const canonical: CanonicalMemoryOperation[] = [];
+    const suppressed: SuppressedMemoryOperation[] = [];
+    const candidateIds = new Map<string, number>();
 
-    const operations: CanonicalMemoryOperation[] = [];
-    for (const operation of patch.operations) {
-        switch (operation.type) {
-            case "add_finding":
-                operations.push({
-                    type: "add_finding",
-                    finding: normalizeFinding(operation.finding, undefined, context),
-                });
-                break;
-            case "update_finding": {
-                const existing = findEntry(memory, operation.finding.id);
-                operations.push({
-                    type: "update_finding",
-                    finding: normalizeFinding(
-                        operation.finding,
-                        existing?.kind === "finding" ? existing : undefined,
-                        context,
-                    ),
-                });
-                break;
-            }
-            case "upsert_hypothesis": {
-                const existing = findEntry(memory, operation.hypothesis.id);
-                operations.push({
-                    type: "upsert_hypothesis",
-                    hypothesis: normalizeDescription(
-                        "hypothesis",
-                        operation.hypothesis,
-                        existing,
-                        context,
-                    ) as Hypothesis,
-                });
-                break;
-            }
-            case "upsert_plan_item": {
-                const existing = findEntry(memory, operation.planItem.id);
-                operations.push({
-                    type: "upsert_plan_item",
-                    planItem: normalizeDescription(
-                        "plan",
-                        operation.planItem,
-                        existing,
-                        context,
-                    ) as PlanItem,
-                });
-                break;
-            }
-            case "upsert_blocker": {
-                const existing = findEntry(memory, operation.blocker.id);
-                operations.push({
-                    type: "upsert_blocker",
-                    blocker: normalizeDescription(
-                        "blocker",
-                        operation.blocker,
-                        existing,
-                        context,
-                    ) as Blocker,
-                });
-                break;
-            }
-            case "set_next_action":
-                operations.push({
-                    type: "set_next_action",
-                    nextAction: operation.nextAction === null
-                        ? null
-                        : normalizeDescription(
-                            "next_action",
-                            operation.nextAction,
-                            findEntry(memory, operation.nextAction.id),
-                            context,
-                        ) as NextAction,
-                });
-                break;
+    patch.operations.forEach((operation, index) => {
+        const result = canonicalizeOperation(
+            operation,
+            index,
+            { phase: context.phase, originSequence: context.originSequence, source },
+            draft,
+        );
+        if (result.suppression !== undefined) {
+            suppressed.push({ index, reason: result.suppression });
+            return;
         }
-    }
+        if (result.operation === undefined) return;
+        canonical.push(result.operation);
+        if (result.operation.type === "upsert_fact") candidateIds.set(result.operation.fact.id, index);
+        if (result.operation.type === "upsert_hypothesis") candidateIds.set(result.operation.hypothesis.id, index);
+        if (result.operation.type === "upsert_plan_item") candidateIds.set(result.operation.planItem.id, index);
+        if (result.operation.type === "upsert_blocker") candidateIds.set(result.operation.blocker.id, index);
+        draft = applyOne(draft, result.operation);
+    });
 
+    const evicted = selectEvictions(draft, limits);
+    if (evicted.length > 0) {
+        const createdCandidateIds = new Set(
+            [...candidateIds.keys()].filter((id) => findEntry(original, id) === undefined),
+        );
+        const suppressedCandidates = new Set(evicted.filter((id) => createdCandidateIds.has(id)));
+        for (const id of suppressedCandidates) {
+            const index = candidateIds.get(id);
+            if (index !== undefined) suppressed.push({ index, reason: "capacity_low_utility" });
+        }
+        const keptOperations = canonical.filter((operation) => {
+            const id = operation.type === "upsert_fact"
+                ? operation.fact.id
+                : operation.type === "upsert_hypothesis"
+                    ? operation.hypothesis.id
+                    : operation.type === "upsert_plan_item"
+                        ? operation.planItem.id
+                        : operation.type === "upsert_blocker"
+                            ? operation.blocker.id
+                            : undefined;
+            return id === undefined || !suppressedCandidates.has(id);
+        });
+        const existingEvictions = evicted.filter((id) => !suppressedCandidates.has(id));
+        if (existingEvictions.length > 0) {
+            keptOperations.push({ type: "evict_entries", entryIds: existingEvictions });
+        }
+        return Object.freeze({
+            protocolVersion: 1,
+            operations: Object.freeze(keptOperations),
+            suppressed: Object.freeze(suppressed),
+        });
+    }
     return Object.freeze({
         protocolVersion: 1,
-        operations: Object.freeze(operations),
+        operations: Object.freeze(canonical),
+        suppressed: Object.freeze(suppressed),
     });
 }
 
-interface MutableWorkingMemory {
-    protocolVersion: 1;
-    derivedThroughSequence: number;
-    revision?: WorkingMemory["revision"];
-    findings: EvidenceBackedFinding[];
-    hypotheses: Hypothesis[];
-    plan: PlanItem[];
-    blockers: Blocker[];
-    nextAction?: NextAction;
-}
-
-function cloneMemory(memory: WorkingMemory): MutableWorkingMemory {
-    return {
-        protocolVersion: 1,
-        derivedThroughSequence: memory.derivedThroughSequence,
-        ...(memory.revision === undefined
-            ? {}
-            : { revision: { ...memory.revision } }),
-        findings: memory.findings.map((entry) => ({
-            ...entry,
-            evidenceSequences: [...entry.evidenceSequences],
-        })),
-        hypotheses: memory.hypotheses.map((entry) => ({ ...entry })),
-        plan: memory.plan.map((entry) => ({ ...entry })),
-        blockers: memory.blockers.map((entry) => ({ ...entry })),
-        ...(memory.nextAction === undefined
-            ? {}
-            : { nextAction: { ...memory.nextAction } }),
-    };
-}
-
-function removeById<T extends MemoryEntry>(entries: readonly T[], id: string): T[] {
-    return entries.filter((entry) => entry.id !== id);
-}
-
-function replaceById<T extends MemoryEntry>(
-    entries: readonly T[],
-    entry: T,
-): T[] {
-    return entries.map((candidate) => candidate.id === entry.id ? entry : candidate);
-}
-
-function upsertById<T extends MemoryEntry>(
-    entries: readonly T[],
-    entry: T,
-): T[] {
-    return entries.some((candidate) => candidate.id === entry.id)
-        ? replaceById(entries, entry)
-        : [...entries, entry];
-}
-
-function activeEntries<T extends MemoryEntry>(entries: readonly T[]): T[] {
-    return entries.filter((entry) => entry.status === "active");
-}
-
-function operationOriginSequence(operation: CanonicalMemoryOperation): number {
-    switch (operation.type) {
-        case "add_finding":
-        case "update_finding":
-            return operation.finding.originSequence;
-        case "upsert_hypothesis":
-            return operation.hypothesis.originSequence;
-        case "upsert_plan_item":
-            return operation.planItem.originSequence;
-        case "upsert_blocker":
-            return operation.blocker.originSequence;
-        case "set_next_action":
-            return operation.nextAction?.originSequence ?? 0;
-        case "supersede_scope":
-            return 0;
-    }
-}
-
-function applyCanonicalOperation(
-    memory: MutableWorkingMemory,
-    operation: CanonicalMemoryOperation,
-): void {
-    switch (operation.type) {
-        case "add_finding":
-            if (findEntry(memory, operation.finding.id) !== undefined) {
-                throw new WorkingMemoryPatchError("add_finding targets an existing stable ID");
-            }
-            memory.findings = [
-                ...memory.findings,
-                operation.finding,
-            ];
-            return;
-        case "update_finding":
-            if (
-                findEntry(memory, operation.finding.id)?.kind !== "finding"
-            ) {
-                throw new WorkingMemoryPatchError("update_finding target does not exist");
-            }
-            memory.findings = activeOrInactive(operation.finding) === undefined
-                ? removeById(memory.findings, operation.finding.id)
-                : replaceById(memory.findings, operation.finding);
-            return;
-        case "upsert_hypothesis":
-            if (
-                findEntry(memory, operation.hypothesis.id) !== undefined
-                && findEntry(memory, operation.hypothesis.id)?.kind !== "hypothesis"
-            ) {
-                throw new WorkingMemoryPatchError("upsert_hypothesis target kind mismatches");
-            }
-            memory.hypotheses = activeOrInactive(operation.hypothesis) === undefined
-                ? removeById(memory.hypotheses, operation.hypothesis.id)
-                : upsertById(memory.hypotheses, operation.hypothesis);
-            return;
-        case "upsert_plan_item":
-            if (
-                findEntry(memory, operation.planItem.id) !== undefined
-                && findEntry(memory, operation.planItem.id)?.kind !== "plan"
-            ) {
-                throw new WorkingMemoryPatchError("upsert_plan_item target kind mismatches");
-            }
-            memory.plan = activeOrInactive(operation.planItem) === undefined
-                ? removeById(memory.plan, operation.planItem.id)
-                : upsertById(memory.plan, operation.planItem);
-            return;
-        case "upsert_blocker":
-            if (
-                findEntry(memory, operation.blocker.id) !== undefined
-                && findEntry(memory, operation.blocker.id)?.kind !== "blocker"
-            ) {
-                throw new WorkingMemoryPatchError("upsert_blocker target kind mismatches");
-            }
-            memory.blockers = activeOrInactive(operation.blocker) === undefined
-                ? removeById(memory.blockers, operation.blocker.id)
-                : upsertById(memory.blockers, operation.blocker);
-            return;
-        case "set_next_action":
-            if (
-                operation.nextAction !== null
-                && operation.nextAction.status === "active"
-            ) {
-                const existing = findEntry(memory, operation.nextAction.id);
-                if (existing !== undefined && existing.kind !== "next_action") {
-                    throw new WorkingMemoryPatchError("set_next_action target kind mismatches");
-                }
-                memory.nextAction = operation.nextAction;
-            } else {
-                delete memory.nextAction;
-            }
-            return;
-        case "supersede_scope": {
-            const matches = (entry: MemoryEntry): boolean =>
-                entry.scope === operation.scope
-                && (operation.phase === undefined || entry.originPhase === operation.phase)
-                && (operation.kinds === undefined || operation.kinds.includes(entry.kind));
-            memory.findings = memory.findings.filter((entry) => !matches(entry));
-            memory.hypotheses = memory.hypotheses.filter((entry) => !matches(entry));
-            memory.plan = memory.plan.filter((entry) => !matches(entry));
-            memory.blockers = memory.blockers.filter((entry) => !matches(entry));
-            if (memory.nextAction !== undefined && matches(memory.nextAction)) {
-                delete memory.nextAction;
-            }
-            return;
-        }
-    }
-}
-
 /**
- * 对规范化操作执行确定性、无副作用的归约。
+ * 重放 canonical operations 并返回新的 Working Memory 投影。
  *
- * @remarks 归约先复制输入，再按操作顺序构造新投影；状态为 resolved/superseded
- * 的条目不会继续出现在当前有效 Memory 中。原始事件仍由 Trajectory 保留。
- *
- * @param memory - 归约起点。
- * @param patch - 已规范化 Patch 或规范化操作列表。
- * @param options - 可选的提交 sequence、revision 与重放限制。
- * @returns 新的 Working Memory；输入对象和数组不会被修改。
- * @throws WorkingMemoryPatchError 当操作或结果违反 DTO 不变量时抛出。
- * @example
- * ```ts
- * const next = reduceWorkingMemory(memory, normalized);
- * ```
+ * @remarks
+ * 本函数不重新运行准入或容量算法。`derivedThroughSequence` 与 revision 由调用方给定，
+ * 因而同一 accepted Patch 链在不同进程中产生相同内容。
  */
 export function reduceWorkingMemory(
     memory: WorkingMemory,
@@ -1294,205 +1215,86 @@ export function reduceWorkingMemory(
         readonly limits?: WorkingMemoryLimitsInput;
     } = {},
 ): WorkingMemory {
-    assertWorkingMemoryShape(memory);
-    let operations: readonly CanonicalMemoryOperation[];
-    if (Array.isArray(patch)) {
-        operations = patch;
-    } else if (isRecord(patch) && patch.protocolVersion === 1 && "operations" in patch) {
-        if (!Array.isArray(patch.operations)) {
-            throw new WorkingMemoryPatchError("normalized patch operations must be an array");
-        }
-        operations = patch.operations as readonly CanonicalMemoryOperation[];
-    } else {
-        throw new WorkingMemoryPatchError("normalized patch is invalid");
+    assertValidWorkingMemory(memory);
+    const operations: readonly CanonicalMemoryOperation[] = isRecord(patch)
+        ? patch.operations as readonly CanonicalMemoryOperation[]
+        : patch as readonly CanonicalMemoryOperation[];
+    const derivedThroughSequence = options.derivedThroughSequence
+        ?? operations.reduce((boundary, operation) => {
+            const sequence = operation.type === "upsert_fact"
+                ? operation.fact.updatedAtSequence
+                : operation.type === "upsert_hypothesis"
+                    ? operation.hypothesis.updatedAtSequence
+                    : operation.type === "upsert_plan_item"
+                        ? operation.planItem.updatedAtSequence
+                        : operation.type === "upsert_blocker"
+                            ? operation.blocker.updatedAtSequence
+                            : boundary;
+            return Math.max(boundary, sequence);
+        }, memory.derivedThroughSequence);
+    const revision = options.revision ?? memory.revision;
+    if (!Number.isSafeInteger(derivedThroughSequence) || derivedThroughSequence < memory.derivedThroughSequence) {
+        throw new WorkingMemoryPatchError("derivedThroughSequence must advance monotonically");
     }
-    const next = cloneMemory(memory);
-    const operationIds = new Set<string>();
-    let nextActionTouched = false;
-
-    for (const [index, operation] of operations.entries()) {
-        assertCanonicalOperation(operation, `canonical operations[${index}]`);
-        if (operation.type === "set_next_action") {
-            if (nextActionTouched) {
-                throw new WorkingMemoryPatchError(
-                    "canonical patch may contain at most one set_next_action operation",
-                );
-            }
-            nextActionTouched = true;
-        }
-        const id = operation.type === "set_next_action"
-            ? operation.nextAction?.id
-            : operation.type === "supersede_scope"
-                ? undefined
-                : operation.type === "add_finding" || operation.type === "update_finding"
-                    ? operation.finding.id
-                    : operation.type === "upsert_hypothesis"
-                        ? operation.hypothesis.id
-                        : operation.type === "upsert_plan_item"
-                            ? operation.planItem.id
-                            : operation.blocker.id;
-        if (id !== undefined) {
-            if (operationIds.has(id)) {
-                throw new WorkingMemoryPatchError("canonical patch contains duplicate stable ID");
-            }
-            operationIds.add(id);
-        }
-        applyCanonicalOperation(next, operation);
-    }
-
-    const operationBoundary = operations.reduce(
-        (boundary, operation) => Math.max(boundary, operationOriginSequence(operation)),
-        next.derivedThroughSequence,
-    );
-    const derivedThroughSequence = options.derivedThroughSequence ?? operationBoundary;
-    assertNonNegativeInteger(derivedThroughSequence, "derivedThroughSequence");
-    if (derivedThroughSequence < memory.derivedThroughSequence) {
-        throw new WorkingMemoryPatchError("derivedThroughSequence cannot move backwards");
-    }
-    if (
-        options.revision !== undefined
-        && options.revision.sequence > derivedThroughSequence
-    ) {
-        throw new WorkingMemoryPatchError("revision exceeds derivedThroughSequence");
-    }
-    next.derivedThroughSequence = derivedThroughSequence;
-    if (options.revision !== undefined) {
-        next.revision = { ...options.revision };
-    }
-
-    next.findings = activeEntries(next.findings);
-    next.hypotheses = activeEntries(next.hypotheses);
-    next.plan = activeEntries(next.plan);
-    next.blockers = activeEntries(next.blockers);
-    if (next.nextAction !== undefined && next.nextAction.status !== "active") {
-        delete next.nextAction;
-    }
-    assertWorkingMemoryShape(next as unknown as WorkingMemory);
-
-    const limits = mergeLimits(options.limits);
-    if (next.findings.length > limits.maxFindings) {
-        throw new WorkingMemoryPatchError("reduced findings exceed configured capacity");
-    }
-    if (next.hypotheses.length > limits.maxHypotheses) {
-        throw new WorkingMemoryPatchError("reduced hypotheses exceed configured capacity");
-    }
-    if (next.plan.length > limits.maxPlanItems) {
-        throw new WorkingMemoryPatchError("reduced plan exceeds configured capacity");
-    }
-    if (next.blockers.length > limits.maxBlockers) {
-        throw new WorkingMemoryPatchError("reduced blockers exceed configured capacity");
-    }
-
-    return {
-        protocolVersion: 1,
-        derivedThroughSequence: next.derivedThroughSequence,
-        ...(next.revision === undefined ? {} : { revision: { ...next.revision } }),
-        findings: next.findings,
-        hypotheses: next.hypotheses,
-        plan: next.plan,
-        blockers: next.blockers,
-        ...(next.nextAction === undefined ? {} : { nextAction: { ...next.nextAction } }),
+    let next: WorkingMemory = { ...memory, derivedThroughSequence, ...(revision === undefined ? {} : { revision }) };
+    for (const operation of operations) next = applyOne(next, operation);
+    next = {
+        ...next,
+        facts: Object.freeze([...next.facts]),
+        hypotheses: Object.freeze([...next.hypotheses]),
+        plan: Object.freeze([...next.plan]),
+        blockers: Object.freeze([...next.blockers]),
     };
+    assertValidWorkingMemory(next);
+    return Object.freeze(next);
 }
 
-/**
- * 一步完成 Patch 校验、规范化和归约。
- *
- * @param memory - 当前有效 Memory。
- * @param patch - 模型提出的 Patch。
- * @param context - 阶段、accepted sequence、可选 revision 与限制；revision 只有
- *   在调用方已经取得真实 accepted Event ID 时才应提供。
- * @returns 应用成功后的新 Memory。
- * @throws WorkingMemoryPatchError 任一校验失败时抛出，原 Memory 保持不变。
- * @example
- * ```ts
- * const next = applyMemoryPatch(memory, patch, {
- *   phase: "executing",
- *   originSequence: 12,
- * });
- * ```
- */
+/** 归一化 proposal 并立即应用到当前进程投影；不执行持久化。 */
 export function applyMemoryPatch(
     memory: WorkingMemory,
     patch: unknown,
     context: Omit<WorkingMemoryPatchNormalizationContext, "workingMemory"> & {
-        readonly limits?: WorkingMemoryLimitsInput;
         readonly revision?: WorkingMemory["revision"];
     },
 ): WorkingMemory {
-    const normalized = normalizeMemoryPatch(patch, {
-        ...context,
-        workingMemory: memory,
-    });
+    const normalized = normalizeMemoryPatch(patch, { ...context, workingMemory: memory });
     return reduceWorkingMemory(memory, normalized, {
         derivedThroughSequence: context.originSequence,
-        ...(context.limits === undefined ? {} : { limits: context.limits }),
         ...(context.revision === undefined ? {} : { revision: context.revision }),
+        ...(context.limits === undefined ? {} : { limits: context.limits }),
     });
 }
 
-/**
- * 创建 Runtime 生命周期用的范围失效操作。
- *
- * @remarks 该操作不属于模型 Response Schema，只有 Runtime 可以生成。
- *
- * @param scope - 要失效的条目作用域。
- * @param options - 可选的来源阶段和条目种类过滤器。
- * @returns 可与模型规范化操作合并的内部操作。
- * @example
- * ```ts
- * const operation = createSupersedeScopeOperation("phase", {
- *   phase: "gathering_context",
- * });
- * ```
- */
+/** 创建由 Runtime 使用的 phase/terminal scope 清理操作。 */
 export function createSupersedeScopeOperation(
     scope: MemoryEntryScope,
     options: {
         readonly phase?: GoalPhase;
         readonly kinds?: readonly MemoryEntryKind[];
     } = {},
-): Extract<CanonicalMemoryOperation, { readonly type: "supersede_scope" }> {
-    assertScope(scope, "scope");
-    if (options.phase !== undefined) assertPhase(options.phase, "phase");
-    if (options.kinds !== undefined) {
-        for (const kind of options.kinds) assertOneOf(kind, MEMORY_ENTRY_KINDS, "kind");
-    }
-    return {
+): CanonicalMemoryOperation {
+    assertOneOf(scope, MEMORY_ENTRY_SCOPES, "scope");
+    if (options.phase !== undefined) assertOneOf(options.phase, GOAL_PHASES, "phase");
+    if (options.kinds !== undefined) options.kinds.forEach((kind) => assertOneOf(kind, MEMORY_ENTRY_KINDS, "kind"));
+    return Object.freeze({
         type: "supersede_scope",
         scope,
         ...(options.phase === undefined ? {} : { phase: options.phase }),
-        ...(options.kinds === undefined ? {} : { kinds: [...options.kinds] }),
-    };
+        ...(options.kinds === undefined ? {} : { kinds: Object.freeze([...options.kinds]) }),
+    });
 }
 
-/**
- * 合并模型 Patch 与 Runtime 生命周期操作，保留确定的提交顺序。
- *
- * @remarks 当前实现要求不同来源不要重复修改同一 stable ID；冲突必须由调用方
- * 在业务分支中先决定，而不是让 Reducer 隐式覆盖。
- *
- * @param modelPatch - 已规范化的模型操作，可省略。
- * @param lifecycleOperations - Runtime 生成的范围失效或其他规范化操作。
- * @returns 新的规范化 Patch。
- * @throws WorkingMemoryPatchError 当输入协议版本不一致时抛出。
- * @example
- * ```ts
- * const merged = mergeNormalizedMemoryPatches(modelPatch, [lifecycleOperation]);
- * ```
- */
+/** 合并已经分别完成准入的 canonical Patch，不重新计算容量。 */
 export function mergeNormalizedMemoryPatches(
     modelPatch: NormalizedWorkingMemoryPatch | undefined,
     lifecycleOperations: readonly CanonicalMemoryOperation[] = [],
 ): NormalizedWorkingMemoryPatch {
-    if (modelPatch !== undefined && modelPatch.protocolVersion !== 1) {
-        throw new WorkingMemoryPatchError("normalized patch protocolVersion must be 1");
-    }
     return Object.freeze({
         protocolVersion: 1,
         operations: Object.freeze([
             ...(modelPatch?.operations ?? []),
             ...lifecycleOperations,
         ]),
+        suppressed: Object.freeze([...(modelPatch?.suppressed ?? [])]),
     });
 }

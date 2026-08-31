@@ -1,5 +1,5 @@
 import type {
-    EvidenceBackedFinding,
+    EvidenceBackedFact,
     MemoryPatch,
     MemoryPatchOperation,
     WorkingMemory,
@@ -17,7 +17,7 @@ import type { ContextLookupResult } from "./context-retrieval";
 /** Evidence Gate 校验失败的稳定错误码。 */
 export const WORKING_MEMORY_EVIDENCE_ERROR_CODE = "INVALID_MEMORY_EVIDENCE" as const;
 
-/** 能作为 Finding 直接证据的已提交事实事件类型。 */
+/** 能作为 Fact 直接证据的已提交事实事件类型。 */
 export const EVIDENCE_EVENT_TYPES: readonly TrajectoryEventType[] = [
     "observation_recorded",
     "tool_finished",
@@ -59,7 +59,7 @@ export interface CommittedEvidenceIndexInput {
  * 当前 Snapshot 边界内可供 Evidence Gate 查询的只读序列索引。
  *
  * @remarks 索引包含所有 committed 事件，但只有允许的 Observation 类型能通过
- * `validate` 成为 Finding 证据。边界之外、跨 Goal/Run 或不存在的序列不会进入索引。
+ * `validate` 成为 Fact 证据。边界之外、跨 Goal/Run 或不存在的序列不会进入索引。
  * 索引是一次调用的临时对象，不写入 Goal Snapshot。
  *
  * @example
@@ -93,8 +93,8 @@ export interface CommittedEvidenceIndex {
  * 校验 found 结果的原始 source refs 是否仍属于当前 committed Trajectory。
  *
  * @remarks
- * 该校验只确认 lookup 结果的来源完整性，不把 source ref 自动升级为 Finding
- * 证据。调用方仍必须把允许的原始 sequence 交给 `validateFindingEvidence`；查询
+ * 该校验只确认 lookup 结果的来源完整性，不把 source ref 自动升级为 Fact
+ * 证据。调用方仍必须把允许的原始 sequence 交给 `validateFactEvidence`；查询
  * 请求、结果、not_found 与 lookup_error 事件始终会被拒绝。
  *
  * @param result - 已通过 Result DTO 结构校验的 found 结果。
@@ -157,12 +157,12 @@ export function validateContextLookupSourceReferences(
 }
 
 /**
- * 表示 Finding 证据不存在、未提交或事件类型不被允许。
+ * 表示 Fact 证据不存在、未提交或事件类型不被允许。
  *
  * @example
  * ```ts
  * try {
- *   validateFindingEvidence([10], index);
+ *   validateFactEvidence([10], index);
  * } catch (error) {
  *   if (error instanceof EvidenceGateError) console.error(error.code);
  * }
@@ -265,20 +265,20 @@ export function buildCommittedEvidenceIndex(
 /**
  * 校验一组 evidence sequence 是否全部指向当前 committed、允许的事实事件。
  *
- * @param evidenceSequences - Finding 声明的 Trajectory sequence 列表。
+ * @param evidenceSequences - Fact 声明的 Trajectory sequence 列表。
  * @param index - 当前 Goal/Run 的 committed Evidence 索引。
  * @throws EvidenceGateError 当列表为空、越界、缺失、跨来源或事件类型不允许时抛出。
  * @example
  * ```ts
- * validateFindingEvidence([8, 9], index);
+ * validateFactEvidence([8, 9], index);
  * ```
  */
-export function validateFindingEvidence(
+export function validateFactEvidence(
     evidenceSequences: readonly number[],
     index: CommittedEvidenceIndex,
 ): void {
     if (evidenceSequences.length === 0) {
-        throw new EvidenceGateError("Finding must reference at least one evidence sequence");
+        throw new EvidenceGateError("Fact must reference at least one evidence sequence");
     }
 
     const seen = new Set<number>();
@@ -291,7 +291,7 @@ export function validateFindingEvidence(
             throw new EvidenceGateError("evidence sequence must be a positive integer");
         }
         if (seen.has(sequence)) {
-            throw new EvidenceGateError("Finding contains duplicate evidence sequence");
+            throw new EvidenceGateError("Fact contains duplicate evidence sequence");
         }
         seen.add(sequence);
 
@@ -303,35 +303,33 @@ export function validateFindingEvidence(
             throw new EvidenceGateError("evidence sequence does not belong to this Goal/Run");
         }
         if (!eventIsEvidence(event)) {
-            throw new EvidenceGateError("evidence event type is not allowed for Finding");
+            throw new EvidenceGateError("evidence event type is not allowed for Fact");
         }
     }
 }
 
-function findingEvidenceFromOperation(
+function evidenceFromOperation(
     operation: MemoryPatchOperation,
-    workingMemory: WorkingMemory | undefined,
 ): readonly number[] | undefined {
-    if (operation.type !== "add_finding" && operation.type !== "update_finding") {
-        return undefined;
+    if (operation.type === "upsert_fact" || operation.type === "retire_fact") {
+        return operation.fact.evidenceSequences;
     }
-    if (operation.finding.evidenceSequences !== undefined) {
-        return operation.finding.evidenceSequences;
+    if (operation.type === "update_plan_item") {
+        return operation.planItem.completionEvidenceSequences;
     }
-    return workingMemory?.findings.find((finding) => finding.id === operation.finding.id)
-        ?.evidenceSequences;
+    return undefined;
 }
 
 /**
- * 校验模型 Patch 中所有 Finding 的 evidence 引用。
+ * 校验模型 Patch 中所有 Fact 与 Plan completion evidence 引用。
  *
  * @remarks 该函数先执行 Core 的原子 Patch 校验，再执行 evidence 归属与事件类别
- * 校验；任何失败都会拒绝整个 Patch。Hypothesis、Plan、Blocker 和 nextAction 不要求
- * evidence，因此不会被错误地升级或降级。
+ * 校验；任何失败都会拒绝整个 Patch。Hypothesis 与 Blocker 不要求 evidence，
+ * Plan 仅在完成状态转换时要求 completion evidence。
  *
  * @param patch - 模型提出的结构化 Patch。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
- * @param workingMemory - update_finding 省略 evidence 时用于读取旧引用的 Memory。
+ * @param workingMemory - 更新操作引用现有条目时使用的当前 Memory。
  * @throws WorkingMemoryPatchError 或 EvidenceGateError 当任一校验失败时抛出。
  * @example
  * ```ts
@@ -348,25 +346,31 @@ export function validateMemoryPatchEvidence(
         workingMemory === undefined ? {} : { workingMemory },
     );
     for (const operation of patch.operations) {
-        const evidence = findingEvidenceFromOperation(operation, workingMemory);
-        if (evidence !== undefined) validateFindingEvidence(evidence, index);
+        const evidence = evidenceFromOperation(operation);
+        if (evidence !== undefined && evidence.length > 0) validateFactEvidence(evidence, index);
     }
 }
 
 /**
- * 校验规范化 accepted Patch 中所有 Finding 的 evidence 引用。
+ * 校验规范化 accepted Patch 中所有 Fact 与 Plan completion evidence 引用。
  *
  * @param operations - accepted Event 将保存的规范化操作。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
- * @throws EvidenceGateError 当 Finding 引用不能回查的 sequence 时抛出。
+ * @throws EvidenceGateError 当证据引用不能回查时抛出。
  */
-export function validateCanonicalFindingEvidence(
+export function validateCanonicalFactEvidence(
     operations: readonly import("./domain").CanonicalMemoryOperation[],
     index: CommittedEvidenceIndex,
 ): void {
     for (const operation of operations) {
-        if (operation.type === "add_finding" || operation.type === "update_finding") {
-            validateFindingEvidence(operation.finding.evidenceSequences, index);
+        if (operation.type === "upsert_fact") {
+            validateFactEvidence(operation.fact.evidenceSequences, index);
+        }
+        if (
+            operation.type === "upsert_plan_item"
+            && operation.planItem.completionEvidenceSequences.length > 0
+        ) {
+            validateFactEvidence(operation.planItem.completionEvidenceSequences, index);
         }
     }
 }
@@ -377,17 +381,17 @@ export function validateCanonicalFindingEvidence(
  * @example
  * ```ts
  * const gate = createEvidenceGate(index);
- * gate.validateFinding([12]);
+ * gate.validateFact([12]);
  * ```
  */
 export interface EvidenceGate {
-    /** @param evidenceSequences - Finding 声明的证据序列。 */
-    validateFinding(evidenceSequences: readonly number[]): void;
+    /** @param evidenceSequences - Fact 声明的证据序列。 */
+    validateFact(evidenceSequences: readonly number[]): void;
     /** @param patch - 待接受的模型 Patch；可选当前 Memory 用于补全 update。 */
     validatePatch(patch: unknown, workingMemory?: WorkingMemory): void;
     /**
      * @param result - 带原始 source refs 的 found Lookup Result。
-     * @remarks 该方法只校验来源；最终 Finding 仍须引用允许的原始 sequence。
+     * @remarks 该方法只校验来源；最终 Fact 仍须引用允许的原始 sequence。
      * @example
      * ```ts
      * gate.validateContextLookup(foundResult);
@@ -406,8 +410,8 @@ export interface EvidenceGate {
  */
 export function createEvidenceGate(index: CommittedEvidenceIndex): EvidenceGate {
     return Object.freeze({
-        validateFinding: (evidenceSequences: readonly number[]) =>
-            validateFindingEvidence(evidenceSequences, index),
+        validateFact: (evidenceSequences: readonly number[]) =>
+            validateFactEvidence(evidenceSequences, index),
         validatePatch: (patch: unknown, workingMemory?: WorkingMemory): asserts patch is MemoryPatch =>
             validateMemoryPatchEvidence(patch, index, workingMemory),
         validateContextLookup: (result: Extract<ContextLookupResult, { readonly status: "found" }>) =>
@@ -430,5 +434,5 @@ export function isContextLookupEventType(
 /** 将 Evidence 事件类型限制为稳定的字符串集合，避免调用方复制常量。 */
 export type EvidenceEventType = typeof EVIDENCE_EVENT_TYPES[number];
 
-/** 供类型消费者引用的 Finding 证据字段形状。 */
-export type FindingEvidence = Pick<EvidenceBackedFinding, "evidenceSequences">;
+/** 供类型消费者引用的 Fact 证据字段形状。 */
+export type FactEvidence = Pick<EvidenceBackedFact, "evidenceSequences">;

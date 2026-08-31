@@ -85,21 +85,31 @@ test("Projector 拒绝 checkpoint Memory 与 layered 模型上下文交叉组合
     );
 });
 
-test("Prompt/Memory/Model Context/Retrieval 协议矩阵区分 v5 none@1 与 v6 bm25-lite@1", () => {
+test("Prompt/Memory/Model Context/Retrieval 协议矩阵拒绝旧 structured shape 并激活 v7", () => {
     const validator = createDefaultPromptBundleProtocolValidator();
 
     validator.validate({
-        promptBundleVersion: 5,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-        contextRetrievalProtocol: { kind: "none", version: 1 },
-    });
-    validator.validate({
-        promptBundleVersion: 6,
+        promptBundleVersion: 7,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
     });
+
+    for (const promptBundleVersion of [4, 5, 6]) {
+        assert.throws(
+            () => validator.validate({
+                promptBundleVersion,
+                memoryProtocol: { kind: "structured", version: 1 },
+                ...(promptBundleVersion >= 5
+                    ? { modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const } }
+                    : {}),
+                ...(promptBundleVersion >= 6
+                    ? { contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const } }
+                    : {}),
+            }),
+            /UNSUPPORTED_STRUCTURED_MEMORY_SHAPE/,
+        );
+    }
 
     assert.throws(
         () => validator.validate({
@@ -108,12 +118,12 @@ test("Prompt/Memory/Model Context/Retrieval 协议矩阵区分 v5 none@1 与 v6 
             modelContextProtocol: { kind: "trajectory-layered", version: 1 },
             contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         }),
-        /不兼容/,
+        /UNSUPPORTED_STRUCTURED_MEMORY_SHAPE/,
     );
 
     assert.throws(
         () => validator.validate({
-            promptBundleVersion: 6,
+            promptBundleVersion: 7,
             memoryProtocol: { kind: "structured", version: 1 },
             modelContextProtocol: { kind: "trajectory-layered", version: 1 },
             contextRetrievalProtocol: { kind: "none", version: 1 },
@@ -123,7 +133,7 @@ test("Prompt/Memory/Model Context/Retrieval 协议矩阵区分 v5 none@1 与 v6 
 
     assert.throws(
         () => validator.validate({
-            promptBundleVersion: 5,
+            promptBundleVersion: 7,
             memoryProtocol: { kind: "structured", version: 1 },
             modelContextProtocol: { kind: "trajectory-layered", version: 1 },
             contextRetrievalProtocol: { kind: "future", version: 1 } as never,

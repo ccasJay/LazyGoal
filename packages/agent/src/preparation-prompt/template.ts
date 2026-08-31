@@ -36,6 +36,12 @@ export const GATHERING_CONTEXT_TEMPLATE_V5: PromptTemplateAsset = {
     sourceUrl: new URL("./gathering-context@5.njk", import.meta.url),
 };
 
+/** v6 实体 Fact proposal 与 durable semantic delta 模板。 */
+export const GATHERING_CONTEXT_TEMPLATE_V6: PromptTemplateAsset = {
+    id: "gathering-context@6",
+    sourceUrl: new URL("./gathering-context@6.njk", import.meta.url),
+};
+
 /**
  * v1 gathering_context 模板的兼容别名。
  *
@@ -77,6 +83,12 @@ export const PLANNING_TEMPLATE_V4: PromptTemplateAsset = {
 export const PLANNING_TEMPLATE_V5: PromptTemplateAsset = {
     id: "planning@5",
     sourceUrl: new URL("./planning@5.njk", import.meta.url),
+};
+
+/** v6 实体 Fact 与显式 create/update planning Memory 模板。 */
+export const PLANNING_TEMPLATE_V6: PromptTemplateAsset = {
+    id: "planning@6",
+    sourceUrl: new URL("./planning@6.njk", import.meta.url),
 };
 
 /**

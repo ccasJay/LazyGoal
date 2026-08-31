@@ -22,7 +22,7 @@ import {
 } from "./trajectory";
 
 /** Runtime 与 accepted Memory Patch 的来源标签。 */
-export type MemoryPatchProducer = "model" | "runtime_lifecycle";
+export type MemoryPatchProducer = "model" | "tool_projector" | "runtime_lifecycle";
 
 /**
  * 需要由共享提交器追加的规范化 Memory Patch。
@@ -119,7 +119,11 @@ function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {
 function normalizeProducers(
     producers: readonly MemoryPatchProducer[],
 ): readonly MemoryPatchProducer[] {
-    const allowed = new Set<MemoryPatchProducer>(["model", "runtime_lifecycle"]);
+    const allowed = new Set<MemoryPatchProducer>([
+        "model",
+        "tool_projector",
+        "runtime_lifecycle",
+    ]);
     const unique = new Set<MemoryPatchProducer>();
     for (const producer of producers) {
         if (!allowed.has(producer)) {
@@ -129,6 +133,7 @@ function normalizeProducers(
     }
     return [
         ...(unique.has("model") ? ["model" as const] : []),
+        ...(unique.has("tool_projector") ? ["tool_projector" as const] : []),
         ...(unique.has("runtime_lifecycle") ? ["runtime_lifecycle" as const] : []),
     ];
 }

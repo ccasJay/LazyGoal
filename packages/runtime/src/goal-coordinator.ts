@@ -1127,7 +1127,7 @@ export class GoalCoordinator {
         return this.lifecycleOperations(
             session.workingMemory,
             "gathering_context",
-            ["hypothesis", "next_action"],
+            ["hypothesis"],
         );
     }
 
@@ -1140,7 +1140,7 @@ export class GoalCoordinator {
             : this.lifecycleOperations(
                 session.workingMemory,
                 "planning",
-                ["plan", "hypothesis", "next_action", "blocker"],
+                ["plan", "hypothesis", "blocker"],
             );
         return this.acceptPreparationPatch(
             goal,
@@ -1154,14 +1154,12 @@ export class GoalCoordinator {
     private lifecycleOperations(
         memory: WorkingMemory,
         phase: GoalPhase,
-        kinds: readonly ("finding" | "hypothesis" | "plan" | "blocker" | "next_action")[],
+        kinds: readonly ("hypothesis" | "plan" | "blocker")[],
     ): readonly CanonicalMemoryOperation[] {
         const entries = [
-            ...memory.findings,
             ...memory.hypotheses,
             ...memory.plan,
             ...memory.blockers,
-            ...(memory.nextAction === undefined ? [] : [memory.nextAction]),
         ];
         const hasActiveEntry = entries.some((entry) =>
             entry.status === "active"

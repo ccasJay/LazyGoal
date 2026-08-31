@@ -32,11 +32,11 @@ function createLayeredGoal(): Goal {
     });
 }
 
-test("Snapshot v9 显式保存并恢复 trajectory-layered 协议", () => {
+test("Snapshot v10 显式保存并恢复 trajectory-layered 协议", () => {
     const goal = createLayeredGoal();
     const snapshot = goalSnapshotCodec.encode(goal);
 
-    assert.equal(snapshot.metadata.schemaVersion, 9);
+    assert.equal(snapshot.metadata.schemaVersion, 10);
     assert.deepEqual(snapshot.definition.modelContextProtocol, {
         kind: "trajectory-layered",
         version: 1,
@@ -47,7 +47,7 @@ test("Snapshot v9 显式保存并恢复 trajectory-layered 协议", () => {
     );
 });
 
-test("v5-v8 只读恢复默认 conversation@1 与 none@1，下一次保存升级到 v9", () => {
+test("v5-v8 只读恢复默认 conversation@1 与 none@1，下一次保存升级到 v10", () => {
     const encoded = goalSnapshotCodec.encode(createLayeredGoal());
     const {
         modelContextProtocol: _modelContext,
@@ -68,7 +68,7 @@ test("v5-v8 只读恢复默认 conversation@1 与 none@1，下一次保存升级
         kind: "conversation",
         version: 1,
     });
-    assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 9);
+    assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 10);
 });
 
 test("Snapshot v9 拒绝未知模型上下文、检索协议与交叉组合", () => {

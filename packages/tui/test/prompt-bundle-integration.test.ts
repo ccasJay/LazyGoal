@@ -152,7 +152,7 @@ function createLegacyGoal(
     };
 }
 
-test("Composition Root 激活 v6/bm25-lite@1 并保持旧 Bundle 三阶段逐字恢复", async () => {
+test("Composition Root 激活 v7/bm25-lite@1 并保持旧 Bundle 三阶段逐字恢复", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v2-"));
     await writeDefaultProfile(workspace);
     const responses = [
@@ -267,7 +267,7 @@ test("Composition Root 激活 v6/bm25-lite@1 并保持旧 Bundle 三阶段逐字
         }
         assert.equal(planningView.phase, "planning");
         assert.equal(planningView.waitingFor, "approval");
-        assert.equal(planningView.goal.definition.promptBundleVersion, 6);
+        assert.equal(planningView.goal.definition.promptBundleVersion, 7);
         assert.deepEqual(planningView.goal.definition.memoryProtocol, {
             kind: "structured",
             version: 1,
@@ -296,8 +296,8 @@ test("Composition Root 激活 v6/bm25-lite@1 并保持旧 Bundle 三阶段逐字
                 readonly contextRetrievalProtocol?: unknown;
             };
         };
-    assert.equal(snapshot.metadata.schemaVersion, 9);
-        assert.equal(snapshot.definition.promptBundleVersion, 6);
+        assert.equal(snapshot.metadata.schemaVersion, 10);
+        assert.equal(snapshot.definition.promptBundleVersion, 7);
         assert.deepEqual(snapshot.definition.memoryProtocol, {
             kind: "structured",
             version: 1,
@@ -324,11 +324,11 @@ test("Composition Root 激活 v6/bm25-lite@1 并保持旧 Bundle 三阶段逐字
 
         const structuredSystems = requests.slice(0, 3).map(systemContent);
         assert.ok(structuredSystems[0]?.includes(
-            "Active Phase Protocol: gathering_context (structured@1; trajectory-layered@1; bm25-lite@1)",
+            "Active Phase Protocol: gathering_context (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)",
         ));
-        assert.ok(structuredSystems[1]?.includes("Active Phase Protocol: planning (structured@1; trajectory-layered@1; bm25-lite@1)"));
-        assert.ok(structuredSystems[2]?.includes("Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)"));
-        assert.ok(structuredSystems[0]?.includes("MemoryPatch"));
+        assert.ok(structuredSystems[1]?.includes("Active Phase Protocol: planning (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)"));
+        assert.ok(structuredSystems[2]?.includes("Active Phase Protocol: executing (structured@1 Fact shape; trajectory-layered@1; bm25-lite@1)"));
+        assert.ok(structuredSystems[0]?.includes("memoryPatch"));
         assert.ok(structuredSystems[2]?.includes("completionEvidence"));
         assert.deepEqual(parseAuthorizedTools(structuredSystems[0] ?? ""), []);
         const planningTools = parseAuthorizedTools(structuredSystems[1] ?? "");

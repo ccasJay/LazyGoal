@@ -7,7 +7,7 @@ import {
     buildCommittedEvidenceIndex,
     validateContextLookupResult,
     validateContextLookupSourceReferences,
-    validateFindingEvidence,
+    validateFactEvidence,
     EvidenceGateError,
     allocateImmutableEvent,
     type ContextSearchDocument,
@@ -263,8 +263,8 @@ test("Evidence Gate 只验证原始 committed source refs，并拒绝 lookup 事
     assert.equal(found.status, "found");
     if (found.status !== "found") return;
     assert.doesNotThrow(() => validateContextLookupSourceReferences(found, index));
-    assert.doesNotThrow(() => validateFindingEvidence([1], index));
-    assert.throws(() => validateFindingEvidence([2], index), EvidenceGateError);
+    assert.doesNotThrow(() => validateFactEvidence([1], index));
+    assert.throws(() => validateFactEvidence([2], index), EvidenceGateError);
 
     const lookupSource = {
         ...found,

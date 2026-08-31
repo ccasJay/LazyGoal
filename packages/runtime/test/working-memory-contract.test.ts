@@ -90,7 +90,7 @@ test("Working Memory keeps only derived entries and validates its revision bound
         protocolVersion: 1,
         derivedThroughSequence: 5,
         revision,
-        findings: [],
+        facts: [],
         hypotheses: [],
         plan: [],
         blockers: [],
@@ -182,10 +182,12 @@ test("Memory Patch DTO contains only model-owned memory operations", () => {
     const patch: MemoryPatch = {
         protocolVersion: 1,
         operations: [{
-            type: "add_finding",
-            finding: {
-                id: "finding-1",
-                statement: "已观察到配置文件",
+            type: "upsert_fact",
+            fact: {
+                subject: "workspace",
+                predicate: "config_exists",
+                value: true,
+                stability: "stable",
                 evidenceSequences: [1],
             },
         }],

@@ -36,6 +36,12 @@ export const GLOBAL_OVERVIEW_TEMPLATE_V5: PromptTemplateAsset = {
     sourceUrl: new URL("./global-overview@5.njk", import.meta.url),
 };
 
+/** v6 实体 Fact、持续性语义与 Runtime 控制状态边界模板。 */
+export const GLOBAL_OVERVIEW_TEMPLATE_V6: PromptTemplateAsset = {
+    id: "global-overview@6",
+    sourceUrl: new URL("./global-overview@6.njk", import.meta.url),
+};
+
 /**
  * v1 Global Overview 的兼容别名。
  *

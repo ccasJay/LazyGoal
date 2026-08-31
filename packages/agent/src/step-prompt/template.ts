@@ -41,6 +41,12 @@ export const AGENT_DECISION_TEMPLATE_V6: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@6.njk", import.meta.url),
 };
 
+/** v7 实体 Fact、Runtime ID 与 durable semantic delta 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V7: PromptTemplateAsset = {
+    id: "agent-decision@7",
+    sourceUrl: new URL("./agent-decision@7.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

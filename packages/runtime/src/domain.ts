@@ -34,19 +34,32 @@ export type ContextRetrievalProtocol =
 /** `ContextRetrievalProtocol` 的兼容别名，供模型侧类型使用。 */
 export type RetrievalProtocol = ContextRetrievalProtocol;
 
-/** Working Memory 条目的生命周期状态。 */
+/** Hypothesis 与 Blocker 使用的生命周期状态。 */
 export type MemoryEntryStatus = "active" | "resolved" | "superseded";
+
+/** PlanItem 的显式生命周期状态。 */
+export type PlanItemStatus =
+    | "pending"
+    | "active"
+    | "completed"
+    | "blocked"
+    | "superseded";
 
 /** Working Memory 条目跨阶段保留的作用域。 */
 export type MemoryEntryScope = "goal" | "phase";
 
 /** Working Memory 条目可识别的种类。 */
 export type MemoryEntryKind =
-    | "finding"
+    | "fact"
     | "hypothesis"
     | "plan"
-    | "blocker"
-    | "next_action";
+    | "blocker";
+
+/** Fact 对后续调用所表达的持续性语义。 */
+export type FactStability = "stable" | "last_observed";
+
+/** 已接受 Memory 条目的候选来源。 */
+export type MemoryEntrySource = "model" | "tool_projector" | "runtime";
 
 /**
  * 所有结构化 Memory 条共用的来源和生命周期元数据。
@@ -60,11 +73,11 @@ export type MemoryEntryKind =
  * @example
  * ```ts
  * const base: MemoryEntryBase = {
- *     id: "finding-1",
+ *     id: "fact-1",
  *     originPhase: "gathering_context",
  *     originSequence: 12,
  *     scope: "goal",
- *     status: "active",
+ *     updatedAtSequence: 12,
  * };
  * ```
  */
@@ -77,56 +90,110 @@ export interface MemoryEntryBase {
     readonly originSequence: number;
     /** 条目在阶段转换时的保留范围。 */
     readonly scope: MemoryEntryScope;
-    /** 条目当前生命周期状态。 */
-    readonly status: MemoryEntryStatus;
+    /** 最近一次改变该条目的 accepted Patch sequence。 */
+    readonly updatedAtSequence: number;
 }
 
-/** 由已提交 Observation 或其他事实 Event 支持的 Finding。 */
-export interface EvidenceBackedFinding extends MemoryEntryBase {
-    readonly kind: "finding";
-    /** 对已观察事实的有界归纳，不代表 Runtime 控制状态。 */
-    readonly statement: string;
-    /** 支持该归纳的已提交 Trajectory sequence。 */
+/**
+ * 由已提交事实 Event 支持的实体化 Fact。
+ *
+ * @example
+ * ```ts
+ * const fact: EvidenceBackedFact = { ...base, kind: "fact", subject: "file:a",
+ *   predicate: "exists", value: true, stability: "stable", evidenceSequences: [8],
+ *   reinforcementCount: 1, lastEvidenceSequence: 8, source: "model" };
+ * ```
+ */
+export interface EvidenceBackedFact extends MemoryEntryBase {
+    readonly kind: "fact";
+    /** 规范化前的事实主体。 */
+    readonly subject: string;
+    /** 规范化前的主体属性或关系。 */
+    readonly predicate: string;
+    /** 当前已接受的 JSON 值。 */
+    readonly value: JsonValue;
+    /** 事实持续成立或仅表示最后一次观察。 */
+    readonly stability: FactStability;
+    /** 支持当前值的已提交 Trajectory sequences。 */
     readonly evidenceSequences: readonly number[];
+    /** 同值更新证据成功强化的累计次数，首次接受为 1。 */
+    readonly reinforcementCount: number;
+    /** `evidenceSequences` 中最大的 sequence。 */
+    readonly lastEvidenceSequence: number;
+    /** 最近一次提交当前值的 producer。 */
+    readonly source: MemoryEntrySource;
 }
 
-/** 明确标记为未验证判断的 Hypothesis。 */
+/**
+ * 明确标记为未验证判断的 Hypothesis。
+ *
+ * @example
+ * ```ts
+ * const hypothesis: Hypothesis = { ...base, kind: "hypothesis", statement: "cache is stale", status: "active" };
+ * ```
+ */
 export interface Hypothesis extends MemoryEntryBase {
     readonly kind: "hypothesis";
     /** 待验证判断；不能单独作为完成证据。 */
     readonly statement: string;
+    /** 当前生命周期状态。 */
+    readonly status: MemoryEntryStatus;
 }
 
-/** 表达未完成工作意图的 Plan 条目。 */
+/**
+ * 表达未完成工作意图的 Plan 条目。
+ *
+ * @example
+ * ```ts
+ * const item: PlanItem = { ...base, kind: "plan", description: "verify output", status: "active",
+ *   dependsOnFactIds: [], dependsOnPlanItemIds: [], completionEvidenceSequences: [] };
+ * ```
+ */
 export interface PlanItem extends MemoryEntryBase {
     readonly kind: "plan";
     /** 计划步骤描述；不表示对应外部 Action 已执行。 */
     readonly description: string;
+    /** Runtime 不会自动推断的显式计划状态。 */
+    readonly status: PlanItemStatus;
+    /** 当前计划依赖的有效 Fact IDs。 */
+    readonly dependsOnFactIds: readonly string[];
+    /** 当前计划依赖的其他 PlanItem IDs。 */
+    readonly dependsOnPlanItemIds: readonly string[];
+    /** 进入 completed 时必须提供的已提交证据。 */
+    readonly completionEvidenceSequences: readonly number[];
 }
 
-/** 表达当前阻塞的 Memory 条目。 */
+/**
+ * 表达当前阻塞的 Memory 条目。
+ *
+ * @example
+ * ```ts
+ * const blocker: Blocker = { ...base, kind: "blocker", description: "approval required", status: "active" };
+ * ```
+ */
 export interface Blocker extends MemoryEntryBase {
     readonly kind: "blocker";
     /** 阻塞描述；不替代 Runtime 的失败或等待状态。 */
     readonly description: string;
-}
-
-/** 表达当前阶段下一步意图的单一 Memory 条目。 */
-export interface NextAction extends MemoryEntryBase {
-    readonly kind: "next_action";
-    /** 下一步建议；不表示 Action 已经执行。 */
-    readonly description: string;
+    /** 当前生命周期状态。 */
+    readonly status: MemoryEntryStatus;
 }
 
 /** 结构化 Working Memory 中允许出现的条目联合。 */
 export type MemoryEntry =
-    | EvidenceBackedFinding
+    | EvidenceBackedFact
     | Hypothesis
     | PlanItem
-    | Blocker
-    | NextAction;
+    | Blocker;
 
-/** 指向最新已提交 accepted Patch 的不可变 revision。 */
+/**
+ * 指向最新已提交 accepted Patch 的不可变 revision。
+ *
+ * @example
+ * ```ts
+ * const revision: MemoryRevision = { eventId: "event-12", sequence: 12 };
+ * ```
+ */
 export interface MemoryRevision {
     /** accepted Patch Event 的稳定事件 ID。 */
     readonly eventId: string;
@@ -134,58 +201,109 @@ export interface MemoryRevision {
     readonly sequence: number;
 }
 
-/** 新增 Finding 时模型可以提交的字段；来源元数据由 Runtime 补齐。 */
-export interface AddFinding {
+/**
+ * 模型或 Tool Projector 提议的 Fact；身份与来源字段由 Runtime 生成。
+ *
+ * @example
+ * ```ts
+ * const proposal: FactProposal = { subject: "file:a", predicate: "exists", value: true,
+ *   stability: "stable", evidenceSequences: [8] };
+ * ```
+ */
+export interface FactProposal {
+    readonly subject: string;
+    readonly predicate: string;
+    readonly value: JsonValue;
+    readonly stability: FactStability;
+    readonly evidenceSequences: readonly number[];
+    readonly scope?: MemoryEntryScope;
+}
+
+/**
+ * 模型请求失效当前 Fact 时提交的引用与证据。
+ *
+ * @example
+ * ```ts
+ * const retire: RetireFactProposal = { id: "fact-1", evidenceSequences: [9] };
+ * ```
+ */
+export interface RetireFactProposal {
     readonly id: string;
-    readonly statement: string;
     readonly evidenceSequences: readonly number[];
 }
 
-/** 更新 Finding 时模型可以提交的字段。 */
-export interface UpdateFinding {
-    readonly id: string;
-    readonly statement?: string;
-    readonly evidenceSequences?: readonly number[];
-    readonly status?: MemoryEntryStatus;
+/**
+ * 创建 Hypothesis 时模型可以提交的字段。
+ * @example `const value: HypothesisCreate = { statement: "cache is stale" };`
+ */
+export interface HypothesisCreate {
+    readonly statement: string;
+    readonly scope?: MemoryEntryScope;
 }
 
-/** 更新 Hypothesis 时模型可以提交的字段。 */
+/**
+ * 更新现有 Hypothesis 时模型可以提交的字段。
+ * @example `const value: HypothesisUpdate = { id: "hypothesis-1", status: "resolved" };`
+ */
 export interface HypothesisUpdate {
     readonly id: string;
-    readonly statement: string;
+    readonly statement?: string;
     readonly status?: MemoryEntryStatus;
 }
 
-/** 更新 Plan 条目时模型可以提交的字段。 */
+/**
+ * 创建 PlanItem 时模型可以提交的字段。
+ * @example `const value: PlanItemCreate = { description: "verify output", status: "active" };`
+ */
+export interface PlanItemCreate {
+    readonly description: string;
+    readonly status?: Extract<PlanItemStatus, "pending" | "active" | "blocked">;
+    readonly dependsOnFactIds?: readonly string[];
+    readonly dependsOnPlanItemIds?: readonly string[];
+}
+
+/**
+ * 更新现有 PlanItem 时模型可以提交的字段。
+ * @example `const value: PlanItemUpdate = { id: "plan-1", status: "completed", completionEvidenceSequences: [9] };`
+ */
 export interface PlanItemUpdate {
     readonly id: string;
-    readonly description: string;
-    readonly status?: MemoryEntryStatus;
+    readonly description?: string;
+    readonly status?: PlanItemStatus;
+    readonly dependsOnFactIds?: readonly string[];
+    readonly dependsOnPlanItemIds?: readonly string[];
+    readonly completionEvidenceSequences?: readonly number[];
 }
 
-/** 更新 Blocker 时模型可以提交的字段。 */
+/**
+ * 创建 Blocker 时模型可以提交的字段。
+ * @example `const value: BlockerCreate = { description: "approval required" };`
+ */
+export interface BlockerCreate {
+    readonly description: string;
+    readonly scope?: MemoryEntryScope;
+}
+
+/**
+ * 更新现有 Blocker 时模型可以提交的字段。
+ * @example `const value: BlockerUpdate = { id: "blocker-1", status: "resolved" };`
+ */
 export interface BlockerUpdate {
     readonly id: string;
-    readonly description: string;
-    readonly scope: MemoryEntryScope;
-    readonly status?: MemoryEntryStatus;
-}
-
-/** 设置下一步意图时模型可以提交的字段。 */
-export interface NextActionUpdate {
-    readonly id: string;
-    readonly description: string;
+    readonly description?: string;
     readonly status?: MemoryEntryStatus;
 }
 
 /** 模型响应中允许出现的结构化 Memory 操作。 */
 export type MemoryPatchOperation =
-    | { readonly type: "add_finding"; readonly finding: AddFinding }
-    | { readonly type: "update_finding"; readonly finding: UpdateFinding }
-    | { readonly type: "upsert_hypothesis"; readonly hypothesis: HypothesisUpdate }
-    | { readonly type: "upsert_plan_item"; readonly planItem: PlanItemUpdate }
-    | { readonly type: "upsert_blocker"; readonly blocker: BlockerUpdate }
-    | { readonly type: "set_next_action"; readonly nextAction: NextActionUpdate | null };
+    | { readonly type: "upsert_fact"; readonly fact: FactProposal }
+    | { readonly type: "retire_fact"; readonly fact: RetireFactProposal }
+    | { readonly type: "create_hypothesis"; readonly hypothesis: HypothesisCreate }
+    | { readonly type: "update_hypothesis"; readonly hypothesis: HypothesisUpdate }
+    | { readonly type: "create_plan_item"; readonly planItem: PlanItemCreate }
+    | { readonly type: "update_plan_item"; readonly planItem: PlanItemUpdate }
+    | { readonly type: "create_blocker"; readonly blocker: BlockerCreate }
+    | { readonly type: "update_blocker"; readonly blocker: BlockerUpdate };
 
 /**
  * 模型或 Runtime 生命周期提出的增量 Memory Patch。
@@ -201,10 +319,12 @@ export type MemoryPatchOperation =
  * const patch: WorkingMemoryPatch = {
  *     protocolVersion: 1,
  *     operations: [{
- *         type: "add_finding",
- *         finding: {
- *             id: "finding-1",
- *             statement: "配置文件位于项目根目录",
+ *         type: "upsert_fact",
+ *         fact: {
+ *             subject: "workspace",
+ *             predicate: "config_path",
+ *             value: ".env",
+ *             stability: "stable",
  *             evidenceSequences: [12],
  *         },
  *     }],
@@ -221,12 +341,12 @@ export type MemoryPatch = WorkingMemoryPatch;
 
 /** Runtime 归一化后可持久化的 Memory 操作。 */
 export type CanonicalMemoryOperation =
-    | { readonly type: "add_finding"; readonly finding: EvidenceBackedFinding }
-    | { readonly type: "update_finding"; readonly finding: EvidenceBackedFinding }
+    | { readonly type: "upsert_fact"; readonly fact: EvidenceBackedFact }
+    | { readonly type: "retire_fact"; readonly factId: string }
     | { readonly type: "upsert_hypothesis"; readonly hypothesis: Hypothesis }
     | { readonly type: "upsert_plan_item"; readonly planItem: PlanItem }
     | { readonly type: "upsert_blocker"; readonly blocker: Blocker }
-    | { readonly type: "set_next_action"; readonly nextAction: NextAction | null }
+    | { readonly type: "evict_entries"; readonly entryIds: readonly string[] }
     | {
         readonly type: "supersede_scope";
         readonly scope: MemoryEntryScope;
@@ -234,11 +354,19 @@ export type CanonicalMemoryOperation =
         readonly kinds?: readonly MemoryEntryKind[];
     };
 
-/** 写入 Trajectory 的 accepted Memory Patch 事实载荷。 */
+/**
+ * 写入 Trajectory 的 accepted Memory Patch 事实载荷。
+ *
+ * @example
+ * ```ts
+ * const payload: MemoryPatchAcceptedPayload = { type: "memory_patch_accepted",
+ *   protocolVersion: 1, producers: ["runtime_lifecycle"], operations: [] };
+ * ```
+ */
 export interface MemoryPatchAcceptedPayload {
     readonly type: "memory_patch_accepted";
     readonly protocolVersion: 1;
-    readonly producers: readonly ("model" | "runtime_lifecycle")[];
+    readonly producers: readonly ("model" | "tool_projector" | "runtime_lifecycle")[];
     readonly parentRevisionEventId?: string;
     readonly operations: readonly CanonicalMemoryOperation[];
 }
@@ -258,7 +386,7 @@ export interface MemoryPatchAcceptedPayload {
  * const memory: WorkingMemory = {
  *     protocolVersion: 1,
  *     derivedThroughSequence: 12,
- *     findings: [],
+ *     facts: [],
  *     hypotheses: [],
  *     plan: [],
  *     blockers: [],
@@ -269,11 +397,10 @@ export interface WorkingMemory {
     readonly protocolVersion: 1;
     readonly derivedThroughSequence: number;
     readonly revision?: MemoryRevision;
-    readonly findings: readonly EvidenceBackedFinding[];
+    readonly facts: readonly EvidenceBackedFact[];
     readonly hypotheses: readonly Hypothesis[];
     readonly plan: readonly PlanItem[];
     readonly blockers: readonly Blocker[];
-    readonly nextAction?: NextAction;
 }
 
 /**
@@ -325,6 +452,31 @@ export interface GoalProtocolValidator {
 
 /** Goal 协议组合错误的稳定错误码。 */
 export const GOAL_PROTOCOL_ERROR_CODE = "GOAL_PROTOCOL_ERROR" as const;
+
+/** 旧 structured Goal 使用不可迁移 Memory shape 时的稳定错误码。 */
+export const UNSUPPORTED_STRUCTURED_MEMORY_SHAPE =
+    "UNSUPPORTED_STRUCTURED_MEMORY_SHAPE" as const;
+
+/**
+ * 表示历史 structured Goal 的 Memory shape 无法由当前 Runtime 安全恢复。
+ *
+ * @remarks
+ * 该错误必须在模型调用或 Memory 重建前抛出；调用方不得静默迁移或继续推进。
+ *
+ * @example
+ * ```ts
+ * throw new UnsupportedStructuredMemoryShapeError(5);
+ * ```
+ */
+export class UnsupportedStructuredMemoryShapeError extends Error {
+    readonly code = UNSUPPORTED_STRUCTURED_MEMORY_SHAPE;
+
+    /** @param promptBundleVersion - 冻结旧 shape 的 Prompt Bundle 版本。 */
+    constructor(promptBundleVersion: number) {
+        super(`${UNSUPPORTED_STRUCTURED_MEMORY_SHAPE}: Prompt Bundle v${promptBundleVersion}`);
+        this.name = "UnsupportedStructuredMemoryShapeError";
+    }
+}
 
 /**
  * 表示冻结的 Prompt/Memory 协议组合不可用或不匹配。
@@ -513,7 +665,7 @@ export function createEmptyWorkingMemory(
                     sequence: normalizedRevision.sequence,
                 },
             }),
-        findings: [],
+        facts: [],
         hypotheses: [],
         plan: [],
         blockers: [],

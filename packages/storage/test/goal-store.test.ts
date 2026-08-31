@@ -314,7 +314,7 @@ test("GoalSnapshotCodec round-trips a complete Goal and rejects extra fields", (
     const goal = createSnapshot();
     const encoded = goalSnapshotCodec.encode(goal);
 
-    assert.equal(encoded.metadata.schemaVersion, 9);
+    assert.equal(encoded.metadata.schemaVersion, 10);
     assert.equal(encoded.definition.promptBundleVersion, 1);
     assert.deepEqual(goalSnapshotCodec.decode(encoded), goal);
 
@@ -396,7 +396,7 @@ test("GoalSnapshotCodec round-trips bounded Action memory and approval state", (
     const actionGoal = createActionSnapshot();
     const encodedAction = goalSnapshotCodec.encode(actionGoal);
 
-    assert.equal(encodedAction.metadata.schemaVersion, 9);
+    assert.equal(encodedAction.metadata.schemaVersion, 10);
     assert.deepEqual(goalSnapshotCodec.decode(encodedAction), actionGoal);
 
     const pendingGoal: Goal = {

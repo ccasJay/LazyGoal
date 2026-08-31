@@ -38,7 +38,7 @@ function assertProtocolError(error: unknown): boolean {
     return true;
 }
 
-test("Snapshot v9 round-trips structured protocol and Memory revision", () => {
+test("Snapshot v10 round-trips structured protocol and Memory revision", () => {
     const goal = createGoalForProtocol({ kind: "structured", version: 1 });
     const withRevision: Goal = {
         ...goal,
@@ -57,7 +57,7 @@ test("Snapshot v9 round-trips structured protocol and Memory revision", () => {
 
     const snapshot = goalSnapshotCodec.encode(withRevision);
 
-    assert.equal(snapshot.metadata.schemaVersion, 9);
+    assert.equal(snapshot.metadata.schemaVersion, 10);
     assert.deepEqual(snapshot.definition.memoryProtocol, {
         kind: "structured",
         version: 1,
@@ -69,11 +69,11 @@ test("Snapshot v9 round-trips structured protocol and Memory revision", () => {
     assert.deepEqual(goalSnapshotCodec.decode(snapshot), withRevision);
 });
 
-test("Snapshot v9 persists checkpoint protocol without a revision and preserves legacy access", () => {
+test("Snapshot v10 persists checkpoint protocol without a revision and preserves legacy access", () => {
     const goal = createGoalForProtocol({ kind: "checkpoint", version: 1 });
     const snapshot = goalSnapshotCodec.encode(goal);
 
-    assert.equal(snapshot.metadata.schemaVersion, 9);
+    assert.equal(snapshot.metadata.schemaVersion, 10);
     assert.deepEqual(snapshot.definition.memoryProtocol, {
         kind: "checkpoint",
         version: 1,
@@ -113,7 +113,7 @@ test("v5 and v6 decode as read-only legacy and upgrade only on the next encode",
             version: 1,
         });
         assert.equal(JSON.stringify(legacy), source);
-        assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 9);
+        assert.equal(goalSnapshotCodec.encode(restored).metadata.schemaVersion, 10);
     }
 });
 

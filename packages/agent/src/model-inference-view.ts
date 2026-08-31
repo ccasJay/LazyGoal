@@ -111,38 +111,53 @@ export interface ModelMemoryEntryBase {
     readonly originPhase: PromptPhase;
     readonly originSequence: number;
     readonly scope: "goal" | "phase";
-    readonly status: "active" | "resolved" | "superseded";
+    readonly updatedAtSequence: number;
 }
 
-/** 模型可见的事实 Finding 投影。 */
-export interface ModelFinding extends ModelMemoryEntryBase {
-    readonly kind: "finding";
-    readonly statement: string;
+/** 模型输入边界允许的递归 JSON 值。 */
+export type ModelJsonValue =
+    | null
+    | boolean
+    | number
+    | string
+    | readonly ModelJsonValue[]
+    | { readonly [key: string]: ModelJsonValue };
+
+/** 模型可见的实体化 Fact 投影。 */
+export interface ModelFact extends ModelMemoryEntryBase {
+    readonly kind: "fact";
+    readonly subject: string;
+    readonly predicate: string;
+    readonly value: ModelJsonValue;
+    readonly stability: "stable" | "last_observed";
     readonly evidenceSequences: readonly number[];
+    readonly reinforcementCount: number;
+    readonly lastEvidenceSequence: number;
+    readonly source: "model" | "tool_projector" | "runtime";
 }
 
 /** 模型可见的 Hypothesis 投影。 */
 export interface ModelHypothesis extends ModelMemoryEntryBase {
     readonly kind: "hypothesis";
     readonly statement: string;
+    readonly status: "active" | "resolved" | "superseded";
 }
 
 /** 模型可见的计划条目投影。 */
 export interface ModelPlanItem extends ModelMemoryEntryBase {
     readonly kind: "plan";
     readonly description: string;
+    readonly status: "pending" | "active" | "completed" | "blocked" | "superseded";
+    readonly dependsOnFactIds: readonly string[];
+    readonly dependsOnPlanItemIds: readonly string[];
+    readonly completionEvidenceSequences: readonly number[];
 }
 
 /** 模型可见的阻塞条目投影。 */
 export interface ModelBlocker extends ModelMemoryEntryBase {
     readonly kind: "blocker";
     readonly description: string;
-}
-
-/** 模型可见的下一步意图投影。 */
-export interface ModelNextAction extends ModelMemoryEntryBase {
-    readonly kind: "next_action";
-    readonly description: string;
+    readonly status: "active" | "resolved" | "superseded";
 }
 
 /**
@@ -158,7 +173,7 @@ export interface ModelNextAction extends ModelMemoryEntryBase {
  * const memory: ModelWorkingMemory = {
  *   protocolVersion: 1,
  *   derivedThroughSequence: 12,
- *   findings: [],
+ *   facts: [],
  *   hypotheses: [],
  *   plan: [],
  *   blockers: [],
@@ -169,11 +184,10 @@ export interface ModelWorkingMemory {
     readonly protocolVersion: 1;
     readonly derivedThroughSequence: number;
     readonly revision?: { readonly eventId: string; readonly sequence: number };
-    readonly findings: readonly ModelFinding[];
+    readonly facts: readonly ModelFact[];
     readonly hypotheses: readonly ModelHypothesis[];
     readonly plan: readonly ModelPlanItem[];
     readonly blockers: readonly ModelBlocker[];
-    readonly nextAction?: ModelNextAction;
 }
 
 /** Structured complete Decision 使用的模型视图。 */
@@ -187,7 +201,7 @@ export interface ModelCompletionEvidence {
  *
  * @remarks
  * `sourceEventIds` 只用于回查原始 committed Trajectory；该 DTO 本身不是
- * Finding/Completion Evidence，也不能证明当前 Workspace 内容仍然相同。
+ * Fact/Completion Evidence，也不能证明当前 Workspace 内容仍然相同。
  *
  * @example
  * ```ts

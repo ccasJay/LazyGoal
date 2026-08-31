@@ -313,10 +313,12 @@ test("structured@1 AgentDecision 支持 MemoryPatch 与 CompletionEvidence 且�
     const memoryPatch = {
         protocolVersion: 1 as const,
         operations: [{
-            type: "add_finding" as const,
-            finding: {
-                id: "finding-1",
-                statement: "配置文件存在",
+            type: "upsert_fact" as const,
+            fact: {
+                subject: "workspace/config.json",
+                predicate: "exists",
+                value: true,
+                stability: "stable" as const,
                 evidenceSequences: [12],
             },
         }],
@@ -365,9 +367,8 @@ test("structured@1 PreparationResult 可在同一响应携带 MemoryPatch", () =
         memoryPatch: {
             protocolVersion: 1,
             operations: [{
-                type: "set_next_action",
-                nextAction: {
-                    id: "next-1",
+                type: "create_plan_item",
+                planItem: {
                     description: "进入规划阶段",
                 },
             }],

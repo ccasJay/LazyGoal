@@ -173,7 +173,7 @@ test("structured 请求在控制消息中独立携带 Working Memory", () => {
     const workingMemory = {
         protocolVersion: 1 as const,
         derivedThroughSequence: 3,
-        findings: [],
+        facts: [],
         hypotheses: [],
         plan: [],
         blockers: [],

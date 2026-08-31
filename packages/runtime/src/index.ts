@@ -3,6 +3,8 @@ export {
     createEmptyWorkingMemory,
     createRun,
     GOAL_PROTOCOL_ERROR_CODE,
+    UNSUPPORTED_STRUCTURED_MEMORY_SHAPE,
+    UnsupportedStructuredMemoryShapeError,
     GoalProtocolError,
     isMemoryProtocol,
     resolveMemoryProtocol,
@@ -44,12 +46,14 @@ export type {
     CompletionEvidence,
     LegacyAgentDecision,
     StructuredAgentDecision,
-    AddFinding,
     Blocker,
+    BlockerCreate,
     BlockerUpdate,
     CanonicalMemoryOperation,
     ContextRetrievalProtocol,
-    EvidenceBackedFinding,
+    EvidenceBackedFact,
+    FactProposal,
+    FactStability,
     ExecutionErrorCode,
     GoalPhase,
     GoalProtocolValidationInput,
@@ -62,6 +66,7 @@ export type {
     GoalTask,
     GoalWorkflowState,
     Hypothesis,
+    HypothesisCreate,
     HypothesisUpdate,
     JsonObject,
     JsonValue,
@@ -69,6 +74,7 @@ export type {
     MemoryEntryBase,
     MemoryEntryKind,
     MemoryEntryScope,
+    MemoryEntrySource,
     MemoryEntryStatus,
     MemoryPatch,
     MemoryPatchAcceptedPayload,
@@ -77,10 +83,11 @@ export type {
     MemoryRevision,
     ModelContextProtocol,
     RetrievalProtocol,
-    NextAction,
-    NextActionUpdate,
     PlanItem,
+    PlanItemCreate,
+    PlanItemStatus,
     PlanItemUpdate,
+    RetireFactProposal,
     RunInput,
     RunExecutionOptions,
     RunRef,
@@ -125,6 +132,7 @@ export {
     WorkingMemoryPatchError,
     applyMemoryPatch,
     assertValidWorkingMemory,
+    createCanonicalFactId,
     createSupersedeScopeOperation,
     mergeNormalizedMemoryPatches,
     normalizeMemoryPatch,
@@ -132,6 +140,17 @@ export {
     resolveWorkingMemoryLimits,
     validateMemoryPatch,
 } from "./working-memory-core";
+export {
+    createNoopToolMemoryProjectorRegistry,
+    normalizeToolMemoryProjectionResult,
+} from "./tool-memory-projector";
+export type {
+    ToolMemoryProjectionInput,
+    ToolMemoryProjectionResult,
+    ToolMemoryProjectionStatus,
+    ToolMemoryProjector,
+    ToolMemoryProjectorRegistry,
+} from "./tool-memory-projector";
 export {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_FAILED_CODE,
@@ -290,7 +309,9 @@ export type {
     TrajectoryRetrievalIndexStore,
 } from "./context-retrieval-index";
 export type {
+    MemorySuppressionReason,
     NormalizedWorkingMemoryPatch,
+    SuppressedMemoryOperation,
     WorkingMemoryLimits,
     WorkingMemoryLimitsInput,
     WorkingMemoryPatchNormalizationContext,
@@ -320,9 +341,9 @@ export {
     createEvidenceGate,
     isContextLookupEventType,
     isEvidenceEventType,
-    validateCanonicalFindingEvidence,
+    validateCanonicalFactEvidence,
     validateContextLookupSourceReferences,
-    validateFindingEvidence,
+    validateFactEvidence,
     validateMemoryPatchEvidence,
 } from "./evidence-gate";
 export type {
@@ -330,7 +351,7 @@ export type {
     CommittedEvidenceIndexInput,
     EvidenceEventType,
     EvidenceGate,
-    FindingEvidence,
+    FactEvidence,
 } from "./evidence-gate";
 export {
     TrajectoryCheckpointCommitter,

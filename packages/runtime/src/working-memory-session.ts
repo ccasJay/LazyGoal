@@ -5,13 +5,17 @@ import type {
     MemoryRevision,
     WorkingMemory,
 } from "./domain";
-import { resolveMemoryProtocol, createEmptyWorkingMemory } from "./domain";
+import {
+    resolveMemoryProtocol,
+    createEmptyWorkingMemory,
+    UnsupportedStructuredMemoryShapeError,
+} from "./domain";
 import {
     buildCommittedEvidenceIndex,
-    validateFindingEvidence,
+    validateFactEvidence,
     validateMemoryPatchEvidence,
     type CommittedEvidenceIndex,
-    validateCanonicalFindingEvidence,
+    validateCanonicalFactEvidence,
 } from "./evidence-gate";
 import {
     reduceWorkingMemory,
@@ -149,10 +153,13 @@ type AcceptedPatchEvent = Readonly<TrajectoryEvent & {
 const REPLAY_LIMITS: WorkingMemoryLimitsInput = Object.freeze({
     maxOperations: Number.MAX_SAFE_INTEGER,
     maxSerializedBytes: Number.MAX_SAFE_INTEGER,
+    maxWorkingMemoryBytes: Number.MAX_SAFE_INTEGER,
+    maxFactSerializedBytes: Number.MAX_SAFE_INTEGER,
+    maxJsonDepth: Number.MAX_SAFE_INTEGER,
     maxStableIdLength: Number.MAX_SAFE_INTEGER,
     maxTextLength: Number.MAX_SAFE_INTEGER,
     maxEvidenceReferences: Number.MAX_SAFE_INTEGER,
-    maxFindings: Number.MAX_SAFE_INTEGER,
+    maxFacts: Number.MAX_SAFE_INTEGER,
     maxHypotheses: Number.MAX_SAFE_INTEGER,
     maxPlanItems: Number.MAX_SAFE_INTEGER,
     maxBlockers: Number.MAX_SAFE_INTEGER,
@@ -328,7 +335,11 @@ function decodeAcceptedPatchEvent(
     const producers = payload.producers as unknown[];
     const producerSet = new Set<string>();
     for (const producer of producers) {
-        if (producer !== "model" && producer !== "runtime_lifecycle") {
+        if (
+            producer !== "model"
+            && producer !== "tool_projector"
+            && producer !== "runtime_lifecycle"
+        ) {
             throw new WorkingMemoryRecoveryError("accepted Patch producer is invalid");
         }
         if (producerSet.has(producer)) {
@@ -338,6 +349,7 @@ function decodeAcceptedPatchEvent(
     }
     const expectedProducers = [
         ...(producerSet.has("model") ? ["model"] : []),
+        ...(producerSet.has("tool_projector") ? ["tool_projector"] : []),
         ...(producerSet.has("runtime_lifecycle") ? ["runtime_lifecycle"] : []),
     ];
     if (JSON.stringify(producers) !== JSON.stringify(expectedProducers)) {
@@ -365,6 +377,14 @@ async function rebuild(
     if (protocol.kind !== "structured") {
         throw new WorkingMemoryRecoveryError(
             "WorkingMemorySession requires the structured Memory protocol",
+        );
+    }
+    if (
+        goal.definition.promptBundleVersion >= 4
+        && goal.definition.promptBundleVersion <= 6
+    ) {
+        throw new UnsupportedStructuredMemoryShapeError(
+            goal.definition.promptBundleVersion,
         );
     }
 
@@ -479,7 +499,7 @@ async function rebuild(
     let memory = createEmptyWorkingMemory();
     for (const event of chain.reverse()) {
         try {
-            validateCanonicalFindingEvidence(event.payload.operations, evidenceIndex);
+            validateCanonicalFactEvidence(event.payload.operations, evidenceIndex);
             memory = reduceWorkingMemory(memory, event.payload.operations, {
                 derivedThroughSequence: event.sequence,
                 revision: { eventId: event.eventId, sequence: event.sequence },
@@ -657,7 +677,7 @@ export class WorkingMemorySession {
         if (this.currentMemory === undefined || this.currentEvidenceIndex === undefined) {
             throw new WorkingMemorySessionClosedError();
         }
-        validateFindingEvidence(evidenceSequences, this.currentEvidenceIndex);
+        validateFactEvidence(evidenceSequences, this.currentEvidenceIndex);
     }
 
     /** 丢弃进程内 Memory；不会改写 Snapshot 或 Trajectory。 */

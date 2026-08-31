@@ -7,6 +7,7 @@ import {
     GLOBAL_OVERVIEW_TEMPLATE_V3,
     GLOBAL_OVERVIEW_TEMPLATE_V4,
     GLOBAL_OVERVIEW_TEMPLATE_V5,
+    GLOBAL_OVERVIEW_TEMPLATE_V6,
 } from "../global-system-prompt/template";
 import {
     GATHERING_CONTEXT_TEMPLATE_V1,
@@ -14,11 +15,13 @@ import {
     GATHERING_CONTEXT_TEMPLATE_V3,
     GATHERING_CONTEXT_TEMPLATE_V4,
     GATHERING_CONTEXT_TEMPLATE_V5,
+    GATHERING_CONTEXT_TEMPLATE_V6,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
     PLANNING_TEMPLATE_V3,
     PLANNING_TEMPLATE_V4,
     PLANNING_TEMPLATE_V5,
+    PLANNING_TEMPLATE_V6,
 } from "../preparation-prompt/template";
 import {
     AGENT_DECISION_TEMPLATE_V1,
@@ -27,11 +30,13 @@ import {
     AGENT_DECISION_TEMPLATE_V4,
     AGENT_DECISION_TEMPLATE_V5,
     AGENT_DECISION_TEMPLATE_V6,
+    AGENT_DECISION_TEMPLATE_V7,
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import {
     GoalProtocolError,
+    UnsupportedStructuredMemoryShapeError,
     isContextRetrievalProtocol,
     isModelContextProtocol,
     isMemoryProtocol,
@@ -54,7 +59,7 @@ import type {
  * 该值归 Agent 所有，由 TUI Composition Root 注入 Runtime 的
  * `LauncherDependencies.promptBundleVersion`，从而在新 Goal 创建时冻结。
  */
-export const CURRENT_PROMPT_BUNDLE_VERSION = 6;
+export const CURRENT_PROMPT_BUNDLE_VERSION = 7;
 
 /**
  * 通用的 Profile 展示模板资产，归 prompting 基础设施所有。
@@ -86,23 +91,27 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V3,
     GLOBAL_OVERVIEW_TEMPLATE_V4,
     GLOBAL_OVERVIEW_TEMPLATE_V5,
+    GLOBAL_OVERVIEW_TEMPLATE_V6,
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
     GATHERING_CONTEXT_TEMPLATE_V3,
     GATHERING_CONTEXT_TEMPLATE_V4,
     GATHERING_CONTEXT_TEMPLATE_V5,
+    GATHERING_CONTEXT_TEMPLATE_V6,
     PLANNING_TEMPLATE_V1,
     PLANNING_TEMPLATE_V2,
     PLANNING_TEMPLATE_V3,
     PLANNING_TEMPLATE_V4,
     PLANNING_TEMPLATE_V5,
+    PLANNING_TEMPLATE_V6,
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V3,
     AGENT_DECISION_TEMPLATE_V4,
     AGENT_DECISION_TEMPLATE_V5,
     AGENT_DECISION_TEMPLATE_V6,
+    AGENT_DECISION_TEMPLATE_V7,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -250,8 +259,29 @@ export const PROMPT_BUNDLE_V6_MANIFEST: PromptBundleManifest = {
     ],
 };
 
-/** 当前新 Goal 使用的 v6 Structured Working Memory + Trajectory + Retrieval Manifest。 */
-export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V6_MANIFEST;
+/** v7 实体化 Working Memory v1 + Trajectory + Retrieval Bundle Manifest。 */
+export const PROMPT_BUNDLE_V7_MANIFEST: PromptBundleManifest = {
+    version: 7,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V6.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V6.id,
+                planning: PLANNING_TEMPLATE_V6.id,
+                executing: AGENT_DECISION_TEMPLATE_V7.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
+/** 当前新 Goal 使用的 v7 实体化 Working Memory Manifest。 */
+export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V7_MANIFEST;
 
 /**
  * 创建默认 Prompt Bundle 的冻结协议校验器。
@@ -310,10 +340,24 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
             modelContext: { kind: "trajectory-layered", version: 1 },
             contextRetrieval: { kind: "bm25-lite", version: 1 },
         }],
+        [7, {
+            memory: { kind: "structured", version: 1 },
+            modelContext: { kind: "trajectory-layered", version: 1 },
+            contextRetrieval: { kind: "bm25-lite", version: 1 },
+        }],
     ]);
 
     return {
         validate(input): void {
+            if (
+                input.memoryProtocol.kind === "structured"
+                && input.promptBundleVersion >= 4
+                && input.promptBundleVersion <= 6
+            ) {
+                throw new UnsupportedStructuredMemoryShapeError(
+                    input.promptBundleVersion,
+                );
+            }
             const expected = expectedByBundle.get(input.promptBundleVersion);
 
             if (expected === undefined) {
@@ -401,6 +445,7 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
             PROMPT_BUNDLE_V4_MANIFEST,
             PROMPT_BUNDLE_V5_MANIFEST,
             PROMPT_BUNDLE_V6_MANIFEST,
+            PROMPT_BUNDLE_V7_MANIFEST,
         ],
     });
 }

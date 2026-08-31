@@ -49,87 +49,106 @@ export const ContextLookupRequestSchema = z.object({
 
 const memoryEntryStatus = z.enum(["active", "resolved", "superseded"]);
 const memoryEntryScope = z.enum(["goal", "phase"]);
+const planItemStatus = z.enum(["pending", "active", "completed", "blocked", "superseded"]);
+const stringIds = z.array(nonEmptyText);
 
-const AddFindingOperationSchema = z.object({
-    type: z.literal("add_finding"),
-    finding: z.object({
+const UpsertFactOperationSchema = z.object({
+    type: z.literal("upsert_fact"),
+    fact: z.object({
+        subject: nonEmptyText,
+        predicate: nonEmptyText,
+        value: z.json(),
+        stability: z.enum(["stable", "last_observed"]),
+        evidenceSequences: z.array(positiveInteger),
+        scope: memoryEntryScope.optional(),
+    }).strict(),
+}).strict();
+
+const RetireFactOperationSchema = z.object({
+    type: z.literal("retire_fact"),
+    fact: z.object({
         id: nonEmptyText,
-        statement: nonEmptyText,
         evidenceSequences: z.array(positiveInteger),
     }).strict(),
 }).strict();
 
-const UpdateFindingOperationSchema = z.object({
-    type: z.literal("update_finding"),
-    finding: z.object({
-        id: nonEmptyText,
-        statement: nonEmptyText.optional(),
-        evidenceSequences: z.array(positiveInteger).optional(),
-        status: memoryEntryStatus.optional(),
-    }).strict().superRefine((finding, context) => {
-        if (
-            finding.statement === undefined
-            && finding.evidenceSequences === undefined
-            && finding.status === undefined
-        ) {
-            context.addIssue({
-                code: "custom",
-                message: "update_finding must change at least one field",
-            });
-        }
-    }),
+const CreateHypothesisOperationSchema = z.object({
+    type: z.literal("create_hypothesis"),
+    hypothesis: z.object({
+        statement: nonEmptyText,
+        scope: memoryEntryScope.optional(),
+    }).strict(),
 }).strict();
 
-const UpsertHypothesisOperationSchema = z.object({
-    type: z.literal("upsert_hypothesis"),
+const UpdateHypothesisOperationSchema = z.object({
+    type: z.literal("update_hypothesis"),
     hypothesis: z.object({
         id: nonEmptyText,
-        statement: nonEmptyText,
+        statement: nonEmptyText.optional(),
         status: memoryEntryStatus.optional(),
+    }).strict().refine(
+        (value) => value.statement !== undefined || value.status !== undefined,
+        "update_hypothesis must change at least one field",
+    ),
+}).strict();
+
+const CreatePlanItemOperationSchema = z.object({
+    type: z.literal("create_plan_item"),
+    planItem: z.object({
+        description: nonEmptyText,
+        status: z.enum(["pending", "active", "blocked"]).optional(),
+        dependsOnFactIds: stringIds.optional(),
+        dependsOnPlanItemIds: stringIds.optional(),
     }).strict(),
 }).strict();
 
-const UpsertPlanItemOperationSchema = z.object({
-    type: z.literal("upsert_plan_item"),
+const UpdatePlanItemOperationSchema = z.object({
+    type: z.literal("update_plan_item"),
     planItem: z.object({
         id: nonEmptyText,
+        description: nonEmptyText.optional(),
+        status: planItemStatus.optional(),
+        dependsOnFactIds: stringIds.optional(),
+        dependsOnPlanItemIds: stringIds.optional(),
+        completionEvidenceSequences: z.array(positiveInteger).optional(),
+    }).strict().refine(
+        (value) => Object.keys(value).some((key) => key !== "id"),
+        "update_plan_item must change at least one field",
+    ),
+}).strict();
+
+const CreateBlockerOperationSchema = z.object({
+    type: z.literal("create_blocker"),
+    blocker: z.object({
         description: nonEmptyText,
-        status: memoryEntryStatus.optional(),
+        scope: memoryEntryScope.optional(),
     }).strict(),
 }).strict();
 
-const UpsertBlockerOperationSchema = z.object({
-    type: z.literal("upsert_blocker"),
+const UpdateBlockerOperationSchema = z.object({
+    type: z.literal("update_blocker"),
     blocker: z.object({
         id: nonEmptyText,
-        description: nonEmptyText,
-        scope: memoryEntryScope,
+        description: nonEmptyText.optional(),
         status: memoryEntryStatus.optional(),
-    }).strict(),
-}).strict();
-
-const SetNextActionOperationSchema = z.object({
-    type: z.literal("set_next_action"),
-    nextAction: z.union([
-        z.object({
-            id: nonEmptyText,
-            description: nonEmptyText,
-            status: memoryEntryStatus.optional(),
-        }).strict(),
-        z.null(),
-    ]),
+    }).strict().refine(
+        (value) => value.description !== undefined || value.status !== undefined,
+        "update_blocker must change at least one field",
+    ),
 }).strict();
 
 /** Structured Agent/Preparation 响应可携带的严格 Memory Patch Schema。 */
 export const MemoryPatchSchema = z.object({
     protocolVersion: z.literal(1),
     operations: z.array(z.discriminatedUnion("type", [
-        AddFindingOperationSchema,
-        UpdateFindingOperationSchema,
-        UpsertHypothesisOperationSchema,
-        UpsertPlanItemOperationSchema,
-        UpsertBlockerOperationSchema,
-        SetNextActionOperationSchema,
+        UpsertFactOperationSchema,
+        RetireFactOperationSchema,
+        CreateHypothesisOperationSchema,
+        UpdateHypothesisOperationSchema,
+        CreatePlanItemOperationSchema,
+        UpdatePlanItemOperationSchema,
+        CreateBlockerOperationSchema,
+        UpdateBlockerOperationSchema,
     ])),
 }).strict();
 

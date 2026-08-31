@@ -68,16 +68,22 @@ class RecordingSink implements TrajectorySink {
 }
 
 const findingOperation: CanonicalMemoryOperation = {
-    type: "add_finding",
-    finding: {
-        kind: "finding",
-        id: "finding-1",
+    type: "upsert_fact",
+    fact: {
+        kind: "fact",
+        id: "fact:5e11b5946524fcdb59bb43f8f7258d2b",
+        subject: "workspace",
+        predicate: "file_read",
+        value: true,
+        stability: "last_observed",
         originPhase: "executing",
         originSequence: 2,
+        updatedAtSequence: 2,
         scope: "goal",
-        status: "active",
-        statement: "已读取文件",
         evidenceSequences: [1],
+        reinforcementCount: 1,
+        lastEvidenceSequence: 1,
+        source: "model",
     },
 };
 
@@ -191,4 +197,3 @@ test("marker failure keeps Snapshot boundary and memory revision authoritative",
     assert.equal(store.saved[0]?.state.run.committedThroughSequence, 1);
     assert.equal(store.saved[0]?.state.run.memoryRevision?.sequence, 1);
 });
-

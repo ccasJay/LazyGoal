@@ -9,6 +9,7 @@ import type {
     RunState,
     ToolCallAction,
     MemoryProtocol,
+    WorkingMemoryPatch,
     GoalProtocolValidator,
 } from "./domain";
 import {
@@ -49,17 +50,25 @@ import {
 import { transition } from "./transition";
 import {
     TrajectoryAppendError,
+    allocateDiagnosticTraceRecord,
     type DiagnosticTraceSink,
+    type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryStore,
     type TrajectorySink,
 } from "./trajectory";
 import {
+    createSupersedeScopeOperation,
     normalizeMemoryPatch,
     type NormalizedWorkingMemoryPatch,
     type WorkingMemoryLimitsInput,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
+import {
+    createNoopToolMemoryProjectorRegistry,
+    normalizeToolMemoryProjectionResult,
+    type ToolMemoryProjectorRegistry,
+} from "./tool-memory-projector";
 import {
     TrajectoryCheckpointCommitter,
     type AcceptedMemoryPatchInput,
@@ -543,6 +552,8 @@ export interface RunnerDependencies {
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** 可选 Tool Observation 事实投影表；省略时不生成 Runtime Fact proposal。 */
+    readonly toolMemoryProjectors?: ToolMemoryProjectorRegistry;
     /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
     readonly trajectoryStore?: TrajectoryStore;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
@@ -595,6 +606,8 @@ export class Runner {
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly contextSourceRouter: ContextSourceRouter;
+    private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -608,6 +621,9 @@ export class Runner {
         this.contextLookupPort = dependencies.contextLookupPort;
         this.contextSourceRouter = dependencies.contextSourceRouter
             ?? new ContextSourceRouter();
+        this.traceSink = dependencies.traceSink;
+        this.toolMemoryProjectors = dependencies.toolMemoryProjectors
+            ?? createNoopToolMemoryProjectorRegistry();
         const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
@@ -849,8 +865,96 @@ export class Runner {
         draft: TrajectoryEventDraft,
         control?: ExecutionControl,
         countAsFact = true,
+    ): Promise<Readonly<TrajectoryEvent> | undefined> {
+        return this.checkpointCommitter.append(draft, control, countAsFact);
+    }
+
+    private async recordToolProjectorDiagnostic(
+        goal: Goal,
+        action: ToolCallAction,
+        error: unknown,
     ): Promise<void> {
-        await this.checkpointCommitter.append(draft, control, countAsFact);
+        if (this.traceSink === undefined) return;
+        try {
+            await this.traceSink.append(allocateDiagnosticTraceRecord({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                kind: "tool_memory_projector_failed",
+                payload: {
+                    toolId: action.toolId,
+                    actionId: action.actionId,
+                    error: error instanceof Error ? error.message : String(error),
+                },
+            }));
+        } catch {
+            // Diagnostic Trace 是旁路，不能覆盖 Observation 提交语义。
+        }
+    }
+
+    private async projectToolMemoryPatch(
+        goal: Goal,
+        action: ToolCallAction,
+        observation: ToolObservation,
+        observationSequence: number,
+        control?: ExecutionControl,
+    ): Promise<AcceptedMemoryPatchInput | undefined> {
+        const projector = this.toolMemoryProjectors.get(action.toolId);
+        if (projector === undefined) return undefined;
+        if (resolveMemoryProtocol(goal.definition).kind !== "structured") return undefined;
+
+        const session = await this.openWorkingMemorySession(goal, control);
+        if (session === undefined) return undefined;
+        try {
+            const projected = normalizeToolMemoryProjectionResult(projector.project({
+                goal: structuredClone(goal),
+                action: structuredClone(action),
+                observation: structuredClone(observation),
+                observationSequence,
+                workingMemory: structuredClone(session.workingMemory),
+            }));
+            if (projected.status !== "changed") return undefined;
+
+            for (const fact of projected.facts) {
+                if (!fact.evidenceSequences.includes(observationSequence)) {
+                    throw new TypeError(
+                        "ToolMemoryProjector Fact must reference the current observation sequence",
+                    );
+                }
+                const committedEvidence = fact.evidenceSequences.filter(
+                    (sequence) => sequence !== observationSequence,
+                );
+                if (committedEvidence.length > 0) session.validateEvidence(committedEvidence);
+            }
+
+            const patch: WorkingMemoryPatch = {
+                protocolVersion: 1,
+                operations: projected.facts.map((fact) => ({
+                    type: "upsert_fact" as const,
+                    fact,
+                })),
+            };
+            const normalized = normalizeMemoryPatch(patch, {
+                phase: "executing",
+                originSequence: observationSequence + 2,
+                source: "tool_projector",
+                workingMemory: session.workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
+            if (normalized.operations.length === 0) return undefined;
+            return {
+                phase: "executing",
+                producers: ["tool_projector"],
+                operations: normalized.operations,
+                actionId: action.actionId,
+            };
+        } catch (error) {
+            await this.recordToolProjectorDiagnostic(goal, action, error);
+            return undefined;
+        } finally {
+            session.close();
+        }
     }
 
     private async openWorkingMemorySession(
@@ -900,15 +1004,17 @@ export class Runner {
                 "structured Memory Session is missing",
             );
         }
-        if (memoryPatch === undefined) return undefined;
-
         const workingMemory = session.workingMemory;
         try {
-            const validationSession: WorkingMemorySession = session;
-            validationSession.validatePatch(memoryPatch);
-            const normalized: NormalizedWorkingMemoryPatch = normalizeMemoryPatch(
-                memoryPatch,
-                {
+            let normalized: NormalizedWorkingMemoryPatch = {
+                protocolVersion: 1,
+                operations: [],
+                suppressed: [],
+            };
+            if (memoryPatch !== undefined) {
+                const validationSession: WorkingMemorySession = session;
+                validationSession.validatePatch(memoryPatch);
+                normalized = normalizeMemoryPatch(memoryPatch, {
                     phase: "executing",
                     originSequence: Math.max(
                         1,
@@ -918,13 +1024,23 @@ export class Runner {
                     ...(this.workingMemoryLimits === undefined
                         ? {}
                         : { limits: this.workingMemoryLimits }),
-                },
-            );
-            if (normalized.operations.length === 0) return undefined;
+                });
+            }
+            const terminalLifecycle = decision.kind === "complete" || decision.kind === "fail"
+                ? [createSupersedeScopeOperation("phase", {
+                    phase: "executing",
+                    kinds: ["hypothesis", "plan", "blocker"],
+                })]
+                : [];
+            const operations = [...normalized.operations, ...terminalLifecycle];
+            if (operations.length === 0) return undefined;
             return {
                 phase: "executing",
-                producers: ["model"],
-                operations: normalized.operations,
+                producers: [
+                    ...(normalized.operations.length === 0 ? [] : ["model" as const]),
+                    ...(terminalLifecycle.length === 0 ? [] : ["runtime_lifecycle" as const]),
+                ],
+                operations,
             };
         } catch (error) {
             if (error instanceof RunnerExecutionError) throw error;
@@ -932,6 +1048,26 @@ export class Runner {
                 "INVALID_MEMORY_PATCH",
                 error instanceof Error ? error.message : String(error),
             );
+        }
+    }
+
+    private async createTerminalLifecyclePatch(
+        goal: Goal,
+        factCount: number,
+        control?: ExecutionControl,
+    ): Promise<AcceptedMemoryPatchInput | undefined> {
+        const session = await this.openWorkingMemorySession(goal, control);
+        if (session === undefined) return undefined;
+
+        try {
+            return this.normalizeDecisionPatch(
+                goal,
+                { kind: "fail", error: "Runtime terminal lifecycle cleanup" },
+                session,
+                factCount,
+            );
+        } finally {
+            session.close();
         }
     }
 
@@ -1191,7 +1327,12 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         throwIfAborted(control);
-        await this.appendTrajectory({
+        const lifecyclePatch = await this.createTerminalLifecyclePatch(
+            goal,
+            1,
+            control,
+        );
+        const executionErrorFact: TrajectoryEventDraft = {
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: goal.state.workflow.phase,
@@ -1207,7 +1348,7 @@ export class Runner {
                     ? {}
                     : { actionId: goal.state.run.pendingAction.action.actionId }),
             },
-        }, control);
+        };
         const failedRun = this.applyTransition(goal.state.run, {
             kind: "execution_error",
             code: error.code,
@@ -1215,7 +1356,12 @@ export class Runner {
         });
         const failedGoal = this.withRun(goal, failedRun);
 
-        const checkpoint = await this.saveCheckpoint(failedGoal, control);
+        const checkpoint = await this.commitDecision(
+            failedGoal,
+            [executionErrorFact],
+            lifecyclePatch,
+            control,
+        );
         return { ok: true, state: checkpoint.state.run };
     }
 
@@ -1277,7 +1423,7 @@ export class Runner {
         }
 
         throwIfAborted(control);
-        await this.appendTrajectory({
+        const toolFinishedEvent = await this.appendTrajectory({
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
@@ -1291,19 +1437,15 @@ export class Runner {
                 observation,
             },
         }, control);
-        await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            executionUnitId,
-            actionId: action.actionId,
-            eventType: "observation_recorded",
-            payload: {
-                type: "observation_recorded",
-                actionId: action.actionId,
+        const projectorPatch = toolFinishedEvent === undefined
+            ? undefined
+            : await this.projectToolMemoryPatch(
+                goal,
+                action,
                 observation,
-            },
-        }, control);
+                toolFinishedEvent.sequence,
+                control,
+            );
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
             actionId: action.actionId,
@@ -1311,8 +1453,26 @@ export class Runner {
         });
         const observedGoal = this.withRun(goal, observedRun);
 
-        // If this save fails, the already-saved goal remains the recovery baseline.
-        const checkpoint = await this.saveCheckpoint(observedGoal, control);
+        // Observation、Projector Patch 与 Snapshot 共用提交边界；Projector 失败只会
+        // 省略 accepted Patch，原始 Observation 仍然提交。
+        const committed = await this.checkpointCommitter.commit(observedGoal, {
+            facts: [{
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                actionId: action.actionId,
+                eventType: "observation_recorded",
+                payload: {
+                    type: "observation_recorded",
+                    actionId: action.actionId,
+                    observation,
+                },
+            }],
+            ...(projectorPatch === undefined ? {} : { acceptedPatch: projectorPatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        const checkpoint = committed.goal;
         return { kind: "observed", goal: checkpoint };
     }
 
@@ -1387,12 +1547,17 @@ export class Runner {
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
+                const lifecyclePatch = await this.createTerminalLifecyclePatch(
+                    goal,
+                    1,
+                    control,
+                );
                 const failedGoal = this.withRun(goal, {
                     ...goal.state.run,
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
-                await this.appendTrajectory({
+                const checkpoint = await this.commitDecision(failedGoal, [{
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
@@ -1402,8 +1567,7 @@ export class Runner {
                         code: "MAX_STEPS_EXCEEDED",
                         message: "The configured maximum step count was exceeded",
                     },
-                }, control);
-                const checkpoint = await this.saveCheckpoint(failedGoal, control);
+                }], lifecyclePatch, control);
                 return { ok: true, state: checkpoint.state.run };
             }
 
