@@ -1,6 +1,7 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
     resolveMemoryProtocol,
+    resolveModelContextProtocol,
     type Goal,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
@@ -18,10 +19,18 @@ import type {
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildPreparationRequest } from "./prompt";
-import { parsePreparationResult } from "./response-schema";
+import {
+    parsePreparationResult,
+    requestRequiresContextCheckpoint,
+} from "./response-schema";
+import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
+import {
+    ModelCapabilitiesError,
+    type ModelCapabilities,
+} from "./model-context-budget";
 import {
     recordLlmError,
     recordLlmRequest,
@@ -54,6 +63,8 @@ export interface LLMPreparationExecutorDependencies {
      * 分层 Goal 会在主模型调用前失败。
      */
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
+    /** v2 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
+    readonly modelCapabilities?: ModelCapabilities;
 }
 
 /** 使用 LLMAdapter 生成严格 PreparationResult 的准备阶段执行器。 */
@@ -63,6 +74,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
+    private readonly modelCapabilities: ModelCapabilities | undefined;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMPreparationExecutorDependencies) {
@@ -71,6 +83,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
+        this.modelCapabilities = dependencies.modelCapabilities;
     }
 
     /**
@@ -107,6 +120,16 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         const { goal, authorizedTools: tools, control } = input;
 
         throwIfAborted(control);
+        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+        if (
+            modelContextProtocol.kind === "trajectory-layered"
+            && modelContextProtocol.version === 2
+            && this.modelCapabilities === undefined
+        ) {
+            throw new ModelCapabilitiesError(
+                "trajectory-layered@2 requires ModelCapabilities before model call",
+            );
+        }
         const workflow = goal.state.workflow;
 
         if (
@@ -127,14 +150,18 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             input.workingMemory,
             this.trajectoryContextAssembler,
             input.contextLookupResult,
+            this.modelCapabilities,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
-        await recordLlmRequest(this.traceSink, goal, request);
+        const providerRequest = this.modelCapabilities === undefined
+            ? request
+            : { ...request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+        await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
-            response = await this.adapter.generate(request, control);
+            response = await this.adapter.generate(providerRequest, control);
         } catch (error) {
             await recordLlmError(
                 this.traceSink,
@@ -162,11 +189,24 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         );
 
         try {
-            return parsePreparationResult(
+            const result = parsePreparationResult(
                 response.content,
                 workflow.phase,
                 resolveMemoryProtocol(goal.definition),
+                modelContextProtocol,
             );
+            const checkpointRequired = requestRequiresContextCheckpoint(providerRequest);
+            if (checkpointRequired && result.kind !== "context_checkpoint") {
+                throw new LLMResponseProtocolError(
+                    "checkpoint_required 请求只接受 context_checkpoint 结果",
+                );
+            }
+            if (!checkpointRequired && result.kind === "context_checkpoint") {
+                throw new LLMResponseProtocolError(
+                    "context_checkpoint 只能在 checkpoint_required 请求中返回",
+                );
+            }
+            return result;
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

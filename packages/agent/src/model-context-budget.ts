@@ -361,6 +361,103 @@ export function resolveModelInputEstimator(
     return new CharacterModelInputEstimator();
 }
 
+/** v2 模型能力对象，冻结一次 Goal 生命周期内的 Token 预算边界。 */
+export interface ModelCapabilities {
+    readonly contextWindowTokens: number;
+    readonly maxOutputTokens: number;
+    readonly tokenEstimator: ModelInputEstimator;
+}
+
+/** v2 能力校验失败的稳定错误码。 */
+export const MODEL_CAPABILITIES_INVALID_CODE = "MODEL_CAPABILITIES_INVALID" as const;
+
+/** v2 模型能力非法时抛出的配置错误。 */
+export class ModelCapabilitiesError extends Error {
+    readonly code = MODEL_CAPABILITIES_INVALID_CODE;
+
+    constructor(message: string) {
+        super(`${MODEL_CAPABILITIES_INVALID_CODE}: ${message}`);
+        this.name = "ModelCapabilitiesError";
+    }
+}
+
+/** 校验并冻结 v2 模型能力。 */
+export function createModelCapabilities(
+    input: Pick<ModelCapabilities, "contextWindowTokens" | "maxOutputTokens">
+        & { readonly tokenEstimator?: ModelInputEstimator },
+): ModelCapabilities {
+    if (!Number.isSafeInteger(input.contextWindowTokens) || input.contextWindowTokens <= 0) {
+        throw new ModelCapabilitiesError("contextWindowTokens must be a positive safe integer");
+    }
+    if (!Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens <= 0) {
+        throw new ModelCapabilitiesError("maxOutputTokens must be a positive safe integer");
+    }
+    if (input.maxOutputTokens >= input.contextWindowTokens) {
+        throw new ModelCapabilitiesError("maxOutputTokens must be less than contextWindowTokens");
+    }
+    if (input.tokenEstimator === undefined || input.tokenEstimator.unit !== "token") {
+        throw new ModelCapabilitiesError("tokenEstimator with token units is required");
+    }
+    return Object.freeze({
+        contextWindowTokens: input.contextWindowTokens,
+        maxOutputTokens: input.maxOutputTokens,
+        tokenEstimator: input.tokenEstimator,
+    });
+}
+
+/** 仅用于没有供应商 tokenizer 包时的明确 encoding resolver。 */
+export function resolveTokenEstimatorEncoding(
+    encoding: string,
+): ModelInputEstimator {
+    const normalized = encoding.trim().toLowerCase();
+    if (normalized !== "cl100k_base" && normalized !== "o200k_base") {
+        throw new ModelCapabilitiesError(`unsupported tokenizer encoding: ${encoding}`);
+    }
+    return createTokenModelInputEstimator((input) => {
+        const text = typeof input === "string" ? input : stableJson(input);
+        // 保守的确定性估算：ASCII 约 4 字符/token，非 ASCII 按 code point 计量。
+        let count = 0;
+        for (const ch of text) count += ch.charCodeAt(0) <= 0x7f ? 0.25 : 1;
+        return Math.max(1, Math.ceil(count));
+    });
+}
+
+/** v2 硬预算计算器。 */
+export class TokenBudgetPlanner {
+    readonly capabilities: ModelCapabilities;
+    readonly hardInputLimit: number;
+    readonly epochPressureLimit: number;
+
+    constructor(capabilities: ModelCapabilities) {
+        this.capabilities = createModelCapabilities(capabilities);
+        this.hardInputLimit = Math.floor(this.capabilities.contextWindowTokens * 0.95)
+            - this.capabilities.maxOutputTokens;
+        if (this.hardInputLimit <= 0) {
+            throw new ModelCapabilitiesError("contextWindowTokens leaves no input budget");
+        }
+        this.epochPressureLimit = Math.floor(this.hardInputLimit * 0.85);
+    }
+
+    /** 计量最终渲染输入并报告是否达到检查点压力。 */
+    measure(input: unknown): {
+        readonly inputTokens: number;
+        readonly remainingTokens: number;
+        readonly pressureReached: boolean;
+        readonly hardOverflow: boolean;
+    } {
+        const inputTokens = this.capabilities.tokenEstimator.estimate(input);
+        if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) {
+            throw new ModelCapabilitiesError("token estimator returned an invalid count");
+        }
+        return Object.freeze({
+            inputTokens,
+            remainingTokens: Math.max(0, this.hardInputLimit - inputTokens),
+            pressureReached: inputTokens >= this.epochPressureLimit,
+            hardOverflow: inputTokens > this.hardInputLimit,
+        });
+    }
+}
+
 function assertPositiveSafeInteger(value: number, field: string): void {
     if (!Number.isSafeInteger(value) || value <= 0) {
         throw new RangeError(`${field} must be a positive safe integer`);

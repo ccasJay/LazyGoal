@@ -3,6 +3,7 @@ import {
     resolveMemoryProtocol,
     resolveModelContextProtocol,
     type Goal,
+    type ModelContextEpochState,
     type StepRecord,
     type WorkingMemory,
 } from "../../runtime/src/domain";
@@ -161,6 +162,10 @@ export class ModelInferenceProjector {
             ...(projectedContextLookupResult === undefined
                 ? {}
                 : { contextLookupResult: projectedContextLookupResult }),
+            ...(modelContextProtocol.kind === "trajectory-layered"
+                && modelContextProtocol.version === 2
+                ? { contextEpoch: projectContextEpoch(goal.state.run.contextEpoch) }
+                : {}),
         };
     }
 
@@ -191,9 +196,37 @@ export class ModelInferenceProjector {
             );
         }
 
+        const pressureReached = trajectoryContext.budget.fixedInput.count
+            >= Math.floor((trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve) * 0.85);
+        const suppressPressure = view.contextEpoch !== undefined
+            && view.contextEpoch.epochNumber > 0
+            && view.contextEpoch.conversationStartIndex
+                >= Math.max(0, view.conversation.length - 2);
+        const contextEpochStatus = suppressPressure
+            ? "active" as const
+            : pressureReached
+                ? "checkpoint_required" as const
+                : "active" as const;
+
         return deepFreeze({
             ...structuredClone(view),
             trajectoryContext: structuredClone(trajectoryContext),
+            ...(view.contextEpoch === undefined
+                ? {}
+                : {
+                    contextEpoch: {
+                        ...structuredClone(view.contextEpoch),
+                        control: {
+                            status: contextEpochStatus,
+                            ...(contextEpochStatus === "checkpoint_required"
+                                ? { reason: "input_threshold" as const }
+                                : {}),
+                            inputTokens: trajectoryContext.budget.fixedInput.count,
+                            hardInputLimit: trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve,
+                            remainingTokens: Math.max(0, trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve - trajectoryContext.budget.fixedInput.count),
+                        },
+                    },
+                }),
         });
     }
 
@@ -259,6 +292,40 @@ export class ModelInferenceProjector {
             },
         };
     }
+}
+
+function projectContextEpoch(
+    epoch: ModelContextEpochState | undefined,
+): import("./model-inference-view").ModelContextEpochView {
+    const state = epoch ?? {
+        version: 1 as const,
+        number: 0,
+        conversationStartIndex: 0,
+        openedAtSequence: 0,
+    };
+    if (
+        state.version !== 1
+        || !Number.isSafeInteger(state.number)
+        || state.number < 0
+        || !Number.isSafeInteger(state.conversationStartIndex)
+        || state.conversationStartIndex < 0
+        || !Number.isSafeInteger(state.openedAtSequence)
+        || state.openedAtSequence < 0
+    ) {
+        throw new Error("Invalid Model Context Epoch state");
+    }
+    return deepFreeze({
+        protocolVersion: 1 as const,
+        epochNumber: state.number,
+        conversationStartIndex: state.conversationStartIndex,
+        openedAtSequence: state.openedAtSequence,
+        control: {
+            status: "active" as const,
+            inputTokens: 0,
+            hardInputLimit: 0,
+            remainingTokens: 0,
+        },
+    });
 }
 
 function assertActivePreparation(goal: Goal): PreparationPhase {
@@ -364,19 +431,13 @@ function projectMemoryProtocol(
 function projectModelContextProtocol(
     protocol: ReturnType<typeof resolveModelContextProtocol>,
 ): ModelContextProtocol {
-    return {
-        kind: protocol.kind,
-        version: protocol.version,
-    };
+    return protocol as ModelContextProtocol;
 }
 
 function projectContextRetrievalProtocol(
     protocol: ReturnType<typeof resolveContextRetrievalProtocol>,
 ): ModelContextRetrievalProtocol {
-    return {
-        kind: protocol.kind,
-        version: protocol.version,
-    };
+    return protocol as ModelContextRetrievalProtocol;
 }
 
 function projectWorkingMemory(

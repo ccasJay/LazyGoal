@@ -51,6 +51,8 @@ import {
 import {
     recordModelContextSoftOverflowDiagnosticTrace,
 } from "./llm-diagnostic-trace";
+import { deterministicWarmEntryExtractor } from "./deterministic-warm";
+import { ModelContextHardOverflowError } from "./context-selector";
 
 /** 分层上下文组装缺少权威来源或协议不一致时使用的稳定错误代码。 */
 export const MODEL_CONTEXT_ASSEMBLY_ERROR_CODE = "MODEL_CONTEXT_ASSEMBLY_ERROR" as const;
@@ -303,6 +305,11 @@ export class TrajectoryModelContextAssembler {
         const budget = this.policy.plan({ fixedInput });
 
         if (budget.softOverflow) {
+            if (resolveModelContextProtocol(input.goal.definition).version === 2) {
+                throw new ModelContextHardOverflowError(
+                    "authoritative fixed context exceeds the v2 input budget",
+                );
+            }
             await recordModelContextSoftOverflowDiagnosticTrace({
                 sink: this.traceSink,
                 goalId: input.goal.id,
@@ -372,11 +379,9 @@ export class TrajectoryModelContextAssembler {
             sidecarDerivedThroughSequence,
             budget.warmBudget,
         );
-        const compactedWarm = await this.compactWarm(
-            input,
-            budget,
-            finalWarm,
-        );
+        const compactedWarm = resolveModelContextProtocol(input.goal.definition).version === 2
+            ? finalWarm.retained
+            : await this.compactWarm(input, budget, finalWarm);
 
         return freezeContext({
             measuredAs: budget.measuredAs,
@@ -618,9 +623,14 @@ export class TrajectoryModelContextAssembler {
         omittedUnits: readonly ModelExecutionUnitProjection[],
         derivedThroughSequence: number,
     ): readonly WarmCompactEntry[] {
-        if (this.warmEntryExtractor === undefined || omittedUnits.length === 0) return [];
+        if (omittedUnits.length === 0) return [];
         try {
-            const extracted = this.warmEntryExtractor({
+            const extractor = this.warmEntryExtractor
+                ?? (resolveModelContextProtocol(input.goal.definition).version === 2
+                    ? deterministicWarmEntryExtractor
+                    : undefined);
+            if (extractor === undefined) return [];
+            const extracted = extractor({
                 goal: input.goal,
                 omittedUnits,
                 derivedThroughSequence,
@@ -644,9 +654,12 @@ interface WarmReductionForAssembly {
 }
 
 function defaultFixedInput(view: ModelInferenceView): unknown {
+    const conversation = view.contextEpoch === undefined
+        ? view.conversation
+        : view.conversation.slice(view.contextEpoch.conversationStartIndex);
     return {
         prompt: view.prompt,
-        conversation: view.conversation,
+        conversation,
         workingContext: view.workingContext,
         ...(view.workingMemory === undefined
             ? {}

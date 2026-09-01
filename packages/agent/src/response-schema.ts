@@ -1,8 +1,10 @@
 import { z } from "zod";
+import type { LLMRequest } from "../../llm/src/core/types";
 
 import type {
     AgentDecision,
     MemoryProtocol,
+    ModelContextProtocol,
 } from "../../runtime/src/domain";
 import {
     CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
@@ -42,7 +44,7 @@ const ContextLookupFiltersSchema = z.object({
 /** Agent 请求查询 committed Trajectory 历史的严格 Schema。 */
 export const ContextLookupRequestSchema = z.object({
     kind: z.literal("context_lookup"),
-    need: z.enum(["historical_execution", "decision_rationale"]),
+    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]),
     question: z.string().trim().min(1).max(CONTEXT_LOOKUP_MAX_QUESTION_LENGTH),
     filters: ContextLookupFiltersSchema.optional(),
 }).strict();
@@ -230,6 +232,30 @@ export const StructuredFailAgentDecisionSchema = z.object({
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
+/** v2 Context Epoch 检查点结果；禁止携带 Epoch 编号或边界。 */
+export const ModelContextCheckpointResultSchema = z.object({
+    kind: z.literal("context_checkpoint"),
+    memoryPatch: MemoryPatchSchema.optional(),
+}).strict();
+
+/** 判断最终控制消息是否要求模型仅返回 Context Epoch 检查点。 */
+export function requestRequiresContextCheckpoint(
+    request: Pick<LLMRequest, "messages">,
+): boolean {
+    const message = request.messages.at(-1);
+    if (message === undefined || message.role !== "user") return false;
+    try {
+        const payload = JSON.parse(message.content) as {
+            readonly contextEpoch?: {
+                readonly control?: { readonly status?: unknown };
+            };
+        };
+        return payload.contextEpoch?.control?.status === "checkpoint_required";
+    } catch {
+        return false;
+    }
+}
+
 /** Structured Context Lookup 的独占 AgentDecision 分支。 */
 export const StructuredContextLookupAgentDecisionSchema = ContextLookupRequestSchema;
 
@@ -240,6 +266,7 @@ export const StructuredAgentDecisionSchema = z.discriminatedUnion("kind", [
     StructuredWaitAgentDecisionSchema,
     StructuredFailAgentDecisionSchema,
     StructuredContextLookupAgentDecisionSchema,
+    ModelContextCheckpointResultSchema,
 ]);
 
 export const QuestionPreparationResultSchema = z.object({
@@ -294,6 +321,7 @@ export const StructuredGatheringContextPreparationResultSchema = z.discriminated
         StructuredQuestionPreparationResultSchema,
         StructuredContextReadyPreparationResultSchema,
         StructuredContextLookupPreparationResultSchema,
+        ModelContextCheckpointResultSchema,
     ],
 );
 
@@ -313,6 +341,7 @@ export const StructuredPlanningPreparationResultSchema =
     z.union([
         StructuredTaskProposalPreparationResultSchema,
         StructuredContextLookupPreparationResultSchema,
+        ModelContextCheckpointResultSchema,
     ]);
 
 export type { PreparationPhase } from "./model-inference-view";
@@ -339,6 +368,7 @@ function parseJson(content: string): unknown {
 export function parseAgentDecision(
     content: string,
     protocol: MemoryProtocol = { kind: "checkpoint", version: 1 },
+    modelContextProtocol: ModelContextProtocol = { kind: "conversation", version: 1 },
 ): AgentDecision {
     const parsed = parseJson(content);
     const schema = protocol.kind === "structured"
@@ -353,6 +383,15 @@ export function parseAgentDecision(
                 cause: result.error,
                 issues: result.error.issues,
             },
+        );
+    }
+
+    if (
+        (result.data as { kind?: unknown }).kind === "context_checkpoint"
+        && (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2)
+    ) {
+        throw new LLMResponseProtocolError(
+            "响应包含仅允许 trajectory-layered@2 的 context_checkpoint",
         );
     }
 
@@ -373,6 +412,7 @@ export function parsePreparationResult(
     content: string,
     phase: PreparationPhase,
     protocol: MemoryProtocol = { kind: "checkpoint", version: 1 },
+    modelContextProtocol: ModelContextProtocol = { kind: "conversation", version: 1 },
 ): PreparationResult {
     const parsed = parseJson(content);
     const schema = protocol.kind === "structured"
@@ -391,6 +431,15 @@ export function parsePreparationResult(
                 cause: result.error,
                 issues: result.error.issues,
             },
+        );
+    }
+
+    if (
+        (result.data as { kind?: unknown }).kind === "context_checkpoint"
+        && (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2)
+    ) {
+        throw new LLMResponseProtocolError(
+            "响应包含仅允许 trajectory-layered@2 的 context_checkpoint",
         );
     }
 

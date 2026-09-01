@@ -42,6 +42,12 @@ export const GLOBAL_OVERVIEW_TEMPLATE_V6: PromptTemplateAsset = {
     sourceUrl: new URL("./global-overview@6.njk", import.meta.url),
 };
 
+/** v8 Context Epoch、硬 Token 预算与联合历史来源边界模板。 */
+export const GLOBAL_OVERVIEW_TEMPLATE_V8: PromptTemplateAsset = {
+    id: "global-overview@8",
+    sourceUrl: new URL("./global-overview@8.njk", import.meta.url),
+};
+
 /**
  * v1 Global Overview 的兼容别名。
  *

@@ -5,6 +5,7 @@ import type {
     ModelWorkingMemory,
     ModelWorkingContext,
     ModelContextLookupResult,
+    ModelContextEpochView,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
 
@@ -33,12 +34,14 @@ export function renderWorkingContextMessage(
     workingMemory?: ModelWorkingMemory,
     trajectoryContext?: ModelTrajectoryContext,
     contextLookupResult?: ModelContextLookupResult,
+    contextEpoch?: ModelContextEpochView,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     const payload = {
         ...context,
         ...(workingMemory === undefined ? {} : { workingMemory }),
         ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
         ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
+        ...(contextEpoch === undefined ? {} : { contextEpoch }),
     };
 
     return {
@@ -81,6 +84,7 @@ export function renderRequest(
                 view.workingMemory,
                 view.trajectoryContext,
                 view.contextLookupResult,
+                view.contextEpoch,
             ),
         ],
     };

@@ -59,6 +59,7 @@ export function projectContextLookupResult(
         ...(match.adjacent === undefined ? {} : { adjacent: match.adjacent }),
         historical: true,
         sourceEventIds: [...match.sourceEventIds],
+        ...(match.source === undefined ? {} : { source: structuredClone(match.source) }),
     }));
     return deepFreeze({
         status: "found",
@@ -84,4 +85,3 @@ function deepFreeze<T>(value: T): T {
     }
     return value;
 }
-

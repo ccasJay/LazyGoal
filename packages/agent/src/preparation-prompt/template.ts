@@ -91,6 +91,18 @@ export const PLANNING_TEMPLATE_V6: PromptTemplateAsset = {
     sourceUrl: new URL("./planning@6.njk", import.meta.url),
 };
 
+/** v8 Gathering Context 允许专用 Context Epoch 检查点结果。 */
+export const GATHERING_CONTEXT_TEMPLATE_V8: PromptTemplateAsset = {
+    id: "gathering-context@8",
+    sourceUrl: new URL("./gathering-context@8.njk", import.meta.url),
+};
+
+/** v8 Planning 允许专用 Context Epoch 检查点结果。 */
+export const PLANNING_TEMPLATE_V8: PromptTemplateAsset = {
+    id: "planning@8",
+    sourceUrl: new URL("./planning@8.njk", import.meta.url),
+};
+
 /**
  * v1 planning 模板的兼容别名。
  *

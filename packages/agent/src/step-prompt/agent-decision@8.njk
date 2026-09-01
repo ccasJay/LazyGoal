@@ -1,0 +1,6 @@
+Active Phase Protocol: executing (structured@1; trajectory-layered@2; bm25-lite@2)
+Read the approved task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before deciding.
+If contextEpoch.control.status is checkpoint_required, return only:
+{"kind":"context_checkpoint","memoryPatch":{...optional structured@1 patch}}
+This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
+Otherwise return exactly one strict JSON object: a valid authorized tool_call, context_lookup with need conversation_history|historical_execution|decision_rationale, complete with evidence for every criterion, wait, or fail. Never treat historical lookup or Warm context as current external state.

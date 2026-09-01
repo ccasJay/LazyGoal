@@ -65,7 +65,7 @@ export type ModelStepRecord =
             | { readonly kind: "fail"; readonly error: string }
             | {
                 readonly kind: "context_lookup";
-                readonly need: "historical_execution" | "decision_rationale";
+                readonly need: "conversation_history" | "historical_execution" | "decision_rationale";
                 readonly question: string;
                 readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
             };
@@ -95,12 +95,14 @@ export type ModelMemoryProtocol =
 /** Agent 可消费的冻结模型上下文协议标识。 */
 export type ModelContextProtocol =
     | { readonly kind: "conversation"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+    | { readonly kind: "trajectory-layered"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 2 };
 
 /** Agent 可消费的冻结 Cold Trajectory 检索协议标识。 */
 export type ModelContextRetrievalProtocol =
     | { readonly kind: "none"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 1 };
+    | { readonly kind: "bm25-lite"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 2 };
 
 /** `ModelContextRetrievalProtocol` 的简短兼容别名。 */
 export type ModelRetrievalProtocol = ModelContextRetrievalProtocol;
@@ -233,6 +235,19 @@ export interface ModelContextLookupMatch {
     readonly adjacent?: boolean;
     readonly historical: true;
     readonly sourceEventIds: readonly string[];
+    readonly source?:
+        | {
+            readonly kind: "trajectory";
+            readonly firstSequence: number;
+            readonly lastSequence: number;
+            readonly sourceEventIds: readonly string[];
+        }
+        | {
+            readonly kind: "conversation";
+            readonly messageIndex: number;
+            readonly role: "user" | "assistant";
+            readonly contentHash: string;
+        };
 }
 
 /**
@@ -381,6 +396,29 @@ export interface ModelTrajectoryContext {
     readonly budget: ModelContextBudgetPlan;
 }
 
+/** 模型可见的 Context Epoch 控制状态。 */
+export interface ModelContextControl {
+    /** 当前 Epoch 是否需要模型先提交检查点。 */
+    readonly status: "active" | "checkpoint_required";
+    /** 触发检查点的稳定原因。 */
+    readonly reason?: "conversation_pruned" | "input_threshold";
+    /** 不含 Hot/Warm 的 Epoch 输入 Token 数。 */
+    readonly inputTokens: number;
+    /** 该 Goal 的输入硬上限。 */
+    readonly hardInputLimit: number;
+    /** 距离硬上限的剩余 Token。 */
+    readonly remainingTokens: number;
+}
+
+/** `trajectory-layered@2` 的单轮 Epoch 投影。 */
+export interface ModelContextEpochView {
+    readonly protocolVersion: 1;
+    readonly epochNumber: number;
+    readonly conversationStartIndex: number;
+    readonly openedAtSequence: number;
+    readonly control: ModelContextControl;
+}
+
 /**
  * 一次模型推理的完整输入投影。
  *
@@ -422,4 +460,6 @@ export interface ModelInferenceView {
      * Workspace/Environment 的授权 Tool Observation。
      */
     readonly contextLookupResult?: ModelContextLookupResult;
+    /** `trajectory-layered@2` 的当前 Epoch 控制投影；legacy/v1 必须省略。 */
+    readonly contextEpoch?: ModelContextEpochView;
 }

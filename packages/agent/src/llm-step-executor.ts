@@ -3,7 +3,10 @@ import type {
     AgentDecision,
     Goal,
 } from "../../runtime/src/domain";
-import { resolveMemoryProtocol } from "../../runtime/src/domain";
+import {
+    resolveMemoryProtocol,
+    resolveModelContextProtocol,
+} from "../../runtime/src/domain";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -18,10 +21,18 @@ import type {
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
-import { parseAgentDecision } from "./response-schema";
+import {
+    parseAgentDecision,
+    requestRequiresContextCheckpoint,
+} from "./response-schema";
+import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
+import {
+    ModelCapabilitiesError,
+    type ModelCapabilities,
+} from "./model-context-budget";
 import {
     recordLlmError,
     recordLlmRequest,
@@ -53,6 +64,8 @@ export interface LLMStepExecutorDependencies {
      * 分层 Goal 会在主模型调用前失败。
      */
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
+    /** v2 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
+    readonly modelCapabilities?: ModelCapabilities;
 }
 
 /**
@@ -73,6 +86,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
+    private readonly modelCapabilities: ModelCapabilities | undefined;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
@@ -81,6 +95,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
+        this.modelCapabilities = dependencies.modelCapabilities;
     }
 
     /**
@@ -114,6 +129,16 @@ export class LLMStepExecutor implements StepExecutor {
         const { goal, authorizedTools: tools, control } = input;
 
         throwIfAborted(control);
+        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
+        if (
+            modelContextProtocol.kind === "trajectory-layered"
+            && modelContextProtocol.version === 2
+            && this.modelCapabilities === undefined
+        ) {
+            throw new ModelCapabilitiesError(
+                "trajectory-layered@2 requires ModelCapabilities before model call",
+            );
+        }
         const request = await buildStepRequest(
             goal,
             tools,
@@ -123,14 +148,18 @@ export class LLMStepExecutor implements StepExecutor {
             input.workingMemory,
             this.trajectoryContextAssembler,
             input.contextLookupResult,
+            this.modelCapabilities,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
-        await recordLlmRequest(this.traceSink, goal, request);
+        const providerRequest = this.modelCapabilities === undefined
+            ? request
+            : { ...request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+        await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
-            response = await this.adapter.generate(request, control);
+            response = await this.adapter.generate(providerRequest, control);
         } catch (error) {
             await recordLlmError(
                 this.traceSink,
@@ -163,7 +192,19 @@ export class LLMStepExecutor implements StepExecutor {
             decision = parseAgentDecision(
                 response.content,
                 resolveMemoryProtocol(goal.definition),
+                modelContextProtocol,
             );
+            const checkpointRequired = requestRequiresContextCheckpoint(providerRequest);
+            if (checkpointRequired && decision.kind !== "context_checkpoint") {
+                throw new LLMResponseProtocolError(
+                    "checkpoint_required 请求只接受 context_checkpoint 结果",
+                );
+            }
+            if (!checkpointRequired && decision.kind === "context_checkpoint") {
+                throw new LLMResponseProtocolError(
+                    "context_checkpoint 只能在 checkpoint_required 请求中返回",
+                );
+            }
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

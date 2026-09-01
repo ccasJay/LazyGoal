@@ -16,7 +16,9 @@ export type LLMMessage =
 
 /** 一次 LLM 生成请求；消息顺序必须按原样传递给 Adapter。 */
 export interface LLMRequest {
-    messages: LLMMessage[];
+    readonly messages: readonly LLMMessage[];
+    /** 供应商生成阶段允许的最大输出 Token；v2 Goal 必须传递。 */
+    readonly maxOutputTokens?: number;
 }
 
 /** 供应商无关的 LLM 响应；content 保存模型返回的原始文本。 */

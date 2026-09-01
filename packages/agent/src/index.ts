@@ -66,6 +66,7 @@ export {
     DEFAULT_WARM_PARTITION_QUOTA,
     WARM_ENTRY_KINDS,
 } from "./warm-reducer";
+export { DeterministicWarmEntryExtractor, deterministicWarmEntryExtractor } from "./deterministic-warm";
 export type {
     WarmCompactEntry,
     WarmEntryKind,
@@ -97,6 +98,11 @@ export {
     createModelContextBudgetPolicy,
     createTokenModelInputEstimator,
     resolveModelInputEstimator,
+    createModelCapabilities,
+    resolveTokenEstimatorEncoding,
+    TokenBudgetPlanner,
+    MODEL_CAPABILITIES_INVALID_CODE,
+    ModelCapabilitiesError,
     DEFAULT_MODEL_INPUT_CHARACTER_BUDGET,
     DEFAULT_MODEL_RESPONSE_RESERVE_RATIO,
     DEFAULT_MODEL_WARM_SHARE,
@@ -112,7 +118,18 @@ export type {
     ModelContextBudgetPolicy,
     ModelContextBudgetPlanInput,
     ModelContextBudgetPlan,
+    ModelCapabilities,
 } from "./model-context-budget";
+export {
+    ContextSelector,
+    MODEL_CONTEXT_HARD_OVERFLOW,
+    ModelContextHardOverflowError,
+} from "./context-selector";
+export type {
+    ContextSelectionInput,
+    ContextSelectionResult,
+    ContextSelectionUnit,
+} from "./context-selector";
 export {
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
@@ -143,6 +160,8 @@ export type {
     ModelContextLookupFreshness,
     ModelContextLookupMatch,
     ModelContextLookupResult,
+    ModelContextControl,
+    ModelContextEpochView,
     ModelWorkingMemory,
     ModelInferenceView,
     ModelTrajectoryContext,
@@ -167,6 +186,7 @@ export {
     GatheringContextPreparationResultSchema,
     parsePreparationResult,
     parseAgentDecision,
+    requestRequiresContextCheckpoint,
     PlanningPreparationResultSchema,
     QuestionPreparationResultSchema,
     TaskProposalPreparationResultSchema,
@@ -182,6 +202,7 @@ export {
     StructuredContextReadyPreparationResultSchema,
     StructuredContextLookupAgentDecisionSchema,
     StructuredContextLookupPreparationResultSchema,
+    ModelContextCheckpointResultSchema,
     StructuredPlanningPreparationResultSchema,
     StructuredTaskProposalPreparationResultSchema,
     ContextLookupRequestSchema,
@@ -211,6 +232,7 @@ export {
     PROMPT_BUNDLE_V4_MANIFEST,
     PROMPT_BUNDLE_V5_MANIFEST,
     PROMPT_BUNDLE_V6_MANIFEST,
+    PROMPT_BUNDLE_V8_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";

@@ -47,6 +47,12 @@ export const AGENT_DECISION_TEMPLATE_V7: PromptTemplateAsset = {
     sourceUrl: new URL("./agent-decision@7.njk", import.meta.url),
 };
 
+/** v8 Context Epoch 检查点与联合检索 AgentDecision 协议模板。 */
+export const AGENT_DECISION_TEMPLATE_V8: PromptTemplateAsset = {
+    id: "agent-decision@8",
+    sourceUrl: new URL("./agent-decision@8.njk", import.meta.url),
+};
+
 /**
  * v1 AgentDecision 模板的兼容别名。
  *

@@ -57,7 +57,7 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        const input = toGeminiInput(request.messages);
+        const input = toGeminiInput(request.messages, request.maxOutputTokens);
 
         if (control?.signal !== undefined) {
             input.config = {
@@ -94,7 +94,10 @@ export class Gemini implements LLMAdapter {
 
 
 /** 将统一消息转换为 Gemini contents 与可选 systemInstruction。 */
-function toGeminiInput(messages: LLMMessage[]): GeminiInput {
+function toGeminiInput(
+    messages: readonly LLMMessage[],
+    maxOutputTokens?: number,
+): GeminiInput {
     const systemInstruction: string[] = [];
     const contents: Content[] = [];
 
@@ -125,6 +128,12 @@ function toGeminiInput(messages: LLMMessage[]): GeminiInput {
     if (systemInstruction.length > 0) {
         input.config = {
             systemInstruction: systemInstruction.join("\n"),
+        };
+    }
+    if (maxOutputTokens !== undefined) {
+        input.config = {
+            ...input.config,
+            maxOutputTokens,
         };
     }
     return input;

@@ -8,6 +8,7 @@ import {
     GLOBAL_OVERVIEW_TEMPLATE_V4,
     GLOBAL_OVERVIEW_TEMPLATE_V5,
     GLOBAL_OVERVIEW_TEMPLATE_V6,
+    GLOBAL_OVERVIEW_TEMPLATE_V8,
 } from "../global-system-prompt/template";
 import {
     GATHERING_CONTEXT_TEMPLATE_V1,
@@ -22,6 +23,8 @@ import {
     PLANNING_TEMPLATE_V4,
     PLANNING_TEMPLATE_V5,
     PLANNING_TEMPLATE_V6,
+    GATHERING_CONTEXT_TEMPLATE_V8,
+    PLANNING_TEMPLATE_V8,
 } from "../preparation-prompt/template";
 import {
     AGENT_DECISION_TEMPLATE_V1,
@@ -31,6 +34,7 @@ import {
     AGENT_DECISION_TEMPLATE_V5,
     AGENT_DECISION_TEMPLATE_V6,
     AGENT_DECISION_TEMPLATE_V7,
+    AGENT_DECISION_TEMPLATE_V8,
 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
@@ -92,6 +96,7 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V4,
     GLOBAL_OVERVIEW_TEMPLATE_V5,
     GLOBAL_OVERVIEW_TEMPLATE_V6,
+    GLOBAL_OVERVIEW_TEMPLATE_V8,
     PROFILE_TEMPLATE,
     GATHERING_CONTEXT_TEMPLATE_V1,
     GATHERING_CONTEXT_TEMPLATE_V2,
@@ -105,6 +110,8 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     PLANNING_TEMPLATE_V4,
     PLANNING_TEMPLATE_V5,
     PLANNING_TEMPLATE_V6,
+    GATHERING_CONTEXT_TEMPLATE_V8,
+    PLANNING_TEMPLATE_V8,
     AGENT_DECISION_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V2,
     AGENT_DECISION_TEMPLATE_V3,
@@ -112,6 +119,7 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     AGENT_DECISION_TEMPLATE_V5,
     AGENT_DECISION_TEMPLATE_V6,
     AGENT_DECISION_TEMPLATE_V7,
+    AGENT_DECISION_TEMPLATE_V8,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
 
@@ -280,6 +288,27 @@ export const PROMPT_BUNDLE_V7_MANIFEST: PromptBundleManifest = {
     ],
 };
 
+/** v8 Context Epoch + 联合检索 Bundle Manifest。 */
+export const PROMPT_BUNDLE_V8_MANIFEST: PromptBundleManifest = {
+    version: 8,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 2 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 2 },
+    sections: [
+        { slot: "global_overview", templateId: GLOBAL_OVERVIEW_TEMPLATE_V8.id },
+        { slot: "profile", templateId: PROFILE_TEMPLATE.id },
+        {
+            slot: "phase_protocol",
+            templates: {
+                gathering_context: GATHERING_CONTEXT_TEMPLATE_V8.id,
+                planning: PLANNING_TEMPLATE_V8.id,
+                executing: AGENT_DECISION_TEMPLATE_V8.id,
+            },
+        },
+        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
+    ],
+};
+
 /** 当前新 Goal 使用的 v7 实体化 Working Memory Manifest。 */
 export const DEFAULT_PROMPT_BUNDLE_MANIFEST = PROMPT_BUNDLE_V7_MANIFEST;
 
@@ -345,6 +374,11 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
             modelContext: { kind: "trajectory-layered", version: 1 },
             contextRetrieval: { kind: "bm25-lite", version: 1 },
         }],
+        [8, {
+            memory: { kind: "structured", version: 1 },
+            modelContext: { kind: "trajectory-layered", version: 2 },
+            contextRetrieval: { kind: "bm25-lite", version: 2 },
+        }],
     ]);
 
     return {
@@ -377,7 +411,7 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
 
             if (!isModelContextProtocol(modelContextProtocol)) {
                 throw new GoalProtocolError(
-                    "模型上下文协议必须是 conversation@1 或 trajectory-layered@1",
+                    "模型上下文协议必须是 conversation@1 或 trajectory-layered@1/2",
                 );
             }
 
@@ -386,7 +420,7 @@ export function createDefaultPromptBundleProtocolValidator(): GoalProtocolValida
 
             if (!isContextRetrievalProtocol(contextRetrievalProtocol)) {
                 throw new GoalProtocolError(
-                    "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
+                    "Context Retrieval 协议必须是 none@1 或 bm25-lite@1/2",
                 );
             }
 
@@ -445,6 +479,7 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
             PROMPT_BUNDLE_V4_MANIFEST,
             PROMPT_BUNDLE_V5_MANIFEST,
             PROMPT_BUNDLE_V6_MANIFEST,
+            PROMPT_BUNDLE_V8_MANIFEST,
             PROMPT_BUNDLE_V7_MANIFEST,
         ],
     });

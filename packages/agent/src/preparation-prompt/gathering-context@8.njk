@@ -1,0 +1,2 @@
+Active Phase Protocol: gathering_context (structured@1; trajectory-layered@2; bm25-lite@2)
+Use Context Lookup only for historical evidence. If Context Epoch control.status is checkpoint_required, return only {"kind":"context_checkpoint","memoryPatch":{...optional}}. Otherwise return exactly one question, context_ready, or context_lookup object; do not return a task proposal or Action.

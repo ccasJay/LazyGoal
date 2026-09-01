@@ -53,7 +53,13 @@ export class OpenAICompatible implements LLMAdapter {
         const messages = toOpenAIMessages(_request.messages);
 
         try {
-            const request = { model: this.model, messages };
+            const request = {
+                model: this.model,
+                messages,
+                ...(typeof _request.maxOutputTokens === "number"
+                    ? { max_tokens: _request.maxOutputTokens }
+                    : {}),
+            };
             const response = control?.signal === undefined
                 ? await this.client.chat.completions.create(request)
                 : await this.client.chat.completions.create(
@@ -87,7 +93,7 @@ export class OpenAICompatible implements LLMAdapter {
 }
 /** 将统一消息按原顺序转换为 OpenAI Chat Completions 消息。 */
 function toOpenAIMessages(
-    messages: LLMMessage[],
+    messages: readonly LLMMessage[],
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
     return messages.map((msg) => {
         switch (msg.role) {

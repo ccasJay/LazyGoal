@@ -16,6 +16,11 @@ import {
     ModelContextAssemblyError,
     type TrajectoryModelContextAssembler,
 } from "./trajectory-model-context-assembler";
+import {
+    TokenBudgetPlanner,
+    type ModelCapabilities,
+} from "./model-context-budget";
+import { ModelContextHardOverflowError } from "./context-selector";
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
@@ -36,6 +41,25 @@ function project(
 }
 
 const conversationAdapter = new ConversationContextUnitAdapter();
+
+function isContextEpochV2(view: ModelInferenceView): boolean {
+    return view.prompt.modelContextProtocol?.kind === "trajectory-layered"
+        && view.prompt.modelContextProtocol.version === 2;
+}
+
+/** 仅取当前 Epoch 的完整 Conversation 单元；旧 Epoch 仍由 Cold Lookup 提供。 */
+function currentEpochConversationUnits(view: ModelInferenceView) {
+    const start = view.contextEpoch?.conversationStartIndex ?? 0;
+    return conversationAdapter.adapt(view.conversation.slice(start));
+}
+
+/** 为 Assembler 的压力计算保留最新完整 Conversation，避免旧消息阻塞 Epoch 检查点。 */
+function latestEpochConversation(view: ModelInferenceView): readonly ModelConversationMessage[] {
+    const units = currentEpochConversationUnits(view);
+    return units.length === 0
+        ? []
+        : [...units[units.length - 1]!.items];
+}
 
 async function assembleTrajectoryContext(
     goal: Goal,
@@ -59,13 +83,16 @@ async function assembleTrajectoryContext(
         );
     }
 
+    const fixedInputConversation = isContextEpochV2(view)
+        ? latestEpochConversation(view)
+        : view.conversation;
     const fixedInput = {
         messages: [
             {
                 role: "system" as const,
                 content: renderer.render(view.prompt),
             },
-            ...view.conversation.map((message) => ({
+            ...fixedInputConversation.map((message) => ({
                 role: message.role,
                 content: message.content,
             })),
@@ -74,6 +101,7 @@ async function assembleTrajectoryContext(
                 view.workingMemory,
                 undefined,
                 view.contextLookupResult,
+                view.contextEpoch,
             ),
         ],
     };
@@ -124,6 +152,7 @@ export async function buildStepRequest(
     workingMemory?: WorkingMemory,
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
     contextLookupResult?: ContextLookupResult,
+    modelCapabilities?: ModelCapabilities,
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
@@ -136,11 +165,11 @@ export async function buildStepRequest(
         throw new Error("Step request requires a running executing Goal");
     }
 
-    const view = await compactConversation(
-        projected,
-        contextCompactor,
-        signal,
-    );
+    // v2 由 Context Epoch + ContextSelector 控制完整消息边界；旧协议继续使用
+    // 原有异步 Compactor，保证恢复旧 Goal 的行为和调用次数不变。
+    const view = isContextEpochV2(projected)
+        ? projected
+        : await compactConversation(projected, contextCompactor, signal);
 
     const assembled = await assembleTrajectoryContext(
         goal,
@@ -150,7 +179,7 @@ export async function buildStepRequest(
         trajectoryContextAssembler,
     );
 
-    return renderRequest(assembled, renderer);
+    return renderFinalRequest(assembled, renderer, modelCapabilities);
 }
 
 /**
@@ -181,6 +210,7 @@ export async function buildPreparationRequest(
     workingMemory?: WorkingMemory,
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
     contextLookupResult?: ContextLookupResult,
+    modelCapabilities?: ModelCapabilities,
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
@@ -196,11 +226,9 @@ export async function buildPreparationRequest(
         throw new Error("Preparation request requires an active preparation Goal");
     }
 
-    const view = await compactConversation(
-        projected,
-        contextCompactor,
-        signal,
-    );
+    const view = isContextEpochV2(projected)
+        ? projected
+        : await compactConversation(projected, contextCompactor, signal);
 
     const assembled = await assembleTrajectoryContext(
         goal,
@@ -210,5 +238,82 @@ export async function buildPreparationRequest(
         trajectoryContextAssembler,
     );
 
-    return renderRequest(assembled, renderer);
+    return renderFinalRequest(assembled, renderer, modelCapabilities);
+}
+
+/** 对 v2 最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
+function renderFinalRequest(
+    view: ModelInferenceView,
+    renderer: PromptBundleRenderer,
+    modelCapabilities?: ModelCapabilities,
+): LLMRequest {
+    if (!isContextEpochV2(view) || modelCapabilities === undefined) {
+        return renderRequest(view, renderer);
+    }
+
+    const planner = new TokenBudgetPlanner(modelCapabilities);
+    const units = currentEpochConversationUnits(view);
+    const latest = units.length === 0 ? undefined : units[units.length - 1]!;
+    const olderConversation = units.length <= 1 ? [] : units.slice(0, -1);
+    const hot = [...(view.trajectoryContext?.hot ?? [])];
+    const warm = [...(view.trajectoryContext?.warm ?? [])];
+    let conversationPruned = false;
+
+    const render = (): LLMRequest => {
+        const conversation = latest === undefined
+            ? []
+            : flattenContextUnits([
+                ...olderConversation,
+                latest,
+            ]);
+        const candidate: ModelInferenceView = {
+            ...structuredClone(view),
+            conversation,
+            ...(view.trajectoryContext === undefined
+                ? {}
+                : {
+                    trajectoryContext: {
+                        ...structuredClone(view.trajectoryContext),
+                        hot: [...hot],
+                        warm: [...warm],
+                    },
+                }),
+            ...(view.contextEpoch === undefined || !conversationPruned
+                ? {}
+                : {
+                    contextEpoch: {
+                        ...structuredClone(view.contextEpoch),
+                        control: {
+                            ...structuredClone(view.contextEpoch.control),
+                            status: "checkpoint_required" as const,
+                            reason: "conversation_pruned" as const,
+                        },
+                    },
+                }),
+        };
+        return renderRequest(candidate, renderer);
+    };
+
+    let request = render();
+    let measured = planner.measure(request);
+    while (measured.hardOverflow && warm.length > 0) {
+        warm.shift();
+        request = render();
+        measured = planner.measure(request);
+    }
+    while (measured.hardOverflow && olderConversation.length > 0) {
+        conversationPruned = true;
+        olderConversation.shift();
+        request = render();
+        measured = planner.measure(request);
+    }
+    while (measured.hardOverflow && hot.length > 0) {
+        hot.shift();
+        request = render();
+        measured = planner.measure(request);
+    }
+    if (measured.hardOverflow) {
+        throw new ModelContextHardOverflowError();
+    }
+    return request;
 }
