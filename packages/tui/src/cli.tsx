@@ -28,6 +28,10 @@ import {
     type TrajectoryReadResult,
     type ToolPolicy,
     type WorkingMemoryLimits,
+    type ModelContextProtocol,
+    type ContextRetrievalProtocol,
+    IndexedContextLookupService,
+    ContextMaintenanceWorker,
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -36,6 +40,7 @@ import {
     JsonFileGoalStore,
     JsonFileTrajectoryStore,
     JsonFileWarmContextSidecarStore,
+    JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
 import {
     ContextCompactAdapter,
@@ -49,6 +54,10 @@ import {
     LLMPreparationExecutor,
     LLMStepExecutor,
     resolveModelInputEstimator,
+    createModelCapabilities,
+    ModelCapabilitiesError,
+    resolveTokenEstimatorEncoding,
+    type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
     type ModelInputEstimator,
@@ -255,6 +264,45 @@ export function readConversationCharBudget(
     return budget;
 }
 
+/** 读取 v2 模型能力配置；只有显式启用 v2 时才要求这些变量。 */
+export function readModelCapabilities(
+    env: NodeJS.ProcessEnv = process.env,
+    estimator?: ModelInputEstimator,
+): ModelCapabilities | undefined {
+    const windowRaw = env.LLM_CONTEXT_WINDOW_TOKENS;
+    const outputRaw = env.LLM_MAX_OUTPUT_TOKENS;
+    const encoding = env.LLM_TOKENIZER_ENCODING?.trim();
+    if (
+        (windowRaw === undefined || windowRaw.trim() === "")
+        && (outputRaw === undefined || outputRaw.trim() === "")
+        && !encoding
+    ) {
+        return undefined;
+    }
+    const parse = (raw: string | undefined, name: string): number => {
+        if (raw === undefined || !/^\d+$/.test(raw.trim())) {
+            throw new ModelCapabilitiesError(`${name} must be a positive safe integer`);
+        }
+        const value = Number(raw.trim());
+        if (!Number.isSafeInteger(value) || value <= 0) {
+            throw new ModelCapabilitiesError(`${name} must be a positive safe integer`);
+        }
+        return value;
+    };
+    if (!encoding && estimator?.unit !== "token") {
+        throw new ModelCapabilitiesError(
+            "LLM_TOKENIZER_ENCODING is required for trajectory-layered@2",
+        );
+    }
+    return createModelCapabilities({
+        contextWindowTokens: parse(windowRaw, "LLM_CONTEXT_WINDOW_TOKENS"),
+        maxOutputTokens: parse(outputRaw, "LLM_MAX_OUTPUT_TOKENS"),
+        tokenEstimator: estimator?.unit === "token"
+            ? estimator
+            : resolveTokenEstimatorEncoding(encoding!),
+    });
+}
+
 /** CLI 只支持的三个入口意图。 */
 export type CliCommand =
     | { readonly kind: "create" }
@@ -338,6 +386,12 @@ export interface CompositionRootOptions {
     readonly modelInputEstimator?: ModelInputEstimator;
     /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
+    /** 新 Goal 使用的 Prompt Bundle；省略时保持 v7 兼容默认。 */
+    readonly promptBundleVersion?: number;
+    /** 新 Goal 的模型上下文协议；省略时保持 trajectory-layered@1。 */
+    readonly modelContextProtocol?: ModelContextProtocol;
+    /** 新 Goal 的检索协议；省略时保持 bm25-lite@1。 */
+    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
 }
 
 /**
@@ -374,6 +428,8 @@ export interface CompositionRoot {
     readonly contextCompactor: DropOldestContextCompactor;
     /** 本轮 Hot/Warm 组装使用的只读输入计量器。 */
     readonly modelInputEstimator: ModelInputEstimator;
+    /** v2 模型能力（仅 v8/trajectory-layered@2 时提供）。 */
+    readonly modelCapabilities?: ModelCapabilities;
     /** 本轮 Hot/Warm/Compact 使用的不可变预算策略。 */
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     /** 独立 Compact 优化调用的 Adapter。 */
@@ -394,8 +450,14 @@ export interface CompositionRoot {
     readonly store: JsonFileGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: JsonFileTrajectoryStore;
+    /** Coordinator 与 Runner 共享的 Conversation/Trajectory v2 Lookup 服务。 */
+    readonly contextLookupService: IndexedContextLookupService;
+    /** 提交后异步维护 Warm/检索旁路的资源。 */
+    readonly contextMaintenanceWorker: ContextMaintenanceWorker;
     /** 可重建、可删除的 Warm Context Sidecar Store。 */
     readonly sidecarStore: JsonFileWarmContextSidecarStore;
+    /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
+    readonly retrievalIndexStore: JsonFileContextRetrievalIndexStore;
     /** 共享的独立诊断 Trace Sink。 */
     readonly traceSink: JsonFileDiagnosticTraceSink;
     /** Launcher、Coordinator 与 Runner 共享的 Prompt/Memory 协议校验器。 */
@@ -468,6 +530,31 @@ export async function createCompositionRoot(
     const env = options.env ?? process.env;
     const llmConfig = readLlmConfig(env);
     const conversationCharBudget = readConversationCharBudget(env);
+    const promptBundleVersion = options.promptBundleVersion
+        ?? (options.modelContextProtocol?.version === 2 ? 8 : CURRENT_PROMPT_BUNDLE_VERSION);
+    const modelContextProtocol = options.modelContextProtocol
+        ?? (promptBundleVersion >= 8
+            ? { kind: "trajectory-layered" as const, version: 2 as const }
+            : { kind: "trajectory-layered" as const, version: 1 as const });
+    const contextRetrievalProtocol = options.contextRetrievalProtocol
+        ?? (modelContextProtocol.version === 2
+            ? { kind: "bm25-lite" as const, version: 2 as const }
+            : { kind: "bm25-lite" as const, version: 1 as const });
+    const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
+    const modelCapabilities = modelContextProtocol.kind === "trajectory-layered"
+        && modelContextProtocol.version === 2
+        ? readModelCapabilities(env, configuredEstimator)
+        : undefined;
+    if (
+        modelContextProtocol.kind === "trajectory-layered"
+        && modelContextProtocol.version === 2
+        && modelCapabilities === undefined
+    ) {
+        throw new Error(
+            "trajectory-layered@2 requires LLM_CONTEXT_WINDOW_TOKENS, LLM_MAX_OUTPUT_TOKENS and LLM_TOKENIZER_ENCODING",
+        );
+    }
+    const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
     const trajectoriesDirectory = join(
@@ -534,17 +621,26 @@ export async function createCompositionRoot(
     const contextCompactor = new DropOldestContextCompactor(
         conversationCharBudget,
     );
-    const modelInputEstimator = resolveModelInputEstimator(
-        options.modelInputEstimator,
-    );
     const modelContextPolicy = options.modelContextBudget === undefined
-        ? createDefaultModelContextBudgetPolicy(modelInputEstimator)
+        ? modelCapabilities === undefined
+            ? createDefaultModelContextBudgetPolicy(modelInputEstimator)
+            : createModelContextBudgetPolicy({
+                // v2 的 Assembler 预算与最终 TokenBudgetPlanner 使用同一份
+                // 95% 安全窗口；最终请求仍会再次以硬上限复核。
+                modelInputBudget: Math.floor(modelCapabilities.contextWindowTokens * 0.95),
+                responseReserve: modelCapabilities.maxOutputTokens,
+            }, modelInputEstimator)
         : createModelContextBudgetPolicy(
             options.modelContextBudget,
             modelInputEstimator,
         );
     const store = new JsonFileGoalStore(goalsDirectory);
     const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
+    const contextLookupService = new IndexedContextLookupService({
+        trajectoryStore,
+        indexStore: retrievalIndexStore,
+    });
     const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
     const sidecarStore = new JsonFileWarmContextSidecarStore(
         contextSidecarsDirectory,
@@ -564,13 +660,18 @@ export async function createCompositionRoot(
     const checkpointStore = new CheckpointGateGoalStore(store);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
+    const abortController = new AbortController();
+    const resources = new ManagedResourceRegistry();
+    const contextMaintenanceWorker = new ContextMaintenanceWorker(async () => {
+        // 主调用只依赖权威 Trajectory；后台维护默认保持确定性、无 LLM 调用。
+    });
+    resources.register(contextMaintenanceWorker);
     const checkpointCommitter = new TrajectoryCheckpointCommitter({
         store: checkpointStore,
         trajectorySink: trajectoryStore,
         traceSink,
+        maintenancePort: contextMaintenanceWorker,
     });
-    const abortController = new AbortController();
-    const resources = new ManagedResourceRegistry();
     const runner = new Runner({
         store: checkpointStore,
         executor: new LLMStepExecutor({
@@ -579,6 +680,7 @@ export async function createCompositionRoot(
             contextCompactor,
             traceSink,
             trajectoryContextAssembler,
+            ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         }),
         toolRegistry,
         toolPolicy: createDefaultToolPolicy(),
@@ -588,6 +690,7 @@ export async function createCompositionRoot(
         workingMemoryLimits,
         protocolValidator,
         checkpointCommitter,
+        contextLookupPort: contextLookupService,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
@@ -598,6 +701,7 @@ export async function createCompositionRoot(
             contextCompactor,
             traceSink,
             trajectoryContextAssembler,
+            ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         }),
         scheduler,
         toolRegistry,
@@ -607,6 +711,7 @@ export async function createCompositionRoot(
         workingMemoryLimits,
         protocolValidator,
         checkpointCommitter,
+        contextLookupPort: contextLookupService,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -619,16 +724,10 @@ export async function createCompositionRoot(
                     runIdGenerator,
                     store: checkpointStore,
                     coordinator,
-                    promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
+                    promptBundleVersion,
                     memoryProtocol: { kind: "structured", version: 1 },
-                    modelContextProtocol: {
-                        kind: "trajectory-layered",
-                        version: 1,
-                    },
-                    contextRetrievalProtocol: {
-                        kind: "bm25-lite",
-                        version: 1,
-                    },
+                    modelContextProtocol,
+                    contextRetrievalProtocol,
                     protocolValidator,
                     trajectorySink: trajectoryStore,
                     traceSink,
@@ -671,6 +770,7 @@ export async function createCompositionRoot(
         conversationCharBudget,
         contextCompactor,
         modelInputEstimator,
+        ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         modelContextPolicy,
         contextCompactAdapter,
         trajectoryContextAssembler,
@@ -681,7 +781,10 @@ export async function createCompositionRoot(
         toolRegistry,
         store,
         trajectoryStore,
+        contextLookupService,
+        contextMaintenanceWorker,
         sidecarStore,
+        retrievalIndexStore,
         traceSink,
         protocolValidator,
         workingMemoryLimits,
