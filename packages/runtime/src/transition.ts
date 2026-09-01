@@ -11,7 +11,9 @@ import type { ContextLookupRequest } from "./context-retrieval";
 
 type TerminalDecision = Exclude<
     AgentDecision,
-    { readonly kind: "tool_call" } | { readonly kind: "context_lookup" }
+    { readonly kind: "tool_call" }
+        | { readonly kind: "context_lookup" }
+        | { readonly kind: "context_checkpoint" }
 >;
 
 type ActionObservation = Exclude<
@@ -346,11 +348,15 @@ export function transition(
                     state: {
                         ...currentState,
                         status: "running",
-                        stepCount: currentState.stepCount + 1,
-                        lastStep: {
-                            kind: "decision",
-                            result: input.request,
-                        },
+                        ...(input.countAsStep === false
+                            ? {}
+                            : {
+                                stepCount: currentState.stepCount + 1,
+                                lastStep: {
+                                    kind: "decision" as const,
+                                    result: input.request,
+                                },
+                            }),
                     },
                 };
             }

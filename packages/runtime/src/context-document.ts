@@ -39,6 +39,21 @@ export class ContextDocumentSourceError extends Error {
 /** Context Document 的来源类别。 */
 export type ContextDocumentKind = "execution" | "preparation";
 
+/** v2 联合索引的权威来源引用。 */
+export type ContextDocumentSource =
+    | {
+        readonly kind: "trajectory";
+        readonly firstSequence: number;
+        readonly lastSequence: number;
+        readonly sourceEventIds: readonly string[];
+    }
+    | {
+        readonly kind: "conversation";
+        readonly messageIndex: number;
+        readonly role: "user" | "assistant";
+        readonly contentHash: string;
+    };
+
 /** 文档在 committed Trajectory 中的闭区间来源范围。 */
 export interface ContextDocumentSourceRange {
     /** 最早来源事件 sequence。 */
@@ -159,6 +174,8 @@ export interface ContextSearchDocument {
     readonly paths: readonly string[];
     readonly errorCodes: readonly string[];
     readonly objectIds: readonly string[];
+    /** v2 来源联合引用；v1 Trajectory 文档省略。 */
+    readonly source?: ContextDocumentSource;
 }
 
 /**
@@ -695,7 +712,7 @@ function buildPreparationDocument(
         if (!hasResume || !hasPatch) return undefined;
     } else {
         const result = preparationResults[0]!.payload.result;
-        if (result === "context_lookup") return undefined;
+        if (result === "context_lookup" || result === "context_checkpoint") return undefined;
         if (result === "question" || result === "task_proposal") {
             if (!events.some((event) => event.eventType === "run_waiting")) return undefined;
         }
@@ -747,6 +764,12 @@ function createDocument(
         lastSequence,
         sourceRange,
         sourceEventIds: eventIds,
+        source: {
+            kind: "trajectory" as const,
+            firstSequence,
+            lastSequence,
+            sourceEventIds: eventIds,
+        },
         fields,
         body: fields.body,
         eventTypes: fields.eventType,

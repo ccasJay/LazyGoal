@@ -12,6 +12,7 @@ import { z } from "zod";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
+    CONTEXT_RETRIEVAL_INDEX_VERSION_V2,
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
     CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
     CONTEXT_TOKENIZER_VERSION,
@@ -63,6 +64,20 @@ const ContextSearchDocumentSchema = z.object({
     paths: z.array(z.string().trim().min(1)),
     errorCodes: z.array(z.string().trim().min(1)),
     objectIds: z.array(z.string().trim().min(1)),
+    source: z.union([
+        z.object({
+            kind: z.literal("trajectory"),
+            firstSequence: z.number().int().positive().safe(),
+            lastSequence: z.number().int().positive().safe(),
+            sourceEventIds: z.array(z.string().trim().min(1)).min(1),
+        }).strict(),
+        z.object({
+            kind: z.literal("conversation"),
+            messageIndex: z.number().int().nonnegative().safe(),
+            role: z.enum(["user", "assistant"]),
+            contentHash: z.string().trim().min(1),
+        }).strict(),
+    ]).optional(),
 }).strict();
 
 const ContextTokenSchema = z.object({
@@ -148,6 +163,20 @@ const ContextLookupMatchSchema = z.object({
     adjacent: z.boolean().optional(),
     historical: z.literal(true),
     sourceEventIds: z.array(z.string().trim().min(1)),
+    source: z.union([
+        z.object({
+            kind: z.literal("trajectory"),
+            firstSequence: z.number().int().positive().safe(),
+            lastSequence: z.number().int().positive().safe(),
+            sourceEventIds: z.array(z.string().trim().min(1)).min(1),
+        }).strict(),
+        z.object({
+            kind: z.literal("conversation"),
+            messageIndex: z.number().int().nonnegative().safe(),
+            role: z.enum(["user", "assistant"]),
+            contentHash: z.string().trim().min(1),
+        }).strict(),
+    ]).optional(),
 }).strict();
 
 const ContextLookupResultSchema = z.discriminatedUnion("status", [
@@ -177,6 +206,7 @@ const ContextLookupResultSchema = z.discriminatedUnion("status", [
 
 const ContextRetrievalQueryCacheEntrySchema = z.object({
     key: z.string().regex(/^[0-9a-f]{64}$/),
+    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]).optional(),
     question: z.string().trim().min(1),
     filters: ContextLookupFiltersSchema.optional(),
     committedThroughSequence: z.number().int().nonnegative().safe(),
@@ -198,6 +228,8 @@ export const ContextRetrievalIndexSidecarSchema = z.object({
     index: ContextRetrievalIndexSnapshotSchema,
     queryCache: z.array(ContextRetrievalQueryCacheEntrySchema)
         .max(CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY),
+    conversationEndIndexExclusive: z.number().int().nonnegative().safe().optional(),
+    conversationPrefixDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
 }).strict();
 
 /** Retrieval Index Sidecar 结构损坏或协议失配时抛出的错误。 */
@@ -310,6 +342,14 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
                 || sidecar.derivedThroughSequence === options.committedThroughSequence)
             && sidecar.sourceDigest !== options.expectedSourceDigest
         ) return undefined;
+        if (
+            options.conversationEndIndexExclusive !== undefined
+            && sidecar.conversationEndIndexExclusive !== options.conversationEndIndexExclusive
+        ) return undefined;
+        if (
+            options.conversationPrefixDigest !== undefined
+            && sidecar.conversationPrefixDigest !== options.conversationPrefixDigest
+        ) return undefined;
         return sidecar;
     }
 
@@ -389,7 +429,8 @@ function validateAndFreeze(input: unknown): Readonly<ContextRetrievalIndexSideca
     const sidecar = parsed.data as unknown as ContextRetrievalIndexSidecar;
     if (
         sidecar.rankingVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
-        || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
+        || (sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
+            && sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION_V2)
     ) {
         throw new ContextRetrievalIndexSidecarProtocolError("unsupported ranking or index version");
     }
@@ -408,7 +449,8 @@ function validateAndFreeze(input: unknown): Readonly<ContextRetrievalIndexSideca
             document.firstSequence > document.lastSequence
             || document.sourceRange.firstSequence !== document.firstSequence
             || document.sourceRange.lastSequence !== document.lastSequence
-            || document.lastSequence > sidecar.derivedThroughSequence
+            || (document.source?.kind !== "conversation"
+                && document.lastSequence > sidecar.derivedThroughSequence)
             || document.sourceEventIds.length === 0
         ) {
             throw new ContextRetrievalIndexSidecarProtocolError("document sequence range is invalid");
@@ -457,10 +499,20 @@ function validateRestoreOptions(options: ContextRetrievalIndexRestoreOptions): v
         [options.rankingVersion, "rankingVersion"],
         [options.indexVersion, "indexVersion"],
         [options.expectedSourceDigest, "expectedSourceDigest"],
+        [options.conversationPrefixDigest, "conversationPrefixDigest"],
     ] as const) {
         if (value !== undefined && (typeof value !== "string" || value.trim().length === 0)) {
             throw new ContextRetrievalIndexSidecarProtocolError(`${field} must be a non-empty string`);
         }
+    }
+    if (
+        options.conversationEndIndexExclusive !== undefined
+        && (!Number.isSafeInteger(options.conversationEndIndexExclusive)
+            || options.conversationEndIndexExclusive < 0)
+    ) {
+        throw new ContextRetrievalIndexSidecarProtocolError(
+            "conversationEndIndexExclusive must be a non-negative safe integer",
+        );
     }
 }
 

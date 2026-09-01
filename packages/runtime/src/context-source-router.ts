@@ -7,6 +7,7 @@ import {
 
 /** Context Source Router 支持的完整信息需求集合。 */
 export type ContextSourceNeed =
+    | "conversation_history"
     | ContextLookupNeed
     | "current_workspace_state"
     | "current_environment_state"
@@ -35,7 +36,7 @@ export interface ContextSourceRouteInput {
 
 /** 历史需求经 Router 规范化后的 Trajectory 路由。 */
 export interface TrajectoryContextSourceRoute {
-    readonly source: "trajectory";
+    readonly source: "trajectory" | "conversation" | "union";
     readonly need: ContextLookupNeed;
     readonly request: ContextLookupRequest;
     /** Trajectory 是历史事实，不代表当前 Workspace 或 Environment。 */
@@ -140,9 +141,14 @@ export class ContextSourceRouter {
      */
     route(input: unknown): ContextSourceRoute {
         const normalized = normalizeRouteInput(input);
+        // 保留旧版 route({ need }) 的 trajectory 兼容形状；模型实际返回的
+        // context_lookup 请求则显式标记为联合来源。两者最终都由 Service 按
+        // decision_rationale 查询 Conversation + Trajectory。
+        const lookupRequest = isRecord(input) && input.kind === "context_lookup";
 
         if (
-            normalized.need === "historical_execution"
+            normalized.need === "conversation_history"
+            || normalized.need === "historical_execution"
             || normalized.need === "decision_rationale"
         ) {
             try {
@@ -157,7 +163,11 @@ export class ContextSourceRouter {
                         : { filters: normalized.filters }),
                 });
                 return {
-                    source: "trajectory",
+                    source: normalized.need === "conversation_history"
+                        ? "conversation"
+                        : normalized.need === "decision_rationale"
+                            ? (lookupRequest ? "union" : "trajectory")
+                            : "trajectory",
                     need: normalized.need,
                     request,
                     historical: true,
@@ -214,7 +224,7 @@ export class ContextSourceRouter {
     routeContextLookup(request: unknown): TrajectoryContextSourceRoute {
         const route = this.route(request);
 
-        if (route.source !== "trajectory") {
+        if (!("request" in route)) {
             throw new ContextSourceRouterError(
                 CONTEXT_SOURCE_ROUTE_REJECTED_CODE,
                 `${route.need} 必须使用 ${route.source} 权威来源，不能替代为 Context Lookup`,
@@ -273,7 +283,8 @@ function normalizeRouteInput(value: unknown): ContextSourceRouteInput {
 }
 
 function isContextSourceNeed(value: unknown): value is ContextSourceNeed {
-    return value === "historical_execution"
+    return value === "conversation_history"
+        || value === "historical_execution"
         || value === "decision_rationale"
         || value === "current_workspace_state"
         || value === "current_environment_state"

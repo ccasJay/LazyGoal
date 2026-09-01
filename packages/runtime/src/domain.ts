@@ -24,12 +24,14 @@ export type MemoryProtocol =
 /** Goal 创建后冻结的模型上下文协议。 */
 export type ModelContextProtocol =
     | { readonly kind: "conversation"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 1 };
+    | { readonly kind: "trajectory-layered"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 2 };
 
 /** Goal 创建后冻结的 Cold Trajectory 检索协议。 */
 export type ContextRetrievalProtocol =
     | { readonly kind: "none"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 1 };
+    | { readonly kind: "bm25-lite"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 2 };
 
 /** `ContextRetrievalProtocol` 的兼容别名，供模型侧类型使用。 */
 export type RetrievalProtocol = ContextRetrievalProtocol;
@@ -529,7 +531,10 @@ export function isModelContextProtocol(
     const candidate = value as Record<string, unknown>;
     return (
         (candidate.kind === "conversation" || candidate.kind === "trajectory-layered")
-        && candidate.version === 1
+        && (
+            candidate.version === 1
+            || (candidate.kind === "trajectory-layered" && candidate.version === 2)
+        )
         && Object.keys(candidate).every((key) => key === "kind" || key === "version")
     );
 }
@@ -545,7 +550,10 @@ export function isContextRetrievalProtocol(
     const candidate = value as Record<string, unknown>;
     return (
         (candidate.kind === "none" || candidate.kind === "bm25-lite")
-        && candidate.version === 1
+        && (
+            candidate.version === 1
+            || (candidate.kind === "bm25-lite" && candidate.version === 2)
+        )
         && Object.keys(candidate).every((key) => key === "kind" || key === "version")
     );
 }
@@ -569,7 +577,7 @@ export function resolveMemoryProtocol(
         throw new GoalProtocolError("Memory 协议必须是 checkpoint@1 或 structured@1");
     }
 
-    return { kind: protocol.kind, version: protocol.version };
+    return protocol as MemoryProtocol;
 }
 
 /**
@@ -589,11 +597,11 @@ export function resolveModelContextProtocol(
 
     if (!isModelContextProtocol(protocol)) {
         throw new GoalProtocolError(
-            "模型上下文协议必须是 conversation@1 或 trajectory-layered@1",
+            "模型上下文协议必须是 conversation@1 或 trajectory-layered@1/2",
         );
     }
 
-    return { kind: protocol.kind, version: protocol.version };
+    return protocol as ModelContextProtocol;
 }
 
 /**
@@ -619,11 +627,11 @@ export function resolveContextRetrievalProtocol(
 
     if (!isContextRetrievalProtocol(protocol)) {
         throw new GoalProtocolError(
-            "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
+            "Context Retrieval 协议必须是 none@1 或 bm25-lite@1/2",
         );
     }
 
-    return { kind: protocol.kind, version: protocol.version };
+    return protocol as ContextRetrievalProtocol;
 }
 
 /** 创建没有条目的、可作为 Reducer 初始值的 Working Memory。 */
@@ -883,6 +891,12 @@ export interface CompletionEvidence {
     readonly evidenceSequences: readonly number[];
 }
 
+/** Epoch 检查点结果；只允许携带可选 Memory Patch。 */
+export interface ModelContextCheckpointResult {
+    readonly kind: "context_checkpoint";
+    readonly memoryPatch?: WorkingMemoryPatch;
+}
+
 /**
  * 旧 `checkpoint@1` 协议的 AgentDecision。
  *
@@ -963,7 +977,7 @@ export type StructuredAgentDecision =
     | ContextLookupRequest;
 
 /** Agent 当前冻结协议对应的决策联合；structured@1 额外允许独占 Context Lookup。 */
-export type AgentDecision = LegacyAgentDecision | StructuredAgentDecision;
+export type AgentDecision = LegacyAgentDecision | StructuredAgentDecision | ModelContextCheckpointResult;
 
 /**
  * 当前未完成 Action 的持久化意图。
@@ -1010,7 +1024,7 @@ export type StepRecord =
     }
     | {
         readonly kind: "decision";
-        readonly result: Exclude<AgentDecision, { readonly kind: "tool_call" }>;
+        readonly result: Exclude<AgentDecision, { readonly kind: "tool_call" } | { readonly kind: "context_checkpoint" }>;
     };
 
 /** 可识别的 Runtime 执行协议失败代码。 */
@@ -1065,6 +1079,27 @@ export interface RunState {
     readonly checkpoint?: string;
     readonly pendingAction?: PendingAction;
     readonly stopReason?: RunStopReason;
+    /**
+     * 当前模型上下文 Epoch；仅 `trajectory-layered@2` 使用。
+     *
+     * @remarks
+     * Epoch 是 Conversation 的投影代际，不是摘要或供应商会话对象。该字段由
+     * Runtime 分配并持久化；模型响应不得提交其中任何编号或边界字段。
+     * @example
+     * ```ts
+     * const run = createRun("run-1", true);
+     * console.log(run.contextEpoch?.number);
+     * ```
+     */
+    readonly contextEpoch?: ModelContextEpochState;
+}
+
+/** Snapshot v11 持久化的模型上下文 Epoch 状态。 */
+export interface ModelContextEpochState {
+    readonly version: 1;
+    readonly number: number;
+    readonly conversationStartIndex: number;
+    readonly openedAtSequence: number;
 }
 
 /**
@@ -1191,6 +1226,8 @@ export type RunInput =
         /** 完成一个 Context Lookup Step，但保持 Run running。 */
         readonly kind: "context_lookup";
         readonly request: ContextLookupRequest;
+        /** v2 上下文协议下查询不计入业务 step；省略时保持 legacy 行为。 */
+        readonly countAsStep?: boolean;
     }
     | {
         readonly kind: "reject_action";
@@ -1304,13 +1341,13 @@ export function createGoal(input: GoalCreationInput): Goal {
             promptBundleVersion: input.promptBundleVersion,
             ...(input.memoryProtocol === undefined
                 ? {}
-                : { memoryProtocol: resolveMemoryProtocol(input) }),
+                : { memoryProtocol: { ...resolveMemoryProtocol(input) } }),
             ...(input.modelContextProtocol === undefined
                 ? {}
-                : { modelContextProtocol: resolveModelContextProtocol(input) }),
+                : { modelContextProtocol: { ...resolveModelContextProtocol(input) } }),
             ...(input.contextRetrievalProtocol === undefined
                 ? {}
-                : { contextRetrievalProtocol: resolveContextRetrievalProtocol(input) }),
+                : { contextRetrievalProtocol: { ...resolveContextRetrievalProtocol(input) } }),
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },
@@ -1323,12 +1360,33 @@ export function createGoal(input: GoalCreationInput): Goal {
                 { role: "user", content: input.intent },
                 ...(input.messages ?? []),
             ]),
-            run: createRun(input.runId),
+            run: createRun(
+                input.runId,
+                input.modelContextProtocol?.kind === "trajectory-layered"
+                    && input.modelContextProtocol.version === 2,
+            ),
         },
     };
 }
 
 /** 创建只包含 Run 自身字段的初始状态。 */
-export function createRun(runId: string): RunState {
-    return { id: runId, status: "created", stepCount: 0 };
+export function createRun(
+    runId: string,
+    contextEpoch = false,
+): RunState {
+    return {
+        id: runId,
+        status: "created",
+        stepCount: 0,
+        ...(contextEpoch
+            ? {
+                contextEpoch: {
+                    version: 1 as const,
+                    number: 0,
+                    conversationStartIndex: 0,
+                    openedAtSequence: 0,
+                },
+            }
+            : {}),
+    };
 }

@@ -16,10 +16,12 @@ import {
     resolveContextRetrievalProtocol,
     resolveMemoryProtocol,
     resolveModelContextProtocol,
+    type ModelContextCheckpointResult,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
 import {
+    CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
     assertContextLookupResultOwnership,
@@ -74,6 +76,11 @@ import {
     type AcceptedMemoryPatchInput,
     type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+import {
+    advanceContextEpoch,
+    selectLatestConversationStart,
+    toEpochRange,
+} from "./context-epoch";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -174,6 +181,7 @@ function invalidAgentDecision(message: string): never {
 function validateAgentDecision(
     value: unknown,
     memoryProtocol: MemoryProtocol,
+    modelContextProtocol: ReturnType<typeof resolveModelContextProtocol> = { kind: "conversation", version: 1 },
 ): AgentDecision {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
@@ -187,6 +195,19 @@ function validateAgentDecision(
         }
 
         return normalizeContextLookupRequest(value);
+    }
+
+    if (value.kind === "context_checkpoint") {
+        if (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2) {
+            return invalidAgentDecision("context_checkpoint requires trajectory-layered@2");
+        }
+        if (!hasOnlyKeys(value, ["kind", "memoryPatch"])) {
+            return invalidAgentDecision("context_checkpoint contains protocol fields");
+        }
+        if (value.memoryPatch !== undefined && !isRecord(value.memoryPatch)) {
+            return invalidAgentDecision("context_checkpoint memoryPatch is invalid");
+        }
+        return value as unknown as ModelContextCheckpointResult;
     }
 
     if (memoryProtocol.kind === "structured") {
@@ -843,6 +864,48 @@ export class Runner {
         );
     }
 
+    /** 从 committed Trajectory 尾部恢复本次连续 Lookup 链长度。 */
+    private async restoreContextLookupChainCount(
+        goal: Goal,
+        control?: ExecutionControl,
+    ): Promise<number> {
+        const trajectoryStore = this.trajectoryStore;
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        if (trajectoryStore === undefined || boundary <= 0) return 0;
+        throwIfAborted(control);
+        const raw = await trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            boundary,
+        );
+        throwIfAborted(control);
+        const facts = [...raw.committed]
+            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
+            .filter((event) => event.eventType !== "state_committed")
+            .sort((left, right) => left.sequence - right.sequence);
+        let count = 0;
+        for (let index = facts.length - 1; index >= 1;) {
+            const result = facts[index];
+            const requested = facts[index - 1];
+            if (
+                result === undefined
+                || requested === undefined
+                ||
+                (result.eventType !== "context_lookup_completed"
+                    && result.eventType !== "context_lookup_not_found"
+                    && result.eventType !== "context_lookup_failed")
+                || requested.eventType !== "context_lookup_requested"
+                || !("lookupId" in result.payload)
+                || !("lookupId" in requested.payload)
+                || result.payload.lookupId !== requested.payload.lookupId
+            ) {
+                break;
+            }
+            count += 1;
+            index -= 2;
+        }
+        return count;
+    }
+
     private validateGoalProtocol(goal: Goal): void {
         if (this.protocolValidator === undefined) return;
 
@@ -1355,14 +1418,44 @@ export class Runner {
             message: error.message,
         });
         const failedGoal = this.withRun(goal, failedRun);
+        const closedEpochFact = this.contextEpochClosedFact(failedGoal, "run_failed");
 
         const checkpoint = await this.commitDecision(
             failedGoal,
-            [executionErrorFact],
+            [
+                executionErrorFact,
+                ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
+            ],
             lifecyclePatch,
             control,
         );
         return { ok: true, state: checkpoint.state.run };
+    }
+
+    private contextEpochClosedFact(
+        goal: Goal,
+        reason: "run_completed" | "run_failed" | "run_cancelled",
+    ): TrajectoryEventDraft | undefined {
+        const protocol = resolveModelContextProtocol(goal.definition);
+        const epoch = goal.state.run.contextEpoch;
+        if (protocol.kind !== "trajectory-layered" || protocol.version !== 2 || epoch === undefined) {
+            return undefined;
+        }
+        return {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: goal.state.workflow.phase,
+            eventType: "context_epoch_closed",
+            payload: {
+                type: "context_epoch_closed",
+                epoch: toEpochRange(
+                    epoch,
+                    goal.state.messages.length,
+                    goal.state.run.committedThroughSequence ?? 0,
+                ),
+                reason,
+            },
+        };
     }
 
     private async executeToolAndObserve(
@@ -1485,6 +1578,7 @@ export class Runner {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
         let contextLookupResult = initialContextLookupResult;
+        let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
@@ -1540,6 +1634,7 @@ export class Runner {
 
                 goal = outcome.goal;
                 contextLookupResult = undefined;
+                contextLookupChainCount = 0;
                 continue;
             }
 
@@ -1557,17 +1652,26 @@ export class Runner {
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
-                const checkpoint = await this.commitDecision(failedGoal, [{
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    eventType: "run_failed",
-                    payload: {
-                        type: "run_failed",
-                        code: "MAX_STEPS_EXCEEDED",
-                        message: "The configured maximum step count was exceeded",
-                    },
-                }], lifecyclePatch, control);
+                const closedEpochFact = this.contextEpochClosedFact(failedGoal, "run_failed");
+                const checkpoint = await this.commitDecision(
+                    failedGoal,
+                    [
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            eventType: "run_failed",
+                            payload: {
+                                type: "run_failed",
+                                code: "MAX_STEPS_EXCEEDED",
+                                message: "The configured maximum step count was exceeded",
+                            },
+                        },
+                        ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
+                    ],
+                    lifecyclePatch,
+                    control,
+                );
                 return { ok: true, state: checkpoint.state.run };
             }
 
@@ -1595,6 +1699,7 @@ export class Runner {
                         decision: validateAgentDecision(
                             execution,
                             resolveMemoryProtocol(goal.definition),
+                            resolveModelContextProtocol(goal.definition),
                         ),
                     };
                     this.validateCompletionEvidence(goal, normalized.decision, session);
@@ -1652,7 +1757,13 @@ export class Runner {
                         decision,
                     );
 
-                    goal = await this.saveCheckpoint(nextGoal, control);
+                    const closedEpochFact = this.contextEpochClosedFact(nextGoal, "run_failed");
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        closedEpochFact === undefined ? [] : [closedEpochFact],
+                        undefined,
+                        control,
+                    );
                     contextLookupResult = undefined;
                     continue;
                 }
@@ -1680,6 +1791,15 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "context_lookup") {
+                    if (contextLookupChainCount >= 3) {
+                        return {
+                            ok: false,
+                            error: {
+                                code: "CONTEXT_LOOKUP_CHAIN_LIMIT",
+                                message: `${CONTEXT_LOOKUP_CHAIN_LIMIT_CODE}: Executing lookup chain exceeds 3 queries`,
+                            },
+                        };
+                    }
                     const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
                     if (retrievalProtocol.kind !== "bm25-lite") {
                         return this.invalidContextLookup(
@@ -1723,6 +1843,7 @@ export class Runner {
                     const nextRun = this.applyTransition(goal.state.run, {
                         kind: "context_lookup",
                         request: invocation.request,
+                        countAsStep: resolveModelContextProtocol(goal.definition).version !== 2,
                     });
                     const nextGoal = this.withRun(goal, nextRun);
                     goal = await this.commitDecision(
@@ -1745,6 +1866,73 @@ export class Runner {
                         control,
                     );
                     contextLookupResult = invocation.result;
+                    contextLookupChainCount += 1;
+                    continue;
+                }
+
+                if (normalized.decision.kind === "context_checkpoint") {
+                    const protocol = resolveModelContextProtocol(goal.definition);
+                    if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "context_checkpoint requires trajectory-layered@2",
+                            ),
+                            control,
+                        );
+                    }
+                    if (goal.state.run.pendingAction !== undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "context_checkpoint cannot advance with a pending Action",
+                            ),
+                            control,
+                        );
+                    }
+                    const currentEpoch = goal.state.run.contextEpoch ?? {
+                        version: 1 as const,
+                        number: 0,
+                        conversationStartIndex: 0,
+                        openedAtSequence: 0,
+                    };
+                    const messages = goal.state.messages;
+                    const newStart = selectLatestConversationStart(
+                        messages,
+                        currentEpoch.conversationStartIndex,
+                    );
+                    const nextEpoch = advanceContextEpoch(
+                        currentEpoch,
+                        messages,
+                        newStart,
+                        (goal.state.run.committedThroughSequence ?? 0) + 1,
+                    );
+                    const closedEpoch = toEpochRange(
+                        currentEpoch,
+                        messages.length,
+                        goal.state.run.committedThroughSequence ?? 0,
+                    );
+                    const nextGoal = this.withRun(goal, {
+                        ...goal.state.run,
+                        contextEpoch: nextEpoch,
+                    });
+                    goal = await this.commitDecision(nextGoal, [{
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "context_epoch_advanced",
+                        payload: {
+                            type: "context_epoch_advanced",
+                            closedEpoch,
+                            openedEpoch: nextEpoch,
+                            reason: "input_threshold",
+                        },
+                    }], acceptedPatch, control);
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
                     continue;
                 }
 
@@ -1885,6 +2073,7 @@ export class Runner {
 
                     goal = outcome.goal;
                     contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
                     continue;
                 }
 
@@ -1934,11 +2123,23 @@ export class Runner {
                 }
                 goal = await this.commitDecision(
                     nextGoal,
-                    [terminalFact],
+                    [
+                        terminalFact,
+                        ...(normalized.decision.kind === "complete" || normalized.decision.kind === "fail"
+                            ? (() => {
+                                const closed = this.contextEpochClosedFact(
+                                    nextGoal,
+                                    normalized.decision.kind === "complete" ? "run_completed" : "run_failed",
+                                );
+                                return closed === undefined ? [] : [closed];
+                            })()
+                            : []),
+                    ],
                     acceptedPatch,
                     control,
                 );
                 contextLookupResult = undefined;
+                contextLookupChainCount = 0;
             } finally {
                 session?.close();
             }
@@ -1961,7 +2162,9 @@ export class Runner {
         goal: Goal,
         decision: Exclude<
             AgentDecision,
-            { readonly kind: "tool_call" } | { readonly kind: "context_lookup" }
+            { readonly kind: "tool_call" }
+                | { readonly kind: "context_lookup" }
+                | { readonly kind: "context_checkpoint" }
         >,
     ): Goal {
         const content = decision.kind === "complete"

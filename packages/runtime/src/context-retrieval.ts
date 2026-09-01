@@ -10,9 +10,11 @@ import type {
     TrajectoryEventDraft,
     TrajectoryPhase,
 } from "./trajectory";
+import type { ContextDocumentSource } from "./context-document";
 
 /** Context Lookup 支持的历史信息需求类别。 */
 export type ContextLookupNeed =
+    | "conversation_history"
     | "historical_execution"
     | "decision_rationale";
 
@@ -86,6 +88,8 @@ export interface ContextLookupMatch {
     readonly historical: true;
     /** 原始 committed 事件引用。 */
     readonly sourceEventIds: readonly string[];
+    /** v2 来源联合引用；Conversation 命中不要求 sourceEventIds。 */
+    readonly source?: ContextDocumentSource;
 }
 
 /** Context Lookup 的结构化结果；未命中与故障必须保持可区分。 */
@@ -286,7 +290,11 @@ export function normalizeContextLookupRequest(
         throw new ContextLookupProtocolError("kind must be context_lookup");
     }
     assertExactKeys(value, ["kind", "need", "question", "filters"]);
-    if (value.need !== "historical_execution" && value.need !== "decision_rationale") {
+    if (
+        value.need !== "conversation_history"
+        && value.need !== "historical_execution"
+        && value.need !== "decision_rationale"
+    ) {
         throw new ContextLookupProtocolError("need is invalid");
     }
     if (
@@ -497,6 +505,9 @@ export function normalizeContextLookupResult(
                 ...(match.adjacent === undefined ? {} : { adjacent: match.adjacent }),
                 matchedFields: Object.freeze([...match.matchedFields]),
                 sourceEventIds: Object.freeze([...match.sourceEventIds]),
+                ...(match.source === undefined
+                    ? {}
+                    : { source: structuredClone(match.source) }),
             }))),
         });
     }
@@ -836,7 +847,9 @@ function validateContextLookupMatch(
         "adjacent",
         "historical",
         "sourceEventIds",
+        "source",
     ]);
+    const sourceCandidate = isRecord(value.source) ? value.source : undefined;
     for (const [field, valueToCheck] of [["documentId", value.documentId], ["goalId", value.goalId], ["runId", value.runId]] as const) {
         assertNonEmptyString(valueToCheck, field);
     }
@@ -848,9 +861,9 @@ function validateContextLookupMatch(
     if (
         !Number.isSafeInteger(value.firstSequence)
         || !Number.isSafeInteger(value.lastSequence)
-        || (value.firstSequence as number) <= 0
+        || (sourceCandidate?.kind === "conversation" ? (value.firstSequence as number) < 0 : (value.firstSequence as number) <= 0)
         || (value.lastSequence as number) < (value.firstSequence as number)
-        || (value.lastSequence as number) > boundary
+        || (sourceCandidate?.kind !== "conversation" && (value.lastSequence as number) > boundary)
     ) {
         throw new ContextLookupProtocolError(`matches[${index}] sequence range is invalid`);
     }
@@ -880,10 +893,36 @@ function validateContextLookupMatch(
             `matches[${index}] adjacent score must be zero`,
         );
     }
-    if (!Array.isArray(value.sourceEventIds) || value.sourceEventIds.length === 0) {
+    const source = value.source;
+    if (source !== undefined) {
+        if (!isRecord(source)) {
+            throw new ContextLookupProtocolError(`matches[${index}].source is invalid`);
+        }
+        if (source.kind === "conversation") {
+            if (!Number.isSafeInteger(source.messageIndex) || (source.messageIndex as number) < 0
+                || (source.role !== "user" && source.role !== "assistant")
+                || typeof source.contentHash !== "string" || source.contentHash.length === 0) {
+                throw new ContextLookupProtocolError(`matches[${index}].source is invalid`);
+            }
+        } else if (source.kind === "trajectory") {
+            if (!Number.isSafeInteger(source.firstSequence)
+                || !Number.isSafeInteger(source.lastSequence)
+                || (source.firstSequence as number) <= 0
+                || (source.lastSequence as number) < (source.firstSequence as number)
+                || (source.lastSequence as number) > boundary
+                || !Array.isArray(source.sourceEventIds)
+                || source.sourceEventIds.length === 0
+                || source.sourceEventIds.some((eventId) => typeof eventId !== "string" || eventId.trim().length === 0)) {
+                throw new ContextLookupProtocolError(`matches[${index}].source is invalid`);
+            }
+        } else {
+            throw new ContextLookupProtocolError(`matches[${index}].source is invalid`);
+        }
+    }
+    if (!Array.isArray(value.sourceEventIds) || (value.sourceEventIds.length === 0 && source === undefined)) {
         throw new ContextLookupProtocolError(`matches[${index}] sourceEventIds is empty`);
     }
-    const sourceEventIds = uniqueSorted(value.sourceEventIds.map((eventId) => {
+    const sourceEventIds = uniqueSorted((value.sourceEventIds as unknown[] ?? []).map((eventId) => {
         assertNonEmptyString(eventId, `matches[${index}].sourceEventIds`);
         return eventId;
     }));
@@ -907,6 +946,7 @@ function validateContextLookupMatch(
         ...(value.adjacent === undefined ? {} : { adjacent: value.adjacent }),
         historical: true,
         sourceEventIds,
+        ...(source === undefined ? {} : { source: structuredClone(source) as ContextDocumentSource }),
     };
 }
 

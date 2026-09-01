@@ -5,6 +5,7 @@ import type {
     MemoryRevision,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
+import type { ContextMaintenancePort } from "./context-maintenance-worker";
 import {
     isExecutionAbortedError,
     throwIfAborted,
@@ -110,6 +111,8 @@ export interface TrajectoryCheckpointCommitterDependencies {
     readonly trajectorySink?: TrajectorySink;
     /** 可选旁路诊断端口。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** Snapshot 成功后接收非阻塞维护通知的端口。 */
+    readonly maintenancePort?: ContextMaintenancePort;
 }
 
 function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {
@@ -187,6 +190,7 @@ export class TrajectoryCheckpointCommitter {
     private readonly trajectorySink: TrajectorySink;
     private readonly trajectoryEnabled: boolean;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly maintenancePort: ContextMaintenancePort | undefined;
     private readonly trajectoryFactSequences = new Map<string, number>();
 
     /** @param dependencies - Snapshot Store、可选 Trajectory 和诊断端口。 */
@@ -199,6 +203,7 @@ export class TrajectoryCheckpointCommitter {
             },
         };
         this.traceSink = dependencies.traceSink;
+        this.maintenancePort = dependencies.maintenancePort;
     }
 
     /**
@@ -321,6 +326,14 @@ export class TrajectoryCheckpointCommitter {
 
         await this.store.save(checkpoint);
         throwIfAborted(request.control);
+        try {
+            this.maintenancePort?.notifyCommitted({
+                goal: checkpoint,
+                committedThroughSequence,
+            });
+        } catch {
+            // 维护通知是旁路；不能让缓存维护故障影响已完成的主提交。
+        }
         try {
             await this.append({
                 goalId: checkpoint.id,

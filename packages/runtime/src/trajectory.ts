@@ -5,6 +5,7 @@ import type {
     Observation,
     ToolCallAction,
     MemoryPatchAcceptedPayload,
+    ModelContextEpochState,
 } from "./domain";
 import type {
     ContextLookupRequest,
@@ -29,7 +30,7 @@ export type TrajectoryEventPayload =
     | { readonly type: "run_resumed" }
     | {
         readonly type: "preparation_result";
-        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup";
+        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint";
     }
     | {
         readonly type: "decision_received";
@@ -57,6 +58,18 @@ export type TrajectoryEventPayload =
         readonly message: string;
     }
     | MemoryPatchAcceptedPayload
+    | {
+        readonly type: "context_epoch_advanced";
+        readonly closedEpoch: EpochRange;
+        readonly openedEpoch: ModelContextEpochState;
+        readonly reason: "conversation_pruned" | "input_threshold" | "planning_approved";
+        readonly memoryRevisionEventId?: string;
+    }
+    | {
+        readonly type: "context_epoch_closed";
+        readonly epoch: EpochRange;
+        readonly reason: "run_completed" | "run_failed" | "run_cancelled";
+    }
     | {
         readonly type: "action_staged";
         readonly action: ToolCallAction;
@@ -123,6 +136,14 @@ export type TrajectoryEventPayload =
 
 /** Domain Event 的稳定事件类型名称。 */
 export type TrajectoryEventType = TrajectoryEventPayload["type"];
+
+/** Epoch 关闭时使用的完整范围。 */
+export interface EpochRange {
+    readonly number: number;
+    readonly conversationStartIndex: number;
+    readonly conversationEndIndexExclusive: number;
+    readonly closedThroughSequence: number;
+}
 
 interface TrajectoryEventMetadata {
     readonly goalId: string;
@@ -500,6 +521,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "run_completed",
     "run_failed",
     "run_cancelled",
+    "context_epoch_advanced",
+    "context_epoch_closed",
     "execution_error",
     "state_committed",
 ]);
@@ -541,6 +564,54 @@ function assertPayload(payload: unknown, eventType: unknown): void {
                 `payload must not contain derived state field: ${key}`,
             );
         }
+    }
+    if (eventType === "context_epoch_advanced") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "closedEpoch", "openedEpoch", "reason", "memoryRevisionEventId",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("context_epoch_advanced contains unknown fields");
+        }
+        if (!isRecord(payload.closedEpoch) || !isRecord(payload.openedEpoch)
+            || (payload.reason !== "conversation_pruned"
+                && payload.reason !== "input_threshold"
+                && payload.reason !== "planning_approved")) {
+            throw new TrajectoryProtocolError("context_epoch_advanced payload is invalid");
+        }
+        assertEpochRange(payload.closedEpoch);
+        assertEpochState(payload.openedEpoch);
+        if (payload.memoryRevisionEventId !== undefined) {
+            assertNonEmptyString(payload.memoryRevisionEventId, "memoryRevisionEventId");
+        }
+    }
+    if (eventType === "context_epoch_closed") {
+        if (Object.keys(payload).some((key) => !["type", "epoch", "reason"].includes(key))) {
+            throw new TrajectoryProtocolError("context_epoch_closed contains unknown fields");
+        }
+        if (!isRecord(payload.epoch)
+            || (payload.reason !== "run_completed"
+                && payload.reason !== "run_failed"
+                && payload.reason !== "run_cancelled")) {
+            throw new TrajectoryProtocolError("context_epoch_closed payload is invalid");
+        }
+        assertEpochRange(payload.epoch);
+    }
+}
+
+function assertEpochState(value: Record<string, unknown>): void {
+    if (value.version !== 1
+        || !Number.isSafeInteger(value.number) || (value.number as number) < 0
+        || !Number.isSafeInteger(value.conversationStartIndex) || (value.conversationStartIndex as number) < 0
+        || !Number.isSafeInteger(value.openedAtSequence) || (value.openedAtSequence as number) < 0) {
+        throw new TrajectoryProtocolError("Epoch state is invalid");
+    }
+}
+
+function assertEpochRange(value: Record<string, unknown>): void {
+    if (!Number.isSafeInteger(value.number) || (value.number as number) < 0
+        || !Number.isSafeInteger(value.conversationStartIndex) || (value.conversationStartIndex as number) < 0
+        || !Number.isSafeInteger(value.conversationEndIndexExclusive) || (value.conversationEndIndexExclusive as number) < (value.conversationStartIndex as number)
+        || !Number.isSafeInteger(value.closedThroughSequence) || (value.closedThroughSequence as number) < 0) {
+        throw new TrajectoryProtocolError("Epoch range is invalid");
     }
 }
 
@@ -703,6 +774,7 @@ export function classifyTrajectoryEvent(
         case "run_resumed":
             return "lifecycle";
         case "preparation_result":
+        case "context_epoch_advanced":
             return "decision";
         case "decision_received":
         case "context_lookup_requested":
@@ -727,6 +799,7 @@ export function classifyTrajectoryEvent(
         case "run_failed":
         case "run_cancelled":
         case "execution_error":
+        case "context_epoch_closed":
             return "terminal";
         case "state_committed":
             return "commit";

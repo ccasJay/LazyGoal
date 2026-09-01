@@ -55,6 +55,11 @@ import {
     type TrajectorySink,
 } from "./trajectory";
 import {
+    advanceContextEpoch,
+    selectLatestConversationStart,
+    toEpochRange,
+} from "./context-epoch";
+import {
     createSupersedeScopeOperation,
     mergeNormalizedMemoryPatches,
     normalizeMemoryPatch,
@@ -338,6 +343,40 @@ export class GoalCoordinator {
                         continue;
                     }
 
+                    if (result.kind === "context_checkpoint") {
+                        const protocol = resolveModelContextProtocol(goal.definition);
+                        if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
+                            return this.invalidPhaseResult(workflow.phase, result);
+                        }
+                        const acceptedPatch = this.acceptPreparationPatch(
+                            goal,
+                            result.memoryPatch,
+                            workflow.phase,
+                            session,
+                        );
+                        const epoch = this.advanceGoalContextEpoch(
+                            goal,
+                            "input_threshold",
+                        );
+                        goal = await this.commitPreparation(
+                            epoch.goal,
+                            [
+                                {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: workflow.phase,
+                                    eventType: "preparation_result",
+                                    payload: { type: "preparation_result", result: result.kind },
+                                },
+                                epoch.fact,
+                            ],
+                            acceptedPatch,
+                            control,
+                        );
+                        contextLookupResult = undefined;
+                        continue;
+                    }
+
                     const preparationFact: TrajectoryEventDraft = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -445,6 +484,40 @@ export class GoalCoordinator {
                     goal = lookup.goal;
                     contextLookupResult = lookup.result;
                     preparationLookupCount += 1;
+                    continue;
+                }
+
+                if (result.kind === "context_checkpoint") {
+                    const protocol = resolveModelContextProtocol(goal.definition);
+                    if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
+                        return this.invalidPhaseResult(workflow.phase, result);
+                    }
+                    const acceptedPatch = this.acceptPreparationPatch(
+                        goal,
+                        result.memoryPatch,
+                        workflow.phase,
+                        session,
+                    );
+                    const epoch = this.advanceGoalContextEpoch(
+                        goal,
+                        "input_threshold",
+                    );
+                    goal = await this.commitPreparation(
+                        epoch.goal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: workflow.phase,
+                                eventType: "preparation_result",
+                                payload: { type: "preparation_result", result: result.kind },
+                            },
+                            epoch.fact,
+                        ],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
                     continue;
                 }
 
@@ -647,7 +720,14 @@ export class GoalCoordinator {
                 return this.goalNotWaiting(request.ref);
             }
 
-            const approvedGoal = this.withApprovedTask(goal, proposal);
+            const epoch = resolveModelContextProtocol(goal.definition).kind === "trajectory-layered"
+                && resolveModelContextProtocol(goal.definition).version === 2
+                ? this.advanceGoalContextEpoch(goal, "planning_approved")
+                : undefined;
+            const approvedGoal = this.withApprovedTask(
+                epoch?.goal ?? goal,
+                proposal,
+            );
             const session = await this.openWorkingMemorySession(goal, control);
             try {
                 const acceptedPatch = this.lifecyclePatch(
@@ -657,13 +737,16 @@ export class GoalCoordinator {
                 throwIfAborted(control);
                 await this.commitPreparation(
                     approvedGoal,
-                    [{
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "planning",
-                        eventType: "run_resumed",
-                        payload: { type: "run_resumed" },
-                    }],
+                    [
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "planning",
+                            eventType: "run_resumed",
+                            payload: { type: "run_resumed" },
+                        },
+                        ...(epoch === undefined ? [] : [epoch.fact]),
+                    ],
                     acceptedPatch,
                     control,
                 );
@@ -1186,6 +1269,50 @@ export class GoalCoordinator {
         return result.goal;
     }
 
+    /** 在 preparation 或 planning 批准边界原子推进 Context Epoch。 */
+    private advanceGoalContextEpoch(
+        goal: Goal,
+        reason: "conversation_pruned" | "input_threshold" | "planning_approved",
+    ): {
+        readonly goal: Goal;
+        readonly fact: TrajectoryEventDraft;
+    } {
+        const current = goal.state.run.contextEpoch ?? {
+            version: 1 as const,
+            number: 0,
+            conversationStartIndex: 0,
+            openedAtSequence: 0,
+        };
+        const messages = goal.state.messages;
+        const start = selectLatestConversationStart(
+            messages,
+            current.conversationStartIndex,
+        );
+        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        // 本 Coordinator 边界会先追加一条 preparation_result/run_resumed，Epoch
+        // 事件紧随其后，因此 openedAtSequence 对应第二个新增事实。
+        const opened = advanceContextEpoch(current, messages, start, boundary + 2);
+        const closed = toEpochRange(current, messages.length, boundary);
+        return {
+            goal: this.withRun(goal, {
+                ...goal.state.run,
+                contextEpoch: opened,
+            }),
+            fact: {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: goal.state.workflow.phase,
+                eventType: "context_epoch_advanced",
+                payload: {
+                    type: "context_epoch_advanced",
+                    closedEpoch: closed,
+                    openedEpoch: opened,
+                    reason,
+                },
+            },
+        };
+    }
+
     private async restore(
         ref: RunRef,
         control?: ExecutionControl,
@@ -1368,6 +1495,16 @@ export class GoalCoordinator {
                     preparation: { status: "completed" },
                     task: this.cloneTask(proposal),
                 },
+            },
+        };
+    }
+
+    private withRun(goal: Goal, run: Goal["state"]["run"]): Goal {
+        return {
+            ...goal,
+            state: {
+                ...goal.state,
+                run,
             },
         };
     }

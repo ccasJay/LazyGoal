@@ -82,6 +82,7 @@ export type {
     MemoryProtocol,
     MemoryRevision,
     ModelContextProtocol,
+    ModelContextEpochState,
     RetrievalProtocol,
     PlanItem,
     PlanItemCreate,
@@ -112,6 +113,15 @@ export type {
     WarmContextSidecarStore,
 } from "./warm-context-sidecar";
 export { transition } from "./transition";
+export {
+    MODEL_CONTEXT_CHECKPOINT_INVALID,
+    ModelContextCheckpointError,
+    createInitialContextEpoch,
+    toEpochRange,
+    advanceContextEpoch,
+    selectEpochConversationStart,
+    selectLatestConversationStart,
+} from "./context-epoch";
 export type {
     GoalCatalog,
     GoalCatalogEntry,
@@ -235,7 +245,13 @@ export type {
     ContextDocumentSourceRange,
     ContextDocumentStoreInput,
     ContextSearchDocument,
+    ContextDocumentSource,
 } from "./context-document";
+export {
+    buildConversationContextDocuments,
+    computeConversationPrefixDigest,
+} from "./conversation-context-document";
+export type { ConversationContextDocumentInput } from "./conversation-context-document";
 export {
     CONTEXT_DOCUMENT_FIELD_NAMES,
     CONTEXT_INVERTED_INDEX_SCHEMA_VERSION,
@@ -282,6 +298,7 @@ export {
     CONTEXT_RETRIEVAL_INDEX_ERROR_CODE,
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
     CONTEXT_RETRIEVAL_INDEX_VERSION,
+    CONTEXT_RETRIEVAL_INDEX_VERSION_V2,
     CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
     ContextRetrievalIndexError,
     ContextRetrievalQueryCache,
@@ -294,6 +311,14 @@ export {
     restoreContextInvertedIndex,
     snapshotContextInvertedIndex,
 } from "./context-retrieval-index";
+export { IndexedContextLookupService } from "./indexed-context-lookup-service";
+export type { IndexedContextLookupServiceOptions } from "./indexed-context-lookup-service";
+export { ContextMaintenanceWorker } from "./context-maintenance-worker";
+export type {
+    ContextMaintenanceNotification,
+    ContextMaintenancePort,
+    ContextMaintenanceTask,
+} from "./context-maintenance-worker";
 export type {
     ContextRetrievalIndexSession,
     ContextRetrievalIndexSessionInput,
@@ -424,6 +449,7 @@ export type {
     DiagnosticTraceSink,
     TraceRecord,
     TrajectoryEvent,
+    EpochRange,
     TrajectoryEventCategory,
     TrajectoryEventDraft,
     TrajectoryEventPayload,

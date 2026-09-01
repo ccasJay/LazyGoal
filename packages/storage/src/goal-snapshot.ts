@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-type SnapshotContextLookupNeed = "historical_execution" | "decision_rationale";
+type SnapshotContextLookupNeed = "conversation_history" | "historical_execution" | "decision_rationale";
 
 interface SnapshotContextLookupFilters {
     readonly eventTypes?: readonly string[];
@@ -189,6 +189,13 @@ export type GoalSnapshotV10 = Omit<GoalSnapshotV9, "metadata" | "state"> & {
     readonly state: GoalSnapshotStateV10;
 };
 
+/** Snapshot v11：trajectory-layered@2 的 Epoch 持久化协议。 */
+export type GoalSnapshotV11 = Omit<GoalSnapshotV10, "metadata" | "definition" | "state"> & {
+    readonly metadata: GoalSnapshotMetadataV11;
+    readonly definition: GoalSnapshotDefinitionV11;
+    readonly state: GoalSnapshotStateV11;
+};
+
 /**
  * Snapshot 顶层协议元数据；当前协议只有 v5。
  * @example
@@ -223,6 +230,11 @@ export interface GoalSnapshotMetadataV9 {
 /** v10 Snapshot 顶层协议元数据。 */
 export interface GoalSnapshotMetadataV10 {
     readonly schemaVersion: 10;
+}
+
+/** v11 Snapshot 顶层协议元数据。 */
+export interface GoalSnapshotMetadataV11 {
+    readonly schemaVersion: 11;
 }
 
 /**
@@ -289,6 +301,21 @@ export type GoalSnapshotDefinitionV9 = GoalSnapshotDefinitionV8 & {
     readonly contextRetrievalProtocol: GoalSnapshotContextRetrievalProtocolV9;
 };
 
+/** v10 Snapshot 中完整协议字段的定义别名。 */
+export type GoalSnapshotDefinitionV10 = GoalSnapshotDefinitionV9;
+
+/** v11 中冻结的 trajectory-layered@2 与 bm25-lite@2 协议。 */
+export type GoalSnapshotModelContextProtocolV11 =
+    | { readonly kind: "conversation"; readonly version: 1 }
+    | { readonly kind: "trajectory-layered"; readonly version: 2 };
+export type GoalSnapshotContextRetrievalProtocolV11 =
+    | { readonly kind: "none"; readonly version: 1 }
+    | { readonly kind: "bm25-lite"; readonly version: 2 };
+export type GoalSnapshotDefinitionV11 = Omit<GoalSnapshotDefinitionV10, "modelContextProtocol" | "contextRetrievalProtocol"> & {
+    readonly modelContextProtocol: GoalSnapshotModelContextProtocolV11;
+    readonly contextRetrievalProtocol: GoalSnapshotContextRetrievalProtocolV11;
+};
+
 /** `GoalSnapshotContextRetrievalProtocolV9` 的兼容别名。 */
 export type GoalSnapshotRetrievalProtocolV9 = GoalSnapshotContextRetrievalProtocolV9;
 
@@ -351,6 +378,19 @@ export type GoalSnapshotStateV9 = Omit<GoalSnapshotStateV8, "run"> & {
 /** v10 Snapshot 状态；最近 Step 使用实体 Fact Memory Patch。 */
 export type GoalSnapshotStateV10 = Omit<GoalSnapshotStateV9, "run"> & {
     readonly run: GoalSnapshotRunStateV10;
+};
+
+/** v11 Run 状态；新增当前 Context Epoch。 */
+export type GoalSnapshotRunStateV11 = GoalSnapshotRunStateV10 & {
+    readonly contextEpoch?: {
+        readonly version: 1;
+        readonly number: number;
+        readonly conversationStartIndex: number;
+        readonly openedAtSequence: number;
+    };
+};
+export type GoalSnapshotStateV11 = Omit<GoalSnapshotStateV10, "run"> & {
+    readonly run: GoalSnapshotRunStateV11;
 };
 
 /** 准备/执行工作流阶段的持久化表示；只有 executing 拥有最终任务。 */
@@ -971,7 +1011,7 @@ const StructuredDecisionResultV10Schema = z.discriminatedUnion("kind", [
 
 const ContextLookupDecisionResultSchema = z.object({
     kind: z.literal("context_lookup"),
-    need: z.enum(["historical_execution", "decision_rationale"]),
+    need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]),
     question: NonEmptyStringSchema.max(1024),
     filters: z.object({
         eventTypes: z.array(NonEmptyStringSchema).max(16).optional(),
@@ -1209,7 +1249,8 @@ function validateSnapshotInvariants(
         | z.infer<typeof GoalSnapshotV7BaseSchema>
         | z.infer<typeof GoalSnapshotV8BaseSchema>
         | z.infer<typeof GoalSnapshotV9BaseSchema>
-        | z.infer<typeof GoalSnapshotV10BaseSchema>,
+        | z.infer<typeof GoalSnapshotV10BaseSchema>
+        | z.infer<typeof GoalSnapshotV11BaseSchema>,
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
@@ -1224,6 +1265,27 @@ function validateSnapshotInvariants(
     const contextRetrievalProtocol = "contextRetrievalProtocol" in goal.definition
         ? goal.definition.contextRetrievalProtocol
         : { kind: "none" as const, version: 1 as const };
+
+    if (
+        modelContextProtocol.kind === "trajectory-layered"
+        && modelContextProtocol.version === 2
+        && (!('contextEpoch' in run) || run.contextEpoch === undefined)
+    ) {
+        addInvariantIssue(context, "trajectory-layered@2 requires contextEpoch", ["state", "run", "contextEpoch"]);
+    }
+
+    if ('contextEpoch' in run && run.contextEpoch !== undefined) {
+        if (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2) {
+            addInvariantIssue(context, "contextEpoch is only valid for trajectory-layered@2", ["state", "run", "contextEpoch"]);
+        } else {
+            if (run.contextEpoch.conversationStartIndex > goal.state.messages.length) {
+                addInvariantIssue(context, "contextEpoch conversationStartIndex exceeds messages", ["state", "run", "contextEpoch", "conversationStartIndex"]);
+            }
+            if (run.contextEpoch.openedAtSequence > run.committedThroughSequence) {
+                addInvariantIssue(context, "contextEpoch openedAtSequence exceeds committedThroughSequence", ["state", "run", "contextEpoch", "openedAtSequence"]);
+            }
+        }
+    }
 
     if (
         modelContextProtocol.kind === "trajectory-layered"
@@ -1653,6 +1715,44 @@ const GoalSnapshotV10BaseSchema = z.object({
     }).strict(),
 }).strict();
 
+const ModelContextProtocolV11Schema = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("conversation"), version: z.literal(1) }).strict(),
+    z.object({ kind: z.literal("trajectory-layered"), version: z.literal(2) }).strict(),
+]);
+const ContextRetrievalProtocolV11Schema = z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("none"), version: z.literal(1) }).strict(),
+    z.object({ kind: z.literal("bm25-lite"), version: z.literal(2) }).strict(),
+]);
+const ContextEpochSchema = z.object({
+    version: z.literal(1),
+    number: z.number().int().nonnegative(),
+    conversationStartIndex: z.number().int().nonnegative(),
+    openedAtSequence: z.number().int().nonnegative(),
+}).strict();
+const GoalSnapshotV11BaseSchema = z.object({
+    id: z.string(),
+    metadata: z.object({ schemaVersion: z.literal(11) }).strict(),
+    definition: z.object({
+        intent: z.string(),
+        promptBundleVersion: z.number().int().positive(),
+        memoryProtocol: MemoryProtocolSchema,
+        modelContextProtocol: ModelContextProtocolV11Schema,
+        contextRetrievalProtocol: ContextRetrievalProtocolV11Schema,
+        profile: GoalSnapshotProfileSchema,
+        executionPolicy: z.object({ maxSteps: z.number().int().nonnegative() }).strict(),
+    }).strict(),
+    state: z.object({
+        workflow: WorkflowSchema,
+        messages: z.array(GoalSnapshotMessageSchema),
+        run: RunStateSchema.extend({
+            committedThroughSequence: z.number().int().nonnegative(),
+            memoryRevision: MemoryRevisionSchema.optional(),
+            lastStep: StepRecordV10Schema.optional(),
+            contextEpoch: ContextEpochSchema.optional(),
+        }).strict(),
+    }).strict(),
+}).strict();
+
 /**
  * 严格 v5 Goal Snapshot Schema。
  *
@@ -1749,6 +1849,11 @@ export const GoalSnapshotV9Schema = GoalSnapshotV9BaseSchema.superRefine(
  * ```
  */
 export const GoalSnapshotV10Schema = GoalSnapshotV10BaseSchema.superRefine(
+    validateSnapshotInvariants,
+);
+
+/** 严格 v11 Goal Snapshot Schema。 */
+export const GoalSnapshotV11Schema = GoalSnapshotV11BaseSchema.superRefine(
     validateSnapshotInvariants,
 );
 

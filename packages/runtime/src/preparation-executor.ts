@@ -3,6 +3,7 @@ import type {
     GoalTask,
     WorkingMemory,
     WorkingMemoryPatch,
+    ModelContextCheckpointResult,
 } from "./domain";
 import type { ContextLookupResult } from "./context-retrieval";
 import type { ExecutionControl } from "./execution-control";
@@ -18,6 +19,7 @@ import type { ToolDefinition } from "./tool";
  * Coordinator 负责。
  */
 export type PreparationResult =
+    | ModelContextCheckpointResult
     | {
         readonly kind: "question";
         readonly question: string;
@@ -39,7 +41,10 @@ export type PreparationResult =
     | {
         /** 请求从 committed Trajectory 查询历史信息；该分支不携带 Memory Patch。 */
         readonly kind: "context_lookup";
-        readonly need: "historical_execution" | "decision_rationale";
+        readonly need:
+            | "historical_execution"
+            | "decision_rationale"
+            | "conversation_history";
         readonly question: string;
         readonly filters?: import("./context-retrieval").ContextLookupFilters;
     };

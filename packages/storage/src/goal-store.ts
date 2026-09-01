@@ -17,7 +17,7 @@ import type {
     GoalStore,
 } from "../../runtime/src/index";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
-import type { GoalSnapshotV10 } from "./goal-snapshot";
+import type { GoalSnapshotV10, GoalSnapshotV11 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
 
 /**
@@ -30,7 +30,7 @@ import { GoalSnapshotProtocolError } from "./goal-snapshot";
  * 实例或进程恢复。
  */
 export class InMemoryGoalStore implements GoalStore {
-    private readonly snapshots = new Map<string, GoalSnapshotV10>();
+    private readonly snapshots = new Map<string, GoalSnapshotV10 | GoalSnapshotV11>();
 
     async save(goal: Goal): Promise<void> {
         const snapshot = goalSnapshotCodec.encode(goal);

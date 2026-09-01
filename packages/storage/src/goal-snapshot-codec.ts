@@ -21,6 +21,7 @@ import {
     GoalSnapshotV8Schema,
     GoalSnapshotV9Schema,
     GoalSnapshotV10Schema,
+    GoalSnapshotV11Schema,
 } from "./goal-snapshot";
 import {
     resolveMemoryProtocol,
@@ -45,7 +46,9 @@ import type {
     GoalSnapshotV8,
     GoalSnapshotV9,
     GoalSnapshotV10,
+    GoalSnapshotV11,
     GoalSnapshotDefinitionV9,
+    GoalSnapshotDefinitionV11,
     GoalSnapshotWorkflowV5,
 } from "./goal-snapshot";
 
@@ -73,7 +76,7 @@ export interface GoalSnapshotCodec {
      * @returns 通过严格 v10 校验、与输入不共享引用的 Snapshot DTO。
      * @throws Goal 违反 v10 结构或跨字段不变量时抛出 GoalSnapshotProtocolError。
      */
-    encode(goal: Goal): GoalSnapshotV10;
+    encode(goal: Goal): GoalSnapshotV10 | GoalSnapshotV11;
 
     /**
      * @param input - 已解析的快照 JSON 值（通常来自 `JSON.parse`）。
@@ -112,12 +115,18 @@ function describeLegacyStep(input: unknown): string | undefined {
 
 /** Codec 的默认实现；转换失败统一抛出稳定协议错误。 */
 export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
-    encode(goal: Goal): GoalSnapshotV10 {
+    encode(goal: Goal): GoalSnapshotV10 | GoalSnapshotV11 {
         // 先按同一严格 Schema 校验输入：拒绝 Runtime 侧的多余字段、
         // legacy StepRecord 与不成立的跨字段组合，再逐字段深复制构造 DTO。
         const memoryProtocol = resolveMemoryProtocol(goal.definition);
         const modelContextProtocol = resolveModelContextProtocol(goal.definition);
         const contextRetrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+        if (
+            modelContextProtocol.kind === "trajectory-layered"
+            && modelContextProtocol.version === 2
+        ) {
+            return encodeV11(goal, memoryProtocol, modelContextProtocol, contextRetrievalProtocol);
+        }
         const candidate = {
             ...goal,
             metadata: { schemaVersion: 10 as const },
@@ -167,6 +176,7 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
             && schemaVersion !== 8
             && schemaVersion !== 9
             && schemaVersion !== 10
+            && schemaVersion !== 11
         ) {
             const legacyHint = schemaVersion === 1
                 || schemaVersion === 2
@@ -190,7 +200,9 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
                         ? GoalSnapshotV8Schema.safeParse(input)
                         : schemaVersion === 9
                             ? GoalSnapshotV9Schema.safeParse(input)
-                            : GoalSnapshotV10Schema.safeParse(input);
+                            : schemaVersion === 10
+                                ? GoalSnapshotV10Schema.safeParse(input)
+                                : GoalSnapshotV11Schema.safeParse(input);
 
         if (!result.success) {
             throw new GoalSnapshotProtocolError(
@@ -200,10 +212,10 @@ export class DefaultGoalSnapshotCodec implements GoalSnapshotCodec {
         }
 
         return decodeSnapshot(
-            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10,
+            result.data as GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10 | GoalSnapshotV11,
             schemaVersion === 5
                 ? 0
-                : (result.data as GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10)
+                : (result.data as GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10 | GoalSnapshotV11)
                     .state.run.committedThroughSequence,
         );
     }
@@ -225,12 +237,12 @@ function encodeDefinition(
             version: memoryProtocol.version,
         },
         modelContextProtocol: {
-            kind: modelContextProtocol.kind,
-            version: modelContextProtocol.version,
+            kind: modelContextProtocol.kind as "conversation" | "trajectory-layered",
+            version: 1,
         },
         contextRetrievalProtocol: {
-            kind: contextRetrievalProtocol.kind,
-            version: contextRetrievalProtocol.version,
+            kind: contextRetrievalProtocol.kind as "none" | "bm25-lite",
+            version: 1,
         },
         profile: {
             id: profile.id,
@@ -246,6 +258,43 @@ function encodeDefinition(
             maxSteps: goal.definition.executionPolicy.maxSteps,
         },
     };
+}
+
+function encodeV11(
+    goal: Goal,
+    memoryProtocol: MemoryProtocol,
+    modelContextProtocol: Extract<ModelContextProtocol, { readonly kind: "trajectory-layered"; readonly version: 2 }>,
+    contextRetrievalProtocol: ContextRetrievalProtocol,
+): GoalSnapshotV11 {
+    const epoch = goal.state.run.contextEpoch ?? {
+        version: 1 as const,
+        number: 0,
+        conversationStartIndex: 0,
+        openedAtSequence: 0,
+    };
+    const candidate = {
+        id: goal.id,
+        metadata: { schemaVersion: 11 as const },
+        definition: {
+            ...encodeDefinition(goal, memoryProtocol, modelContextProtocol, contextRetrievalProtocol),
+            modelContextProtocol: { kind: "trajectory-layered" as const, version: 2 as const },
+            contextRetrievalProtocol: contextRetrievalProtocol.kind === "bm25-lite"
+                ? { kind: "bm25-lite" as const, version: 2 as const }
+                : { kind: "none" as const, version: 1 as const },
+        },
+        state: {
+            ...encodeState(goal),
+            run: {
+                ...encodeState(goal).run,
+                contextEpoch: epoch,
+            },
+        },
+    };
+    const validation = GoalSnapshotV11Schema.safeParse(candidate);
+    if (!validation.success) {
+        throw new GoalSnapshotProtocolError("Goal does not satisfy the v11 snapshot schema", { cause: validation.error });
+    }
+    return candidate as GoalSnapshotV11;
 }
 
 function encodeTask(task: GoalTask): GoalTask {
@@ -645,7 +694,7 @@ function decodeStep(
 }
 
 function decodeSnapshot(
-    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10,
+    snapshot: GoalSnapshotV5 | GoalSnapshotV6 | GoalSnapshotV7 | GoalSnapshotV8 | GoalSnapshotV9 | GoalSnapshotV10 | GoalSnapshotV11,
     committedThroughSequence: number,
 ): Goal {
     const state = snapshot.state;
@@ -658,17 +707,11 @@ function decodeSnapshot(
         : { kind: "checkpoint", version: 1 };
     const modelContextProtocol: ModelContextProtocol =
         "modelContextProtocol" in snapshot.definition
-            ? {
-                kind: snapshot.definition.modelContextProtocol.kind,
-                version: snapshot.definition.modelContextProtocol.version,
-            }
+            ? { ...snapshot.definition.modelContextProtocol } as ModelContextProtocol
             : { kind: "conversation", version: 1 };
     const contextRetrievalProtocol: ContextRetrievalProtocol =
         "contextRetrievalProtocol" in snapshot.definition
-            ? {
-                kind: snapshot.definition.contextRetrievalProtocol.kind,
-                version: snapshot.definition.contextRetrievalProtocol.version,
-            }
+            ? { ...snapshot.definition.contextRetrievalProtocol } as ContextRetrievalProtocol
             : { kind: "none", version: 1 };
     const decodedRun = {
         id: run.id,
@@ -696,6 +739,11 @@ function decodeSnapshot(
                         sequence: run.memoryRevision.sequence,
                     },
                 }
+                : {}
+        ),
+        ...(
+            "contextEpoch" in run && run.contextEpoch !== undefined
+                ? { contextEpoch: structuredClone(run.contextEpoch) }
                 : {}
         ),
     } as Goal["state"]["run"];

@@ -21,15 +21,20 @@ import {
     normalizeContextLookupRequest,
     validateContextLookupResult,
     type ContextLookupFilters,
+    type ContextLookupNeed,
     type ContextLookupResult,
 } from "./context-retrieval";
 import type { TrajectoryEvent } from "./trajectory";
+import type { GoalMessage } from "./domain";
+import { buildConversationContextDocuments, computeConversationPrefixDigest } from "./conversation-context-document";
 
 /** Retrieval Index Sidecar 的持久化 Schema 版本。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION = 1 as const;
 
 /** 当前索引的完整协议版本（包含 Tokenizer 与排名算法）。 */
 export const CONTEXT_RETRIEVAL_INDEX_VERSION = "fielded-bm25-lite-v1" as const;
+/** v2 Conversation/Trajectory 联合索引版本。 */
+export const CONTEXT_RETRIEVAL_INDEX_VERSION_V2 = "fielded-bm25-lite-v2" as const;
 
 /** 查询缓存的固定容量，避免检索缓存占用无界内存或 Sidecar 空间。 */
 export const CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY = 64 as const;
@@ -58,6 +63,8 @@ export interface ContextRetrievalIndexSnapshot {
 
 /** 用于生成查询缓存键的规范化输入。 */
 export interface ContextRetrievalQuery {
+    /** 历史来源需求；不同来源必须使用不同缓存键。 */
+    readonly need?: ContextLookupNeed;
     /** 查询文本；生成键时会执行同一请求协议的 trim 规范化。 */
     readonly question: string;
     /** 可选结构化过滤器。 */
@@ -72,6 +79,8 @@ export interface ContextRetrievalQuery {
 export interface ContextRetrievalQueryCacheEntry {
     /** canonical query 的 SHA-256 十六进制键。 */
     readonly key: string;
+    /** 生成结果时使用的历史来源需求。 */
+    readonly need?: ContextLookupNeed;
     /** 规范化后的查询文本。 */
     readonly question: string;
     /** 规范化后的过滤器。 */
@@ -126,13 +135,17 @@ export interface ContextRetrievalIndexSidecar {
     /** 产生分数的排名版本。 */
     readonly rankingVersion: typeof CONTEXT_RANKING_VERSION;
     /** 查询键使用的完整索引版本。 */
-    readonly indexVersion: typeof CONTEXT_RETRIEVAL_INDEX_VERSION;
+    readonly indexVersion: typeof CONTEXT_RETRIEVAL_INDEX_VERSION | typeof CONTEXT_RETRIEVAL_INDEX_VERSION_V2;
     /** 与索引完全一致的 committed Context Documents。 */
     readonly documents: readonly ContextSearchDocument[];
     /** 不含函数的倒排表和统计快照。 */
     readonly index: ContextRetrievalIndexSnapshot;
     /** 最多 64 项、按 oldest → newest 排列的查询缓存。 */
     readonly queryCache: readonly ContextRetrievalQueryCacheEntry[];
+    /** v2 Conversation 归档覆盖的消息边界。 */
+    readonly conversationEndIndexExclusive?: number;
+    /** v2 Conversation prefix digest。 */
+    readonly conversationPrefixDigest?: string;
 }
 
 /** restore 时对 Sidecar 执行的边界、版本和摘要检查。 */
@@ -150,6 +163,10 @@ export interface ContextRetrievalIndexRestoreOptions {
      * 当前 boundary 时由 Store 直接比较，落后 Sidecar 由 Runtime 校验其旧前缀。
      */
     readonly expectedSourceDigest?: string;
+    /** 期望的 Conversation 归档边界；用于 v2 Sidecar 失配检测。 */
+    readonly conversationEndIndexExclusive?: number;
+    /** 期望的 Conversation prefix digest；用于 v2 Sidecar 失配检测。 */
+    readonly conversationPrefixDigest?: string;
 }
 
 /**
@@ -218,6 +235,10 @@ export interface ContextRetrievalIndexSessionInput {
     readonly committedThroughSequence: number;
     /** Trajectory 事件，可包含 boundary 之后的 tail。 */
     readonly events: readonly TrajectoryEvent[];
+    /** v2 可选 Snapshot Conversation，用于联合索引。 */
+    readonly messages?: readonly GoalMessage[];
+    /** v2 Conversation Cold 归档边界。 */
+    readonly conversationStartIndex?: number;
     /** 可选的已读取 Sidecar；无效时会自动重建。 */
     readonly sidecar?: ContextRetrievalIndexSidecar;
 }
@@ -338,7 +359,8 @@ export function restoreContextInvertedIndex(
 ): Readonly<ContextInvertedIndex> {
     if (
         sidecar.tokenizerVersion !== CONTEXT_TOKENIZER_VERSION
-        || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
+        || (sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
+            && sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION_V2)
     ) {
         throw new ContextRetrievalIndexError("Sidecar index version is unsupported");
     }
@@ -373,6 +395,7 @@ export function restoreContextInvertedIndex(
 export function createContextRetrievalQueryKey(query: ContextRetrievalQuery): string {
     const normalized = normalizeContextRetrievalQuery(query);
     return createHash("sha256").update(canonicalJson({
+        need: normalized.need,
         question: normalized.question,
         ...(normalized.filters === undefined ? {} : { filters: normalized.filters }),
         committedThroughSequence: normalized.committedThroughSequence,
@@ -386,6 +409,7 @@ export function canonicalizeContextRetrievalQuery(
 ): string {
     const normalized = normalizeContextRetrievalQuery(query);
     return canonicalJson({
+        need: normalized.need,
         question: normalized.question,
         ...(normalized.filters === undefined ? {} : { filters: normalized.filters }),
         committedThroughSequence: normalized.committedThroughSequence,
@@ -460,6 +484,7 @@ export class ContextRetrievalQueryCache {
         this.entriesByKey.delete(key);
         this.entriesByKey.set(key, {
             key,
+            ...(normalized.need === undefined ? {} : { need: normalized.need }),
             question: normalized.question,
             ...(normalized.filters === undefined ? {} : { filters: normalized.filters }),
             committedThroughSequence: normalized.committedThroughSequence,
@@ -551,13 +576,23 @@ export function openContextRetrievalIndexSession(
         input.events,
         input.committedThroughSequence,
     );
+    const v2 = input.messages !== undefined;
+    const indexVersion = v2
+        ? CONTEXT_RETRIEVAL_INDEX_VERSION_V2
+        : CONTEXT_RETRIEVAL_INDEX_VERSION;
+    const conversationEndIndexExclusive = v2
+        ? (input.conversationStartIndex ?? input.messages!.length)
+        : undefined;
+    const conversationPrefixDigest = v2
+        ? computeConversationPrefixDigest(input.messages!, conversationEndIndexExclusive)
+        : undefined;
     const builderDocuments = buildDocuments(input);
     let mode: ContextRetrievalIndexSessionMode = "rebuilt";
     let documents = builderDocuments;
     let restoredCache: readonly ContextRetrievalQueryCacheEntry[] = [];
 
     const sidecar = input.sidecar;
-    if (sidecar !== undefined && isUsableSidecar(sidecar, input, sourceDigest)) {
+    if (sidecar !== undefined && isUsableSidecar(sidecar, input, sourceDigest, indexVersion, conversationEndIndexExclusive, conversationPrefixDigest)) {
         try {
             restoreContextInvertedIndex(sidecar);
             if (sidecar.derivedThroughSequence === input.committedThroughSequence) {
@@ -583,7 +618,7 @@ export function openContextRetrievalIndexSession(
     const queryCache = filterCacheForBoundary(
         restoredCache,
         input.committedThroughSequence,
-        CONTEXT_RETRIEVAL_INDEX_VERSION,
+        indexVersion,
     );
     const currentSidecar = deepFreeze({
         schemaVersion: CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
@@ -593,10 +628,12 @@ export function openContextRetrievalIndexSession(
         sourceDigest,
         tokenizerVersion: CONTEXT_TOKENIZER_VERSION,
         rankingVersion: CONTEXT_RANKING_VERSION,
-        indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
+        indexVersion,
         documents: structuredClone(documents),
         index: snapshotContextInvertedIndex(index),
         queryCache: queryCache.snapshot(),
+        ...(conversationEndIndexExclusive === undefined ? {} : { conversationEndIndexExclusive }),
+        ...(conversationPrefixDigest === undefined ? {} : { conversationPrefixDigest }),
     });
     return Object.freeze({ index, sidecar: currentSidecar, queryCache, mode });
 }
@@ -631,12 +668,22 @@ function buildDocuments(input: ContextRetrievalIndexSessionInput): readonly Cont
 }
 
 function buildContextDocuments(input: ContextRetrievalIndexSessionInput): readonly ContextSearchDocument[] {
-    return new ContextDocumentBuilder().build({
+    const trajectoryDocuments = new ContextDocumentBuilder().build({
         goalId: input.goalId,
         runId: input.runId,
         committedThroughSequence: input.committedThroughSequence,
         events: input.events,
     });
+    if (input.messages === undefined) return trajectoryDocuments;
+    const conversationDocuments = buildConversationContextDocuments({
+        goalId: input.goalId,
+        runId: input.runId,
+        messages: input.messages,
+        ...(input.conversationStartIndex === undefined
+            ? {}
+            : { conversationStartIndex: input.conversationStartIndex }),
+    });
+    return Object.freeze([...conversationDocuments, ...trajectoryDocuments].sort(compareDocuments));
 }
 
 function incrementDocuments(
@@ -657,6 +704,9 @@ function isUsableSidecar(
     sidecar: ContextRetrievalIndexSidecar,
     input: ContextRetrievalIndexSessionInput,
     currentDigest: string,
+    indexVersion: string,
+    conversationEndIndexExclusive: number | undefined,
+    conversationPrefixDigest: string | undefined,
 ): boolean {
     if (
         sidecar.schemaVersion !== CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION
@@ -667,7 +717,7 @@ function isUsableSidecar(
         || sidecar.derivedThroughSequence > input.committedThroughSequence
         || sidecar.tokenizerVersion !== CONTEXT_TOKENIZER_VERSION
         || sidecar.rankingVersion !== CONTEXT_RANKING_VERSION
-        || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
+        || sidecar.indexVersion !== indexVersion
     ) return false;
     const expectedDigest = computeContextRetrievalSourceDigest(
         input.events,
@@ -676,6 +726,27 @@ function isUsableSidecar(
     if (sidecar.sourceDigest !== expectedDigest) return false;
     if (sidecar.derivedThroughSequence === input.committedThroughSequence
         && sidecar.sourceDigest !== currentDigest) return false;
+    if (
+        input.messages !== undefined
+        && (sidecar.conversationEndIndexExclusive !== conversationEndIndexExclusive
+            || sidecar.conversationPrefixDigest !== conversationPrefixDigest)
+    ) return false;
+    if (input.messages !== undefined && conversationEndIndexExclusive !== undefined) {
+        const conversationDocuments = sidecar.documents.filter(
+            (document) => document.source?.kind === "conversation",
+        );
+        if (conversationDocuments.length !== conversationEndIndexExclusive) return false;
+        const indices = new Set(
+            conversationDocuments.map((document) =>
+                document.source?.kind === "conversation"
+                    ? document.source.messageIndex
+                    : -1,
+            ),
+        );
+        for (let index = 0; index < conversationEndIndexExclusive; index += 1) {
+            if (!indices.has(index)) return false;
+        }
+    }
     return true;
 }
 
@@ -701,6 +772,15 @@ function validateSessionInput(input: ContextRetrievalIndexSessionInput): void {
     assertNonEmptyString(input.runId, "runId");
     assertNonNegativeSafeInteger(input.committedThroughSequence, "committedThroughSequence");
     if (!Array.isArray(input.events)) throw new ContextRetrievalIndexError("events must be an array");
+    if (input.messages !== undefined) {
+        if (!Array.isArray(input.messages)) throw new ContextRetrievalIndexError("messages must be an array");
+        const start = input.conversationStartIndex ?? input.messages.length;
+        if (!Number.isSafeInteger(start) || start < 0 || start > input.messages.length) {
+            throw new ContextRetrievalIndexError("conversationStartIndex is invalid");
+        }
+    } else if (input.conversationStartIndex !== undefined) {
+        throw new ContextRetrievalIndexError("conversationStartIndex requires messages");
+    }
 }
 
 function normalizeContextRetrievalQuery(input: ContextRetrievalQuery): ContextRetrievalQuery {
@@ -708,11 +788,12 @@ function normalizeContextRetrievalQuery(input: ContextRetrievalQuery): ContextRe
     assertNonEmptyString(input.question, "question");
     assertNonNegativeSafeInteger(input.committedThroughSequence, "committedThroughSequence");
     assertNonEmptyString(input.indexVersion, "indexVersion");
+    const need = normalizeContextLookupNeed(input.need);
     let request: ReturnType<typeof normalizeContextLookupRequest>;
     try {
         request = normalizeContextLookupRequest({
             kind: "context_lookup",
-            need: "historical_execution",
+            need,
             question: input.question,
             ...(input.filters === undefined ? {} : { filters: input.filters }),
         });
@@ -720,11 +801,24 @@ function normalizeContextRetrievalQuery(input: ContextRetrievalQuery): ContextRe
         throw new ContextRetrievalIndexError("query question or filters are invalid", { cause: error });
     }
     return {
+        need,
         question: request.question,
         ...(request.filters === undefined ? {} : { filters: request.filters }),
         committedThroughSequence: input.committedThroughSequence,
         indexVersion: input.indexVersion,
     };
+}
+
+function normalizeContextLookupNeed(value: unknown): ContextLookupNeed {
+    if (value === undefined) return "historical_execution";
+    if (
+        value !== "conversation_history"
+        && value !== "historical_execution"
+        && value !== "decision_rationale"
+    ) {
+        throw new ContextRetrievalIndexError("query need is invalid");
+    }
+    return value;
 }
 
 function validateCacheResult(

@@ -16,6 +16,7 @@ import type {
     ContextRankedMatch,
     ContextRankingResult,
 } from "./context-ranking";
+import type { ContextDocumentSource } from "./context-document";
 
 /** Context Lookup Result 构建失败时使用的稳定错误代码。 */
 export const CONTEXT_LOOKUP_RESULT_ERROR_CODE = "CONTEXT_LOOKUP_RESULT_ERROR" as const;
@@ -224,6 +225,7 @@ interface ContextLookupResultBuildMatch {
     readonly adjacent?: boolean;
     readonly historical: true;
     readonly sourceEventIds: readonly string[];
+    readonly source?: ContextDocumentSource;
 }
 
 function buildMatch(
@@ -245,9 +247,9 @@ function buildMatch(
     if (
         !Number.isSafeInteger(document.firstSequence)
         || !Number.isSafeInteger(document.lastSequence)
-        || document.firstSequence <= 0
+        || (document.source?.kind === "conversation" ? document.firstSequence < 0 : document.firstSequence <= 0)
         || document.lastSequence < document.firstSequence
-        || document.lastSequence > boundary
+        || (document.source?.kind !== "conversation" && document.lastSequence > boundary)
     ) {
         throw new ContextLookupResultError("ranked document is outside committed boundary");
     }
@@ -255,7 +257,7 @@ function buildMatch(
         throw new ContextLookupResultError("ranking contains duplicate documents");
     }
     sourceDocuments.add(document.documentId);
-    if (document.sourceEventIds.length === 0) {
+    if (document.sourceEventIds.length === 0 && document.source?.kind !== "conversation") {
         throw new ContextLookupResultError("ranked document has no source events");
     }
     const eventIds = [...document.sourceEventIds];
@@ -283,6 +285,7 @@ function buildMatch(
         ...(ranked.adjacent ? { adjacent: true as const } : {}),
         historical: true as const,
         sourceEventIds: Object.freeze(eventIds),
+        ...(document.source === undefined ? {} : { source: structuredClone(document.source) }),
     });
 }
 
