@@ -153,7 +153,7 @@ function decision(content: unknown): string {
 test("ALFWorld adapter runs through the headless Root with authorized tools and facts", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         let closed = 0;
-        const responses: readonly unknown[] = [
+        const responses: unknown[] = [
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
