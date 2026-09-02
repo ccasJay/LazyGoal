@@ -49,8 +49,9 @@ const conversationAdapter = new ConversationContextUnitAdapter();
 
 /** 仅取当前 Epoch 的完整 Conversation 单元；旧 Epoch 仍由 Cold Lookup 提供。 */
 function currentEpochConversationUnits(view: ModelInferenceView) {
+    const start = view.contextEpoch?.conversationStartIndex ?? 0;
     return conversationAdapter.adapt(
-        view.conversation.slice(view.contextEpoch?.conversationStartIndex ?? 0),
+        view.conversation.filter((message) => message.sourceMessageIndex >= start),
     );
 }
 
@@ -109,7 +110,7 @@ async function compactConversation(
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
 ): Promise<ModelInferenceView> {
-    const units = conversationAdapter.adapt(view.conversation);
+    const units = currentEpochConversationUnits(view);
     const compacted = await contextCompactor.compact(units, signal);
 
     return {

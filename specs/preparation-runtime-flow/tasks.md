@@ -53,7 +53,7 @@
   - 增加 Projector 深拷贝、user/assistant 顺序和原始 index 测试。
   - _Requirements: [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 2.2 保证 compaction、Epoch 和上下文组装不丢失原始 index
+- [x] //TODO 2.2 保证 compaction、Epoch 和上下文组装不丢失原始 index
 
   - 修改 `conversation-context-unit-adapter.ts`、`context-compactor.ts`、`trajectory-model-context-assembler.ts` 和 `prompt.ts`，所有 Conversation 变换只复制 source index。
   - 将 Context Epoch 过滤从裁剪后数组位置改为基于 `sourceMessageIndex` 与 `conversationStartIndex` 的原始索引过滤。

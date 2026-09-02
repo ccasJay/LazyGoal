@@ -255,6 +255,46 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
     );
 });
 
+test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后位置过滤", async () => {
+    const base = createExecutingGoal({
+        messages: [
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "旧阶段响应",
+            },
+            { role: "user", content: "当前阶段输入" },
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "当前阶段响应",
+            },
+        ],
+    });
+    const goal: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            run: {
+                ...base.state.run,
+                contextEpoch: {
+                    ...base.state.run.contextEpoch,
+                    number: 1,
+                    conversationStartIndex: 2,
+                    openedAtSequence: 1,
+                },
+            },
+        },
+    };
+
+    const request = await stepRequest(goal);
+
+    assert.deepEqual(request.messages.slice(1, -1), [
+        { role: "user", content: "当前阶段输入" },
+        { role: "assistant", content: "当前阶段响应" },
+    ]);
+});
+
 test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", async () => {
     for (const phase of ["gathering_context", "planning"] as const) {
         const goal = createPreparationGoal(phase, [

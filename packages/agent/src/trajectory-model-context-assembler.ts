@@ -507,7 +507,9 @@ interface WarmReductionForAssembly {
 function defaultFixedInput(view: ModelInferenceView): unknown {
     const conversation = view.contextEpoch === undefined
         ? view.conversation
-        : view.conversation.slice(view.contextEpoch.conversationStartIndex);
+        : view.conversation.filter((message) =>
+            message.sourceMessageIndex >= view.contextEpoch!.conversationStartIndex,
+        );
     return {
         prompt: view.prompt,
         conversation,
