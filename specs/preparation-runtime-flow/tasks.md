@@ -23,7 +23,7 @@
   - 增加 Fact create/update、retire、scope 混用和无效 sequence 的 focused tests。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5)_
 
-- [ ] //TODO 1.4 统一 accepted Patch canonical 提交并按 phase 恢复
+- [x] //TODO 1.4 统一 accepted Patch canonical 提交并按 phase 恢复
 
   - 修改 `GoalCoordinator`、`Runner` 和 `WorkingMemorySession`，确保所有来源只提交 canonical operations，并在 replay 时按 accepted Patch 的 phase 选择 Evidence scope。
   - 让 Session 只从 committed revision 链恢复 Memory/Evidence，排除 tail，并保留 plan completion evidence 的 Tool/Observation 限制。

@@ -20,6 +20,8 @@ import {
 } from "./working-memory-core";
 import {
     freezeTrajectoryEvent,
+    computeContentHash,
+    type PreparationInputEvidence,
     type TrajectoryEvent,
     type TrajectoryReadResult,
     type TrajectoryStore,
@@ -139,6 +141,8 @@ export interface RebuiltWorkingMemory {
 interface RebuiltWorkingMemoryInternal extends RebuiltWorkingMemory {
     /** 本次 Snapshot 边界对应的 Evidence Gate 索引，仅供当前 Session 使用。 */
     readonly evidenceIndex: CommittedEvidenceIndex;
+    /** 已提交且绑定到 Snapshot user message 的 Preparation provenance。 */
+    readonly preparationInputEvidence: readonly PreparationInputEvidence[];
 }
 
 type AcceptedPatchEvent = Readonly<TrajectoryEvent & {
@@ -366,6 +370,38 @@ function decodeAcceptedPatchEvent(
     return event as AcceptedPatchEvent;
 }
 
+function collectPreparationInputEvidence(
+    goal: Goal,
+    committed: readonly Readonly<TrajectoryEvent>[],
+): readonly PreparationInputEvidence[] {
+    const evidence: PreparationInputEvidence[] = [];
+    for (const event of committed) {
+        if (event.eventType !== "preparation_input_recorded") continue;
+        const message = goal.state.messages[event.payload.messageIndex];
+        if (message === undefined) {
+            throw new WorkingMemoryRecoveryError(
+                `Preparation provenance messageIndex ${event.payload.messageIndex} is missing`,
+            );
+        }
+        if (message.role !== "user") {
+            throw new WorkingMemoryRecoveryError(
+                `Preparation provenance messageIndex ${event.payload.messageIndex} is not a user message`,
+            );
+        }
+        if (computeContentHash(message.content) !== event.payload.contentHash) {
+            throw new WorkingMemoryRecoveryError(
+                `Preparation provenance messageIndex ${event.payload.messageIndex} hash does not match`,
+            );
+        }
+        evidence.push(Object.freeze({
+            sequence: event.sequence,
+            messageIndex: event.payload.messageIndex,
+            contentHash: event.payload.contentHash,
+        }));
+    }
+    return Object.freeze(evidence);
+}
+
 async function rebuild(
     goal: Goal,
     dependencies: WorkingMemorySessionDependencies,
@@ -421,6 +457,7 @@ async function rebuild(
             throw new WorkingMemoryRecoveryError("committed Evidence index is invalid", error);
         }
     })();
+    const preparationInputEvidence = collectPreparationInputEvidence(goal, committed);
 
     const patchEvents: AcceptedPatchEvent[] = [];
     for (const event of committed) {
@@ -443,6 +480,7 @@ async function rebuild(
             memory: createEmptyWorkingMemory(committedThroughSequence),
             committedThroughSequence,
             evidenceIndex,
+            preparationInputEvidence,
         };
     }
 
@@ -512,6 +550,7 @@ async function rebuild(
         committedThroughSequence,
         revision: snapshotRevision,
         evidenceIndex,
+        preparationInputEvidence,
     };
 }
 
@@ -566,6 +605,7 @@ export async function restoreWorkingMemory(
 export class WorkingMemorySession {
     private currentMemory: WorkingMemory | undefined;
     private currentEvidenceIndex: CommittedEvidenceIndex | undefined;
+    private currentPreparationInputEvidence: readonly PreparationInputEvidence[] | undefined;
 
     /**
      * @param goal - 与恢复结果关联的 Goal 身份。
@@ -575,9 +615,11 @@ export class WorkingMemorySession {
         private readonly goal: Pick<Goal, "id" | "state">,
         memory: WorkingMemory,
         evidenceIndex?: CommittedEvidenceIndex,
+        preparationInputEvidence: readonly PreparationInputEvidence[] = [],
     ) {
         this.currentMemory = structuredClone(memory);
         this.currentEvidenceIndex = evidenceIndex;
+        this.currentPreparationInputEvidence = structuredClone(preparationInputEvidence);
     }
 
     /** 从 Goal Snapshot 和 Trajectory 打开新的 Session。 */
@@ -586,7 +628,12 @@ export class WorkingMemorySession {
         dependencies: WorkingMemorySessionDependencies,
     ): Promise<WorkingMemorySession> {
         const restored = await rebuild(goal, dependencies);
-        return new WorkingMemorySession(goal, restored.memory, restored.evidenceIndex);
+        return new WorkingMemorySession(
+            goal,
+            restored.memory,
+            restored.evidenceIndex,
+            restored.preparationInputEvidence,
+        );
     }
 
     /** `restore` 的语义别名，便于调用方表达首次打开。 */
@@ -614,6 +661,27 @@ export class WorkingMemorySession {
             throw new WorkingMemorySessionClosedError();
         }
         return structuredClone(this.currentMemory);
+    }
+
+    /**
+     * 返回已提交且已绑定 Snapshot user message 的 Preparation provenance 副本。
+     *
+     * @remarks
+     * 该 getter 不包含未提交 tail，不包含用户正文；返回值与 Session 内部状态隔离。
+     * Session 关闭后 provenance 与 Working Memory 一样不可再读取。
+     *
+     * @returns 按 Trajectory sequence 排序的 provenance 列表。
+     * @throws WorkingMemorySessionClosedError Session 已关闭。
+     * @example
+     * ```ts
+     * const evidence = session.preparationInputEvidence;
+     * ```
+     */
+    get preparationInputEvidence(): readonly PreparationInputEvidence[] {
+        if (this.currentPreparationInputEvidence === undefined) {
+            throw new WorkingMemorySessionClosedError();
+        }
+        return structuredClone(this.currentPreparationInputEvidence);
     }
 
     /**
@@ -668,5 +736,6 @@ export class WorkingMemorySession {
     close(): void {
         this.currentMemory = undefined;
         this.currentEvidenceIndex = undefined;
+        this.currentPreparationInputEvidence = undefined;
     }
 }
