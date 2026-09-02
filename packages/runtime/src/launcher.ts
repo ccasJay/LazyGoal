@@ -16,6 +16,7 @@ import type {
 import type { TrajectorySink } from "./trajectory";
 import {
     allocateDiagnosticTraceRecord,
+    computeContentHash,
     TrajectoryAppendError,
     TrajectoryCommitMarkerError,
     type DiagnosticTraceSink,
@@ -179,14 +180,26 @@ export async function launch(
     let initialGoal = goal;
     if (dependencies.trajectorySink !== undefined) {
         throwIfAborted(control);
-        let created;
+        let preparationInput;
         try {
-            created = await dependencies.trajectorySink.append({
+            await dependencies.trajectorySink.append({
                 goalId: goal.id,
                 runId,
                 phase: "gathering_context",
                 eventType: "goal_created",
                 payload: { type: "goal_created", intent: request.intent },
+            });
+            throwIfAborted(control);
+            preparationInput = await dependencies.trajectorySink.append({
+                goalId: goal.id,
+                runId,
+                phase: "gathering_context",
+                eventType: "preparation_input_recorded",
+                payload: {
+                    type: "preparation_input_recorded",
+                    messageIndex: 0,
+                    contentHash: computeContentHash(request.intent),
+                },
             });
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
@@ -201,7 +214,7 @@ export async function launch(
                 ...goal.state,
                 run: {
                     ...goal.state.run,
-                    committedThroughSequence: created.sequence,
+                    committedThroughSequence: preparationInput.sequence,
                 },
             },
         };

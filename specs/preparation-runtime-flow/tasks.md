@@ -30,7 +30,7 @@
   - 增加 accepted Patch、revision parent、缺失消息、非 user 消息、hash 不匹配和恢复错误测试。
   - _Requirements: [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.2](./requirements.md#req-4-2), [5.2](./requirements.md#req-5-2), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 1.5 收敛 PreparationResult、用户输入与 GoalTask 流程
+- [x] //TODO 1.5 收敛 PreparationResult、用户输入与 GoalTask 流程
 
   - 修改 `preparation-executor.ts`、`GoalCoordinator` 和 `launcher.ts`，让 `kind` 驱动流程，让 task proposal 只在批准后复制为最终 `GoalTask`，并保持原始模型响应不进入 Goal State。
   - 按初始创建、gathering 回复和 planning feedback 的既定顺序追加 `preparation_input_recorded`；只向 Preparation 传递 provenance getter，不向 Executing 传递。

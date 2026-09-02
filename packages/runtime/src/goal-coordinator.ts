@@ -48,6 +48,7 @@ import {
     type TrajectoryEventDraft,
     type TrajectoryStore,
     type TrajectorySink,
+    computeContentHash,
 } from "./trajectory";
 import {
     advanceContextEpoch,
@@ -74,6 +75,25 @@ import {
 type PreparationLookupOutcome =
     | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
     | Extract<GoalProgressResult, { readonly ok: false }>;
+
+function preparationInputRecorded(
+    goal: Pick<Goal, "id" | "state">,
+    messageIndex: number,
+    content: string,
+    phase: "gathering_context" | "planning",
+): TrajectoryEventDraft {
+    return {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        phase,
+        eventType: "preparation_input_recorded",
+        payload: {
+            type: "preparation_input_recorded",
+            messageIndex,
+            contentHash: computeContentHash(content),
+        },
+    };
+}
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
@@ -316,7 +336,10 @@ export class GoalCoordinator {
                         authorizedTools: [],
                         ...(session === undefined
                             ? {}
-                            : { workingMemory: session.workingMemory }),
+                            : {
+                                workingMemory: session.workingMemory,
+                                preparationInputEvidence: session.preparationInputEvidence,
+                            }),
                         ...(control === undefined ? {} : { control }),
                         ...(contextLookupResult === undefined
                             ? {}
@@ -456,7 +479,10 @@ export class GoalCoordinator {
                     authorizedTools: tools,
                     ...(session === undefined
                         ? {}
-                        : { workingMemory: session.workingMemory }),
+                        : {
+                            workingMemory: session.workingMemory,
+                            preparationInputEvidence: session.preparationInputEvidence,
+                        }),
                     ...(control === undefined ? {} : { control }),
                     ...(contextLookupResult === undefined
                         ? {}
@@ -653,6 +679,15 @@ export class GoalCoordinator {
                 eventType: "run_resumed",
                 payload: { type: "run_resumed" },
             }, control);
+            await this.appendTrajectory(
+                preparationInputRecorded(
+                    resumedGoal,
+                    resumedGoal.state.messages.length - 1,
+                    request.action.content,
+                    "gathering_context",
+                ),
+                control,
+            );
             await this.saveCheckpoint(resumedGoal, control);
             return this.advance(request.ref, control);
         }
@@ -686,7 +721,12 @@ export class GoalCoordinator {
                             phase: "planning",
                             eventType: "run_resumed",
                             payload: { type: "run_resumed" },
-                        }],
+                        }, preparationInputRecorded(
+                            resumedGoal,
+                            resumedGoal.state.messages.length - 1,
+                            request.action.content,
+                            "planning",
+                        )],
                         acceptedPatch,
                         control,
                     );

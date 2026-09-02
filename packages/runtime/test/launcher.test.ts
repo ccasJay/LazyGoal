@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { launch } from "../src/index";
+import {
+    allocateImmutableEvent,
+    computeContentHash,
+    launch,
+} from "../src/index";
 import type {
     AgentProfile,
     AgentProfileRegistry,
@@ -10,6 +14,9 @@ import type {
     GoalProgressResult,
     GoalStore,
     RunRef,
+    TrajectoryEvent,
+    TrajectoryEventDraft,
+    TrajectorySink,
 } from "../src/index";
 import { GoalProtocolError } from "../src/index";
 import { currentProtocols } from "./current-fixtures";
@@ -60,6 +67,28 @@ class RecordingGoalStore implements GoalStore {
     async restore(goalId: string): Promise<Goal | undefined> {
         const goal = this.savedGoals.find(({ id }) => id === goalId);
         return goal === undefined ? undefined : structuredClone(goal);
+    }
+}
+
+class RecordingTrajectorySink implements TrajectorySink {
+    readonly events: TrajectoryEvent[] = [];
+    private sequence = 0;
+
+    constructor(private readonly failureType?: TrajectoryEvent["eventType"]) {}
+
+    async append(draft: TrajectoryEventDraft): Promise<Readonly<TrajectoryEvent>> {
+        if (draft.eventType === this.failureType) {
+            throw new Error(`failed to append ${draft.eventType}`);
+        }
+
+        this.sequence += 1;
+        const event = allocateImmutableEvent(
+            draft,
+            this.sequence,
+            `launcher-event-${this.sequence}`,
+        );
+        this.events.push(event);
+        return event;
     }
 }
 
@@ -185,6 +214,81 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
     mutableProfile.systemPrompt = "Changed";
     instructions[0] = "Changed";
     assert.deepEqual(store.savedGoals[0]?.definition.profile, createProfile());
+});
+
+test("launch records the initial intent provenance before saving the Snapshot", async () => {
+    const events: string[] = [];
+    const sink = new RecordingTrajectorySink();
+    const store = new RecordingGoalStore(events);
+    const coordinator = new FakeCoordinator(unusedResult, events);
+
+    await launch(
+        {
+            goalId: "goal-provenance",
+            intent: "  Preserve the original intent  ",
+            profileId: "profile-1",
+        },
+        {
+            profiles: new FakeProfileRegistry([createProfile()]),
+            runIdGenerator: () => "run-provenance",
+            store,
+            coordinator,
+            trajectorySink: sink,
+        },
+    );
+
+    assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "goal_created",
+        "preparation_input_recorded",
+        "state_committed",
+    ]);
+    assert.deepEqual(sink.events[0]?.payload, {
+        type: "goal_created",
+        intent: "  Preserve the original intent  ",
+    });
+    assert.deepEqual(sink.events[1]?.payload, {
+        type: "preparation_input_recorded",
+        messageIndex: 0,
+        contentHash: computeContentHash("  Preserve the original intent  "),
+    });
+    assert.deepEqual(sink.events[2]?.payload, {
+        type: "state_committed",
+        committedThroughSequence: 2,
+    });
+    assert.equal(store.savedGoals[0]?.state.run.committedThroughSequence, 2);
+    assert.deepEqual(events, [
+        "save:goal-provenance",
+        "advance:goal-provenance:run-provenance",
+    ]);
+});
+
+test("launch stops before saving or advancing when initial provenance append fails", async () => {
+    const sink = new RecordingTrajectorySink("preparation_input_recorded");
+    const store = new RecordingGoalStore();
+    const coordinator = new FakeCoordinator(unusedResult);
+
+    await assert.rejects(
+        () => launch(
+            {
+                goalId: "goal-provenance-failure",
+                intent: "Preserve provenance",
+                profileId: "profile-1",
+            },
+            {
+                profiles: new FakeProfileRegistry([createProfile()]),
+                runIdGenerator: () => "run-provenance-failure",
+                store,
+                coordinator,
+                trajectorySink: sink,
+            },
+        ),
+        (error: unknown) => error instanceof Error
+            && error.message.includes("failed to append preparation_input_recorded"),
+    );
+
+    assert.deepEqual(sink.events.map((event) => event.eventType), ["goal_created"]);
+    assert.deepEqual(store.savedGoals, []);
+    assert.deepEqual(coordinator.receivedRefs, []);
 });
 
 test("launch validates intent and maxSteps before all dependencies", async () => {
