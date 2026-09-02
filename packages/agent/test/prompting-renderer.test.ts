@@ -20,6 +20,9 @@ const templates: readonly PromptTemplateDefinition[] = [
 
 const manifest: PromptBundleManifest = {
     version: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
     sections: [
         { slot: "global_overview", templateId: "global-overview@1" },
         { slot: "profile", templateId: "profile@1" },
@@ -41,6 +44,9 @@ function buildContext(overrides: Partial<PromptContext> = {}): PromptContext {
         phase: "gathering_context",
         profile: { id: "profile-1", systemPrompt: "base", instructions: [] },
         authorizedTools: [],
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         ...overrides,
     };
 }
@@ -145,7 +151,7 @@ test("未知 Prompt Bundle 版本抛出 UnsupportedPromptBundleVersionError", ()
     const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
 
     assert.throws(
-        () => renderer.render(buildContext({ promptBundleVersion: 99 })),
+        () => renderer.render(buildContext({ promptBundleVersion: 99 as never })),
         /不支持的 Prompt Bundle 版本 99/,
     );
 });

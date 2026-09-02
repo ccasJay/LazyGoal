@@ -1,15 +1,8 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
-    resolveMemoryProtocol,
-    resolveModelContextProtocol,
-    type Goal,
-} from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../runtime/src/tool";
-import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
-    type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import type {
     PreparationExecutionInput,
@@ -27,10 +20,7 @@ import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
-import {
-    ModelCapabilitiesError,
-    type ModelCapabilities,
-} from "./model-context-budget";
+import type { ModelCapabilities } from "./model-context-budget";
 import {
     recordLlmError,
     recordLlmRequest,
@@ -58,12 +48,9 @@ export interface LLMPreparationExecutorDependencies {
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;
-    /**
-     * trajectory-layered@1 的调用级上下文组装器；未配置时 legacy 协议仍可执行，
-     * 分层 Goal 会在主模型调用前失败。
-     */
+    /** 当前 trajectory-layered@1 调用级上下文组装器。 */
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
-    /** v2 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
+    /** 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
     readonly modelCapabilities?: ModelCapabilities;
 }
 
@@ -88,8 +75,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
     /**
      * @param goal - active gathering_context 或 planning Goal。
-     * @param tools - Runtime 已解析的授权 Tool 描述；只有 v2 planning 会进入
-     *   PromptContext，其它版本或 Phase 会忽略。
+     * @param tools - Runtime 已解析的授权 Tool 描述；planning 阶段会进入
+     *   PromptContext，gathering_context 阶段忽略。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 与当前 phase 严格匹配的 PreparationResult。
      * @throws LLMResponseProtocolError 响应不是合法 JSON、结构错误或分支与
@@ -98,38 +85,10 @@ export class LLMPreparationExecutor implements PreparationExecutor {
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
-    async execute(input: PreparationExecutionInput): Promise<PreparationResult>;
-    /** @deprecated 使用对象式 {@link PreparationExecutionInput} 输入。 */
-    async execute(
-        goal: Goal,
-        tools: readonly ToolDefinition[],
-        control?: ExecutionControl,
-    ): Promise<PreparationResult>;
-    async execute(
-        inputOrGoal: PreparationExecutionInput | Goal,
-        legacyTools: readonly ToolDefinition[] = [],
-        legacyControl?: ExecutionControl,
-    ): Promise<PreparationResult> {
-        const input: PreparationExecutionInput = "goal" in inputOrGoal
-            ? inputOrGoal
-            : {
-                goal: inputOrGoal,
-                authorizedTools: legacyTools,
-                ...(legacyControl === undefined ? {} : { control: legacyControl }),
-            };
+    async execute(input: PreparationExecutionInput): Promise<PreparationResult> {
         const { goal, authorizedTools: tools, control } = input;
 
         throwIfAborted(control);
-        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
-        if (
-            modelContextProtocol.kind === "trajectory-layered"
-            && modelContextProtocol.version === 2
-            && this.modelCapabilities === undefined
-        ) {
-            throw new ModelCapabilitiesError(
-                "trajectory-layered@2 requires ModelCapabilities before model call",
-            );
-        }
         const workflow = goal.state.workflow;
 
         if (
@@ -192,8 +151,6 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             const result = parsePreparationResult(
                 response.content,
                 workflow.phase,
-                resolveMemoryProtocol(goal.definition),
-                modelContextProtocol,
             );
             const checkpointRequired = requestRequiresContextCheckpoint(providerRequest);
             if (checkpointRequired && result.kind !== "context_checkpoint") {

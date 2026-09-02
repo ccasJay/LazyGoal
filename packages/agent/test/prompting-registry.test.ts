@@ -44,8 +44,26 @@ const toolsSection: PromptBundleSection = {
 
 const manifestV1: PromptBundleManifest = {
     version: 1,
+    memoryProtocol: { kind: "structured", version: 1 },
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
     sections: [globalSection, profileSection, phaseSection, toolsSection],
 };
+
+const currentProtocols = {
+    memoryProtocol: { kind: "structured" as const, version: 1 as const },
+    modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
+    contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
+};
+
+function getCurrentManifest(registry: PromptBundleRegistry, version: number) {
+    return registry.getManifest(
+        version,
+        currentProtocols.memoryProtocol,
+        currentProtocols.modelContextProtocol,
+        currentProtocols.contextRetrievalProtocol,
+    );
+}
 
 test("Registry 构造期对模板注册顺序置换不敏感", () => {
     const reversed = [...templates].reverse();
@@ -53,7 +71,7 @@ test("Registry 构造期对模板注册顺序置换不敏感", () => {
 
     assert.deepEqual(registry.supportedVersions(), [1]);
     assert.equal(registry.getTemplateSource("global-overview@1"), "global v1");
-    assert.equal(registry.getManifest(1).sections.length, 4);
+    assert.equal(getCurrentManifest(registry, 1).sections.length, 4);
 });
 
 test("Registry 拒绝重复的模板 ID", () => {
@@ -74,7 +92,7 @@ test("Registry 拒绝重复的 Bundle 版本", () => {
 });
 
 test("Registry 拒绝非正整数的 Bundle 版本", () => {
-    const invalid: PromptBundleManifest = { ...manifestV1, version: 0 };
+    const invalid = { ...manifestV1, version: 0 } as unknown as PromptBundleManifest;
     assert.throws(
         () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
         PromptBundleConfigurationError,
@@ -141,7 +159,7 @@ test("Registry 对未知版本抛出 UnsupportedPromptBundleVersionError 且不�
     const registry = new PromptBundleRegistry({ templates, bundles: [manifestV1] });
 
     assert.throws(
-        () => registry.getManifest(99),
+        () => getCurrentManifest(registry, 99),
         (error: unknown) => {
             assert.ok(error instanceof UnsupportedPromptBundleVersionError);
             assert.equal((error as UnsupportedPromptBundleVersionError).bundleVersion, 99);
@@ -163,13 +181,14 @@ test("Registry 只允许已注册模板被查询，可信模板边界由注册�
     );
 });
 
-test("Registry 支持多个版本且按升序返回受支持版本", () => {
-    const manifestV2: PromptBundleManifest = {
+test("Registry 拒绝非当前 v1 的 Bundle", () => {
+    const historical = {
         ...manifestV1,
         version: 2,
-    };
-    const registry = new PromptBundleRegistry({ templates, bundles: [manifestV2, manifestV1] });
+    } as unknown as PromptBundleManifest;
 
-    assert.deepEqual(registry.supportedVersions(), [1, 2]);
-    assert.equal(registry.getManifest(2).version, 2);
+    assert.throws(
+        () => new PromptBundleRegistry({ templates, bundles: [historical] }),
+        PromptBundleConfigurationError,
+    );
 });

@@ -39,10 +39,6 @@ const PHASES: readonly PromptPhase[] = [
     "executing",
 ];
 
-function isPositiveInteger(value: number): boolean {
-    return Number.isInteger(value) && value > 0;
-}
-
 function buildTemplateIndex(
     templates: readonly PromptTemplateDefinition[],
 ): ReadonlyMap<string, string> {
@@ -81,21 +77,20 @@ function validateManifest(
 ): void {
     const label = `Prompt Bundle v${manifest.version}`;
 
-    if (!isPositiveInteger(manifest.version)) {
+    if (manifest.version !== 1) {
         throw new PromptBundleConfigurationError(
-            `${label} 的版本必须为正整数`,
+            `${label} 不是当前唯一支持的 Prompt Bundle v1`,
         );
     }
 
-    if (manifest.memoryProtocol !== undefined && !isMemoryProtocol(manifest.memoryProtocol)) {
+    if (!isMemoryProtocol(manifest.memoryProtocol)) {
         throw new PromptBundleConfigurationError(
             `${label} 的 Memory 协议无效`,
         );
     }
 
     if (
-        manifest.modelContextProtocol !== undefined
-        && !isModelContextProtocol(manifest.modelContextProtocol)
+        !isModelContextProtocol(manifest.modelContextProtocol)
     ) {
         throw new PromptBundleConfigurationError(
             `${label} 的模型上下文协议无效`,
@@ -103,8 +98,7 @@ function validateManifest(
     }
 
     if (
-        manifest.contextRetrievalProtocol !== undefined
-        && !isContextRetrievalProtocol(manifest.contextRetrievalProtocol)
+        !isContextRetrievalProtocol(manifest.contextRetrievalProtocol)
     ) {
         throw new PromptBundleConfigurationError(
             `${label} 的 Context Retrieval 协议无效`,
@@ -170,38 +164,25 @@ function buildManifestIndex(
 
 function protocolMatches(
     manifest: PromptBundleManifest,
-    protocol: ModelMemoryProtocol | undefined,
-    modelContextProtocol: ModelContextProtocol | undefined,
-    contextRetrievalProtocol: ModelContextRetrievalProtocol | undefined,
+    protocol: ModelMemoryProtocol,
+    modelContextProtocol: ModelContextProtocol,
+    contextRetrievalProtocol: ModelContextRetrievalProtocol,
 ): boolean {
-    const requestedMemory = protocol ?? { kind: "checkpoint" as const, version: 1 as const };
-    const manifestMemory = manifest.memoryProtocol
-        ?? { kind: "checkpoint" as const, version: 1 as const };
-    const requestedContext = modelContextProtocol
-        ?? { kind: "conversation" as const, version: 1 as const };
-    const manifestContext = manifest.modelContextProtocol
-        ?? { kind: "conversation" as const, version: 1 as const };
-    const requestedRetrieval = contextRetrievalProtocol
-        ?? { kind: "none" as const, version: 1 as const };
-    const manifestRetrieval = manifest.contextRetrievalProtocol
-        ?? { kind: "none" as const, version: 1 as const };
-
-    return manifestMemory.kind === requestedMemory.kind
-        && manifestMemory.version === requestedMemory.version
-        && manifestContext.kind === requestedContext.kind
-        && manifestContext.version === requestedContext.version
-        && manifestRetrieval.kind === requestedRetrieval.kind
-        && manifestRetrieval.version === requestedRetrieval.version;
+    return manifest.memoryProtocol.kind === protocol.kind
+        && manifest.memoryProtocol.version === protocol.version
+        && manifest.modelContextProtocol.kind === modelContextProtocol.kind
+        && manifest.modelContextProtocol.version === modelContextProtocol.version
+        && manifest.contextRetrievalProtocol.kind === contextRetrievalProtocol.kind
+        && manifest.contextRetrievalProtocol.version === contextRetrievalProtocol.version;
 }
 
 /**
  * 以内存模板 ID 与 Bundle 版本为索引的 Prompt Bundle Registry。
  *
  * @remarks
- * 构造期即完成全部校验：重复模板 ID、重复 Bundle 版本、非法（非正整数）版本、
- * 缺失模板引用、Phase 映射不完整、slot 数量或顺序错误。模板注册输入先转成按 ID
- * 查找的 Map，因此调用方传入顺序不影响结果。受支持 Bundle 引用的模板一旦发布即
- * 视为不可变。
+ * 构造期即完成全部校验：重复模板 ID、重复 Bundle、非当前 v1 版本、缺失模板引用、
+ * Phase 映射不完整、slot 数量或顺序错误。模板注册输入先转成按 ID 查找的 Map，
+ * 因此调用方传入顺序不影响结果。当前 Bundle 引用的模板一旦发布即视为不可变。
  *
  * @example
  * ```ts
@@ -251,9 +232,9 @@ export class PromptBundleRegistry {
      */
     getManifest(
         version: number,
-        memoryProtocol?: ModelMemoryProtocol,
-        modelContextProtocol?: ModelContextProtocol,
-        contextRetrievalProtocol?: ModelContextRetrievalProtocol,
+        memoryProtocol: ModelMemoryProtocol,
+        modelContextProtocol: ModelContextProtocol,
+        contextRetrievalProtocol: ModelContextRetrievalProtocol,
     ): PromptBundleManifest {
         const manifest = this.manifests.get(version);
 

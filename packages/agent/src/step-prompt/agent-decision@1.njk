@@ -1,9 +1,6 @@
-Active Phase Protocol:
-只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。
-输出必须符合 AgentDecision 协议，只能选择以下四个 kind 分支。
-Tool 调用形状为 {"kind":"tool_call","checkpoint":"累计状态",
-"action":{"actionId":"稳定 ID","toolId":"授权 Tool ID","input":对象}}。
-结束形状为 {"kind":"complete|wait|fail","checkpoint":"累计状态",
-"summary|reason|error":"非空文本"}，字段名必须与 kind 匹配。
-checkpoint、actionId、toolId 和对应文本字段必须是非空字符串。
-不要自行声明 Tool 的执行结果；必须等待 Runtime 提供 Observation。
+Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)
+Read the approved task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before deciding.
+If contextEpoch.control.status is checkpoint_required, return only:
+{"kind":"context_checkpoint","memoryPatch":{...optional structured@1 patch}}
+This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
+Otherwise return exactly one strict JSON object: a valid authorized tool_call, context_lookup with need conversation_history|historical_execution|decision_rationale, complete with evidence for every criterion, wait, or fail. Never treat historical lookup or Warm context as current external state.

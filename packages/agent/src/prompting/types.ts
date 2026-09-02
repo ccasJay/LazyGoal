@@ -62,8 +62,9 @@ export type PromptBundleSection =
  * 一个版本化的 Prompt Bundle：显式声明组成、Phase 映射与渲染顺序的 Manifest。
  *
  * @remarks
- * `version` 是正整数；`sections` 是有序只读数组，Registry 构造时强制其 slot 顺序为
- * Global Overview → Profile → Phase Protocol → Authorized Tools，且每个 slot 恰好出现一次。
+ * 当前实现只支持 Bundle v1；`sections` 是有序只读数组，Registry 构造时强制其
+ * slot 顺序为 Global Overview → Profile → Phase Protocol → Authorized Tools，且每个
+ * slot 恰好出现一次。
  *
  * @example
  * ```ts
@@ -86,16 +87,16 @@ export type PromptBundleSection =
  * ```
  */
 export interface PromptBundleManifest {
-    /** 冻结该组合的正整数版本。 */
-    readonly version: number;
+    /** 当前唯一支持的 Bundle 版本。 */
+    readonly version: 1;
     /** 参与组合的 section 及其确定顺序。 */
     readonly sections: readonly PromptBundleSection[];
-    /** 该 Bundle 唯一兼容的 Memory 协议；legacy Bundle 可省略以保持旧文件语义。 */
-    readonly memoryProtocol?: ModelMemoryProtocol;
-    /** 该 Bundle 唯一兼容的模型上下文协议；省略时按 `conversation@1` 解释。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** 该 Bundle 唯一兼容的 Cold Trajectory 检索协议；省略时按 `none@1` 解释。 */
-    readonly contextRetrievalProtocol?: ModelContextRetrievalProtocol;
+    /** 该 Bundle 唯一兼容的 Memory 协议。 */
+    readonly memoryProtocol: ModelMemoryProtocol;
+    /** 该 Bundle 唯一兼容的模型上下文协议。 */
+    readonly modelContextProtocol: ModelContextProtocol;
+    /** 该 Bundle 唯一兼容的 Cold Trajectory 检索协议。 */
+    readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
 }
 
 /**

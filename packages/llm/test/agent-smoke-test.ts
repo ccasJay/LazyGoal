@@ -5,6 +5,7 @@ import {
     Runner,
 } from "../../runtime/src/index";
 import type { Goal, GoalStore } from "../../runtime/src/index";
+import { currentProtocols, trajectoryStoreFor } from "../../runtime/test/current-fixtures";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
@@ -52,10 +53,12 @@ async function main(): Promise<void> {
         contextCompactor,
     });
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
     });
     const created = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "live-llm-goal",
         intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
@@ -80,7 +83,7 @@ async function main(): Promise<void> {
                 task: {
                     objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
                     completionCriteria: [
-                        "返回一个符合 AgentDecision 协议的 complete 结果，checkpoint 必须非空",
+                        "返回一个符合 AgentDecision 协议的 complete 结果，并为该完成标准提供 evidence",
                     ],
                 },
             },

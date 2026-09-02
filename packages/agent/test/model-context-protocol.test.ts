@@ -20,124 +20,127 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function structuredContextGoal(
-    modelContextProtocol: { kind: "conversation" | "trajectory-layered"; version: 1 },
-) {
+const currentProtocols = {
+    memoryProtocol: { kind: "structured" as const, version: 1 as const },
+    modelContextProtocol: {
+        kind: "trajectory-layered" as const,
+        version: 1 as const,
+    },
+    contextRetrievalProtocol: {
+        kind: "bm25-lite" as const,
+        version: 1 as const,
+    },
+};
+
+function currentGoal() {
     return createGoal({
-        id: `goal-${modelContextProtocol.kind}`,
-        intent: "验证模型上下文协议",
-        promptBundleVersion: 4,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol,
+        id: "goal-current",
+        intent: "验证当前模型上下文协议",
+        promptBundleVersion: 1,
+        ...currentProtocols,
         profile,
-        runId: `run-${modelContextProtocol.kind}`,
+        runId: "run-current",
     });
 }
 
-test("默认 Prompt Bundle 明确绑定 conversation@1，拒绝未注册的 layered 组合", async () => {
+test("默认 Prompt Bundle 只注册当前联合协议", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
-    const goal = structuredContextGoal({ kind: "trajectory-layered", version: 1 });
+    const goal = currentGoal();
     const view = new ModelInferenceProjector().project(
         goal,
         [],
         createEmptyWorkingMemory(),
     );
 
-    assert.throws(
-        () => renderer.render(view.prompt),
-        (error: unknown) => error instanceof UnsupportedPromptBundleVersionError,
-    );
+    assert.deepEqual(renderer.render(view.prompt).includes("trajectory-layered@1"), true);
+    assert.deepEqual(view.prompt.memoryProtocol, currentProtocols.memoryProtocol);
+    assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
+    assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
 });
 
-test("Projector 只在 layered 协议向模型视图暴露模型上下文标识", () => {
-    const projector = new ModelInferenceProjector();
-    const conversation = projector.project(
-        structuredContextGoal({ kind: "conversation", version: 1 }),
-        [],
-        createEmptyWorkingMemory(),
-    );
-    const layered = projector.project(
-        structuredContextGoal({ kind: "trajectory-layered", version: 1 }),
+test("Projector 暴露唯一当前协议和 Context Epoch", () => {
+    const view = new ModelInferenceProjector().project(
+        currentGoal(),
         [],
         createEmptyWorkingMemory(),
     );
 
-    assert.equal("modelContextProtocol" in conversation.prompt, false);
-    assert.deepEqual(layered.prompt.modelContextProtocol, {
-        kind: "trajectory-layered",
-        version: 1,
-    });
-});
-
-test("Projector 拒绝 checkpoint Memory 与 layered 模型上下文交叉组合", () => {
-    const goal = createGoal({
-        id: "goal-invalid-layered",
-        intent: "非法协议组合",
+    assert.deepEqual(view.prompt, {
         promptBundleVersion: 1,
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-        profile,
-        runId: "run-invalid-layered",
+        phase: "gathering_context",
+        profile: {
+            id: profile.id,
+            systemPrompt: profile.systemPrompt,
+            instructions: [],
+        },
+        authorizedTools: [],
+        ...currentProtocols,
     });
-
-    assert.throws(
-        () => new ModelInferenceProjector().project(goal),
-        /trajectory-layered model context requires structured Memory protocol/,
-    );
+    assert.deepEqual(view.contextEpoch, {
+        protocolVersion: 1,
+        epochNumber: 0,
+        conversationStartIndex: 0,
+        openedAtSequence: 0,
+        control: {
+            status: "active",
+            inputTokens: 0,
+            hardInputLimit: 0,
+            remainingTokens: 0,
+        },
+    });
 });
 
-test("Prompt/Memory/Model Context/Retrieval 协议矩阵拒绝旧 structured shape 并激活 v7", () => {
+test("当前协议校验器拒绝历史 Bundle 和协议", () => {
     const validator = createDefaultPromptBundleProtocolValidator();
 
-    validator.validate({
-        promptBundleVersion: 7,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-    });
-
-    for (const promptBundleVersion of [4, 5, 6]) {
-        assert.throws(
-            () => validator.validate({
-                promptBundleVersion,
-                memoryProtocol: { kind: "structured", version: 1 },
-                ...(promptBundleVersion >= 5
-                    ? { modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const } }
-                    : {}),
-                ...(promptBundleVersion >= 6
-                    ? { contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const } }
-                    : {}),
-            }),
-            /UNSUPPORTED_STRUCTURED_MEMORY_SHAPE/,
-        );
-    }
+    validator.validate({ promptBundleVersion: 1, ...currentProtocols });
 
     assert.throws(
         () => validator.validate({
-            promptBundleVersion: 5,
-            memoryProtocol: { kind: "structured", version: 1 },
-            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+            promptBundleVersion: 7 as never,
+            ...currentProtocols,
         }),
-        /UNSUPPORTED_STRUCTURED_MEMORY_SHAPE/,
+        /仅支持|不支持/,
+    );
+    assert.throws(
+        () => validator.validate({
+            promptBundleVersion: 1,
+            memoryProtocol: { kind: "checkpoint", version: 1 } as never,
+            modelContextProtocol: currentProtocols.modelContextProtocol,
+            contextRetrievalProtocol: currentProtocols.contextRetrievalProtocol,
+        }),
+        /仅支持/,
+    );
+    assert.throws(
+        () => validator.validate({
+            promptBundleVersion: 1,
+            memoryProtocol: currentProtocols.memoryProtocol,
+            modelContextProtocol: { kind: "conversation", version: 1 } as never,
+            contextRetrievalProtocol: currentProtocols.contextRetrievalProtocol,
+        }),
+        /仅支持/,
+    );
+    assert.throws(
+        () => validator.validate({
+            promptBundleVersion: 1,
+            memoryProtocol: currentProtocols.memoryProtocol,
+            modelContextProtocol: currentProtocols.modelContextProtocol,
+            contextRetrievalProtocol: { kind: "none", version: 1 } as never,
+        }),
+        /仅支持/,
+    );
+});
+
+test("Renderer 对历史 Prompt Bundle 版本 fail closed", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const view = new ModelInferenceProjector().project(
+        currentGoal(),
+        [],
+        createEmptyWorkingMemory(),
     );
 
     assert.throws(
-        () => validator.validate({
-            promptBundleVersion: 7,
-            memoryProtocol: { kind: "structured", version: 1 },
-            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-            contextRetrievalProtocol: { kind: "none", version: 1 },
-        }),
-        /不兼容/,
-    );
-
-    assert.throws(
-        () => validator.validate({
-            promptBundleVersion: 7,
-            memoryProtocol: { kind: "structured", version: 1 },
-            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-            contextRetrievalProtocol: { kind: "future", version: 1 } as never,
-        }),
-        /Context Retrieval 协议必须是 none@1 或 bm25-lite@1/,
+        () => renderer.render({ ...view.prompt, promptBundleVersion: 99 as never }),
+        (error: unknown) => error instanceof UnsupportedPromptBundleVersionError,
     );
 });

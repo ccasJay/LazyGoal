@@ -1,7 +1,4 @@
 import {
-    resolveContextRetrievalProtocol,
-    resolveMemoryProtocol,
-    resolveModelContextProtocol,
     type Goal,
     type ModelContextEpochState,
     type StepRecord,
@@ -63,51 +60,16 @@ export class ModelInferenceProjector {
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
     ): ModelInferenceView {
-        const memoryProtocol = resolveMemoryProtocol(goal.definition);
-        const modelContextProtocol = resolveModelContextProtocol(goal.definition);
-        const contextRetrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
+        const memoryProtocol = goal.definition.memoryProtocol;
+        const modelContextProtocol = goal.definition.modelContextProtocol;
+        const contextRetrievalProtocol = goal.definition.contextRetrievalProtocol;
 
-        if (
-            modelContextProtocol.kind === "trajectory-layered"
-            && memoryProtocol.kind !== "structured"
-        ) {
-            throw new Error(
-                "trajectory-layered model context requires structured Memory protocol",
-            );
-        }
-
-        if (
-            contextRetrievalProtocol.kind === "bm25-lite"
-            && (
-                memoryProtocol.kind !== "structured"
-                || modelContextProtocol.kind !== "trajectory-layered"
-            )
-        ) {
-            throw new Error(
-                "bm25-lite retrieval requires structured Memory and trajectory-layered model context",
-            );
-        }
-
-        if (memoryProtocol.kind === "structured" && workingMemory === undefined) {
+        if (workingMemory === undefined) {
             throw new Error(
                 "Structured Memory protocol requires a WorkingMemory projection",
             );
         }
-
-        if (memoryProtocol.kind === "checkpoint" && workingMemory !== undefined) {
-            throw new Error(
-                "Checkpoint Memory protocol must not receive a WorkingMemory projection",
-            );
-        }
-
-        if (
-            modelContextProtocol.kind === "conversation"
-            && trajectoryContext !== undefined
-        ) {
-            throw new Error(
-                "conversation model context must not receive a Trajectory Context projection",
-            );
-        }
+        const projectedWorkingMemory = deepFreeze(projectWorkingMemory(workingMemory));
 
         if (
             trajectoryContext !== undefined
@@ -115,15 +77,6 @@ export class ModelInferenceProjector {
             && trajectoryContext.measuredAs !== "character"
         ) {
             throw new Error("Trajectory Context measurement unit is invalid");
-        }
-
-        if (
-            contextLookupResult !== undefined
-            && contextRetrievalProtocol.kind !== "bm25-lite"
-        ) {
-            throw new Error(
-                "Context Lookup Result requires bm25-lite retrieval",
-            );
         }
 
         const projectedContextLookupResult = contextLookupResult === undefined
@@ -138,34 +91,23 @@ export class ModelInferenceProjector {
             phase: workingContext.phase,
             profile: projectProfile(goal),
             authorizedTools: projectTools(tools),
-            ...(memoryProtocol.kind === "structured"
-                ? { memoryProtocol: projectMemoryProtocol(memoryProtocol) }
-                : {}),
-            ...(modelContextProtocol.kind === "trajectory-layered"
-                ? { modelContextProtocol: projectModelContextProtocol(modelContextProtocol) }
-                : {}),
-            ...(contextRetrievalProtocol.kind === "bm25-lite"
-                ? { contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol) }
-                : {}),
+            memoryProtocol: projectMemoryProtocol(memoryProtocol),
+            modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
+            contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
         });
 
         return {
             prompt,
             conversation: projectConversation(goal),
             workingContext,
-            ...(workingMemory === undefined
-                ? {}
-                : { workingMemory: deepFreeze(projectWorkingMemory(workingMemory)) }),
+            workingMemory: projectedWorkingMemory,
             ...(trajectoryContext === undefined
                 ? {}
                 : { trajectoryContext: deepFreeze(structuredClone(trajectoryContext)) }),
             ...(projectedContextLookupResult === undefined
                 ? {}
                 : { contextLookupResult: projectedContextLookupResult }),
-            ...(modelContextProtocol.kind === "trajectory-layered"
-                && modelContextProtocol.version === 2
-                ? { contextEpoch: projectContextEpoch(goal.state.run.contextEpoch) }
-                : {}),
+            contextEpoch: projectContextEpoch(goal.state.run.contextEpoch),
         };
     }
 
@@ -190,7 +132,7 @@ export class ModelInferenceProjector {
         view: ModelInferenceView,
         trajectoryContext: ModelTrajectoryContext,
     ): ModelInferenceView {
-        if (view.prompt.modelContextProtocol?.kind !== "trajectory-layered") {
+        if (view.prompt.modelContextProtocol.kind !== "trajectory-layered") {
             throw new Error(
                 "Trajectory Context projection requires trajectory-layered model context",
             );
@@ -198,8 +140,7 @@ export class ModelInferenceProjector {
 
         const pressureReached = trajectoryContext.budget.fixedInput.count
             >= Math.floor((trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve) * 0.85);
-        const suppressPressure = view.contextEpoch !== undefined
-            && view.contextEpoch.epochNumber > 0
+        const suppressPressure = view.contextEpoch.epochNumber > 0
             && view.contextEpoch.conversationStartIndex
                 >= Math.max(0, view.conversation.length - 2);
         const contextEpochStatus = suppressPressure
@@ -211,22 +152,18 @@ export class ModelInferenceProjector {
         return deepFreeze({
             ...structuredClone(view),
             trajectoryContext: structuredClone(trajectoryContext),
-            ...(view.contextEpoch === undefined
-                ? {}
-                : {
-                    contextEpoch: {
-                        ...structuredClone(view.contextEpoch),
-                        control: {
-                            status: contextEpochStatus,
-                            ...(contextEpochStatus === "checkpoint_required"
-                                ? { reason: "input_threshold" as const }
-                                : {}),
-                            inputTokens: trajectoryContext.budget.fixedInput.count,
-                            hardInputLimit: trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve,
-                            remainingTokens: Math.max(0, trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve - trajectoryContext.budget.fixedInput.count),
-                        },
+            contextEpoch: {
+                ...structuredClone(view.contextEpoch),
+                control: {
+                    status: contextEpochStatus,
+                    ...(contextEpochStatus === "checkpoint_required"
+                        ? { reason: "input_threshold" as const }
+                        : {}),
+                    inputTokens: trajectoryContext.budget.fixedInput.count,
+                    hardInputLimit: trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve,
+                    remainingTokens: Math.max(0, trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve - trajectoryContext.budget.fixedInput.count),
                     },
-                }),
+            },
         });
     }
 
@@ -276,9 +213,6 @@ export class ModelInferenceProjector {
             execution: {
                 stepCount: goal.state.run.stepCount,
                 ...(maxSteps > 0 ? { maxSteps } : {}),
-                ...(goal.state.run.checkpoint === undefined
-                    ? {}
-                    : { checkpoint: goal.state.run.checkpoint }),
                 ...(goal.state.run.lastStep === undefined
                     ? {}
                     : { previousStep: projectStepRecord(goal.state.run.lastStep) }),
@@ -295,14 +229,9 @@ export class ModelInferenceProjector {
 }
 
 function projectContextEpoch(
-    epoch: ModelContextEpochState | undefined,
+    epoch: ModelContextEpochState,
 ): import("./model-inference-view").ModelContextEpochView {
-    const state = epoch ?? {
-        version: 1 as const,
-        number: 0,
-        conversationStartIndex: 0,
-        openedAtSequence: 0,
-    };
+    const state = epoch;
     if (
         state.version !== 1
         || !Number.isSafeInteger(state.number)
@@ -420,7 +349,7 @@ function projectPendingAction(
 }
 
 function projectMemoryProtocol(
-    protocol: ReturnType<typeof resolveMemoryProtocol>,
+    protocol: ModelMemoryProtocol,
 ): ModelMemoryProtocol {
     return {
         kind: protocol.kind,
@@ -429,15 +358,15 @@ function projectMemoryProtocol(
 }
 
 function projectModelContextProtocol(
-    protocol: ReturnType<typeof resolveModelContextProtocol>,
+    protocol: ModelContextProtocol,
 ): ModelContextProtocol {
-    return protocol as ModelContextProtocol;
+    return { kind: protocol.kind, version: protocol.version };
 }
 
 function projectContextRetrievalProtocol(
-    protocol: ReturnType<typeof resolveContextRetrievalProtocol>,
+    protocol: ModelContextRetrievalProtocol,
 ): ModelContextRetrievalProtocol {
-    return protocol as ModelContextRetrievalProtocol;
+    return { kind: protocol.kind, version: protocol.version };
 }
 
 function projectWorkingMemory(

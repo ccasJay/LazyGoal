@@ -361,17 +361,17 @@ export function resolveModelInputEstimator(
     return new CharacterModelInputEstimator();
 }
 
-/** v2 模型能力对象，冻结一次 Goal 生命周期内的 Token 预算边界。 */
+/** 模型能力对象，冻结一次 Goal 生命周期内的 Token 预算边界。 */
 export interface ModelCapabilities {
     readonly contextWindowTokens: number;
     readonly maxOutputTokens: number;
     readonly tokenEstimator: ModelInputEstimator;
 }
 
-/** v2 能力校验失败的稳定错误码。 */
+/** 模型能力校验失败的稳定错误码。 */
 export const MODEL_CAPABILITIES_INVALID_CODE = "MODEL_CAPABILITIES_INVALID" as const;
 
-/** v2 模型能力非法时抛出的配置错误。 */
+/** 模型能力非法时抛出的配置错误。 */
 export class ModelCapabilitiesError extends Error {
     readonly code = MODEL_CAPABILITIES_INVALID_CODE;
 
@@ -381,7 +381,7 @@ export class ModelCapabilitiesError extends Error {
     }
 }
 
-/** 校验并冻结 v2 模型能力。 */
+/** 校验并冻结模型能力。 */
 export function createModelCapabilities(
     input: Pick<ModelCapabilities, "contextWindowTokens" | "maxOutputTokens">
         & { readonly tokenEstimator?: ModelInputEstimator },
@@ -422,7 +422,7 @@ export function resolveTokenEstimatorEncoding(
     });
 }
 
-/** v2 硬预算计算器。 */
+/** 基于模型能力的硬预算计算器。 */
 export class TokenBudgetPlanner {
     readonly capabilities: ModelCapabilities;
     readonly hardInputLimit: number;

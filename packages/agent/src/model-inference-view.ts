@@ -53,9 +53,6 @@ export type ModelStepRecord =
     | {
         readonly kind: "decision";
         readonly result:
-            | { readonly kind: "complete"; readonly checkpoint: string; readonly summary: string }
-            | { readonly kind: "wait"; readonly checkpoint: string; readonly reason: string }
-            | { readonly kind: "fail"; readonly checkpoint: string; readonly error: string }
             | {
                 readonly kind: "complete";
                 readonly summary: string;
@@ -88,24 +85,16 @@ export interface ModelToolDefinition {
 export type PromptPhase = "gathering_context" | "planning" | "executing";
 
 /** Agent 可消费的冻结 Memory 协议标识。 */
-export type ModelMemoryProtocol =
-    | { readonly kind: "checkpoint"; readonly version: 1 }
-    | { readonly kind: "structured"; readonly version: 1 };
+export type ModelMemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
 
 /** Agent 可消费的冻结模型上下文协议标识。 */
-export type ModelContextProtocol =
-    | { readonly kind: "conversation"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 2 };
+export type ModelContextProtocol = {
+    readonly kind: "trajectory-layered";
+    readonly version: 1;
+};
 
 /** Agent 可消费的冻结 Cold Trajectory 检索协议标识。 */
-export type ModelContextRetrievalProtocol =
-    | { readonly kind: "none"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 2 };
-
-/** `ModelContextRetrievalProtocol` 的简短兼容别名。 */
-export type ModelRetrievalProtocol = ModelContextRetrievalProtocol;
+export type ModelContextRetrievalProtocol = { readonly kind: "bm25-lite"; readonly version: 1 };
 
 /** 模型可见的 Memory 条目公共元数据。 */
 export interface ModelMemoryEntryBase {
@@ -319,20 +308,20 @@ export type ModelContextLookupResult =
  * 不得修改它或任何 Runtime 领域状态。
  */
 export interface PromptContext {
-    /** Goal 创建时冻结、用于选择 Prompt Bundle 的正整数版本。 */
-    readonly promptBundleVersion: number;
+    /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
+    readonly promptBundleVersion: 1;
     /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
     readonly phase: PromptPhase;
     /** 冻结 Profile 的模型可读投影。 */
     readonly profile: ModelProfileView;
     /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
     readonly authorizedTools: readonly ModelToolDefinition[];
-    /** Goal 冻结的 Memory 协议；legacy Bundle 为保持兼容可省略。 */
-    readonly memoryProtocol?: ModelMemoryProtocol;
-    /** Goal 冻结的模型上下文协议；省略时按 `conversation@1` 解释。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** Goal 冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 解释。 */
-    readonly contextRetrievalProtocol?: ModelContextRetrievalProtocol;
+    /** Goal 冻结的 Memory 协议。 */
+    readonly memoryProtocol: ModelMemoryProtocol;
+    /** Goal 冻结的模型上下文协议。 */
+    readonly modelContextProtocol: ModelContextProtocol;
+    /** Goal 冻结的 Cold Trajectory 检索协议。 */
+    readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
@@ -343,7 +332,7 @@ export type PreparationPhase = "gathering_context" | "planning";
  *
  * @remarks
  * Preparation 只投影稳定 intent；Executing 额外投影已批准任务与有界执行记忆
- * （Step 预算、checkpoint、最近 Step 与 pending Action）。该视图不包含
+ * （Step 预算、最近 Step 与 pending Action）。该视图不包含
  * Run 状态机字段（status、stopReason）或任何瞬时执行资源。
  */
 export type ModelWorkingContext =
@@ -356,7 +345,6 @@ export type ModelWorkingContext =
         readonly execution: {
             readonly stepCount: number;
             readonly maxSteps?: number;
-            readonly checkpoint?: string;
             readonly previousStep?: ModelStepRecord;
             readonly pendingAction?: ModelPendingAction;
         };
@@ -410,7 +398,7 @@ export interface ModelContextControl {
     readonly remainingTokens: number;
 }
 
-/** `trajectory-layered@2` 的单轮 Epoch 投影。 */
+/** `trajectory-layered@1` 的单轮 Epoch 投影。 */
 export interface ModelContextEpochView {
     readonly protocolVersion: 1;
     readonly epochNumber: number;
@@ -450,9 +438,9 @@ export interface ModelInferenceView {
     readonly prompt: PromptContext;
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
-    /** structured@1 的即时 Memory 投影；checkpoint@1 必须省略。 */
-    readonly workingMemory?: ModelWorkingMemory;
-    /** trajectory-layered@1 的即时 Hot/Warm 投影；conversation@1 必须省略。 */
+    /** structured@1 的即时 Memory 投影。 */
+    readonly workingMemory: ModelWorkingMemory;
+    /** trajectory-layered@1 的即时 Hot/Warm 投影。 */
     readonly trajectoryContext?: ModelTrajectoryContext;
     /**
      * 上一轮已提交的历史 Lookup 结果；仅属于当前模型调用，不写入 Goal、
@@ -460,6 +448,6 @@ export interface ModelInferenceView {
      * Workspace/Environment 的授权 Tool Observation。
      */
     readonly contextLookupResult?: ModelContextLookupResult;
-    /** `trajectory-layered@2` 的当前 Epoch 控制投影；legacy/v1 必须省略。 */
-    readonly contextEpoch?: ModelContextEpochView;
+    /** `trajectory-layered@1` 的当前 Epoch 控制投影。 */
+    readonly contextEpoch: ModelContextEpochView;
 }
