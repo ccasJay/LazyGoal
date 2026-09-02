@@ -21,8 +21,8 @@ export const DEFAULT_PROFILE_FILE: ProfileFileFixture = {
         + "Follow the frozen task and report progress clearly.",
     instructions: [
         "Use only the tools authorized by the frozen profile.",
-        "Reason from the current Goal, messages, and checkpoint before acting.",
-        "Keep checkpoints concise and follow the required JSON response protocol.",
+        "Reason from the current Goal, messages, and context epoch before acting.",
+        "Keep context epoch results concise and follow the required JSON response protocol.",
     ],
     toolIds: ["read_file"],
 };

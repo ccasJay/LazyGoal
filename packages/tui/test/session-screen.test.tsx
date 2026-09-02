@@ -13,6 +13,7 @@ import {
     SessionScreen,
     type UiSessionViewModel,
 } from "../src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 
 afterEach(() => {
     cleanup();
@@ -35,6 +36,7 @@ function executingGoal(id = "goal-executing"): Goal {
         },
     ];
     const created = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id,
         intent: "Inspect the repository",
@@ -102,7 +104,6 @@ test("SessionScreen renders ordered messages and the executing status", () => {
                 ...goal.state.run,
                 status: "running",
                 stepCount: 2,
-                checkpoint: "Located the repository entry points",
             },
         },
     };
@@ -110,7 +111,6 @@ test("SessionScreen renders ordered messages and the executing status", () => {
         <SessionScreen
             session={session(currentGoal, {
                 busy: true,
-                checkpoint: "Located the repository entry points",
             })}
             onSubmitMessage={() => undefined}
             onApproveAction={() => undefined}
@@ -121,7 +121,6 @@ test("SessionScreen renders ordered messages and the executing status", () => {
     const frame = instance.lastFrame() ?? "";
     assert.ok(frame.indexOf("Inspect the repository") < frame.indexOf("I will inspect"));
     assert.match(frame, /Phase: executing \| Run: running \| Steps: 2/);
-    assert.match(frame, /Checkpoint: Located the repository entry points/);
     assert.match(frame, /Executing step/);
     assert.match(frame, /Goal goal-exe…/);
 });
@@ -135,12 +134,10 @@ test("SessionScreen validates and submits blocked messages", async () => {
             run: {
                 ...goal.state.run,
                 status: "waiting",
-                checkpoint: "Need a repository choice",
                 lastStep: {
                     kind: "decision",
                     result: {
                         kind: "wait",
-                        checkpoint: "Need a repository choice",
                         reason: "Which repository should be inspected?",
                     },
                 },
@@ -393,7 +390,7 @@ test("SessionScreen renders terminal summary and accepts no further input", asyn
                     kind: "decision",
                     result: {
                         kind: "complete",
-                        checkpoint: "Repository inspected",
+                        completionEvidence: [],
                         summary: "The repository structure was documented.",
                     },
                 },

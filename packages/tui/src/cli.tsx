@@ -28,8 +28,6 @@ import {
     type TrajectoryReadResult,
     type ToolPolicy,
     type WorkingMemoryLimits,
-    type ModelContextProtocol,
-    type ContextRetrievalProtocol,
     IndexedContextLookupService,
     ContextMaintenanceWorker,
 } from "../../runtime/src/index";
@@ -43,12 +41,10 @@ import {
     JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
 import {
-    ContextCompactAdapter,
     createDefaultModelContextBudgetPolicy,
     createDefaultPromptBundleRenderer,
     createDefaultPromptBundleProtocolValidator,
     createModelContextBudgetPolicy,
-    CURRENT_PROMPT_BUNDLE_VERSION,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
     LLMPreparationExecutor,
@@ -264,7 +260,7 @@ export function readConversationCharBudget(
     return budget;
 }
 
-/** 读取 v2 模型能力配置；只有显式启用 v2 时才要求这些变量。 */
+/** 读取当前模型上下文使用的能力配置。 */
 export function readModelCapabilities(
     env: NodeJS.ProcessEnv = process.env,
     estimator?: ModelInputEstimator,
@@ -291,7 +287,7 @@ export function readModelCapabilities(
     };
     if (!encoding && estimator?.unit !== "token") {
         throw new ModelCapabilitiesError(
-            "LLM_TOKENIZER_ENCODING is required for trajectory-layered@2",
+            "LLM_TOKENIZER_ENCODING is required when the estimator does not provide token counts",
         );
     }
     return createModelCapabilities({
@@ -386,12 +382,6 @@ export interface CompositionRootOptions {
     readonly modelInputEstimator?: ModelInputEstimator;
     /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
-    /** 新 Goal 使用的 Prompt Bundle；省略时保持 v7 兼容默认。 */
-    readonly promptBundleVersion?: number;
-    /** 新 Goal 的模型上下文协议；省略时保持 trajectory-layered@1。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** 新 Goal 的检索协议；省略时保持 bm25-lite@1。 */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
 }
 
 /**
@@ -428,12 +418,10 @@ export interface CompositionRoot {
     readonly contextCompactor: DropOldestContextCompactor;
     /** 本轮 Hot/Warm 组装使用的只读输入计量器。 */
     readonly modelInputEstimator: ModelInputEstimator;
-    /** v2 模型能力（仅 v8/trajectory-layered@2 时提供）。 */
+    /** 当前模型上下文预算使用的可选模型能力。 */
     readonly modelCapabilities?: ModelCapabilities;
-    /** 本轮 Hot/Warm/Compact 使用的不可变预算策略。 */
+    /** 本轮 Hot/Warm 使用的不可变预算策略。 */
     readonly modelContextPolicy: ModelContextBudgetPolicy;
-    /** 独立 Compact 优化调用的 Adapter。 */
-    readonly contextCompactAdapter: ContextCompactAdapter;
     /** 从 committed Trajectory/Sidecar 组装分层模型上下文的无状态组件。 */
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     /** 组合根使用的 LLM Adapter。 */
@@ -450,7 +438,7 @@ export interface CompositionRoot {
     readonly store: JsonFileGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: JsonFileTrajectoryStore;
-    /** Coordinator 与 Runner 共享的 Conversation/Trajectory v2 Lookup 服务。 */
+    /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
     /** 提交后异步维护 Warm/检索旁路的资源。 */
     readonly contextMaintenanceWorker: ContextMaintenanceWorker;
@@ -530,30 +518,8 @@ export async function createCompositionRoot(
     const env = options.env ?? process.env;
     const llmConfig = readLlmConfig(env);
     const conversationCharBudget = readConversationCharBudget(env);
-    const promptBundleVersion = options.promptBundleVersion
-        ?? (options.modelContextProtocol?.version === 2 ? 8 : CURRENT_PROMPT_BUNDLE_VERSION);
-    const modelContextProtocol = options.modelContextProtocol
-        ?? (promptBundleVersion >= 8
-            ? { kind: "trajectory-layered" as const, version: 2 as const }
-            : { kind: "trajectory-layered" as const, version: 1 as const });
-    const contextRetrievalProtocol = options.contextRetrievalProtocol
-        ?? (modelContextProtocol.version === 2
-            ? { kind: "bm25-lite" as const, version: 2 as const }
-            : { kind: "bm25-lite" as const, version: 1 as const });
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
-    const modelCapabilities = modelContextProtocol.kind === "trajectory-layered"
-        && modelContextProtocol.version === 2
-        ? readModelCapabilities(env, configuredEstimator)
-        : undefined;
-    if (
-        modelContextProtocol.kind === "trajectory-layered"
-        && modelContextProtocol.version === 2
-        && modelCapabilities === undefined
-    ) {
-        throw new Error(
-            "trajectory-layered@2 requires LLM_CONTEXT_WINDOW_TOKENS, LLM_MAX_OUTPUT_TOKENS and LLM_TOKENIZER_ENCODING",
-        );
-    }
+    const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
@@ -625,7 +591,7 @@ export async function createCompositionRoot(
         ? modelCapabilities === undefined
             ? createDefaultModelContextBudgetPolicy(modelInputEstimator)
             : createModelContextBudgetPolicy({
-                // v2 的 Assembler 预算与最终 TokenBudgetPlanner 使用同一份
+                // Assembler 预算与最终 TokenBudgetPlanner 使用同一份
                 // 95% 安全窗口；最终请求仍会再次以硬上限复核。
                 modelInputBudget: Math.floor(modelCapabilities.contextWindowTokens * 0.95),
                 responseReserve: modelCapabilities.maxOutputTokens,
@@ -645,17 +611,10 @@ export async function createCompositionRoot(
     const sidecarStore = new JsonFileWarmContextSidecarStore(
         contextSidecarsDirectory,
     );
-    const contextCompactAdapter = new ContextCompactAdapter({
-        adapter: new OpenAICompatible(llmConfig),
-        estimator: modelInputEstimator,
-        traceSink,
-    });
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         sidecarStore,
         policy: modelContextPolicy,
-        compactAdapter: contextCompactAdapter,
-        traceSink,
     });
     const checkpointStore = new CheckpointGateGoalStore(store);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
@@ -724,10 +683,6 @@ export async function createCompositionRoot(
                     runIdGenerator,
                     store: checkpointStore,
                     coordinator,
-                    promptBundleVersion,
-                    memoryProtocol: { kind: "structured", version: 1 },
-                    modelContextProtocol,
-                    contextRetrievalProtocol,
                     protocolValidator,
                     trajectorySink: trajectoryStore,
                     traceSink,
@@ -772,7 +727,6 @@ export async function createCompositionRoot(
         modelInputEstimator,
         ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         modelContextPolicy,
-        contextCompactAdapter,
         trajectoryContextAssembler,
         adapter,
         profile,

@@ -112,9 +112,6 @@ function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
             <Text>
                 Phase: {session.phase} | Run: {session.runStatus} | Steps: {session.stepCount}
             </Text>
-            {session.checkpoint === undefined
-                ? null
-                : <Text>Checkpoint: {session.checkpoint}</Text>}
             {session.error === undefined
                 ? null
                 : <Text color="red">Error [{session.error.code}]: {session.error.message}</Text>}
