@@ -78,7 +78,7 @@
 
 ## 4. 集成与回归
 
-- [ ] //TODO 4.1 完成 Composition Root 与跨阶段集成回归
+- [x] //TODO 4.1 完成 Composition Root 与跨阶段集成回归
 
   - 更新 `packages/tui/src/cli.tsx`、Coordinator、Runner、Launcher 和 Agent Executor 的装配，确认共享 TrajectoryStore、Snapshot boundary、恢复 Memory 与最终批准任务的输入关系。
   - 增加初始 intent、gathering、planning feedback、approval、Executing 和 Snapshot 边界的集成测试，覆盖下游调用顺序和 provenance tail 失败副作用。

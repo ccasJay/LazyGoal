@@ -48,18 +48,56 @@ function systemContent(request: CapturedRequest): string {
     return system.content;
 }
 
-test("Composition Root uses the single current v1 protocol combination", async () => {
+function controlPayload(request: CapturedRequest): Record<string, any> {
+    const control = request.messages.at(-1);
+
+    if (control?.role !== "user") {
+        throw new Error("Expected the final LLM message to be Working Context");
+    }
+
+    return JSON.parse(control.content) as Record<string, any>;
+}
+
+test("Composition Root carries Preparation Memory through approval into Executing", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v1-"));
     await writeDefaultProfile(workspace);
     const responses = [
-        JSON.stringify({ kind: "context_ready" }),
+        JSON.stringify({
+            kind: "question",
+            question: "Which workflow should be verified?",
+        }),
+        JSON.stringify({
+            kind: "context_ready",
+            memoryPatch: {
+                protocolVersion: 1,
+                operations: [{
+                    type: "upsert_fact",
+                    fact: {
+                        subject: "user",
+                        predicate: "workflow_requested",
+                        value: "Verify the current workflow",
+                        stability: "stable",
+                        evidenceSequences: [2],
+                        scope: "goal",
+                    },
+                }],
+            },
+        }),
         JSON.stringify({
             kind: "task_proposal",
             task: {
-                objective: "Verify the current workflow",
+                objective: "Initial proposal",
                 completionCriteria: [],
             },
-            approvalRequest: "Approve the current task contract?",
+            approvalRequest: "Approve the initial task contract?",
+        }),
+        JSON.stringify({
+            kind: "task_proposal",
+            task: {
+                objective: "Approved proposal",
+                completionCriteria: [],
+            },
+            approvalRequest: "Approve the revised task contract?",
         }),
         JSON.stringify({
             kind: "complete",
@@ -121,15 +159,45 @@ test("Composition Root uses the single current v1 protocol combination", async (
             kind: "create",
             intent: "Verify the current workflow",
         });
-        const planningView = root.controller.getSnapshot();
+        const gatheringView = root.controller.getSnapshot();
 
-        if (planningView.screen !== "session") {
-            throw new Error("Expected a planning session");
+        if (gatheringView.screen !== "session") {
+            throw new Error("Expected a gathering session");
         }
-        if (planningView.phase !== "planning" || planningView.waitingFor !== "approval") {
+        if (gatheringView.phase !== "gathering_context" || gatheringView.waitingFor !== "question") {
+            throw new Error("Expected a gathering question");
+        }
+
+        await root.controller.dispatch({
+            kind: "submitMessage",
+            content: "Verify the current workflow with the default profile.",
+        });
+        const initialPlanningView = root.controller.getSnapshot();
+
+        if (initialPlanningView.screen !== "session"
+            || initialPlanningView.phase !== "planning"
+            || initialPlanningView.waitingFor !== "approval") {
             throw new Error("Expected planning approval after gathering context");
         }
-        assertCurrentDefinition(planningView.goal.definition);
+        if (initialPlanningView.proposal?.objective !== "Initial proposal") {
+            throw new Error("Expected the first planning proposal");
+        }
+
+        await root.controller.dispatch({
+            kind: "submitMessage",
+            content: "Please use the approved wording.",
+        });
+        const revisedPlanningView = root.controller.getSnapshot();
+
+        if (revisedPlanningView.screen !== "session"
+            || revisedPlanningView.phase !== "planning"
+            || revisedPlanningView.waitingFor !== "approval") {
+            throw new Error("Expected planning approval after feedback");
+        }
+        if (revisedPlanningView.proposal?.objective !== "Approved proposal") {
+            throw new Error("Expected the revised planning proposal");
+        }
+        assertCurrentDefinition(revisedPlanningView.goal.definition);
 
         const files = (await readdir(root.goalsDirectory))
             .filter((file) => file.endsWith(".json"));
@@ -157,8 +225,8 @@ test("Composition Root uses the single current v1 protocol combination", async (
         if (completedView.phase !== "executing" || completedView.terminal?.status !== "completed") {
             throw new Error("Expected the current workflow to complete");
         }
-        if (requests.length !== 3) {
-            throw new Error("Expected one request per current workflow phase");
+        if (requests.length !== 5) {
+            throw new Error("Expected gathering, planning feedback and executing requests");
         }
         for (const request of requests) {
             const content = systemContent(request);
@@ -170,6 +238,93 @@ test("Composition Root uses the single current v1 protocol combination", async (
             if (content.includes('"checkpoint"')) {
                 throw new Error("Current prompts must not expose checkpoint Decisions");
             }
+        }
+
+        const firstPreparationControl = controlPayload(requests[0]!);
+        if (firstPreparationControl.preparationInputEvidence?.[0]?.messageIndex !== 0) {
+            throw new Error("Expected initial intent provenance in the first Preparation request");
+        }
+        if (firstPreparationControl.visibleConversationMessageMap?.[0]?.sourceMessageIndex !== 0) {
+            throw new Error("Expected the initial Conversation source index");
+        }
+
+        const planningControl = controlPayload(requests[2]!);
+        if (planningControl.workingMemory?.facts?.[0]?.predicate !== "workflow_requested") {
+            throw new Error("Expected the accepted Preparation Fact in planning");
+        }
+        if (planningControl.preparationInputEvidence?.length !== 2) {
+            throw new Error("Expected committed Preparation provenance in planning");
+        }
+
+        const executingControl = controlPayload(requests[4]!);
+        if (executingControl.task?.objective !== "Approved proposal") {
+            throw new Error("Expected only the approved proposal in Executing");
+        }
+        if ("preparationInputEvidence" in executingControl) {
+            throw new Error("Executing must not receive Preparation provenance");
+        }
+        if ("visibleConversationMessageMap" in executingControl) {
+            throw new Error("Executing must not receive Preparation Conversation mapping");
+        }
+
+        const trajectory = await root.readTrajectory({
+            goalId: "goal-current",
+            runId: "run-current",
+        });
+        const persisted = await root.store.restore("goal-current");
+        if (persisted === undefined) {
+            throw new Error("Expected the final Goal Snapshot");
+        }
+        const committedTypes = trajectory.committed.map((event) => event.eventType);
+        const requiredOrder: readonly (typeof committedTypes[number])[] = [
+            "goal_created",
+            "preparation_input_recorded",
+            "preparation_result",
+            "memory_patch_accepted",
+            "context_epoch_advanced",
+            "run_started",
+            "decision_received",
+            "run_completed",
+        ];
+        let previousIndex = -1;
+        for (const eventType of requiredOrder) {
+            const eventIndex = committedTypes.indexOf(eventType);
+            if (eventIndex <= previousIndex) {
+                throw new Error(`Expected ordered committed event ${eventType}`);
+            }
+            previousIndex = eventIndex;
+        }
+        const firstResumeIndex = committedTypes.indexOf("run_resumed");
+        const contextReadyIndex = committedTypes.indexOf("preparation_result", firstResumeIndex + 1);
+        const feedbackResumeIndex = committedTypes.indexOf("run_resumed", contextReadyIndex + 1);
+        const epochIndex = committedTypes.indexOf("context_epoch_advanced");
+        if (firstResumeIndex < 0
+            || contextReadyIndex <= firstResumeIndex
+            || feedbackResumeIndex <= contextReadyIndex
+            || epochIndex <= feedbackResumeIndex) {
+            throw new Error("Expected gathering input and planning feedback before execution");
+        }
+        const patchEvent = trajectory.committed.find(
+            (event) => event.eventType === "memory_patch_accepted",
+        );
+        if (patchEvent === undefined
+            || patchEvent.sequence > persisted.state.run.committedThroughSequence) {
+            throw new Error("Expected the accepted Memory Patch inside the Snapshot boundary");
+        }
+        if (trajectory.uncommittedTail.some(
+            (event) => event.sequence <= persisted.state.run.committedThroughSequence,
+        )) {
+            throw new Error("Expected the Trajectory tail after the Snapshot boundary");
+        }
+        if (trajectory.committed.some(
+            (event) => event.eventType === "preparation_input_recorded" && event.phase === "executing",
+        )) {
+            throw new Error("Preparation provenance must not be recorded in Executing");
+        }
+        if (persisted.state.messages.some(({ content }) =>
+            content === "Initial proposal" || content === "Approved proposal"
+        )) {
+            throw new Error("Preparation model responses must not enter Goal messages");
         }
     } finally {
         await close(server);
