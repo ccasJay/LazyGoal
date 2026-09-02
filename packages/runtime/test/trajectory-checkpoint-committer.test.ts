@@ -6,6 +6,7 @@ import {
     TrajectoryCheckpointCommitter,
     TrajectoryCommitMarkerError,
     allocateImmutableEvent,
+    computeContentHash,
     createGoal,
 } from "../src/index";
 import type {
@@ -15,7 +16,9 @@ import type {
     GoalStore,
     TrajectoryEvent,
     TrajectoryEventDraft,
-    TrajectorySink,
+    TrajectoryReadQuery,
+    TrajectoryReadResult,
+    TrajectoryStore,
 } from "../src/index";
 import { currentProtocols } from "./current-fixtures";
 
@@ -53,7 +56,7 @@ class RecordingStore implements GoalStore {
     }
 }
 
-class RecordingSink implements TrajectorySink {
+class RecordingSink implements TrajectoryStore {
     events: TrajectoryEvent[] = [];
     failType?: string;
 
@@ -66,6 +69,26 @@ class RecordingSink implements TrajectorySink {
         );
         this.events.push(event);
         return event;
+    }
+
+    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+        return this.events.filter((event) =>
+            event.goalId === query.goalId
+            && event.runId === query.runId
+            && (query.fromSequence === undefined || event.sequence >= query.fromSequence)
+            && (query.toSequence === undefined || event.sequence <= query.toSequence),
+        );
+    }
+
+    async readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const events = await this.read(query);
+        return {
+            committed: events.filter((event) => event.sequence <= committedThroughSequence),
+            uncommittedTail: events.filter((event) => event.sequence > committedThroughSequence),
+        };
     }
 }
 
@@ -104,10 +127,27 @@ function factDraft(): TrajectoryEventDraft {
     };
 }
 
+function preparationInputDraft(
+    goalValue: Goal,
+    contentHash = computeContentHash(goalValue.state.messages[0]!.content),
+): TrajectoryEventDraft {
+    return {
+        goalId: goalValue.id,
+        runId: goalValue.state.run.id,
+        phase: "gathering_context",
+        eventType: "preparation_input_recorded",
+        payload: {
+            type: "preparation_input_recorded",
+            messageIndex: 0,
+            contentHash,
+        },
+    };
+}
+
 test("committer appends facts then accepted Patch and saves revision only in Snapshot copy", async () => {
     const store = new RecordingStore();
     const sink = new RecordingSink();
-    const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink: sink });
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
     const initial = goal();
 
     const result = await committer.commit(initial, {
@@ -144,7 +184,7 @@ test("append failures stop before Snapshot and disabled Trajectory rejects accep
     const store = new RecordingStore();
     const sink = new RecordingSink();
     sink.failType = "memory_patch_accepted";
-    const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink: sink });
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
 
     await assert.rejects(
         committer.commit(goal(), {
@@ -170,7 +210,7 @@ test("Snapshot failure leaves appended Patch as tail and does not update returne
     const store = new RecordingStore();
     store.fail = true;
     const sink = new RecordingSink();
-    const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink: sink });
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
     const initial = goal();
 
     await assert.rejects(
@@ -188,7 +228,7 @@ test("marker failure keeps Snapshot boundary and memory revision authoritative",
     const store = new RecordingStore();
     const sink = new RecordingSink();
     sink.failType = "state_committed";
-    const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink: sink });
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
 
     await assert.rejects(
         committer.commit(goal(), {
@@ -198,4 +238,98 @@ test("marker failure keeps Snapshot boundary and memory revision authoritative",
     );
     assert.equal(store.saved[0]?.state.run.committedThroughSequence, 1);
     assert.equal(store.saved[0]?.state.run.memoryRevision?.sequence, 1);
+});
+
+test("committer accepts a matching provenance event in the uncommitted tail", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const initial = goal();
+    await sink.append(preparationInputDraft(initial));
+    const committer = new TrajectoryCheckpointCommitter({
+        store,
+        trajectoryStore: sink,
+    });
+
+    const result = await committer.commit(initial, { facts: [factDraft()] });
+
+    assert.equal(store.saved.length, 1);
+    assert.equal(result.goal.state.run.committedThroughSequence, 2);
+    assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "preparation_input_recorded",
+        "observation_recorded",
+        "state_committed",
+    ]);
+});
+
+test("committer rejects a mismatched provenance tail before Snapshot and marker side effects", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const initial = goal();
+    await sink.append(preparationInputDraft(initial, computeContentHash("其它用户输入")));
+    const committer = new TrajectoryCheckpointCommitter({
+        store,
+        trajectoryStore: sink,
+    });
+
+    await assert.rejects(
+        committer.commit(initial, { facts: [factDraft()] }),
+        (error: unknown) => error instanceof TrajectoryAppendError
+            && error.code === "TRAJECTORY_APPEND_FAILED",
+    );
+    assert.equal(store.saved.length, 0);
+    assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "preparation_input_recorded",
+        "observation_recorded",
+    ]);
+});
+
+test("committer fails closed when an enabled Trajectory has no boundary reader", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const appendOnly = {
+        append: sink.append.bind(sink),
+    } as unknown as TrajectoryStore;
+    const committer = new TrajectoryCheckpointCommitter({
+        store,
+        trajectoryStore: appendOnly,
+    });
+
+    await assert.rejects(
+        committer.commit(goal(), { facts: [factDraft()] }),
+        (error: unknown) => error instanceof TrajectoryAppendError
+            && error.code === "TRAJECTORY_APPEND_FAILED",
+    );
+    assert.equal(store.saved.length, 0);
+    assert.deepEqual(sink.events.map((event) => event.eventType), ["observation_recorded"]);
+});
+
+test("committer preserves ordinary execution tail handling", async () => {
+    const store = new RecordingStore();
+    const sink = new RecordingSink();
+    const initial = goal();
+    await sink.append({
+        goalId: initial.id,
+        runId: initial.state.run.id,
+        phase: "executing",
+        eventType: "tool_started",
+        actionId: "action-1",
+        payload: {
+            type: "tool_started",
+            actionId: "action-1",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+    });
+    const committer = new TrajectoryCheckpointCommitter({
+        store,
+        trajectoryStore: sink,
+    });
+
+    await committer.commit(initial);
+
+    assert.equal(store.saved.length, 1);
+    assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "tool_started",
+        "state_committed",
+    ]);
 });

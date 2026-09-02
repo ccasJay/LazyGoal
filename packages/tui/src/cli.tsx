@@ -627,7 +627,7 @@ export async function createCompositionRoot(
     resources.register(contextMaintenanceWorker);
     const checkpointCommitter = new TrajectoryCheckpointCommitter({
         store: checkpointStore,
-        trajectorySink: trajectoryStore,
+        trajectoryStore,
         traceSink,
         maintenancePort: contextMaintenanceWorker,
     });
@@ -643,7 +643,6 @@ export async function createCompositionRoot(
         }),
         toolRegistry,
         toolPolicy: createDefaultToolPolicy(),
-        trajectorySink: trajectoryStore,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -664,7 +663,6 @@ export async function createCompositionRoot(
         }),
         scheduler,
         toolRegistry,
-        trajectorySink: trajectoryStore,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -684,7 +682,7 @@ export async function createCompositionRoot(
                     store: checkpointStore,
                     coordinator,
                     protocolValidator,
-                    trajectorySink: trajectoryStore,
+                    trajectoryStore,
                     traceSink,
                 },
                 control,

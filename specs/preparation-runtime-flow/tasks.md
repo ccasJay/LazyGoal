@@ -37,7 +37,7 @@
   - 增加 Coordinator/Launcher 的事件顺序、approval、初始 intent 和失败不推进测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 1.6 让 CheckpointCommitter 使用单一 TrajectoryStore 并校验 provenance tail
+- [x] //TODO 1.6 让 CheckpointCommitter 使用单一 TrajectoryStore 并校验 provenance tail
 
   - 修改 `trajectory-checkpoint-committer.ts` 及 Composition Root，使用同一个 `TrajectoryStore` 完成 append 与 `readWithBoundary`，不新增公开 `TrajectoryReader` seam。
   - 在 `GoalStore.save` 前校验 provenance tail 的 Goal/Run、message index、user 角色和 hash；错配或 reader 缺失时复用现有 `TrajectoryAppendError` 并停止下游副作用。

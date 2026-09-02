@@ -16,7 +16,9 @@ import type {
     RunRef,
     TrajectoryEvent,
     TrajectoryEventDraft,
-    TrajectorySink,
+    TrajectoryReadQuery,
+    TrajectoryReadResult,
+    TrajectoryStore,
 } from "../src/index";
 import { GoalProtocolError } from "../src/index";
 import { currentProtocols } from "./current-fixtures";
@@ -70,7 +72,7 @@ class RecordingGoalStore implements GoalStore {
     }
 }
 
-class RecordingTrajectorySink implements TrajectorySink {
+class RecordingTrajectorySink implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
     private sequence = 0;
 
@@ -89,6 +91,26 @@ class RecordingTrajectorySink implements TrajectorySink {
         );
         this.events.push(event);
         return event;
+    }
+
+    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+        return this.events.filter((event) =>
+            event.goalId === query.goalId
+            && event.runId === query.runId
+            && (query.fromSequence === undefined || event.sequence >= query.fromSequence)
+            && (query.toSequence === undefined || event.sequence <= query.toSequence),
+        );
+    }
+
+    async readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const events = await this.read(query);
+        return {
+            committed: events.filter((event) => event.sequence <= committedThroughSequence),
+            uncommittedTail: events.filter((event) => event.sequence > committedThroughSequence),
+        };
     }
 }
 
@@ -233,7 +255,7 @@ test("launch records the initial intent provenance before saving the Snapshot", 
             runIdGenerator: () => "run-provenance",
             store,
             coordinator,
-            trajectorySink: sink,
+            trajectoryStore: sink,
         },
     );
 
@@ -279,7 +301,7 @@ test("launch stops before saving or advancing when initial provenance append fai
                 runIdGenerator: () => "run-provenance-failure",
                 store,
                 coordinator,
-                trajectorySink: sink,
+                trajectoryStore: sink,
             },
         ),
         (error: unknown) => error instanceof Error

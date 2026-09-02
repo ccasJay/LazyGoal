@@ -368,7 +368,6 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     const runner = new Runner({
         store,
         executor,
-        trajectorySink: trajectoryStore,
         trajectoryStore,
     });
 
@@ -429,7 +428,6 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
     const runner = new Runner({
         store,
         executor,
-        trajectorySink: trajectoryStore,
         trajectoryStore,
     });
 
@@ -464,7 +462,6 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
     const runner = new Runner({
         store,
         executor,
-        trajectorySink: trajectoryStore,
         trajectoryStore,
     });
 
@@ -505,7 +502,6 @@ test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 
     const runner = new Runner({
         store,
         executor,
-        trajectorySink: trajectoryStore,
         trajectoryStore,
     });
 
