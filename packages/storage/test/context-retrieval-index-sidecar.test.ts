@@ -112,5 +112,7 @@ function sidecar(boundary = 0) {
         runId,
         committedThroughSequence: boundary,
         events: [],
+        messages: [],
+        conversationStartIndex: 0,
     });
 }

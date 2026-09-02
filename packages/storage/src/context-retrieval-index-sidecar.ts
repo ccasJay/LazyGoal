@@ -12,7 +12,6 @@ import { z } from "zod";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
-    CONTEXT_RETRIEVAL_INDEX_VERSION_V2,
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION,
     CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY,
     CONTEXT_TOKENIZER_VERSION,
@@ -228,8 +227,8 @@ export const ContextRetrievalIndexSidecarSchema = z.object({
     index: ContextRetrievalIndexSnapshotSchema,
     queryCache: z.array(ContextRetrievalQueryCacheEntrySchema)
         .max(CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY),
-    conversationEndIndexExclusive: z.number().int().nonnegative().safe().optional(),
-    conversationPrefixDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
+    conversationEndIndexExclusive: z.number().int().nonnegative().safe(),
+    conversationPrefixDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 }).strict();
 
 /** Retrieval Index Sidecar 结构损坏或协议失配时抛出的错误。 */
@@ -429,8 +428,7 @@ function validateAndFreeze(input: unknown): Readonly<ContextRetrievalIndexSideca
     const sidecar = parsed.data as unknown as ContextRetrievalIndexSidecar;
     if (
         sidecar.rankingVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
-        || (sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
-            && sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION_V2)
+        || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
     ) {
         throw new ContextRetrievalIndexSidecarProtocolError("unsupported ranking or index version");
     }

@@ -15,6 +15,7 @@ import {
     JsonFileGoalStore,
 } from "../src/index";
 import { createGoal } from "../../runtime/src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 
 const defaultProfile = {
     schemaVersion: 1,
@@ -113,6 +114,7 @@ test("loaded Profile metadata survives Goal snapshot persistence", async () => {
     assert.ok(profile);
 
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-profile-metadata",
         intent: "验证 Profile 快照",
