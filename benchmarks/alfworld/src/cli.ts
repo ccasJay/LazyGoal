@@ -5,7 +5,6 @@ import { parseArgs } from "node:util";
 
 import {
     createDefaultPromptBundleRenderer,
-    CURRENT_PROMPT_BUNDLE_VERSION,
     DropOldestContextCompactor,
 } from "../../../packages/agent/src/index.js";
 import { OpenAICompatible } from "../../../packages/llm/src/openai-compatible.js";
@@ -263,7 +262,7 @@ export async function runAlfworldCli(
                 manifest,
                 profile: profile.profile,
                 profileHash: profile.contentHash,
-                promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
+                promptBundleVersion: 1,
                 configId: command.configId,
                 modelId: environmentEnv.LLM_MODEL?.trim() || "unknown",
             },
@@ -307,7 +306,6 @@ async function runDefaultEvaluation(
     const scriptPath = fileURLToPath(new URL("../python/sidecar.py", import.meta.url));
     const executeEpisode = createAlfworldEpisodeExecutor({
         profile: context.profile.profile,
-        promptBundleVersion: CURRENT_PROMPT_BUNDLE_VERSION,
         adapter,
         renderer,
         contextCompactor,

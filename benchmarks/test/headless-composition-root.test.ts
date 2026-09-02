@@ -14,6 +14,7 @@ import {
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type TrajectoryStore,
+    type Tool,
 } from "../../packages/runtime/src/index.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
@@ -28,7 +29,22 @@ const profile: AgentProfile = {
     id: "fake-profile",
     systemPrompt: "You are a test agent.",
     instructions: ["Use the available tools."],
-    toolIds: [],
+    toolIds: ["benchmark_evidence"],
+};
+
+const evidenceTool: Tool = {
+    definition: {
+        id: "benchmark_evidence",
+        description: "Produce a committed benchmark fact.",
+        inputSchema: { type: "object" },
+    },
+    replayPolicy: "safe",
+    validate: () => ({ ok: true }),
+    execute: async () => ({
+        kind: "success",
+        output: "benchmark evidence",
+        summary: "benchmark evidence recorded",
+    }),
 };
 
 class InMemoryTrajectoryStore implements TrajectoryStore {
@@ -76,23 +92,50 @@ function createDependencies<TTask, TOutcome>(
             },
         }),
     };
+    let modelCalls = 0;
     return {
         benchmarkId: "fake-benchmark",
         workspaceRoot: "/workspace",
         profile,
-        promptBundleVersion: 3,
         llmAdapter: {
-            generate: async () => ({
-                content: JSON.stringify({
-                    kind: "complete",
-                    checkpoint: "done",
-                    summary: "done",
-                }),
-            }),
+            generate: async () => {
+                modelCalls += 1;
+                return {
+                    content: JSON.stringify(modelCalls === 1
+                        ? {
+                            kind: "tool_call",
+                            action: {
+                                actionId: "benchmark-evidence-1",
+                                toolId: "benchmark_evidence",
+                                input: {},
+                            },
+                        }
+                        : {
+                            kind: "complete",
+                            summary: "done",
+                            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
+                        }),
+                };
+            },
         },
         renderer: { render: () => "system" },
         contextCompactor: { compact: async (units) => units },
-        adapter,
+        adapter: {
+            describeTask: adapter.describeTask,
+            createEpisode: async (task, context) => {
+                const episode = await adapter.createEpisode(task, context);
+                return {
+                    ...episode,
+                    registry: {
+                        get(toolId: string): Tool | undefined {
+                            return toolId === evidenceTool.definition.id
+                                ? evidenceTool
+                                : episode.registry.get(toolId);
+                        },
+                    },
+                };
+            },
+        },
         persistence,
         goalIdGenerator: () => "goal-fake",
         runIdGenerator: () => "run-fake",
@@ -157,7 +200,7 @@ test("the same Root contract supports a different task and outcome shape", async
             intent: `Process ${task.values.length} values`,
             objective: "Process all values",
             completionCriteria: ["The environment accepts the values"],
-            maxSteps: 1,
+            maxSteps: 2,
         }),
         createEpisode: async () => ({
             registry: { get: () => undefined },
@@ -182,7 +225,7 @@ test("reports a cleanup failure without changing a successful outcome", async ()
             intent: "Run a cleanup test",
             objective: "Finish the cleanup test",
             completionCriteria: ["The test environment accepts completion"],
-            maxSteps: 1,
+            maxSteps: 2,
         }),
         createEpisode: async () => ({
             registry: { get: () => undefined },
@@ -246,8 +289,8 @@ test("preserves the primary failure when execution and cleanup both fail", async
     dependencies.llmAdapter.generate = async () => ({
         content: JSON.stringify({
             kind: "complete",
-            checkpoint: "done",
             summary: "done",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [] }],
         }),
     });
     const root = new HeadlessCompositionRoot(dependencies);
@@ -290,8 +333,8 @@ test("keeps abort semantics and closes an episode exactly once", async () => {
         return {
             content: JSON.stringify({
                 kind: "complete",
-                checkpoint: "should not commit",
                 summary: "should not commit",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [] }],
             }),
         };
     };
@@ -432,7 +475,7 @@ test("isolates a Trace sink failure from the successful Runtime result", async (
                 intent: "Run a trace failure test",
                 objective: "Complete while trace is unavailable",
                 completionCriteria: ["The Runtime completes"],
-                maxSteps: 1,
+                maxSteps: 2,
             }),
             createEpisode: async () => ({
                 registry: { get: () => undefined },

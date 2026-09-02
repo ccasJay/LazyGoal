@@ -6,6 +6,7 @@ import type {
     ModelConversationMessage,
     PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
+import { createDefaultPromptBundleProtocolValidator } from "../../../packages/agent/src/index.js";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -18,7 +19,6 @@ import {
     HeadlessEpisodeCleanupError,
     type HeadlessCompositionRootDependencies,
 } from "../../src/headless-composition-root.js";
-import { createDefaultPromptBundleProtocolValidator } from "../../../packages/agent/src/index.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import type {
     AlfworldManifest,
@@ -119,10 +119,6 @@ export class EvaluationRunner {
         if (!Number.isSafeInteger(maxRetries) || maxRetries < 0) {
             throw new RangeError("maxInfrastructureRetries must be a non-negative integer");
         }
-        if (!Number.isSafeInteger(dependencies.metadata.promptBundleVersion)
-            || dependencies.metadata.promptBundleVersion <= 0) {
-            throw new RangeError("promptBundleVersion must be a positive integer");
-        }
         this.metadata = dependencies.metadata;
         this.executeEpisode = dependencies.executeEpisode;
         this.maxInfrastructureRetries = maxRetries;
@@ -199,14 +195,13 @@ export class EvaluationRunner {
  * @example
  * ```ts
  * const dependencies: AlfworldEpisodeExecutorDependencies = {
- *   profile, promptBundleVersion: 3, adapter, renderer, contextCompactor,
+ *   profile, adapter, renderer, contextCompactor,
  *   workspaceRoot, createClient,
  * };
  * ```
  */
 export interface AlfworldEpisodeExecutorDependencies {
     readonly profile: AgentProfile;
-    readonly promptBundleVersion: number;
     readonly adapter: LLMAdapter;
     readonly renderer: PromptBundleRenderer;
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
@@ -242,7 +237,7 @@ export const ALLOW_EVALUATION_TOOLS: ToolPolicy = {
  * @example
  * ```ts
  * const executeEpisode = createAlfworldEpisodeExecutor({
- *   profile, promptBundleVersion: 3, adapter, renderer,
+ *   profile, adapter, renderer,
  *   contextCompactor, workspaceRoot, createClient,
  * });
  * ```
@@ -267,35 +262,13 @@ export function createAlfworldEpisodeExecutor(
         benchmarkId: "alfworld",
         workspaceRoot: dependencies.workspaceRoot,
         profile: dependencies.profile,
-        promptBundleVersion: dependencies.promptBundleVersion,
         llmAdapter: dependencies.adapter,
         renderer: dependencies.renderer,
         contextCompactor: dependencies.contextCompactor,
         adapter: benchmarkAdapter,
         persistence,
         toolPolicy: ALLOW_EVALUATION_TOOLS,
-        ...(dependencies.promptBundleVersion >= 4
-            ? {
-                memoryProtocol: { kind: "structured" as const, version: 1 as const },
-                protocolValidator: createDefaultPromptBundleProtocolValidator(),
-            }
-            : {}),
-        ...(dependencies.promptBundleVersion >= 5
-            ? {
-                modelContextProtocol: {
-                    kind: "trajectory-layered" as const,
-                    version: 1 as const,
-                },
-            }
-            : {}),
-        ...(dependencies.promptBundleVersion >= 6
-            ? {
-                contextRetrievalProtocol: {
-                    kind: "bm25-lite" as const,
-                    version: 1 as const,
-                },
-            }
-            : {}),
+        protocolValidator: createDefaultPromptBundleProtocolValidator(),
         ...(dependencies.goalIdFactory === undefined
             ? {}
             : { goalIdGenerator: dependencies.goalIdFactory }),
