@@ -64,8 +64,6 @@ export {
     ContextRetrievalIndexSidecarProtocolError,
     ContextRetrievalIndexSidecarSchema,
     JsonFileContextRetrievalIndexStore,
-    JsonFileRetrievalIndexStore,
-    JsonFileRetrievalIndexSidecarStore,
     contextRetrievalIndexSidecarCodec,
     retrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";

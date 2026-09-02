@@ -411,12 +411,6 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
     }
 }
 
-/** 简短兼容别名，便于组合根按 Retrieval Index 命名。 */
-export const JsonFileRetrievalIndexStore = JsonFileContextRetrievalIndexStore;
-
-/** Sidecar 后缀别名，便于组合根显式区分缓存实现。 */
-export const JsonFileRetrievalIndexSidecarStore = JsonFileContextRetrievalIndexStore;
-
 function validateAndFreeze(input: unknown): Readonly<ContextRetrievalIndexSidecar> {
     const parsed = ContextRetrievalIndexSidecarSchema.safeParse(input);
     if (!parsed.success) {
