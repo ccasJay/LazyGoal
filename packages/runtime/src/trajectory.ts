@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
     AgentDecision,
     ExecutionErrorCode,
@@ -28,6 +30,11 @@ export type TrajectoryEventPayload =
     }
     | { readonly type: "run_started" }
     | { readonly type: "run_resumed" }
+    | {
+        readonly type: "preparation_input_recorded";
+        readonly messageIndex: number;
+        readonly contentHash: `sha256:${string}`;
+    }
     | {
         readonly type: "preparation_result";
         readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint";
@@ -136,6 +143,30 @@ export type TrajectoryEventPayload =
 
 /** Domain Event 的稳定事件类型名称。 */
 export type TrajectoryEventType = TrajectoryEventPayload["type"];
+
+/** Preparation 用户输入在 Trajectory 中的可验证来源投影。 */
+export interface PreparationInputEvidence {
+    /** 记录该 provenance event 的 Trajectory sequence。 */
+    readonly sequence: number;
+    /** 指向 Goal Conversation 中原始 user 消息的数组索引。 */
+    readonly messageIndex: number;
+    /** 原始消息正文的 UTF-8 SHA-256 摘要。 */
+    readonly contentHash: `sha256:${string}`;
+}
+
+/**
+ * 计算单条文本的 canonical UTF-8 SHA-256 content hash。
+ *
+ * @param content - 需要绑定来源的原始文本。
+ * @returns 带 `sha256:` 前缀的小写十六进制摘要。
+ * @example
+ * ```ts
+ * const hash = computeContentHash("用户约束");
+ * ```
+ */
+export function computeContentHash(content: string): `sha256:${string}` {
+    return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
+}
 
 /** Epoch 关闭时使用的完整范围。 */
 export interface EpochRange {
@@ -503,6 +534,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
     "run_resumed",
+    "preparation_input_recorded",
     "preparation_result",
     "decision_received",
     "context_lookup_requested",
@@ -583,6 +615,32 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             assertNonEmptyString(payload.memoryRevisionEventId, "memoryRevisionEventId");
         }
     }
+    if (eventType === "preparation_input_recorded") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "messageIndex", "contentHash",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError(
+                "preparation_input_recorded contains unknown fields",
+            );
+        }
+        if (
+            typeof payload.messageIndex !== "number"
+            || !Number.isSafeInteger(payload.messageIndex)
+            || payload.messageIndex < 0
+        ) {
+            throw new TrajectoryProtocolError(
+                "preparation_input_recorded messageIndex is invalid",
+            );
+        }
+        if (
+            typeof payload.contentHash !== "string"
+            || !/^sha256:[0-9a-f]{64}$/.test(payload.contentHash)
+        ) {
+            throw new TrajectoryProtocolError(
+                "preparation_input_recorded contentHash is invalid",
+            );
+        }
+    }
     if (eventType === "context_epoch_closed") {
         if (Object.keys(payload).some((key) => !["type", "epoch", "reason"].includes(key))) {
             throw new TrajectoryProtocolError("context_epoch_closed contains unknown fields");
@@ -640,6 +698,14 @@ function assertMetadata(value: unknown): asserts value is TrajectoryEventMetadat
         throw new TrajectoryProtocolError("stepIndex must be a non-negative integer");
     }
     assertPayload(value.payload, value.eventType);
+    if (
+        value.eventType === "preparation_input_recorded"
+        && value.phase === "executing"
+    ) {
+        throw new TrajectoryProtocolError(
+            "preparation_input_recorded is not allowed in executing phase",
+        );
+    }
 }
 
 /**
@@ -772,6 +838,7 @@ export function classifyTrajectoryEvent(
         case "goal_created":
         case "run_started":
         case "run_resumed":
+        case "preparation_input_recorded":
             return "lifecycle";
         case "preparation_result":
         case "context_epoch_advanced":

@@ -6,6 +6,7 @@ import {
     allocateImmutableEvent,
     assertValidTrajectoryEventDraft,
     classifyTrajectoryEvent,
+    computeContentHash,
     createNoopDiagnosticTraceSink,
     projectTrajectoryEvent,
 } from "../src/index";
@@ -60,6 +61,51 @@ test("draft validation rejects derived state and mismatched payload type", () =>
             payload: { type: "run_failed" },
         }),
         /payload\.type must match eventType/,
+    );
+});
+
+test("preparation input provenance uses a strict hash-only lifecycle payload", () => {
+    assert.equal(
+        computeContentHash("hello"),
+        "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    );
+
+    const draft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "gathering_context",
+        eventType: "preparation_input_recorded",
+        payload: {
+            type: "preparation_input_recorded",
+            messageIndex: 0,
+            contentHash: computeContentHash("hello"),
+        },
+    };
+
+    const event = allocateImmutableEvent(draft, 1, "event-provenance");
+    assert.deepEqual(event.payload, draft.payload);
+    assert.equal(classifyTrajectoryEvent(event), "lifecycle");
+
+    assert.throws(
+        () => assertValidTrajectoryEventDraft({
+            ...draft,
+            payload: { ...draft.payload, sourceText: "hello" },
+        }),
+        /contains unknown fields/,
+    );
+    assert.throws(
+        () => assertValidTrajectoryEventDraft({
+            ...draft,
+            payload: { ...draft.payload, contentHash: "sha256:bad" },
+        }),
+        /contentHash is invalid/,
+    );
+    assert.throws(
+        () => assertValidTrajectoryEventDraft({
+            ...draft,
+            phase: "executing",
+        }),
+        /not allowed in executing phase/,
     );
 });
 

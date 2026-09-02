@@ -2,7 +2,7 @@
 
 ## 1. Runtime 协议、校验与提交边界
 
-- [ ] //TODO 1.1 扩展 Trajectory provenance 协议并统一 content hash
+- [x] //TODO 1.1 扩展 Trajectory provenance 协议并统一 content hash
 
   - 修改 `packages/runtime/src/trajectory.ts`，增加 `PreparationInputEvidence`、`preparation_input_recorded` payload、严格字段校验和 `computeContentHash`；由 `conversation-context-document.ts` 复用同一 hash 实现。
   - 在 Context Document Builder 中将 provenance event 作为透明 metadata 跳过，不切断 Preparation segment，也不生成检索正文。
