@@ -71,13 +71,12 @@ Profile 文件不会由程序自动生成，构造根本身也不会创建 `.laz
 当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。Profile 只补充
 Prompt Bundle（Global Overview 与 Phase Protocol）未规定的角色和工作细节；Tool 权限
 仍由 Runtime 强制执行。`create` 校验非空 intent 后只生成一个 goalId，并委托 Launcher；
-Composition Root 同时创建一次共享的默认 Prompt Bundle Renderer、v5/`structured@1` +
-`trajectory-layered@1` Protocol Validator、Working Memory 限制和
+Composition Root 同时创建一次共享的默认 Prompt Bundle v1 Renderer、
+`structured@1` + `trajectory-layered@1` + `bm25-lite@1` Protocol Validator、Working Memory 限制和
 `TrajectoryCheckpointCommitter`，并把同一组依赖注入 Launcher、Coordinator 与 Runner；
-模型上下文预算、Trajectory Assembler、独立 Compact Adapter 和 Sidecar Store 则注入
-两个 Agent Executor。Launcher 创建的新 Goal 自动冻结 v5/structured/trajectory-layered；
-恢复已有 Goal 时保留其冻结版本，v1–v3 Goal 继续使用原 checkpoint Prompt 字符，v4
-structured Goal 使用 conversation 上下文。`resume` 先查询
+模型上下文预算、Trajectory Assembler 和 Sidecar Store 则注入两个 Agent Executor。
+Launcher 创建的新 Goal 自动冻结上述唯一协议组合；恢复已有 Goal 时只接受当前 Snapshot
+与协议。`resume` 先查询
 按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
 直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准
 和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal
@@ -100,7 +99,7 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 `PreparationScreen` 与 `SessionScreen` 只在提交非空文本、确认选择、批准或拒绝
 时发出一次语义化命令，busy 时停用输入控件。`GoalSelectScreen` 只展示 Catalog
 摘要，不在选择前恢复完整 Goal；`SessionScreen` 用 `Static` 保存真实消息，并在
-动态区域展示状态栏、checkpoint、Spinner、Action 输入和终态摘要。
+动态区域展示状态栏、Spinner、Action 输入和终态摘要。
 
 ## 关闭流程
 

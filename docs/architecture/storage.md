@@ -2,7 +2,7 @@
 
 ## 摘要
 
-`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、独立 v5–v10 Goal Snapshot DTO 与严格 Schema、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。
+`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格 Schema、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。
 
 ## 职责速查
 
@@ -10,8 +10,8 @@
 | --- | --- | --- |
 | [AgentProfileFile](../../packages/storage/src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、严格 Schema 与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../../packages/storage/src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV5–V10 协议](../../packages/storage/src/goal-snapshot.ts) | 独立 v5–v10 Snapshot DTO、严格字段与跨字段不变量校验；v6+ 建立 Trajectory 边界，v7+ 保存 Memory revision，v8/v9 冻结 Model Context/Retrieval，v10 保存 Fact Memory Patch shape | 文件系统 I/O、构造 Runtime Goal、判断旧 structured Goal 是否可执行 |
-| [GoalSnapshotCodec](../../packages/storage/src/goal-snapshot-codec.ts) | Runtime Goal↔v10 Snapshot 的 encode/decode 深复制转换；decode 接受 v5–v10，下一次保存统一升级为 v10 | 文件系统 I/O、读写 Store |
+| [GoalSnapshotV1 协议](../../packages/storage/src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、严格字段与跨字段不变量校验；保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、Run 恢复边界和 Context Epoch | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotCodec](../../packages/storage/src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../../packages/storage/src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、目录扫描摘要 | 乐观锁、租约或版本冲突检测 |
 | [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
@@ -23,7 +23,7 @@
 
 每次 Profile `load` 只访问 `<directory>/<profileId>.json`：文件缺失返回 `undefined`；不安全 ID、读取失败、非法 JSON、Schema 不匹配或文件内 ID 不一致抛出 `AgentProfileConfigurationError`（稳定错误码 `INVALID_AGENT_PROFILE`）。
 
-Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v10 Schema 校验（拒绝多余字段、非法 StepRecord，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 接受 v5–v10，v5 缺失的提交边界映射为 `0`，旧文件不改写且下一次正常保存生成 v10。v10 的 structured Decision 使用 Fact Patch shape；v7–v9 仍可解码，但旧 shape 是否可执行由 Agent/Runtime 的 Bundle validator 决定。v1 至 v4 与未知版本统一抛出 `INVALID_GOAL_SNAPSHOT`。
+Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 v1 Schema 校验（拒绝多余字段、非法 StepRecord，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。历史 Snapshot、未知版本和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
 `JsonFileGoalStore.listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。
 
@@ -42,4 +42,4 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 
 
 ## 当前限制与背景
 
-Runtime 执行协议按 Goal 冻结的 Prompt/Memory/Model Context/Retrieval 组合解码；Storage 只负责表示，不判断 Prompt Bundle 是否受 Agent 支持。v10 保存完整协议选择与可选 `memoryRevision`，仍不保存 Working Memory 投影；`state_committed` 只是 Snapshot 成功后的审计 marker，恢复以 `committedThroughSequence` 和 revision 指针为权威边界。Sidecar 通过同一边界和来源摘要自校验，失配即可重建。演进背景见 [Structured Working Memory v1 重设计](../../specs/structured-working-memory-v1-redesign/design.md)。
+Runtime 执行协议按 Goal 冻结的唯一 `structured@1 + trajectory-layered@1 + bm25-lite@1` 组合解码；Storage 只负责表示，不判断 Prompt Bundle 是否受 Agent 支持。当前 v1 保存完整协议选择、`memoryRevision`（如有）、`committedThroughSequence` 和 Context Epoch，仍不保存 Working Memory 投影；`state_committed` 只是 Snapshot 成功后的审计 marker，恢复以提交边界和 revision 指针为权威。Sidecar 通过同一边界和来源摘要自校验，失配即可重建。
