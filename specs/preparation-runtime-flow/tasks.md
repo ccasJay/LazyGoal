@@ -85,7 +85,7 @@
   - 保持普通执行 tail、Tool Observation 和现有 TUI 启动路径行为不变。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.3](./requirements.md#req-5-3), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 4.2 同步已实现 Runtime 架构并执行全量回归
+- [x] //TODO 4.2 同步已实现 Runtime 架构并执行全量回归
 
   - 根据实际实现更新 `docs/architecture/runtime.md` 的 Evidence、Working Memory、Preparation 数据流和恢复边界；不修改 `project-memory/`。
   - 运行 `npx tsc --noEmit`、完整 packages 测试、`npm --prefix benchmarks run typecheck`、`npm --prefix benchmarks test`、`npm run test:memory`、`npm run memory:check`、`npm run check:dependencies` 和 `git diff --check`。

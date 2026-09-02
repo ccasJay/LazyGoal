@@ -165,7 +165,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             {
                 kind: "complete",
                 summary: "environment won",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [24] }],
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [26] }],
             },
         ];
         const executeEpisode = createAlfworldEpisodeExecutor({
@@ -236,7 +236,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             {
                 kind: "complete",
                 summary: "claimed",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [19] }],
             },
         ];
         let responseIndex = 0;

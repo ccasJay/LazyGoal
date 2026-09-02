@@ -5,7 +5,8 @@
 Agent 是 Runtime 与 LLM 之间的集成层。Runtime Composition Root 从当前生效的
 Profile JSON 加载并冻结 Profile，同时创建共享的 Prompt Bundle Renderer 与
 ContextCompactor；Agent 从完整 Goal 投影模型视图，按完整交互单元裁剪本轮
-Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecision。
+Conversation，保留 Goal 原始消息索引，渲染请求，并严格解析 PreparationResult 或
+AgentDecision。
 
 ## 负责 / 不负责
 
@@ -13,16 +14,16 @@ Conversation，渲染请求，并严格解析 PreparationResult 或 AgentDecisio
   版本化组合与确定性渲染、Conversation 完整单元适配与字符预算裁剪、调用方传入的授权 ToolDefinition 展示、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
 - 不负责：Profile 文件 I/O、Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK、决定 Prompt Bundle 版本是否受支持（只根据 Goal 冻结版本解析，未知版本即失败）。
 
-主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立模型视图位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，投影、请求组装和响应 Schema 分别位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)、[render.ts](../../packages/agent/src/render.ts) 与 [response-schema.ts](../../packages/agent/src/response-schema.ts)。当前 v1 可接收一次已提交的 `bm25-lite@1` Lookup Result，不触发 Agent 内部查询；历史命中保留 source refs，但不升级为 Evidence。
+主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立模型视图位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，投影、请求组装和响应 Schema 分别位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)、[render.ts](../../packages/agent/src/render.ts) 与 [response-schema.ts](../../packages/agent/src/response-schema.ts)。Preparation View 可接收 Runtime 已提交的 hash-only `preparation_input_recorded` provenance；Executing View 不能携带该字段。当前 v1 可接收一次已提交的 `bm25-lite@1` Lookup Result，不触发 Agent 内部查询；历史命中保留 source refs，但不升级为 Evidence。
 
 Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)。默认 Renderer 只注册 Prompt Bundle v1 及其当前 `.njk` 资产；v1 固定 `structured@1`、`trajectory-layered@1` 与 `bm25-lite@1`，要求 MemoryPatch 只提交 durable semantic delta，禁止保存 next Action 与 Runtime 控制状态。业务 Prompt 以版本化 `.njk` 资产维护于对应业务目录。
 
 ## 单轮数据流
 
 1. TUI Composition Root 创建一次 Renderer 和一次无状态 `DropOldestContextCompactor` 并共享给两个 Executor，同时创建 Protocol Validator、Working Memory 限制和 `TrajectoryCheckpointCommitter`，注入 Launcher、Coordinator 与 Runner。它还创建不可变的 `ModelContextBudgetPolicy`、目标模型输入计量器、只读 `TrajectoryModelContextAssembler` 和可删除的 Warm Sidecar Store，并把 Assembler 注入两个 Executor。Conversation 预算来自 `LLM_CONVERSATION_CHAR_BUDGET`，缺失时为 `196608`；非法值在访问 Goal 或调用模型前失败。Composition Root 将唯一的 Prompt Bundle v1 与 `structured@1`、`trajectory-layered@1`、`bm25-lite@1` 组合传给 Launcher，由 `createGoal` 冻结进 GoalDefinition。
-2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、冻结 Profile、Memory 协议、Model Context 协议与按 Tool ID 稳定排序的授权 Tool 描述）、真实会话投影与阶段化 Working Context。Structured Goal 还接收由 Runtime `WorkingMemorySession` 从 committed Trajectory 重建的临时 Memory。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
-3. Conversation Adapter 以 user 消息为边界生成 `ContextUnit`，开头连续 assistant 消息形成独立前缀单元。默认 Compactor 按 UTF-16 `content.length` 从旧到新丢弃完整单元，只保留连续最新后缀；最新单元即使超出软预算也完整保留。裁剪只生成本轮临时 View，不修改 Goal 或 Snapshot。
-4. `renderRequest(view, renderer)` 生成唯一 system 消息，再追加 Conversation 与完整 JSON Working Context；structured 请求额外包含 `facts/hypotheses/plan/blockers`。当前 v1 由 `TrajectoryModelContextAssembler` 按 committed boundary 注入 Hot/Warm 与有界 Lookup Result。固定输入先计量，Warm 未使用预算回借给 Hot；确定性 Warm 归约不触发主循环外的 LLM 调用。
+2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、冻结 Profile、Memory 协议、Model Context 协议与按 Tool ID 稳定排序的授权 Tool 描述）、保留 `sourceMessageIndex` 的真实会话投影与阶段化 Working Context。Structured Goal 还接收由 Runtime `WorkingMemorySession` 从 committed Trajectory 重建的临时 Memory；Preparation 另外接收独立的 hash-only provenance DTO。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
+3. Conversation Adapter 以 user 消息为边界生成 `ContextUnit`，开头连续 assistant 消息形成独立前缀单元。默认 Compactor 按 UTF-16 `content.length` 从旧到新丢弃完整单元，只保留连续最新后缀；最新单元即使超出软预算也完整保留。Adapter、Compactor、Epoch 过滤和 Trajectory Assembler 都只复制原始消息索引；裁剪只生成本轮临时 View，不修改 Goal 或 Snapshot。
+4. `renderRequest(view, renderer)` 在最终 Conversation 和 Token 预算选择完成后生成唯一 system 消息，再追加不含索引正文的真实 Conversation 与完整 JSON Working Context；Preparation 控制消息额外包含 `visibleConversationMessageMap`，并只保留其 source index 仍可见的 provenance。Executing 不携带 map 或 Preparation provenance，Renderer 对手工注入字段 fail-closed。structured 请求额外包含 `facts/hypotheses/plan/blockers`。当前 v1 由 `TrajectoryModelContextAssembler` 按 committed boundary 注入 Hot/Warm 与有界 Lookup Result。固定输入先计量，Warm 未使用预算回借给 Hot；确定性 Warm 归约不触发主循环外的 LLM 调用。
 5. active `gathering_context` 只接受 `question/context_ready`；active `planning` 只接受 `task_proposal`；执行阶段接受 Tool、Lookup、complete、wait、fail 五类严格分支。
 6. Adapter 每轮只调用一次并返回原始文本；phase/result 不匹配按协议错误拒绝，不修复、不重试。Executor 把 `ExecutionControl.signal` 传给 Conversation Compactor 和 LLM Adapter，中止或裁剪失败时不调用后续边界。
 7. Working Context 与模型协议 JSON 都不写入真实消息。保存和恢复始终使用完整 `Goal.state.messages`；恢复后的下一轮会从完整历史重新投影和裁剪。
@@ -35,6 +36,7 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
 - 非法 JSON、Schema 或 Preparation phase 不匹配：Agent 抛出 `INVALID_LLM_RESPONSE`，不修复、不重试；Runner 在 executing 边界将 AgentDecision 协议错误归类为 `INVALID_AGENT_DECISION`。
 - Bundle 配置/资产错误（重复 ID/版本、非法 Manifest、缺失资产、模板语法错误）抛出 `PromptBundleConfigurationError`，在 TUI 启动期即失败；Goal 引用未注册 Bundle 版本抛出 `UnsupportedPromptBundleVersionError`，不回退；必需变量缺失或模板渲染失败抛出脱敏的 `PromptRenderError`。三类错误都发生在 Adapter 调用前，Executor 不重试、不修复。
 - `createDefaultPromptBundleProtocolValidator` 只接受 Prompt Bundle v1 与 `structured@1 + trajectory-layered@1 + bm25-lite@1` 的完整组合；未知或交叉组合抛出 `GOAL_PROTOCOL_ERROR`。
+- Conversation 原始索引只存在于 Agent 内部 DTO；最终 Preparation 控制消息的 map 不包含正文，隐藏消息对应的 provenance 被过滤。Executing 请求不接受 Preparation provenance，即使字段为空数组也直接失败。
 - Adapter 异常保持原对象向上传播；Runner 将其记录为失败 Step。
 - `ExecutionAbortedError` 原样传播，不进入失败 Step 或协议错误分支。
 - Executor 不修改传入 Goal，也不直接写 Store。
@@ -48,4 +50,4 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
 
 ## 当前限制与背景
 
-Agent 不持久化 Memory、pendingAction、Tool 结果或审批；Runtime 接受/拒绝模型 Fact proposal。`ContextCompactor` 只裁剪本轮 Conversation，Trajectory Assembler 注入 Hot/Warm，Lookup Result 仅作为只读历史输入。Agent 不提供流式响应、自动重试和协议自修复；模型原始 JSON 不进入 Goal 消息或 Domain Event，但可进入独立 Diagnostic Trace。当前 Fact shape 设计见 [Structured Working Memory v1 重设计](../../specs/structured-working-memory-v1-redesign/design.md)。
+Agent 不持久化 Memory、pendingAction、Tool 结果或审批；Runtime 接受/拒绝模型 Fact proposal。`ContextCompactor` 只裁剪本轮 Conversation，Trajectory Assembler 注入 Hot/Warm，Lookup Result 仅作为只读历史输入。Agent 不提供流式响应、自动重试和协议自修复；模型原始 JSON 不进入 Goal 消息或 Domain Event，但可进入独立 Diagnostic Trace。最终模型请求仍把真实 Conversation 正文按原文发送，消息索引只通过 DTO 和 Preparation 控制消息映射表达。当前 Fact shape 设计见 [Structured Working Memory v1 重设计](../../specs/structured-working-memory-v1-redesign/design.md)。

@@ -485,7 +485,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 ?? DEFAULT_WORKING_MEMORY_LIMITS;
             const checkpointCommitter = new TrajectoryCheckpointCommitter({
                 store: bindings.goalStore,
-                trajectorySink: bindings.trajectoryStore,
+                trajectoryStore: bindings.trajectoryStore,
                 ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
             });
             const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
@@ -505,7 +505,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 ...(this.dependencies.toolPolicy === undefined
                     ? {}
                     : { toolPolicy: this.dependencies.toolPolicy }),
-                trajectorySink: bindings.trajectoryStore,
                 ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
                 trajectoryStore: bindings.trajectoryStore,
                 workingMemoryLimits,
@@ -526,7 +525,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 preparationExecutor,
                 scheduler,
                 toolRegistry: episode.registry,
-                trajectorySink: bindings.trajectoryStore,
                 ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
                 trajectoryStore: bindings.trajectoryStore,
                 workingMemoryLimits,
@@ -551,7 +549,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     ...(this.dependencies.protocolValidator === undefined
                         ? {}
                         : { protocolValidator: this.dependencies.protocolValidator }),
-                    trajectorySink: bindings.trajectoryStore,
+                    trajectoryStore: bindings.trajectoryStore,
                     ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
                 },
                 control,
