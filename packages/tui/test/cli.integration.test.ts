@@ -19,6 +19,7 @@ import {
     type AgentProfile,
 } from "../../runtime/src/index";
 import { JsonFileGoalStore } from "../../storage/src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { writeDefaultProfile } from "./profile-fixture";
 
 const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -201,6 +202,7 @@ test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves
         join(await realpath(workspace), ".lazygoal", "goals"),
     );
     await store.save(createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-seeded",
         intent: "Resume and continue the seeded Goal",
@@ -291,14 +293,30 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
     const store = new JsonFileGoalStore(
         join(await realpath(workspace), ".lazygoal", "goals"),
     );
-    await store.save(createGoal({
+    const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-pruning",
         intent,
         profile: seededProfile,
         messages,
         runId: "run-pruning",
-    }));
+    });
+    await store.save({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                contextEpoch: {
+                    ...goal.state.run.contextEpoch,
+                    number: 1,
+                    conversationStartIndex: 3,
+                    openedAtSequence: 0,
+                },
+            },
+        },
+    });
 
     let requestBody!: (value: unknown) => void;
     let requestAborted!: () => void;
@@ -320,9 +338,6 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
         void response;
     });
     const port = await listen(server);
-    const latestCharacterCount = messages
-        .slice(2)
-        .reduce((sum, message) => sum + message.content.length, 0);
     const child = spawn(
         process.execPath,
         ["--import", tsxLoaderPath, continueProcessFixturePath],
@@ -333,7 +348,9 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
-                LLM_CONVERSATION_CHAR_BUDGET: String(latestCharacterCount),
+                LLM_CONTEXT_WINDOW_TOKENS: "8192",
+                LLM_MAX_OUTPUT_TOKENS: "1024",
+                LLM_TOKENIZER_ENCODING: "cl100k_base",
             },
             stdio: ["pipe", "pipe", "pipe"],
         },
@@ -384,7 +401,7 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
                 readonly summary?: unknown;
             };
         };
-    assert.equal(snapshot.metadata.schemaVersion, 10);
+        assert.equal(snapshot.metadata.schemaVersion, 1);
         assert.deepEqual(snapshot.state.messages, persistedMessages);
         assert.equal(snapshot.state.summary, undefined);
     } finally {

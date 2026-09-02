@@ -43,11 +43,10 @@ ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.jso
 或中止后关闭会话。每个 task 默认写入 `.lazygoal/benchmarks/` 下独立的 LazyGoal
 Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snapshot 的
 `committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。
-当 Prompt Bundle 使用 `trajectory-layered@1` 或 `bm25-lite@1` 时，Root 将冻结对应
-协议传给 Launcher/Coordinator，并把同一 `TrajectoryModelContextAssembler` 注入
-`LLMStepExecutor`；模型上下文因此从当前 Trajectory Snapshot 组装，而不是回退到
-未定义的空上下文。benchmark 目前只装配 Trajectory 层，不自动创建 Cold Trajectory
-索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
+Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和
+`bm25-lite@1`，并把同一 `TrajectoryModelContextAssembler` 注入 `LLMStepExecutor`；
+模型上下文因此从当前 Trajectory Snapshot 组装。benchmark 目前只装配 Trajectory 层，
+不自动创建 Cold Trajectory 索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
 基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
 `won=true`，模型 `complete` 不能覆盖环境失败。
 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值

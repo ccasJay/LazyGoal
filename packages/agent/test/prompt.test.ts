@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { AgentProfile } from "../../runtime/src/agent-profile";
-import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
+import { createGoal } from "../../runtime/src/domain";
 import type {
     Goal,
     GoalMessage,
@@ -17,10 +17,7 @@ import type {
     PromptContext,
 } from "../src/model-inference-view";
 import type { PromptBundleRenderer } from "../src/prompting/types";
-import {
-    buildPreparationRequest,
-    buildStepRequest,
-} from "../src/prompt";
+import { buildPreparationRequest, buildStepRequest } from "../src/prompt";
 import {
     createDefaultPromptBundleRenderer,
     createModelContextBudgetPolicy,
@@ -29,6 +26,7 @@ import {
 } from "../src/index";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 import type { TrajectoryModelContextAssemblyInput } from "../src/trajectory-model-context-assembler";
+import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -50,6 +48,7 @@ function createPreparationGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-1",
         intent,
@@ -58,9 +57,7 @@ function createPreparationGoal(
         runId: "run-1",
     });
 
-    if (phase === "gathering_context") {
-        return goal;
-    }
+    if (phase === "gathering_context") return goal;
 
     return {
         ...goal,
@@ -79,21 +76,17 @@ function createExecutingGoal(options: {
     readonly messages?: readonly GoalMessage[];
     readonly stepCount?: number;
     readonly previousStep?: StepRecord;
-    readonly checkpoint?: string;
     readonly pendingAction?: PendingAction;
 } = {}): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-1",
         intent,
         profile,
         runId: "run-1",
-        ...(options.messages === undefined
-            ? {}
-            : { messages: options.messages }),
-        ...(options.maxSteps === undefined
-            ? {}
-            : { maxSteps: options.maxSteps }),
+        ...(options.messages === undefined ? {} : { messages: options.messages }),
+        ...(options.maxSteps === undefined ? {} : { maxSteps: options.maxSteps }),
     });
 
     return {
@@ -109,9 +102,6 @@ function createExecutingGoal(options: {
                 ...goal.state.run,
                 status: "running",
                 stepCount: options.stepCount ?? 0,
-                ...(options.checkpoint === undefined
-                    ? {}
-                    : { checkpoint: options.checkpoint }),
                 ...(options.previousStep === undefined
                     ? {}
                     : { lastStep: options.previousStep }),
@@ -155,6 +145,42 @@ class PassthroughTrajectoryAssembler extends TrajectoryModelContextAssembler {
     }
 }
 
+const trajectoryContextAssembler = new PassthroughTrajectoryAssembler();
+
+async function stepRequest(
+    goal: Goal,
+    tools: readonly ToolDefinition[] = [],
+    requestRenderer: PromptBundleRenderer = renderer,
+    lookupResult?: ModelContextLookupResult,
+) {
+    return buildStepRequest(
+        goal,
+        tools,
+        requestRenderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        lookupResult,
+    );
+}
+
+async function preparationRequest(
+    goal: Goal,
+    tools: readonly ToolDefinition[] = [],
+    requestRenderer: PromptBundleRenderer = renderer,
+) {
+    return buildPreparationRequest(
+        goal,
+        tools,
+        requestRenderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+    );
+}
+
 test("请求顺序固定为 system、真实历史、当前 Working Context", async () => {
     const messages: readonly GoalMessage[] = [
         { role: "user", content: "补充的真实输入" },
@@ -165,26 +191,30 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", asy
         },
     ];
     const goal = createExecutingGoal({ messages });
-    const request = await buildStepRequest(
-        goal,
-        [],
-        renderer,
-        contextCompactor,
-    );
+    const request = await stepRequest(goal);
 
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
-    assert.ok(
-        (request.messages[0]?.content ?? "").includes("AgentDecision 协议"),
-    );
+    assert.ok((request.messages[0]?.content ?? "").includes(
+        "Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)",
+    ));
     assert.deepEqual(
         request.messages.slice(1, -1),
         goal.state.messages.map(({ role, content }) => ({ role, content })),
     );
-    assert.deepEqual(
-        JSON.parse(request.messages.at(-1)?.content ?? ""),
-        new ModelInferenceProjector().projectWorkingContext(goal),
-    );
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
+        readonly phase: string;
+        readonly intent: string;
+        readonly workingMemory: unknown;
+        readonly trajectoryContext: unknown;
+        readonly contextEpoch: unknown;
+    };
+    const workingContext = new ModelInferenceProjector().projectWorkingContext(goal);
+    assert.equal(control.phase, workingContext.phase);
+    assert.equal(control.intent, workingContext.intent);
+    assert.deepEqual(control.workingMemory, currentWorkingMemory);
+    assert.ok(control.trajectoryContext !== undefined);
+    assert.ok(control.contextEpoch !== undefined);
 });
 
 test("执行请求只展示调用方传入的授权 ToolDefinition", async () => {
@@ -197,47 +227,23 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
             properties: { path: { type: "string" } },
         },
     };
-    const request = await buildStepRequest(
-        goal,
-        [tool],
-        renderer,
-        contextCompactor,
-    );
+    const request = await stepRequest(goal, [tool]);
     const systemContent = request.messages[0]?.content ?? "";
 
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
-    assert.match(systemContent, /AgentDecision 协议/);
+    assert.match(systemContent, /Active Phase Protocol: executing/);
 });
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {
-    const base = createExecutingGoal();
-    const goal: Goal = {
-        ...base,
-        definition: {
-            ...base.definition,
-            promptBundleVersion: 6,
-            memoryProtocol: { kind: "structured", version: 1 },
-            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-        },
-    };
+    const goal = createExecutingGoal();
     const lookupResult: ModelContextLookupResult = {
         status: "not_found",
         lookupId: "lookup-next-round",
         committedThroughSequence: 7,
         reason: "no_context_match",
     };
-    const request = await buildStepRequest(
-        goal,
-        [],
-        renderer,
-        contextCompactor,
-        undefined,
-        createEmptyWorkingMemory(),
-        new PassthroughTrajectoryAssembler(),
-        lookupResult,
-    );
+    const request = await stepRequest(goal, [], renderer, lookupResult);
     const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
         readonly contextLookupResult?: ModelContextLookupResult;
     };
@@ -245,7 +251,7 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
     assert.deepEqual(control.contextLookupResult, lookupResult);
     assert.match(
         request.messages[0]?.content ?? "",
-        /Current Workspace, Environment, and verification status require an Authorized Tool Observation/,
+        /Historical execution and rationale may use Context Lookup/,
     );
 });
 
@@ -259,31 +265,29 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
             },
             { role: "user", content: "已记录的真实回答" },
         ]);
-        const request = await buildPreparationRequest(
-            goal,
-            [],
-            renderer,
-            contextCompactor,
-        );
+        const request = await preparationRequest(goal);
         const systemContent = request.messages[0]?.content ?? "";
 
-        if (phase === "gathering_context") {
-            assert.ok(systemContent.includes('"kind":"question"'));
-        } else {
-            assert.ok(systemContent.includes('"kind":"task_proposal"'));
-        }
+        assert.ok(systemContent.includes(`Active Phase Protocol: ${phase}`));
         assert.deepEqual(
             request.messages.slice(1, -1),
             goal.state.messages.map(({ role, content }) => ({ role, content })),
         );
-        assert.deepEqual(
-            JSON.parse(request.messages.at(-1)?.content ?? ""),
-            { phase, intent },
-        );
+        const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
+            readonly phase: string;
+            readonly intent: string;
+            readonly workingMemory: unknown;
+            readonly trajectoryContext: unknown;
+            readonly contextEpoch: unknown;
+        };
+        assert.deepEqual({ phase: control.phase, intent: control.intent }, { phase, intent });
+        assert.deepEqual(control.workingMemory, currentWorkingMemory);
+        assert.ok(control.trajectoryContext !== undefined);
+        assert.ok(control.contextEpoch !== undefined);
     }
 });
 
-test("Preparation 仅在 v2 planning 投影调用方提供的 ToolDefinition", async () => {
+test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition", async () => {
     const inputSchema = {
         type: "object",
         properties: { path: { type: "string" } },
@@ -300,104 +304,47 @@ test("Preparation 仅在 v2 planning 投影调用方提供的 ToolDefinition", a
             return "captured";
         },
     };
-    const v1Planning = createPreparationGoal("planning");
-    const v2Planning: Goal = {
-        ...v1Planning,
-        definition: { ...v1Planning.definition, promptBundleVersion: 2 },
-    };
-    const v2Gathering: Goal = {
-        ...createPreparationGoal("gathering_context"),
-        definition: {
-            ...createPreparationGoal("gathering_context").definition,
-            promptBundleVersion: 2,
-        },
-    };
 
-    await buildPreparationRequest(
-        v1Planning,
-        tools,
-        capturingRenderer,
-        contextCompactor,
-    );
-    await buildPreparationRequest(
-        v2Gathering,
-        tools,
-        capturingRenderer,
-        contextCompactor,
-    );
-    await buildPreparationRequest(
-        v2Planning,
-        tools,
-        capturingRenderer,
-        contextCompactor,
-    );
+    await preparationRequest(createPreparationGoal("gathering_context"), tools, capturingRenderer);
+    const gatheringContexts = contexts.splice(0);
+    await preparationRequest(createPreparationGoal("planning"), tools, capturingRenderer);
 
-    assert.deepEqual(contexts[0]?.authorizedTools, []);
-    assert.deepEqual(contexts[1]?.authorizedTools, []);
-    assert.deepEqual(contexts[2]?.authorizedTools, tools);
-    assert.notStrictEqual(contexts[2]?.authorizedTools[0], tools[0]);
-    assert.notStrictEqual(contexts[2]?.authorizedTools[0]?.inputSchema, inputSchema);
-    assert.equal(Object.isFrozen(contexts[2]?.authorizedTools[0]?.inputSchema), true);
+    assert.ok(gatheringContexts.length > 0);
+    assert.ok(gatheringContexts.every((context) => context.authorizedTools.length === 0));
+    assert.ok(contexts.length > 0);
+    assert.ok(contexts.every((context) => context.authorizedTools.length === 1));
+    assert.notStrictEqual(contexts[0]?.authorizedTools[0], tools[0]);
+    assert.notStrictEqual(contexts[0]?.authorizedTools[0]?.inputSchema, inputSchema);
+    assert.equal(Object.isFrozen(contexts[0]?.authorizedTools[0]?.inputSchema), true);
 });
 
-test("三个 phase 使用同一完整单元规则且只替换 Conversation", async () => {
-    const messages: readonly GoalMessage[] = [
-        { role: "user", content: "旧输入" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "旧响应",
+test("Trajectory Assembler 只替换当前调用的分层 Context，不写入真实消息", async () => {
+    const goal = createExecutingGoal({
+        messages: [
+            { role: "user", content: "补充输入" },
+            {
+                role: "assistant",
+                assistant: { profileId: "profile-1" },
+                content: "真实响应",
+            },
+        ],
+        pendingAction: {
+            status: "approved",
+            action: {
+                actionId: "action-current",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
         },
-        { role: "user", content: "新输入" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "新响应",
-        },
-    ];
-    const latestUnit = messages.slice(2).map(({ role, content }) => ({
-        role,
-        content,
-    }));
-    const compacting = new DropOldestContextCompactor(
-        messages.slice(2).reduce((sum, message) => sum + message.content.length, 0),
-    );
-    const pendingAction: PendingAction = {
-        status: "approved",
-        action: {
-            actionId: "action-current",
-            toolId: "read_file",
-            input: { path: "README.md" },
-        },
-    };
-    const cases = [
-        createPreparationGoal("gathering_context", messages),
-        createPreparationGoal("planning", messages),
-        createExecutingGoal({ messages, pendingAction }),
-    ];
+    });
+    const before = JSON.stringify(goal.state.messages);
+    const request = await stepRequest(goal);
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "{}");
 
-    for (const goal of cases) {
-        const compacted = goal.state.workflow.phase === "executing"
-            ? await buildStepRequest(goal, [], renderer, compacting)
-            : await buildPreparationRequest(goal, [], renderer, compacting);
-        const full = goal.state.workflow.phase === "executing"
-            ? await buildStepRequest(goal, [], renderer, contextCompactor)
-            : await buildPreparationRequest(goal, [], renderer, contextCompactor);
-
-        assert.deepEqual(compacted.messages.slice(1, -1), latestUnit);
-        assert.deepEqual(compacted.messages[0], full.messages[0]);
-        assert.deepEqual(compacted.messages.at(-1), full.messages.at(-1));
-    }
-
-    const executingControl = JSON.parse(
-        (await buildStepRequest(
-            cases[2]!,
-            [],
-            renderer,
-            compacting,
-        )).messages.at(-1)?.content ?? "",
-    );
-    assert.deepEqual(executingControl.execution.pendingAction, pendingAction);
+    assert.equal(control.trajectoryContext.softOverflow, false);
+    assert.deepEqual(control.trajectoryContext.hot, []);
+    assert.deepEqual(goal.state.messages, JSON.parse(before));
+    assert.deepEqual(control.execution.pendingAction, goal.state.run.pendingAction);
 });
 
 test("保存恢复后真实消息及 assistant 来源不变，控制消息不进入快照", async () => {
@@ -417,12 +364,7 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
 
     assert.ok(restored !== undefined);
     const messagesBeforeRequest = JSON.stringify(restored.state.messages);
-    const request = await buildStepRequest(
-        restored,
-        [],
-        renderer,
-        contextCompactor,
-    );
+    const request = await stepRequest(restored);
     const controlContent = request.messages.at(-1)?.content ?? "";
 
     assert.deepEqual(restored.state.messages, goal.state.messages);
@@ -459,12 +401,6 @@ test("Builder 拒绝 waiting Preparation 和非 running executing Goal", async (
         },
     };
 
-    await assert.rejects(
-        buildPreparationRequest(waiting, [], renderer, contextCompactor),
-        /active preparation/,
-    );
-    await assert.rejects(
-        buildStepRequest(created, [], renderer, contextCompactor),
-        /running executing/,
-    );
+    await assert.rejects(preparationRequest(waiting), /active preparation/);
+    await assert.rejects(stepRequest(created), /running executing/);
 });

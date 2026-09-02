@@ -5,11 +5,7 @@ import type {
     MemoryRevision,
     WorkingMemory,
 } from "./domain";
-import {
-    resolveMemoryProtocol,
-    createEmptyWorkingMemory,
-    UnsupportedStructuredMemoryShapeError,
-} from "./domain";
+import { createEmptyWorkingMemory } from "./domain";
 import {
     buildCommittedEvidenceIndex,
     validateFactEvidence,
@@ -45,7 +41,7 @@ export const WORKING_MEMORY_SESSION_CLOSED_CODE =
  *
  * @remarks
  * 该错误是 fail-closed 信号；调用方不能以空 Memory 或模型猜测替代缺失的
- * 历史事实。checkpoint 协议不应创建本 Session，因此不会触发该错误。
+ * 历史事实；当前唯一支持的结构化协议始终需要该 Session。
  *
  * @example
  * ```ts
@@ -373,21 +369,6 @@ async function rebuild(
     goal: Goal,
     dependencies: WorkingMemorySessionDependencies,
 ): Promise<RebuiltWorkingMemoryInternal> {
-    const protocol = resolveMemoryProtocol(goal.definition);
-    if (protocol.kind !== "structured") {
-        throw new WorkingMemoryRecoveryError(
-            "WorkingMemorySession requires the structured Memory protocol",
-        );
-    }
-    if (
-        goal.definition.promptBundleVersion >= 4
-        && goal.definition.promptBundleVersion <= 6
-    ) {
-        throw new UnsupportedStructuredMemoryShapeError(
-            goal.definition.promptBundleVersion,
-        );
-    }
-
     const trajectoryStore = dependencies.trajectoryStore;
     if (trajectoryStore === undefined) {
         throw new WorkingMemoryTrajectoryRequiredError(
@@ -396,11 +377,7 @@ async function rebuild(
     }
 
     const committedThroughSequence = goal.state.run.committedThroughSequence;
-    if (
-        committedThroughSequence === undefined
-        || !Number.isInteger(committedThroughSequence)
-        || committedThroughSequence < 0
-    ) {
+    if (!Number.isInteger(committedThroughSequence) || committedThroughSequence < 0) {
         throw new WorkingMemoryTrajectoryRequiredError(
             "structured Goal requires a Snapshot committedThroughSequence",
         );

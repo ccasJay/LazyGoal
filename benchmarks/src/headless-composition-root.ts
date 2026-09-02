@@ -12,23 +12,18 @@ import {
 import {
     DEFAULT_WORKING_MEMORY_LIMITS,
     GoalCoordinator,
-    GoalProtocolError,
     InlineScheduler,
-    isMemoryProtocol,
     isExecutionAbortedError,
     launch,
     Runner,
     throwIfAborted,
     type AgentProfile,
     type AgentProfileRegistry,
-    type ContextRetrievalProtocol,
     type ExecutionControl,
     type Goal,
     type GoalProgressResult,
     type GoalProtocolValidator,
     type GoalStore,
-    type MemoryProtocol,
-    type ModelContextProtocol,
     type PreparationExecutor,
     type RunIdGenerator,
     readTrajectoryAtSnapshot,
@@ -364,7 +359,6 @@ export interface HeadlessRunOptions {
  *     benchmarkId: "example",
  *     workspaceRoot: process.cwd(),
  *     profile,
- *     promptBundleVersion: 3,
  *     llmAdapter,
  *     renderer,
  *     contextCompactor,
@@ -380,18 +374,8 @@ export interface HeadlessCompositionRootDependencies<TTask, TOutcome> {
     readonly workspaceRoot: string;
     /** 创建 Goal 时冻结的 Profile。 */
     readonly profile: AgentProfile;
-    /** 创建 Goal 时冻结的 Prompt Bundle 版本。 */
-    readonly promptBundleVersion: number;
     /**
-     * 创建 Goal 时冻结的 Memory 协议；legacy v1–v3 可省略，v4/structured 必须显式提供。
-     */
-    readonly memoryProtocol?: MemoryProtocol;
-    /** 创建 Goal 时冻结的模型上下文协议；省略时按 `conversation@1` 兼容。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** 创建 Goal 时冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
-    /**
-     * 在首次保存或模型调用前校验 Prompt/Memory 组合的适配器；structured Goal 必须提供。
+     * 在首次保存或模型调用前校验当前 Prompt/Memory/Context 组合的适配器。
      */
     readonly protocolValidator?: GoalProtocolValidator;
     /** structured@1 Patch 接受时使用的限制；省略时采用默认限制。 */
@@ -507,7 +491,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
                 trajectoryStore: bindings.trajectoryStore,
                 policy: createDefaultModelContextBudgetPolicy(),
-                ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
             });
             const runner = new Runner({
                 store: bindings.goalStore,
@@ -565,16 +548,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     runIdGenerator: () => runId,
                     store: bindings.goalStore,
                     coordinator,
-                    promptBundleVersion: this.dependencies.promptBundleVersion,
-                    ...(this.dependencies.memoryProtocol === undefined
-                        ? {}
-                        : { memoryProtocol: this.dependencies.memoryProtocol }),
-                    ...(this.dependencies.modelContextProtocol === undefined
-                        ? {}
-                        : { modelContextProtocol: this.dependencies.modelContextProtocol }),
-                    ...(this.dependencies.contextRetrievalProtocol === undefined
-                        ? {}
-                        : { contextRetrievalProtocol: this.dependencies.contextRetrievalProtocol }),
                     ...(this.dependencies.protocolValidator === undefined
                         ? {}
                         : { protocolValidator: this.dependencies.protocolValidator }),
@@ -757,47 +730,12 @@ function validateRootDependencies<TTask, TOutcome>(
     validateIdentifier(dependencies.benchmarkId, "benchmarkId");
     validateIdentifier(dependencies.workspaceRoot, "workspaceRoot");
     validateIdentifier(dependencies.profile.id, "profile.id");
-    if (
-        !Number.isSafeInteger(dependencies.promptBundleVersion)
-        || dependencies.promptBundleVersion <= 0
-    ) {
-        throw new RangeError("promptBundleVersion must be a positive safe integer");
-    }
-    if (
-        dependencies.promptBundleVersion >= 4
-        && dependencies.memoryProtocol === undefined
-    ) {
-        throw new TypeError(
-            "promptBundleVersion >= 4 requires an explicit memoryProtocol",
-        );
-    }
-    if (
-        dependencies.memoryProtocol !== undefined
-        && !isMemoryProtocol(dependencies.memoryProtocol)
-    ) {
-        throw new GoalProtocolError(
-            "Memory 协议必须是 checkpoint@1 或 structured@1",
-        );
-    }
-    if (
-        dependencies.memoryProtocol?.kind === "structured"
-        && dependencies.protocolValidator === undefined
-    ) {
-        throw new TypeError(
-            "structured@1 requires an injected GoalProtocolValidator",
-        );
-    }
     if (dependencies.protocolValidator !== undefined) {
         dependencies.protocolValidator.validate({
-            promptBundleVersion: dependencies.promptBundleVersion,
-            memoryProtocol: dependencies.memoryProtocol
-                ?? { kind: "checkpoint", version: 1 },
-            ...(dependencies.modelContextProtocol === undefined
-                ? {}
-                : { modelContextProtocol: dependencies.modelContextProtocol }),
-            ...(dependencies.contextRetrievalProtocol === undefined
-                ? {}
-                : { contextRetrievalProtocol: dependencies.contextRetrievalProtocol }),
+            promptBundleVersion: 1,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         });
     }
 }

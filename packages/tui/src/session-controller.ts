@@ -466,9 +466,6 @@ export class SessionController {
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
-            ...(snapshot.state.run.checkpoint === undefined
-                ? {}
-                : { checkpoint: snapshot.state.run.checkpoint }),
             ...(waitingFor === undefined ? {} : { waitingFor }),
             ...(preparationStalled ? { preparationStalled } : {}),
             ...(question === undefined ? {} : { question }),

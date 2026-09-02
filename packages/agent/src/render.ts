@@ -16,16 +16,15 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。system 消息由
  * 注入的 `PromptBundleRenderer` 依据 `PromptContext` 生成；真实会话与 Working
  * Context 只作为原始消息追加，绝不进入模板环境。分层协议的 Trajectory
- * Context 也作为本轮控制消息的独立字段追加；legacy View 未提供该字段时输出
- * 保持原有结构。
+ * Context 也作为本轮控制消息的独立字段追加。
  */
 
 /**
  * 构造 Working Context 控制消息。
  *
  * @param context - 已投影的阶段化 Working Context。
- * @param workingMemory - structured@1 的即时 Memory；legacy 时省略。
- * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm；legacy 时省略。
+ * @param workingMemory - structured@1 的即时 Memory。
+ * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */

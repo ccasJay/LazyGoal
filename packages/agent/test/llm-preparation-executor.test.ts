@@ -17,6 +17,12 @@ import {
     LLMResponseProtocolError,
     UnsupportedPromptBundleVersionError,
 } from "../src/index";
+import {
+    createCurrentContextAssembler,
+    currentProtocols,
+    currentWorkingMemory,
+} from "./current-fixtures";
+import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-context-assembler";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -36,6 +42,7 @@ function createPreparationGoal(
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "实现可恢复 Agent",
+        ...currentProtocols,
         profile: runProfile,
         runId: "run-1",
     });
@@ -88,16 +95,12 @@ function assertPreparationSystemContent(
     assert.ok(content.includes("Active Phase Protocol:"));
 
     if (phase === "gathering_context") {
-        assert.ok(content.includes('"kind":"question"'));
+        assert.ok(content.includes("return exactly one question, context_ready, or context_lookup object"));
     } else {
-        assert.ok(content.includes('"kind":"task_proposal"'));
+        assert.ok(content.includes("return exactly one task_proposal or context_lookup object"));
     }
 
-    assert.ok(
-        content.endsWith(
-            "Authorized Tool definitions (only these Tool IDs may be requested):\n[]",
-        ),
-    );
+    assert.ok(content.includes("Authorized Tool definitions (only these Tool IDs may be requested):"));
 }
 
 test("gathering_context 只解析 question/context_ready 协议", async () => {
@@ -106,9 +109,18 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
         kind: "question",
         question: "任务需要兼容旧快照吗？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
-    const result = await executor.execute(goal, []);
+    const result = await executor.execute({
+        goal,
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
 
     assert.deepEqual(result, {
         kind: "question",
@@ -121,10 +133,14 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
         adapter.requests[0]?.messages[0]?.content ?? "",
         "gathering_context",
     );
-    assert.deepEqual(
-        JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
-        { phase: "gathering_context", intent: goal.definition.intent },
-    );
+    const workingContext = JSON.parse(
+        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+    ) as Record<string, unknown>;
+    assert.equal(workingContext.phase, "gathering_context");
+    assert.equal(workingContext.intent, goal.definition.intent);
+    assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
+    assert.equal(typeof workingContext.trajectoryContext, "object");
+    assert.equal(typeof workingContext.contextEpoch, "object");
 });
 
 test("planning 只解析 task_proposal 协议", async () => {
@@ -137,14 +153,23 @@ test("planning 只解析 task_proposal 协议", async () => {
         },
         approvalRequest: "是否批准该任务？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
     const tool: ToolDefinition = {
         id: "read_file",
         description: "v1 不应看见",
         inputSchema: { type: "object" },
     };
-    const result = await executor.execute(goal, [tool]);
+    const result = await executor.execute({
+        goal,
+        authorizedTools: [tool],
+        workingMemory: currentWorkingMemory,
+    });
 
     assert.deepEqual(result, {
         kind: "task_proposal",
@@ -161,19 +186,22 @@ test("planning 只解析 task_proposal 协议", async () => {
         adapter.requests[0]?.messages[0]?.content ?? "",
         "planning",
     );
-    assert.deepEqual(
-        JSON.parse(adapter.requests[0]?.messages.at(-1)?.content ?? ""),
-        { phase: "planning", intent: goal.definition.intent },
-    );
+    const workingContext = JSON.parse(
+        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+    ) as Record<string, unknown>;
+    assert.equal(workingContext.phase, "planning");
+    assert.equal(workingContext.intent, goal.definition.intent);
+    assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
+    assert.equal(typeof workingContext.trajectoryContext, "object");
+    assert.equal(typeof workingContext.contextEpoch, "object");
 });
 
-test("v2 planning 请求以实际 Tool Observation 能力约束证据并保留外部依赖", async () => {
+test("当前 planning 请求以实际 Tool Observation 能力约束证据并保留外部依赖", async () => {
     const v1Goal = createPreparationGoal("planning");
     const goal: Goal = {
         ...v1Goal,
         definition: {
             ...v1Goal.definition,
-            promptBundleVersion: 2,
             intent: "生成发布包，并由外部审核人确认签字",
         },
     };
@@ -188,7 +216,12 @@ test("v2 planning 请求以实际 Tool Observation 能力约束证据并保留�
         },
         approvalRequest: "是否批准该完整任务契约及外部签字依赖？",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
     const tool: ToolDefinition = {
         id: "inspect_release",
         description: "检查发布包并返回文件清单 Observation",
@@ -200,7 +233,11 @@ test("v2 planning 请求以实际 Tool Observation 能力约束证据并保留�
         },
     };
 
-    await executor.execute(goal, [tool]);
+    await executor.execute({
+        goal,
+        authorizedTools: [tool],
+        workingMemory: currentWorkingMemory,
+    });
 
     assert.equal(adapter.requests.length, 1);
     const systemContent = adapter.requests[0]?.messages[0]?.content ?? "";
@@ -208,12 +245,7 @@ test("v2 planning 请求以实际 Tool Observation 能力约束证据并保留�
         adapter.requests[0]?.messages.at(-1)?.content ?? "",
     ) as { readonly phase: string; readonly intent: string };
 
-    assert.ok(systemContent.includes(
-        "Define completionCriteria as observable evidence that is collectively sufficient to judge the objective complete and obtainable from Conversation, Working Context, or Authorized Tool Observations available in this runtime.",
-    ));
-    assert.ok(systemContent.includes(
-        "If the user explicitly requires evidence that this runtime cannot obtain, preserve it as an external dependency and state that dependency in both completionCriteria and approvalRequest.",
-    ));
+    assert.match(systemContent, /planning \(structured@1; trajectory-layered@1; bm25-lite@1\)/);
     const toolsMarker = [
         "Authorized Tool definitions (only these Tool IDs may be requested):",
         "",
@@ -225,10 +257,8 @@ test("v2 planning 请求以实际 Tool Observation 能力约束证据并保留�
         JSON.parse(systemContent.slice(toolsOffset + toolsMarker.length)),
         [tool],
     );
-    assert.deepEqual(workingContext, {
-        phase: "planning",
-        intent: "生成发布包，并由外部审核人确认签字",
-    });
+    assert.equal(workingContext.phase, "planning");
+    assert.equal(workingContext.intent, "生成发布包，并由外部审核人确认签字");
 });
 
 test("模型返回其他 phase 的 PreparationResult 时不重试", async () => {
@@ -236,10 +266,19 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
         kind: "question",
         question: "不属于 planning",
     }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal("planning"), []),
+        executor.execute({
+            goal: createPreparationGoal("planning"),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
         (error: unknown) => {
             assert.ok(error instanceof LLMResponseProtocolError);
             assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
@@ -253,10 +292,19 @@ test("模型返回其他 phase 的 PreparationResult 时不重试", async () => 
 test("Adapter 异常保持原对象传播且不重试", async () => {
     const adapterError = new Error("供应商暂不可用");
     const adapter = new RejectingAdapter(adapterError);
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal(), []),
+        executor.execute({
+            goal: createPreparationGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
         (error: unknown) => error === adapterError,
     );
     assert.equal(adapter.requests.length, 1);
@@ -264,13 +312,22 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
 
 test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
     const goal = createPreparationGoal("gathering_context", {
         ...profile,
         toolIds: ["filesystem"],
     });
 
-    assert.deepEqual(await executor.execute(goal, []), { kind: "context_ready" });
+    assert.deepEqual(await executor.execute({
+        goal,
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    }), { kind: "context_ready" });
     assert.equal(adapter.requests.length, 1);
 });
 
@@ -287,10 +344,15 @@ test("非 active Preparation Goal 在 Adapter 调用前被拒绝", async () => {
         },
     };
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
     await assert.rejects(
-        executor.execute(waiting, []),
+        executor.execute({ goal: waiting, authorizedTools: [], workingMemory: currentWorkingMemory }),
         /active preparation Goal/,
     );
     assert.equal(adapter.requests.length, 0);
@@ -306,36 +368,49 @@ test("未知 Prompt Bundle 版本在 Adapter 调用前失败", async () => {
         },
     } as unknown as Goal;
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
-    const executor = new LLMPreparationExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
 
     await assert.rejects(
-        executor.execute(unsupportedGoal, []),
+        executor.execute({
+            goal: unsupportedGoal,
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
         (error: unknown) => {
             assert.ok(error instanceof UnsupportedPromptBundleVersionError);
             assert.equal(error.bundleVersion, 99);
-            assert.deepEqual(error.supportedVersions, [1, 2, 3]);
+            assert.deepEqual(error.supportedVersions, [1]);
             return true;
         },
     );
     assert.equal(adapter.requests.length, 0);
 });
 
-test("Compactor 错误原样传播且不会调用业务 Adapter", async () => {
+test("Context Assembler 错误原样传播且不会调用业务 Adapter", async () => {
     const failure = new Error("context compaction failed");
-    const failingCompactor: ContextCompactor<ModelConversationMessage> = {
-        async compact(): Promise<never> {
-            throw failure;
-        },
-    };
     const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
     const executor = new LLMPreparationExecutor({
         adapter,
         renderer,
-        contextCompactor: failingCompactor,
+        contextCompactor,
+        trajectoryContextAssembler: {
+            async assemble(): Promise<never> {
+                throw failure;
+            },
+        } as unknown as TrajectoryModelContextAssembler,
     });
 
     await assert.rejects(
-        executor.execute(createPreparationGoal(), []),
+        executor.execute({
+            goal: createPreparationGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
         (error: unknown) => error === failure,
     );
     assert.equal(adapter.requests.length, 0);

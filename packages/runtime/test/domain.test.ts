@@ -5,7 +5,6 @@ import {
     createGoal,
     createRun,
     isContextRetrievalProtocol,
-    resolveContextRetrievalProtocol,
 } from "../src/index";
 import type { AgentProfile, GoalMessage } from "../src/index";
 
@@ -25,8 +24,15 @@ const messages: GoalMessage[] = [
     },
 ];
 
+const currentProtocols = {
+    memoryProtocol: { kind: "structured" as const, version: 1 as const },
+    modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
+    contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
+};
+
 test("createGoal creates an initial gathering snapshot with independent IDs", () => {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-1",
         intent: "完成最小 Runtime",
         promptBundleVersion: 1,
@@ -40,6 +46,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
         definition: {
             intent: "完成最小 Runtime",
             promptBundleVersion: 1,
+            ...currentProtocols,
             profile,
             executionPolicy: { maxSteps: 0 },
         },
@@ -56,6 +63,13 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
                 id: "run-1",
                 status: "created",
                 stepCount: 0,
+                committedThroughSequence: 0,
+                contextEpoch: {
+                    version: 1,
+                    number: 0,
+                    conversationStartIndex: 0,
+                    openedAtSequence: 0,
+                },
             },
         },
     });
@@ -75,6 +89,7 @@ test("createGoal isolates frozen definition and real messages from input mutatio
         { role: "user", content: "原始消息" },
     ];
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-2",
         intent: "原始意图",
         promptBundleVersion: 1,
@@ -99,6 +114,7 @@ test("createGoal isolates frozen definition and real messages from input mutatio
 
 test("preparation workflow cannot represent executing without a final task", () => {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-3",
         intent: "先准备再执行",
         promptBundleVersion: 1,
@@ -113,6 +129,7 @@ test("preparation workflow cannot represent executing without a final task", () 
 
 test("createGoal accepts zero or a positive maxSteps and rejects invalid values", () => {
     assert.equal(createGoal({
+        ...currentProtocols,
         id: "goal-unlimited",
         intent: "无限执行",
         promptBundleVersion: 1,
@@ -123,6 +140,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
     for (const maxSteps of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
         assert.throws(
             () => createGoal({
+                ...currentProtocols,
                 id: "goal-invalid",
                 intent: "非法预算",
                 promptBundleVersion: 1,
@@ -137,6 +155,7 @@ test("createGoal accepts zero or a positive maxSteps and rejects invalid values"
 
 test("a complete Goal with a frozen Prompt Bundle version supports a JSON round-trip", () => {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-4",
         intent: "验证序列化",
         promptBundleVersion: 1,
@@ -153,29 +172,22 @@ test("createRun creates a deterministic core RunState", () => {
         id: "run-5",
         status: "created",
         stepCount: 0,
+        committedThroughSequence: 0,
+        contextEpoch: {
+            version: 1,
+            number: 0,
+            conversationStartIndex: 0,
+            openedAtSequence: 0,
+        },
     });
 });
 
-test("Context Retrieval protocol defaults to none and freezes explicit bm25-lite", () => {
-    const legacy = createGoal({
-        id: "goal-retrieval-legacy",
-        intent: "兼容检索协议",
-        promptBundleVersion: 1,
-        profile,
-        runId: "run-retrieval-legacy",
-    });
-    assert.deepEqual(resolveContextRetrievalProtocol(legacy.definition), {
-        kind: "none",
-        version: 1,
-    });
-
+test("Goal 只接受唯一当前协议组合", () => {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-retrieval-bm25",
         intent: "显式检索协议",
-        promptBundleVersion: 5,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        promptBundleVersion: 1,
         profile,
         runId: "run-retrieval-bm25",
     });
@@ -188,10 +200,21 @@ test("Context Retrieval protocol defaults to none and freezes explicit bm25-lite
         isContextRetrievalProtocol({ kind: "bm25-lite", version: 1, extra: true }),
         false,
     );
-    assert.throws(
-        () => resolveContextRetrievalProtocol({
-            contextRetrievalProtocol: { kind: "future", version: 1 } as never,
-        }),
-        /Context Retrieval/,
-    );
+    assert.throws(() => createGoal({
+        ...currentProtocols,
+        id: "goal-old-bundle",
+        intent: "旧 Bundle",
+        promptBundleVersion: 5 as never,
+        profile,
+        runId: "run-old-bundle",
+    }), /promptBundleVersion/);
+    assert.throws(() => createGoal({
+        ...currentProtocols,
+        id: "goal-old-memory",
+        intent: "旧 Memory",
+        promptBundleVersion: 1,
+        memoryProtocol: { kind: "checkpoint", version: 1 } as never,
+        profile,
+        runId: "run-old-memory",
+    }), /protocols/);
 });

@@ -88,7 +88,7 @@ export interface ContextLookupMatch {
     readonly historical: true;
     /** 原始 committed 事件引用。 */
     readonly sourceEventIds: readonly string[];
-    /** v2 来源联合引用；Conversation 命中不要求 sourceEventIds。 */
+    /** 统一 fielded-bm25-lite-v1 索引的来源引用；Conversation 命中不要求 Trajectory event ID。 */
     readonly source?: ContextDocumentSource;
 }
 

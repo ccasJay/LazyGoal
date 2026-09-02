@@ -42,15 +42,11 @@ function project(
 
 const conversationAdapter = new ConversationContextUnitAdapter();
 
-function isContextEpochV2(view: ModelInferenceView): boolean {
-    return view.prompt.modelContextProtocol?.kind === "trajectory-layered"
-        && view.prompt.modelContextProtocol.version === 2;
-}
-
 /** 仅取当前 Epoch 的完整 Conversation 单元；旧 Epoch 仍由 Cold Lookup 提供。 */
 function currentEpochConversationUnits(view: ModelInferenceView) {
-    const start = view.contextEpoch?.conversationStartIndex ?? 0;
-    return conversationAdapter.adapt(view.conversation.slice(start));
+    return conversationAdapter.adapt(
+        view.conversation.slice(view.contextEpoch?.conversationStartIndex ?? 0),
+    );
 }
 
 /** 为 Assembler 的压力计算保留最新完整 Conversation，避免旧消息阻塞 Epoch 检查点。 */
@@ -68,24 +64,13 @@ async function assembleTrajectoryContext(
     signal: AbortSignal | undefined,
     assembler: TrajectoryModelContextAssembler | undefined,
 ): Promise<ModelInferenceView> {
-    if (view.prompt.modelContextProtocol?.kind !== "trajectory-layered") {
-        if (view.trajectoryContext !== undefined) {
-            throw new ModelContextAssemblyError(
-                "conversation model context must omit Trajectory Context",
-            );
-        }
-        return view;
-    }
-
     if (assembler === undefined) {
         throw new ModelContextAssemblyError(
             "trajectory-layered model context requires a Context Assembler",
         );
     }
 
-    const fixedInputConversation = isContextEpochV2(view)
-        ? latestEpochConversation(view)
-        : view.conversation;
+    const fixedInputConversation = latestEpochConversation(view);
     const fixedInput = {
         messages: [
             {
@@ -165,11 +150,9 @@ export async function buildStepRequest(
         throw new Error("Step request requires a running executing Goal");
     }
 
-    // v2 由 Context Epoch + ContextSelector 控制完整消息边界；旧协议继续使用
-    // 原有异步 Compactor，保证恢复旧 Goal 的行为和调用次数不变。
-    const view = isContextEpochV2(projected)
-        ? projected
-        : await compactConversation(projected, contextCompactor, signal);
+    const view = modelCapabilities === undefined
+        ? await compactConversation(projected, contextCompactor, signal)
+        : projected;
 
     const assembled = await assembleTrajectoryContext(
         goal,
@@ -190,8 +173,8 @@ export async function buildStepRequest(
  * 不会写入 Goal.messages。
  *
  * @param goal - active `gathering_context` 或 `planning` Goal。
- * @param tools - Runtime 已解析的授权 Tool 描述；v2 及以上版本的 planning 会
- *   投影，v1 与 gathering_context 始终忽略该输入。
+ * @param tools - Runtime 已解析的授权 Tool 描述；当前 planning 阶段会投影，
+ *   gathering_context 始终忽略该输入。
  * @param renderer - 与 Executor 共享的 Prompt Bundle Renderer。
  * @param contextCompactor - 与执行阶段共享的异步 Conversation 裁剪策略。
  * @param signal - 可选的调用级中止信号，原样传给 Compactor。
@@ -214,10 +197,9 @@ export async function buildPreparationRequest(
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
-        goal.definition.promptBundleVersion >= 2
-            && goal.state.workflow.phase === "planning"
+        goal.state.workflow.phase === "planning"
             ? tools
-        : [],
+            : [],
         workingMemory,
         contextLookupResult,
     );
@@ -226,9 +208,9 @@ export async function buildPreparationRequest(
         throw new Error("Preparation request requires an active preparation Goal");
     }
 
-    const view = isContextEpochV2(projected)
-        ? projected
-        : await compactConversation(projected, contextCompactor, signal);
+    const view = modelCapabilities === undefined
+        ? await compactConversation(projected, contextCompactor, signal)
+        : projected;
 
     const assembled = await assembleTrajectoryContext(
         goal,
@@ -241,13 +223,13 @@ export async function buildPreparationRequest(
     return renderFinalRequest(assembled, renderer, modelCapabilities);
 }
 
-/** 对 v2 最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
+/** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
 function renderFinalRequest(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     modelCapabilities?: ModelCapabilities,
 ): LLMRequest {
-    if (!isContextEpochV2(view) || modelCapabilities === undefined) {
+    if (modelCapabilities === undefined) {
         return renderRequest(view, renderer);
     }
 

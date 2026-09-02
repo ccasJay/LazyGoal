@@ -11,6 +11,7 @@ import {
     transition,
 } from "../../runtime/src/index";
 import { JsonFileGoalStore } from "../src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 import type {
     AgentProfile,
     Goal,
@@ -71,6 +72,7 @@ function createExecutingGoal(input: {
     readonly profile: AgentProfile;
 }): Goal {
     const created = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: input.id,
         intent: "验证 Action/Observation 恢复",
@@ -87,7 +89,7 @@ function createExecutingGoal(input: {
                 preparation: { status: "completed" },
                 task: {
                     objective: "验证 Action/Observation 恢复",
-                    completionCriteria: ["恢复后完成"],
+                    completionCriteria: [],
                 },
             },
         },
@@ -177,7 +179,6 @@ test("跨进程恢复 manual Action 进入 outcome_unknown waiting 且不执行 
         const started = applyTransition(created, { kind: "start" });
         const interrupted = applyTransition(started, {
             kind: "stage_action",
-            checkpoint: "已批准人工 Action",
             action,
             status: "approved",
         });
@@ -239,7 +240,6 @@ test("跨进程瞬时授权只接受匹配的 actionId 且不重复计 Step", as
         const started = applyTransition(created, { kind: "start" });
         const interrupted = applyTransition(started, {
             kind: "stage_action",
-            checkpoint: "已批准读取",
             action,
             status: "approved",
         });

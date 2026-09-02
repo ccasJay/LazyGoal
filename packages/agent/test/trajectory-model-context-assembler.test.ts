@@ -5,10 +5,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
-    buildPreparationRequest,
-    buildStepRequest,
-    ContextCompactAdapter,
     createModelContextBudgetPolicy,
+    ModelContextHardOverflowError,
+    ModelContextSourceError,
     ModelInferenceProjector,
     TrajectoryModelContextAssembler,
 } from "../src/index";
@@ -34,8 +33,7 @@ import {
     computeTrajectorySourceDigest,
     JsonFileWarmContextSidecarStore,
 } from "../../storage/src/index";
-import type { ContextCompactor } from "../src/context-compactor";
-import type { PromptBundleRenderer } from "../src/prompting/types";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "assembler-profile",
@@ -288,8 +286,7 @@ test("Sidecar 删除后从 committed Trajectory 重新派生 Warm", async (t) =>
     assert.deepEqual(events, trajectoryStore.events);
 });
 
-test("固定 View 软超限时保留完整基础输入但清空 Hot/Warm", async () => {
-    const traces: Array<{ readonly kind: string }> = [];
+test("固定 View 超过硬预算时拒绝组装", async () => {
     const trajectoryStore = new MemoryTrajectoryStore([
         completeEvent(1, "unit-1", "first"),
         terminalEvent(2, "unit-1", "first"),
@@ -305,90 +302,29 @@ test("固定 View 软超限时保留完整基础输入但清空 Hot/Warm", async
     const assembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         policy: overflowPolicy,
-        traceSink: {
-            async append(record) {
-                traces.push(record);
-            },
-        },
     });
     const goal = layeredExecutingGoal(2);
     const view = new ModelInferenceProjector().project(goal, [], createEmptyWorkingMemory());
 
-    const context = await assembler.assembleContext({ goal, view });
-
-    assert.equal(context.softOverflow, true);
-    assert.deepEqual(context.hot, []);
-    assert.deepEqual(context.warm, []);
-    assert.equal(context.budget.fixedInput.count, 95);
-    assert.deepEqual(traces.map((record) => record.kind), [
-        "model_context_soft_overflow",
-    ]);
+    await assert.rejects(
+        assembler.assembleContext({ goal, view }),
+        (error: unknown) => error instanceof ModelContextHardOverflowError,
+    );
 });
 
-test("Conversation 协议不访问 Trajectory，Step/Preparation 都能复用调用级组装器", async () => {
-    const legacyStore = new MemoryTrajectoryStore([]);
-    const assembler = new TrajectoryModelContextAssembler({
-        trajectoryStore: legacyStore,
-        policy,
-    });
-    const legacyGoal = createGoal({
-        id: "legacy-goal",
-        runId: "legacy-run",
-        promptBundleVersion: 1,
-        intent: "legacy",
-        profile,
-    });
-    const legacyView = new ModelInferenceProjector().project(legacyGoal);
-    assert.strictEqual(
-        await assembler.assemble({ goal: legacyGoal, view: legacyView }),
-        legacyView,
-    );
-    assert.equal(legacyStore.reads.length, 0);
-
-    const layeredGoal = layeredExecutingGoal(0);
-    const renderer: PromptBundleRenderer = { render: () => "system" };
-    const compactor: ContextCompactor<any> = {
-        async compact(units) {
-            return units;
-        },
-    };
-    const request = await buildStepRequest(
-        layeredGoal,
+test("当前 trajectory-layered@1 缺少 TrajectoryStore 时快速失败", async () => {
+    const goal = layeredExecutingGoal(0);
+    const view = new ModelInferenceProjector().project(
+        goal,
         [],
-        renderer,
-        compactor,
-        undefined,
         createEmptyWorkingMemory(),
-        assembler,
     );
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "{}");
-    assert.equal(control.trajectoryContext.softOverflow, false);
-    assert.deepEqual(control.trajectoryContext.hot, []);
+    const assembler = new TrajectoryModelContextAssembler({ policy });
 
-    const preparationGoal = createGoal({
-        id: "preparation-layered",
-        runId: "preparation-run",
-        promptBundleVersion: 1,
-        intent: "prepare",
-        profile,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-    });
-    const preparationRequest = await buildPreparationRequest(
-        preparationGoal,
-        [],
-        renderer,
-        compactor,
-        undefined,
-        createEmptyWorkingMemory(),
-        new TrajectoryModelContextAssembler({
-            trajectoryStore: new MemoryTrajectoryStore([]),
-            policy,
-        }),
-    );
-    assert.equal(
-        JSON.parse(preparationRequest.messages.at(-1)?.content ?? "{}").trajectoryContext.softOverflow,
-        false,
+    await assert.rejects(
+        assembler.assemble({ goal, view }),
+        (error: unknown) => error instanceof ModelContextSourceError
+            && /requires a TrajectoryStore/.test(error.message),
     );
 });
 
@@ -427,111 +363,14 @@ test("中止在 Trajectory 读取后传播，Assembler 不保存任何状态", a
     );
 });
 
-test("确定性 Warm 溢出达到阈值时只调用一次 Compact，并合并合法结果", async () => {
-    let compactCalls = 0;
-    const estimator = {
-        unit: "character" as const,
-        estimate(value: unknown): number {
-            if (
-                typeof value === "object"
-                && value !== null
-                && "executionUnitId" in value
-            ) {
-                return 100;
-            }
-            if (
-                typeof value === "object"
-                && value !== null
-                && "id" in value
-                && "summary" in value
-            ) {
-                return String((value as { readonly id: unknown }).id)
-                    .startsWith("compact-") ? 2 : 5;
-            }
-            return 1;
-        },
-    };
-    const compactAdapter = new ContextCompactAdapter({
-        adapter: {
-            async generate() {
-                compactCalls += 1;
-                return {
-                    content: JSON.stringify({
-                        schemaVersion: 1,
-                        entries: [{
-                            id: "compact-finding",
-                            kind: "finding",
-                            summary: "compact source",
-                            status: "active",
-                            lossy: true,
-                            evidenceSequences: [1],
-                            firstSequence: 1,
-                            lastSequence: 1,
-                            lastAccessedSequence: 1,
-                            reinforcementCount: 1,
-                            sourceHash: "sha256:compact",
-                        }],
-                    }),
-                };
-            },
-        },
-        estimator,
-    });
-    const events = [
-        completeEvent(1, "unit-1", "one"),
-        terminalEvent(2, "unit-1", "one"),
-        completeEvent(3, "unit-2", "two"),
-        terminalEvent(4, "unit-2", "two"),
-        completeEvent(5, "unit-3", "three"),
-        terminalEvent(6, "unit-3", "three"),
-    ];
-    const trajectoryStore = new MemoryTrajectoryStore(events);
-    const goal = layeredExecutingGoal(6);
-    const view = new ModelInferenceProjector().project(
-        goal,
-        [],
-        createEmptyWorkingMemory(),
-    );
-    const assembler = new TrajectoryModelContextAssembler({
-        trajectoryStore,
-        compactAdapter,
-        policy: createModelContextBudgetPolicy({
-            modelInputBudget: 100,
-            responseReserve: 10,
-            warmShare: 0.5,
-        }, estimator),
-        warmEntryExtractor: () => Array.from({ length: 10 }, (_, index) => ({
-            id: `finding-${index + 1}`,
-            kind: "finding" as const,
-            summary: `source-${index + 1}`,
-            status: "active" as const,
-            lossy: true as const,
-            evidenceSequences: [1],
-            firstSequence: 1,
-            lastSequence: 1,
-            lastAccessedSequence: 1,
-            reinforcementCount: 1,
-            sourceHash: `sha256:finding-${index + 1}`,
-        })),
-    });
-
-    const assembled = await assembler.assemble({ goal, view });
-
-    assert.equal(compactCalls, 1);
-    assert.ok(assembled.trajectoryContext?.warm.some((entry) =>
-        entry.id === "compact-finding",
-    ));
-});
-
 function layeredExecutingGoal(committedThroughSequence: number): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-layered",
         runId: "run-layered",
         promptBundleVersion: 1,
         intent: "layered",
         profile,
-        memoryProtocol: { kind: "structured", version: 1 },
-        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
     });
     return {
         ...goal,
@@ -558,7 +397,11 @@ function completeEvent(
 ): TrajectoryEvent {
     return event(sequence, executionUnitId, {
         type: "decision_received",
-        decision: { kind: "complete", checkpoint: summary, summary },
+        decision: {
+            kind: "complete",
+            summary,
+            completionEvidence: [],
+        },
     });
 }
 

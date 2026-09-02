@@ -44,12 +44,19 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
             id: "run-1",
             status: "completed",
             stepCount: 1,
+            committedThroughSequence: 0,
+            contextEpoch: {
+                version: 1,
+                number: 0,
+                conversationStartIndex: 0,
+                openedAtSequence: 0,
+            },
             lastStep: {
                 kind: "decision",
                 result: {
                     kind: "complete",
-                    checkpoint: "目标已完成",
                     summary: "目标完成",
+                    completionEvidence: [],
                 },
             },
         },
@@ -109,6 +116,13 @@ test("forwards transient Action authorization without persisting or changing it"
             id: "run-1",
             status: "waiting",
             stepCount: 0,
+            committedThroughSequence: 0,
+            contextEpoch: {
+                version: 1,
+                number: 0,
+                conversationStartIndex: 0,
+                openedAtSequence: 0,
+            },
         },
     };
     const runner = new FakeRunner(runnerResult);

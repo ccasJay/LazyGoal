@@ -175,7 +175,6 @@ test("composition root isolates workspace, freezes the default identity, and doe
     assert.ok(root.trajectoryStore !== undefined);
     assert.ok(root.sidecarStore !== undefined);
     assert.ok(root.trajectoryContextAssembler !== undefined);
-    assert.ok(root.contextCompactAdapter !== undefined);
     assert.equal(root.modelInputEstimator.unit, "character");
     assert.equal(root.modelContextPolicy.modelInputBudget, 196608);
     assert.ok(root.traceSink !== undefined);

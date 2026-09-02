@@ -13,9 +13,11 @@ import {
     type TrajectoryStore,
 } from "../src/index";
 import { allocateImmutableEvent } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 function createSnapshot(): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-reader",
         intent: "读取轨迹",
         promptBundleVersion: 1,

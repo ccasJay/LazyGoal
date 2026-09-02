@@ -13,6 +13,7 @@ import {
     type LaunchResult,
     type ResumeGoalRequest,
 } from "../../runtime/src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     IntentScreen,
     PreparationScreen,
@@ -38,6 +39,7 @@ const profile = {
 
 function createGoalSnapshot(id = "goal-1"): Goal {
     return createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id,
         intent: "Build a resumable workflow",

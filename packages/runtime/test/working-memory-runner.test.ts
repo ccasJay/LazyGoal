@@ -9,6 +9,7 @@ import {
     rebuildWorkingMemory,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -79,10 +80,11 @@ class RecordingStepExecutor implements StepExecutor {
 
 function executingGoal(id: string): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id,
         runId: `${id}-run`,
         intent: "Project Tool observation",
-        promptBundleVersion: 7,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },

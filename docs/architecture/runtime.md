@@ -38,7 +38,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-Goal 将创建后冻结的 intent、`promptBundleVersion`、Memory 协议、Model Context 协议、Cold Trajectory Retrieval 协议、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有 Prompt Bundle/Model Context/Retrieval 的通用版本标识，不持有或渲染文本；Composition Root 为新 Goal 冻结协议，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。旧 Goal 省略 Retrieval 字段时按 `none@1` 解释，不要求索引或 Sidecar。Run 可保存 legacy 有界 `checkpoint`、最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence` 和 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal 将创建后冻结的 intent、`promptBundleVersion`、`structured@1` Memory、`trajectory-layered@1` Model Context、`bm25-lite@1` Cold Retrieval、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有这些协议的稳定标识，不持有或渲染文本；Composition Root 为新 Goal 固定唯一组合，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。Run 保存最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence`、Context Epoch 和可选 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileAgentProfileStore`
 按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`
@@ -57,13 +57,13 @@ Coordinator 对 active Preparation 每轮调用一次 Executor。Composition Roo
 
 Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答并恢复 active；planning message 移除当前 proposal、保存反馈并重新规划；approve 不追加消息，将 proposal 固定为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running；`approve_action` 匹配 `awaiting_approval` 或 `outcome_unknown` 的 pendingAction，保存为 `approved` 后透传一次性 `authorizedActionId`；`reject_action` 保存 rejected Observation 后继续推进。以上状态均先保存再继续自动推进。
 
-当前 Runner 主流程为 `created → running → (Action/Observation | Context Lookup)* → waiting | completed | failed`，`cancelled` 也是终态。Prompt Bundle v7 的 Working Memory 只含 `facts/hypotheses/plan/blockers`：Fact identity 由规范化的 `subject+predicate` 决定，Runtime 分配 ID，并按 evidence 新旧执行重复抑制、同值强化和异值 supersede。默认投影上限为 32 KiB、64 Fact、8 Hypothesis、16 Plan、8 Blocker；active Plan/Blocker 与 Plan 依赖不可淘汰，其余按类别、强化次数、最近证据、更新时间和 ID 确定性选择，淘汰作为 canonical `evict_entries` 写入轨迹，恢复不重新计算。
+当前 Runner 主流程为 `created → running → (Action/Observation | Context Lookup)* → waiting | completed | failed`，`cancelled` 也是终态。当前 v1 Prompt 的 Working Memory 只含 `facts/hypotheses/plan/blockers`：Fact identity 由规范化的 `subject+predicate` 决定，Runtime 分配 ID，并按 evidence 新旧执行重复抑制、同值强化和异值 supersede。默认投影上限为 32 KiB、64 Fact、8 Hypothesis、16 Plan、8 Blocker；active Plan/Blocker 与 Plan 依赖不可淘汰，其余按类别、强化次数、最近证据、更新时间和 ID 确定性选择，淘汰作为 canonical `evict_entries` 写入轨迹，恢复不重新计算。
 
-模型 Patch 在关联 Action 执行前提交。Tool 返回后，Runner 用已分配的 Observation 事实 sequence 调用可选 `ToolMemoryProjector`；合法 proposal 仍由同一 Admission Core 接受，并和 `observation_recorded`、Snapshot 进入一个提交边界。Projector 缺失或返回 `no_op` 不写 Patch，抛错或非法结果只写 Diagnostic Trace，原始 Observation 仍提交。`stable` Fact 在更新证据出现前持续成立；`last_observed` 只表示证据序列处的最后观察，作为当前外部状态使用前必须重新观察。completed/failed 的 canonical lifecycle Patch 清理 executing phase 的 Hypothesis、Plan 与 Blocker。旧 Prompt Bundle v4–v6 的 structured shape 在 Memory 重建或模型调用前返回 `UNSUPPORTED_STRUCTURED_MEMORY_SHAPE`；v1–v3 checkpoint Goal 不经过该路径。
+模型 Patch 在关联 Action 执行前提交。Tool 返回后，Runner 用已分配的 Observation 事实 sequence 调用可选 `ToolMemoryProjector`；合法 proposal 仍由同一 Admission Core 接受，并和 `observation_recorded`、Snapshot 进入一个提交边界。Projector 缺失或返回 `no_op` 不写 Patch，抛错或非法结果只写 Diagnostic Trace，原始 Observation 仍提交。`stable` Fact 在更新证据出现前持续成立；`last_observed` 只表示证据序列处的最后观察，作为当前外部状态使用前必须重新观察。completed/failed 的 canonical lifecycle Patch 清理 executing phase 的 Hypothesis、Plan 与 Blocker。
 
 StepExecutor 生成 AgentDecision 后，Runner 对返回值做严格协议和 Evidence 校验。`context_lookup` 是独占分支，只允许历史执行/决策理由；当前 Workspace/Environment/验证状态必须重新调用 Tool。自动允许 Action 先保存 pending intent，再调用 Tool；需要批准时保存等待点。safe Tool 可沿用原 `actionId` 重放，manual Tool 转为 `outcome_unknown` waiting。structured `complete` 必须覆盖每个 completion criterion 的 committed evidence。每个保存点成功后才进入下一步；`state_committed` marker 只用于审计，恢复以 Snapshot 的 `committedThroughSequence` 和 revision 为准。
 
-Context Retrieval Index Session 在同一 boundary 上校验 Sidecar 的 Goal/Run、Tokenizer、排名版本和 committed 事件前缀摘要；Sidecar 落后时只复用已验证的旧闭合文档并加入新闭合文档，失配则从 committed Trajectory 重建。Session 内查询 LRU 固定 64 项，键包含规范化 query、filters、boundary 和 index version；索引与缓存都是可丢弃性能缓存，不属于 Goal、Trajectory 或 Working Memory 的恢复事实。
+Context Retrieval Index Session 在同一 boundary 上校验 Sidecar 的 Goal/Run、Tokenizer、`fielded-bm25-lite-v1` 排名版本和 committed 事件前缀摘要；Sidecar 落后时只复用已验证的旧闭合文档并加入新闭合文档，失配则从 committed Trajectory 重建。Session 内查询 LRU 固定 64 项，键包含规范化 query、filters、boundary 和 index version；索引与缓存都是可丢弃性能缓存，不属于 Goal、Trajectory 或 Working Memory 的恢复事实。
 
 Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Adapter 和 Tool
 共享可选的 `ExecutionControl`。各层在外部调用前、异步返回后以及状态转换或保存前
@@ -123,4 +123,4 @@ JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 
 ## 当前限制与背景
 
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runtime 已提供 ContextLookupPort、lookup 生命周期、ContextSourceRouter、committed ContextDocumentBuilder、版本化 FieldTokenizer、倒排统计、BM25-lite 排名、有界 Result/source-ref 校验、可重建 Retrieval Index Sidecar 和 64 项查询 LRU；索引 Sidecar 仍是性能缓存，TUI 当前只冻结 v6 检索协议，具体 ContextLookupPort 由组合调用方按需提供。模型上下文预算、Hot/Warm/Compact 与 Lookup Result 的 Prompt 投影由 Agent 负责，也不提供并发恢复保护；Tool 外部系统仍不承诺 exactly-once。当前演进设计见 [Goal Preparation Workflow Spec](../../specs/goal-preparation-workflow/design.md)。
+一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runtime 已提供 ContextLookupPort、lookup 生命周期、ContextSourceRouter、committed ContextDocumentBuilder、版本化 FieldTokenizer、`fielded-bm25-lite-v1` 倒排与排名、有界 Result/source-ref 校验、可重建 Retrieval Index Sidecar 和 64 项查询 LRU；索引 Sidecar 仍是性能缓存，当前 Goal 统一冻结 `bm25-lite@1`，具体 ContextLookupPort 由组合调用方按需提供。模型上下文预算、Hot/Warm 选择与 Lookup Result 的 Prompt 投影由 Agent 负责，也不提供并发恢复保护；Tool 外部系统仍不承诺 exactly-once。

@@ -14,12 +14,19 @@ import type {
 import type { ContextCompactor } from "../src/context-compactor";
 import type { ContextUnit } from "../src/context-unit";
 import type { ModelConversationMessage } from "../src/model-inference-view";
+import type { ModelInferenceView } from "../src/model-inference-view";
+import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-context-assembler";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
+import {
+    createCurrentContextAssembler,
+    currentProtocols,
+    currentWorkingMemory,
+} from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -36,6 +43,7 @@ function createPreparationGoal(): Goal {
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test preparation cancellation",
+        ...currentProtocols,
         profile,
         runId: "run-1",
     });
@@ -46,6 +54,7 @@ function createStepGoal(): Goal {
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test step cancellation",
+        ...currentProtocols,
         profile,
         runId: "run-1",
     });
@@ -93,7 +102,7 @@ class BlockingAdapter implements LLMAdapter {
     }
 }
 
-class BlockingCompactor implements ContextCompactor<ModelConversationMessage> {
+class BlockingAssembler {
     readonly signals: Array<AbortSignal | undefined> = [];
     private startedResolver: (() => void) | undefined;
     readonly started = new Promise<void>((resolve) => {
@@ -104,14 +113,14 @@ class BlockingCompactor implements ContextCompactor<ModelConversationMessage> {
         this.releaseResolver = resolve;
     });
 
-    async compact(
-        units: readonly ContextUnit<ModelConversationMessage>[],
-        signal?: AbortSignal,
-    ): Promise<readonly ContextUnit<ModelConversationMessage>[]> {
-        this.signals.push(signal);
+    async assemble(input: {
+        readonly view: ModelInferenceView;
+        readonly control?: { readonly signal?: AbortSignal };
+    }): Promise<ModelInferenceView> {
+        this.signals.push(input.control?.signal);
         this.startedResolver?.();
         await this.blocked;
-        return [...units];
+        return input.view;
     }
 
     release(): void {
@@ -124,15 +133,23 @@ test("LLMStepExecutor passes the signal and rejects before parsing after abort",
     const adapter = new BlockingAdapter({
         content: JSON.stringify({
             kind: "complete",
-            checkpoint: "not persisted",
             summary: "not persisted",
+            completionEvidence: [],
         }),
     });
-    const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor });
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
     const operation = executor.execute(
-        createStepGoal(),
-        [],
-        { signal: controller.signal },
+        {
+            goal: createStepGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+            control: { signal: controller.signal },
+        },
     );
 
     await adapter.started;
@@ -165,22 +182,24 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
         adapter,
         renderer,
         contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
     });
 
     await assert.rejects(
-        () => executor.execute(
-            createPreparationGoal(),
-            [],
-            { signal: controller.signal },
-        ),
+        () => executor.execute({
+            goal: createPreparationGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+            control: { signal: controller.signal },
+        }),
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
     assert.equal(calls, 0);
 });
 
-test("LLMPreparationExecutor awaits Compactor and passes the same signal", async () => {
+test("LLMPreparationExecutor awaits Context Assembler and passes the same signal", async () => {
     const controller = new AbortController();
-    const compactor = new BlockingCompactor();
+    const assembler = new BlockingAssembler();
     let calls = 0;
     const adapter: LLMAdapter = {
         async generate(): Promise<LLMResponse> {
@@ -191,19 +210,23 @@ test("LLMPreparationExecutor awaits Compactor and passes the same signal", async
     const executor = new LLMPreparationExecutor({
         adapter,
         renderer,
-        contextCompactor: compactor,
+        contextCompactor,
+        trajectoryContextAssembler: assembler as unknown as TrajectoryModelContextAssembler,
     });
     const operation = executor.execute(
-        createPreparationGoal(),
-        [],
-        { signal: controller.signal },
+        {
+            goal: createPreparationGoal(),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+            control: { signal: controller.signal },
+        },
     );
 
-    await compactor.started;
+    await assembler.started;
     assert.equal(calls, 0);
-    assert.strictEqual(compactor.signals[0], controller.signal);
+    assert.strictEqual(assembler.signals[0], controller.signal);
 
-    compactor.release();
+    assembler.release();
     assert.deepEqual(await operation, { kind: "context_ready" });
     assert.equal(calls, 1);
 });

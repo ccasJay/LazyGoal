@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    UnsupportedStructuredMemoryShapeError,
     WorkingMemoryRecoveryError,
     WorkingMemorySession,
     WorkingMemorySessionClosedError,
@@ -19,6 +18,7 @@ import type {
     TrajectoryReadQuery,
     TrajectoryStore,
 } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "session-profile",
@@ -30,9 +30,10 @@ const profile: AgentProfile = {
 function structuredGoal(
     boundary: number,
     revision?: { readonly eventId: string; readonly sequence: number },
-    promptBundleVersion = 7,
+    promptBundleVersion: 1 = 1,
 ): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-session",
         intent: "Restore structured Memory",
         promptBundleVersion,
@@ -149,15 +150,6 @@ test("orphan revision fails closed", async () => {
     );
 });
 
-test("old v4-v6 structured shape is rejected before Trajectory rebuild", async () => {
-    await assert.rejects(
-        rebuildWorkingMemory(structuredGoal(0, undefined, 6), {
-            trajectoryStore: new MemoryTrajectoryStore([]),
-        }),
-        UnsupportedStructuredMemoryShapeError,
-    );
-});
-
 test("WorkingMemorySession discards its in-process projection on close", async () => {
     const session = await WorkingMemorySession.restore(
         structuredGoal(2, { eventId: "patch-2", sequence: 2 }),
@@ -167,4 +159,3 @@ test("WorkingMemorySession discards its in-process projection on close", async (
     session.close();
     assert.throws(() => session.workingMemory, WorkingMemorySessionClosedError);
 });
-

@@ -15,8 +15,11 @@ import type {
     Tool,
     TrajectoryEvent,
     TrajectoryEventDraft,
-    TrajectorySink,
+    TrajectoryReadQuery,
+    TrajectoryReadResult,
+    TrajectoryStore,
 } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "trajectory-profile",
@@ -25,7 +28,7 @@ const profile: AgentProfile = {
     toolIds: ["echo"],
 };
 
-class RecordingTrajectorySink implements TrajectorySink {
+class RecordingTrajectorySink implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
     private sequence = 0;
 
@@ -34,6 +37,26 @@ class RecordingTrajectorySink implements TrajectorySink {
         const event = allocateImmutableEvent(draft, this.sequence, `event-${this.sequence}`);
         this.events.push(event);
         return event;
+    }
+
+    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+        return this.events.filter((event) =>
+            event.goalId === query.goalId
+            && event.runId === query.runId
+            && (query.fromSequence === undefined || event.sequence >= query.fromSequence)
+            && (query.toSequence === undefined || event.sequence <= query.toSequence),
+        );
+    }
+
+    async readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const events = await this.read(query);
+        return {
+            committed: events.filter((event) => event.sequence <= committedThroughSequence),
+            uncommittedTail: events.filter((event) => event.sequence > committedThroughSequence),
+        };
     }
 }
 
@@ -51,6 +74,7 @@ class MemoryGoalStore implements GoalStore {
 
 function executingGoal(): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-trajectory",
         intent: "execute",
         promptBundleVersion: 1,
@@ -64,7 +88,7 @@ function executingGoal(): Goal {
             workflow: {
                 phase: "executing",
                 preparation: { status: "completed" },
-                task: { objective: "execute", completionCriteria: ["done"] },
+                task: { objective: "execute", completionCriteria: [] },
             },
         },
     };
@@ -94,15 +118,15 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const decisions: AgentDecision[] = [
         {
             kind: "tool_call",
-            checkpoint: "call echo",
             action: { actionId: "action-1", toolId: "echo", input: {} },
         },
-        { kind: "complete", checkpoint: "done", summary: "done" },
+        { kind: "complete", completionEvidence: [], summary: "done" },
     ];
 
     const goal = executingGoal();
     await store.save(goal);
     const runner = new Runner({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         toolRegistry: { get: (id) => id === tool.definition.id ? tool : undefined },
@@ -131,6 +155,8 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
         "state_committed",
         "decision_received",
         "run_completed",
+        "context_epoch_closed",
+        "memory_patch_accepted",
         "state_committed",
     ]);
 
@@ -149,7 +175,7 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const persisted = await store.restore(goal.id);
     assert.equal(
         persisted?.state.run.committedThroughSequence,
-        [...sink.events].reverse().find((event) => event.eventType === "run_completed")?.sequence,
+        sink.events.at(-2)?.sequence,
     );
     assert.equal(
         persisted?.state.run.committedThroughSequence
@@ -163,6 +189,7 @@ test("Coordinator records preparation and waiting facts before the committed Sna
     const store = new MemoryGoalStore();
     const sink = new RecordingTrajectorySink();
     const goal = createGoal({
+        ...currentProtocols,
         id: "goal-preparation-trajectory",
         intent: "gather",
         promptBundleVersion: 1,
@@ -171,6 +198,7 @@ test("Coordinator records preparation and waiting facts before the committed Sna
     });
     await store.save(goal);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         preparationExecutor: {

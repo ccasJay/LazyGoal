@@ -875,41 +875,6 @@ function createLocalId(prefix: string): string {
     return `${prefix}-${Date.now().toString(36)}-${localIdCounter.toString(36)}`;
 }
 
-/**
- * 兼容旧 Runtime 调用方的进程内 no-op Trajectory recorder。
- *
- * @remarks
- * 该实现不保存历史，只生成合法的临时事件以便调用链继续工作；Composition Root
- * 应注入真实 TrajectoryStore，不能把 no-op 结果当作审计数据。
- *
- * @example
- * ```ts
- * const recorder = createNoopTrajectoryRecorder();
- * await recorder.append(draft);
- * ```
- */
-export class NoopTrajectoryRecorder implements TrajectorySink {
-    private readonly sequences = new Map<string, number>();
-
-    /**
-     * @param draft - 需要校验并生成临时 envelope 的事件草稿。
-     * @returns 深度冻结的临时事件。
-     * @throws 草稿违反 Trajectory 协议时拒绝。
-     */
-    async append(draft: TrajectoryEventDraft): Promise<Readonly<TrajectoryEvent>> {
-        assertValidTrajectoryEventDraft(draft);
-        const key = `${draft.goalId}\u0000${draft.runId}`;
-        const sequence = (this.sequences.get(key) ?? 0) + 1;
-        this.sequences.set(key, sequence);
-        return allocateImmutableEvent(draft, sequence, createLocalId("noop-event"));
-    }
-}
-
-/** 创建不持久化事件但保持调用协议可用的 no-op recorder。 */
-export function createNoopTrajectoryRecorder(): TrajectorySink {
-    return new NoopTrajectoryRecorder();
-}
-
 /** 创建隔离诊断失败的 no-op TraceSink。 */
 export function createNoopDiagnosticTraceSink(): DiagnosticTraceSink {
     return {

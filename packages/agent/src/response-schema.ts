@@ -3,16 +3,16 @@ import type { LLMRequest } from "../../llm/src/core/types";
 
 import type {
     AgentDecision,
-    MemoryProtocol,
-    ModelContextProtocol,
 } from "../../runtime/src/domain";
+import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import {
     CONTEXT_LOOKUP_MAX_FILTER_ITEMS,
     CONTEXT_LOOKUP_MAX_QUESTION_LENGTH,
 } from "../../runtime/src/context-retrieval";
-import type { PreparationResult } from "../../runtime/src/preparation-executor";
 import { LLMResponseProtocolError } from "./errors";
 import type { PreparationPhase } from "./model-inference-view";
+
+export type { PreparationPhase } from "./model-inference-view";
 
 const nonEmptyText = z.string().trim().min(1);
 const positiveInteger = z.number().int().positive();
@@ -20,6 +20,7 @@ const nonNegativeInteger = z.number().int().nonnegative();
 
 const contextLookupStringList = z.array(nonEmptyText).max(CONTEXT_LOOKUP_MAX_FILTER_ITEMS);
 const contextLookupIntegerList = z.array(nonNegativeInteger).max(CONTEXT_LOOKUP_MAX_FILTER_ITEMS);
+
 const ContextLookupFiltersSchema = z.object({
     eventTypes: contextLookupStringList.optional(),
     toolIds: contextLookupStringList.optional(),
@@ -41,7 +42,7 @@ const ContextLookupFiltersSchema = z.object({
     }
 });
 
-/** Agent 请求查询 committed Trajectory 历史的严格 Schema。 */
+/** Agent 请求 Runtime 查询 committed Trajectory 历史的严格 Schema。 */
 export const ContextLookupRequestSchema = z.object({
     kind: z.literal("context_lookup"),
     need: z.enum(["conversation_history", "historical_execution", "decision_rationale"]),
@@ -167,76 +168,92 @@ export const ToolCallActionSchema = z.object({
     input: z.json(),
 }).strict();
 
-/** Agent 的 Tool 调用决策分支。 */
+/** 当前 Agent 的 Tool 调用决策分支。 */
 export const ToolCallAgentDecisionSchema = z.object({
-    kind: z.literal("tool_call"),
-    checkpoint: nonEmptyText,
-    action: ToolCallActionSchema,
-}).strict();
-
-/** Agent 的完成决策分支。 */
-export const CompleteAgentDecisionSchema = z.object({
-    kind: z.literal("complete"),
-    checkpoint: nonEmptyText,
-    summary: nonEmptyText,
-}).strict();
-
-/** Agent 的等待决策分支。 */
-export const WaitAgentDecisionSchema = z.object({
-    kind: z.literal("wait"),
-    checkpoint: nonEmptyText,
-    reason: nonEmptyText,
-}).strict();
-
-/** Agent 的主动失败决策分支。 */
-export const FailAgentDecisionSchema = z.object({
-    kind: z.literal("fail"),
-    checkpoint: nonEmptyText,
-    error: nonEmptyText,
-}).strict();
-
-/** legacy AgentDecision 的四分支严格联合协议。 */
-export const AgentDecisionSchema = z.discriminatedUnion("kind", [
-    ToolCallAgentDecisionSchema,
-    CompleteAgentDecisionSchema,
-    WaitAgentDecisionSchema,
-    FailAgentDecisionSchema,
-]);
-
-/** Structured Agent 的 Tool 调用决策 Schema，不再携带 checkpoint。 */
-export const StructuredToolCallAgentDecisionSchema = z.object({
     kind: z.literal("tool_call"),
     action: ToolCallActionSchema,
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
-/** Structured Agent 的完成决策 Schema。 */
-export const StructuredCompleteAgentDecisionSchema = z.object({
+/** 当前 Agent 的完成决策分支。 */
+export const CompleteAgentDecisionSchema = z.object({
     kind: z.literal("complete"),
     summary: nonEmptyText,
     completionEvidence: z.array(CompletionEvidenceSchema),
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
-/** Structured Agent 的等待决策 Schema。 */
-export const StructuredWaitAgentDecisionSchema = z.object({
+/** 当前 Agent 的等待决策分支。 */
+export const WaitAgentDecisionSchema = z.object({
     kind: z.literal("wait"),
     reason: nonEmptyText,
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
-/** Structured Agent 的失败决策 Schema。 */
-export const StructuredFailAgentDecisionSchema = z.object({
+/** 当前 Agent 的主动失败决策分支。 */
+export const FailAgentDecisionSchema = z.object({
     kind: z.literal("fail"),
     error: nonEmptyText,
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
 
-/** v2 Context Epoch 检查点结果；禁止携带 Epoch 编号或边界。 */
+/** Context Epoch 到达边界时的独占检查点结果。 */
 export const ModelContextCheckpointResultSchema = z.object({
     kind: z.literal("context_checkpoint"),
     memoryPatch: MemoryPatchSchema.optional(),
 }).strict();
+
+/** 当前唯一 AgentDecision 协议的严格联合 Schema。 */
+export const AgentDecisionSchema = z.discriminatedUnion("kind", [
+    ToolCallAgentDecisionSchema,
+    CompleteAgentDecisionSchema,
+    WaitAgentDecisionSchema,
+    FailAgentDecisionSchema,
+    ContextLookupRequestSchema,
+    ModelContextCheckpointResultSchema,
+]);
+
+/** gathering_context 阶段的提问结果。 */
+export const QuestionPreparationResultSchema = z.object({
+    kind: z.literal("question"),
+    question: nonEmptyText,
+    memoryPatch: MemoryPatchSchema.optional(),
+}).strict();
+
+/** gathering_context 阶段的上下文完成结果。 */
+export const ContextReadyPreparationResultSchema = z.object({
+    kind: z.literal("context_ready"),
+    memoryPatch: MemoryPatchSchema.optional(),
+}).strict();
+
+/** planning 阶段的任务提案结果。 */
+export const TaskProposalPreparationResultSchema = z.object({
+    kind: z.literal("task_proposal"),
+    task: z.object({
+        objective: nonEmptyText,
+        completionCriteria: z.array(nonEmptyText),
+    }).strict(),
+    approvalRequest: nonEmptyText,
+    memoryPatch: MemoryPatchSchema.optional(),
+}).strict();
+
+/** 当前 gathering_context 阶段允许的 PreparationResult 联合 Schema。 */
+export const GatheringContextPreparationResultSchema = z.discriminatedUnion(
+    "kind",
+    [
+        QuestionPreparationResultSchema,
+        ContextReadyPreparationResultSchema,
+        ContextLookupRequestSchema,
+        ModelContextCheckpointResultSchema,
+    ],
+);
+
+/** 当前 planning 阶段允许的 PreparationResult 联合 Schema。 */
+export const PlanningPreparationResultSchema = z.union([
+    TaskProposalPreparationResultSchema,
+    ContextLookupRequestSchema,
+    ModelContextCheckpointResultSchema,
+]);
 
 /** 判断最终控制消息是否要求模型仅返回 Context Epoch 检查点。 */
 export function requestRequiresContextCheckpoint(
@@ -255,96 +272,6 @@ export function requestRequiresContextCheckpoint(
         return false;
     }
 }
-
-/** Structured Context Lookup 的独占 AgentDecision 分支。 */
-export const StructuredContextLookupAgentDecisionSchema = ContextLookupRequestSchema;
-
-/** Structured `structured@1` AgentDecision 的严格联合 Schema。 */
-export const StructuredAgentDecisionSchema = z.discriminatedUnion("kind", [
-    StructuredToolCallAgentDecisionSchema,
-    StructuredCompleteAgentDecisionSchema,
-    StructuredWaitAgentDecisionSchema,
-    StructuredFailAgentDecisionSchema,
-    StructuredContextLookupAgentDecisionSchema,
-    ModelContextCheckpointResultSchema,
-]);
-
-export const QuestionPreparationResultSchema = z.object({
-    kind: z.literal("question"),
-    question: nonEmptyText,
-}).strict();
-
-export const ContextReadyPreparationResultSchema = z.object({
-    kind: z.literal("context_ready"),
-}).strict();
-
-export const TaskProposalPreparationResultSchema = z.object({
-    kind: z.literal("task_proposal"),
-    task: z.object({
-        objective: nonEmptyText,
-        completionCriteria: z.array(nonEmptyText),
-    }).strict(),
-    approvalRequest: nonEmptyText,
-}).strict();
-
-export const GatheringContextPreparationResultSchema = z.discriminatedUnion(
-    "kind",
-    [
-        QuestionPreparationResultSchema,
-        ContextReadyPreparationResultSchema,
-    ],
-);
-
-export const PlanningPreparationResultSchema =
-    TaskProposalPreparationResultSchema;
-
-/** Structured gathering_context 结果 Schema，允许同轮 Memory Patch。 */
-export const StructuredQuestionPreparationResultSchema = z.object({
-    kind: z.literal("question"),
-    question: nonEmptyText,
-    memoryPatch: MemoryPatchSchema.optional(),
-}).strict();
-
-/** Structured context_ready 结果 Schema，允许同轮 Memory Patch。 */
-export const StructuredContextReadyPreparationResultSchema = z.object({
-    kind: z.literal("context_ready"),
-    memoryPatch: MemoryPatchSchema.optional(),
-}).strict();
-
-/** Structured gathering_context/planning 的独占 Context Lookup 分支。 */
-export const StructuredContextLookupPreparationResultSchema = ContextLookupRequestSchema;
-
-/** Structured gathering_context 结果联合 Schema。 */
-export const StructuredGatheringContextPreparationResultSchema = z.discriminatedUnion(
-    "kind",
-    [
-        StructuredQuestionPreparationResultSchema,
-        StructuredContextReadyPreparationResultSchema,
-        StructuredContextLookupPreparationResultSchema,
-        ModelContextCheckpointResultSchema,
-    ],
-);
-
-/** Structured planning 结果 Schema，允许同轮 Memory Patch。 */
-export const StructuredTaskProposalPreparationResultSchema = z.object({
-    kind: z.literal("task_proposal"),
-    task: z.object({
-        objective: nonEmptyText,
-        completionCriteria: z.array(nonEmptyText),
-    }).strict(),
-    approvalRequest: nonEmptyText,
-    memoryPatch: MemoryPatchSchema.optional(),
-}).strict();
-
-/** Structured planning 结果联合 Schema。 */
-export const StructuredPlanningPreparationResultSchema =
-    z.union([
-        StructuredTaskProposalPreparationResultSchema,
-        StructuredContextLookupPreparationResultSchema,
-        ModelContextCheckpointResultSchema,
-    ]);
-
-export type { PreparationPhase } from "./model-inference-view";
 
 function parseJson(content: string): unknown {
     const normalizedContent = normalizeJsonContent(content);
@@ -365,41 +292,22 @@ function normalizeJsonContent(content: string): string {
 }
 
 /**
- * 解析 LLM 返回的严格 AgentDecision。
+ * 解析当前唯一 AgentDecision 协议。
  *
  * @param content - Adapter 返回的原始文本；支持原始 JSON 或完整 JSON fenced code block。
- * @param protocol - Goal 创建时冻结的 Memory 协议；省略时按 legacy checkpoint@1 解析。
- * @returns 与冻结协议匹配的 Tool 调用或终止决策。
- * @throws LLMResponseProtocolError 文本在移除允许的 fenced 包裹后仍不是 JSON、
- * 包含协议外字段、分支不匹配或字段为空时抛出。
+ * @returns 与当前结构化协议匹配的 AgentDecision。
+ * @throws LLMResponseProtocolError 文本不是合法 JSON 或包含协议外字段时抛出。
  */
-export function parseAgentDecision(
-    content: string,
-    protocol: MemoryProtocol = { kind: "checkpoint", version: 1 },
-    modelContextProtocol: ModelContextProtocol = { kind: "conversation", version: 1 },
-): AgentDecision {
-    const parsed = parseJson(content);
-    const schema = protocol.kind === "structured"
-        ? StructuredAgentDecisionSchema
-        : AgentDecisionSchema;
-    const result = schema.safeParse(parsed);
+export function parseAgentDecision(content: string): AgentDecision {
+    const result = AgentDecisionSchema.safeParse(parseJson(content));
 
     if (!result.success) {
         throw new LLMResponseProtocolError(
-            `响应不符合 ${protocol.kind} AgentDecision 协议`,
+            "响应不符合 structured AgentDecision 协议",
             {
                 cause: result.error,
                 issues: result.error.issues,
             },
-        );
-    }
-
-    if (
-        (result.data as { kind?: unknown }).kind === "context_checkpoint"
-        && (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2)
-    ) {
-        throw new LLMResponseProtocolError(
-            "响应包含仅允许 trajectory-layered@2 的 context_checkpoint",
         );
     }
 
@@ -407,47 +315,29 @@ export function parseAgentDecision(
 }
 
 /**
- * 按 Goal Preparation 阶段解析模型的严格结构化结果。
+ * 按 Preparation 阶段解析当前唯一结构化结果。
  *
  * @param content - Adapter 返回的原始文本；支持原始 JSON 或完整 JSON fenced code block。
  * @param phase - 当前准备阶段；决定唯一允许的结果分支。
- * @param protocol - Goal 创建时冻结的 Memory 协议；省略时按 legacy checkpoint@1 解析。
  * @returns 与阶段匹配的 PreparationResult。
- * @throws LLMResponseProtocolError 文本在移除允许的 fenced 包裹后仍不是 JSON、
- * 包含额外字段，或结果分支与当前阶段不匹配时抛出。
+ * @throws LLMResponseProtocolError 文本不是合法 JSON 或结果分支与阶段不匹配时抛出。
  */
 export function parsePreparationResult(
     content: string,
     phase: PreparationPhase,
-    protocol: MemoryProtocol = { kind: "checkpoint", version: 1 },
-    modelContextProtocol: ModelContextProtocol = { kind: "conversation", version: 1 },
 ): PreparationResult {
-    const parsed = parseJson(content);
-    const schema = protocol.kind === "structured"
-        ? phase === "gathering_context"
-            ? StructuredGatheringContextPreparationResultSchema
-            : StructuredPlanningPreparationResultSchema
-        : phase === "gathering_context"
-            ? GatheringContextPreparationResultSchema
-            : PlanningPreparationResultSchema;
-    const result = schema.safeParse(parsed);
+    const schema = phase === "gathering_context"
+        ? GatheringContextPreparationResultSchema
+        : PlanningPreparationResultSchema;
+    const result = schema.safeParse(parseJson(content));
 
     if (!result.success) {
         throw new LLMResponseProtocolError(
-            `响应不符合 ${protocol.kind} ${phase} PreparationResult 协议`,
+            `响应不符合 structured ${phase} PreparationResult 协议`,
             {
                 cause: result.error,
                 issues: result.error.issues,
             },
-        );
-    }
-
-    if (
-        (result.data as { kind?: unknown }).kind === "context_checkpoint"
-        && (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2)
-    ) {
-        throw new LLMResponseProtocolError(
-            "响应包含仅允许 trajectory-layered@2 的 context_checkpoint",
         );
     }
 

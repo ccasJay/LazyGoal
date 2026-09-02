@@ -14,6 +14,11 @@ import {
     LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
+import {
+    createCurrentContextAssembler,
+    currentProtocols,
+    currentWorkingMemory,
+} from "./current-fixtures";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -32,6 +37,7 @@ function createGoalForPhase(
         id: "goal-trace",
         intent: "验证诊断",
         promptBundleVersion: 1,
+        ...currentProtocols,
         profile,
         runId: "run-trace",
     });
@@ -84,8 +90,8 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
     const response = {
         content: JSON.stringify({
             kind: "complete",
-            checkpoint: "证据已记录",
             summary: "完成",
+            completionEvidence: [],
         }),
         providerRequestId: "request-1",
         apiKey: "must-not-be-written",
@@ -97,7 +103,12 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
         renderer,
         contextCompactor,
         traceSink,
-    }).execute(createGoalForPhase(), []);
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    }).execute({
+        goal: createGoalForPhase(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
 
     assert.equal(result.kind, "complete");
     assert.deepEqual(
@@ -124,8 +135,8 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
     const longResponse = {
         content: JSON.stringify({
             kind: "complete",
-            checkpoint: "完成",
             summary: "x".repeat(40_000),
+            completionEvidence: [],
         }),
     };
     const traceSink = new CaptureTraceSink();
@@ -134,7 +145,12 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
         renderer,
         contextCompactor,
         traceSink,
-    }).execute(createGoalForPhase(), []);
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    }).execute({
+        goal: createGoalForPhase(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
 
     assert.equal(result.kind, "complete");
     const responseRecord = traceSink.records[1] as {
@@ -148,14 +164,19 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
         adapter: new ResponseAdapter({
             content: JSON.stringify({
                 kind: "complete",
-                checkpoint: "完成",
                 summary: "Trace 失败不改变结果",
+                completionEvidence: [],
             }),
         }),
         renderer,
         contextCompactor,
         traceSink: new FailingTraceSink(),
-    }).execute(createGoalForPhase(), []);
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    }).execute({
+        goal: createGoalForPhase(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
     assert.equal(isolatedResult.kind, "complete");
 });
 
@@ -167,7 +188,12 @@ test("LLMPreparationExecutor records response parse failures without changing th
             renderer,
             contextCompactor,
             traceSink,
-        }).execute(createGoalForPhase("gathering_context"), []),
+            trajectoryContextAssembler: createCurrentContextAssembler(),
+        }).execute({
+            goal: createGoalForPhase("gathering_context"),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
     );
     assert.deepEqual(
         traceSink.records.map((record) => (record as { kind: string }).kind),

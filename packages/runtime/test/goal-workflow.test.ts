@@ -8,6 +8,7 @@ import {
     Runner,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -65,7 +66,7 @@ class WorkflowPreparationExecutor implements PreparationExecutor {
             kind: "task_proposal",
             task: {
                 objective: "Implement JSON session persistence",
-                completionCriteria: ["The session can be restored"],
+                completionCriteria: [],
             },
             approvalRequest: "Approve this implementation task?",
         },
@@ -91,13 +92,12 @@ class WorkflowStepExecutor implements StepExecutor {
     private readonly decisions: readonly AgentDecision[] = [
         {
             kind: "wait",
-            checkpoint: "需要写入权限才能继续",
             reason: "Write permission required",
         },
         {
             kind: "complete",
-            checkpoint: "持久化已实现",
             summary: "Persistence implemented",
+            completionEvidence: [],
         },
     ];
     private callCount = 0;
@@ -131,10 +131,12 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
     const events: string[] = [];
     const store = new WorkflowStore(events);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor: new WorkflowStepExecutor(events),
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new WorkflowPreparationExecutor(events),
         scheduler: new InlineScheduler(runner),
@@ -152,7 +154,6 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
             runIdGenerator: () => ref.runId,
             store,
             coordinator,
-            promptBundleVersion: 1,
         },
     ));
 
@@ -216,7 +217,7 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
             content: [
                 "Objective: Implement JSON session persistence",
                 "Completion criteria:",
-                "1. The session can be restored",
+                "None",
                 "Approval request: Approve this implementation task?",
             ].join("\n"),
         },

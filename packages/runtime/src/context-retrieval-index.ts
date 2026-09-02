@@ -31,10 +31,8 @@ import { buildConversationContextDocuments, computeConversationPrefixDigest } fr
 /** Retrieval Index Sidecar 的持久化 Schema 版本。 */
 export const CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION = 1 as const;
 
-/** 当前索引的完整协议版本（包含 Tokenizer 与排名算法）。 */
+/** 当前 Conversation/Trajectory 联合索引的完整协议版本。 */
 export const CONTEXT_RETRIEVAL_INDEX_VERSION = "fielded-bm25-lite-v1" as const;
-/** v2 Conversation/Trajectory 联合索引版本。 */
-export const CONTEXT_RETRIEVAL_INDEX_VERSION_V2 = "fielded-bm25-lite-v2" as const;
 
 /** 查询缓存的固定容量，避免检索缓存占用无界内存或 Sidecar 空间。 */
 export const CONTEXT_RETRIEVAL_QUERY_CACHE_CAPACITY = 64 as const;
@@ -135,17 +133,17 @@ export interface ContextRetrievalIndexSidecar {
     /** 产生分数的排名版本。 */
     readonly rankingVersion: typeof CONTEXT_RANKING_VERSION;
     /** 查询键使用的完整索引版本。 */
-    readonly indexVersion: typeof CONTEXT_RETRIEVAL_INDEX_VERSION | typeof CONTEXT_RETRIEVAL_INDEX_VERSION_V2;
+    readonly indexVersion: typeof CONTEXT_RETRIEVAL_INDEX_VERSION;
     /** 与索引完全一致的 committed Context Documents。 */
     readonly documents: readonly ContextSearchDocument[];
     /** 不含函数的倒排表和统计快照。 */
     readonly index: ContextRetrievalIndexSnapshot;
     /** 最多 64 项、按 oldest → newest 排列的查询缓存。 */
     readonly queryCache: readonly ContextRetrievalQueryCacheEntry[];
-    /** v2 Conversation 归档覆盖的消息边界。 */
-    readonly conversationEndIndexExclusive?: number;
-    /** v2 Conversation prefix digest。 */
-    readonly conversationPrefixDigest?: string;
+    /** Conversation 归档覆盖的消息边界。 */
+    readonly conversationEndIndexExclusive: number;
+    /** Conversation prefix digest。 */
+    readonly conversationPrefixDigest: string;
 }
 
 /** restore 时对 Sidecar 执行的边界、版本和摘要检查。 */
@@ -163,9 +161,9 @@ export interface ContextRetrievalIndexRestoreOptions {
      * 当前 boundary 时由 Store 直接比较，落后 Sidecar 由 Runtime 校验其旧前缀。
      */
     readonly expectedSourceDigest?: string;
-    /** 期望的 Conversation 归档边界；用于 v2 Sidecar 失配检测。 */
+    /** 期望的 Conversation 归档边界；用于 Sidecar 失配检测。 */
     readonly conversationEndIndexExclusive?: number;
-    /** 期望的 Conversation prefix digest；用于 v2 Sidecar 失配检测。 */
+    /** 期望的 Conversation prefix digest；用于 Sidecar 失配检测。 */
     readonly conversationPrefixDigest?: string;
 }
 
@@ -216,15 +214,6 @@ export interface TrajectoryRetrievalIndexStore {
     remove(goalId: string, runId: string): Promise<void>;
 }
 
-/** `RetrievalIndexStore` 的简短兼容名称。 */
-export type RetrievalIndexStore = TrajectoryRetrievalIndexStore;
-
-/** `ContextRetrievalIndexStore` 的显式命名别名。 */
-export type ContextRetrievalIndexStore = TrajectoryRetrievalIndexStore;
-
-/** `RetrievalIndexSidecarStore` 的显式命名别名。 */
-export type RetrievalIndexSidecarStore = TrajectoryRetrievalIndexStore;
-
 /** 索引恢复/更新的输入。 */
 export interface ContextRetrievalIndexSessionInput {
     /** Goal 稳定标识。 */
@@ -235,10 +224,10 @@ export interface ContextRetrievalIndexSessionInput {
     readonly committedThroughSequence: number;
     /** Trajectory 事件，可包含 boundary 之后的 tail。 */
     readonly events: readonly TrajectoryEvent[];
-    /** v2 可选 Snapshot Conversation，用于联合索引。 */
-    readonly messages?: readonly GoalMessage[];
-    /** v2 Conversation Cold 归档边界。 */
-    readonly conversationStartIndex?: number;
+    /** Snapshot Conversation，用于联合索引。 */
+    readonly messages: readonly GoalMessage[];
+    /** Conversation Cold 归档边界。 */
+    readonly conversationStartIndex: number;
     /** 可选的已读取 Sidecar；无效时会自动重建。 */
     readonly sidecar?: ContextRetrievalIndexSidecar;
 }
@@ -359,8 +348,7 @@ export function restoreContextInvertedIndex(
 ): Readonly<ContextInvertedIndex> {
     if (
         sidecar.tokenizerVersion !== CONTEXT_TOKENIZER_VERSION
-        || (sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
-            && sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION_V2)
+        || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION
     ) {
         throw new ContextRetrievalIndexError("Sidecar index version is unsupported");
     }
@@ -576,16 +564,12 @@ export function openContextRetrievalIndexSession(
         input.events,
         input.committedThroughSequence,
     );
-    const v2 = input.messages !== undefined;
-    const indexVersion = v2
-        ? CONTEXT_RETRIEVAL_INDEX_VERSION_V2
-        : CONTEXT_RETRIEVAL_INDEX_VERSION;
-    const conversationEndIndexExclusive = v2
-        ? (input.conversationStartIndex ?? input.messages!.length)
-        : undefined;
-    const conversationPrefixDigest = v2
-        ? computeConversationPrefixDigest(input.messages!, conversationEndIndexExclusive)
-        : undefined;
+    const indexVersion = CONTEXT_RETRIEVAL_INDEX_VERSION;
+    const conversationEndIndexExclusive = input.conversationStartIndex;
+    const conversationPrefixDigest = computeConversationPrefixDigest(
+        input.messages,
+        conversationEndIndexExclusive,
+    );
     const builderDocuments = buildDocuments(input);
     let mode: ContextRetrievalIndexSessionMode = "rebuilt";
     let documents = builderDocuments;
@@ -632,8 +616,8 @@ export function openContextRetrievalIndexSession(
         documents: structuredClone(documents),
         index: snapshotContextInvertedIndex(index),
         queryCache: queryCache.snapshot(),
-        ...(conversationEndIndexExclusive === undefined ? {} : { conversationEndIndexExclusive }),
-        ...(conversationPrefixDigest === undefined ? {} : { conversationPrefixDigest }),
+        conversationEndIndexExclusive,
+        conversationPrefixDigest,
     });
     return Object.freeze({ index, sidecar: currentSidecar, queryCache, mode });
 }
@@ -674,14 +658,11 @@ function buildContextDocuments(input: ContextRetrievalIndexSessionInput): readon
         committedThroughSequence: input.committedThroughSequence,
         events: input.events,
     });
-    if (input.messages === undefined) return trajectoryDocuments;
     const conversationDocuments = buildConversationContextDocuments({
         goalId: input.goalId,
         runId: input.runId,
         messages: input.messages,
-        ...(input.conversationStartIndex === undefined
-            ? {}
-            : { conversationStartIndex: input.conversationStartIndex }),
+        conversationStartIndex: input.conversationStartIndex,
     });
     return Object.freeze([...conversationDocuments, ...trajectoryDocuments].sort(compareDocuments));
 }
@@ -705,8 +686,8 @@ function isUsableSidecar(
     input: ContextRetrievalIndexSessionInput,
     currentDigest: string,
     indexVersion: string,
-    conversationEndIndexExclusive: number | undefined,
-    conversationPrefixDigest: string | undefined,
+    conversationEndIndexExclusive: number,
+    conversationPrefixDigest: string,
 ): boolean {
     if (
         sidecar.schemaVersion !== CONTEXT_RETRIEVAL_INDEX_SIDECAR_SCHEMA_VERSION
@@ -727,11 +708,10 @@ function isUsableSidecar(
     if (sidecar.derivedThroughSequence === input.committedThroughSequence
         && sidecar.sourceDigest !== currentDigest) return false;
     if (
-        input.messages !== undefined
-        && (sidecar.conversationEndIndexExclusive !== conversationEndIndexExclusive
-            || sidecar.conversationPrefixDigest !== conversationPrefixDigest)
+        sidecar.conversationEndIndexExclusive !== conversationEndIndexExclusive
+        || sidecar.conversationPrefixDigest !== conversationPrefixDigest
     ) return false;
-    if (input.messages !== undefined && conversationEndIndexExclusive !== undefined) {
+    if (conversationEndIndexExclusive !== undefined) {
         const conversationDocuments = sidecar.documents.filter(
             (document) => document.source?.kind === "conversation",
         );
@@ -772,14 +752,15 @@ function validateSessionInput(input: ContextRetrievalIndexSessionInput): void {
     assertNonEmptyString(input.runId, "runId");
     assertNonNegativeSafeInteger(input.committedThroughSequence, "committedThroughSequence");
     if (!Array.isArray(input.events)) throw new ContextRetrievalIndexError("events must be an array");
-    if (input.messages !== undefined) {
-        if (!Array.isArray(input.messages)) throw new ContextRetrievalIndexError("messages must be an array");
-        const start = input.conversationStartIndex ?? input.messages.length;
-        if (!Number.isSafeInteger(start) || start < 0 || start > input.messages.length) {
-            throw new ContextRetrievalIndexError("conversationStartIndex is invalid");
-        }
-    } else if (input.conversationStartIndex !== undefined) {
-        throw new ContextRetrievalIndexError("conversationStartIndex requires messages");
+    if (!Array.isArray(input.messages)) {
+        throw new ContextRetrievalIndexError("messages must be an array");
+    }
+    if (
+        !Number.isSafeInteger(input.conversationStartIndex)
+        || input.conversationStartIndex < 0
+        || input.conversationStartIndex > input.messages.length
+    ) {
+        throw new ContextRetrievalIndexError("conversationStartIndex is invalid");
     }
 }
 

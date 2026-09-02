@@ -2,7 +2,7 @@
 
 > 当前架构的极简入口。以源码为事实来源；功能演进过程见 `specs/`，接口细节见源码 TSDoc。
 
-LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期、结构化 Working Memory 和持久化 Port，`storage` 提供 Snapshot v10 与 Profile 持久化，`agent` 通过 Projector 与 Renderer 把完整 Goal 转为一次模型调用，`llm` 隔离模型供应商。新 Goal 冻结 Prompt Bundle v7/`structured@1` Fact shape；v1–v3 checkpoint Goal 继续运行，v4–v6 structured Goal在 Memory 重建或模型调用前稳定拒绝。每个业务边界先提交事实与 canonical Memory Patch，再保存最新完整 Goal。
+LazyGoal 是一个 Goal 驱动的同步 Agent。`runtime` 拥有状态、生命周期、结构化 Working Memory 和持久化 Port，`storage` 提供当前 Snapshot v1 与 Profile 持久化，`agent` 通过 Projector 与 Renderer 把完整 Goal 转为一次模型调用，`llm` 隔离模型供应商。新 Goal 统一冻结 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 与 `bm25-lite@1`；历史 Snapshot 或协议版本在 Storage/Runtime 边界直接拒绝，不执行迁移。每个业务边界先提交事实与 canonical Memory Patch，再保存最新完整 Goal。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -45,7 +45,7 @@ flowchart LR
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
 5. Agent Executor 按 Goal 冻结的 Prompt Bundle 版本渲染唯一 system 消息（Global Overview → Profile → Phase Protocol → 授权 ToolDefinition），结构化 Goal 同时接收从 Trajectory 重建的 Working Memory；Runner 做严格协议、Profile、Registry、输入、Policy 和 Evidence 校验。
-6. Coordinator/Runner 通过共享 Committer 追加事实与 canonical Patch，保存 Snapshot v10 的提交边界和 revision；Tool 返回后可由同步纯函数 Projector 提议 Fact，Runtime 统一做 evidence、去重、失效与容量准入。Snapshot 成功后才更新临时 Memory。
+6. Coordinator/Runner 通过共享 Committer 追加事实与 canonical Patch，保存 Snapshot v1 的提交边界、Context Epoch 和 revision；Tool 返回后可由同步纯函数 Projector 提议 Fact，Runtime 统一做 evidence、去重、失效与容量准入。Snapshot 成功后才更新临时 Memory。
 7. Coordinator 对 Action 执行 `approve_action`/`reject_action`：批准先保存再以瞬时授权调度，拒绝写入 rejected Observation；终止决策或正数 `maxSteps` 使 Run 停止。缺失或损坏的结构化 Trajectory 在模型调用前 fail-closed。
 
 ## 跨模块不变量
@@ -55,7 +55,7 @@ flowchart LR
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。
-- 新 Goal 的 v7 Prompt Bundle 与 `structured@1` Fact shape 由 Composition Root 一起冻结；旧 v1–v3 Goal 按 `checkpoint@1` 兼容，v4–v6 structured Goal 返回 `UNSUPPORTED_STRUCTURED_MEMORY_SHAPE`。
+- 新 Goal 的 Prompt Bundle v1 与 `structured@1`、`trajectory-layered@1`、`bm25-lite@1` 由 Composition Root 一起冻结；不支持的历史 Snapshot 或协议组合直接失败，不提供兼容迁移路径。
 - Working Memory 只在 Coordinator/Runner 调用链内存在；`WorkingMemorySession` 从 Snapshot 的 `memoryRevision` 与 `committedThroughSequence` 重建，原始 Trajectory 永不被 Compact 或归约覆盖。
 - accepted Patch、Runtime 生命周期 Patch、Action/Observation 和终态事实共享同一提交顺序；模型 Patch 在关联 Action 前提交，Projector Patch 与 Observation 处于同一 Snapshot 边界，终态清理 phase intent。
 - Prompt Bundle（Global Overview 与 Phase Protocol）是 Agent 拥有的上层模型契约，Profile 只补充不冲突的角色与领域细节；Tool 权限和状态合法性仍由 Runtime 强制执行。

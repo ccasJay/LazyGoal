@@ -9,8 +9,6 @@ export const DEFAULT_MODEL_INPUT_CHARACTER_BUDGET = 196_608;
 export const DEFAULT_MODEL_RESPONSE_RESERVE_RATIO = 0.1;
 /** 默认 Warm 历史预算比例。 */
 export const DEFAULT_MODEL_WARM_SHARE = 0.25;
-/** 默认 Compact 触发比例。 */
-export const DEFAULT_MODEL_COMPACT_TRIGGER_RATIO = 0.85;
 /** Token 模式下大型输出 preview 默认上限。 */
 export const DEFAULT_MODEL_LARGE_OUTPUT_TOKEN_PREVIEW_LIMIT = 2_048;
 /** 字符模式下大型输出 preview 默认上限。 */
@@ -141,8 +139,6 @@ export interface ModelContextBudgetPolicyInput {
     readonly warmShare?: number;
     /** Warm 的绝对上限；省略时仅受 `warmShare` 限制。 */
     readonly warmLimit?: number;
-    /** 触发 Compact 候选评估的比例，默认 0.85。 */
-    readonly compactTriggerRatio?: number;
     /** 大型历史输出 preview 的上限；省略时按计量单位使用默认值。 */
     readonly largeOutputPreviewLimit?: number;
 }
@@ -169,7 +165,6 @@ export interface ModelContextBudgetPolicy {
     readonly responseReserve: number;
     readonly warmShare: number;
     readonly warmLimit?: number;
-    readonly compactTriggerRatio: number;
     readonly largeOutputPreviewLimit: number;
     /**
      * @param input - 本轮已渲染的不可裁剪固定输入。
@@ -263,10 +258,6 @@ export function createModelContextBudgetPolicy(
         assertPositiveSafeInteger(input.warmLimit, "warmLimit");
     }
 
-    const compactTriggerRatio = input.compactTriggerRatio
-        ?? DEFAULT_MODEL_COMPACT_TRIGGER_RATIO;
-    assertRatio(compactTriggerRatio, "compactTriggerRatio");
-
     const defaultPreview = estimator.unit === "token"
         ? DEFAULT_MODEL_LARGE_OUTPUT_TOKEN_PREVIEW_LIMIT
         : DEFAULT_MODEL_LARGE_OUTPUT_CHARACTER_PREVIEW_LIMIT;
@@ -279,7 +270,6 @@ export function createModelContextBudgetPolicy(
         responseReserve,
         warmShare,
         ...(input.warmLimit === undefined ? {} : { warmLimit: input.warmLimit }),
-        compactTriggerRatio,
         largeOutputPreviewLimit,
         plan(planInput: ModelContextBudgetPlanInput): ModelContextBudgetPlan {
             const fixedCount = estimator.estimate(planInput.fixedInput);
@@ -361,17 +351,17 @@ export function resolveModelInputEstimator(
     return new CharacterModelInputEstimator();
 }
 
-/** v2 模型能力对象，冻结一次 Goal 生命周期内的 Token 预算边界。 */
+/** 模型能力对象，冻结一次 Goal 生命周期内的 Token 预算边界。 */
 export interface ModelCapabilities {
     readonly contextWindowTokens: number;
     readonly maxOutputTokens: number;
     readonly tokenEstimator: ModelInputEstimator;
 }
 
-/** v2 能力校验失败的稳定错误码。 */
+/** 模型能力校验失败的稳定错误码。 */
 export const MODEL_CAPABILITIES_INVALID_CODE = "MODEL_CAPABILITIES_INVALID" as const;
 
-/** v2 模型能力非法时抛出的配置错误。 */
+/** 模型能力非法时抛出的配置错误。 */
 export class ModelCapabilitiesError extends Error {
     readonly code = MODEL_CAPABILITIES_INVALID_CODE;
 
@@ -381,7 +371,7 @@ export class ModelCapabilitiesError extends Error {
     }
 }
 
-/** 校验并冻结 v2 模型能力。 */
+/** 校验并冻结模型能力。 */
 export function createModelCapabilities(
     input: Pick<ModelCapabilities, "contextWindowTokens" | "maxOutputTokens">
         & { readonly tokenEstimator?: ModelInputEstimator },
@@ -422,7 +412,7 @@ export function resolveTokenEstimatorEncoding(
     });
 }
 
-/** v2 硬预算计算器。 */
+/** 基于模型能力的硬预算计算器。 */
 export class TokenBudgetPlanner {
     readonly capabilities: ModelCapabilities;
     readonly hardInputLimit: number;

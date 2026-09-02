@@ -107,7 +107,7 @@ export interface TrajectoryCheckpointCommitResult {
 export interface TrajectoryCheckpointCommitterDependencies {
     /** 保存最新 Goal Snapshot 的边界。 */
     readonly store: GoalStore;
-    /** 可选事实追加端口；省略时保持 legacy 无 Trajectory 行为。 */
+    /** 可选事实追加端口；省略时只保存 Snapshot，不追加 Trajectory 事件。 */
     readonly trajectorySink?: TrajectorySink;
     /** 可选旁路诊断端口。 */
     readonly traceSink?: DiagnosticTraceSink;
@@ -362,7 +362,7 @@ export class TrajectoryCheckpointCommitter {
     }
 
     /**
-     * 仅保存已有事实高水位的 Goal，兼容旧 Coordinator/Runner 调用路径。
+     * 仅保存已有事实高水位的 Goal。
      *
      * @param goal - 业务转换后的 Goal。
      * @param control - 当前调用级中止控制。

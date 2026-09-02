@@ -8,16 +8,10 @@ import type {
     RunRef,
     RunState,
     ToolCallAction,
-    MemoryProtocol,
     WorkingMemoryPatch,
     GoalProtocolValidator,
 } from "./domain";
-import {
-    resolveContextRetrievalProtocol,
-    resolveMemoryProtocol,
-    resolveModelContextProtocol,
-    type ModelContextCheckpointResult,
-} from "./domain";
+import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
 import {
@@ -102,9 +96,6 @@ class RunnerExecutionError extends Error {
 
 type NormalizedExecution = { readonly decision: AgentDecision };
 
-/** Executor 在返回 AgentDecision 前抛出非协议异常时使用的稳定 checkpoint。 */
-const EXECUTOR_FAILURE_CHECKPOINT = "Executor failed before returning an AgentDecision.";
-
 let executionUnitCounter = 0;
 
 function createExecutionUnitId(): string {
@@ -180,27 +171,16 @@ function invalidAgentDecision(message: string): never {
 
 function validateAgentDecision(
     value: unknown,
-    memoryProtocol: MemoryProtocol,
-    modelContextProtocol: ReturnType<typeof resolveModelContextProtocol> = { kind: "conversation", version: 1 },
 ): AgentDecision {
     if (!isRecord(value) || !isNonEmptyText(value.kind)) {
         return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
     }
 
     if (value.kind === "context_lookup") {
-        if (memoryProtocol.kind !== "structured") {
-            throw new ContextLookupProtocolError(
-                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: legacy Goal 不支持 Context Lookup`,
-            );
-        }
-
         return normalizeContextLookupRequest(value);
     }
 
     if (value.kind === "context_checkpoint") {
-        if (modelContextProtocol.kind !== "trajectory-layered" || modelContextProtocol.version !== 2) {
-            return invalidAgentDecision("context_checkpoint requires trajectory-layered@2");
-        }
         if (!hasOnlyKeys(value, ["kind", "memoryPatch"])) {
             return invalidAgentDecision("context_checkpoint contains protocol fields");
         }
@@ -210,76 +190,9 @@ function validateAgentDecision(
         return value as unknown as ModelContextCheckpointResult;
     }
 
-    if (memoryProtocol.kind === "structured") {
-        const memoryPatch = value.memoryPatch;
-        if (
-            memoryPatch !== undefined
-            && (
-                !isRecord(memoryPatch)
-                || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
-                || memoryPatch.protocolVersion !== 1
-                || !Array.isArray(memoryPatch.operations)
-            )
-        ) {
-            return invalidAgentDecision("structured memoryPatch 不符合基础协议");
-        }
-
-        if (value.kind === "tool_call") {
-            if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
-                return invalidAgentDecision("structured tool_call 包含协议外字段");
-            }
-
-            const action = value.action;
-
-            if (
-                !isRecord(action)
-                || !hasOnlyKeys(action, ["actionId", "toolId", "input"])
-                || !isNonEmptyText(action.actionId)
-                || !isNonEmptyText(action.toolId)
-                || !isJsonValue(action.input)
-            ) {
-                return invalidAgentDecision("structured tool_call action 不符合严格协议");
-            }
-
-            return value as unknown as AgentDecision;
-        }
-
-        const structuredTextFields: Record<string, "summary" | "reason" | "error"> = {
-            complete: "summary",
-            wait: "reason",
-            fail: "error",
-        };
-        const textField = structuredTextFields[value.kind];
-
-        if (textField === undefined) {
-            return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
-        }
-
-        const allowed = ["kind", textField, "memoryPatch"];
-        if (value.kind === "complete") {
-            allowed.push("completionEvidence");
-            if (!Array.isArray(value.completionEvidence)) {
-                return invalidAgentDecision("structured complete 必须包含 completionEvidence");
-            }
-        }
-
-        if (
-            !hasOnlyKeys(value, allowed)
-            || !isNonEmptyText(value[textField])
-        ) {
-            return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
-        }
-
-        return value as unknown as AgentDecision;
-    }
-
-    if (!isNonEmptyText(value.checkpoint)) {
-        return invalidAgentDecision("AgentDecision checkpoint 必须是非空文本");
-    }
-
     if (value.kind === "tool_call") {
-        if (!hasOnlyKeys(value, ["kind", "checkpoint", "action"])) {
-            return invalidAgentDecision("tool_call 包含协议外字段");
+        if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
+            return invalidAgentDecision("structured tool_call 包含协议外字段");
         }
 
         const action = value.action;
@@ -291,7 +204,7 @@ function validateAgentDecision(
             || !isNonEmptyText(action.toolId)
             || !isJsonValue(action.input)
         ) {
-            return invalidAgentDecision("tool_call action 不符合严格协议");
+            return invalidAgentDecision("structured tool_call action 不符合严格协议");
         }
 
         return value as unknown as AgentDecision;
@@ -308,11 +221,29 @@ function validateAgentDecision(
         return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
     }
 
+    const allowed = ["kind", textField, "memoryPatch"];
+    if (value.kind === "complete") {
+        allowed.push("completionEvidence");
+        if (!Array.isArray(value.completionEvidence)) {
+            return invalidAgentDecision("structured complete 必须包含 completionEvidence");
+        }
+    }
+
+    const memoryPatch = value.memoryPatch;
     if (
-        !hasOnlyKeys(value, ["kind", "checkpoint", textField])
-        || !isNonEmptyText(value[textField])
+        memoryPatch !== undefined
+        && (
+            !isRecord(memoryPatch)
+            || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
+            || memoryPatch.protocolVersion !== 1
+            || !Array.isArray(memoryPatch.operations)
+        )
     ) {
-        return invalidAgentDecision(`${value.kind} 不符合严格协议`);
+        return invalidAgentDecision("structured memoryPatch 不符合基础协议");
+    }
+
+    if (!hasOnlyKeys(value, allowed) || !isNonEmptyText(value[textField])) {
+        return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
     }
 
     return value as unknown as AgentDecision;
@@ -569,7 +500,7 @@ export interface RunnerDependencies {
      * 用户批准或拒绝。
      */
     readonly toolPolicy?: ToolPolicy;
-    /** 可选 Domain Event 追加边界；省略时保留旧调用方的 no-op 行为。 */
+    /** 可选 Domain Event 追加边界；省略时只保存 Snapshot，不追加事件。 */
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
@@ -580,8 +511,8 @@ export interface RunnerDependencies {
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
-     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
-     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     * 可选 Prompt/Memory 协议校验器；Composition Root 可用它在运行前执行
+     * 额外的协议边界校验。
      */
     readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Runner 按当前依赖创建。 */
@@ -612,9 +543,8 @@ export interface RunnerDependencies {
  * `outcome_unknown` waiting，等待 Coordinator 再次批准或拒绝。领域 failure 会
  * 继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
- * Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化：沿用
- * 已有 checkpoint，不存在时使用稳定值；Store 的读取或写入异常原样传播，
- * 写入失败后不会继续执行下一 Step。
+ * Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化；Store
+ * 的读取或写入异常原样传播，写入失败后不会继续执行下一 Step。
  */
 export class Runner {
     private readonly store: GoalStore;
@@ -781,7 +711,7 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<ContextLookupResult | undefined> {
         const trajectoryStore = this.trajectoryStore;
-        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const boundary = goal.state.run.committedThroughSequence;
         const lastStep = goal.state.run.lastStep;
         if (
             trajectoryStore === undefined
@@ -870,7 +800,7 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<number> {
         const trajectoryStore = this.trajectoryStore;
-        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const boundary = goal.state.run.committedThroughSequence;
         if (trajectoryStore === undefined || boundary <= 0) return 0;
         throwIfAborted(control);
         const raw = await trajectoryStore.readWithBoundary(
@@ -911,9 +841,9 @@ export class Runner {
 
         this.protocolValidator.validate({
             promptBundleVersion: goal.definition.promptBundleVersion,
-            memoryProtocol: resolveMemoryProtocol(goal.definition),
-            modelContextProtocol: resolveModelContextProtocol(goal.definition),
-            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
+            memoryProtocol: goal.definition.memoryProtocol,
+            modelContextProtocol: goal.definition.modelContextProtocol,
+            contextRetrievalProtocol: goal.definition.contextRetrievalProtocol,
         });
     }
 
@@ -963,10 +893,7 @@ export class Runner {
     ): Promise<AcceptedMemoryPatchInput | undefined> {
         const projector = this.toolMemoryProjectors.get(action.toolId);
         if (projector === undefined) return undefined;
-        if (resolveMemoryProtocol(goal.definition).kind !== "structured") return undefined;
-
         const session = await this.openWorkingMemorySession(goal, control);
-        if (session === undefined) return undefined;
         try {
             const projected = normalizeToolMemoryProjectionResult(projector.project({
                 goal: structuredClone(goal),
@@ -1023,11 +950,8 @@ export class Runner {
     private async openWorkingMemorySession(
         goal: Goal,
         control?: ExecutionControl,
-    ): Promise<WorkingMemorySession | undefined> {
+    ): Promise<WorkingMemorySession> {
         throwIfAborted(control);
-        const protocol = resolveMemoryProtocol(goal.definition);
-        if (protocol.kind !== "structured") return undefined;
-
         const session = await WorkingMemorySession.restore(goal, {
             ...(this.trajectoryStore === undefined
                 ? {}
@@ -1043,30 +967,13 @@ export class Runner {
     private normalizeDecisionPatch(
         goal: Goal,
         decision: AgentDecision,
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
         factCount: number,
     ): AcceptedMemoryPatchInput | undefined {
-        const protocol = resolveMemoryProtocol(goal.definition);
         const memoryPatch = "memoryPatch" in decision
             ? decision.memoryPatch
             : undefined;
 
-        if (protocol.kind !== "structured") {
-            if (memoryPatch !== undefined) {
-                throw new RunnerExecutionError(
-                    "INVALID_MEMORY_PATCH",
-                    "checkpoint protocol cannot accept structured Memory Patch",
-                );
-            }
-            return undefined;
-        }
-
-        if (session === undefined) {
-            throw new RunnerExecutionError(
-                "INVALID_MEMORY_PATCH",
-                "structured Memory Session is missing",
-            );
-        }
         const workingMemory = session.workingMemory;
         try {
             let normalized: NormalizedWorkingMemoryPatch = {
@@ -1081,7 +988,7 @@ export class Runner {
                     phase: "executing",
                     originSequence: Math.max(
                         1,
-                        (goal.state.run.committedThroughSequence ?? 0) + factCount + 1,
+                        goal.state.run.committedThroughSequence + factCount + 1,
                     ),
                     workingMemory,
                     ...(this.workingMemoryLimits === undefined
@@ -1120,8 +1027,6 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<AcceptedMemoryPatchInput | undefined> {
         const session = await this.openWorkingMemorySession(goal, control);
-        if (session === undefined) return undefined;
-
         try {
             return this.normalizeDecisionPatch(
                 goal,
@@ -1137,18 +1042,9 @@ export class Runner {
     private validateCompletionEvidence(
         goal: Goal,
         decision: AgentDecision,
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
     ): void {
         if (decision.kind !== "complete") return;
-        if (resolveMemoryProtocol(goal.definition).kind !== "structured") return;
-
-        if (session === undefined) {
-            throw new RunnerExecutionError(
-                "INVALID_AGENT_DECISION",
-                "structured complete requires a Working Memory Session",
-            );
-        }
-
         const workflow = goal.state.workflow;
         if (workflow.phase !== "executing") {
             throw new RunnerExecutionError(
@@ -1436,11 +1332,7 @@ export class Runner {
         goal: Goal,
         reason: "run_completed" | "run_failed" | "run_cancelled",
     ): TrajectoryEventDraft | undefined {
-        const protocol = resolveModelContextProtocol(goal.definition);
         const epoch = goal.state.run.contextEpoch;
-        if (protocol.kind !== "trajectory-layered" || protocol.version !== 2 || epoch === undefined) {
-            return undefined;
-        }
         return {
             goalId: goal.id,
             runId: goal.state.run.id,
@@ -1451,7 +1343,7 @@ export class Runner {
                 epoch: toEpochRange(
                     epoch,
                     goal.state.messages.length,
-                    goal.state.run.committedThroughSequence ?? 0,
+                    goal.state.run.committedThroughSequence,
                 ),
                 reason,
             },
@@ -1698,8 +1590,6 @@ export class Runner {
                     normalized = {
                         decision: validateAgentDecision(
                             execution,
-                            resolveMemoryProtocol(goal.definition),
-                            resolveModelContextProtocol(goal.definition),
                         ),
                     };
                     this.validateCompletionEvidence(goal, normalized.decision, session);
@@ -1718,24 +1608,12 @@ export class Runner {
                         return this.invalidContextLookup(error.message);
                     }
 
-                    // 非协议 Executor 异常规范化为当前 fail Decision：沿用已有
-                    // checkpoint，不存在时使用稳定值；错误文本保持用户可见内容。
-                    const memoryProtocol = resolveMemoryProtocol(goal.definition);
-                    const decision: AgentDecision = memoryProtocol.kind === "structured"
-                        ? {
-                            kind: "fail",
-                            error: error instanceof Error
-                                ? error.message
-                                : String(error),
-                        }
-                        : {
-                            kind: "fail",
-                            checkpoint: goal.state.run.checkpoint
-                                ?? EXECUTOR_FAILURE_CHECKPOINT,
-                            error: error instanceof Error
-                                ? error.message
-                                : String(error),
-                        };
+                    // 非协议 Executor 异常规范化为当前 fail Decision；错误文本保持
+                    // 用户可见内容。
+                    const decision: AgentDecision = {
+                        kind: "fail",
+                        error: error instanceof Error ? error.message : String(error),
+                    };
                     await this.appendTrajectory({
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -1800,13 +1678,6 @@ export class Runner {
                             },
                         };
                     }
-                    const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
-                    if (retrievalProtocol.kind !== "bm25-lite") {
-                        return this.invalidContextLookup(
-                            `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
-                        );
-                    }
-
                     let routedRequest;
                     try {
                         routedRequest = this.contextSourceRouter.routeContextLookup(
@@ -1843,7 +1714,6 @@ export class Runner {
                     const nextRun = this.applyTransition(goal.state.run, {
                         kind: "context_lookup",
                         request: invocation.request,
-                        countAsStep: resolveModelContextProtocol(goal.definition).version !== 2,
                     });
                     const nextGoal = this.withRun(goal, nextRun);
                     goal = await this.commitDecision(
@@ -1871,17 +1741,6 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "context_checkpoint") {
-                    const protocol = resolveModelContextProtocol(goal.definition);
-                    if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
-                        return this.stopWithExecutionError(
-                            goal,
-                            new RunnerExecutionError(
-                                "INVALID_AGENT_DECISION",
-                                "context_checkpoint requires trajectory-layered@2",
-                            ),
-                            control,
-                        );
-                    }
                     if (goal.state.run.pendingAction !== undefined) {
                         return this.stopWithExecutionError(
                             goal,
@@ -1892,12 +1751,7 @@ export class Runner {
                             control,
                         );
                     }
-                    const currentEpoch = goal.state.run.contextEpoch ?? {
-                        version: 1 as const,
-                        number: 0,
-                        conversationStartIndex: 0,
-                        openedAtSequence: 0,
-                    };
+                    const currentEpoch = goal.state.run.contextEpoch;
                     const messages = goal.state.messages;
                     const newStart = selectLatestConversationStart(
                         messages,
@@ -1907,12 +1761,12 @@ export class Runner {
                         currentEpoch,
                         messages,
                         newStart,
-                        (goal.state.run.committedThroughSequence ?? 0) + 1,
+                        goal.state.run.committedThroughSequence + 1,
                     );
                     const closedEpoch = toEpochRange(
                         currentEpoch,
                         messages.length,
-                        goal.state.run.committedThroughSequence ?? 0,
+                        goal.state.run.committedThroughSequence,
                     );
                     const nextGoal = this.withRun(goal, {
                         ...goal.state.run,
@@ -1995,11 +1849,6 @@ export class Runner {
                         throwIfAborted(control);
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
-                            ...(
-                                "checkpoint" in normalized.decision
-                                    ? { checkpoint: normalized.decision.checkpoint }
-                                    : {}
-                            ),
                             action: normalized.decision.action,
                             status: "awaiting_approval",
                         });
@@ -2029,11 +1878,6 @@ export class Runner {
                     throwIfAborted(control);
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
-                        ...(
-                            "checkpoint" in normalized.decision
-                                ? { checkpoint: normalized.decision.checkpoint }
-                                : {}
-                        ),
                         action: normalized.decision.action,
                         status: "approved",
                     });

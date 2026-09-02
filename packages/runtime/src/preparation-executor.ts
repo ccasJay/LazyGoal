@@ -54,7 +54,7 @@ export type PreparationResult =
  *
  * @remarks
  * `goal` 是只读的完整快照；`authorizedTools` 是 Runtime 已解析的工具描述，
- * 不代表已执行的工具；`workingMemory` 仅在结构化协议下提供，旧协议应省略；
+ * 不代表已执行的工具；`workingMemory` 是当前 structured@1 协议的临时投影；
  * `control` 只属于当前调用，不得写入 Goal。Executor 不得通过本对象修改 Runtime
  * 状态或自行持久化。
  *
@@ -72,7 +72,7 @@ export interface PreparationExecutionInput {
     readonly goal: Goal;
     /** 当前 Profile 白名单与 Registry 的交集 Tool 描述。 */
     readonly authorizedTools: readonly ToolDefinition[];
-    /** 结构化协议的临时 Working Memory；legacy 协议必须省略。 */
+    /** 当前 structured@1 协议的临时 Working Memory。 */
     readonly workingMemory?: WorkingMemory;
     /** 当前 Goal 推进调用的瞬时中止控制。 */
     readonly control?: ExecutionControl;

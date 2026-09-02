@@ -1,6 +1,2 @@
-Active Phase Protocol:
-只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。
-唯一允许的形状为 {"kind":"task_proposal","task":
-{"objective":"非空文本","completionCriteria":["非空文本"]},
-"approvalRequest":"非空文本"}。
-不要返回问题、context_ready 或执行结果。
+Active Phase Protocol: planning (structured@1; trajectory-layered@1; bm25-lite@1)
+If Context Epoch control.status is checkpoint_required, return only {"kind":"context_checkpoint","memoryPatch":{...optional}}. Otherwise return exactly one task_proposal or context_lookup object. Runtime owns epoch metadata and approval transitions.

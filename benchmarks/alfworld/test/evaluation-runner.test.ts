@@ -54,7 +54,7 @@ const metadata: EvaluationReportMetadata = {
     manifest,
     profile,
     profileHash: "profile-hash",
-    promptBundleVersion: 3,
+    promptBundleVersion: 1,
     configId: "alfworld-textworld-v1",
     modelId: "fake-model",
 };
@@ -156,19 +156,20 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         const responses: unknown[] = [
             {
                 kind: "tool_call",
-                checkpoint: "initialize",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
             },
             {
                 kind: "tool_call",
-                checkpoint: "act",
                 action: { actionId: "step-1", toolId: "alfworld_step", input: { command: "look" } },
             },
-            { kind: "complete", checkpoint: "won", summary: "environment won" },
+            {
+                kind: "complete",
+                summary: "environment won",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [24] }],
+            },
         ];
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
-            promptBundleVersion: 3,
             adapter: {
                 generate: async () => {
                     const next = responses.shift();
@@ -227,12 +228,23 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
 
 test("ALFWorld model completion without an environment win remains evaluator-owned", async () => {
     await withTempPersistence(async (persistenceRoot) => {
+        const responses: unknown[] = [
+            {
+                kind: "tool_call",
+                action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+            },
+            {
+                kind: "complete",
+                summary: "claimed",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
+            },
+        ];
+        let responseIndex = 0;
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
-            promptBundleVersion: 3,
             adapter: {
                 generate: async () => ({
-                    content: decision({ kind: "complete", checkpoint: "done", summary: "claimed" }),
+                    content: decision(responses[responseIndex++ % responses.length]),
                 }),
             },
             renderer: { render: () => "system" },
@@ -277,12 +289,10 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
-            promptBundleVersion: 3,
             adapter: {
                 generate: async () => ({
                     content: decision({
                         kind: "tool_call",
-                        checkpoint: "initialize",
                         action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
                     }),
                 }),
@@ -327,12 +337,10 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
         });
         const maxStepExecutor = createAlfworldEpisodeExecutor({
             profile,
-            promptBundleVersion: 3,
             adapter: {
                 generate: async () => ({
                     content: decision({
                         kind: "tool_call",
-                        checkpoint: "initialize",
                         action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
                     }),
                 }),
@@ -352,10 +360,9 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
 
         const modelFailExecutor = createAlfworldEpisodeExecutor({
             profile,
-            promptBundleVersion: 3,
             adapter: {
                 generate: async () => ({
-                    content: decision({ kind: "fail", checkpoint: "failed", error: "model failed" }),
+                    content: decision({ kind: "fail", error: "model failed" }),
                 }),
             },
             renderer: { render: () => "system" },

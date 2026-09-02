@@ -17,8 +17,11 @@ import type {
     TraceRecord,
     TrajectoryEvent,
     TrajectoryEventDraft,
-    TrajectorySink,
+    TrajectoryReadQuery,
+    TrajectoryReadResult,
+    TrajectoryStore,
 } from "../src/index";
+import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "trajectory-failure-profile",
@@ -39,7 +42,7 @@ class MemoryGoalStore implements GoalStore {
     }
 }
 
-class FailingTrajectorySink implements TrajectorySink {
+class FailingTrajectorySink implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
     private sequence = 0;
 
@@ -54,6 +57,26 @@ class FailingTrajectorySink implements TrajectorySink {
         this.events.push(event);
         return event;
     }
+
+    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+        return this.events.filter((event) =>
+            event.goalId === query.goalId
+            && event.runId === query.runId
+            && (query.fromSequence === undefined || event.sequence >= query.fromSequence)
+            && (query.toSequence === undefined || event.sequence <= query.toSequence),
+        );
+    }
+
+    async readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const events = await this.read(query);
+        return {
+            committed: events.filter((event) => event.sequence <= committedThroughSequence),
+            uncommittedTail: events.filter((event) => event.sequence > committedThroughSequence),
+        };
+    }
 }
 
 class RecordingTraceSink {
@@ -66,6 +89,7 @@ class RecordingTraceSink {
 
 function executingGoal(id: string): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id,
         intent: "execute",
         promptBundleVersion: 1,
@@ -131,14 +155,13 @@ function toolThatSucceeds(onExecute?: () => void): Tool {
     };
 }
 
-function toolDecision(): { kind: "tool_call"; checkpoint: string; action: {
+function toolDecision(): { kind: "tool_call"; action: {
     actionId: string;
     toolId: string;
     input: Record<string, never>;
 } } {
     return {
         kind: "tool_call",
-        checkpoint: "call echo",
         action: { actionId: "action-1", toolId: "echo", input: {} },
     };
 }
@@ -153,6 +176,7 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
         toolCalled = true;
     });
     const runner = new Runner({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         toolRegistry: { get: () => tool },
@@ -177,6 +201,7 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
     const sink = new FailingTrajectorySink();
     const tool = toolThatFails();
     const runner = new Runner({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         toolRegistry: { get: () => tool },
@@ -195,6 +220,8 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
             "state_committed",
             "tool_started",
             "execution_error",
+            "context_epoch_closed",
+            "memory_patch_accepted",
             "state_committed",
         ],
     );
@@ -209,6 +236,7 @@ test("an Observation append failure keeps the durable pending Action and prior f
     const sink = new FailingTrajectorySink("observation_recorded");
     const tool = toolThatSucceeds();
     const runner = new Runner({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         toolRegistry: { get: () => tool },
@@ -239,6 +267,7 @@ test("a Tool without a result records an execution error without a fabricated fi
     await store.save(goal);
     const sink = new FailingTrajectorySink();
     const runner = new Runner({
+        trajectoryStore: sink,
         store,
         trajectorySink: sink,
         toolRegistry: { get: () => toolWithoutResult() },
@@ -259,10 +288,11 @@ test("a marker append failure preserves the saved Snapshot and reports a diagnos
     const sink = new FailingTrajectorySink("state_committed");
     const traceSink = new RecordingTraceSink();
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         trajectorySink: sink,
         traceSink,
-        executor: { execute: async () => ({ kind: "complete", checkpoint: "done", summary: "done" }) },
+        executor: { execute: async () => ({ kind: "complete", completionEvidence: [], summary: "done" }) },
     });
 
     await assert.rejects(

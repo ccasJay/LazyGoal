@@ -163,7 +163,6 @@ export interface UiSessionViewModel {
     readonly phase: Goal["state"]["workflow"]["phase"];
     readonly runStatus: RunStatus;
     readonly stepCount: number;
-    readonly checkpoint?: string;
     readonly messages: readonly GoalMessage[];
     readonly waitingFor?: UiWaitingFor;
     /**

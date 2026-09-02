@@ -1,5 +1,2 @@
-Active Phase Protocol:
-只返回一个 JSON 对象，不要使用 Markdown 代码块或附加说明。
-允许的形状为 {"kind":"question","question":"非空文本"} 或
-{"kind":"context_ready"}。
-不要返回任务提案或执行结果。
+Active Phase Protocol: gathering_context (structured@1; trajectory-layered@1; bm25-lite@1)
+Use Context Lookup only for historical evidence. If Context Epoch control.status is checkpoint_required, return only {"kind":"context_checkpoint","memoryPatch":{...optional}}. Otherwise return exactly one question, context_ready, or context_lookup object; do not return a task proposal or Action.

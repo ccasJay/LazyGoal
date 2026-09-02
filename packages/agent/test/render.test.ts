@@ -53,26 +53,42 @@ function buildView(
 ): ModelInferenceView {
     return {
         prompt: {
-            promptBundleVersion: options.promptBundleVersion ?? 1,
+            promptBundleVersion: (options.promptBundleVersion ?? 1) as 1,
             phase,
             profile,
             authorizedTools: options.authorizedTools ?? [],
-            ...(options.promptBundleVersion === 6
-                ? {
-                    memoryProtocol: { kind: "structured" as const, version: 1 as const },
-                    modelContextProtocol: {
-                        kind: "trajectory-layered" as const,
-                        version: 1 as const,
-                    },
-                    contextRetrievalProtocol: {
-                        kind: "bm25-lite" as const,
-                        version: 1 as const,
-                    },
-                }
-                : {}),
+            memoryProtocol: { kind: "structured" as const, version: 1 as const },
+            modelContextProtocol: {
+                kind: "trajectory-layered" as const,
+                version: 1 as const,
+            },
+            contextRetrievalProtocol: {
+                kind: "bm25-lite" as const,
+                version: 1 as const,
+            },
         },
         conversation: options.conversation ?? conversation,
         workingContext,
+        workingMemory: {
+            protocolVersion: 1,
+            derivedThroughSequence: 0,
+            facts: [],
+            hypotheses: [],
+            plan: [],
+            blockers: [],
+        },
+        contextEpoch: {
+            protocolVersion: 1,
+            epochNumber: 0,
+            conversationStartIndex: 0,
+            openedAtSequence: 0,
+            control: {
+                status: "active",
+                inputTokens: 0,
+                hardInputLimit: 0,
+                remainingTokens: 0,
+            },
+        },
         ...(options.contextLookupResult === undefined
             ? {}
             : { contextLookupResult: options.contextLookupResult }),
@@ -97,7 +113,11 @@ test("renderRequest 按 system → 真实会话 → Working Context 组装唯一
     assert.equal(request.messages.at(-1)?.role, "user");
     assert.deepEqual(
         JSON.parse(request.messages.at(-1)?.content ?? ""),
-        workingContext,
+        {
+            ...workingContext,
+            workingMemory: view.workingMemory,
+            contextEpoch: view.contextEpoch,
+        },
     );
 });
 
@@ -118,7 +138,7 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     const systemContent = request.messages[0]?.content ?? "";
 
     assert.match(systemContent, /Active Phase Protocol:/);
-    assert.match(systemContent, /AgentDecision 协议/);
+    assert.match(systemContent, /trajectory-layered@1/);
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
 });
@@ -136,7 +156,12 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
     assert.equal(request.messages[1]?.content, "{{ profile.systemPrompt }}");
     assert.deepEqual(
         JSON.parse(request.messages.at(-1)?.content ?? ""),
-        { phase: "gathering_context", intent: "{% if true %}x{% endif %}" },
+        {
+            phase: "gathering_context",
+            intent: "{% if true %}x{% endif %}",
+            workingMemory: view.workingMemory,
+            contextEpoch: view.contextEpoch,
+        },
     );
 });
 
@@ -186,7 +211,7 @@ test("structured 请求在控制消息中独立携带 Working Memory", () => {
     });
 });
 
-test("v6 请求在控制消息中携带带时效边界的历史 Lookup Result", () => {
+test("当前请求在控制消息中携带带时效边界的历史 Lookup Result", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",

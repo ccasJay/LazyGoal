@@ -68,7 +68,7 @@ export interface EpisodeAttempt {
     readonly maxSteps: number;
     readonly profileId: string;
     readonly profileHash: string;
-    readonly promptBundleVersion: number;
+    readonly promptBundleVersion: 1;
     readonly manifestId: string;
     readonly configId: string;
     readonly modelId: string | null;
@@ -118,7 +118,7 @@ export interface EvaluationReport {
     readonly manifestName: string;
     readonly profileId: string;
     readonly profileHash: string;
-    readonly promptBundleVersion: number;
+    readonly promptBundleVersion: 1;
     readonly configId: string;
     readonly modelId: string | null;
     readonly attempts: readonly EpisodeAttempt[];
@@ -131,7 +131,7 @@ export interface EvaluationReport {
  * @example
  * ```ts
  * const metadata: EvaluationReportMetadata = {
- *   manifest, profile, profileHash: "hash", promptBundleVersion: 3,
+ *   manifest, profile, profileHash: "hash", promptBundleVersion: 1,
  *   configId: "alfworld-v1",
  * };
  * ```
@@ -140,7 +140,7 @@ export interface EvaluationReportMetadata {
     readonly manifest: AlfworldManifest;
     readonly profile: AgentProfile;
     readonly profileHash: string;
-    readonly promptBundleVersion: number;
+    readonly promptBundleVersion: 1;
     readonly configId: string;
     readonly modelId?: string;
 }

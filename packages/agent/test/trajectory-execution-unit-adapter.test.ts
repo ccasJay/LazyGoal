@@ -78,8 +78,8 @@ test("Adapter 只投影 committed boundary 内的完整 Tool execution unit", ()
                 type: "decision_received",
                 decision: {
                     kind: "complete",
-                    checkpoint: "tail",
                     summary: "not committed",
+                    completionEvidence: [],
                 },
             },
         }),
@@ -113,8 +113,8 @@ test("Adapter 保留完整的非 Tool Decision，排除生命周期、marker 和
                 type: "decision_received",
                 decision: {
                     kind: "complete",
-                    checkpoint: "done",
                     summary: "finished",
+                    completionEvidence: [],
                 },
             },
         }),
@@ -130,7 +130,6 @@ test("Adapter 保留完整的非 Tool Decision，排除生命周期、marker 和
                 type: "decision_received",
                 decision: {
                     kind: "wait",
-                    checkpoint: "waiting",
                     reason: "need input",
                 },
             },
@@ -147,8 +146,8 @@ test("Adapter 保留完整的非 Tool Decision，排除生命周期、marker 和
                 type: "decision_received",
                 decision: {
                     kind: "complete",
-                    checkpoint: "missing terminal",
                     summary: "incomplete",
+                    completionEvidence: [],
                 },
             },
         }),
@@ -176,8 +175,8 @@ test("Adapter 拒绝跨身份、乱序和非连续 execution unit", () => {
                 type: "decision_received",
                 decision: {
                     kind: "complete",
-                    checkpoint: unitId,
                     summary: "done",
+                    completionEvidence: [],
                 },
             },
         });
@@ -246,7 +245,6 @@ test("HotWindowSelector 不跳过无法容纳的较新单元并保持输入不�
 function toolDecision(): Extract<AgentDecision, { readonly kind: "tool_call" }> {
     return {
         kind: "tool_call",
-        checkpoint: "call echo",
         action: {
             actionId: "action-tool",
             toolId: "echo",

@@ -106,7 +106,6 @@ export {
     DEFAULT_MODEL_INPUT_CHARACTER_BUDGET,
     DEFAULT_MODEL_RESPONSE_RESERVE_RATIO,
     DEFAULT_MODEL_WARM_SHARE,
-    DEFAULT_MODEL_COMPACT_TRIGGER_RATIO,
     DEFAULT_MODEL_LARGE_OUTPUT_TOKEN_PREVIEW_LIMIT,
     DEFAULT_MODEL_LARGE_OUTPUT_CHARACTER_PREVIEW_LIMIT,
 } from "./model-context-budget";
@@ -149,7 +148,6 @@ export type {
     ModelConversationMessage,
     ModelContextProtocol,
     ModelContextRetrievalProtocol,
-    ModelRetrievalProtocol,
     ModelMemoryProtocol,
     ModelMemoryEntryBase,
     ModelFact,
@@ -192,19 +190,7 @@ export {
     TaskProposalPreparationResultSchema,
     ToolCallActionSchema,
     ToolCallAgentDecisionSchema,
-    StructuredAgentDecisionSchema,
-    StructuredToolCallAgentDecisionSchema,
-    StructuredCompleteAgentDecisionSchema,
-    StructuredWaitAgentDecisionSchema,
-    StructuredFailAgentDecisionSchema,
-    StructuredGatheringContextPreparationResultSchema,
-    StructuredQuestionPreparationResultSchema,
-    StructuredContextReadyPreparationResultSchema,
-    StructuredContextLookupAgentDecisionSchema,
-    StructuredContextLookupPreparationResultSchema,
     ModelContextCheckpointResultSchema,
-    StructuredPlanningPreparationResultSchema,
-    StructuredTaskProposalPreparationResultSchema,
     ContextLookupRequestSchema,
     WaitAgentDecisionSchema,
 } from "./response-schema";
@@ -215,8 +201,6 @@ export type {
 export {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
-    TOOLS_NOT_SUPPORTED_ERROR_CODE,
-    ToolsNotSupportedError,
 } from "./errors";
 export type { LLMResponseProtocolErrorDetails } from "./errors";
 
@@ -227,12 +211,6 @@ export {
     DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DEFAULT_PROMPT_TEMPLATE_ASSETS,
     PROMPT_BUNDLE_V1_MANIFEST,
-    PROMPT_BUNDLE_V2_MANIFEST,
-    PROMPT_BUNDLE_V3_MANIFEST,
-    PROMPT_BUNDLE_V4_MANIFEST,
-    PROMPT_BUNDLE_V5_MANIFEST,
-    PROMPT_BUNDLE_V6_MANIFEST,
-    PROMPT_BUNDLE_V8_MANIFEST,
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";

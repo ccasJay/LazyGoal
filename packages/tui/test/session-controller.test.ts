@@ -12,6 +12,7 @@ import {
     type LaunchResult,
     type ResumeGoalRequest,
 } from "../../runtime/src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     SessionController,
     UiDispatchRejectedError,
@@ -30,6 +31,7 @@ const profile = {
 
 function createWaitingGoal(id = "goal-1"): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id,
         intent: "Build a resumable workflow",
@@ -59,6 +61,7 @@ function createWaitingGoal(id = "goal-1"): Goal {
 
 function createStalledGoal(id = "goal-stalled"): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id,
         intent: "Build a resumable workflow",

@@ -12,6 +12,7 @@ import {
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols } from "./current-fixtures";
 import type {
     AgentProfile,
     ExitPort,
@@ -34,6 +35,7 @@ function createPendingActionGoal(): Goal {
         completionCriteria: ["pendingAction 仍可恢复"],
     };
     const initial = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-shutdown",
         intent: task.objective,
@@ -60,7 +62,6 @@ function createPendingActionGoal(): Goal {
 
     const staged = transition(started.state, {
         kind: "stage_action",
-        checkpoint: "关闭前已保存 Action 意图",
         action: {
             actionId: "action-shutdown",
             toolId: "read_file",
@@ -286,7 +287,6 @@ test("ShutdownCoordinator force-cleans after grace timeout without rolling back 
             ...checkpoint.state,
             run: {
                 ...checkpoint.state.run,
-                checkpoint: "尚未完成的后续保存",
             },
         },
     };

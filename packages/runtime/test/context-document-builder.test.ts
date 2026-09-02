@@ -63,7 +63,6 @@ function committedSource(): readonly TrajectoryEvent[] {
                 type: "decision_received",
                 decision: {
                     kind: "tool_call",
-                    checkpoint: "读取文件",
                     action: {
                         actionId: "action-read",
                         toolId: "read_file",
@@ -197,7 +196,7 @@ function committedSource(): readonly TrajectoryEvent[] {
             eventType: "decision_received",
             payload: {
                 type: "decision_received",
-                decision: { kind: "complete", summary: "tail", checkpoint: "tail" },
+                decision: { kind: "complete", summary: "tail", completionEvidence: [] },
             },
         }),
     ];
@@ -304,7 +303,6 @@ test("Builder 不把未闭合 execution/preparation 片段拆成文档", () => {
                 type: "decision_received",
                 decision: {
                     kind: "tool_call",
-                    checkpoint: "incomplete",
                     action: { actionId: "action-1", toolId: "read_file", input: {} },
                 },
             },
@@ -347,7 +345,7 @@ test("Builder 对 committed 身份、顺序和结构矛盾 fail-closed", () => {
             eventType: "decision_received",
             payload: {
                 type: "decision_received",
-                decision: { kind: "complete", checkpoint: "a", summary: "a" },
+                decision: { kind: "complete", summary: "a", completionEvidence: [] },
             },
         }),
         event(2, {
@@ -356,7 +354,7 @@ test("Builder 对 committed 身份、顺序和结构矛盾 fail-closed", () => {
             eventType: "decision_received",
             payload: {
                 type: "decision_received",
-                decision: { kind: "complete", checkpoint: "b", summary: "b" },
+                decision: { kind: "complete", summary: "b", completionEvidence: [] },
             },
         }),
     ];

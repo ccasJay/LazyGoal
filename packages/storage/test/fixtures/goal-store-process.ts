@@ -8,6 +8,7 @@ import type {
     Tool,
 } from "../../../runtime/src/index";
 import { READ_FILE_TOOL_ID, ReadFileTool } from "../../../tools/src/index";
+import { InMemoryTrajectoryStore, trajectoryStoreFor } from "../../../runtime/test/current-fixtures";
 
 const [
     mode,
@@ -54,6 +55,7 @@ async function main(): Promise<void> {
         const tool = new ReadFileTool(workspaceRoot);
         let observedActionId: string | undefined;
         const result = await new Runner({
+            trajectoryStore: new InMemoryTrajectoryStore(),
             store: new JsonFileGoalStore(directory),
             executor: {
                 async execute({ goal }: StepExecutionInput) {
@@ -64,7 +66,7 @@ async function main(): Promise<void> {
                         : undefined;
                     return {
                         kind: "complete" as const,
-                        checkpoint: "已吸收跨进程读取结果",
+                        completionEvidence: [],
                         summary: "跨进程重放后完成",
                     };
                 },
@@ -126,7 +128,6 @@ async function main(): Promise<void> {
                 if (currentGoal.state.run.stepCount === 0) {
                     return {
                         kind: "tool_call",
-                        checkpoint: "读取文件",
                         action: {
                             actionId: "action-lifecycle",
                             toolId: READ_FILE_TOOL_ID,
@@ -137,12 +138,13 @@ async function main(): Promise<void> {
 
                 return {
                     kind: "complete",
-                    checkpoint: "已吸收读取结果",
+                    completionEvidence: [],
                     summary: "生命周期完成",
                 };
             },
         };
         const result = await new Runner({
+            trajectoryStore: trajectoryStoreFor(store),
             store,
             executor,
             toolRegistry: {
@@ -177,11 +179,12 @@ async function main(): Promise<void> {
             },
         };
         const result = await new Runner({
+            trajectoryStore: new InMemoryTrajectoryStore(),
             store: new JsonFileGoalStore(directory),
             executor: {
                 async execute() {
                     executorCalls += 1;
-                    return { kind: "complete", checkpoint: "不应执行", summary: "不应执行" };
+                    return { kind: "complete", completionEvidence: [], summary: "不应执行" };
                 },
             },
             toolRegistry: {
@@ -210,10 +213,11 @@ async function main(): Promise<void> {
 
         const store = new JsonFileGoalStore(directory);
         const buildRunner = (observe: (actionId: string) => void) => new Runner({
+            trajectoryStore: trajectoryStoreFor(store),
             store,
             executor: {
                 async execute() {
-                    return { kind: "complete", checkpoint: "已吸收读取结果", summary: "授权后完成" };
+                    return { kind: "complete", completionEvidence: [], summary: "授权后完成" };
                 },
             },
             toolRegistry: {
