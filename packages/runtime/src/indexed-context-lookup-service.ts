@@ -1,10 +1,10 @@
-import { resolveModelContextProtocol, type Goal } from "./domain";
+import type { Goal } from "./domain";
 import type { ContextSearchDocument } from "./context-document";
 import { buildContextInvertedIndex } from "./context-tokenizer";
 import { FieldedBm25LiteRanker } from "./context-ranking";
 import { buildContextLookupResultFromRanking } from "./context-lookup-result";
 import {
-    CONTEXT_RETRIEVAL_INDEX_VERSION_V2,
+    CONTEXT_RETRIEVAL_INDEX_VERSION,
     ContextRetrievalQueryCache,
     openContextRetrievalIndexSession,
     type ContextRetrievalIndexSession,
@@ -51,18 +51,15 @@ export class IndexedContextLookupService implements ContextLookupPort {
                 { goalId: input.goal.id, runId: input.goal.state.run.id },
                 boundary,
             )).committed;
-        const v2 = resolveModelContextProtocol(input.goal.definition).kind === "trajectory-layered"
-            && resolveModelContextProtocol(input.goal.definition).version === 2;
-        const conversationStartIndex = input.goal.state.run.contextEpoch?.conversationStartIndex
-            ?? input.goal.state.messages.length;
-        const sidecar = !v2 || this.options.indexStore === undefined
+        const conversationStartIndex = input.goal.state.run.contextEpoch.conversationStartIndex;
+        const sidecar = this.options.indexStore === undefined
             ? undefined
             : await this.options.indexStore.restore(
                 input.goal.id,
                 input.goal.state.run.id,
                 {
                     committedThroughSequence: boundary,
-                    indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION_V2,
+                    indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
                     conversationEndIndexExclusive: conversationStartIndex,
                 },
             );
@@ -71,13 +68,11 @@ export class IndexedContextLookupService implements ContextLookupPort {
             runId: input.goal.state.run.id,
             committedThroughSequence: boundary,
             events: trajectory,
-            ...(v2 ? {
-                messages: input.goal.state.messages,
-                conversationStartIndex,
-            } : {}),
+            messages: input.goal.state.messages,
+            conversationStartIndex,
             ...(sidecar === undefined ? {} : { sidecar }),
         });
-        if (v2 && this.options.indexStore !== undefined) {
+        if (this.options.indexStore !== undefined) {
             try {
                 await this.options.indexStore.save(session.sidecar);
             } catch {
@@ -135,7 +130,7 @@ async function saveSidecar(
     sidecar: ContextRetrievalIndexSession["sidecar"],
     queryCache: ContextRetrievalQueryCache,
 ): Promise<void> {
-    if (store === undefined || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION_V2) return;
+    if (store === undefined || sidecar.indexVersion !== CONTEXT_RETRIEVAL_INDEX_VERSION) return;
     try {
         await store.save({
             ...sidecar,

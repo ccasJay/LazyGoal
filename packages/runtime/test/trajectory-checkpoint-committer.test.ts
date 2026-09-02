@@ -17,6 +17,7 @@ import type {
     TrajectoryEventDraft,
     TrajectorySink,
 } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "committer-profile",
@@ -27,9 +28,10 @@ const profile: AgentProfile = {
 
 function goal(): Goal {
     return createGoal({
+        ...currentProtocols,
         id: "committer-goal",
         intent: "验证共享提交器",
-        promptBundleVersion: 4,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         profile,
         runId: "committer-run",
@@ -127,7 +129,7 @@ test("committer appends facts then accepted Patch and saves revision only in Sna
     if (patchEvent.payload.type === "memory_patch_accepted") {
         assert.deepEqual(patchEvent.payload.producers, ["model", "runtime_lifecycle"]);
     }
-    assert.equal(initial.state.run.committedThroughSequence, undefined);
+    assert.equal(initial.state.run.committedThroughSequence, 0);
     assert.equal(initial.state.run.memoryRevision, undefined);
     assert.equal(result.goal.state.run.committedThroughSequence, 2);
     assert.deepEqual(result.goal.state.run.memoryRevision, {

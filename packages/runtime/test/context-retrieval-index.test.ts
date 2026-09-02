@@ -20,6 +20,10 @@ import {
 
 const goalId = "goal-index-cache";
 const runId = "run-index-cache";
+const currentConversation = {
+    messages: [],
+    conversationStartIndex: 0,
+};
 
 function query(
     question: string,
@@ -92,12 +96,14 @@ test("查询 LRU 固定 64 项，命中提升到 MRU 且淘汰最旧项", () => 
 test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新准备文档", () => {
     const events = preparationEvents();
     const oldSidecar = buildContextRetrievalIndexSidecar({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 2,
         events,
     });
     const incremental = openContextRetrievalIndexSession({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 4,
@@ -105,6 +111,7 @@ test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新准备�
         sidecar: oldSidecar,
     });
     const rebuilt = openContextRetrievalIndexSession({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 4,
@@ -127,6 +134,7 @@ test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新准备�
 test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", () => {
     const events = preparationEvents();
     const sidecar = buildContextRetrievalIndexSidecar({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 2,
@@ -137,6 +145,7 @@ test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", ()
         sourceDigest: "sha256:" + "0".repeat(64),
     };
     const rebuilt = openContextRetrievalIndexSession({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 2,
@@ -147,6 +156,7 @@ test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", ()
     assert.equal(rebuilt.sidecar.sourceDigest, sidecar.sourceDigest);
 
     const leading = openContextRetrievalIndexSession({
+        ...currentConversation,
         goalId,
         runId,
         committedThroughSequence: 1,

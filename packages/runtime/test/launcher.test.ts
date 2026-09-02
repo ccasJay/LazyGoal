@@ -12,6 +12,7 @@ import type {
     RunRef,
 } from "../src/index";
 import { GoalProtocolError } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 function createProfile(): AgentProfile {
     return {
@@ -126,6 +127,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
         definition: {
             intent: "  Build a resumable workflow  ",
             promptBundleVersion: 1,
+            ...currentProtocols,
             profile: createProfile(),
             executionPolicy: { maxSteps: 7 },
         },
@@ -137,7 +139,18 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
             messages: [
                 { role: "user", content: "  Build a resumable workflow  " },
             ],
-            run: { id: "run-1", status: "created", stepCount: 0 },
+            run: {
+                id: "run-1",
+                status: "created",
+                stepCount: 0,
+                committedThroughSequence: 0,
+                contextEpoch: {
+                    version: 1,
+                    number: 0,
+                    conversationStartIndex: 0,
+                    openedAtSequence: 0,
+                },
+            },
         },
     };
     const coordinator = new FakeCoordinator(waitingResult(expectedGoal), events);
@@ -157,7 +170,6 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
             },
             store,
             coordinator,
-            promptBundleVersion: 1,
         },
     );
 
@@ -208,7 +220,6 @@ test("launch validates intent and maxSteps before all dependencies", async () =>
             },
             store,
             coordinator,
-            promptBundleVersion: 1,
         });
 
         assert.equal(result.ok, false);
@@ -238,7 +249,6 @@ test("launch returns PROFILE_NOT_FOUND without generating, saving, or advancing"
             },
             store,
             coordinator,
-            promptBundleVersion: 1,
         },
     );
 
@@ -247,7 +257,7 @@ test("launch returns PROFILE_NOT_FOUND without generating, saving, or advancing"
         assert.equal(result.error.code, "PROFILE_NOT_FOUND");
     }
     assert.equal(generatorCalls, 0);
-    assert.deepEqual(store.savedGoals, []);
+    assert.equal(store.savedGoals.length, 0);
     assert.deepEqual(coordinator.receivedRefs, []);
 });
 
@@ -266,7 +276,6 @@ test("launch propagates ID generation and initial save failures without advancin
                 },
                 store: new RecordingGoalStore(),
                 coordinator: generatorCoordinator,
-                promptBundleVersion: 1,
             },
         ),
         generatorError,
@@ -283,7 +292,6 @@ test("launch propagates ID generation and initial save failures without advancin
                 runIdGenerator: () => "run-1",
                 store: new RecordingGoalStore([], saveError),
                 coordinator: saveCoordinator,
-                promptBundleVersion: 1,
             },
         ),
         saveError,
@@ -305,7 +313,6 @@ test("launch propagates Coordinator failures only after saving the initial Goal"
                 runIdGenerator: () => "run-1",
                 store,
                 coordinator,
-                promptBundleVersion: 1,
             },
         ),
         coordinatorError,
@@ -332,53 +339,58 @@ test("launch returns Coordinator business failures unchanged", async () => {
             runIdGenerator: () => "run-1",
             store: new RecordingGoalStore(),
             coordinator,
-            promptBundleVersion: 1,
         },
     );
 
     assert.strictEqual(result, coordinatorResult);
 });
 
-test("launch rejects a structured Goal before Profile, Run ID, or Snapshot side effects when Validator is missing", async () => {
+test("launch validates the fixed current protocol before external side effects", async () => {
     const profiles = new FakeProfileRegistry([createProfile()]);
     const store = new RecordingGoalStore();
     const coordinator = new FakeCoordinator(unusedResult);
     let generatorCalls = 0;
+    const seen: unknown[] = [];
 
-    await assert.rejects(
-        () => launch(
-            { goalId: "goal-structured", intent: "Use structured memory", profileId: "profile-1" },
-            {
-                profiles,
-                runIdGenerator: () => {
-                    generatorCalls += 1;
-                    return "run-structured";
-                },
-                store,
-                coordinator,
-                promptBundleVersion: 4,
-                memoryProtocol: { kind: "structured", version: 1 },
+    const result = await launch(
+        { goalId: "goal-structured", intent: "Use structured memory", profileId: "profile-1" },
+        {
+            profiles,
+            runIdGenerator: () => {
+                generatorCalls += 1;
+                return "run-structured";
             },
-        ),
-        (error: unknown) => {
-            assert.ok(error instanceof GoalProtocolError);
-            return true;
+            store,
+            coordinator,
+            protocolValidator: { validate: (input) => seen.push(input) },
         },
     );
 
-    assert.deepEqual(profiles.requestedProfileIds, []);
-    assert.equal(generatorCalls, 0);
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(coordinator.receivedRefs, []);
+    assert.equal(result.ok, false);
+    assert.deepEqual(seen, [{
+        promptBundleVersion: 1,
+        ...currentProtocols,
+    }]);
+    assert.deepEqual(profiles.requestedProfileIds, ["profile-1"]);
+    assert.equal(generatorCalls, 1);
+    assert.equal(store.savedGoals.length, 1);
+    assert.equal(store.savedGoals[0]?.definition.promptBundleVersion, 1);
+    assert.deepEqual(store.savedGoals[0]?.definition.memoryProtocol, currentProtocols.memoryProtocol);
+    assert.deepEqual(store.savedGoals[0]?.definition.modelContextProtocol, currentProtocols.modelContextProtocol);
+    assert.deepEqual(store.savedGoals[0]?.definition.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
+    assert.deepEqual(coordinator.receivedRefs, [
+        { goalId: "goal-structured", runId: "run-structured" },
+    ]);
 });
 
-test("launch rejects a Prompt/Memory protocol mismatch before any external dependency", async () => {
+test("launch propagates protocol validator failures before Profile lookup", async () => {
     const profiles = new FakeProfileRegistry([createProfile()]);
     const store = new RecordingGoalStore();
     const coordinator = new FakeCoordinator(unusedResult);
     let generatorCalls = 0;
+    const error = new GoalProtocolError("当前协议不受支持");
 
-    await assert.rejects(
+    await assertRejectsWithSameError(
         () => launch(
             { goalId: "goal-mismatch", intent: "Reject mismatch", profileId: "profile-1" },
             {
@@ -389,16 +401,14 @@ test("launch rejects a Prompt/Memory protocol mismatch before any external depen
                 },
                 store,
                 coordinator,
-                promptBundleVersion: 4,
-                memoryProtocol: { kind: "checkpoint", version: 1 },
                 protocolValidator: {
                     validate: () => {
-                        throw new GoalProtocolError("Prompt/Memory 协议不匹配");
+                        throw error;
                     },
                 },
             },
         ),
-        /GOAL_PROTOCOL_ERROR/,
+        error,
     );
 
     assert.deepEqual(profiles.requestedProfileIds, []);

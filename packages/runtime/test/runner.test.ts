@@ -8,6 +8,7 @@ import {
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -29,7 +30,7 @@ import type {
 
 const goalDefinition: GoalTask = {
     objective: "完成最小同步 Goal Loop",
-    completionCriteria: ["Run 进入终态或等待状态"],
+    completionCriteria: [],
 };
 
 const profile: AgentProfile = {
@@ -190,6 +191,7 @@ function createInitialGoal(
     maxSteps = 3,
 ): Goal {
     const created = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: goalId,
         intent: goalDefinition.objective,
@@ -229,7 +231,6 @@ function createWaitingGoal(runId = "run-1"): Goal {
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "等待外部输入",
                 reason: "缺少外部依赖",
             },
         }),
@@ -283,7 +284,7 @@ test("starts a created Goal, saves every transition, and executes until complete
     await store.seed(initial);
     const completeDecision = {
         kind: "complete",
-        checkpoint: "已吸收读取结果",
+        completionEvidence: [],
         summary: "目标完成",
     } as const;
     const tool = createRunnerTool(async () => ({
@@ -294,7 +295,6 @@ test("starts a created Goal, saves every transition, and executes until complete
     const executor = new FakeStepExecutor([
         () => ({
             kind: "tool_call",
-            checkpoint: "准备读取文件",
             action: {
                 actionId: "action-1",
                 toolId: "read_file",
@@ -304,6 +304,7 @@ test("starts a created Goal, saves every transition, and executes until complete
         () => completeDecision,
     ], events);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -371,6 +372,7 @@ test("does not start or consume a Step for a preparation Goal", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const preparationGoal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-preparation",
         intent: "先收集上下文",
@@ -379,7 +381,7 @@ test("does not start or consume a Step for a preparation Goal", async () => {
     });
     await store.seed(preparationGoal);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(preparationGoal)),
@@ -398,19 +400,18 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
     await store.seed(initial);
     const waitDecision = {
         kind: "wait",
-        checkpoint: "需要用户批准",
         reason: "需要破坏性操作批准",
     } as const;
     const completeDecision = {
         kind: "complete",
-        checkpoint: "批准后收尾",
+        completionEvidence: [],
         summary: "批准后完成",
     } as const;
     const executor = new FakeStepExecutor([
         () => waitDecision,
         () => completeDecision,
     ], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const ref = createRef(initial);
 
     const waiting = requireSuccessfulState(
@@ -514,7 +515,6 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
                 );
                 const staged = applyTransition(running.state.run, {
                     kind: "stage_action",
-                    checkpoint: "已确定要读取的文件",
                     action: {
                         actionId: "action-recovered",
                         toolId: "read_file",
@@ -550,12 +550,12 @@ test("从 InMemoryGoalStore 恢复 created 和 running Goal 时保留累计进�
                 assert.deepEqual(goal.definition.profile, scenario.goal.definition.profile);
                 return {
                     kind: "complete",
-                    checkpoint: "恢复后收尾",
+                    completionEvidence: [],
                     summary: `${scenario.label} 恢复后完成`,
                 };
             },
         ]);
-        const runner = new Runner({ store, executor });
+        const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(scenario.goal)),
@@ -575,11 +575,12 @@ test("从 InMemoryGoalStore 恢复 waiting 和终态 Goal 时直接短路", asyn
     const waitingExecutor = new FakeStepExecutor([
         () => ({
             kind: "complete",
-            checkpoint: "恢复后收尾",
+            completionEvidence: [],
             summary: "恢复后完成",
         }),
     ]);
     const waitingRunner = new Runner({
+        trajectoryStore: trajectoryStoreFor(waitingStore),
         store: waitingStore,
         executor: waitingExecutor,
     });
@@ -597,7 +598,7 @@ test("从 InMemoryGoalStore 恢复 waiting 和终态 Goal 时直接短路", asyn
         const store = new InMemoryGoalStore();
         await store.save(inactive.goal);
         const executor = new FakeStepExecutor([]);
-        const runner = new Runner({ store, executor });
+        const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(inactive.goal)),
@@ -625,7 +626,7 @@ const inactiveGoals: ReadonlyArray<{
                 kind: "decision",
                 decision: {
                     kind: "complete",
-                    checkpoint: "已收尾",
+                    completionEvidence: [],
                     summary: "已完成",
                 },
             }),
@@ -639,7 +640,6 @@ const inactiveGoals: ReadonlyArray<{
                 kind: "decision",
                 decision: {
                     kind: "fail",
-                    checkpoint: "已失败",
                     error: "已失败",
                 },
             }),
@@ -662,7 +662,7 @@ for (const inactive of inactiveGoals) {
         const store = new RecordingGoalStore(events);
         await store.seed(inactive.goal);
         const executor = new FakeStepExecutor([], events);
-        const runner = new Runner({ store, executor });
+        const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
         const state = requireSuccessfulState(
             await runner.runUntilBlocked(createRef(inactive.goal)),
@@ -679,7 +679,7 @@ test("returns RUN_NOT_FOUND without executing or saving when Goal is missing", a
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const ref = { goalId: "goal-1", runId: "missing-run" };
 
     const result = requireFailedResult(
@@ -699,7 +699,7 @@ test("returns RUN_NOT_FOUND without executing or saving when runId mismatches", 
     const goal = createInitialGoal("actual-run");
     await store.seed(goal);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     const result = requireFailedResult(
         await runner.runUntilBlocked({
@@ -728,16 +728,15 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     const executor = new FakeStepExecutor([
         () => ({
             kind: "tool_call",
-            checkpoint: "第一次",
             action: { actionId: "action-1", toolId: "read_file", input: {} },
         }),
         () => ({
             kind: "tool_call",
-            checkpoint: "第二次",
             action: { actionId: "action-2", toolId: "read_file", input: {} },
         }),
     ], events);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -776,7 +775,6 @@ test("uses persisted step count after external resume as the maxSteps budget", a
         (() => {
             const staged = applyTransition(running.state.run, {
                 kind: "stage_action",
-                checkpoint: "已确定要读取的文件",
                 action: {
                     actionId: "action-resume-budget",
                     toolId: "read_file",
@@ -802,7 +800,6 @@ test("uses persisted step count after external resume as the maxSteps budget", a
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "等待恢复",
                 reason: "等待恢复",
             },
         }),
@@ -813,7 +810,7 @@ test("uses persisted step count after external resume as the maxSteps budget", a
     );
     await store.seed(externallyResumed);
     const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(externallyResumed)),
@@ -847,7 +844,7 @@ test("converts an executor exception into a persisted fail decision", async () =
             throw executorError;
         },
     ], events);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -859,7 +856,6 @@ test("converts an executor exception into a persisted fail decision", async () =
         kind: "decision",
         result: {
             kind: "fail",
-            checkpoint: "Executor failed before returning an AgentDecision.",
             error: "executor failed",
         },
     });
@@ -886,11 +882,10 @@ test("persists an explicit fail decision with a normalized assistant message", a
     const executor = new FakeStepExecutor([
         () => ({
             kind: "fail",
-            checkpoint: "无法继续",
             error: "无法满足完成条件",
         }),
     ]);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     const state = requireSuccessfulState(
         await runner.runUntilBlocked(createRef(initial)),
@@ -925,7 +920,6 @@ test("maxSteps 为 0 时连续执行不受 Step 数量限制", async () => {
     const executor = new FakeStepExecutor([
         ...Array.from({ length: 5 }, (_, index) => () => ({
             kind: "tool_call" as const,
-            checkpoint: `累计 checkpoint ${index + 1}`,
             action: {
                 actionId: `action-${index + 1}`,
                 toolId: "read_file",
@@ -934,11 +928,12 @@ test("maxSteps 为 0 时连续执行不受 Step 数量限制", async () => {
         })),
         () => ({
             kind: "complete" as const,
-            checkpoint: "无限模式收尾",
+            completionEvidence: [],
             summary: "无限模式完成",
         }),
     ]);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -966,7 +961,7 @@ test("propagates a restore error without saving or executing", async () => {
         },
     };
     const executor = new FakeStepExecutor([]);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked({ goalId: "goal-1", runId: "run-1" }),
@@ -991,7 +986,7 @@ test("propagates the start save error without executing", async () => {
         },
     };
     const executor = new FakeStepExecutor([]);
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     await assertRejectsWithSameError(
         () => runner.runUntilBlocked(createRef(created)),
@@ -1012,7 +1007,6 @@ test("propagates a recovered step save error and does not execute another step",
     );
     const staged = applyTransition(running.state.run, {
         kind: "stage_action",
-        checkpoint: "已确定要读取的文件",
         action: {
             actionId: "action-save-error",
             toolId: "read_file",
@@ -1054,7 +1048,6 @@ test("propagates a recovered step save error and does not execute another step",
     const executor = new FakeStepExecutor([
         () => ({
             kind: "tool_call",
-            checkpoint: "恢复后继续",
             action: {
                 actionId: "action-save-error-2",
                 toolId: "read_file",
@@ -1063,11 +1056,12 @@ test("propagates a recovered step save error and does not execute another step",
         }),
         () => ({
             kind: "complete",
-            checkpoint: "不应执行",
+            completionEvidence: [],
             summary: "不应执行",
         }),
     ]);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1123,14 +1117,18 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     };
     const executor = new FakeDecisionExecutor({
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-unauthorized",
             toolId: "read_file",
             input: { path: "README.md" },
         },
     });
-    const result = await new Runner({ store, executor, toolRegistry: registry }).run(
+    const result = await new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: registry,
+    }).run(
         createRef(initial, "run-unauthorized"),
     );
 
@@ -1158,7 +1156,6 @@ test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", a
     await store.save(initial);
     const executor = new FakeDecisionExecutor({
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-missing-tool",
             toolId: "read_file",
@@ -1166,6 +1163,7 @@ test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", a
         },
     });
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: {
@@ -1213,7 +1211,6 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     };
     const executor = new FakeDecisionExecutor({
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-invalid-input",
             toolId: "read_file",
@@ -1221,6 +1218,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
         },
     });
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1260,7 +1258,6 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
     };
     const executor = new FakeDecisionExecutor({
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-tool-infrastructure",
             toolId: "read_file",
@@ -1269,6 +1266,7 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
     });
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1316,14 +1314,13 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
             if (executorCalls++ > 0) {
                 return {
                     kind: "complete",
-                    checkpoint: "已吸收读取结果",
+                    completionEvidence: [],
                     summary: "完成",
                 };
             }
 
             return {
                 kind: "tool_call",
-                checkpoint: "准备读取文件",
                 action: {
                     actionId: "action-policy-order",
                     toolId: "read_file",
@@ -1346,6 +1343,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     };
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: registry,
@@ -1369,7 +1367,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
         kind: "decision",
         result: {
             kind: "complete",
-            checkpoint: "已吸收读取结果",
+            completionEvidence: [],
             summary: "完成",
         },
     });
@@ -1387,7 +1385,6 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     const executor = new SequenceDecisionExecutor([
         {
             kind: "tool_call",
-            checkpoint: "准备读取文件",
             action: {
                 actionId: "action-auto",
                 toolId: "read_file",
@@ -1396,7 +1393,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
         },
         {
             kind: "complete",
-            checkpoint: "已吸收读取结果",
+            completionEvidence: [],
             summary: "目标完成",
         },
     ], events);
@@ -1411,6 +1408,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     });
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1430,12 +1428,10 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
     ]);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
-    assert.deepEqual(executor.receivedGoals[1]?.state.run, {
-        id: "run-auto-action",
-        status: "running",
-        stepCount: 1,
-        checkpoint: "准备读取文件",
-        lastStep: {
+    assert.equal(executor.receivedGoals[1]?.state.run.id, "run-auto-action");
+    assert.equal(executor.receivedGoals[1]?.state.run.status, "running");
+    assert.equal(executor.receivedGoals[1]?.state.run.stepCount, 1);
+    assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
             kind: "action",
             action: {
                 actionId: "action-auto",
@@ -1447,7 +1443,6 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
                 output: "文件内容",
                 summary: "读取完成",
             },
-        },
     });
     assert.equal(state.pendingAction, undefined);
     assert.deepEqual((await store.peek(initial.id))?.state.messages, [
@@ -1471,7 +1466,6 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
     const executor = new SequenceDecisionExecutor([
         {
             kind: "tool_call",
-            checkpoint: "准备执行 Agent 选择的 Bash 搜索",
             action: {
                 actionId: "action-bash-command",
                 toolId: "bash",
@@ -1480,7 +1474,7 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
         },
         {
             kind: "complete",
-            checkpoint: "已吸收 Bash 搜索结果",
+            completionEvidence: [],
             summary: "完成",
         },
     ]);
@@ -1503,6 +1497,7 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
     };
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: (toolId) => toolId === "bash" ? tool : undefined },
@@ -1541,7 +1536,6 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
     });
     const executor = new SequenceDecisionExecutor([{
         kind: "tool_call",
-        checkpoint: "等待确认后读取文件",
         action: {
             actionId: "action-approval",
             toolId: "read_file",
@@ -1550,6 +1544,7 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
     }]);
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1590,7 +1585,6 @@ test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step",
     } as const;
     const staged = withRun(initial, applyTransition(initial.state.run, {
         kind: "stage_action",
-        checkpoint: "已批准读取文件",
         action,
         status: "approved",
     }));
@@ -1604,10 +1598,11 @@ test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step",
     });
     const executor = new SequenceDecisionExecutor([{
         kind: "complete",
-        checkpoint: "已完成任务",
+        completionEvidence: [],
         summary: "任务完成",
     }]);
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1653,7 +1648,6 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
     } as const;
     const interrupted = withRun(running, applyTransition(running.state.run, {
         kind: "stage_action",
-        checkpoint: "已保存读取意图",
         action,
         status: "approved",
     }));
@@ -1666,11 +1660,12 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
     });
     const executor = new SequenceDecisionExecutor([{
         kind: "complete",
-        checkpoint: "已吸收重放结果",
+        completionEvidence: [],
         summary: "任务完成",
     }]);
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1718,7 +1713,6 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     } as const;
     const interrupted = withRun(running, applyTransition(running.state.run, {
         kind: "stage_action",
-        checkpoint: "已保存人工确认 Action",
         action,
         status: "approved",
     }));
@@ -1740,6 +1734,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     const executor = new SequenceDecisionExecutor([]);
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1769,7 +1764,6 @@ test("Action loop reaches maxSteps after completing a pending Action", async () 
     await store.save(initial);
     const executor = new SequenceDecisionExecutor([{
         kind: "tool_call",
-        checkpoint: "读取文件",
         action: {
             actionId: "action-max-steps",
             toolId: "read_file",
@@ -1783,6 +1777,7 @@ test("Action loop reaches maxSteps after completing a pending Action", async () 
     });
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1810,7 +1805,6 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
     const executor = new SequenceDecisionExecutor([
         {
             kind: "tool_call",
-            checkpoint: "第一次读取",
             action: {
                 actionId: "action-unlimited-1",
                 toolId: "read_file",
@@ -1819,7 +1813,6 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
         },
         {
             kind: "tool_call",
-            checkpoint: "第二次读取",
             action: {
                 actionId: "action-unlimited-2",
                 toolId: "read_file",
@@ -1828,7 +1821,7 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
         },
         {
             kind: "complete",
-            checkpoint: "已完成连续读取",
+            completionEvidence: [],
             summary: "任务完成",
         },
     ]);
@@ -1839,6 +1832,7 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
     });
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1862,7 +1856,6 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
     const executor = new SequenceDecisionExecutor([
         {
             kind: "tool_call",
-            checkpoint: "尝试读取缺失文件",
             action: {
                 actionId: "action-domain-failure",
                 toolId: "read_file",
@@ -1871,7 +1864,7 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
         },
         {
             kind: "complete",
-            checkpoint: "已吸收文件不存在结果",
+            completionEvidence: [],
             summary: "采用替代方案完成",
         },
     ]);
@@ -1883,6 +1876,7 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
     }));
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -1924,7 +1918,6 @@ test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async
     });
     const executor = new SequenceDecisionExecutor([{
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-pending-save-failure",
             toolId: "read_file",
@@ -1934,6 +1927,7 @@ test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async
 
     await assertRejectsWithSameError(
         () => new Runner({
+        trajectoryStore: trajectoryStoreFor(control.store),
             store: control.store,
             executor,
             toolRegistry: { get: () => tool },
@@ -1964,7 +1958,6 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
     });
     const executor = new SequenceDecisionExecutor([{
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-observation-save-failure",
             toolId: "read_file",
@@ -1974,6 +1967,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
 
     await assertRejectsWithSameError(
         () => new Runner({
+        trajectoryStore: trajectoryStoreFor(control.store),
             store: control.store,
             executor,
             toolRegistry: { get: () => tool },
@@ -2007,7 +2001,6 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
     await store.save(initial);
     const executor = new SequenceDecisionExecutor([{
         kind: "tool_call",
-        checkpoint: "准备读取文件",
         action: {
             actionId: "action-tool-error",
             toolId: "read_file",
@@ -2019,6 +2012,7 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
     });
 
     const result = await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: () => tool },
@@ -2048,11 +2042,12 @@ test("Runner 将运行时非法 AgentDecision 保存为 INVALID_AGENT_DECISION",
     await store.save(initial);
     const executor = new FakeDecisionExecutor({
         kind: "complete",
-        checkpoint: "",
+        completionEvidence: [],
         summary: "完成",
+        checkpoint: "legacy checkpoint field",
     } as unknown as AgentDecision);
 
-    const result = await new Runner({ store, executor }).run(
+    const result = await new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) }).run(
         createRef(initial, "run-invalid-decision"),
     );
 

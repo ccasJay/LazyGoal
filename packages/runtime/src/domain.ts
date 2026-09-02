@@ -17,24 +17,19 @@ export type GoalPhase =
     | "executing";
 
 /** Goal 创建后冻结的 Working Memory 协议。 */
-export type MemoryProtocol =
-    | { readonly kind: "checkpoint"; readonly version: 1 }
-    | { readonly kind: "structured"; readonly version: 1 };
+export type MemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
 
 /** Goal 创建后冻结的模型上下文协议。 */
-export type ModelContextProtocol =
-    | { readonly kind: "conversation"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 1 }
-    | { readonly kind: "trajectory-layered"; readonly version: 2 };
+export type ModelContextProtocol = {
+    readonly kind: "trajectory-layered";
+    readonly version: 1;
+};
 
 /** Goal 创建后冻结的 Cold Trajectory 检索协议。 */
-export type ContextRetrievalProtocol =
-    | { readonly kind: "none"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 1 }
-    | { readonly kind: "bm25-lite"; readonly version: 2 };
-
-/** `ContextRetrievalProtocol` 的兼容别名，供模型侧类型使用。 */
-export type RetrievalProtocol = ContextRetrievalProtocol;
+export type ContextRetrievalProtocol = {
+    readonly kind: "bm25-lite";
+    readonly version: 1;
+};
 
 /** Hypothesis 与 Blocker 使用的生命周期状态。 */
 export type MemoryEntryStatus = "active" | "resolved" | "superseded";
@@ -411,18 +406,18 @@ export interface WorkingMemory {
  * @example
  * ```ts
  * const input: GoalProtocolValidationInput = {
- *     promptBundleVersion: 4,
+ *     promptBundleVersion: 1,
  *     memoryProtocol: { kind: "structured", version: 1 },
+ *     modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
  * };
  * ```
  */
 export interface GoalProtocolValidationInput {
-    readonly promptBundleVersion: number;
+    readonly promptBundleVersion: 1;
     readonly memoryProtocol: MemoryProtocol;
-    /** Goal 冻结的模型上下文协议；省略仅用于向后兼容的调用方，按 `conversation@1` 解释。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** Goal 冻结的 Cold Trajectory 检索协议；省略按 `none@1` 解释。 */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
+    readonly modelContextProtocol: ModelContextProtocol;
+    readonly contextRetrievalProtocol: ContextRetrievalProtocol;
 }
 
 /**
@@ -436,9 +431,9 @@ export interface GoalProtocolValidationInput {
  * @example
  * ```ts
  * const validator: GoalProtocolValidator = {
- *     validate: ({ promptBundleVersion, memoryProtocol }) => {
- *         if (promptBundleVersion === 4 && memoryProtocol.kind !== "structured") {
- *             throw new GoalProtocolError("Prompt/Memory 协议不匹配");
+ *     validate: ({ promptBundleVersion }) => {
+ *         if (promptBundleVersion !== 1) {
+ *             throw new GoalProtocolError("不支持的 Prompt Bundle 版本");
  *         }
  *     },
  * };
@@ -454,31 +449,6 @@ export interface GoalProtocolValidator {
 
 /** Goal 协议组合错误的稳定错误码。 */
 export const GOAL_PROTOCOL_ERROR_CODE = "GOAL_PROTOCOL_ERROR" as const;
-
-/** 旧 structured Goal 使用不可迁移 Memory shape 时的稳定错误码。 */
-export const UNSUPPORTED_STRUCTURED_MEMORY_SHAPE =
-    "UNSUPPORTED_STRUCTURED_MEMORY_SHAPE" as const;
-
-/**
- * 表示历史 structured Goal 的 Memory shape 无法由当前 Runtime 安全恢复。
- *
- * @remarks
- * 该错误必须在模型调用或 Memory 重建前抛出；调用方不得静默迁移或继续推进。
- *
- * @example
- * ```ts
- * throw new UnsupportedStructuredMemoryShapeError(5);
- * ```
- */
-export class UnsupportedStructuredMemoryShapeError extends Error {
-    readonly code = UNSUPPORTED_STRUCTURED_MEMORY_SHAPE;
-
-    /** @param promptBundleVersion - 冻结旧 shape 的 Prompt Bundle 版本。 */
-    constructor(promptBundleVersion: number) {
-        super(`${UNSUPPORTED_STRUCTURED_MEMORY_SHAPE}: Prompt Bundle v${promptBundleVersion}`);
-        this.name = "UnsupportedStructuredMemoryShapeError";
-    }
-}
 
 /**
  * 表示冻结的 Prompt/Memory 协议组合不可用或不匹配。
@@ -514,7 +484,7 @@ export function isMemoryProtocol(value: unknown): value is MemoryProtocol {
 
     const candidate = value as Record<string, unknown>;
     return (
-        (candidate.kind === "checkpoint" || candidate.kind === "structured")
+        candidate.kind === "structured"
         && candidate.version === 1
         && Object.keys(candidate).every((key) => key === "kind" || key === "version")
     );
@@ -530,11 +500,8 @@ export function isModelContextProtocol(
 
     const candidate = value as Record<string, unknown>;
     return (
-        (candidate.kind === "conversation" || candidate.kind === "trajectory-layered")
-        && (
-            candidate.version === 1
-            || (candidate.kind === "trajectory-layered" && candidate.version === 2)
-        )
+        candidate.kind === "trajectory-layered"
+        && candidate.version === 1
         && Object.keys(candidate).every((key) => key === "kind" || key === "version")
     );
 }
@@ -549,89 +516,10 @@ export function isContextRetrievalProtocol(
 
     const candidate = value as Record<string, unknown>;
     return (
-        (candidate.kind === "none" || candidate.kind === "bm25-lite")
-        && (
-            candidate.version === 1
-            || (candidate.kind === "bm25-lite" && candidate.version === 2)
-        )
+        candidate.kind === "bm25-lite"
+        && candidate.version === 1
         && Object.keys(candidate).every((key) => key === "kind" || key === "version")
     );
-}
-
-/**
- * 将旧 Goal 的省略字段解释为 legacy checkpoint 协议。
- *
- * @param definition - Goal 冻结定义的协议字段。
- * @returns 独立的 Memory 协议对象；省略字段返回 `checkpoint@1`。
- * @throws GoalProtocolError 当显式值不是受支持协议时。
- */
-export function resolveMemoryProtocol(
-    definition: Pick<GoalDefinition, "memoryProtocol">,
-): MemoryProtocol {
-    const protocol = definition.memoryProtocol;
-    if (protocol === undefined) {
-        return { kind: "checkpoint", version: 1 };
-    }
-
-    if (!isMemoryProtocol(protocol)) {
-        throw new GoalProtocolError("Memory 协议必须是 checkpoint@1 或 structured@1");
-    }
-
-    return protocol as MemoryProtocol;
-}
-
-/**
- * 将旧 Goal 的省略字段解释为 Conversation 模型上下文协议。
- *
- * @param definition - Goal 冻结定义的模型上下文协议字段。
- * @returns 独立的模型上下文协议对象；省略字段返回 `conversation@1`。
- * @throws GoalProtocolError 当显式值不是受支持协议时。
- */
-export function resolveModelContextProtocol(
-    definition: Pick<GoalDefinition, "modelContextProtocol">,
-): ModelContextProtocol {
-    const protocol = definition.modelContextProtocol;
-    if (protocol === undefined) {
-        return { kind: "conversation", version: 1 };
-    }
-
-    if (!isModelContextProtocol(protocol)) {
-        throw new GoalProtocolError(
-            "模型上下文协议必须是 conversation@1 或 trajectory-layered@1/2",
-        );
-    }
-
-    return protocol as ModelContextProtocol;
-}
-
-/**
- * 将旧 Goal 的省略字段解释为无检索协议。
- *
- * @param definition - Goal 冻结定义的检索协议字段。
- * @returns 独立的检索协议对象；省略字段返回 `none@1`。
- * @throws GoalProtocolError 当显式值不是受支持协议时。
- * @example
- * ```ts
- * const protocol = resolveContextRetrievalProtocol({
- *     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
- * });
- * ```
- */
-export function resolveContextRetrievalProtocol(
-    definition: Pick<GoalDefinition, "contextRetrievalProtocol">,
-): ContextRetrievalProtocol {
-    const protocol = definition.contextRetrievalProtocol;
-    if (protocol === undefined) {
-        return { kind: "none", version: 1 };
-    }
-
-    if (!isContextRetrievalProtocol(protocol)) {
-        throw new GoalProtocolError(
-            "Context Retrieval 协议必须是 none@1 或 bm25-lite@1/2",
-        );
-    }
-
-    return protocol as ContextRetrievalProtocol;
 }
 
 /** 创建没有条目的、可作为 Reducer 初始值的 Working Memory。 */
@@ -743,9 +631,8 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * Goal 创建后冻结的定义。
  *
  * @remarks
- * 原始意图、Prompt Bundle 版本、Profile 和执行策略在 Session 生命周期内保持
- * 不变。Runtime 只持有通用正整数版本标识，不持有或渲染 Prompt 文本，也不判断
- * 版本是否受支持；Agent 的 Bundle Registry 负责把版本解析为对应 Prompt 组合。
+ * 原始意图、当前 Prompt Bundle、三项上下文协议、Profile 和执行策略在 Session
+ * 生命周期内保持不变。Runtime 不持有或渲染 Prompt 文本。
  * @example
  * ```ts
  * const definition: GoalDefinition = {
@@ -758,31 +645,14 @@ export type GoalMessage = UserMessage | AssistantMessage;
  */
 export interface GoalDefinition {
     readonly intent: string;
-    /** 恢复时必须继续使用的 Prompt Bundle 正整数版本。 */
-    readonly promptBundleVersion: number;
-    /**
-     * Goal 创建时冻结的 Memory 协议；旧内存调用方省略时按 `checkpoint@1` 解释。
-     *
-     * @remarks
-     * 新的结构化 Goal 必须显式设置为 `{ kind: "structured", version: 1 }`。
-     * 该字段只描述协议选择，不把 Working Memory 内容写入 Goal 定义。
-     */
-    readonly memoryProtocol?: MemoryProtocol;
-    /**
-     * Goal 创建时冻结的模型上下文协议；旧 Goal 省略时按 `conversation@1` 解释。
-     *
-     * @remarks
-     * `trajectory-layered@1` 只适用于结构化 Working Memory；该字段只描述模型
-     * 输入来源选择，不把 Hot/Warm 内容写入 Goal 定义。
-     */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /**
-     * Goal 创建时冻结的 Cold Trajectory 检索协议；旧 Goal 省略时按 `none@1` 解释。
-     *
-     * @remarks `bm25-lite@1` 只允许和 structured/trajectory-layered 组合；该字段
-     * 只描述检索能力，不把索引或查询缓存写入 Goal。
-     */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
+    /** 恢复时必须继续使用的当前 Prompt Bundle 版本。 */
+    readonly promptBundleVersion: 1;
+    /** Goal 创建时冻结的结构化 Working Memory 协议。 */
+    readonly memoryProtocol: MemoryProtocol;
+    /** Goal 创建时冻结的分层模型上下文协议。 */
+    readonly modelContextProtocol: ModelContextProtocol;
+    /** Goal 创建时冻结的 fielded BM25-lite 检索协议。 */
+    readonly contextRetrievalProtocol: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly executionPolicy: {
         /** 正整数表示上限，`0` 表示不以 Step 数量限制执行。 */
@@ -898,45 +768,7 @@ export interface ModelContextCheckpointResult {
 }
 
 /**
- * 旧 `checkpoint@1` 协议的 AgentDecision。
- *
- * @remarks
- * 该类型保留历史 Prompt Bundle v1–v3 的 checkpoint 语义；新 Goal 不应将它与
- * structured Decision 混用。
- *
- * @example
- * ```ts
- * const decision: LegacyAgentDecision = {
- *   kind: "complete",
- *   checkpoint: "已完成目标",
- *   summary: "目标完成",
- * };
- * ```
- */
-export type LegacyAgentDecision =
-    | {
-        readonly kind: "tool_call";
-        readonly checkpoint: string;
-        readonly action: ToolCallAction;
-    }
-    | {
-        readonly kind: "complete";
-        readonly checkpoint: string;
-        readonly summary: string;
-    }
-    | {
-        readonly kind: "wait";
-        readonly checkpoint: string;
-        readonly reason: string;
-    }
-    | {
-        readonly kind: "fail";
-        readonly checkpoint: string;
-        readonly error: string;
-    };
-
-/**
- * 新 `structured@1` 协议的 AgentDecision。
+ * 当前 `structured@1` 协议的 AgentDecision。
  *
  * @remarks
  * Structured Decision 不携带 checkpoint；Working Memory 的增量由可选
@@ -977,7 +809,7 @@ export type StructuredAgentDecision =
     | ContextLookupRequest;
 
 /** Agent 当前冻结协议对应的决策联合；structured@1 额外允许独占 Context Lookup。 */
-export type AgentDecision = LegacyAgentDecision | StructuredAgentDecision | ModelContextCheckpointResult;
+export type AgentDecision = StructuredAgentDecision | ModelContextCheckpointResult;
 
 /**
  * 当前未完成 Action 的持久化意图。
@@ -1050,8 +882,8 @@ export type RunStopReason =
  *
  * @remarks
  * `stepCount` 只统计 executing 阶段完成的决策或 Action/Observation 周期；
- * `lastStep` 只保留最新 Step。`checkpoint` 与 `pendingAction` 是有界执行记忆，
- * 不属于 Goal.messages。
+ * `lastStep` 只保留最新 Step。`pendingAction` 是有界执行记忆，不属于
+ * Goal.messages。当前分层上下文 Epoch 始终由 Runtime 管理。
  * @example
  * ```ts
  * const run: RunState = createRun("run-1");
@@ -1065,9 +897,9 @@ export interface RunState {
      * 最新有效 Goal Snapshot 纳入恢复边界的最大 Trajectory sequence。
      *
      * @remarks
-     * 旧内存调用方可能省略该字段；Storage 在读取旧快照时将其解释为 `0`。
+     * 该字段是 Snapshot 纳入 Trajectory 恢复边界的最大 sequence。
      */
-    readonly committedThroughSequence?: number;
+    readonly committedThroughSequence: number;
     /**
      * 当前 Snapshot 选择的最新 accepted Memory Patch 链头。
      *
@@ -1076,25 +908,24 @@ export interface RunState {
      */
     readonly memoryRevision?: MemoryRevision;
     readonly lastStep?: StepRecord;
-    readonly checkpoint?: string;
     readonly pendingAction?: PendingAction;
     readonly stopReason?: RunStopReason;
     /**
-     * 当前模型上下文 Epoch；仅 `trajectory-layered@2` 使用。
+     * 当前模型上下文 Epoch。
      *
      * @remarks
      * Epoch 是 Conversation 的投影代际，不是摘要或供应商会话对象。该字段由
      * Runtime 分配并持久化；模型响应不得提交其中任何编号或边界字段。
      * @example
      * ```ts
-     * const run = createRun("run-1", true);
-     * console.log(run.contextEpoch?.number);
+     * const run = createRun("run-1");
+     * console.log(run.contextEpoch.number);
      * ```
      */
-    readonly contextEpoch?: ModelContextEpochState;
+    readonly contextEpoch: ModelContextEpochState;
 }
 
-/** Snapshot v11 持久化的模型上下文 Epoch 状态。 */
+/** 当前 Snapshot 持久化的模型上下文 Epoch 状态。 */
 export interface ModelContextEpochState {
     readonly version: 1;
     readonly number: number;
@@ -1195,7 +1026,6 @@ export type RunStatus =
  * ```ts
  * const input: RunInput = {
  *   kind: "stage_action",
- *   checkpoint: "已确定要读取配置",
  *   action: {
  *     actionId: "action-1",
  *     toolId: "read_file",
@@ -1208,8 +1038,6 @@ export type RunInput =
     | { readonly kind: "start" }
     | {
         readonly kind: "stage_action";
-        /** legacy checkpoint；structured@1 Action 不携带该字段。 */
-        readonly checkpoint?: string;
         readonly action: ToolCallAction;
         readonly status?: "approved" | "awaiting_approval";
     }
@@ -1226,8 +1054,6 @@ export type RunInput =
         /** 完成一个 Context Lookup Step，但保持 Run running。 */
         readonly kind: "context_lookup";
         readonly request: ContextLookupRequest;
-        /** v2 上下文协议下查询不计入业务 step；省略时保持 legacy 行为。 */
-        readonly countAsStep?: boolean;
     }
     | {
         readonly kind: "reject_action";
@@ -1266,8 +1092,7 @@ export type TransitionResult<TState extends RunState = RunState> =
  * createGoal 所需的确定性输入。
  *
  * @remarks intent 同时写入冻结定义和首条 user 消息；maxSteps 默认 0；
- * promptBundleVersion 必须为正整数，由调用方（Composition Root）注入 Agent
- * 当前生效的 Prompt Bundle 版本。
+ * 当前实现只接受 Prompt Bundle v1 与唯一的三项上下文协议组合。
  * @example
  * ```ts
  * const input: GoalCreationInput = {
@@ -1282,14 +1107,14 @@ export type TransitionResult<TState extends RunState = RunState> =
 export interface GoalCreationInput {
     readonly id: string;
     readonly intent: string;
-    /** Goal 创建时冻结的 Prompt Bundle 正整数版本。 */
-    readonly promptBundleVersion: number;
-    /** 新 Goal 使用的冻结 Memory 协议；省略时保持 legacy checkpoint 兼容语义。 */
-    readonly memoryProtocol?: MemoryProtocol;
-    /** 新 Goal 使用的冻结模型上下文协议；省略时保持 Conversation 兼容语义。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** 新 Goal 使用的冻结 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
+    /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
+    readonly promptBundleVersion: 1;
+    /** 新 Goal 使用的冻结结构化 Memory 协议。 */
+    readonly memoryProtocol: MemoryProtocol;
+    /** 新 Goal 使用的冻结分层模型上下文协议。 */
+    readonly modelContextProtocol: ModelContextProtocol;
+    /** 新 Goal 使用的冻结 fielded BM25-lite 检索协议。 */
+    readonly contextRetrievalProtocol: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
     readonly maxSteps?: number;
@@ -1318,7 +1143,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
  * 创建 gathering_context 阶段的确定性 Goal 聚合。
  * @param input - Goal ID、原始意图、冻结 Prompt Bundle 版本、Profile、Run ID 与执行策略。
  * @returns Run 为 created/0 的全新 Goal。
- * @throws maxSteps 不是非负整数、或 promptBundleVersion 不是正整数时抛出 Error。
+ * @throws maxSteps 不是非负整数或协议字段不是当前组合时抛出 Error。
  */
 export function createGoal(input: GoalCreationInput): Goal {
     const maxSteps = input.maxSteps ?? 0;
@@ -1327,27 +1152,26 @@ export function createGoal(input: GoalCreationInput): Goal {
         throw new Error("maxSteps must be a non-negative integer");
     }
 
+    if (input.promptBundleVersion !== 1) {
+        throw new Error("promptBundleVersion must be 1");
+    }
+
     if (
-        !Number.isInteger(input.promptBundleVersion)
-        || input.promptBundleVersion <= 0
+        !isMemoryProtocol(input.memoryProtocol)
+        || !isModelContextProtocol(input.modelContextProtocol)
+        || !isContextRetrievalProtocol(input.contextRetrievalProtocol)
     ) {
-        throw new Error("promptBundleVersion must be a positive integer");
+        throw new Error("Goal protocols must be structured@1, trajectory-layered@1, and bm25-lite@1");
     }
 
     return {
         id: input.id,
         definition: {
             intent: input.intent,
-            promptBundleVersion: input.promptBundleVersion,
-            ...(input.memoryProtocol === undefined
-                ? {}
-                : { memoryProtocol: { ...resolveMemoryProtocol(input) } }),
-            ...(input.modelContextProtocol === undefined
-                ? {}
-                : { modelContextProtocol: { ...resolveModelContextProtocol(input) } }),
-            ...(input.contextRetrievalProtocol === undefined
-                ? {}
-                : { contextRetrievalProtocol: { ...resolveContextRetrievalProtocol(input) } }),
+            promptBundleVersion: 1,
+            memoryProtocol: { ...input.memoryProtocol },
+            modelContextProtocol: { ...input.modelContextProtocol },
+            contextRetrievalProtocol: { ...input.contextRetrievalProtocol },
             profile: cloneProfile(input.profile),
             executionPolicy: { maxSteps },
         },
@@ -1360,33 +1184,23 @@ export function createGoal(input: GoalCreationInput): Goal {
                 { role: "user", content: input.intent },
                 ...(input.messages ?? []),
             ]),
-            run: createRun(
-                input.runId,
-                input.modelContextProtocol?.kind === "trajectory-layered"
-                    && input.modelContextProtocol.version === 2,
-            ),
+            run: createRun(input.runId),
         },
     };
 }
 
 /** 创建只包含 Run 自身字段的初始状态。 */
-export function createRun(
-    runId: string,
-    contextEpoch = false,
-): RunState {
+export function createRun(runId: string): RunState {
     return {
         id: runId,
         status: "created",
         stepCount: 0,
-        ...(contextEpoch
-            ? {
-                contextEpoch: {
-                    version: 1 as const,
-                    number: 0,
-                    conversationStartIndex: 0,
-                    openedAtSequence: 0,
-                },
-            }
-            : {}),
+        committedThroughSequence: 0,
+        contextEpoch: {
+            version: 1,
+            number: 0,
+            conversationStartIndex: 0,
+            openedAtSequence: 0,
+        },
     };
 }

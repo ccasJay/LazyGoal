@@ -9,11 +9,6 @@ import type {
     RunRef,
     WorkingMemory,
 } from "./domain";
-import {
-    resolveContextRetrievalProtocol,
-    resolveMemoryProtocol,
-    resolveModelContextProtocol,
-} from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     PreparationExecutor,
@@ -194,7 +189,7 @@ export interface GoalCoordinatorDependencies {
      * 处理，因此不会向 Preparation Executor 提供任何 Tool。
      */
     readonly toolRegistry?: ToolRegistry;
-    /** 可选 Domain Event 追加边界；省略时保持旧调用方行为。 */
+    /** 可选 Domain Event 追加边界；省略时只保存 Snapshot，不追加事件。 */
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
@@ -203,8 +198,8 @@ export interface GoalCoordinatorDependencies {
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
-     * 可选 Prompt/Memory 协议校验器；Composition Root 应为新 Goal 注入，
-     * 旧的直接 Runtime 调用方可省略以保持 legacy 兼容。
+     * 可选 Prompt/Memory 协议校验器；Composition Root 可用它在推进前执行
+     * 额外的协议边界校验。
      */
     readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
@@ -344,10 +339,6 @@ export class GoalCoordinator {
                     }
 
                     if (result.kind === "context_checkpoint") {
-                        const protocol = resolveModelContextProtocol(goal.definition);
-                        if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
-                            return this.invalidPhaseResult(workflow.phase, result);
-                        }
                         const acceptedPatch = this.acceptPreparationPatch(
                             goal,
                             result.memoryPatch,
@@ -488,10 +479,6 @@ export class GoalCoordinator {
                 }
 
                 if (result.kind === "context_checkpoint") {
-                    const protocol = resolveModelContextProtocol(goal.definition);
-                    if (protocol.kind !== "trajectory-layered" || protocol.version !== 2) {
-                        return this.invalidPhaseResult(workflow.phase, result);
-                    }
                     const acceptedPatch = this.acceptPreparationPatch(
                         goal,
                         result.memoryPatch,
@@ -720,12 +707,9 @@ export class GoalCoordinator {
                 return this.goalNotWaiting(request.ref);
             }
 
-            const epoch = resolveModelContextProtocol(goal.definition).kind === "trajectory-layered"
-                && resolveModelContextProtocol(goal.definition).version === 2
-                ? this.advanceGoalContextEpoch(goal, "planning_approved")
-                : undefined;
+            const epoch = this.advanceGoalContextEpoch(goal, "planning_approved");
             const approvedGoal = this.withApprovedTask(
-                epoch?.goal ?? goal,
+                epoch.goal,
                 proposal,
             );
             const session = await this.openWorkingMemorySession(goal, control);
@@ -745,7 +729,7 @@ export class GoalCoordinator {
                             eventType: "run_resumed",
                             payload: { type: "run_resumed" },
                         },
-                        ...(epoch === undefined ? [] : [epoch.fact]),
+                        epoch.fact,
                     ],
                     acceptedPatch,
                     control,
@@ -933,11 +917,8 @@ export class GoalCoordinator {
     private async openWorkingMemorySession(
         goal: Goal,
         control?: ExecutionControl,
-    ): Promise<WorkingMemorySession | undefined> {
+    ): Promise<WorkingMemorySession> {
         throwIfAborted(control);
-        const protocol = resolveMemoryProtocol(goal.definition);
-        if (protocol.kind !== "structured") return undefined;
-
         const session = await WorkingMemorySession.restore(goal, {
             ...(this.trajectoryStore === undefined
                 ? {}
@@ -957,13 +938,6 @@ export class GoalCoordinator {
         lookupCount: number,
         control?: ExecutionControl,
     ): Promise<PreparationLookupOutcome> {
-        const retrievalProtocol = resolveContextRetrievalProtocol(goal.definition);
-        if (retrievalProtocol.kind !== "bm25-lite") {
-            return this.invalidContextLookup(
-                `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: Goal does not enable bm25-lite retrieval`,
-            );
-        }
-
         if (lookupCount >= 3) {
             return {
                 ok: false,
@@ -1050,7 +1024,7 @@ export class GoalCoordinator {
         control?: ExecutionControl,
     ): Promise<ContextLookupResult | undefined> {
         const trajectoryStore = this.trajectoryStore;
-        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const boundary = goal.state.run.committedThroughSequence;
         if (trajectoryStore === undefined || boundary <= 0) return undefined;
 
         throwIfAborted(control);
@@ -1127,25 +1101,9 @@ export class GoalCoordinator {
         goal: Goal,
         memoryPatch: MemoryPatch | undefined,
         phase: GoalPhase,
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
         lifecycleOperations: readonly CanonicalMemoryOperation[] = [],
     ): AcceptedMemoryPatchInput | undefined {
-        const protocol = resolveMemoryProtocol(goal.definition);
-        if (protocol.kind !== "structured") {
-            if (memoryPatch !== undefined || lifecycleOperations.length > 0) {
-                throw new WorkingMemoryPatchError(
-                    "checkpoint protocol cannot accept structured Memory Patch",
-                );
-            }
-            return undefined;
-        }
-
-        if (session === undefined) {
-            throw new Error(
-                "GoalCoordinator invariant violated: structured Memory Session is missing",
-            );
-        }
-
         let modelPatch: NormalizedWorkingMemoryPatch | undefined;
         if (memoryPatch !== undefined) {
             const memorySession: WorkingMemorySession = session;
@@ -1162,7 +1120,7 @@ export class GoalCoordinator {
                 phase,
                 originSequence: Math.max(
                     1,
-                    (goal.state.run.committedThroughSequence ?? 0) + 1,
+                    goal.state.run.committedThroughSequence + 1,
                 ),
                 workingMemory,
                 ...(this.workingMemoryLimits === undefined
@@ -1204,9 +1162,8 @@ export class GoalCoordinator {
     }
 
     private contextReadyLifecycle(
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
     ): readonly CanonicalMemoryOperation[] {
-        if (session === undefined) return [];
         return this.lifecycleOperations(
             session.workingMemory,
             "gathering_context",
@@ -1216,15 +1173,13 @@ export class GoalCoordinator {
 
     private lifecyclePatch(
         goal: Goal,
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
     ): AcceptedMemoryPatchInput | undefined {
-        const operations = session === undefined
-            ? []
-            : this.lifecycleOperations(
-                session.workingMemory,
-                "planning",
-                ["plan", "hypothesis", "blocker"],
-            );
+        const operations = this.lifecycleOperations(
+            session.workingMemory,
+            "planning",
+            ["plan", "hypothesis", "blocker"],
+        );
         return this.acceptPreparationPatch(
             goal,
             undefined,
@@ -1277,18 +1232,13 @@ export class GoalCoordinator {
         readonly goal: Goal;
         readonly fact: TrajectoryEventDraft;
     } {
-        const current = goal.state.run.contextEpoch ?? {
-            version: 1 as const,
-            number: 0,
-            conversationStartIndex: 0,
-            openedAtSequence: 0,
-        };
+        const current = goal.state.run.contextEpoch;
         const messages = goal.state.messages;
         const start = selectLatestConversationStart(
             messages,
             current.conversationStartIndex,
         );
-        const boundary = goal.state.run.committedThroughSequence ?? 0;
+        const boundary = goal.state.run.committedThroughSequence;
         // 本 Coordinator 边界会先追加一条 preparation_result/run_resumed，Epoch
         // 事件紧随其后，因此 openedAtSequence 对应第二个新增事实。
         const opened = advanceContextEpoch(current, messages, start, boundary + 2);
@@ -1337,9 +1287,9 @@ export class GoalCoordinator {
 
         this.protocolValidator.validate({
             promptBundleVersion: goal.definition.promptBundleVersion,
-            memoryProtocol: resolveMemoryProtocol(goal.definition),
-            modelContextProtocol: resolveModelContextProtocol(goal.definition),
-            contextRetrievalProtocol: resolveContextRetrievalProtocol(goal.definition),
+            memoryProtocol: goal.definition.memoryProtocol,
+            modelContextProtocol: goal.definition.modelContextProtocol,
+            contextRetrievalProtocol: goal.definition.contextRetrievalProtocol,
         });
     }
 

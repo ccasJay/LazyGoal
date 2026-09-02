@@ -38,7 +38,6 @@ function createWaitingState(runId = "run-1"): RunState {
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "等待外部事件",
                 reason: "等待外部事件",
             },
         }),
@@ -57,7 +56,6 @@ test("advances one transition at a time through the main lifecycle", () => {
 
     const waitDecision = {
         kind: "wait",
-        checkpoint: "等待外部事件",
         reason: "等待外部事件",
     } as const;
     const waiting = requireSuccessfulState(
@@ -82,7 +80,7 @@ test("advances one transition at a time through the main lifecycle", () => {
 
     const completeDecision = {
         kind: "complete",
-        checkpoint: "目标已经完成",
+        completionEvidence: [],
         summary: "目标已经完成",
     } as const;
     const completed = requireSuccessfulState(
@@ -103,7 +101,6 @@ test("stage_action persists a pending Action without consuming a Step", () => {
     const currentState = createRunningState();
     const input = {
         kind: "stage_action",
-        checkpoint: "已确定需要读取文件",
         action: {
             actionId: "action-1",
             toolId: "read_file",
@@ -118,7 +115,6 @@ test("stage_action persists a pending Action without consuming a Step", () => {
     assert.equal(nextState.status, "running");
     assert.equal(nextState.stepCount, 0);
     assert.equal(nextState.lastStep, undefined);
-    assert.equal(nextState.checkpoint, input.checkpoint);
     assert.deepEqual(nextState.pendingAction, {
         action: input.action,
         status: "approved",
@@ -135,7 +131,6 @@ test("observe_action records one Action Step and clears its pendingAction", () =
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "已确定需要读取文件",
             action: {
                 actionId: "action-1",
                 toolId: "read_file",
@@ -174,7 +169,6 @@ test("observe_action records one Action Step and clears its pendingAction", () =
             retryable: true,
         },
     });
-    assert.equal(nextState.checkpoint, "已确定需要读取文件");
 
     const repeated = transition(nextState, {
         kind: "observe_action",
@@ -193,7 +187,6 @@ test("stage_action can enter approval waiting without consuming a Step", () => {
     const nextState = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "等待确认后读取文件",
             status: "awaiting_approval",
             action: {
                 actionId: "action-approval",
@@ -219,7 +212,6 @@ test("approve_action resumes the exact pending Action without consuming a Step",
     const waiting = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "等待用户确认后读取文件",
             status: "awaiting_approval",
             action: {
                 actionId: "action-approve",
@@ -242,7 +234,6 @@ test("approve_action resumes the exact pending Action without consuming a Step",
         action: waiting.pendingAction?.action,
         status: "approved",
     });
-    assert.equal(approved.checkpoint, waiting.checkpoint);
     assert.equal(approved.lastStep, undefined);
 
     const wrongAction = transition(waiting, {
@@ -257,7 +248,6 @@ test("recover_action moves an approved Action to manual recovery without consumi
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "已保存但结果未知",
             action: {
                 actionId: "action-recover",
                 toolId: "manual_tool",
@@ -298,7 +288,6 @@ test("reject_action records a rejected Observation as one Step", () => {
     const waiting = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "等待用户决定",
             status: "awaiting_approval",
             action: {
                 actionId: "action-reject",
@@ -338,7 +327,7 @@ test("decision completes, waits, or fails with exactly one Step", () => {
         {
             decision: {
                 kind: "complete",
-                checkpoint: "任务已经完成",
+                completionEvidence: [],
                 summary: "文件内容已核对",
             },
             status: "completed",
@@ -346,7 +335,6 @@ test("decision completes, waits, or fails with exactly one Step", () => {
         {
             decision: {
                 kind: "wait",
-                checkpoint: "等待用户补充路径",
                 reason: "缺少文件路径",
             },
             status: "waiting",
@@ -354,7 +342,6 @@ test("decision completes, waits, or fails with exactly one Step", () => {
         {
             decision: {
                 kind: "fail",
-                checkpoint: "任务无法继续",
                 error: "缺少必要权限",
             },
             status: "failed",
@@ -372,7 +359,6 @@ test("decision completes, waits, or fails with exactly one Step", () => {
         assert.equal(nextState.status, testCase.status);
         assert.equal(nextState.stepCount, 1);
         assert.equal(nextState.pendingAction, undefined);
-        assert.equal(nextState.checkpoint, testCase.decision.checkpoint);
         assert.deepEqual(nextState.lastStep, {
             kind: "decision",
             result: testCase.decision,
@@ -386,7 +372,6 @@ test("resume returns a waiting decision to running without recounting it", () =>
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "等待用户补充路径",
                 reason: "缺少文件路径",
             },
         }),
@@ -406,7 +391,6 @@ test("execution_error stops without counting a Step and preserves unknown outcom
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "已保存待执行 Action",
             action: {
                 actionId: "action-error",
                 toolId: "read_file",
@@ -445,7 +429,6 @@ test("cancel clears a staged Action without consuming a Step", () => {
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "准备执行",
             action: {
                 actionId: "action-cancel",
                 toolId: "read_file",
@@ -461,14 +444,12 @@ test("cancel clears a staged Action without consuming a Step", () => {
     assert.equal(nextState.status, "cancelled");
     assert.equal(nextState.stepCount, 0);
     assert.equal(nextState.pendingAction, undefined);
-    assert.equal(nextState.checkpoint, "准备执行");
 });
 
 test("rejects illegal Action/Observation combinations without changing state", () => {
     const staged = requireSuccessfulState(
         transition(createRunningState(), {
             kind: "stage_action",
-            checkpoint: "已暂存 Action",
             action: {
                 actionId: "action-illegal",
                 toolId: "read_file",
@@ -480,7 +461,6 @@ test("rejects illegal Action/Observation combinations without changing state", (
     const cases: readonly RunInput[] = [
         {
             kind: "stage_action",
-            checkpoint: "重复暂存",
             action: {
                 actionId: "action-other",
                 toolId: "read_file",
@@ -500,7 +480,7 @@ test("rejects illegal Action/Observation combinations without changing state", (
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "不应结束",
+                completionEvidence: [],
                 summary: "仍有 Action 未完成",
             },
         },
@@ -514,16 +494,15 @@ test("rejects illegal Action/Observation combinations without changing state", (
         assert.equal(result.error.code, "INVALID_TRANSITION");
     }
 
-    const emptyCheckpoint = transition(createRunningState(), {
+    const emptyActionId = transition(createRunningState(), {
         kind: "stage_action",
-        checkpoint: "   ",
         action: {
-            actionId: "action-empty",
+            actionId: "",
             toolId: "read_file",
             input: { path: "README.md" },
         },
     });
-    assert.equal(emptyCheckpoint.ok, false);
+    assert.equal(emptyActionId.ok, false);
 });
 
 const cancellationCases: ReadonlyArray<{
@@ -583,7 +562,7 @@ const terminalStates: readonly RunState[] = [
             kind: "decision",
             result: {
                 kind: "complete",
-                checkpoint: "已完成",
+                completionEvidence: [],
                 summary: "已完成",
             },
         },
@@ -596,7 +575,6 @@ const terminalStates: readonly RunState[] = [
             kind: "decision",
             result: {
                 kind: "fail",
-                checkpoint: "执行失败",
                 error: "执行失败",
             },
         },

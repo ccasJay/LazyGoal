@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    createRun,
     ExecutionAbortedError,
     GoalCoordinator,
     InlineScheduler,
@@ -10,6 +11,7 @@ import {
     throwIfAborted,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -34,6 +36,7 @@ function createExecutingGoal(
     toolIds: readonly string[] = [],
 ): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test abort propagation",
@@ -99,12 +102,12 @@ test("Runner propagates control into an executor and preserves the last snapshot
             });
             return {
                 kind: "complete",
-                checkpoint: "unreachable",
                 summary: "unreachable",
+                completionEvidence: [],
             };
         },
     };
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const operation = runner.run(
         { goalId: goal.id, runId: goal.state.run.id },
         {},
@@ -139,12 +142,12 @@ test("Runner aborts after a model result without saving a failure", async () => 
             controller.abort();
             return {
                 kind: "complete",
-                checkpoint: "not persisted",
                 summary: "not persisted",
+                completionEvidence: [],
             };
         },
     };
-    const runner = new Runner({ store, executor });
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     await assert.rejects(
         () => runner.run(
@@ -193,7 +196,6 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         async execute(): Promise<AgentDecision> {
             return {
                 kind: "tool_call",
-                checkpoint: "Action staged before execution",
                 action: {
                     actionId: "action-1",
                     toolId: "echo",
@@ -203,6 +205,7 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         },
     };
     const runner = new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
         toolRegistry: { get: (toolId) => toolId === "echo" ? tool : undefined },
@@ -232,7 +235,7 @@ test("InlineScheduler forwards and checks the shared execution control", async (
     let receivedControl: unknown;
     const result: RunnerResult = {
         ok: true,
-        state: { id: "run-1", status: "waiting", stepCount: 0 },
+        state: { ...createRun("run-1"), status: "waiting" },
     };
     const runner = {
         async runUntilBlocked(
@@ -261,6 +264,7 @@ test("InlineScheduler forwards and checks the shared execution control", async (
 test("GoalCoordinator does not save a preparation result after abort", async () => {
     const controller = new AbortController();
     const goal = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "Test preparation abort",
@@ -277,6 +281,7 @@ test("GoalCoordinator does not save a preparation result after abort", async () 
         },
     };
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor,
         scheduler: {

@@ -9,6 +9,7 @@ import {
     rebuildWorkingMemory,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols } from "./current-fixtures";
 import type {
     AgentProfile,
     Goal,
@@ -114,10 +115,11 @@ function structuredGoal(
     committedThroughSequence = 0,
 ): Goal {
     const goal = createGoal({
+        ...currentProtocols,
         id,
         runId,
         intent: "推进结构化准备流程",
-        promptBundleVersion: 7,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },

@@ -9,6 +9,7 @@ import {
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentProfile,
     Goal,
@@ -94,7 +95,7 @@ class RecordingGoalStore implements GoalStore {
             throw this.saveFailure.error;
         }
 
-        this.savedGoals.push(goal);
+        this.savedGoals.push(structuredClone(goal));
         await this.delegate.save(goal);
     }
 
@@ -129,6 +130,7 @@ class FakeScheduler implements RunScheduler {
 
 function createPreparationGoal(): Goal {
     return createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: "goal-1",
         intent: "Build a resumable workflow",
@@ -205,7 +207,6 @@ function createExecutingWaitingGoal(): Goal {
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "Production permission required",
                 reason: "Production permission required",
             },
         },
@@ -231,7 +232,7 @@ function createActionApprovalGoal(): Goal {
     const goal = createExecutingGoal({
         id: "goal-action-approval",
         objective: "Read a protected file",
-        completionCriteria: ["Read"],
+        completionCriteria: [],
         profile: { ...profile, toolIds: ["read_file"] },
         runId: "run-action-approval",
     });
@@ -239,7 +240,6 @@ function createActionApprovalGoal(): Goal {
         applyRunTransition(goal.state.run, { kind: "start" }),
         {
             kind: "stage_action",
-            checkpoint: "等待确认后读取文件",
             status: "awaiting_approval",
             action: {
                 actionId: "action-approval",
@@ -334,6 +334,7 @@ function createExecutingGoal(
     },
 ): Goal {
     const created = createGoal({
+        ...currentProtocols,
         promptBundleVersion: 1,
         id: input.id,
         intent: input.objective,
@@ -366,6 +367,7 @@ test("persists a gathering question as a real assistant message without consumin
         { kind: "question", question: "Which database should be used?" },
     ]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -383,7 +385,10 @@ test("persists a gathering question as a real assistant message without consumin
         phase: "gathering_context",
         preparation: { status: "waiting_input" },
     });
-    assert.deepEqual(result.goal.state.run, initial.state.run);
+    assert.equal(result.goal.state.run.status, initial.state.run.status);
+    assert.equal(result.goal.state.run.stepCount, initial.state.run.stepCount);
+    assert.deepEqual(result.goal.state.run.contextEpoch, initial.state.run.contextEpoch);
+    assert.ok(result.goal.state.run.committedThroughSequence > initial.state.run.committedThroughSequence);
     assert.deepEqual(result.goal.state.messages, [
         { role: "user", content: "Build a resumable workflow" },
         {
@@ -418,6 +423,7 @@ test("saves planning before the next model call and persists the complete propos
         },
     ], events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -456,14 +462,18 @@ test("saves planning before the next model call and persists the complete propos
             "Approval request: Approve this task?",
         ].join("\n"),
     });
-    assert.deepEqual(result.goal.state.run, initial.state.run);
+    assert.equal(result.goal.state.run.status, initial.state.run.status);
+    assert.equal(result.goal.state.run.stepCount, initial.state.run.stepCount);
+    assert.deepEqual(result.goal.state.run.contextEpoch, initial.state.run.contextEpoch);
+    assert.ok(result.goal.state.run.committedThroughSequence > initial.state.run.committedThroughSequence);
     assert.deepEqual(store.savedGoals.at(-1), result.goal);
     assert.deepEqual(executor.receivedTools, [[], []]);
 });
 
 test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 副本", async () => {
     const initial = createGoal({
-        promptBundleVersion: 2,
+        ...currentProtocols,
+        promptBundleVersion: 1,
         id: "goal-planning-tools",
         intent: "规划可验证任务",
         profile: {
@@ -509,6 +519,7 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
         approvalRequest: "Approve?",
     }]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -527,7 +538,8 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
 
 test("planning ToolDefinition 解析失败时不调用 Executor、不追加消息或保存", async () => {
     const initial = createGoal({
-        promptBundleVersion: 2,
+        ...currentProtocols,
+        promptBundleVersion: 1,
         id: "goal-planning-registry-error",
         intent: "规划失败边界",
         profile: { ...profile, toolIds: ["read_file"] },
@@ -548,6 +560,7 @@ test("planning ToolDefinition 解析失败时不调用 Executor、不追加消�
     const executor = new FakePreparationExecutor([]);
     const registryError = new Error("registry unavailable");
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -577,6 +590,7 @@ test("stops before the planning call when saving the phase transition fails", as
         },
     ]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -606,6 +620,7 @@ test("rejects a Preparation result that does not match the current phase without
     } as const;
     const executor = new FakePreparationExecutor([invalidResult]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -637,6 +652,7 @@ test("returns an existing preparation waiting point without executing or saving"
     await store.seed(waiting);
     const executor = new FakePreparationExecutor([]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -669,7 +685,7 @@ test("delegates an executing Goal and returns the latest persisted terminal snap
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "任务已完成",
+                completionEvidence: [],
                 summary: "Done",
             },
         },
@@ -683,6 +699,7 @@ test("delegates an executing Goal and returns the latest persisted terminal snap
         return { ok: true, state: completedRun };
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -714,7 +731,6 @@ test("returns an executing blocked Goal without scheduling it again", async () =
             kind: "decision",
             decision: {
                 kind: "wait",
-                checkpoint: "等待生产授权",
                 reason: "Permission required",
             },
         },
@@ -729,6 +745,7 @@ test("returns an executing blocked Goal without scheduling it again", async () =
         throw new Error("Unexpected Scheduler call");
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -754,6 +771,7 @@ test("exposes Action approval as a distinct executing waiting type", async () =>
         throw new Error("Unexpected Scheduler call");
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -801,7 +819,7 @@ test("saves Action approval before scheduling the matching transient authorizati
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "已完成读取",
+                completionEvidence: [],
                 summary: "任务完成",
             },
         });
@@ -812,6 +830,7 @@ test("saves Action approval before scheduling the matching transient authorizati
         return { ok: true, state: completedRun };
     }, events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -859,7 +878,7 @@ test("reject_action completes a rejected Observation and continues without a mes
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "已采用替代方案",
+                completionEvidence: [],
                 summary: "任务完成",
             },
         });
@@ -870,6 +889,7 @@ test("reject_action completes a rejected Observation and continues without a mes
         return { ok: true, state: completedRun };
     }, events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -918,7 +938,7 @@ test("allows re-approval of manual recovery and preserves the Action identity", 
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "已完成恢复",
+                completionEvidence: [],
                 summary: "任务完成",
             },
         });
@@ -929,6 +949,7 @@ test("allows re-approval of manual recovery and preserves the Action identity", 
         return { ok: true, state: completedRun };
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -977,15 +998,17 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
         async execute() {
             return {
                 kind: "complete",
-                checkpoint: "已吸收人工确认结果",
+                completionEvidence: [],
                 summary: "任务完成",
             };
         },
     };
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler: new InlineScheduler(new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
             store,
             executor,
             toolRegistry: { get: () => manualTool },
@@ -1028,6 +1051,7 @@ test("rejects Action controls with the wrong waiting type or actionId without si
             throw new Error("Unexpected Scheduler call");
         });
         const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
             store,
             preparationExecutor: new FakePreparationExecutor([]),
             scheduler,
@@ -1050,6 +1074,7 @@ test("returns RUN_NOT_FOUND for a missing Goal or mismatched runId", async () =>
     const store = new RecordingGoalStore();
     await store.seed(initial);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler: createUnusedScheduler(),
@@ -1074,6 +1099,7 @@ test("saves a gathering answer before continuing and preserves its original text
         { kind: "question", question: "Which region should be used?" },
     ], events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -1101,7 +1127,10 @@ test("saves a gathering answer before continuing and preserves its original text
             content: "Which region should be used?",
         },
     ]);
-    assert.deepEqual(result.goal.state.run, waiting.state.run);
+    assert.equal(result.goal.state.run.status, waiting.state.run.status);
+    assert.equal(result.goal.state.run.stepCount, waiting.state.run.stepCount);
+    assert.deepEqual(result.goal.state.run.contextEpoch, waiting.state.run.contextEpoch);
+    assert.ok(result.goal.state.run.committedThroughSequence > waiting.state.run.committedThroughSequence);
     assert.equal(executor.receivedGoals[0]?.state.workflow.phase, "gathering_context");
     assert.deepEqual(executor.receivedGoals[0]?.state.messages.at(-1), {
         role: "user",
@@ -1137,6 +1166,7 @@ test("saves planning feedback without the current proposal before replanning", a
         },
     ], events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -1163,7 +1193,10 @@ test("saves planning feedback without the current proposal before replanning", a
             proposal: revisedTask,
         },
     });
-    assert.deepEqual(result.goal.state.run, waiting.state.run);
+    assert.equal(result.goal.state.run.status, waiting.state.run.status);
+    assert.equal(result.goal.state.run.stepCount, waiting.state.run.stepCount);
+    assert.deepEqual(result.goal.state.run.contextEpoch, waiting.state.run.contextEpoch);
+    assert.ok(result.goal.state.run.committedThroughSequence > waiting.state.run.committedThroughSequence);
 });
 
 test("saves an approved proposal as the final task before scheduling execution", async () => {
@@ -1192,7 +1225,7 @@ test("saves an approved proposal as the final task before scheduling execution",
                 kind: "decision",
                 decision: {
                     kind: "complete",
-                    checkpoint: "任务已完成",
+                    completionEvidence: [],
                     summary: "Done",
                 },
             },
@@ -1204,6 +1237,7 @@ test("saves an approved proposal as the final task before scheduling execution",
         return { ok: true, state: completedRun };
     }, events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -1267,6 +1301,7 @@ test("rejects empty or mismatched preparation actions without side effects", asy
             throw new Error("Unexpected Scheduler call");
         });
         const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
             store,
             preparationExecutor: executor,
             scheduler,
@@ -1295,6 +1330,7 @@ test("propagates a resume save failure without continuing preparation", async ()
     await store.seed(waiting);
     const executor = new FakePreparationExecutor([]);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -1319,6 +1355,7 @@ test("resume returns RUN_NOT_FOUND for a missing Goal or mismatched runId", asyn
     const store = new RecordingGoalStore();
     await store.seed(waiting);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler: createUnusedScheduler(),
@@ -1356,7 +1393,7 @@ test("saves a blocked user message and running state before scheduling", async (
             kind: "decision",
             decision: {
                 kind: "complete",
-                checkpoint: "部署已完成",
+                completionEvidence: [],
                 summary: "Deployed",
             },
         });
@@ -1367,6 +1404,7 @@ test("saves a blocked user message and running state before scheduling", async (
         return { ok: true, state: completedRun };
     }, events);
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
@@ -1400,6 +1438,7 @@ test("rejects invalid blocked actions without saving or scheduling", async () =>
             throw new Error("Unexpected Scheduler call");
         });
         const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
             store,
             preparationExecutor: new FakePreparationExecutor([]),
             scheduler,
@@ -1425,6 +1464,7 @@ test("does not schedule when saving a blocked resume fails", async () => {
         throw new Error("Unexpected Scheduler call");
     });
     const coordinator = new GoalCoordinator({
+        trajectoryStore: trajectoryStoreFor(store),
         store,
         preparationExecutor: new FakePreparationExecutor([]),
         scheduler,

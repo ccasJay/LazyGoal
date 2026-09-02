@@ -15,7 +15,7 @@ export interface ConversationContextDocumentInput {
     readonly conversationStartIndex?: number;
 }
 
-/** 从 Snapshot 权威消息生成 v2 Conversation Context Documents。 */
+/** 从 Snapshot 权威消息生成统一检索索引中的 Conversation Documents。 */
 export function buildConversationContextDocuments(
     input: ConversationContextDocumentInput,
 ): readonly ContextSearchDocument[] {

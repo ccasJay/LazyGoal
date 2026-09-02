@@ -141,9 +141,8 @@ export class ContextSourceRouter {
      */
     route(input: unknown): ContextSourceRoute {
         const normalized = normalizeRouteInput(input);
-        // 保留旧版 route({ need }) 的 trajectory 兼容形状；模型实际返回的
-        // context_lookup 请求则显式标记为联合来源。两者最终都由 Service 按
-        // decision_rationale 查询 Conversation + Trajectory。
+        // Domain 信息需求与模型的 context_lookup 请求共用同一条规范化路由；
+        // decision_rationale 会在统一索引中查询 Conversation 与 Trajectory。
         const lookupRequest = isRecord(input) && input.kind === "context_lookup";
 
         if (

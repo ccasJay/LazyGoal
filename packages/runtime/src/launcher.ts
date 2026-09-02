@@ -1,14 +1,6 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import {
     createGoal,
-    isContextRetrievalProtocol,
-    GoalProtocolError,
-    isMemoryProtocol,
-    resolveContextRetrievalProtocol,
-    resolveModelContextProtocol,
-    type ContextRetrievalProtocol,
-    type ModelContextProtocol,
-    type MemoryProtocol,
     type GoalProtocolValidator,
 } from "./domain";
 import {
@@ -97,23 +89,12 @@ export interface LauncherDependencies {
     readonly store: Pick<GoalStore, "save">;
     /** 从已保存的 gathering Goal 推进到下一等待点或终态。 */
     readonly coordinator: Pick<GoalCoordinator, "advance">;
-    /** Agent 当前生效、由 Composition Root 注入并在新 Goal 创建时冻结的 Prompt Bundle 版本。 */
-    readonly promptBundleVersion: number;
     /**
-     * 新 Goal 冻结的 Memory 协议；legacy v1–v3 省略时按 `checkpoint@1` 兼容。
-     * v4/structured Goal 必须显式提供该字段。
-     */
-    readonly memoryProtocol?: MemoryProtocol;
-    /** 新 Goal 冻结的模型上下文协议；省略时按 `conversation@1` 兼容。 */
-    readonly modelContextProtocol?: ModelContextProtocol;
-    /** 新 Goal 冻结的 Cold Trajectory 检索协议；省略时按 `none@1` 兼容。 */
-    readonly contextRetrievalProtocol?: ContextRetrievalProtocol;
-    /**
-     * 在首次 Profile lookup、保存或模型调用前校验 Prompt/Memory 组合的适配器。
-     * structured Goal 缺少该依赖时 Launcher fail-closed。
+     * 在首次 Profile lookup、保存或模型调用前执行额外 Prompt/Memory 组合校验
+     * 的边界；Goal 创建本身始终由 Runtime 固定当前组合。
      */
     readonly protocolValidator?: GoalProtocolValidator;
-    /** 可选 Domain Event Sink；省略时保留旧 Launcher 持久化行为。 */
+    /** 可选 Domain Event Sink；省略时只保存 Snapshot，不追加事件。 */
     readonly trajectorySink?: TrajectorySink;
     /** 可选诊断边界；写入失败不回滚已保存的初始 Snapshot。 */
     readonly traceSink?: DiagnosticTraceSink;
@@ -160,18 +141,11 @@ export async function launch(
         return invalidGoalInput("maxSteps must be a non-negative integer");
     }
 
-    const memoryProtocol = resolveLaunchMemoryProtocol(dependencies);
-    const contextRetrievalProtocol = resolveLaunchContextRetrievalProtocol(dependencies);
-    if (memoryProtocol.kind === "structured" && dependencies.protocolValidator === undefined) {
-        throw new GoalProtocolError(
-            "structured@1 Goal requires an injected GoalProtocolValidator",
-        );
-    }
     dependencies.protocolValidator?.validate({
-        promptBundleVersion: dependencies.promptBundleVersion,
-        memoryProtocol,
-        modelContextProtocol: resolveModelContextProtocol(dependencies),
-        contextRetrievalProtocol,
+        promptBundleVersion: 1,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
     });
 
     const profile = dependencies.profiles.get(request.profileId);
@@ -192,16 +166,10 @@ export async function launch(
     const goal = createGoal({
         id: request.goalId,
         intent: request.intent,
-        promptBundleVersion: dependencies.promptBundleVersion,
-        ...(dependencies.memoryProtocol === undefined
-            ? {}
-            : { memoryProtocol }),
-        ...(dependencies.modelContextProtocol === undefined
-            ? {}
-            : { modelContextProtocol: resolveModelContextProtocol(dependencies) }),
-        ...(dependencies.contextRetrievalProtocol === undefined
-            ? {}
-            : { contextRetrievalProtocol }),
+        promptBundleVersion: 1,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         profile,
         runId,
         maxSteps,
@@ -251,7 +219,7 @@ export async function launch(
                 eventType: "state_committed",
                 payload: {
                     type: "state_committed",
-                    committedThroughSequence: initialGoal.state.run.committedThroughSequence ?? 0,
+                    committedThroughSequence: initialGoal.state.run.committedThroughSequence,
                 },
             });
         } catch (error) {
@@ -281,51 +249,6 @@ export async function launch(
     const result = await dependencies.coordinator.advance(ref, control);
     throwIfAborted(control);
     return result;
-}
-
-function resolveLaunchMemoryProtocol(
-    dependencies: Pick<LauncherDependencies, "promptBundleVersion" | "memoryProtocol">,
-): MemoryProtocol {
-    if (dependencies.memoryProtocol !== undefined) {
-        if (!isMemoryProtocol(dependencies.memoryProtocol)) {
-            throw new GoalProtocolError(
-                "Memory 协议必须是 checkpoint@1 或 structured@1",
-            );
-        }
-
-        return {
-            kind: dependencies.memoryProtocol.kind,
-            version: dependencies.memoryProtocol.version,
-        };
-    }
-
-    if (
-        Number.isInteger(dependencies.promptBundleVersion)
-        && dependencies.promptBundleVersion >= 1
-        && dependencies.promptBundleVersion <= 3
-    ) {
-        return { kind: "checkpoint", version: 1 };
-    }
-
-    throw new GoalProtocolError(
-        "structured Goal 必须显式提供 memoryProtocol",
-    );
-}
-
-function resolveLaunchContextRetrievalProtocol(
-    dependencies: Pick<LauncherDependencies, "contextRetrievalProtocol">,
-): ContextRetrievalProtocol {
-    if (dependencies.contextRetrievalProtocol !== undefined) {
-        if (!isContextRetrievalProtocol(dependencies.contextRetrievalProtocol)) {
-            throw new GoalProtocolError(
-                "Context Retrieval 协议必须是 none@1 或 bm25-lite@1",
-            );
-        }
-
-        return resolveContextRetrievalProtocol(dependencies);
-    }
-
-    return { kind: "none", version: 1 };
 }
 
 function invalidGoalInput(message: string): LaunchResult {

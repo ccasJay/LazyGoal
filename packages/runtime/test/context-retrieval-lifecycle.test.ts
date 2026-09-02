@@ -68,18 +68,15 @@ class MemoryTrajectoryStore implements TrajectoryStore {
     }
 }
 
-function runningGoal(
-    retrieval: "none" | "bm25-lite" = "bm25-lite",
-    committedThroughSequence = 0,
-): Goal {
+function runningGoal(committedThroughSequence = 0): Goal {
     const created = createGoal({
-        id: `goal-${retrieval}-${committedThroughSequence}`,
-        runId: `run-${retrieval}-${committedThroughSequence}`,
+        id: `goal-bm25-lite-${committedThroughSequence}`,
+        runId: `run-bm25-lite-${committedThroughSequence}`,
         intent: "检索历史上下文",
-        promptBundleVersion: 7,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-        contextRetrievalProtocol: { kind: retrieval, version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         profile,
     });
     return {
@@ -135,7 +132,7 @@ class RecordingStepExecutor implements StepExecutor {
 }
 
 test("Runner executes Context Lookup as one step and exposes only its committed result next", async () => {
-    const goal = runningGoal("bm25-lite", 1);
+    const goal = runningGoal(1);
     const trajectory = new MemoryTrajectoryStore([seedObservation(goal)]);
     const store = new InMemoryGoalStore();
     await store.save(goal);
@@ -198,6 +195,7 @@ test("Runner executes Context Lookup as one step and exposes only its committed 
             "state_committed",
             "decision_received",
             "run_completed",
+            "context_epoch_closed",
             "memory_patch_accepted",
             "state_committed",
         ],
@@ -212,39 +210,8 @@ test("Runner executes Context Lookup as one step and exposes only its committed 
     );
 });
 
-test("Runner rejects lookup on a Goal without retrieval protocol before facts or query", async () => {
-    const goal = runningGoal("none");
-    const trajectory = new MemoryTrajectoryStore();
-    const store = new InMemoryGoalStore();
-    await store.save(goal);
-    let calls = 0;
-    const executor = new RecordingStepExecutor([{
-        kind: "context_lookup",
-        need: "decision_rationale",
-        question: "为什么？",
-    }]);
-    const result = await new Runner({
-        store,
-        executor,
-        trajectoryStore: trajectory,
-        contextLookupPort: {
-            async lookup() {
-                calls += 1;
-                return { status: "not_found", lookupId: "unused" };
-            },
-        },
-    }).run({ goalId: goal.id, runId: goal.state.run.id });
-
-    assert.equal(result.ok, false);
-    if (result.ok) return;
-    assert.equal(result.error.code, "INVALID_CONTEXT_LOOKUP");
-    assert.equal(calls, 0);
-    assert.deepEqual(trajectory.events, []);
-    assert.equal((await store.restore(goal.id))?.state.run.stepCount, 0);
-});
-
 test("Runner resumes a committed lookup result after interruption without querying again", async () => {
-    const goal = runningGoal("bm25-lite", 1);
+    const goal = runningGoal(1);
     const trajectory = new MemoryTrajectoryStore([seedObservation(goal)]);
     const store = new InMemoryGoalStore();
     await store.save(goal);
@@ -332,7 +299,7 @@ test("Coordinator restores a committed Preparation lookup result after interrupt
         id: "goal-preparation-recovery",
         runId: "run-preparation-recovery",
         intent: "恢复准备查询",
-        promptBundleVersion: 7,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
@@ -431,7 +398,7 @@ test("Coordinator limits Preparation Context Lookup chains to three committed qu
         id: "goal-preparation-chain",
         runId: "run-preparation-chain",
         intent: "准备检索任务",
-        promptBundleVersion: 7,
+        promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },

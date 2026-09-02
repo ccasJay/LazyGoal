@@ -39,7 +39,7 @@ export class ContextDocumentSourceError extends Error {
 /** Context Document 的来源类别。 */
 export type ContextDocumentKind = "execution" | "preparation";
 
-/** v2 联合索引的权威来源引用。 */
+/** 当前 fielded-bm25-lite-v1 索引的权威来源引用。 */
 export type ContextDocumentSource =
     | {
         readonly kind: "trajectory";
@@ -174,7 +174,7 @@ export interface ContextSearchDocument {
     readonly paths: readonly string[];
     readonly errorCodes: readonly string[];
     readonly objectIds: readonly string[];
-    /** v2 来源联合引用；v1 Trajectory 文档省略。 */
+    /** 统一索引的来源引用；Trajectory 与 Conversation 文档按来源类型区分。 */
     readonly source?: ContextDocumentSource;
 }
 

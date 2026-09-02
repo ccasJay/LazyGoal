@@ -7,7 +7,6 @@ import {
     assertValidTrajectoryEventDraft,
     classifyTrajectoryEvent,
     createNoopDiagnosticTraceSink,
-    createNoopTrajectoryRecorder,
     projectTrajectoryEvent,
 } from "../src/index";
 import type {
@@ -24,14 +23,13 @@ const startedDraft: TrajectoryEventDraft = {
     payload: { type: "run_started" },
 };
 
-test("no-op trajectory recorder allocates ordered immutable events per run", async () => {
-    const recorder = createNoopTrajectoryRecorder();
-    const first = await recorder.append(startedDraft);
-    const second = await recorder.append({
+test("trajectory events retain explicit order and are immutable", () => {
+    const first = allocateImmutableEvent(startedDraft, 1, "event-1");
+    const second = allocateImmutableEvent({
         ...startedDraft,
         eventType: "state_committed",
         payload: { type: "state_committed", committedThroughSequence: first.sequence },
-    });
+    }, 2, "event-2");
 
     assert.equal(first.sequence, 1);
     assert.equal(second.sequence, 2);

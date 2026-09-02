@@ -7,7 +7,6 @@ import {
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
     isMemoryProtocol,
-    resolveMemoryProtocol,
 } from "../src/index";
 import type {
     AgentProfile,
@@ -16,6 +15,7 @@ import type {
     StepExecutionInput,
     WorkingMemory,
 } from "../src/index";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "contract-profile",
@@ -24,19 +24,8 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-test("Memory protocol defaults to legacy and rejects unknown or extended values", () => {
-    assert.deepEqual(resolveMemoryProtocol({}), {
-        kind: "checkpoint",
-        version: 1,
-    });
-    assert.deepEqual(resolveMemoryProtocol({
-        memoryProtocol: { kind: "structured", version: 1 },
-    }), {
-        kind: "structured",
-        version: 1,
-    });
-
-    assert.equal(isMemoryProtocol({ kind: "checkpoint", version: 1 }), true);
+test("Memory protocol accepts only the current structured@1 shape", () => {
+    assert.equal(isMemoryProtocol({ kind: "checkpoint", version: 1 }), false);
     assert.equal(isMemoryProtocol({ kind: "structured", version: 1 }), true);
     assert.equal(isMemoryProtocol({ kind: "structured", version: 2 }), false);
     assert.equal(
@@ -44,22 +33,15 @@ test("Memory protocol defaults to legacy and rejects unknown or extended values"
         false,
     );
 
-    assert.throws(
-        () => resolveMemoryProtocol({
-            memoryProtocol: { kind: "structured", version: 2 } as never,
-        }),
-        (error: unknown) =>
-            error instanceof GoalProtocolError
-            && error.code === GOAL_PROTOCOL_ERROR_CODE,
-    );
 });
 
-test("createGoal freezes an explicit protocol without changing legacy snapshot shape", () => {
+test("createGoal freezes the complete current protocol combination", () => {
     const supplied = { kind: "structured" as const, version: 1 as const };
     const goal = createGoal({
+        ...currentProtocols,
         id: "structured-goal",
         intent: "验证结构化协议",
-        promptBundleVersion: 4,
+        promptBundleVersion: 1,
         memoryProtocol: supplied,
         profile,
         runId: "structured-run",
@@ -72,14 +54,17 @@ test("createGoal freezes an explicit protocol without changing legacy snapshot s
     });
     assert.notEqual(goal.definition.memoryProtocol, supplied);
 
-    const legacyGoal = createGoal({
-        id: "legacy-goal",
-        intent: "保持旧协议",
+    assert.deepEqual(goal.definition.modelContextProtocol, currentProtocols.modelContextProtocol);
+    assert.deepEqual(goal.definition.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
+    assert.throws(() => createGoal({
+        ...currentProtocols,
+        id: "historical-memory-goal",
+        intent: "拒绝历史 Memory 协议",
+        memoryProtocol: { kind: "checkpoint", version: 1 } as never,
         promptBundleVersion: 1,
         profile,
-        runId: "legacy-run",
-    });
-    assert.equal("memoryProtocol" in legacyGoal.definition, false);
+        runId: "historical-memory-run",
+    }), /protocol/i);
 });
 
 test("Working Memory keeps only derived entries and validates its revision boundary", () => {
@@ -127,34 +112,32 @@ test("protocol validator is a side-effect-free boundary and object input carries
     const calls: StepExecutionInput[] = [];
     const validator: GoalProtocolValidator = {
         validate(input) {
-            if (
-                input.promptBundleVersion === 4
-                && input.memoryProtocol.kind !== "structured"
-            ) {
+            if (input.memoryProtocol.kind !== "structured") {
                 throw new GoalProtocolError("Prompt 与 Memory 协议不匹配");
             }
         },
     };
 
     validator.validate({
-        promptBundleVersion: 4,
-        memoryProtocol: { kind: "structured", version: 1 },
+        ...currentProtocols,
+        promptBundleVersion: 1,
     });
     assert.throws(
         () => validator.validate({
-            promptBundleVersion: 4,
+            ...currentProtocols,
+            promptBundleVersion: 1,
             memoryProtocol: { kind: "checkpoint", version: 1 },
-        }),
+        } as never),
         GoalProtocolError,
     );
 
     const memory: WorkingMemory = createEmptyWorkingMemory();
     const input: StepExecutionInput = {
         goal: createGoal({
+            ...currentProtocols,
             id: "input-goal",
             intent: "对象输入",
-            promptBundleVersion: 4,
-            memoryProtocol: { kind: "structured", version: 1 },
+            promptBundleVersion: 1,
             profile,
             runId: "input-run",
         }),
@@ -166,7 +149,7 @@ test("protocol validator is a side-effect-free boundary and object input carries
             calls.push(received);
             return {
                 kind: "complete" as const,
-                checkpoint: "legacy test decision",
+                completionEvidence: [],
                 summary: "contract test",
             };
         },
