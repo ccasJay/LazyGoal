@@ -150,7 +150,9 @@ export async function buildStepRequest(
         throw new Error("Step request requires a running executing Goal");
     }
 
-    const view = projected;
+    const view = modelCapabilities === undefined
+        ? await compactConversation(projected, contextCompactor, signal)
+        : projected;
 
     const assembled = await assembleTrajectoryContext(
         goal,
@@ -206,7 +208,9 @@ export async function buildPreparationRequest(
         throw new Error("Preparation request requires an active preparation Goal");
     }
 
-    const view = projected;
+    const view = modelCapabilities === undefined
+        ? await compactConversation(projected, contextCompactor, signal)
+        : projected;
 
     const assembled = await assembleTrajectoryContext(
         goal,

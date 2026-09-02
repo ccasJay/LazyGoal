@@ -153,7 +153,8 @@ export interface ContextCompactAdapterOptions {
  * 调用前验证输入身份、类别和预算；无候选时不调用模型。模型只收到 Warm 条目，
  * 不会看到 Goal Task、用户约束或 Runtime 控制字段。每次 `compact` 最多调用一次
  * Adapter，非法、无来源、超预算、Provider 失败或中止都不会污染已有 Warm；主
- * Assembler 应在失败时继续使用确定性 reducer 结果。
+ * 后台维护组件应在失败时继续使用确定性 reducer 结果；当前主模型 Assembler
+ * 不调用该 Adapter，也不会等待 Compact 结果。
  *
  * @example
  * ```ts

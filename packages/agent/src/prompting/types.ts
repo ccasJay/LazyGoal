@@ -91,11 +91,11 @@ export interface PromptBundleManifest {
     readonly version: 1;
     /** 参与组合的 section 及其确定顺序。 */
     readonly sections: readonly PromptBundleSection[];
-    /** 该 Bundle 唯一兼容的 Memory 协议。 */
+    /** 该 Bundle 唯一匹配的 Memory 协议。 */
     readonly memoryProtocol: ModelMemoryProtocol;
-    /** 该 Bundle 唯一兼容的模型上下文协议。 */
+    /** 该 Bundle 唯一匹配的模型上下文协议。 */
     readonly modelContextProtocol: ModelContextProtocol;
-    /** 该 Bundle 唯一兼容的 Cold Trajectory 检索协议。 */
+    /** 该 Bundle 唯一匹配的 Cold Trajectory 检索协议。 */
     readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
 }
 

@@ -139,10 +139,6 @@ test("预算策略拒绝非法配置和超出 Warm 配额的使用量", () => {
         /warmShare/,
     );
     assert.throws(
-        () => createModelContextBudgetPolicy({ modelInputBudget: 100, compactTriggerRatio: 2 }),
-        /compactTriggerRatio/,
-    );
-    assert.throws(
         () => createModelContextBudgetPolicy({ modelInputBudget: 100, warmLimit: 0 }),
         /warmLimit/,
     );

@@ -247,7 +247,7 @@ export class PromptBundleRegistry {
                 contextRetrievalProtocol,
             )
         ) {
-            const compatibleVersions = [...this.manifests.entries()]
+            const supportedVersions = [...this.manifests.entries()]
                 .filter(([, candidate]) => protocolMatches(
                     candidate,
                     memoryProtocol,
@@ -258,7 +258,7 @@ export class PromptBundleRegistry {
                 .sort((a, b) => a - b);
             throw new UnsupportedPromptBundleVersionError(
                 version,
-                compatibleVersions,
+                supportedVersions,
             );
         }
 
