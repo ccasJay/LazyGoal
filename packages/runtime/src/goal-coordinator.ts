@@ -62,6 +62,7 @@ import {
     type NormalizedWorkingMemoryPatch,
     WorkingMemoryPatchError,
     type WorkingMemoryLimitsInput,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
 import {
@@ -1115,6 +1116,12 @@ export class GoalCoordinator {
                         ? {}
                         : { limits: this.workingMemoryLimits }),
                 });
+            validateMemoryPatchPhase(memoryPatch, phase, {
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
             memorySession.validatePatch(memoryPatch, workingMemory);
             modelPatch = normalizeMemoryPatch(memoryPatch, {
                 phase,

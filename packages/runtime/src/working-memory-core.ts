@@ -710,6 +710,61 @@ export function validateMemoryPatch(
     assertPatch(patch, limits);
 }
 
+/**
+ * 在 canonicalize 前校验模型 Patch 的阶段准入策略。
+ *
+ * @remarks
+ * 本函数只读取 Patch、阶段和当前 Working Memory，不产生 canonical operation，也不
+ * 修改调用方对象。它同时执行基础 Patch schema 校验，随后按原始操作类型执行唯一的
+ * 阶段策略：gathering_context 禁止所有 PlanItem 操作，planning 允许创建或更新已有
+ * PlanItem，executing 只允许更新当前投影中已有的 PlanItem。任一操作不满足策略时，
+ * 整个 Patch 都会被拒绝；Runtime lifecycle 的 canonical `supersede_scope` 不经过本入口。
+ *
+ * @param patch - 尚未 canonicalize 的结构化 Patch。
+ * @param phase - 产生 Patch 的 Goal 阶段。
+ * @param context - 当前 Working Memory 与可选 schema 限制。
+ * @throws WorkingMemoryPatchError 当 Patch schema、当前条目引用或阶段准入非法时。
+ * @example
+ * ```ts
+ * validateMemoryPatchPhase(patch, "executing", { workingMemory });
+ * ```
+ */
+export function validateMemoryPatchPhase(
+    patch: unknown,
+    phase: GoalPhase,
+    context: WorkingMemoryPatchValidationContext = {},
+): asserts patch is WorkingMemoryPatch {
+    assertOneOf(phase, GOAL_PHASES, "phase");
+    validateMemoryPatch(patch, context);
+    const workingMemory = context.workingMemory ?? createEmptyWorkingMemory();
+    const planOperations = patch.operations.filter(
+        (operation): operation is Extract<MemoryPatchOperation, { readonly type: "create_plan_item" | "update_plan_item" }> =>
+            operation.type === "create_plan_item" || operation.type === "update_plan_item",
+    );
+
+    if (phase === "gathering_context" && planOperations.length > 0) {
+        throw new WorkingMemoryPatchError(
+            "gathering_context does not allow PlanItem operations",
+        );
+    }
+
+    for (const operation of planOperations) {
+        if (operation.type === "create_plan_item") {
+            if (phase === "executing") {
+                throw new WorkingMemoryPatchError(
+                    "executing does not allow create_plan_item",
+                );
+            }
+            continue;
+        }
+        if (!workingMemory.plan.some((item) => item.id === operation.planItem.id)) {
+            throw new WorkingMemoryPatchError(
+                `${operation.type}.id does not reference an existing PlanItem`,
+            );
+        }
+    }
+}
+
 /** 根据规范化 `{subject, predicate}` 生成稳定 Fact ID。 */
 export function createCanonicalFactId(subject: string, predicate: string): string {
     const identity = `${normalizeText(subject)}\u0000${normalizeText(predicate)}`;
@@ -1132,7 +1187,7 @@ export function normalizeMemoryPatch(
     assertPositiveInteger(context.originSequence, "originSequence");
     const source = context.source ?? "model";
     assertOneOf(source, ["model", "tool_projector", "runtime"] as const, "source");
-    validateMemoryPatch(patch, context);
+    validateMemoryPatchPhase(patch, context.phase, context);
     const limits = resolveWorkingMemoryLimits(context.limits);
     const original = context.workingMemory ?? createEmptyWorkingMemory();
     let draft = withoutDerivedMetadata(original);

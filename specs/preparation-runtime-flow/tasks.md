@@ -9,7 +9,7 @@
   - 增加 Trajectory、Conversation Document 和 segment 行为测试；同步新增公开契约的中文 TSDoc 与最小示例。
   - _Requirements: [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 1.2 实现 Working Memory 分类与唯一 Phase Policy
+- [x] //TODO 1.2 实现 Working Memory 分类与唯一 Phase Policy
 
   - 在 `packages/runtime/src/working-memory-core.ts` 提供纯 `validateMemoryPatchPhase`，在 canonicalize 前检查原始 PlanItem 操作和当前条目存在性。
   - 让 `GoalCoordinator`、`Runner` 和 Tool Projector 复用该入口；保证整个非法 Patch 原子拒绝，Runtime lifecycle 的 `supersede_scope` 保持独立路径。

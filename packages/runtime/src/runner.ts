@@ -58,6 +58,7 @@ import {
     normalizeMemoryPatch,
     type NormalizedWorkingMemoryPatch,
     type WorkingMemoryLimitsInput,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
 import {
@@ -923,6 +924,12 @@ export class Runner {
                     fact,
                 })),
             };
+            validateMemoryPatchPhase(patch, "executing", {
+                workingMemory: session.workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
             const normalized = normalizeMemoryPatch(patch, {
                 phase: "executing",
                 originSequence: observationSequence + 2,
@@ -983,6 +990,12 @@ export class Runner {
             };
             if (memoryPatch !== undefined) {
                 const validationSession: WorkingMemorySession = session;
+                validateMemoryPatchPhase(memoryPatch, "executing", {
+                    workingMemory,
+                    ...(this.workingMemoryLimits === undefined
+                        ? {}
+                        : { limits: this.workingMemoryLimits }),
+                });
                 validationSession.validatePatch(memoryPatch);
                 normalized = normalizeMemoryPatch(memoryPatch, {
                     phase: "executing",

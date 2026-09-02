@@ -142,6 +142,7 @@ export {
     reduceWorkingMemory,
     resolveWorkingMemoryLimits,
     validateMemoryPatch,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 export {
     createNoopToolMemoryProjectorRegistry,
