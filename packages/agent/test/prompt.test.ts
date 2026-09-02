@@ -12,10 +12,13 @@ import type {
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type {
+    ModelConversationMessage,
     ModelContextLookupResult,
     ModelInferenceView,
+    ModelPreparationInputEvidence,
     PromptContext,
 } from "../src/model-inference-view";
+import type { ContextCompactor } from "../src/context-compactor";
 import type { PromptBundleRenderer } from "../src/prompting/types";
 import { buildPreparationRequest, buildStepRequest } from "../src/prompt";
 import {
@@ -169,15 +172,20 @@ async function preparationRequest(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
+    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
+    requestCompactor: ContextCompactor<ModelConversationMessage> = contextCompactor,
 ) {
     return buildPreparationRequest(
         goal,
         tools,
         requestRenderer,
-        contextCompactor,
+        requestCompactor,
         undefined,
         currentWorkingMemory,
         trajectoryContextAssembler,
+        undefined,
+        undefined,
+        preparationInputEvidence,
     );
 }
 
@@ -325,6 +333,50 @@ test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序"
         assert.ok(control.trajectoryContext !== undefined);
         assert.ok(control.contextEpoch !== undefined);
     }
+});
+
+test("裁剪后的 Preparation 请求保留原始索引并过滤不可见 provenance", async () => {
+    const goal = createPreparationGoal("planning", [
+        { role: "user", content: "旧约束" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "旧响应",
+        },
+        { role: "user", content: "当前约束" },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "当前响应",
+        },
+    ]);
+    const evidence: readonly ModelPreparationInputEvidence[] = [
+        { sequence: 3, messageIndex: 1, contentHash: "sha256:hidden" },
+        { sequence: 4, messageIndex: 3, contentHash: "sha256:visible" },
+    ];
+
+    const request = await preparationRequest(
+        goal,
+        [],
+        renderer,
+        evidence,
+        new DropOldestContextCompactor(8),
+    );
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "");
+
+    assert.deepEqual(request.messages.slice(1, -1), [
+        { role: "user", content: "当前约束" },
+        { role: "assistant", content: "当前响应" },
+    ]);
+    assert.deepEqual(control.visibleConversationMessageMap, [
+        { visibleIndex: 0, sourceMessageIndex: 3 },
+        { visibleIndex: 1, sourceMessageIndex: 4 },
+    ]);
+    assert.deepEqual(control.preparationInputEvidence, [{
+        sequence: 4,
+        messageIndex: 3,
+        contentHash: "sha256:visible",
+    }]);
 });
 
 test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition", async () => {

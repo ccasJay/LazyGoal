@@ -441,6 +441,29 @@ export interface ModelPreparationInputEvidence {
 }
 
 /**
+ * 最终模型可见 Conversation 位置到 Goal 原始消息位置的映射项。
+ *
+ * @remarks
+ * `visibleIndex` 只在本轮最终请求的真实 Conversation 中有效，不包含 system 或
+ * Working Context 控制消息；`sourceMessageIndex` 始终指向 Goal 的原始消息数组。
+ * 该映射不包含正文。
+ *
+ * @example
+ * ```ts
+ * const mapping: VisibleConversationMessageMapEntry = {
+ *     visibleIndex: 0,
+ *     sourceMessageIndex: 3,
+ * };
+ * ```
+ */
+export interface VisibleConversationMessageMapEntry {
+    /** 最终请求中真实 Conversation 的可见数组索引。 */
+    readonly visibleIndex: number;
+    /** 对应 Goal.state.messages 的原始数组索引。 */
+    readonly sourceMessageIndex: number;
+}
+
+/**
  * 一次模型推理的完整输入投影。
  *
  * @remarks

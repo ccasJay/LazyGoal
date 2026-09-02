@@ -60,7 +60,7 @@
   - 增加完整单元裁剪、Epoch 起点、Trajectory assembler 和 token pruning 后的映射测试。
   - _Requirements: [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 2.3 在最终 renderer 边界生成 map 并隔离 Preparation provenance
+- [x] //TODO 2.3 在最终 renderer 边界生成 map 并隔离 Preparation provenance
 
   - 修改 `render.ts`、`prompt.ts`、Preparation/Step Executor 请求构建路径，在最终 Conversation 确定后一次生成 `visibleConversationMessageMap` 和过滤后的 provenance payload。
   - 保持真实消息正文不嵌入索引；executing 请求不携带 provenance，Projector 或 renderer 收到该字段（包括空数组）时 fail-closed。

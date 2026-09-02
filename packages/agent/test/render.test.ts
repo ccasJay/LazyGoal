@@ -8,6 +8,7 @@ import type {
     ModelProfileView,
     ModelToolDefinition,
     ModelWorkingContext,
+    ModelPreparationInputEvidence,
 } from "../src/model-inference-view";
 import {
     renderRequest,
@@ -50,6 +51,7 @@ function buildView(
         readonly conversation?: ModelInferenceView["conversation"];
         readonly authorizedTools?: readonly ModelToolDefinition[];
         readonly contextLookupResult?: ModelContextLookupResult;
+        readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
     } = {},
 ): ModelInferenceView {
     return {
@@ -93,6 +95,9 @@ function buildView(
         ...(options.contextLookupResult === undefined
             ? {}
             : { contextLookupResult: options.contextLookupResult }),
+        ...(options.preparationInputEvidence === undefined
+            ? {}
+            : { preparationInputEvidence: options.preparationInputEvidence }),
     };
 }
 
@@ -118,6 +123,10 @@ test("renderRequest 按 system → 真实会话 → Working Context 组装唯一
             ...workingContext,
             workingMemory: view.workingMemory,
             contextEpoch: view.contextEpoch,
+            visibleConversationMessageMap: [
+                { visibleIndex: 0, sourceMessageIndex: 0 },
+                { visibleIndex: 1, sourceMessageIndex: 1 },
+            ],
         },
     );
 });
@@ -142,6 +151,10 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     assert.match(systemContent, /trajectory-layered@1/);
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
+
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "");
+    assert.equal("preparationInputEvidence" in control, false);
+    assert.equal("visibleConversationMessageMap" in control, false);
 });
 
 test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks 语法", () => {
@@ -166,8 +179,87 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
             intent: "{% if true %}x{% endif %}",
             workingMemory: view.workingMemory,
             contextEpoch: view.contextEpoch,
+            visibleConversationMessageMap: [
+                { visibleIndex: 0, sourceMessageIndex: 0 },
+            ],
         },
     );
+});
+
+test("Preparation 控制消息只暴露最终可见 Conversation 映射和匹配 provenance", () => {
+    const view = buildView(
+        "gathering_context",
+        { phase: "gathering_context", intent: "完成示例任务" },
+        {
+            conversation: [
+                { role: "user", content: "可见约束", sourceMessageIndex: 2 },
+                {
+                    role: "assistant",
+                    assistant: { profileId: "profile-1" },
+                    content: "可见响应",
+                    sourceMessageIndex: 4,
+                },
+            ],
+            preparationInputEvidence: [
+                {
+                    sequence: 8,
+                    messageIndex: 2,
+                    contentHash: "sha256:visible",
+                },
+                {
+                    sequence: 9,
+                    messageIndex: 3,
+                    contentHash: "sha256:hidden",
+                },
+            ],
+        },
+    );
+
+    const request = renderRequest(view, renderer);
+    const control = JSON.parse(request.messages.at(-1)?.content ?? "");
+
+    assert.deepEqual(control.visibleConversationMessageMap, [
+        { visibleIndex: 0, sourceMessageIndex: 2 },
+        { visibleIndex: 1, sourceMessageIndex: 4 },
+    ]);
+    assert.deepEqual(control.preparationInputEvidence, [{
+        sequence: 8,
+        messageIndex: 2,
+        contentHash: "sha256:visible",
+    }]);
+    assert.deepEqual(request.messages.slice(1, -1), [
+        { role: "user", content: "可见约束" },
+        { role: "assistant", content: "可见响应" },
+    ]);
+});
+
+test("Executing 请求注入 Preparation provenance 时在渲染器调用前失败", () => {
+    const view = buildView(
+        "executing",
+        {
+            phase: "executing",
+            intent: "完成示例任务",
+            task: {
+                objective: "实现三阶段上下文",
+                completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
+            },
+            execution: { stepCount: 0 },
+        },
+        { preparationInputEvidence: [] },
+    );
+    let rendererCalled = false;
+    const rejectingRenderer: typeof renderer = {
+        render() {
+            rendererCalled = true;
+            return "unexpected";
+        },
+    };
+
+    assert.throws(
+        () => renderRequest(view, rejectingRenderer),
+        /Executing request must not receive Preparation input evidence/,
+    );
+    assert.equal(rendererCalled, false);
 });
 
 test("未知 Prompt Bundle 版本在渲染时抛出且不产生任何请求", () => {
