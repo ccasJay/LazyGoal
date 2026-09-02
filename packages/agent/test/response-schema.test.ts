@@ -170,6 +170,31 @@ test("非法 JSON 会转换为稳定的协议错误", () => {
     assertProtocolError("不是 JSON");
 });
 
+test("完整 JSON fenced code block 可解析为 AgentDecision", () => {
+    const decision = {
+        kind: "tool_call" as const,
+        action: {
+            actionId: "action-fenced",
+            toolId: "alfworld_step",
+            input: { command: "look" },
+        },
+    };
+    const content = `\n\`\`\`JSON\n${JSON.stringify(decision, null, 2)}\n\`\`\`\n`;
+
+    assert.deepEqual(parseAgentDecision(content, { kind: "structured", version: 1 }), decision);
+});
+
+test("JSON 解析只兼容完整 fenced 包裹，不提取任意文本中的 JSON", () => {
+    const decision = JSON.stringify({
+        kind: "complete",
+        checkpoint: "已完成",
+        summary: "完成",
+    });
+
+    assertProtocolError(`前缀\n\`\`\`json\n${decision}\n\`\`\``);
+    assertProtocolError(`\`\`\`typescript\n${decision}\n\`\`\``);
+});
+
 test("未知 kind、缺失字段和错误字段类型都会被拒绝", () => {
     assertProtocolError(JSON.stringify({
         kind: "retry",

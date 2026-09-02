@@ -174,6 +174,9 @@ export class SessionController {
             case "approveTask":
                 await this.resumeSession({ kind: "approve" });
                 return;
+            case "retryPreparation":
+                await this.retryPreparation();
+                return;
             case "approveAction":
                 await this.resumeSession({
                     kind: "approve_action",
@@ -381,6 +384,40 @@ export class SessionController {
         this.applyProgress(result);
     }
 
+    /**
+     * 重新推进一个停滞在 Preparation 中间态的当前 Goal Session。
+     *
+     * @remarks
+     * 只依赖内存中最新的 Session 快照，不再从 Store 恢复：进入本方法前页面
+     * 已处于 `session`，快照即代表用户当前正在观察的 Goal。推进等价于对
+     * 最新快照再执行一次 `advance()`，由 Runtime 重跑 preparation executor。
+     * 该方法本身不写入快照，也不改变 Runtime 的状态转换语义；成功与失败
+     * 都通过 `applyProgress` 反映到 ViewModel。
+     *
+     * @returns 推进完成；无活动 Session 时写入 `NO_ACTIVE_SESSION` 业务错误。
+     * @throws Coordinator 或 Store 失败时传播原始异常，由 `dispatch` 统一转换。
+     * @example
+     * ```ts
+     * await controller.dispatch({ kind: "retryPreparation" });
+     * ```
+     */
+    private async retryPreparation(): Promise<void> {
+        if (this.snapshot.screen !== "session") {
+            this.setError({
+                code: "NO_ACTIVE_SESSION",
+                message: "There is no active Goal session",
+            });
+            return;
+        }
+
+        const goal = this.snapshot.goal;
+        const result = await this.dependencies.coordinator.advance(
+            { goalId: goal.id, runId: goal.state.run.id },
+            this.dependencies.control,
+        );
+        this.applyProgress(result);
+    }
+
     private applyProgress(result: ProgressResult): void {
         if (!result.ok) {
             this.setError(result.error);
@@ -418,6 +455,7 @@ export class SessionController {
         const blockedReason = waitingFor === "blocked"
             ? deriveBlockedReason(snapshot)
             : undefined;
+        const preparationStalled = isStalledPreparation(snapshot, waitingFor);
         const terminal = deriveTerminalSummary(snapshot);
 
         return {
@@ -432,6 +470,7 @@ export class SessionController {
                 ? {}
                 : { checkpoint: snapshot.state.run.checkpoint }),
             ...(waitingFor === undefined ? {} : { waitingFor }),
+            ...(preparationStalled ? { preparationStalled } : {}),
             ...(question === undefined ? {} : { question }),
             ...(proposal === undefined ? {} : { proposal }),
             ...(blockedReason === undefined ? {} : { blockedReason }),
@@ -618,6 +657,41 @@ function deriveWaitingFor(goal: Goal): WaitingProgress["waitingFor"] | undefined
         default:
             return "blocked";
     }
+}
+
+/**
+ * 判断 Goal 的 Preparation 阶段是否停滞在无法自行推进的中间态。
+ *
+ * @remarks
+ * `preparation.status === "active"` 表示一次推进已经开始但尚未产出等待点。
+ * 若该瞬时态被持久化为检查点（例如推进被中断或 executor 失败），Goal 既不
+ * 在等待用户输入，`resume` 也会被 Runtime 拒绝，用户将无从恢复；本函数用于
+ * 识别这种状态并交给 UI 提供重试入口。
+ *
+ * 领域类型保证 `active` 只出现在 `gathering_context` 与 `planning`，
+ * `executing` 阶段的 preparation 恒为 `completed`，因此无需另行排除
+ * executing 阶段。
+ *
+ * 本函数只反映快照自身的事实，不感知是否正在异步推进中：`busy` 是快照上
+ * 的活字段，会在推进开始与结束时被原地覆盖，而派生字段不会随之重算，因此
+ * 把 `busy` 固化进本函数的结果会让一次推进失败后得到的快照永远停留在
+ * 「推进中」。是否展示重试入口由 UI 结合当前 `busy` 实时判断。
+ *
+ * @param goal - 最新完整 Goal 快照。
+ * @param waitingFor - 从同一次推进结果或快照派生的等待点；存在等待点时 Goal
+ *   正在等待用户输入，不算停滞。
+ * @returns Preparation 阶段开始但未产出等待点时返回 `true`，否则返回 `false`。
+ * @example
+ * ```ts
+ * const stalled = isStalledPreparation(goal, waitingFor);
+ * ```
+ */
+function isStalledPreparation(
+    goal: Goal,
+    waitingFor: WaitingProgress["waitingFor"] | undefined,
+): boolean {
+    return waitingFor === undefined
+        && goal.state.workflow.preparation.status === "active";
 }
 
 function deriveQuestion(goal: Goal): string | undefined {

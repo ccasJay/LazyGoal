@@ -347,8 +347,9 @@ export const StructuredPlanningPreparationResultSchema =
 export type { PreparationPhase } from "./model-inference-view";
 
 function parseJson(content: string): unknown {
+    const normalizedContent = normalizeJsonContent(content);
     try {
-        return JSON.parse(content);
+        return JSON.parse(normalizedContent);
     } catch (error) {
         throw new LLMResponseProtocolError("响应不是合法 JSON", {
             cause: error,
@@ -356,14 +357,21 @@ function parseJson(content: string): unknown {
     }
 }
 
+/** 只移除完整 JSON fenced code block 的 Markdown 包裹，不提取任意文本中的 JSON。 */
+function normalizeJsonContent(content: string): string {
+    const trimmed = content.trim();
+    const match = /^```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n```$/iu.exec(trimmed);
+    return match?.[1]?.trim() ?? trimmed;
+}
+
 /**
  * 解析 LLM 返回的严格 AgentDecision。
  *
- * @param content - Adapter 返回的原始文本。
+ * @param content - Adapter 返回的原始文本；支持原始 JSON 或完整 JSON fenced code block。
  * @param protocol - Goal 创建时冻结的 Memory 协议；省略时按 legacy checkpoint@1 解析。
  * @returns 与冻结协议匹配的 Tool 调用或终止决策。
- * @throws LLMResponseProtocolError 文本不是 JSON、包含协议外字段、分支不匹配
- * 或字段为空时抛出。
+ * @throws LLMResponseProtocolError 文本在移除允许的 fenced 包裹后仍不是 JSON、
+ * 包含协议外字段、分支不匹配或字段为空时抛出。
  */
 export function parseAgentDecision(
     content: string,
@@ -401,12 +409,12 @@ export function parseAgentDecision(
 /**
  * 按 Goal Preparation 阶段解析模型的严格结构化结果。
  *
- * @param content - Adapter 返回的原始文本。
+ * @param content - Adapter 返回的原始文本；支持原始 JSON 或完整 JSON fenced code block。
  * @param phase - 当前准备阶段；决定唯一允许的结果分支。
  * @param protocol - Goal 创建时冻结的 Memory 协议；省略时按 legacy checkpoint@1 解析。
  * @returns 与阶段匹配的 PreparationResult。
- * @throws LLMResponseProtocolError 文本不是 JSON、包含额外字段，或结果分支与
- * 当前阶段不匹配时抛出。
+ * @throws LLMResponseProtocolError 文本在移除允许的 fenced 包裹后仍不是 JSON、
+ * 包含额外字段，或结果分支与当前阶段不匹配时抛出。
  */
 export function parsePreparationResult(
     content: string,

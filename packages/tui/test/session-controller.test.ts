@@ -57,6 +57,27 @@ function createWaitingGoal(id = "goal-1"): Goal {
     };
 }
 
+function createStalledGoal(id = "goal-stalled"): Goal {
+    const goal = createGoal({
+        promptBundleVersion: 1,
+        id,
+        intent: "Build a resumable workflow",
+        profile,
+        runId: `run-${id}`,
+    });
+
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "active" },
+            },
+        },
+    };
+}
+
 function waitingResult(goal: Goal): GoalProgressResult {
     return {
         ok: true,
@@ -602,4 +623,132 @@ test("a result that races with shutdown cannot resurrect the session screen", as
     await pending;
 
     assert.equal(controller.getSnapshot().screen, "shutting_down");
+});
+
+test("retryPreparation recovers an interrupted preparation without restoring from the store", async () => {
+    const stalled = createStalledGoal("goal-created");
+    const recovered = createWaitingGoal("goal-created");
+    const coordinator = new FakeCoordinator(waitingResult(recovered));
+    const store = new FakeStore([stalled]);
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher({
+                ok: false,
+                error: {
+                    code: "INVALID_CONTEXT_LOOKUP",
+                    message: "Preparation was interrupted",
+                },
+            }),
+            coordinator,
+            store,
+            new FakeCatalog([]),
+        ),
+    );
+    await controller.dispatch({ kind: "create", intent: "Start" });
+    store.requestedGoalIds.length = 0;
+    assert.equal(sessionView(controller).preparationStalled, true);
+
+    await controller.dispatch({ kind: "retryPreparation" });
+
+    assert.deepEqual(coordinator.advanceRefs, [{
+        goalId: stalled.id,
+        runId: stalled.state.run.id,
+    }]);
+    assert.deepEqual(store.requestedGoalIds, []);
+    const view = sessionView(controller);
+    assert.equal(view.waitingFor, "question");
+    assert.equal(view.preparationStalled, undefined);
+    assert.equal(view.error, undefined);
+});
+
+test("an interrupted preparation is exposed as a retryable session state", async () => {
+    const goal = createStalledGoal("goal-created");
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher({
+                ok: false,
+                error: {
+                    code: "INVALID_CONTEXT_LOOKUP",
+                    message: "Preparation was interrupted",
+                },
+            }),
+            new FakeCoordinator(waitingResult(goal)),
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Start" });
+
+    const view = sessionView(controller);
+    assert.equal(view.preparationStalled, true);
+    assert.equal(view.waitingFor, undefined);
+    assert.equal(view.error?.code, "INVALID_CONTEXT_LOOKUP");
+    assert.equal(view.busy, false);
+});
+
+test("a planning goal interrupted before a proposal is also retryable", async () => {
+    const base = createStalledGoal("goal-created");
+    const planning: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            workflow: { phase: "planning", preparation: { status: "active" } },
+        },
+    };
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher({
+                ok: false,
+                error: {
+                    code: "INVALID_CONTEXT_LOOKUP",
+                    message: "Preparation was interrupted",
+                },
+            }),
+            new FakeCoordinator(waitingResult(planning)),
+            new FakeStore([planning]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Start" });
+
+    assert.equal(sessionView(controller).preparationStalled, true);
+});
+
+test("a goal waiting for user input is never marked as stalled", async () => {
+    const waiting = createWaitingGoal("goal-not-stalled");
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(waiting)),
+            new FakeCoordinator(waitingResult(waiting)),
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Start" });
+
+    assert.equal(sessionView(controller).preparationStalled, undefined);
+    assert.equal(sessionView(controller).waitingFor, "question");
+});
+
+test("retryPreparation reports a stable error without an active session", async () => {
+    const goal = createWaitingGoal("goal-retry-no-session");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "retryPreparation" });
+
+    const view = controller.getSnapshot();
+    assert.equal(view.screen, "intent_input");
+    assert.equal(view.error?.code, "NO_ACTIVE_SESSION");
+    assert.deepEqual(coordinator.advanceRefs, []);
 });

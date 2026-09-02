@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
 import type { UiSessionViewModel } from "./types";
@@ -31,6 +31,15 @@ export interface PreparationScreenProps {
     readonly onSubmitMessage: (content: string) => void | Promise<void>;
     /** 批准当前 planning proposal。 */
     readonly onApproveTask: () => void | Promise<void>;
+    /**
+     * 重新推进一个停滞的 Preparation 阶段。
+     *
+     * @remarks
+     * 只有 `session.preparationStalled` 为 `true` 时屏幕上才会出现重试入口，
+     * 因此该回调仅在停滞态被调用；实现应把命令交给 Controller 串行处理，
+     * 不应直接调用 Runtime。
+     */
+    readonly onRetry: () => void | Promise<void>;
 }
 
 /**
@@ -43,14 +52,25 @@ export function PreparationScreen({
     session,
     onSubmitMessage,
     onApproveTask,
+    onRetry,
 }: PreparationScreenProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
     const [messageValue, setMessageValue] = useState("");
     const [messageInputKey, setMessageInputKey] = useState(0);
     const resetInitialized = useRef(false);
     const resetKey = useMemo(
-        () => [session.goal.id, session.waitingFor, session.proposal?.objective],
-        [session.goal.id, session.proposal?.objective, session.waitingFor],
+        () => [
+            session.goal.id,
+            session.waitingFor,
+            session.preparationStalled,
+            session.proposal?.objective,
+        ],
+        [
+            session.goal.id,
+            session.preparationStalled,
+            session.proposal?.objective,
+            session.waitingFor,
+        ],
     );
     const submitGate = useSubmitGate(session.busy, resetKey);
 
@@ -84,6 +104,16 @@ export function PreparationScreen({
             void onApproveTask();
         });
     }, [onApproveTask, submitGate]);
+
+    const handleRetry = useCallback(() => {
+        submitGate.attempt(() => {
+            void onRetry();
+        });
+    }, [onRetry, submitGate]);
+
+    // `preparationStalled` 只描述快照事实；是否已有异步推进由活字段 `busy`
+    // 表达，因此重试入口必须在此处结合 `busy` 实时判断，避免推进进行中闪现。
+    const showStalledPanel = session.preparationStalled === true && !session.busy;
 
     const errorView = submitGate.validationError !== undefined
         ? { message: submitGate.validationError }
@@ -121,10 +151,63 @@ export function PreparationScreen({
                     onSubmitFeedback={handleMessageSubmit}
                 />
                 : null}
-            {session.waitingFor !== "question" && session.waitingFor !== "approval"
+            {showStalledPanel
+                ? <StalledPanel onRetry={handleRetry} />
+                : null}
+            {!showStalledPanel
+                && session.waitingFor !== "question"
+                && session.waitingFor !== "approval"
                 ? <Text color="yellow">Waiting for the next Runtime state.</Text>
                 : null}
             {session.busy ? <StatusSpinner label={preparationSpinnerLabel(session.phase)} /> : null}
+        </Box>
+    );
+}
+
+/**
+ * Preparation 中断面板的渲染属性。
+ *
+ * @example
+ * ```tsx
+ * <StalledPanel busy={false} onRetry={() => dispatch({ kind: "retryPreparation" })} />
+ * ```
+ */
+interface StalledPanelProps {
+    /** 用户确认重试时的回调。 */
+    readonly onRetry: () => void;
+}
+
+/**
+ * 渲染 Preparation 被中断后的说明与重试入口。
+ *
+ * @remarks
+ * 该面板只在 Goal 停滞于「推进已开始但未产出等待点」的中间态时出现；此时
+ * Goal 不在等待用户输入，Runtime 会拒绝 `resume`，重试是唯一的自助恢复方式。
+ * 面板只发出重试意图，不直接推进 Runtime。
+ *
+ * 重试是此状态下唯一有意义的操作，因此这里监听 `Y` 键而不使用确认/取消
+ * 二选一控件，避免向用户暗示一个并不存在的取消语义。按键不是 `Y`/`y` 时
+ * 忽略输入；是否可重试由父组件根据 `busy` 决定是否渲染本面板。
+ *
+ * @param props - 重试回调。
+ * @returns Ink 渲染树。
+ */
+function StalledPanel({ onRetry }: StalledPanelProps): React.JSX.Element {
+    useInput((input) => {
+        if (input !== "y" && input !== "Y") {
+            return;
+        }
+
+        onRetry();
+    });
+
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Text color="yellow">Preparation was interrupted before it produced a response.</Text>
+            <Text dimColor>
+                This Goal is not waiting for your input, so answering will be rejected.
+            </Text>
+            <Text dimColor>Press Y to retry the interrupted preparation.</Text>
         </Box>
     );
 }

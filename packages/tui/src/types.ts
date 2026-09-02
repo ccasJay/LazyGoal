@@ -63,6 +63,25 @@ export type UiCommand =
     | { readonly kind: "submitMessage"; readonly content: string }
     | { readonly kind: "approveTask" }
     | { readonly kind: "approveAction"; readonly actionId: string }
+    /**
+     * 重新推进一个停滞在中间态的 Preparation 阶段。
+     *
+     * @remarks
+     * 仅在当前存在活动 Goal Session 时可用。命令等价于对最新快照再执行一次
+     * `advance()`，由 Runtime 重跑 preparation executor 并推进到下一个等待点、
+     * 终态或稳定业务错误。它不携带 Goal 状态、不写入快照，也不改变 Runtime
+     * 的状态转换语义。
+     *
+     * 典型场景是 Goal 在上一次推进中被中断（例如进程退出或 executor 失败），
+     * 快照停留在 `preparation.status === "active"`：此时 Goal 不属于任何
+     * 等待用户输入的状态，`resume` 会被拒绝，只有本命令能恢复。
+     *
+     * @example
+     * ```ts
+     * await controller.dispatch({ kind: "retryPreparation" });
+     * ```
+     */
+    | { readonly kind: "retryPreparation" }
     | {
         readonly kind: "rejectAction";
         readonly actionId: string;
@@ -147,6 +166,24 @@ export interface UiSessionViewModel {
     readonly checkpoint?: string;
     readonly messages: readonly GoalMessage[];
     readonly waitingFor?: UiWaitingFor;
+    /**
+     * 当前 Goal 的 Preparation 阶段是否已停滞在无法自行推进的中间态。
+     *
+     * @remarks
+     * 只在「非 `executing` 阶段 + `preparation.status` 为 `active` + 不存在
+     * 等待用户输入的等待点 + 当前没有进行中的异步推进」时由 Controller 置为
+     * `true`。`active` 在一次正常 `advance()` 进行期间同样是合法的瞬时态，
+     * 因此必须叠加 busy 判断，否则正常推进过程中会误报中断。
+     *
+     * 该状态表示 Goal **不**在等待用户输入，因此不进入 `UiWaitingFor`；
+     * 此时 `resume` 会被 Runtime 拒绝，用户只能通过 `retryPreparation` 恢复。
+     *
+     * @example
+     * ```ts
+     * if (view.preparationStalled === true) render(<StalledPanel onRetry={retry} />);
+     * ```
+     */
+    readonly preparationStalled?: boolean;
     readonly question?: string;
     readonly proposal?: GoalTask;
     readonly blockedReason?: string;

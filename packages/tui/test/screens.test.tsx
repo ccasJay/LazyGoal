@@ -88,6 +88,37 @@ function proposalGoal(id = "goal-proposal"): Goal {
     };
 }
 
+function stalledGoal(id = "goal-stalled"): Goal {
+    const goal = createGoalSnapshot(id);
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "gathering_context",
+                preparation: { status: "active" },
+            },
+        },
+    };
+}
+
+function stalledSession(
+    goal = stalledGoal(),
+    overrides: Partial<UiSessionViewModel> = {},
+): UiSessionViewModel {
+    return {
+        screen: "session",
+        busy: false,
+        goal,
+        phase: "gathering_context",
+        runStatus: goal.state.run.status,
+        stepCount: goal.state.run.stepCount,
+        messages: goal.state.messages,
+        preparationStalled: true,
+        ...overrides,
+    };
+}
+
 function questionSession(goal = questionGoal()): UiSessionViewModel {
     return {
         screen: "session",
@@ -267,6 +298,7 @@ test("PreparationScreen displays an Agent question and submits a message", async
             submitted.push(content);
         },
         onApproveTask: () => undefined,
+        onRetry: () => undefined,
     };
     const instance = render(<PreparationScreen {...props} />);
 
@@ -291,6 +323,7 @@ test("PreparationScreen shows phase-specific progress and business error format"
             }}
             onSubmitMessage={() => undefined}
             onApproveTask={() => undefined}
+            onRetry={() => undefined}
         />,
     );
     assert.match(gathering.lastFrame() ?? "", /Gathering context/);
@@ -301,6 +334,7 @@ test("PreparationScreen shows phase-specific progress and business error format"
             session={{ ...proposalSession(), busy: true }}
             onSubmitMessage={() => undefined}
             onApproveTask={() => undefined}
+            onRetry={() => undefined}
         />,
     );
     assert.match(planning.lastFrame() ?? "", /Planning/);
@@ -315,6 +349,7 @@ test("PreparationScreen rejects blank question answers", async () => {
                 submitted.push(content);
             }}
             onApproveTask={() => undefined}
+            onRetry={() => undefined}
         />,
     );
 
@@ -337,6 +372,7 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
             onApproveTask={() => {
                 approved += 1;
             }}
+            onRetry={() => undefined}
         />,
     );
 
@@ -358,6 +394,7 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
             onApproveTask={() => {
                 approved += 1;
             }}
+            onRetry={() => undefined}
         />,
     );
     feedbackInstance.stdin.write("n");
@@ -371,6 +408,77 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
     assert.deepEqual(submitted, ["Add a migration test"]);
     assert.match(feedbackInstance.lastFrame() ?? "", /Provide non-empty feedback/);
     assert.equal(approved, 1);
+});
+
+test("PreparationScreen offers a retry entry point when preparation is stalled", async () => {
+    let retried = 0;
+    const instance = render(
+        <PreparationScreen
+            session={stalledSession()}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+            onRetry={() => {
+                retried += 1;
+            }}
+        />,
+    );
+
+    assert.match(instance.lastFrame() ?? "", /Preparation was interrupted/);
+    assert.match(instance.lastFrame() ?? "", /Press Y to retry/);
+    instance.stdin.write("y");
+    await nextFrame();
+
+    assert.equal(retried, 1);
+});
+
+test("PreparationScreen ignores other keys in the stalled panel", async () => {
+    let retried = 0;
+    const idle = render(
+        <PreparationScreen
+            session={stalledSession()}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+            onRetry={() => {
+                retried += 1;
+            }}
+        />,
+    );
+    idle.stdin.write("n");
+    await nextFrame();
+
+    assert.equal(retried, 0);
+});
+
+test("PreparationScreen hides the stalled panel while a retry is in flight", async () => {
+    let retried = 0;
+    const busy = render(
+        <PreparationScreen
+            session={stalledSession(stalledGoal("goal-stalled-busy"), { busy: true })}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+            onRetry={() => {
+                retried += 1;
+            }}
+        />,
+    );
+    busy.stdin.write("y");
+    await nextFrame();
+
+    assert.doesNotMatch(busy.lastFrame() ?? "", /Press Y to retry/);
+    assert.equal(retried, 0);
+});
+
+test("PreparationScreen hides the stalled panel for waiting states", () => {
+    const instance = render(
+        <PreparationScreen
+            session={questionSession()}
+            onSubmitMessage={() => undefined}
+            onApproveTask={() => undefined}
+            onRetry={() => undefined}
+        />,
+    );
+
+    assert.doesNotMatch(instance.lastFrame() ?? "", /Preparation was interrupted/);
 });
 
 test("TuiApp subscribes to Controller and moves from intent to question", async () => {

@@ -16,9 +16,9 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | --- | --- | --- |
 | [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root（共享 Goal、Trajectory、Trace Store）并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
-| [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口统一为 `resume` | 自行推断 Runtime 可用操作 |
+| [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口为 `resume`，另有针对中断 Preparation 的 `retryPreparation` | 自行推断 Runtime 可用操作 |
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面并将 Ctrl+C 回调交给 CLI | Runtime 编排和快照写入 |
-| [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
+| [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
 ## 当前数据流
@@ -83,6 +83,13 @@ structured Goal 使用 conversation 上下文。`resume` 先查询
 和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal
 替换 session ViewModel；业务错误保留最近已知 Goal 或当前页面，并在 `error`
 中暴露稳定 code/message。
+
+若推进在产出等待点之前中断，快照会把瞬时态 `preparation.status === "active"`
+持久化为检查点：此时 Goal 不等待用户输入，Runtime 会拒绝 `resume`。Controller
+在这种情况下派生 `preparationStalled`，`PreparationScreen` 据此显示重试入口，
+用户确认后以 `retryPreparation` 对同一 `{goalId, runId}` 再调用一次
+`coordinator.advance()`，无需重启 CLI 或删除快照。该派生只看快照事实，
+是否展示入口由屏幕结合活字段 `busy` 判断，避免推进进行中误报。
 
 `dispatch` 在操作开始同步置 `busy`；已有操作或关闭页面会拒绝新命令。第一次
 Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近内存副本并

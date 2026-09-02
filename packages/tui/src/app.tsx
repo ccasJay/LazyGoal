@@ -103,6 +103,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         content,
                     })}
                     onApproveTask={() => dispatch({ kind: "approveTask" })}
+                    onRetry={() => dispatch({ kind: "retryPreparation" })}
                 />
             );
         case "goal_select":
