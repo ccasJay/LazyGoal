@@ -15,7 +15,7 @@ import type { ModelConversationMessage } from "./model-inference-view";
  * @example
  * ```ts
  * const units = new ConversationContextUnitAdapter().adapt([
- *     { role: "user", content: "继续" },
+ *     { role: "user", content: "继续", sourceMessageIndex: 0 },
  * ]);
  * ```
  */
@@ -78,10 +78,15 @@ function cloneMessage(
     message: ModelConversationMessage,
 ): ModelConversationMessage {
     return message.role === "user"
-        ? { role: "user", content: message.content }
+        ? {
+            role: "user",
+            content: message.content,
+            sourceMessageIndex: message.sourceMessageIndex,
+        }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            sourceMessageIndex: message.sourceMessageIndex,
         };
 }

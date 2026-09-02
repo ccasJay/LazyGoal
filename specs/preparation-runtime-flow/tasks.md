@@ -46,7 +46,7 @@
 
 ## 2. Agent 投影与 Conversation provenance
 
-- [ ] //TODO 2.1 为模型 Conversation 和 Preparation provenance 增加独立 DTO
+- [x] //TODO 2.1 为模型 Conversation 和 Preparation provenance 增加独立 DTO
 
   - 修改 `model-inference-view.ts`、`model-inference-projector.ts` 和相关 Preparation 输入类型，让每条 `ModelConversationMessage` 保留原始 `sourceMessageIndex`。
   - Projector 从 Goal 原始消息数组填充 index，并为 Preparation 暴露独立的 `ModelPreparationInputEvidence`；公开接口同步中文 TSDoc 与最小示例。

@@ -11,6 +11,7 @@ import type {
     WorkingMemory,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import { computeContentHash } from "../../runtime/src/trajectory";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 
@@ -178,7 +179,11 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     }), [toolDefinition()]);
 
     assert.equal(view.prompt.phase, "executing");
-    assert.deepEqual(view.conversation, [{ role: "user", content: intent }]);
+    assert.deepEqual(view.conversation, [{
+        role: "user",
+        content: intent,
+        sourceMessageIndex: 0,
+    }]);
     assert.deepEqual(view.workingContext, {
         phase: "executing",
         intent,
@@ -364,4 +369,58 @@ test("Projector 投影当前 bm25-lite@1 的历史 Lookup Result", () => {
     assert.equal(view.contextLookupResult?.freshness.kind, "historical");
     assert.ok(Object.isFrozen(view.contextLookupResult));
     assert.notStrictEqual(view.contextLookupResult, result);
+});
+
+test("Projector 保留 Conversation 原始索引并投影 Preparation provenance", () => {
+    const goal = createPreparationGoal("planning", [
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "已记录约束",
+        },
+        { role: "user", content: "只使用 PostgreSQL" },
+    ]);
+    const evidence = [{
+        sequence: 7,
+        messageIndex: 2,
+        contentHash: computeContentHash("只使用 PostgreSQL"),
+    }] as const;
+
+    const view = projector.project(
+        goal,
+        [],
+        currentWorkingMemory,
+        undefined,
+        undefined,
+        evidence,
+    );
+
+    assert.deepEqual(view.conversation, [
+        { role: "user", content: intent, sourceMessageIndex: 0 },
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "已记录约束",
+            sourceMessageIndex: 1,
+        },
+        { role: "user", content: "只使用 PostgreSQL", sourceMessageIndex: 2 },
+    ]);
+    assert.deepEqual(view.preparationInputEvidence, evidence);
+    assert.notStrictEqual(view.preparationInputEvidence, evidence);
+    assert.ok(Object.isFrozen(view.preparationInputEvidence));
+    assert.equal("content" in (view.preparationInputEvidence?.[0] ?? {}), false);
+});
+
+test("Projector 在 executing 阶段拒绝任何 Preparation provenance 字段", () => {
+    assert.throws(
+        () => projector.project(
+            createExecutingGoal(),
+            [],
+            currentWorkingMemory,
+            undefined,
+            undefined,
+            [],
+        ),
+        /Preparation input evidence requires a preparation phase/,
+    );
 });

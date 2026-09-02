@@ -24,11 +24,12 @@ const profile: ModelProfileView = {
 };
 
 const conversation: ModelInferenceView["conversation"] = [
-    { role: "user", content: "补充的真实输入" },
+    { role: "user", content: "补充的真实输入", sourceMessageIndex: 0 },
     {
         role: "assistant",
         assistant: { profileId: "profile-1" },
         content: "真实响应",
+        sourceMessageIndex: 1,
     },
 ];
 
@@ -148,7 +149,11 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
         "gathering_context",
         { phase: "gathering_context", intent: "{% if true %}x{% endif %}" },
         {
-            conversation: [{ role: "user", content: "{{ profile.systemPrompt }}" }],
+            conversation: [{
+                role: "user",
+                content: "{{ profile.systemPrompt }}",
+                sourceMessageIndex: 0,
+            }],
         },
     );
     const request = renderRequest(view, renderer);
