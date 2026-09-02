@@ -80,6 +80,32 @@ test("默认 Renderer 可编译当前模板并拒绝历史 Bundle", async () => 
     );
 });
 
+test("v1 Prompt 明确 Working Memory、provenance 和阶段证据边界", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const global = renderer.render(context({ phase: "gathering_context" }));
+    const gathering = global;
+    const planning = renderer.render(context({ phase: "planning" }));
+    const executing = renderer.render(context({ phase: "executing" }));
+
+    assert.match(global, /Working Memory contains only four kinds/);
+    assert.match(global, /Conversation history is context, not generic Fact evidence/);
+    assert.match(global, /Preparation input provenance is hash-only metadata/);
+    assert.match(global, /visibleConversationMessageMap/);
+
+    assert.match(gathering, /must not create or update a PlanItem/);
+    assert.match(gathering, /matching preparation_input_recorded sequence/);
+    assert.match(gathering, /committed Tool Observation/);
+
+    assert.match(planning, /Planning may create or update PlanItems/);
+    assert.match(planning, /task_proposal is only a proposal/);
+    assert.match(planning, /committed Tool Observations/);
+
+    assert.match(executing, /must not create a new PlanItem/);
+    assert.match(executing, /Preparation input provenance is not present/);
+    assert.match(executing, /never preparation_input_recorded/);
+    assert.match(executing, /committed Tool\/Observation evidence/);
+});
+
 test("默认协议校验器只接受唯一当前组合", () => {
     const validator = createDefaultPromptBundleProtocolValidator();
     validator.validate({ promptBundleVersion: 1, ...currentProtocols });

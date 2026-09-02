@@ -69,7 +69,7 @@
 
 ## 3. Prompt Bundle v1
 
-- [ ] //TODO 3.1 原地更新四个 v1 Prompt 契约
+- [x] //TODO 3.1 原地更新四个 v1 Prompt 契约
 
   - 修改 `global-overview@1.njk`、`gathering-context@1.njk`、`planning@1.njk` 和 `agent-decision@1.njk`，补充四类 Memory、provenance、Observation、map 和 PlanItem 阶段规则。
   - 保持 Manifest、Bundle、`structured@1`、`trajectory-layered@1` 与 `bm25-lite@1` 版本不变，不加入迁移或兼容分支。
