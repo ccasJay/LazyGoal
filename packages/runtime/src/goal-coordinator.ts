@@ -1122,7 +1122,7 @@ export class GoalCoordinator {
                     ? {}
                     : { limits: this.workingMemoryLimits }),
             });
-            memorySession.validatePatch(memoryPatch, workingMemory);
+            memorySession.validatePatch(memoryPatch, "preparation", workingMemory);
             modelPatch = normalizeMemoryPatch(memoryPatch, {
                 phase,
                 originSequence: Math.max(

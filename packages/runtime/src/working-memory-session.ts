@@ -11,6 +11,7 @@ import {
     validateFactEvidence,
     validateMemoryPatchEvidence,
     type CommittedEvidenceIndex,
+    type EvidenceValidationScope,
     validateCanonicalFactEvidence,
 } from "./evidence-gate";
 import {
@@ -476,7 +477,10 @@ async function rebuild(
     let memory = createEmptyWorkingMemory();
     for (const event of chain.reverse()) {
         try {
-            validateCanonicalFactEvidence(event.payload.operations, evidenceIndex);
+            const scope: EvidenceValidationScope = event.phase === "executing"
+                ? "execution"
+                : "preparation";
+            validateCanonicalFactEvidence(event.payload.operations, evidenceIndex, scope);
             memory = reduceWorkingMemory(memory, event.payload.operations, {
                 derivedThroughSequence: event.sequence,
                 revision: { eventId: event.eventId, sequence: event.sequence },
@@ -616,16 +620,18 @@ export class WorkingMemorySession {
      * 在当前 committed Snapshot 边界内校验模型提出的 Memory Patch。
      *
      * @param patch - 尚未接受的模型 Patch。
+     * @param scope - 当前 Preparation 或 Execution 证据范围。
      * @param workingMemory - 可选的校验起点；省略时使用 Session 当前投影。
      * @throws WorkingMemorySessionClosedError Session 已关闭；
      * WorkingMemoryPatchError 或 EvidenceGateError 当 Patch 或证据引用非法。
      * @example
      * ```ts
-     * session.validatePatch(result.memoryPatch);
+     * session.validatePatch(result.memoryPatch, "preparation");
      * ```
      */
     validatePatch(
         patch: unknown,
+        scope: EvidenceValidationScope,
         workingMemory?: WorkingMemory,
     ): asserts patch is MemoryPatch {
         if (this.currentMemory === undefined || this.currentEvidenceIndex === undefined) {
@@ -635,6 +641,7 @@ export class WorkingMemorySession {
         validateMemoryPatchEvidence(
             patch,
             this.currentEvidenceIndex,
+            scope,
             validationMemory,
         );
     }
@@ -654,7 +661,7 @@ export class WorkingMemorySession {
         if (this.currentMemory === undefined || this.currentEvidenceIndex === undefined) {
             throw new WorkingMemorySessionClosedError();
         }
-        validateFactEvidence(evidenceSequences, this.currentEvidenceIndex);
+        validateFactEvidence(evidenceSequences, this.currentEvidenceIndex, "execution");
     }
 
     /** 丢弃进程内 Memory；不会改写 Snapshot 或 Trajectory。 */

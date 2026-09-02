@@ -16,7 +16,7 @@
   - 增加 gathering、planning、executing 三阶段及四类 Working Memory 的单元测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 1.3 扩展 EvidenceGate 的 Preparation/Execution scope
+- [x] //TODO 1.3 扩展 EvidenceGate 的 Preparation/Execution scope
 
   - 修改 `packages/runtime/src/evidence-gate.ts` 的公开校验接口，显式传递 `preparation | execution` scope；Preparation 仅允许匹配的用户输入 provenance 支持 Fact create/update。
   - 保持环境、Workspace、验证和完成状态只能由 Tool/Observation 支持；禁止 `retire_fact` 使用 Preparation provenance，并让 executing 与 Plan completion 拒绝该来源。

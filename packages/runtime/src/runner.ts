@@ -996,7 +996,7 @@ export class Runner {
                         ? {}
                         : { limits: this.workingMemoryLimits }),
                 });
-                validationSession.validatePatch(memoryPatch);
+                validationSession.validatePatch(memoryPatch, "execution");
                 normalized = normalizeMemoryPatch(memoryPatch, {
                     phase: "executing",
                     originSequence: Math.max(

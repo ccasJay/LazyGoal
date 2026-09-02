@@ -366,6 +366,7 @@ export type {
     CommittedEvidenceIndexInput,
     EvidenceEventType,
     EvidenceGate,
+    EvidenceValidationScope,
     FactEvidence,
 } from "./evidence-gate";
 export {
