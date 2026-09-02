@@ -491,7 +491,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
                 trajectoryStore: bindings.trajectoryStore,
                 policy: createDefaultModelContextBudgetPolicy(),
-                ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
             });
             const runner = new Runner({
                 store: bindings.goalStore,
