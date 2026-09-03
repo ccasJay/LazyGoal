@@ -14,8 +14,8 @@ If contextEpoch.control.status is checkpoint_required, return only:
 {"kind":"context_checkpoint","memoryPatch":{...optional structured@1 patch}}
 This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
 Otherwise return exactly one strict JSON object whose top-level property "kind" determines the decision type:
-For a tool action (do NOT wrap inside a "tool_call" key):
-{"kind":"tool_call","action":{"actionId":"<unique-id>","toolId":"<tool-id>","input":{...}}}
+For a tool action (tool arguments such as "command" MUST be inside the "input" object, NEVER directly inside "action"):
+{"kind":"tool_call","action":{"actionId":"<unique-id>","toolId":"<tool-id>","input":{"command":"<cmd>"}}}
 For task completion:
 {"kind":"complete","summary":"...","completionEvidence":[{"criterionIndex":<index>,"evidenceSequences":[<seq>]}]}
 For wait or fail:

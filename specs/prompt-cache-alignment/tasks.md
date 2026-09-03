@@ -28,7 +28,7 @@
   - 验证当用户发起新对话或阶段切换时，前缀能够按需正确更新
   - _Requirements: [1.3](./requirements.md#req-1-3), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 5. 端到端集成回归与 ALFWorld 基准验证
+- [x] //TODO 5. 端到端集成回归与 ALFWorld 基准验证
 
   - 验证模型基于三层拓扑能够准确解析 `AgentDecision` 并按 `criterionIndex` 提交完成证据序列
   - 运行全量 ALFWorld 回归测试套件（`benchmarks/alfworld/manifests/regression.json`，共 5 题），断言端到端 100% 成功率与决策闭环
