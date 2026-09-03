@@ -613,7 +613,6 @@ export async function createCompositionRoot(
     );
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
-        sidecarStore,
         policy: modelContextPolicy,
     });
     const checkpointStore = new CheckpointGateGoalStore(store);

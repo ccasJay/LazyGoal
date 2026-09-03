@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 收敛 Agent 的 Trajectory Context 组装链路
+- [x] //TODO 1. 收敛 Agent 的 Trajectory Context 组装链路
 
   - 删除语义 `ContextCompactAdapter`、Compact Trace 类型与专用测试，保留 Conversation Compactor
   - 从 Assembler 移除 Warm Sidecar/版本输入，改写测试覆盖确定性 Warm、Hot 连续性、tail 排除和预算错误
