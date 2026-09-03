@@ -142,6 +142,7 @@ export {
     reduceWorkingMemory,
     resolveWorkingMemoryLimits,
     validateMemoryPatch,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 export {
     createNoopToolMemoryProjectorRegistry,
@@ -365,6 +366,7 @@ export type {
     CommittedEvidenceIndexInput,
     EvidenceEventType,
     EvidenceGate,
+    EvidenceValidationScope,
     FactEvidence,
 } from "./evidence-gate";
 export {
@@ -427,6 +429,7 @@ export {
     assertValidTrajectoryEventDraft,
     classifyTrajectoryTail,
     classifyTrajectoryEvent,
+    computeContentHash,
     createNoopDiagnosticTraceSink,
     freezeTrajectoryEvent,
     projectTrajectoryEvent,
@@ -437,6 +440,7 @@ export type {
     TraceRecord,
     TrajectoryEvent,
     EpochRange,
+    PreparationInputEvidence,
     TrajectoryEventCategory,
     TrajectoryEventDraft,
     TrajectoryEventPayload,

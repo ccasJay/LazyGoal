@@ -32,6 +32,18 @@ export const CONTEXT_LOOKUP_EVENT_TYPES: readonly TrajectoryEventType[] = [
 ];
 
 /**
+ * Memory Patch 证据校验所处的业务范围。
+ *
+ * @example `const scope: EvidenceValidationScope = "preparation";`
+ */
+export type EvidenceValidationScope = "preparation" | "execution";
+
+const EVIDENCE_VALIDATION_SCOPES: readonly EvidenceValidationScope[] = [
+    "preparation",
+    "execution",
+];
+
+/**
  * Evidence 索引构建所需的当前 Goal/Run 与 Snapshot 边界。
  *
  * @example
@@ -162,7 +174,7 @@ export function validateContextLookupSourceReferences(
  * @example
  * ```ts
  * try {
- *   validateFactEvidence([10], index);
+ *   validateFactEvidence([10], index, "execution");
  * } catch (error) {
  *   if (error instanceof EvidenceGateError) console.error(error.code);
  * }
@@ -191,6 +203,12 @@ function assertBoundary(value: unknown): asserts value is number {
         || value < 0
     ) {
         throw new EvidenceGateError("committedThroughSequence must be a non-negative integer");
+    }
+}
+
+function assertScope(value: unknown): asserts value is EvidenceValidationScope {
+    if (!EVIDENCE_VALIDATION_SCOPES.includes(value as EvidenceValidationScope)) {
+        throw new EvidenceGateError("evidence validation scope is invalid");
     }
 }
 
@@ -267,16 +285,19 @@ export function buildCommittedEvidenceIndex(
  *
  * @param evidenceSequences - Fact 声明的 Trajectory sequence 列表。
  * @param index - 当前 Goal/Run 的 committed Evidence 索引。
+ * @param scope - Preparation 可额外接受用户输入 provenance；Execution 只接受 Tool/Observation。
  * @throws EvidenceGateError 当列表为空、越界、缺失、跨来源或事件类型不允许时抛出。
  * @example
  * ```ts
- * validateFactEvidence([8, 9], index);
+ * validateFactEvidence([8, 9], index, "execution");
  * ```
  */
 export function validateFactEvidence(
     evidenceSequences: readonly number[],
     index: CommittedEvidenceIndex,
+    scope: EvidenceValidationScope,
 ): void {
+    assertScope(scope);
     if (evidenceSequences.length === 0) {
         throw new EvidenceGateError("Fact must reference at least one evidence sequence");
     }
@@ -302,6 +323,14 @@ export function validateFactEvidence(
         if (event === undefined) {
             throw new EvidenceGateError("evidence sequence does not belong to this Goal/Run");
         }
+        if (event.eventType === "preparation_input_recorded") {
+            if (scope === "execution") {
+                throw new EvidenceGateError(
+                    "preparation input provenance is not allowed in execution scope",
+                );
+            }
+            continue;
+        }
         if (!eventIsEvidence(event)) {
             throw new EvidenceGateError("evidence event type is not allowed for Fact");
         }
@@ -310,12 +339,18 @@ export function validateFactEvidence(
 
 function evidenceFromOperation(
     operation: MemoryPatchOperation,
-): readonly number[] | undefined {
-    if (operation.type === "upsert_fact" || operation.type === "retire_fact") {
-        return operation.fact.evidenceSequences;
+): { readonly kind: "fact" | "retire_fact" | "plan_completion"; readonly sequences: readonly number[] } | undefined {
+    if (operation.type === "upsert_fact") {
+        return { kind: "fact", sequences: operation.fact.evidenceSequences };
+    }
+    if (operation.type === "retire_fact") {
+        return { kind: "retire_fact", sequences: operation.fact.evidenceSequences };
     }
     if (operation.type === "update_plan_item") {
-        return operation.planItem.completionEvidenceSequences;
+        return {
+            kind: "plan_completion",
+            sequences: operation.planItem.completionEvidenceSequences ?? [],
+        };
     }
     return undefined;
 }
@@ -329,25 +364,43 @@ function evidenceFromOperation(
  *
  * @param patch - 模型提出的结构化 Patch。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
+ * @param scope - Fact 可使用的业务证据范围；Plan completion 始终使用 execution。
  * @param workingMemory - 更新操作引用现有条目时使用的当前 Memory。
  * @throws WorkingMemoryPatchError 或 EvidenceGateError 当任一校验失败时抛出。
  * @example
  * ```ts
- * validateMemoryPatchEvidence(patch, index, workingMemory);
+ * validateMemoryPatchEvidence(patch, index, "preparation", workingMemory);
  * ```
  */
 export function validateMemoryPatchEvidence(
     patch: unknown,
     index: CommittedEvidenceIndex,
+    scope: EvidenceValidationScope,
     workingMemory?: WorkingMemory,
 ): asserts patch is MemoryPatch {
+    assertScope(scope);
     validateMemoryPatch(
         patch,
         workingMemory === undefined ? {} : { workingMemory },
     );
     for (const operation of patch.operations) {
         const evidence = evidenceFromOperation(operation);
-        if (evidence !== undefined && evidence.length > 0) validateFactEvidence(evidence, index);
+        if (evidence === undefined || evidence.sequences.length === 0) continue;
+        if (evidence.kind === "retire_fact") {
+            if (evidence.sequences.some((sequence) =>
+                index.get(sequence)?.eventType === "preparation_input_recorded")) {
+                throw new EvidenceGateError(
+                    "retire_fact cannot use preparation input provenance",
+                );
+            }
+            validateFactEvidence(evidence.sequences, index, "execution");
+            continue;
+        }
+        validateFactEvidence(
+            evidence.sequences,
+            index,
+            evidence.kind === "plan_completion" ? "execution" : scope,
+        );
     }
 }
 
@@ -356,21 +409,28 @@ export function validateMemoryPatchEvidence(
  *
  * @param operations - accepted Event 将保存的规范化操作。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
+ * @param scope - Fact 可使用的业务证据范围；Plan completion 始终使用 execution。
  * @throws EvidenceGateError 当证据引用不能回查时抛出。
  */
 export function validateCanonicalFactEvidence(
     operations: readonly import("./domain").CanonicalMemoryOperation[],
     index: CommittedEvidenceIndex,
+    scope: EvidenceValidationScope,
 ): void {
+    assertScope(scope);
     for (const operation of operations) {
         if (operation.type === "upsert_fact") {
-            validateFactEvidence(operation.fact.evidenceSequences, index);
+            validateFactEvidence(operation.fact.evidenceSequences, index, scope);
         }
         if (
             operation.type === "upsert_plan_item"
             && operation.planItem.completionEvidenceSequences.length > 0
         ) {
-            validateFactEvidence(operation.planItem.completionEvidenceSequences, index);
+            validateFactEvidence(
+                operation.planItem.completionEvidenceSequences,
+                index,
+                "execution",
+            );
         }
     }
 }
@@ -381,14 +441,25 @@ export function validateCanonicalFactEvidence(
  * @example
  * ```ts
  * const gate = createEvidenceGate(index);
- * gate.validateFact([12]);
+ * gate.validateFact([12], "execution");
  * ```
  */
 export interface EvidenceGate {
-    /** @param evidenceSequences - Fact 声明的证据序列。 */
-    validateFact(evidenceSequences: readonly number[]): void;
-    /** @param patch - 待接受的模型 Patch；可选当前 Memory 用于补全 update。 */
-    validatePatch(patch: unknown, workingMemory?: WorkingMemory): void;
+    /**
+     * @param evidenceSequences - Fact 声明的证据序列。
+     * @param scope - 允许的证据范围；Preparation 才能使用用户输入 provenance。
+     */
+    validateFact(evidenceSequences: readonly number[], scope: EvidenceValidationScope): void;
+    /**
+     * @param patch - 待接受的模型 Patch。
+     * @param scope - 当前业务阶段的证据范围。
+     * @param workingMemory - 可选当前 Memory，用于校验 update 引用。
+     */
+    validatePatch(
+        patch: unknown,
+        scope: EvidenceValidationScope,
+        workingMemory?: WorkingMemory,
+    ): void;
     /**
      * @param result - 带原始 source refs 的 found Lookup Result。
      * @remarks 该方法只校验来源；最终 Fact 仍须引用允许的原始 sequence。
@@ -410,10 +481,14 @@ export interface EvidenceGate {
  */
 export function createEvidenceGate(index: CommittedEvidenceIndex): EvidenceGate {
     return Object.freeze({
-        validateFact: (evidenceSequences: readonly number[]) =>
-            validateFactEvidence(evidenceSequences, index),
-        validatePatch: (patch: unknown, workingMemory?: WorkingMemory): asserts patch is MemoryPatch =>
-            validateMemoryPatchEvidence(patch, index, workingMemory),
+        validateFact: (evidenceSequences: readonly number[], scope: EvidenceValidationScope) =>
+            validateFactEvidence(evidenceSequences, index, scope),
+        validatePatch: (
+            patch: unknown,
+            scope: EvidenceValidationScope,
+            workingMemory?: WorkingMemory,
+        ): asserts patch is MemoryPatch =>
+            validateMemoryPatchEvidence(patch, index, scope, workingMemory),
         validateContextLookup: (result: Extract<ContextLookupResult, { readonly status: "found" }>) =>
             validateContextLookupSourceReferences(result, index),
     });

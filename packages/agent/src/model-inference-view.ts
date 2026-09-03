@@ -23,11 +23,18 @@ export interface ModelProfileView {
 
 /** 一次模型轮次会消费的真实会话消息投影。 */
 export type ModelConversationMessage =
-    | { readonly role: "user"; readonly content: string }
+    | {
+        readonly role: "user";
+        readonly content: string;
+        /** 对应 Goal.state.messages 的稳定原始索引。 */
+        readonly sourceMessageIndex: number;
+    }
     | {
         readonly role: "assistant";
         readonly assistant: { readonly profileId: string };
         readonly content: string;
+        /** 对应 Goal.state.messages 的稳定原始索引。 */
+        readonly sourceMessageIndex: number;
     };
 
 /** 模型可见的稳定任务定义投影。 */
@@ -408,6 +415,55 @@ export interface ModelContextEpochView {
 }
 
 /**
+ * Preparation 用户输入 provenance 的模型侧 hash-only 投影。
+ *
+ * @remarks
+ * 该 DTO 只保留 committed sequence、Goal Conversation 原始索引和内容摘要，
+ * 不携带用户正文；它只能为 Preparation Fact 提供可回查来源，不能证明 Plan
+ * 完成或 Executing 完成。
+ *
+ * @example
+ * ```ts
+ * const evidence: ModelPreparationInputEvidence = {
+ *     sequence: 2,
+ *     messageIndex: 1,
+ *     contentHash: "sha256:<64 hex characters>",
+ * };
+ * ```
+ */
+export interface ModelPreparationInputEvidence {
+    /** `preparation_input_recorded` 事件的 committed sequence。 */
+    readonly sequence: number;
+    /** 对应真实用户消息在 Goal Conversation 中的原始索引。 */
+    readonly messageIndex: number;
+    /** 用户消息正文的 UTF-8 SHA-256 摘要；该 DTO 不携带正文。 */
+    readonly contentHash: `sha256:${string}`;
+}
+
+/**
+ * 最终模型可见 Conversation 位置到 Goal 原始消息位置的映射项。
+ *
+ * @remarks
+ * `visibleIndex` 只在本轮最终请求的真实 Conversation 中有效，不包含 system 或
+ * Working Context 控制消息；`sourceMessageIndex` 始终指向 Goal 的原始消息数组。
+ * 该映射不包含正文。
+ *
+ * @example
+ * ```ts
+ * const mapping: VisibleConversationMessageMapEntry = {
+ *     visibleIndex: 0,
+ *     sourceMessageIndex: 3,
+ * };
+ * ```
+ */
+export interface VisibleConversationMessageMapEntry {
+    /** 最终请求中真实 Conversation 的可见数组索引。 */
+    readonly visibleIndex: number;
+    /** 对应 Goal.state.messages 的原始数组索引。 */
+    readonly sourceMessageIndex: number;
+}
+
+/**
  * 一次模型推理的完整输入投影。
  *
  * @remarks
@@ -415,9 +471,10 @@ export interface ModelContextEpochView {
  * `PromptContext`、真实会话、阶段化 Working Context。它不包含 Storage
  * schemaVersion、迁移标记、Run 状态字段或瞬时执行授权。`PromptContext` 单独承载
  * Prompt Bundle 版本、Phase、冻结 Profile 与授权 Tool 描述，供 Renderer 只读消费；
- * 真实会话与 Working Context 独立承载，不得进入模板环境；分层协议额外通过
- * `trajectoryContext` 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt
- * Bundle 版本直接失败，不回退到最新版。
+ * 真实会话与 Working Context 独立承载，不得进入模板环境；Conversation 每条消息
+ * 保留其 Goal 原始索引但不把索引写入正文；分层协议额外通过 `trajectoryContext`
+ * 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt Bundle 版本直接失败，
+ * 不回退到最新版。
  *
  * @example
  * ```ts
@@ -436,6 +493,7 @@ export interface ModelContextEpochView {
 export interface ModelInferenceView {
     /** 本轮渲染所需的不可变 Prompt 上下文（含冻结版本、Phase、Profile 与工具）。 */
     readonly prompt: PromptContext;
+    /** 保留原始 Goal message index 的真实会话投影。 */
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;
     /** structured@1 的即时 Memory 投影。 */
@@ -448,6 +506,8 @@ export interface ModelInferenceView {
      * Workspace/Environment 的授权 Tool Observation。
      */
     readonly contextLookupResult?: ModelContextLookupResult;
+    /** 已提交 Preparation 用户输入的 hash-only provenance；Executing 不得携带。 */
+    readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
     /** `trajectory-layered@1` 的当前 Epoch 控制投影。 */
     readonly contextEpoch: ModelContextEpochView;
 }

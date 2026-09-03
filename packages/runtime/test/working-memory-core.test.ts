@@ -11,6 +11,7 @@ import {
     normalizeMemoryPatch,
     reduceWorkingMemory,
     validateMemoryPatch,
+    validateMemoryPatchPhase,
 } from "../src/index";
 import type { MemoryPatch, WorkingMemory } from "../src/index";
 
@@ -131,6 +132,97 @@ test("Runtime assigns create IDs and validates Plan dependencies and completion"
     assert.deepEqual(completed.plan, []);
 });
 
+test("phase policy admits the four memory categories at their documented stages", () => {
+    const gatheringPatch = patch(
+        factPatch("user", "requested_format", "json", 1).operations[0]!,
+        { type: "create_hypothesis", hypothesis: { statement: "Needs clarification" } },
+        { type: "create_blocker", blocker: { description: "Waiting for approval" } },
+    );
+    const gatheringMemory = applyMemoryPatch(
+        createEmptyWorkingMemory(),
+        gatheringPatch,
+        { phase: "gathering_context", originSequence: 2 },
+    );
+
+    assert.equal(gatheringMemory.facts.length, 1);
+    assert.equal(gatheringMemory.hypotheses.length, 1);
+    assert.equal(gatheringMemory.blockers.length, 1);
+    assert.equal(gatheringMemory.plan.length, 0);
+
+    const planningMemory = applyMemoryPatch(
+        gatheringMemory,
+        patch({
+            type: "create_plan_item",
+            planItem: { description: "Implement the approved change", status: "active" },
+        }),
+        { phase: "planning", originSequence: 3 },
+    );
+    const planId = planningMemory.plan[0]?.id;
+    assert.ok(planId);
+
+    const executingMemory = applyMemoryPatch(
+        planningMemory,
+        patch({
+            type: "update_plan_item",
+            planItem: { id: planId, status: "blocked" },
+        }),
+        { phase: "executing", originSequence: 4 },
+    );
+    assert.equal(executingMemory.plan[0]?.status, "blocked");
+});
+
+test("phase policy rejects forbidden PlanItem operations atomically", () => {
+    const current = applyMemoryPatch(
+        createEmptyWorkingMemory(),
+        patch({
+            type: "create_plan_item",
+            planItem: { description: "Existing plan", status: "active" },
+        }),
+        { phase: "planning", originSequence: 1 },
+    );
+    const before = structuredClone(current);
+    const mixedPatch = patch(
+        { type: "create_hypothesis", hypothesis: { statement: "Allowed by itself" } },
+        {
+            type: "create_plan_item",
+            planItem: { description: "Forbidden in executing" },
+        },
+    );
+
+    assert.throws(
+        () => validateMemoryPatchPhase(mixedPatch, "gathering_context", { workingMemory: current }),
+        /does not allow PlanItem operations/,
+    );
+    assert.throws(
+        () => applyMemoryPatch(current, mixedPatch, { phase: "executing", originSequence: 2 }),
+        /does not allow create_plan_item/,
+    );
+    assert.deepEqual(current, before);
+
+    assert.throws(
+        () => validateMemoryPatchPhase(
+            patch({
+                type: "update_plan_item",
+                planItem: { id: "plan:missing:0", status: "blocked" },
+            }),
+            "executing",
+            { workingMemory: current },
+        ),
+        /does not reference an existing PlanItem/,
+    );
+    assert.throws(
+        () => validateMemoryPatchPhase(
+            patch({
+                type: "update_plan_item",
+                planItem: { id: current.plan[0]!.id, status: "blocked" },
+            }),
+            "gathering_context",
+            { workingMemory: current },
+        ),
+        /does not allow PlanItem operations/,
+    );
+});
+
 test("Runtime control state cannot be persisted as Fact", () => {
     assert.throws(
         () => validateMemoryPatch(factPatch("runtime", "pending_action", "open file", 1)),
@@ -184,7 +276,7 @@ test("protected active Plan dependencies reject an impossible capacity", () => {
             status: "active",
             dependsOnFactIds: [withFact.facts[0]!.id],
         },
-    }), { phase: "executing", originSequence: 3 });
+    }), { phase: "planning", originSequence: 3 });
 
     assert.throws(
         () => normalizeMemoryPatch(patch({
@@ -222,4 +314,3 @@ test("phase lifecycle removes executing intent but retains goal Facts", () => {
     assert.deepEqual(cleaned.hypotheses, []);
     assert.deepEqual(cleaned.blockers, []);
 });
-

@@ -15,13 +15,13 @@ test("空 Conversation 产生空单元列表", () => {
 
 test("按 user 边界分组并保留前导 assistant 单元", () => {
     const conversation: readonly ModelConversationMessage[] = [
-        assistant("先说明", "profile-1"),
-        assistant("再提问", "profile-1"),
-        { role: "user", content: "回答一" },
-        assistant("追问一", "profile-1"),
-        assistant("追问二", "profile-2"),
-        { role: "user", content: "回答二" },
-        { role: "user", content: "补充" },
+        assistant("先说明", "profile-1", 0),
+        assistant("再提问", "profile-1", 1),
+        { role: "user", content: "回答一", sourceMessageIndex: 2 },
+        assistant("追问一", "profile-1", 3),
+        assistant("追问二", "profile-2", 4),
+        { role: "user", content: "回答二", sourceMessageIndex: 5 },
+        { role: "user", content: "补充", sourceMessageIndex: 6 },
     ];
 
     const units = adapter.adapt(conversation);
@@ -43,8 +43,8 @@ test("按 user 边界分组并保留前导 assistant 单元", () => {
 
 test("字符数使用 UTF-16 code unit 且输出不共享输入对象或数组", () => {
     const conversation: ModelConversationMessage[] = [
-        { role: "user", content: "A😀" },
-        assistant("答", "profile-1"),
+        { role: "user", content: "A😀", sourceMessageIndex: 4 },
+        assistant("答", "profile-1", 5),
     ];
     const before = structuredClone(conversation);
     const units = adapter.adapt(conversation);
@@ -64,10 +64,12 @@ test("字符数使用 UTF-16 code unit 且输出不共享输入对象或数组",
 function assistant(
     content: string,
     profileId: string,
+    sourceMessageIndex: number,
 ): Extract<ModelConversationMessage, { role: "assistant" }> {
     return {
         role: "assistant",
         assistant: { profileId },
         content,
+        sourceMessageIndex,
     };
 }

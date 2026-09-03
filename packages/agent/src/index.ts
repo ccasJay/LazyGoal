@@ -158,6 +158,8 @@ export type {
     ModelContextLookupFreshness,
     ModelContextLookupMatch,
     ModelContextLookupResult,
+    ModelPreparationInputEvidence,
+    VisibleConversationMessageMapEntry,
     ModelContextControl,
     ModelContextEpochView,
     ModelWorkingMemory,

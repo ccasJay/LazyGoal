@@ -5,6 +5,7 @@ import {
     EvidenceGateError,
     allocateImmutableEvent,
     buildCommittedEvidenceIndex,
+    computeContentHash,
     createEvidenceGate,
     validateFactEvidence,
     validateMemoryPatchEvidence,
@@ -64,16 +65,36 @@ function index(boundary = 2) {
     });
 }
 
+function preparationIndex() {
+    const preparationInput = allocateImmutableEvent({
+        goalId,
+        runId,
+        phase: "gathering_context",
+        eventType: "preparation_input_recorded",
+        payload: {
+            type: "preparation_input_recorded",
+            messageIndex: 0,
+            contentHash: computeContentHash("用户约束"),
+        },
+    }, 1, "preparation-input-1");
+    return buildCommittedEvidenceIndex({
+        goalId,
+        runId,
+        committedThroughSequence: 3,
+        events: [preparationInput, observationEvent(2), observationEvent(3, "tool_finished")],
+    });
+}
+
 test("Fact evidence accepts committed Observation and Tool facts", () => {
-    validateFactEvidence([1, 2], index());
+    validateFactEvidence([1, 2], index(), "execution");
     const gate = createEvidenceGate(index());
-    gate.validateFact([2]);
+    gate.validateFact([2], "execution");
 });
 
 test("Fact evidence rejects missing, duplicate and uncommitted sequences", () => {
-    assert.throws(() => validateFactEvidence([], index()), EvidenceGateError);
-    assert.throws(() => validateFactEvidence([1, 1], index()), EvidenceGateError);
-    assert.throws(() => validateFactEvidence([3], index()), /beyond committed boundary/);
+    assert.throws(() => validateFactEvidence([], index(), "execution"), EvidenceGateError);
+    assert.throws(() => validateFactEvidence([1, 1], index(), "execution"), EvidenceGateError);
+    assert.throws(() => validateFactEvidence([3], index(), "execution"), /beyond committed boundary/);
 });
 
 test("Memory Patch validates Fact and Plan completion evidence", () => {
@@ -90,7 +111,7 @@ test("Memory Patch validates Fact and Plan completion evidence", () => {
             },
         }],
     };
-    validateMemoryPatchEvidence(patch, index());
+    validateMemoryPatchEvidence(patch, index(), "execution");
 
     assert.throws(() => validateMemoryPatchEvidence({
         ...patch,
@@ -104,7 +125,91 @@ test("Memory Patch validates Fact and Plan completion evidence", () => {
                 evidenceSequences: [3],
             },
         }],
-    }, index()), EvidenceGateError);
+    }, index(), "execution"), EvidenceGateError);
+});
+
+test("Preparation scope accepts only user provenance in addition to observations", () => {
+    const preparationFact = {
+        subject: "user",
+        predicate: "requested_format",
+        value: "json",
+        stability: "stable" as const,
+        evidenceSequences: [1],
+    };
+    const preparationPatch: MemoryPatch = {
+        protocolVersion: 1,
+        operations: [{
+            type: "upsert_fact",
+            fact: preparationFact,
+        }],
+    };
+    assert.doesNotThrow(() => validateMemoryPatchEvidence(
+        preparationPatch,
+        preparationIndex(),
+        "preparation",
+    ));
+    assert.throws(
+        () => validateMemoryPatchEvidence(preparationPatch, preparationIndex(), "execution"),
+        /preparation input provenance is not allowed/,
+    );
+
+    const mixedEvidencePatch: MemoryPatch = {
+        ...preparationPatch,
+        operations: [{
+            type: "upsert_fact",
+            fact: {
+                ...preparationFact,
+                evidenceSequences: [1, 2],
+            },
+        }],
+    };
+    assert.doesNotThrow(() => validateMemoryPatchEvidence(
+        mixedEvidencePatch,
+        preparationIndex(),
+        "preparation",
+    ));
+});
+
+test("Preparation provenance cannot retire Facts or complete Plans", () => {
+    const provenanceEvidence = preparationIndex();
+    const retirePatch: MemoryPatch = {
+        protocolVersion: 1,
+        operations: [{
+            type: "retire_fact",
+            fact: { id: "fact:user", evidenceSequences: [1] },
+        }],
+    };
+    assert.throws(
+        () => validateMemoryPatchEvidence(retirePatch, provenanceEvidence, "preparation"),
+        /retire_fact cannot use preparation input provenance/,
+    );
+
+    const completionPlanItem = {
+        id: "plan:3:0",
+        status: "completed" as const,
+        completionEvidenceSequences: [1],
+    };
+    const completePatch: MemoryPatch = {
+        protocolVersion: 1,
+        operations: [{
+            type: "update_plan_item",
+            planItem: completionPlanItem,
+        }],
+    };
+    assert.throws(
+        () => validateMemoryPatchEvidence(completePatch, provenanceEvidence, "preparation"),
+        /preparation input provenance is not allowed in execution scope/,
+    );
+    assert.doesNotThrow(() => validateMemoryPatchEvidence({
+        ...completePatch,
+        operations: [{
+            type: "update_plan_item",
+            planItem: {
+                ...completionPlanItem,
+                completionEvidenceSequences: [2],
+            },
+        }],
+    }, provenanceEvidence, "preparation"));
 });
 
 test("Evidence index excludes uncommitted tail and cross-Goal events", () => {

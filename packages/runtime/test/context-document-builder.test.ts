@@ -271,6 +271,55 @@ test("Builder 只从 committed 来源构建完整 execution/preparation 文档",
     assert.equal(Object.isFrozen(execution), true);
 });
 
+test("Builder 将 preparation input provenance 作为透明 metadata", () => {
+    const source = [
+        event(1, {
+            phase: "gathering_context",
+            eventType: "goal_created",
+            payload: { type: "goal_created", intent: "读取历史" },
+        }),
+        event(2, {
+            phase: "gathering_context",
+            eventType: "run_resumed",
+            payload: { type: "run_resumed" },
+        }),
+        event(3, {
+            phase: "gathering_context",
+            eventType: "preparation_input_recorded",
+            payload: {
+                type: "preparation_input_recorded",
+                messageIndex: 0,
+                contentHash: "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+            },
+        }),
+        event(4, {
+            phase: "gathering_context",
+            eventType: "preparation_result",
+            payload: { type: "preparation_result", result: "question" },
+        }),
+        event(5, {
+            phase: "gathering_context",
+            eventType: "run_waiting",
+            payload: { type: "run_waiting", reason: "question" },
+        }),
+        event(6, {
+            phase: "gathering_context",
+            eventType: "state_committed",
+            payload: { type: "state_committed", committedThroughSequence: 5 },
+        }),
+    ];
+
+    const result = new ContextDocumentBuilder().buildResult(input(source, 5));
+    assert.equal(result.documents.length, 1);
+    assert.deepEqual(result.documents[0]!.sourceEventIds, [
+        "document-event-2",
+        "document-event-4",
+        "document-event-5",
+    ]);
+    assert.equal(result.documents[0]!.body.includes("preparation_input_recorded"), false);
+    assert.equal(result.documents[0]!.body.includes("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"), false);
+});
+
 test("Builder 全量、位置参数和 Store 读取结果保持稳定等价", async () => {
     const source = committedSource();
     const builder = new ContextDocumentBuilder();

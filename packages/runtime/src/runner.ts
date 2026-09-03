@@ -51,13 +51,13 @@ import {
     type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryStore,
-    type TrajectorySink,
 } from "./trajectory";
 import {
     createSupersedeScopeOperation,
     normalizeMemoryPatch,
     type NormalizedWorkingMemoryPatch,
     type WorkingMemoryLimitsInput,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
 import {
@@ -500,14 +500,12 @@ export interface RunnerDependencies {
      * 用户批准或拒绝。
      */
     readonly toolPolicy?: ToolPolicy;
-    /** 可选 Domain Event 追加边界；省略时只保存 Snapshot，不追加事件。 */
-    readonly trajectorySink?: TrajectorySink;
+    /** 可选 Domain Event 追加与 Snapshot 边界读取端口；省略时只保存 Snapshot。 */
+    readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
     /** 可选 Tool Observation 事实投影表；省略时不生成 Runtime Fact proposal。 */
     readonly toolMemoryProjectors?: ToolMemoryProjectorRegistry;
-    /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
-    readonly trajectoryStore?: TrajectoryStore;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
@@ -575,13 +573,12 @@ export class Runner {
         this.traceSink = dependencies.traceSink;
         this.toolMemoryProjectors = dependencies.toolMemoryProjectors
             ?? createNoopToolMemoryProjectorRegistry();
-        const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
-                ...(trajectorySink === undefined
+                ...(dependencies.trajectoryStore === undefined
                     ? {}
-                    : { trajectorySink }),
+                    : { trajectoryStore: dependencies.trajectoryStore }),
                 ...(dependencies.traceSink === undefined
                     ? {}
                     : { traceSink: dependencies.traceSink }),
@@ -923,6 +920,12 @@ export class Runner {
                     fact,
                 })),
             };
+            validateMemoryPatchPhase(patch, "executing", {
+                workingMemory: session.workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
             const normalized = normalizeMemoryPatch(patch, {
                 phase: "executing",
                 originSequence: observationSequence + 2,
@@ -983,7 +986,13 @@ export class Runner {
             };
             if (memoryPatch !== undefined) {
                 const validationSession: WorkingMemorySession = session;
-                validationSession.validatePatch(memoryPatch);
+                validateMemoryPatchPhase(memoryPatch, "executing", {
+                    workingMemory,
+                    ...(this.workingMemoryLimits === undefined
+                        ? {}
+                        : { limits: this.workingMemoryLimits }),
+                });
+                validationSession.validatePatch(memoryPatch, "execution");
                 normalized = normalizeMemoryPatch(memoryPatch, {
                     phase: "executing",
                     originSequence: Math.max(

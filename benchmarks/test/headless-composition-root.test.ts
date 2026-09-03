@@ -113,7 +113,10 @@ function createDependencies<TTask, TOutcome>(
                         : {
                             kind: "complete",
                             summary: "done",
-                            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
+                            completionEvidence: [{
+                                criterionIndex: 0,
+                                evidenceSequences: [latestObservationSequence(trajectoryStore)],
+                            }],
                         }),
                 };
             },
@@ -140,6 +143,16 @@ function createDependencies<TTask, TOutcome>(
         goalIdGenerator: () => "goal-fake",
         runIdGenerator: () => "run-fake",
     };
+}
+
+function latestObservationSequence(
+    trajectoryStore: InMemoryTrajectoryStore,
+): number {
+    const observation = [...trajectoryStore.events]
+        .reverse()
+        .find((event) => event.eventType === "observation_recorded");
+    assert.ok(observation, "the benchmark completion must follow a committed observation");
+    return observation.sequence;
 }
 
 test("runs a task through preparation, planning, approval and executing", async () => {
@@ -469,6 +482,7 @@ test("stops before the model when the first Trajectory append fails", async () =
 
 test("isolates a Trace sink failure from the successful Runtime result", async () => {
     const traceError = new Error("trace unavailable");
+    const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies(
         {
             describeTask: () => ({
@@ -483,11 +497,11 @@ test("isolates a Trace sink failure from the successful Runtime result", async (
                 close: async () => undefined,
             }),
         },
-        new InMemoryTrajectoryStore(),
+        trajectoryStore,
     );
     dependencies.persistence.open = async () => ({
         goalStore: new InMemoryGoalStore(),
-        trajectoryStore: new InMemoryTrajectoryStore(),
+        trajectoryStore,
         traceSink: {
             append: async () => {
                 throw traceError;

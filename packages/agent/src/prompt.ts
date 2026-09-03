@@ -7,8 +7,11 @@ import {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "./conversation-context-unit-adapter";
-import type { ModelConversationMessage } from "./model-inference-view";
-import type { ModelInferenceView } from "./model-inference-view";
+import type {
+    ModelConversationMessage,
+    ModelInferenceView,
+    ModelPreparationInputEvidence,
+} from "./model-inference-view";
 import { ModelInferenceProjector } from "./model-inference-projector";
 import type { PromptBundleRenderer } from "./prompting/types";
 import { renderRequest, renderWorkingContextMessage } from "./render";
@@ -30,6 +33,7 @@ function project(
     tools: readonly ToolDefinition[] = [],
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
+    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
 ): ModelInferenceView {
     return new ModelInferenceProjector().project(
         goal,
@@ -37,6 +41,7 @@ function project(
         workingMemory,
         undefined,
         contextLookupResult,
+        preparationInputEvidence,
     );
 }
 
@@ -44,8 +49,9 @@ const conversationAdapter = new ConversationContextUnitAdapter();
 
 /** 仅取当前 Epoch 的完整 Conversation 单元；旧 Epoch 仍由 Cold Lookup 提供。 */
 function currentEpochConversationUnits(view: ModelInferenceView) {
+    const start = view.contextEpoch?.conversationStartIndex ?? 0;
     return conversationAdapter.adapt(
-        view.conversation.slice(view.contextEpoch?.conversationStartIndex ?? 0),
+        view.conversation.filter((message) => message.sourceMessageIndex >= start),
     );
 }
 
@@ -104,7 +110,7 @@ async function compactConversation(
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
 ): Promise<ModelInferenceView> {
-    const units = conversationAdapter.adapt(view.conversation);
+    const units = currentEpochConversationUnits(view);
     const compacted = await contextCompactor.compact(units, signal);
 
     return {
@@ -181,6 +187,8 @@ export async function buildStepRequest(
  * @param workingMemory - structured@1 的即时 Working Memory。
  * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
+ * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only provenance；
+ *   只在 Preparation 请求中传递。
  * @returns 保持真实消息顺序并附带当前阶段控制消息的请求。
  * @throws Goal 不处于 active Preparation 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -194,6 +202,7 @@ export async function buildPreparationRequest(
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
     contextLookupResult?: ContextLookupResult,
     modelCapabilities?: ModelCapabilities,
+    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
 ): Promise<LLMRequest> {
     const projected = project(
         goal,
@@ -202,6 +211,7 @@ export async function buildPreparationRequest(
             : [],
         workingMemory,
         contextLookupResult,
+        preparationInputEvidence,
     );
 
     if (projected.workingContext.phase === "executing") {

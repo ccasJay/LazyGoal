@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    computeContentHash,
     createGoal,
     GoalCoordinator,
     InlineScheduler,
@@ -27,6 +28,7 @@ import type {
     StepExecutor,
     Tool,
     ToolDefinition,
+    PreparationInputEvidence,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -54,16 +56,23 @@ type PreparationAction =
 class FakePreparationExecutor implements PreparationExecutor {
     readonly receivedGoals: Goal[] = [];
     readonly receivedTools: ToolDefinition[][] = [];
+    readonly receivedPreparationInputEvidence: (readonly PreparationInputEvidence[] | undefined)[] = [];
 
     constructor(
         private readonly actions: readonly PreparationAction[],
         private readonly events: string[] = [],
     ) {}
 
-    async execute({ goal, authorizedTools }: PreparationExecutionInput): Promise<PreparationResult> {
+    async execute(input: PreparationExecutionInput): Promise<PreparationResult> {
+        const { goal, authorizedTools } = input;
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
         this.receivedTools.push(structuredClone([...authorizedTools]));
+        this.receivedPreparationInputEvidence.push(
+            input.preparationInputEvidence === undefined
+                ? undefined
+                : structuredClone(input.preparationInputEvidence),
+        );
         this.events.push(`execute:${goal.state.workflow.phase}`);
 
         if (action === undefined) {
@@ -1095,11 +1104,12 @@ test("saves a gathering answer before continuing and preserves its original text
     const store = new RecordingGoalStore(events);
     await store.seed(waiting);
     events.length = 0;
+    const trajectory = trajectoryStoreFor(store);
     const executor = new FakePreparationExecutor([
         { kind: "question", question: "Which region should be used?" },
     ], events);
     const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore: trajectory,
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -1136,6 +1146,24 @@ test("saves a gathering answer before continuing and preserves its original text
         role: "user",
         content: "  PostgreSQL  ",
     });
+    assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "run_resumed",
+        "preparation_input_recorded",
+        "state_committed",
+        "preparation_result",
+        "run_waiting",
+        "state_committed",
+    ]);
+    assert.deepEqual(trajectory.events[1]?.payload, {
+        type: "preparation_input_recorded",
+        messageIndex: 2,
+        contentHash: computeContentHash("  PostgreSQL  "),
+    });
+    assert.deepEqual(executor.receivedPreparationInputEvidence, [[{
+        sequence: 2,
+        messageIndex: 2,
+        contentHash: computeContentHash("  PostgreSQL  "),
+    }]]);
 });
 
 test("saves planning feedback without the current proposal before replanning", async () => {
@@ -1144,6 +1172,7 @@ test("saves planning feedback without the current proposal before replanning", a
     const store = new RecordingGoalStore(events);
     await store.seed(waiting);
     events.length = 0;
+    const trajectory = trajectoryStoreFor(store);
     const revisedTask = {
         objective: "Implement encrypted persistence",
         completionCriteria: ["Snapshots are encrypted and restorable"],
@@ -1166,7 +1195,7 @@ test("saves planning feedback without the current proposal before replanning", a
         },
     ], events);
     const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore: trajectory,
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
@@ -1197,6 +1226,24 @@ test("saves planning feedback without the current proposal before replanning", a
     assert.equal(result.goal.state.run.stepCount, waiting.state.run.stepCount);
     assert.deepEqual(result.goal.state.run.contextEpoch, waiting.state.run.contextEpoch);
     assert.ok(result.goal.state.run.committedThroughSequence > waiting.state.run.committedThroughSequence);
+    assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "run_resumed",
+        "preparation_input_recorded",
+        "state_committed",
+        "preparation_result",
+        "run_waiting",
+        "state_committed",
+    ]);
+    assert.deepEqual(trajectory.events[1]?.payload, {
+        type: "preparation_input_recorded",
+        messageIndex: 2,
+        contentHash: computeContentHash("Encrypt snapshots at rest"),
+    });
+    assert.deepEqual(executor.receivedPreparationInputEvidence, [[{
+        sequence: 2,
+        messageIndex: 2,
+        contentHash: computeContentHash("Encrypt snapshots at rest"),
+    }]]);
 });
 
 test("saves an approved proposal as the final task before scheduling execution", async () => {

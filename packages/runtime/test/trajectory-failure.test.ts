@@ -21,7 +21,7 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "trajectory-failure-profile",
@@ -178,7 +178,6 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         toolRegistry: { get: () => tool },
         executor: { execute: async () => toolDecision() },
     });
@@ -203,7 +202,6 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         toolRegistry: { get: () => tool },
         executor: { execute: async () => toolDecision() },
     });
@@ -238,7 +236,6 @@ test("an Observation append failure keeps the durable pending Action and prior f
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         toolRegistry: { get: () => tool },
         executor: { execute: async () => toolDecision() },
     });
@@ -269,7 +266,6 @@ test("a Tool without a result records an execution error without a fabricated fi
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         toolRegistry: { get: () => toolWithoutResult() },
         executor: { execute: async () => toolDecision() },
     });
@@ -288,9 +284,8 @@ test("a marker append failure preserves the saved Snapshot and reports a diagnos
     const sink = new FailingTrajectorySink("state_committed");
     const traceSink = new RecordingTraceSink();
     const runner = new Runner({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         traceSink,
         executor: { execute: async () => ({ kind: "complete", completionEvidence: [], summary: "done" }) },
     });

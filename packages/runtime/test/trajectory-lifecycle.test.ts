@@ -128,7 +128,6 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         toolRegistry: { get: (id) => id === tool.definition.id ? tool : undefined },
         executor: {
             async execute() {
@@ -200,7 +199,6 @@ test("Coordinator records preparation and waiting facts before the committed Sna
     const coordinator = new GoalCoordinator({
         trajectoryStore: sink,
         store,
-        trajectorySink: sink,
         preparationExecutor: {
             async execute() {
                 return { kind: "question", question: "需要什么信息？" };

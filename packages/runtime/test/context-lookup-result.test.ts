@@ -263,8 +263,8 @@ test("Evidence Gate 只验证原始 committed source refs，并拒绝 lookup 事
     assert.equal(found.status, "found");
     if (found.status !== "found") return;
     assert.doesNotThrow(() => validateContextLookupSourceReferences(found, index));
-    assert.doesNotThrow(() => validateFactEvidence([1], index));
-    assert.throws(() => validateFactEvidence([2], index), EvidenceGateError);
+    assert.doesNotThrow(() => validateFactEvidence([1], index, "execution"));
+    assert.throws(() => validateFactEvidence([2], index, "execution"), EvidenceGateError);
 
     const lookupSource = {
         ...found,

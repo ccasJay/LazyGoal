@@ -13,9 +13,10 @@ import type {
     GoalCoordinator,
     GoalProgressResult,
 } from "./goal-coordinator";
-import type { TrajectorySink } from "./trajectory";
+import type { TrajectoryStore } from "./trajectory";
 import {
     allocateDiagnosticTraceRecord,
+    computeContentHash,
     TrajectoryAppendError,
     TrajectoryCommitMarkerError,
     type DiagnosticTraceSink,
@@ -94,8 +95,8 @@ export interface LauncherDependencies {
      * 的边界；Goal 创建本身始终由 Runtime 固定当前组合。
      */
     readonly protocolValidator?: GoalProtocolValidator;
-    /** 可选 Domain Event Sink；省略时只保存 Snapshot，不追加事件。 */
-    readonly trajectorySink?: TrajectorySink;
+    /** 可选 Domain Event Store；省略时只保存 Snapshot，不追加事件。 */
+    readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断边界；写入失败不回滚已保存的初始 Snapshot。 */
     readonly traceSink?: DiagnosticTraceSink;
 }
@@ -177,16 +178,28 @@ export async function launch(
     const ref = { goalId: goal.id, runId };
 
     let initialGoal = goal;
-    if (dependencies.trajectorySink !== undefined) {
+    if (dependencies.trajectoryStore !== undefined) {
         throwIfAborted(control);
-        let created;
+        let preparationInput;
         try {
-            created = await dependencies.trajectorySink.append({
+            await dependencies.trajectoryStore.append({
                 goalId: goal.id,
                 runId,
                 phase: "gathering_context",
                 eventType: "goal_created",
                 payload: { type: "goal_created", intent: request.intent },
+            });
+            throwIfAborted(control);
+            preparationInput = await dependencies.trajectoryStore.append({
+                goalId: goal.id,
+                runId,
+                phase: "gathering_context",
+                eventType: "preparation_input_recorded",
+                payload: {
+                    type: "preparation_input_recorded",
+                    messageIndex: 0,
+                    contentHash: computeContentHash(request.intent),
+                },
             });
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
@@ -201,7 +214,7 @@ export async function launch(
                 ...goal.state,
                 run: {
                     ...goal.state.run,
-                    committedThroughSequence: created.sequence,
+                    committedThroughSequence: preparationInput.sequence,
                 },
             },
         };
@@ -210,9 +223,9 @@ export async function launch(
     throwIfAborted(control);
     await dependencies.store.save(initialGoal);
     throwIfAborted(control);
-    if (dependencies.trajectorySink !== undefined) {
+    if (dependencies.trajectoryStore !== undefined) {
         try {
-            await dependencies.trajectorySink.append({
+            await dependencies.trajectoryStore.append({
                 goalId: initialGoal.id,
                 runId,
                 phase: "gathering_context",

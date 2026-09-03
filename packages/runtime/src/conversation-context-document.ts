@@ -5,6 +5,7 @@ import type {
     ContextDocumentSource,
     ContextSearchDocument,
 } from "./context-document";
+import { computeContentHash } from "./trajectory";
 
 /** Conversation 文档构建输入。 */
 export interface ConversationContextDocumentInput {
@@ -30,7 +31,7 @@ export function buildConversationContextDocuments(
             kind: "conversation",
             messageIndex: index,
             role: message.role,
-            contentHash: hashContent(message.content),
+            contentHash: computeContentHash(message.content),
         };
         const fields: ContextDocumentFields = {
             eventType: [],
@@ -79,11 +80,7 @@ export function computeConversationPrefixDigest(
     const prefix = messages.slice(0, throughIndexExclusive).map((message, index) => ({
         index,
         role: message.role,
-        contentHash: hashContent(message.content),
+        contentHash: computeContentHash(message.content),
     }));
     return `sha256:${createHash("sha256").update(JSON.stringify(prefix), "utf8").digest("hex")}`;
-}
-
-function hashContent(content: string): string {
-    return `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`;
 }

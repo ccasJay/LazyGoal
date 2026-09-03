@@ -4,6 +4,7 @@ import {
     type StepRecord,
     type WorkingMemory,
 } from "../../runtime/src/domain";
+import type { PreparationInputEvidence } from "../../runtime/src/trajectory";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
@@ -20,6 +21,7 @@ import type {
     ModelContextRetrievalProtocol,
     ModelTrajectoryContext,
     ModelContextLookupResult,
+    ModelPreparationInputEvidence,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
@@ -50,6 +52,8 @@ export class ModelInferenceProjector {
      * Assembler 在 Conversation 裁剪后提供。
      * @param contextLookupResult - 上一轮已提交的历史查询结果；只在启用
      * `bm25-lite@1` 时允许提供，且只存在于当前模型调用。
+     * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only
+     *   provenance；Executing 阶段提供该字段（包括空数组）会立即失败。
      * @returns 与当前 phase 对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -59,6 +63,7 @@ export class ModelInferenceProjector {
         workingMemory?: WorkingMemory,
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
+        preparationInputEvidence?: readonly PreparationInputEvidence[],
     ): ModelInferenceView {
         const memoryProtocol = goal.definition.memoryProtocol;
         const modelContextProtocol = goal.definition.modelContextProtocol;
@@ -84,6 +89,17 @@ export class ModelInferenceProjector {
             : projectContextLookupResult(contextLookupResult);
 
         const workingContext = this.projectWorkingContext(goal);
+        if (
+            preparationInputEvidence !== undefined
+            && workingContext.phase === "executing"
+        ) {
+            throw new Error(
+                "Preparation input evidence requires a preparation phase",
+            );
+        }
+        const projectedPreparationInputEvidence = preparationInputEvidence === undefined
+            ? undefined
+            : projectPreparationInputEvidence(preparationInputEvidence);
 
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion:
@@ -107,6 +123,9 @@ export class ModelInferenceProjector {
             ...(projectedContextLookupResult === undefined
                 ? {}
                 : { contextLookupResult: projectedContextLookupResult }),
+            ...(projectedPreparationInputEvidence === undefined
+                ? {}
+                : { preparationInputEvidence: deepFreeze(projectedPreparationInputEvidence) }),
             contextEpoch: projectContextEpoch(goal.state.run.contextEpoch),
         };
     }
@@ -287,13 +306,24 @@ function projectProfile(goal: Goal): ModelProfileView {
 function projectConversation(
     goal: Goal,
 ): readonly ModelConversationMessage[] {
-    return goal.state.messages.map((message) => message.role === "user"
-        ? { role: "user", content: message.content }
+    return goal.state.messages.map((message, sourceMessageIndex) => message.role === "user"
+        ? { role: "user", content: message.content, sourceMessageIndex }
         : {
             role: "assistant",
             assistant: { profileId: message.assistant.profileId },
             content: message.content,
+            sourceMessageIndex,
         });
+}
+
+function projectPreparationInputEvidence(
+    evidence: readonly PreparationInputEvidence[],
+): readonly ModelPreparationInputEvidence[] {
+    return evidence.map((entry) => ({
+        sequence: entry.sequence,
+        messageIndex: entry.messageIndex,
+        contentHash: entry.contentHash,
+    }));
 }
 
 function projectTools(

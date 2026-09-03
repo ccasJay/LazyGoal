@@ -312,6 +312,77 @@ test("固定 View 超过硬预算时拒绝组装", async () => {
     );
 });
 
+test("Assembler 默认 fixed input 按原始 Conversation 索引保留当前 Epoch", async () => {
+    const fixedInputs: unknown[] = [];
+    const estimator = {
+        unit: "character" as const,
+        estimate(value: unknown): number {
+            fixedInputs.push(value);
+            return 1;
+        },
+    };
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore: new MemoryTrajectoryStore([]),
+        policy: createModelContextBudgetPolicy({
+            modelInputBudget: 100,
+            responseReserve: 10,
+            warmShare: 0.5,
+        }, estimator),
+    });
+    const base = createGoal({
+        ...currentProtocols,
+        id: "goal-epoch",
+        runId: "run-epoch",
+        promptBundleVersion: 1,
+        intent: "旧阶段输入",
+        profile,
+        messages: [
+            {
+                role: "assistant",
+                assistant: { profileId: profile.id },
+                content: "旧阶段响应",
+            },
+            { role: "user", content: "当前阶段输入" },
+        ],
+    });
+    const goal: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: { objective: "执行", completionCriteria: [] },
+            },
+            run: {
+                ...base.state.run,
+                status: "running",
+                contextEpoch: {
+                    ...base.state.run.contextEpoch,
+                    number: 1,
+                    conversationStartIndex: 2,
+                    openedAtSequence: 0,
+                },
+            },
+        },
+    };
+    const view = new ModelInferenceProjector().project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+    );
+
+    await assembler.assembleContext({ goal, view });
+
+    const fixedInput = fixedInputs.find((value): value is {
+        readonly conversation: ModelInferenceView["conversation"];
+    } => typeof value === "object" && value !== null && "conversation" in value);
+    assert.deepEqual(
+        fixedInput?.conversation.map((message) => message.sourceMessageIndex),
+        [2],
+    );
+});
+
 test("当前 trajectory-layered@1 缺少 TrajectoryStore 时快速失败", async () => {
     const goal = layeredExecutingGoal(0);
     const view = new ModelInferenceProjector().project(

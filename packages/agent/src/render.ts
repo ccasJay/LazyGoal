@@ -6,6 +6,8 @@ import type {
     ModelWorkingContext,
     ModelContextLookupResult,
     ModelContextEpochView,
+    ModelPreparationInputEvidence,
+    VisibleConversationMessageMapEntry,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
 
@@ -35,17 +37,98 @@ export function renderWorkingContextMessage(
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
 ): Extract<LLMMessage, { readonly role: "user" }> {
-    const payload = {
+    return {
+        role: "user",
+        content: JSON.stringify(createWorkingContextPayload(
+            context,
+            workingMemory,
+            trajectoryContext,
+            contextLookupResult,
+            contextEpoch,
+        ), null, 2),
+    };
+}
+
+function createWorkingContextPayload(
+    context: ModelWorkingContext,
+    workingMemory?: ModelWorkingMemory,
+    trajectoryContext?: ModelTrajectoryContext,
+    contextLookupResult?: ModelContextLookupResult,
+    contextEpoch?: ModelContextEpochView,
+    preparationMetadata?: {
+        readonly visibleConversationMessageMap: readonly VisibleConversationMessageMapEntry[];
+        readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
+    },
+): Record<string, unknown> {
+    return {
         ...context,
         ...(workingMemory === undefined ? {} : { workingMemory }),
         ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
         ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
         ...(contextEpoch === undefined ? {} : { contextEpoch }),
+        ...(preparationMetadata === undefined
+            ? {}
+            : {
+                visibleConversationMessageMap: preparationMetadata.visibleConversationMessageMap,
+                ...(preparationMetadata.preparationInputEvidence === undefined
+                    ? {}
+                    : { preparationInputEvidence: preparationMetadata.preparationInputEvidence }),
+            }),
     };
+}
+
+function renderViewWorkingContextMessage(
+    view: ModelInferenceView,
+): Extract<LLMMessage, { readonly role: "user" }> {
+    const preparationMetadata = view.workingContext.phase === "executing"
+        ? undefined
+        : createPreparationRenderMetadata(
+            view.conversation,
+            view.preparationInputEvidence,
+        );
 
     return {
         role: "user",
-        content: JSON.stringify(payload, null, 2),
+        content: JSON.stringify(createWorkingContextPayload(
+            view.workingContext,
+            view.workingMemory,
+            view.trajectoryContext,
+            view.contextLookupResult,
+            view.contextEpoch,
+            preparationMetadata,
+        ), null, 2),
+    };
+}
+
+function createPreparationRenderMetadata(
+    conversation: ModelInferenceView["conversation"],
+    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
+): {
+    readonly visibleConversationMessageMap: readonly VisibleConversationMessageMapEntry[];
+    readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
+} {
+    const visibleConversationMessageMap = conversation.map(
+        (message, visibleIndex) => ({
+            visibleIndex,
+            sourceMessageIndex: message.sourceMessageIndex,
+        }),
+    );
+    if (preparationInputEvidence === undefined) {
+        return { visibleConversationMessageMap };
+    }
+
+    const visibleSourceMessageIndexes = new Set(
+        visibleConversationMessageMap.map(({ sourceMessageIndex }) => sourceMessageIndex),
+    );
+    return {
+        visibleConversationMessageMap,
+        preparationInputEvidence: preparationInputEvidence
+            .filter((evidence) => visibleSourceMessageIndexes.has(evidence.messageIndex))
+            .map((evidence) => ({
+                sequence: evidence.sequence,
+                messageIndex: evidence.messageIndex,
+                contentHash: evidence.contentHash,
+            })),
     };
 }
 
@@ -68,6 +151,15 @@ export function renderRequest(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
 ): LLMRequest {
+    if (
+        view.workingContext.phase === "executing"
+        && view.preparationInputEvidence !== undefined
+    ) {
+        throw new Error(
+            "Executing request must not receive Preparation input evidence",
+        );
+    }
+
     return {
         messages: [
             {
@@ -78,13 +170,7 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
-            renderWorkingContextMessage(
-                view.workingContext,
-                view.workingMemory,
-                view.trajectoryContext,
-                view.contextLookupResult,
-                view.contextEpoch,
-            ),
+            renderViewWorkingContextMessage(view),
         ],
     };
 }

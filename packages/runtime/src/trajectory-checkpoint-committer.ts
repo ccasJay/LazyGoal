@@ -19,7 +19,8 @@ import {
     type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryPhase,
-    type TrajectorySink,
+    type TrajectoryStore,
+    computeContentHash,
 } from "./trajectory";
 
 /** Runtime 与 accepted Memory Patch 的来源标签。 */
@@ -101,18 +102,22 @@ export interface TrajectoryCheckpointCommitResult {
  *
  * @example
  * ```ts
- * const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink });
+ * const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
  * ```
  */
 export interface TrajectoryCheckpointCommitterDependencies {
     /** 保存最新 Goal Snapshot 的边界。 */
     readonly store: GoalStore;
-    /** 可选事实追加端口；省略时只保存 Snapshot，不追加 Trajectory 事件。 */
-    readonly trajectorySink?: TrajectorySink;
+    /** 可选的单一事实追加与 Snapshot 边界读取端口。 */
+    readonly trajectoryStore?: TrajectoryStore;
     /** 可选旁路诊断端口。 */
     readonly traceSink?: DiagnosticTraceSink;
     /** Snapshot 成功后接收非阻塞维护通知的端口。 */
     readonly maintenancePort?: ContextMaintenancePort;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object";
 }
 
 function trajectoryKey(goal: Pick<Goal, "id" | "state">): string {
@@ -181,13 +186,13 @@ function asMemoryPatchPayload(
  *
  * @example
  * ```ts
- * const committer = new TrajectoryCheckpointCommitter({ store, trajectorySink });
+ * const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
  * const saved = await committer.commit(goal, { facts: [draft] });
  * ```
  */
 export class TrajectoryCheckpointCommitter {
     private readonly store: GoalStore;
-    private readonly trajectorySink: TrajectorySink;
+    private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly trajectoryEnabled: boolean;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly maintenancePort: ContextMaintenancePort | undefined;
@@ -196,12 +201,8 @@ export class TrajectoryCheckpointCommitter {
     /** @param dependencies - Snapshot Store、可选 Trajectory 和诊断端口。 */
     constructor(dependencies: TrajectoryCheckpointCommitterDependencies) {
         this.store = dependencies.store;
-        this.trajectoryEnabled = dependencies.trajectorySink !== undefined;
-        this.trajectorySink = dependencies.trajectorySink ?? {
-            async append(): Promise<Readonly<TrajectoryEvent>> {
-                throw new TrajectoryAppendError("Trajectory sink is disabled");
-            },
-        };
+        this.trajectoryStore = dependencies.trajectoryStore;
+        this.trajectoryEnabled = this.trajectoryStore !== undefined;
         this.traceSink = dependencies.traceSink;
         this.maintenancePort = dependencies.maintenancePort;
     }
@@ -221,10 +222,12 @@ export class TrajectoryCheckpointCommitter {
         countAsFact = true,
     ): Promise<Readonly<TrajectoryEvent> | undefined> {
         if (!this.trajectoryEnabled) return undefined;
+        const trajectoryStore = this.trajectoryStore;
+        if (trajectoryStore === undefined) return undefined;
         throwIfAborted(control);
         let event: Readonly<TrajectoryEvent>;
         try {
-            event = await this.trajectorySink.append(draft);
+            event = await trajectoryStore.append(draft);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
             throw new TrajectoryAppendError(
@@ -324,6 +327,11 @@ export class TrajectoryCheckpointCommitter {
             },
         };
 
+        await this.validatePreparationInputTail(
+            goal,
+            priorBoundary,
+            request.control,
+        );
         await this.store.save(checkpoint);
         throwIfAborted(request.control);
         try {
@@ -359,6 +367,90 @@ export class TrajectoryCheckpointCommitter {
             events: Object.freeze(events),
             ...(memoryPatchEvent === undefined ? {} : { memoryPatchEvent }),
         };
+    }
+
+    private async validatePreparationInputTail(
+        goal: Goal,
+        committedThroughSequence: number,
+        control?: ExecutionControl,
+    ): Promise<void> {
+        const trajectoryStore = this.trajectoryStore;
+        if (trajectoryStore === undefined) return;
+
+        if (typeof trajectoryStore.readWithBoundary !== "function") {
+            throw new TrajectoryAppendError(
+                "TrajectoryStore.readWithBoundary is required to validate provenance",
+            );
+        }
+
+        throwIfAborted(control);
+        let raw: unknown;
+        try {
+            raw = await trajectoryStore.readWithBoundary(
+                { goalId: goal.id, runId: goal.state.run.id },
+                committedThroughSequence,
+            );
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throw new TrajectoryAppendError(
+                error instanceof Error ? error.message : String(error),
+                { cause: error },
+            );
+        }
+        throwIfAborted(control);
+
+        if (!isRecord(raw) || !Array.isArray(raw.uncommittedTail)) {
+            throw new TrajectoryAppendError(
+                "TrajectoryStore.readWithBoundary returned an invalid result",
+            );
+        }
+
+        for (const value of raw.uncommittedTail) {
+            if (!isRecord(value) || value.eventType !== "preparation_input_recorded") {
+                continue;
+            }
+
+            if (
+                value.goalId !== goal.id
+                || value.runId !== goal.state.run.id
+                || (value.phase !== "gathering_context" && value.phase !== "planning")
+            ) {
+                throw new TrajectoryAppendError(
+                    "preparation_input_recorded provenance does not match Goal/Run",
+                );
+            }
+
+            const payload = value.payload;
+            const messageIndex = isRecord(payload)
+                ? payload.messageIndex
+                : undefined;
+            const contentHash = isRecord(payload)
+                ? payload.contentHash
+                : undefined;
+            if (
+                !isRecord(payload)
+                || payload.type !== "preparation_input_recorded"
+                || typeof messageIndex !== "number"
+                || !Number.isSafeInteger(messageIndex)
+                || messageIndex < 0
+                || typeof contentHash !== "string"
+            ) {
+                throw new TrajectoryAppendError(
+                    "preparation_input_recorded provenance payload is invalid",
+                );
+            }
+
+            const message = goal.state.messages[messageIndex];
+            if (
+                message === undefined
+                || message.role !== "user"
+                || computeContentHash(message.content) !== contentHash
+            ) {
+                throw new TrajectoryAppendError(
+                    "preparation_input_recorded provenance does not match Goal message",
+                );
+            }
+        }
     }
 
     /**

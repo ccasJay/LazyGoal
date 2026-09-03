@@ -563,6 +563,7 @@ function collectPreparationSegments(
     };
 
     for (const event of events) {
+        if (event.eventType === "preparation_input_recorded") continue;
         if (
             event.eventType === "state_committed"
             || isLookupEvent(event)

@@ -47,7 +47,7 @@ import {
     type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryStore,
-    type TrajectorySink,
+    computeContentHash,
 } from "./trajectory";
 import {
     advanceContextEpoch,
@@ -62,6 +62,7 @@ import {
     type NormalizedWorkingMemoryPatch,
     WorkingMemoryPatchError,
     type WorkingMemoryLimitsInput,
+    validateMemoryPatchPhase,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
 import {
@@ -73,6 +74,25 @@ import {
 type PreparationLookupOutcome =
     | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
     | Extract<GoalProgressResult, { readonly ok: false }>;
+
+function preparationInputRecorded(
+    goal: Pick<Goal, "id" | "state">,
+    messageIndex: number,
+    content: string,
+    phase: "gathering_context" | "planning",
+): TrajectoryEventDraft {
+    return {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        phase,
+        eventType: "preparation_input_recorded",
+        payload: {
+            type: "preparation_input_recorded",
+            messageIndex,
+            contentHash: computeContentHash(content),
+        },
+    };
+}
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
@@ -189,12 +209,10 @@ export interface GoalCoordinatorDependencies {
      * 处理，因此不会向 Preparation Executor 提供任何 Tool。
      */
     readonly toolRegistry?: ToolRegistry;
-    /** 可选 Domain Event 追加边界；省略时只保存 Snapshot，不追加事件。 */
-    readonly trajectorySink?: TrajectorySink;
+    /** 可选 Domain Event 追加与 Snapshot 边界读取端口；省略时只保存 Snapshot。 */
+    readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
-    /** structured@1 Goal 的只读/追加 Trajectory 读取端口。 */
-    readonly trajectoryStore?: TrajectoryStore;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
@@ -254,13 +272,12 @@ export class GoalCoordinator {
         this.contextLookupPort = dependencies.contextLookupPort;
         this.contextSourceRouter = dependencies.contextSourceRouter
             ?? new ContextSourceRouter();
-        const trajectorySink = dependencies.trajectorySink ?? dependencies.trajectoryStore;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
-                ...(trajectorySink === undefined
+                ...(dependencies.trajectoryStore === undefined
                     ? {}
-                    : { trajectorySink }),
+                    : { trajectoryStore: dependencies.trajectoryStore }),
                 ...(dependencies.traceSink === undefined
                     ? {}
                     : { traceSink: dependencies.traceSink }),
@@ -315,7 +332,10 @@ export class GoalCoordinator {
                         authorizedTools: [],
                         ...(session === undefined
                             ? {}
-                            : { workingMemory: session.workingMemory }),
+                            : {
+                                workingMemory: session.workingMemory,
+                                preparationInputEvidence: session.preparationInputEvidence,
+                            }),
                         ...(control === undefined ? {} : { control }),
                         ...(contextLookupResult === undefined
                             ? {}
@@ -455,7 +475,10 @@ export class GoalCoordinator {
                     authorizedTools: tools,
                     ...(session === undefined
                         ? {}
-                        : { workingMemory: session.workingMemory }),
+                        : {
+                            workingMemory: session.workingMemory,
+                            preparationInputEvidence: session.preparationInputEvidence,
+                        }),
                     ...(control === undefined ? {} : { control }),
                     ...(contextLookupResult === undefined
                         ? {}
@@ -652,6 +675,15 @@ export class GoalCoordinator {
                 eventType: "run_resumed",
                 payload: { type: "run_resumed" },
             }, control);
+            await this.appendTrajectory(
+                preparationInputRecorded(
+                    resumedGoal,
+                    resumedGoal.state.messages.length - 1,
+                    request.action.content,
+                    "gathering_context",
+                ),
+                control,
+            );
             await this.saveCheckpoint(resumedGoal, control);
             return this.advance(request.ref, control);
         }
@@ -685,7 +717,12 @@ export class GoalCoordinator {
                             phase: "planning",
                             eventType: "run_resumed",
                             payload: { type: "run_resumed" },
-                        }],
+                        }, preparationInputRecorded(
+                            resumedGoal,
+                            resumedGoal.state.messages.length - 1,
+                            request.action.content,
+                            "planning",
+                        )],
                         acceptedPatch,
                         control,
                     );
@@ -1115,7 +1152,13 @@ export class GoalCoordinator {
                         ? {}
                         : { limits: this.workingMemoryLimits }),
                 });
-            memorySession.validatePatch(memoryPatch, workingMemory);
+            validateMemoryPatchPhase(memoryPatch, phase, {
+                workingMemory,
+                ...(this.workingMemoryLimits === undefined
+                    ? {}
+                    : { limits: this.workingMemoryLimits }),
+            });
+            memorySession.validatePatch(memoryPatch, "preparation", workingMemory);
             modelPatch = normalizeMemoryPatch(memoryPatch, {
                 phase,
                 originSequence: Math.max(
