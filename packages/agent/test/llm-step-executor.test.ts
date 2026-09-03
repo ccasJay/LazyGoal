@@ -192,15 +192,17 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         systemContent,
         /Authorized Tool definitions \(only these Tool IDs may be requested\):\n\[\]/,
     );
+    assert.match(systemContent, /Approved Goal Task Contract:/);
+    assert.match(systemContent, /Objective: 完成单步执行/);
     const workingContext = JSON.parse(
         adapter.requests[0]?.messages.at(-1)?.content ?? "",
     ) as Record<string, unknown>;
     assert.deepEqual(workingContext.phase, "executing");
-    assert.deepEqual(workingContext.intent, task.objective);
-    assert.deepEqual(workingContext.task, task);
+    assert.equal("intent" in workingContext, false);
+    assert.equal("task" in workingContext, false);
+    assert.equal("contextEpoch" in workingContext, false);
     assert.deepEqual(workingContext.execution, { stepCount: 0 });
     assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
-    assert.equal(typeof workingContext.contextEpoch, "object");
     assert.equal(typeof workingContext.trajectoryContext, "object");
 });
 

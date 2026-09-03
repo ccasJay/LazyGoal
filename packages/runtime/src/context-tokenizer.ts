@@ -399,9 +399,6 @@ export function buildContextInvertedIndex(
     return deepFreeze(index);
 }
 
-/** 函数式索引入口别名。 */
-export const buildContextIndex = buildContextInvertedIndex;
-
 function assertContextDocument(document: ContextSearchDocument): void {
     if (!isRecord(document)) throw new ContextTokenizerError("document must be an object");
     if (document.schemaVersion !== 1) {

@@ -329,6 +329,20 @@ export interface PromptContext {
     readonly modelContextProtocol: ModelContextProtocol;
     /** Goal 冻结的 Cold Trajectory 检索协议。 */
     readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
+    /**
+     * Executing 阶段绑定的已批准 GoalTask 契约。
+     *
+     * @remarks
+     * 属于 Goal-stable 根前缀的一部分，确保任务目标与验收标准在整个执行生命周期内拥有
+     * 完全不变的确定性前缀渲染。在 Preparation 阶段未形成批准任务时为 `undefined`。
+     *
+     * @example
+     * ```ts
+     * const task = promptContext.task;
+     * console.log(task?.objective);
+     * ```
+     */
+    readonly task?: ModelTask;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
@@ -356,6 +370,39 @@ export type ModelWorkingContext =
             readonly pendingAction?: ModelPendingAction;
         };
     };
+
+/**
+ * Executing 阶段向模型发送的纯动态 Step 增量负载。
+ *
+ * @remarks
+ * 仅包含推动单步推进所需的最小状态（执行步数、上一轮观察反馈、热轨迹与即时记忆），
+ * 不包含任何静态意图、任务目标契约或只读上下文预算，确保尾部控制消息体积最小化。
+ *
+ * @example
+ * ```ts
+ * const payload: StepDynamicPayload = {
+ *     phase: "executing",
+ *     execution: { stepCount: 1 },
+ * };
+ * ```
+ */
+export interface StepDynamicPayload {
+    readonly phase: "executing";
+    readonly execution: {
+        readonly stepCount: number;
+        readonly maxSteps?: number;
+        readonly previousStep?: ModelStepRecord;
+        readonly pendingAction?: ModelPendingAction;
+    };
+    readonly workingMemory?: ModelWorkingMemory;
+    readonly trajectoryContext?: {
+        readonly hot: readonly ModelExecutionUnitProjection[];
+        readonly warm?: readonly WarmCompactEntry[];
+    };
+    readonly contextLookupResult?: ModelContextLookupResult;
+    readonly checkpointRequired?: true;
+    readonly checkpointReason?: "conversation_pruned" | "input_threshold";
+}
 
 /**
  * 分层模型上下文的本轮不可变投影。
@@ -397,12 +444,6 @@ export interface ModelContextControl {
     readonly status: "active" | "checkpoint_required";
     /** 触发检查点的稳定原因。 */
     readonly reason?: "conversation_pruned" | "input_threshold";
-    /** 不含 Hot/Warm 的 Epoch 输入 Token 数。 */
-    readonly inputTokens: number;
-    /** 该 Goal 的输入硬上限。 */
-    readonly hardInputLimit: number;
-    /** 距离硬上限的剩余 Token。 */
-    readonly remainingTokens: number;
 }
 
 /** `trajectory-layered@1` 的单轮 Epoch 投影。 */

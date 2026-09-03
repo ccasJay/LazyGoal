@@ -97,14 +97,6 @@ export type {
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
-export type {
-    WarmContextSidecar,
-    WarmContextSidecarEntry,
-    WarmContextSidecarEntryKind,
-    WarmContextSidecarEntryStatus,
-    WarmContextSidecarRestoreOptions,
-    WarmContextSidecarStore,
-} from "./warm-context-sidecar";
 export { transition } from "./transition";
 export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
@@ -195,30 +187,11 @@ export type {
     ContextLookupResult,
 } from "./context-retrieval";
 export {
-    CONTEXT_SOURCE_ROUTE_INVALID_CODE,
-    CONTEXT_SOURCE_ROUTE_REJECTED_CODE,
-    ContextSourceRouter,
-    ContextSourceRouterError,
-    routeContextSource,
-} from "./context-source-router";
-export type {
-    AuthorizedToolContextSourceRoute,
-    ContextSourceNeed,
-    ContextSourceRoute,
-    ContextSourceRouteInput,
-    CurrentContextSourceNeed,
-    GoalContextSourceNeed,
-    GoalContextSourceRoute,
-    TrajectoryContextSourceRoute,
-} from "./context-source-router";
-export {
     CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,
     CONTEXT_LOOKUP_RESULT_BUDGET_CODE,
     CONTEXT_LOOKUP_RESULT_ERROR_CODE,
     ContextLookupResultError,
     buildContextLookupResultFromRanking,
-    contextLookupResultFromRanking,
-    createContextLookupResultFromRanking,
 } from "./context-lookup-result";
 export type {
     ContextLookupResultBuildInput,
@@ -253,8 +226,6 @@ export {
     CONTEXT_TOKENIZER_VERSION,
     ContextTokenizerError,
     FieldTokenizer,
-    FieldTokenizer as ContextFieldTokenizer,
-    buildContextIndex,
     buildContextInvertedIndex,
     tokenizeContextDocument,
 } from "./context-tokenizer";
@@ -280,7 +251,6 @@ export {
     ContextRankingError,
     FieldedBm25LiteRanker,
     rankContextDocuments,
-    rankFieldedBm25Lite,
 } from "./context-ranking";
 export type {
     ContextRankedMatch,
@@ -298,7 +268,6 @@ export {
     buildContextRetrievalIndexSidecar,
     canonicalizeContextRetrievalQuery,
     computeContextRetrievalSourceDigest,
-    computeRetrievalIndexSourceDigest,
     createContextRetrievalQueryKey,
     openContextRetrievalIndexSession,
     restoreContextInvertedIndex,
@@ -306,12 +275,6 @@ export {
 } from "./context-retrieval-index";
 export { IndexedContextLookupService } from "./indexed-context-lookup-service";
 export type { IndexedContextLookupServiceOptions } from "./indexed-context-lookup-service";
-export { ContextMaintenanceWorker } from "./context-maintenance-worker";
-export type {
-    ContextMaintenanceNotification,
-    ContextMaintenancePort,
-    ContextMaintenanceTask,
-} from "./context-maintenance-worker";
 export type {
     ContextRetrievalIndexSession,
     ContextRetrievalIndexSessionInput,

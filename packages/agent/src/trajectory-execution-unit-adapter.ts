@@ -441,3 +441,30 @@ function assertNonNegativeSafeInteger(value: number, field: string): void {
         throw new RangeError(`${field} must be a non-negative safe integer`);
     }
 }
+
+/**
+ * 将 Trajectory 事件序列规范投影为完整模型执行单元列表。
+ *
+ * @param events - 原始 Trajectory 事实事件序列。
+ * @param options - 包含 committedThroughSequence 与可选 estimator 的配置项。
+ * @returns 规范完整的执行单元列表。
+ * @throws 来源非法或事件破坏时抛出 {@link ModelContextSourceError}。
+ *
+ * @example
+ * ```ts
+ * const units = projectTrajectoryExecutionUnits(events, {
+ *     committedThroughSequence: 10,
+ * });
+ * ```
+ */
+export function projectTrajectoryExecutionUnits(
+    events: readonly TrajectoryEvent[],
+    options: TrajectoryExecutionUnitAdapterOptions,
+): readonly ModelExecutionUnit[] {
+    return new TrajectoryExecutionUnitAdapter().adapt(events, options);
+}
+
+/** 规范命名的执行单元投影适配器类。 */
+export const TrajectoryExecutionUnitProjectionAdapter = TrajectoryExecutionUnitAdapter;
+export type TrajectoryExecutionUnitProjectionAdapter = TrajectoryExecutionUnitAdapter;
+

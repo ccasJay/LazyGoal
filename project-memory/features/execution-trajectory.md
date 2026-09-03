@@ -56,4 +56,4 @@ authorities: [docs/architecture/runtime.md, docs/architecture/storage.md, docs/a
 - S11: `packages/runtime/test/trajectory-lifecycle.test.ts`
 - S12: `packages/runtime/test/trajectory-failure.test.ts`
 - S13: `packages/storage/test/trajectory-store.test.ts`
-- S14: `packages/agent/test/trajectory-context-unit-adapter.test.ts`
+- S14: `packages/agent/test/trajectory-execution-unit-adapter.test.ts`

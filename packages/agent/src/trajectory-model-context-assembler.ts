@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { Goal } from "../../runtime/src/domain";
 import {
     isExecutionAbortedError,
@@ -9,8 +7,6 @@ import {
 import type {
     TrajectoryEvent,
     TrajectoryStore,
-    WarmContextSidecar,
-    WarmContextSidecarStore,
 } from "../../runtime/src/index";
 import type {
     ModelContextBudgetPolicy,
@@ -64,7 +60,6 @@ export class ModelContextAssemblyError extends Error {
  * const input: TrajectoryWarmEntryExtractionInput = {
  *     goal,
  *     omittedUnits: [],
- *     derivedThroughSequence: 0,
  * };
  * ```
  */
@@ -73,17 +68,14 @@ export interface TrajectoryWarmEntryExtractionInput {
     readonly goal: Goal;
     /** 当前 committed Trajectory 中、未进入 Hot 的完整执行单元。 */
     readonly omittedUnits: readonly ModelExecutionUnitProjection[];
-    /** Sidecar 已覆盖的最大 sequence；没有 Sidecar 时为零。 */
-    readonly derivedThroughSequence: number;
 }
 
 /**
  * 从 Cold/Hot 边界提取有损 Warm 语义条目的纯函数。
  *
  * @remarks
- * 提取器不能写入 Goal、Snapshot、Working Memory、Trajectory 或 Sidecar；返回值
- * 会再次经过严格的 `WarmReducer` 校验。默认不凭空生成语义条目，仅使用有效
- * Sidecar；应用可在 Composition Root 注入基于自身领域知识的确定性提取器。
+ * 提取器不能写入 Goal、Snapshot、Working Memory 或 Trajectory；返回值
+ * 会再次经过严格的 `WarmReducer` 校验。应用可在 Composition Root 注入基于自身领域知识的确定性提取器。
  *
  * @example
  * ```ts
@@ -108,8 +100,6 @@ export type TrajectoryWarmEntryExtractor = (
 export interface TrajectoryModelContextAssemblerOptions {
     /** 读取当前 Goal/Run committed Trajectory 的权威 Port。 */
     readonly trajectoryStore?: TrajectoryStore;
-    /** 可选的 Warm Sidecar 缓存；读取失败只影响缓存命中，不阻断主调用。 */
-    readonly sidecarStore?: WarmContextSidecarStore;
     /** 本轮总输入、响应预留和历史分层预算策略。 */
     readonly policy: ModelContextBudgetPolicy;
     /** 只读执行单元边界适配器；省略时使用默认严格实现。 */
@@ -120,8 +110,6 @@ export interface TrajectoryModelContextAssemblerOptions {
     readonly artifactResolver?: TrajectoryArtifactResolver;
     /** 可选的确定性 Warm 提取器；省略时不从事件猜测语义摘要。 */
     readonly warmEntryExtractor?: TrajectoryWarmEntryExtractor;
-    /** Sidecar 校验使用的归约实现版本。 */
-    readonly compactorVersion?: string;
 }
 
 /**
@@ -160,17 +148,14 @@ export interface TrajectoryModelContextAssemblyInput {
  */
 export class TrajectoryModelContextAssembler {
     private readonly trajectoryStore: TrajectoryStore | undefined;
-    private readonly sidecarStore: WarmContextSidecarStore | undefined;
     private readonly policy: ModelContextBudgetPolicy;
     private readonly executionUnitAdapter: TrajectoryExecutionUnitAdapter;
     private readonly eventProjector: TrajectoryEventProjector;
     private readonly warmEntryExtractor: TrajectoryWarmEntryExtractor | undefined;
-    private readonly compactorVersion: string;
 
-    /** @param options - Trajectory、Sidecar、预算策略和可选纯投影扩展。 */
+    /** @param options - Trajectory、预算策略和可选纯投影扩展。 */
     constructor(options: TrajectoryModelContextAssemblerOptions) {
         this.trajectoryStore = options.trajectoryStore;
-        this.sidecarStore = options.sidecarStore;
         this.policy = options.policy;
         this.executionUnitAdapter = options.executionUnitAdapter
             ?? new TrajectoryExecutionUnitAdapter();
@@ -182,10 +167,6 @@ export class TrajectoryModelContextAssembler {
                     : { artifactResolver: options.artifactResolver }),
             });
         this.warmEntryExtractor = options.warmEntryExtractor;
-        this.compactorVersion = options.compactorVersion ?? "deterministic-warm-v1";
-        if (this.compactorVersion.trim().length === 0) {
-            throw new RangeError("compactorVersion must be a non-empty string");
-        }
     }
 
     /**
@@ -268,32 +249,11 @@ export class TrajectoryModelContextAssembler {
             );
         }
 
-        const sidecar = await this.restoreSidecar(
-            input.goal.id,
-            input.goal.state.run.id,
-            boundary,
-            committed,
-            input.control,
-        );
-        const sidecarEntries = validSidecarEntries(
-            sidecar,
-            input.goal.id,
-            input.goal.state.run.id,
-            boundary,
-        );
-        const sidecarDerivedThroughSequence = sidecar !== undefined
-            && Array.isArray(sidecar.entries)
-            && sidecarEntries.length === sidecar.entries.length
-            ? sidecar.derivedThroughSequence
-            : 0;
-
         const firstSelection = this.selectHot(projectedUnits, units, budget.hotBudget);
         const firstWarm = this.reduceWarm(
             input,
             firstSelection,
             projectedUnits,
-            sidecarEntries,
-            sidecarDerivedThroughSequence,
             budget.warmBudget,
         );
         const reallocatedHotBudget = this.policy.reallocateHotBudget(
@@ -309,8 +269,6 @@ export class TrajectoryModelContextAssembler {
             input,
             finalSelection,
             projectedUnits,
-            sidecarEntries,
-            sidecarDerivedThroughSequence,
             budget.warmBudget,
         );
         const compactedWarm = finalWarm.retained;
@@ -350,47 +308,6 @@ export class TrajectoryModelContextAssembler {
         }
     }
 
-    private async restoreSidecar(
-        goalId: string,
-        runId: string,
-        boundary: number,
-        committed: readonly TrajectoryEvent[],
-        control: ExecutionControl | undefined,
-    ): Promise<WarmContextSidecar | undefined> {
-        if (this.sidecarStore === undefined) return undefined;
-        try {
-            const sidecar = await this.sidecarStore.restore(goalId, runId, {
-                committedThroughSequence: boundary,
-                compactorVersion: this.compactorVersion,
-            });
-            throwIfAborted(control);
-            if (
-                sidecar === undefined
-                || sidecar.schemaVersion !== 1
-                || sidecar.goalId !== goalId
-                || sidecar.runId !== runId
-                || sidecar.compactorVersion !== this.compactorVersion
-                || !Number.isSafeInteger(sidecar.derivedThroughSequence)
-                || sidecar.derivedThroughSequence < 0
-                || sidecar.derivedThroughSequence > boundary
-                || typeof sidecar.sourceDigest !== "string"
-                || sidecar.sourceDigest.trim().length === 0
-                || !Array.isArray(sidecar.entries)
-                || sourceDigest(committed, sidecar.derivedThroughSequence)
-                    !== sidecar.sourceDigest
-            ) {
-                return undefined;
-            }
-            return sidecar;
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-            // Sidecar 是可丢弃缓存；任何读取异常都回退到 committed Trajectory。
-            return undefined;
-        }
-    }
-
     private selectHot(
         projectedUnits: readonly ModelExecutionUnitProjection[],
         rawUnits: readonly ModelExecutionUnit[],
@@ -416,8 +333,6 @@ export class TrajectoryModelContextAssembler {
         input: TrajectoryModelContextAssemblyInput,
         selection: HotWindowSelection<ModelExecutionUnit>,
         projectedUnits: readonly ModelExecutionUnitProjection[],
-        sidecarEntries: readonly WarmCompactEntry[],
-        sidecarDerivedThroughSequence: number,
         budget: number,
     ): WarmReductionForAssembly {
         const omitted = selection.omitted.map((unit) => {
@@ -426,12 +341,13 @@ export class TrajectoryModelContextAssembler {
             );
             return index < 0 ? undefined : projectedUnits[index];
         }).filter((unit): unit is ModelExecutionUnitProjection => unit !== undefined);
-        const extracted = this.extractWarmEntries(
-            input,
-            omitted,
-            sidecarDerivedThroughSequence,
-        );
-        const candidates = [...sidecarEntries, ...extracted];
+        const candidates = this.extractWarmEntries(input, omitted);
+        if (candidates.length === 0) {
+            return {
+                retained: Object.freeze([]),
+                retainedMeasurement: 0,
+            };
+        }
         const reducer = new WarmReducer({
             estimator: this.policy.estimator,
             quotas: Object.fromEntries(
@@ -446,15 +362,10 @@ export class TrajectoryModelContextAssembler {
         try {
             reduced = reducer.reduce(candidates);
         } catch {
-            // 缓存或可选提取器的单条损坏不应覆盖其它权威来源。
-            try {
-                reduced = reducer.reduce(sidecarEntries);
-            } catch {
-                return {
-                    retained: [],
-                    retainedMeasurement: 0,
-                };
-            }
+            return {
+                retained: Object.freeze([]),
+                retainedMeasurement: 0,
+            };
         }
         const retained = fitWarmBudget(
             this.policy.estimator,
@@ -478,7 +389,6 @@ export class TrajectoryModelContextAssembler {
     private extractWarmEntries(
         input: TrajectoryModelContextAssemblyInput,
         omittedUnits: readonly ModelExecutionUnitProjection[],
-        derivedThroughSequence: number,
     ): readonly WarmCompactEntry[] {
         if (omittedUnits.length === 0) return [];
         try {
@@ -486,14 +396,13 @@ export class TrajectoryModelContextAssembler {
             const extracted = extractor({
                 goal: input.goal,
                 omittedUnits,
-                derivedThroughSequence,
             });
             return extracted.filter((entry) =>
-                entry.lastSequence > derivedThroughSequence
+                entry.lastSequence > 0
                 && entry.lastSequence <= input.goal.state.run.committedThroughSequence,
             );
         } catch {
-            // 可选语义提取失败时不牺牲主模型调用；Reducer 仍可使用 Sidecar。
+            // 可选语义提取失败时不牺牲主模型调用；提取失败只产生空 Warm，不影响 Hot 或主模型调用。
             return [];
         }
     }
@@ -539,60 +448,6 @@ function isAuthoritativeBlockerDuplicate(
                 || blocker.description === entry.summary
             ),
         );
-}
-
-function validSidecarEntries(
-    sidecar: WarmContextSidecar | undefined,
-    goalId: string,
-    runId: string,
-    boundary: number,
-): readonly WarmCompactEntry[] {
-    try {
-        if (
-            sidecar === undefined
-            || sidecar.goalId !== goalId
-            || sidecar.runId !== runId
-            || !Number.isSafeInteger(sidecar.derivedThroughSequence)
-            || sidecar.derivedThroughSequence < 0
-            || sidecar.derivedThroughSequence > boundary
-            || new Set(sidecar.entries.map((entry) => entry.id)).size
-                !== sidecar.entries.length
-            || sidecar.entries.some((entry) =>
-                entry.firstSequence > boundary
-                || entry.lastSequence > boundary
-                || entry.evidenceSequences.some((sequence) => sequence > boundary),
-            )
-        ) {
-            return [];
-        }
-        return sidecar.entries.map((entry) => structuredClone(entry) as WarmCompactEntry);
-    } catch {
-        return [];
-    }
-}
-
-function sourceDigest(
-    events: readonly TrajectoryEvent[],
-    throughSequence: number,
-): string {
-    const committed = events
-        .filter((event) => event.sequence <= throughSequence)
-        .map((event) => structuredClone(event));
-    const canonical = JSON.stringify(sortKeys(committed));
-    return `sha256:${createHash("sha256").update(canonical, "utf8").digest("hex")}`;
-}
-
-function sortKeys(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(sortKeys);
-    if (value !== null && typeof value === "object") {
-        const record = value as Record<string, unknown>;
-        return Object.fromEntries(
-            Object.keys(record)
-                .sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
-                .map((key) => [key, sortKeys(record[key])]),
-        );
-    }
-    return value;
 }
 
 function fitWarmBudget(

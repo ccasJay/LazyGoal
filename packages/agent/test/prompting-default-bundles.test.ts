@@ -134,3 +134,22 @@ test("默认协议校验器只接受唯一当前组合", () => {
         assert.throws(() => validator.validate(invalid as never), /仅支持/);
     }
 });
+
+test("Goal-stable 根前缀确定性渲染任务契约与决策分支", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const task = {
+        objective: "完成测试目标",
+        completionCriteria: ["标准1", "标准2"],
+    };
+    const rendered1 = renderer.render(context({ phase: "executing", task }));
+    const rendered2 = renderer.render(context({ phase: "executing", task }));
+
+    assert.equal(rendered1, rendered2);
+    assert.match(rendered1, /Approved Goal Task Contract:/);
+    assert.match(rendered1, /Objective: 完成测试目标/);
+    assert.match(rendered1, /- \[0\] 标准1/);
+    assert.match(rendered1, /- \[1\] 标准2/);
+    assert.match(rendered1, /"kind":"tool_call"/);
+    assert.match(rendered1, /"criterionIndex":<index>/);
+});
+

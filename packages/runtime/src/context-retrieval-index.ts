@@ -314,9 +314,6 @@ export function computeContextRetrievalSourceDigest(
         .digest("hex")}`;
 }
 
-/** 来源摘要函数的短别名。 */
-export const computeRetrievalIndexSourceDigest = computeContextRetrievalSourceDigest;
-
 /** 将带函数的 Runtime Index 转为可持久化快照。 */
 export function snapshotContextInvertedIndex(
     index: ContextInvertedIndex,

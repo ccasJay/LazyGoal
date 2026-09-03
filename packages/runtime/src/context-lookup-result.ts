@@ -206,12 +206,6 @@ export function buildContextLookupResultFromRanking(
     return found;
 }
 
-/** `buildContextLookupResultFromRanking` 的语义别名。 */
-export const createContextLookupResultFromRanking = buildContextLookupResultFromRanking;
-
-/** `buildContextLookupResultFromRanking` 的简短别名。 */
-export const contextLookupResultFromRanking = buildContextLookupResultFromRanking;
-
 interface ContextLookupResultBuildMatch {
     readonly documentId: string;
     readonly goalId: string;

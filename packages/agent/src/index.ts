@@ -33,11 +33,12 @@ export {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "./conversation-context-unit-adapter";
-export { TrajectoryContextUnitAdapter } from "./trajectory-context-unit-adapter";
 export {
     HotWindowSelector,
     ModelContextSourceError,
     TrajectoryExecutionUnitAdapter,
+    TrajectoryExecutionUnitProjectionAdapter,
+    projectTrajectoryExecutionUnits,
     MODEL_CONTEXT_SOURCE_ERROR_CODE,
 } from "./trajectory-execution-unit-adapter";
 export type {
@@ -78,20 +79,6 @@ export type {
     WarmReinforcementReason,
     WarmReinforcementInput,
 } from "./warm-reducer";
-export {
-    ContextCompactAdapter,
-    ContextCompactResponseSchema,
-    ContextCompactWarmEntrySchema,
-    CONTEXT_COMPACT_ENTRY_KINDS,
-    CONTEXT_COMPACT_SCHEMA_VERSION,
-    CONTEXT_COMPACTOR_VERSION,
-} from "./context-compact-adapter";
-export type {
-    ContextCompactAdapterOptions,
-    ContextCompactFailureReason,
-    ContextCompactInput,
-    ContextCompactResult,
-} from "./context-compact-adapter";
 export {
     CharacterModelInputEstimator,
     createDefaultModelContextBudgetPolicy,
@@ -172,6 +159,7 @@ export type {
     ModelToolCallAction,
     ModelToolDefinition,
     ModelWorkingContext,
+    StepDynamicPayload,
     PromptContext,
     PromptPhase,
 } from "./model-inference-view";

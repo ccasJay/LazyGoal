@@ -44,10 +44,10 @@ flowchart LR
 
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
 `.lazygoal/goals`，事实事件放在 `.lazygoal/trajectories`，诊断 Trace 放在
-`.lazygoal/traces`，可删除 Warm Sidecar 放在 `.lazygoal/context-sidecars`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
+`.lazygoal/traces`，Retrieval Index Sidecar 放在 `.lazygoal/context-sidecars`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
 `OpenAICompatible`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
 `GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
-Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileWarmContextSidecarStore`、`JsonFileDiagnosticTraceSink`、根
+Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`、根
 `AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
 Trajectory Store 和 Trace Sink 实例。Runner 注入
 `createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`

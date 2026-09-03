@@ -1,7 +1,4 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -29,10 +26,6 @@ import {
     createGoal,
     createEmptyWorkingMemory,
 } from "../../runtime/src/index";
-import {
-    computeTrajectorySourceDigest,
-    JsonFileWarmContextSidecarStore,
-} from "../../storage/src/index";
 import { currentProtocols } from "./current-fixtures";
 
 const profile: AgentProfile = {
@@ -100,7 +93,7 @@ const policy = createModelContextBudgetPolicy({
     warmShare: 0.5,
 }, fixedSizeEstimator);
 
-test("Assembler 从 committed Trajectory 选择完整 Hot，并恢复有效 Sidecar Warm", async () => {
+test("Assembler 从 committed Trajectory 选择完整 Hot，并按确定性规则生成 Warm 条目，排除未提交 tail", async () => {
     const events = [
         completeEvent(1, "unit-1", "first"),
         terminalEvent(2, "unit-1", "first"),
@@ -109,39 +102,29 @@ test("Assembler 从 committed Trajectory 选择完整 Hot，并恢复有效 Side
         completeEvent(5, "tail", "uncommitted"),
     ];
     const trajectoryStore = new MemoryTrajectoryStore(events);
-    const sidecarEntry = {
-        id: "finding-1",
-        kind: "finding" as const,
-        summary: "first was checked",
-        status: "active" as const,
-        lossy: true as const,
-        evidenceSequences: [2],
-        firstSequence: 2,
-        lastSequence: 2,
-        lastAccessedSequence: 2,
-        reinforcementCount: 1,
-        sourceHash: "sha256:finding-1",
+    // 构造限制 hot 预算的 estimator，让 unit-1 成为 omitted，unit-2 成为 hot
+    const selectiveEstimator = {
+        unit: "character" as const,
+        estimate(value: unknown): number {
+            if (
+                typeof value === "object"
+                && value !== null
+                && "executionUnitId" in value
+            ) {
+                return 50;
+            }
+            return 2;
+        },
     };
-    const committed = events.slice(0, 4);
-    const sidecar = {
-        schemaVersion: 1 as const,
-        goalId: "goal-layered",
-        runId: "run-layered",
-        derivedThroughSequence: 2,
-        sourceDigest: computeTrajectorySourceDigest(committed, 2),
-        compactorVersion: "deterministic-warm-v1",
-        entries: [sidecarEntry],
-    };
+    const tightPolicy = createModelContextBudgetPolicy({
+        modelInputBudget: 100,
+        responseReserve: 10,
+        warmShare: 0.5,
+    }, selectiveEstimator);
+
     const assembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
-        sidecarStore: {
-            async restore() {
-                return sidecar;
-            },
-            async save() {},
-            async remove() {},
-        },
-        policy,
+        policy: tightPolicy,
     });
     const goal = layeredExecutingGoal(4);
     const view = new ModelInferenceProjector().project(
@@ -152,86 +135,39 @@ test("Assembler 从 committed Trajectory 选择完整 Hot，并恢复有效 Side
 
     const assembled = await assembler.assemble({ goal, view });
 
+    // unit-2 进入 Hot
     assert.deepEqual(
         assembled.trajectoryContext?.hot.map((unit) => unit.executionUnitId),
-        ["unit-1", "unit-2"],
+        ["unit-2"],
     );
     assert.deepEqual(
         assembled.trajectoryContext?.hot.flatMap((unit) =>
             unit.events.map((event) => event.sequence),
         ),
-        [1, 2, 3, 4],
+        [3, 4],
     );
-    assert.deepEqual(assembled.trajectoryContext?.warm.map((entry) => entry.id), ["finding-1"]);
+    // unit-1 转化为确定性 Warm 条目，不包含 tail sequence 5
+    assert.ok(assembled.trajectoryContext?.warm.length! > 0);
+    for (const warmEntry of assembled.trajectoryContext!.warm) {
+        assert.ok(warmEntry.lastSequence <= 4);
+        assert.ok(!warmEntry.evidenceSequences.includes(5));
+    }
     assert.equal(assembled.trajectoryContext?.budget.measuredAs, "character");
     assert.equal(trajectoryStore.reads.length, 1);
     assert.equal(Object.isFrozen(assembled.trajectoryContext), true);
     assert.equal(Object.isFrozen(assembled.trajectoryContext?.hot), true);
     assert.equal(Object.isFrozen(assembled.trajectoryContext?.warm), true);
-    assert.equal(events[4]?.sequence, 5);
 });
 
-test("Assembler 在 Sidecar 摘要失配时回退为空 Warm，不改写来源", async () => {
-    const events = [completeEvent(1, "unit-1", "first"), terminalEvent(2, "unit-1", "first")];
-    const trajectoryStore = new MemoryTrajectoryStore(events);
-    const assembler = new TrajectoryModelContextAssembler({
-        trajectoryStore,
-        sidecarStore: {
-            async restore() {
-                return {
-                    schemaVersion: 1,
-                    goalId: "goal-layered",
-                    runId: "run-layered",
-                    derivedThroughSequence: 2,
-                    sourceDigest: "sha256:wrong",
-                    compactorVersion: "deterministic-warm-v1",
-                    entries: [validWarmEntry()],
-                };
-            },
-            async save() {},
-            async remove() {},
-        },
-        policy,
-    });
-    const goal = layeredExecutingGoal(2);
-    const view = new ModelInferenceProjector().project(goal, [], createEmptyWorkingMemory());
-    const before = structuredClone(events);
-
-    const assembled = await assembler.assemble({ goal, view });
-
-    assert.deepEqual(assembled.trajectoryContext?.warm, []);
-    assert.deepEqual(events, before);
-});
-
-test("Sidecar 删除后从 committed Trajectory 重新派生 Warm", async (t) => {
-    const directory = await mkdtemp(join(tmpdir(), "lazygoal-assembler-sidecar-"));
-    t.after(async () => rm(directory, { recursive: true, force: true }));
+test("Assembler 相同输入下多次调用产生确定性 Warm 结果且不依赖持久化缓存", async () => {
     const events = [
         completeEvent(1, "unit-1", "first"),
         terminalEvent(2, "unit-1", "first"),
         completeEvent(3, "unit-2", "second"),
         terminalEvent(4, "unit-2", "second"),
-        completeEvent(5, "unit-3", "third"),
-        terminalEvent(6, "unit-3", "third"),
     ];
     const trajectoryStore = new MemoryTrajectoryStore(events);
-    const sidecarStore = new JsonFileWarmContextSidecarStore(directory);
-    await sidecarStore.save({
-        schemaVersion: 1,
-        goalId: "goal-layered",
-        runId: "run-layered",
-        derivedThroughSequence: 2,
-        sourceDigest: computeTrajectorySourceDigest(events, 2),
-        compactorVersion: "deterministic-warm-v1",
-        entries: [{
-            ...validWarmEntry(),
-            evidenceSequences: [1, 2],
-            firstSequence: 1,
-            lastSequence: 2,
-            lastAccessedSequence: 2,
-        }],
-    });
-    const estimator = {
+    const selectiveEstimator = {
         unit: "character" as const,
         estimate(value: unknown): number {
             if (
@@ -239,51 +175,90 @@ test("Sidecar 删除后从 committed Trajectory 重新派生 Warm", async (t) =>
                 && value !== null
                 && "executionUnitId" in value
             ) {
-                return 40;
+                return 50;
             }
-            if (
-                typeof value === "object"
-                && value !== null
-                && "id" in value
-                && "summary" in value
-            ) {
-                return 2;
-            }
-            return 1;
+            return 2;
         },
     };
+    const tightPolicy = createModelContextBudgetPolicy({
+        modelInputBudget: 100,
+        responseReserve: 10,
+        warmShare: 0.5,
+    }, selectiveEstimator);
+
     const assembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
-        sidecarStore,
-        policy: createModelContextBudgetPolicy({
-            modelInputBudget: 100,
-            responseReserve: 10,
-            warmShare: 0.5,
-        }, estimator),
-        warmEntryExtractor: () => [{
-            ...validWarmEntry(),
-            id: "rebuilt-finding",
-            summary: "rebuilt from committed history",
-            evidenceSequences: [1, 2],
-            firstSequence: 1,
-            lastSequence: 2,
-            lastAccessedSequence: 2,
-        }],
+        policy: tightPolicy,
     });
-    const goal = layeredExecutingGoal(6);
+    const goal = layeredExecutingGoal(4);
     const view = new ModelInferenceProjector().project(
         goal,
         [],
         createEmptyWorkingMemory(),
     );
 
-    const cached = await assembler.assemble({ goal, view });
-    assert.deepEqual(cached.trajectoryContext?.warm.map((entry) => entry.id), ["finding-1"]);
+    const firstRun = await assembler.assemble({ goal, view });
+    const secondRun = await assembler.assemble({ goal, view });
 
-    await sidecarStore.remove("goal-layered", "run-layered");
-    const rebuilt = await assembler.assemble({ goal, view });
-    assert.deepEqual(rebuilt.trajectoryContext?.warm.map((entry) => entry.id), ["rebuilt-finding"]);
-    assert.deepEqual(events, trajectoryStore.events);
+    assert.deepEqual(firstRun.trajectoryContext?.warm, secondRun.trajectoryContext?.warm);
+    assert.deepEqual(firstRun.trajectoryContext?.hot, secondRun.trajectoryContext?.hot);
+});
+
+test("未提交 Trajectory tail 绝不进入 Hot 或 Warm 模型上下文", async () => {
+    const events = [
+        completeEvent(1, "unit-1", "first"),
+        terminalEvent(2, "unit-1", "first"),
+        completeEvent(3, "tail-unit", "uncommitted tail"),
+        terminalEvent(4, "tail-unit", "uncommitted tail"),
+    ];
+    // committedThroughSequence 只有 2
+    const trajectoryStore = new MemoryTrajectoryStore(events);
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore,
+        policy,
+    });
+    const goal = layeredExecutingGoal(2);
+    const view = new ModelInferenceProjector().project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+    );
+
+    const assembled = await assembler.assemble({ goal, view });
+
+    // Hot 只包含 sequence 1, 2
+    assert.deepEqual(
+        assembled.trajectoryContext?.hot.map((unit) => unit.executionUnitId),
+        ["unit-1"],
+    );
+    // Warm 绝不能引用未提交的 sequence 3 或 4
+    for (const warm of assembled.trajectoryContext?.warm ?? []) {
+        assert.ok(warm.lastSequence <= 2);
+        assert.ok(!warm.evidenceSequences.some((seq) => seq > 2));
+    }
+});
+
+test("Assembler 保持 Goal 及其原始消息历史不可变", async () => {
+    const events = [
+        completeEvent(1, "unit-1", "first"),
+        terminalEvent(2, "unit-1", "first"),
+    ];
+    const trajectoryStore = new MemoryTrajectoryStore(events);
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore,
+        policy,
+    });
+    const goal = layeredExecutingGoal(2);
+    const messagesBefore = structuredClone(goal.state.messages);
+    const view = new ModelInferenceProjector().project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+    );
+
+    await assembler.assemble({ goal, view });
+
+    assert.deepEqual(goal.state.messages, messagesBefore);
 });
 
 test("固定 View 超过硬预算时拒绝组装", async () => {

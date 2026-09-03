@@ -9,6 +9,7 @@ import type {
     ModelToolDefinition,
     ModelWorkingContext,
     ModelPreparationInputEvidence,
+    ModelContextEpochView,
 } from "../src/model-inference-view";
 import {
     renderRequest,
@@ -87,9 +88,6 @@ function buildView(
             openedAtSequence: 0,
             control: {
                 status: "active",
-                inputTokens: 0,
-                hardInputLimit: 0,
-                remainingTokens: 0,
             },
         },
         ...(options.contextLookupResult === undefined
@@ -332,7 +330,123 @@ test("当前请求在控制消息中携带带时效边界的历史 Lookup Result
     );
 
     assert.deepEqual(JSON.parse(rendered.content), {
-        ...workingContext,
+        phase: "executing",
+        execution: { stepCount: 1 },
         contextLookupResult,
     });
 });
+
+test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检查点信号", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "executing",
+        intent: "完成示例任务",
+        task: {
+            objective: "实现三阶段上下文",
+            completionCriteria: ["请求顺序稳定"],
+        },
+        execution: { stepCount: 1 },
+    };
+    const activeEpoch: ModelContextEpochView = {
+        protocolVersion: 1,
+        epochNumber: 1,
+        conversationStartIndex: 0,
+        openedAtSequence: 5,
+        control: { status: "active" },
+    };
+    const renderedActive = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        undefined,
+        undefined,
+        activeEpoch,
+    );
+    const parsedActive = JSON.parse(renderedActive.content);
+    assert.equal("intent" in parsedActive, false);
+    assert.equal("task" in parsedActive, false);
+    assert.equal("contextEpoch" in parsedActive, false);
+    assert.equal("checkpointRequired" in parsedActive, false);
+
+    const checkpointEpoch: ModelContextEpochView = {
+        ...activeEpoch,
+        control: { status: "checkpoint_required", reason: "input_threshold" },
+    };
+    const renderedCheckpoint = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        undefined,
+        undefined,
+        checkpointEpoch,
+    );
+    const parsedCheckpoint = JSON.parse(renderedCheckpoint.content);
+    assert.equal(parsedCheckpoint.checkpointRequired, true);
+    assert.equal(parsedCheckpoint.checkpointReason, "input_threshold");
+});
+
+test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 budget", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "executing",
+        intent: "完成示例任务",
+        task: {
+            objective: "实现三阶段上下文",
+            completionCriteria: ["请求顺序稳定"],
+        },
+        execution: {
+            stepCount: 2,
+            previousStep: {
+                kind: "action" as const,
+                action: {
+                    actionId: "act_1",
+                    toolId: "test_tool",
+                    input: {},
+                },
+                observation: {
+                    kind: "success",
+                    output: { text: "ok" },
+                },
+            },
+        },
+    };
+    const trajectoryContext = {
+        measuredAs: "character" as const,
+        softOverflow: false,
+        hot: [
+            {
+                executionUnitId: "unit-1",
+                goalId: "goal-1",
+                runId: "run-1",
+                phase: "executing" as const,
+                firstSequence: 1,
+                lastSequence: 2,
+                events: [],
+            },
+        ],
+        warm: [],
+        budget: {
+            measuredAs: "character" as const,
+            modelInputBudget: 100000,
+            responseReserve: 10000,
+            fixedInput: { unit: "character" as const, count: 5000 },
+            historyBudget: 85000,
+            warmBudget: 20000,
+            hotBudget: 65000,
+            softOverflow: false,
+        },
+    };
+
+    const rendered = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        trajectoryContext,
+    );
+    const parsed = JSON.parse(rendered.content);
+
+    assert.equal(parsed.phase, "executing");
+    assert.equal(parsed.execution.stepCount, 2);
+    assert.equal(parsed.execution.previousStep.action.toolId, "test_tool");
+    assert.equal(parsed.trajectoryContext.hot.length, 1);
+    assert.equal("budget" in parsed.trajectoryContext, false);
+    assert.equal("intent" in parsed, false);
+    assert.equal("task" in parsed, false);
+});
+
+

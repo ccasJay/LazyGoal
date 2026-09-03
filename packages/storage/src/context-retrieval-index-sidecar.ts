@@ -270,9 +270,6 @@ export const contextRetrievalIndexSidecarCodec: ContextRetrievalIndexSidecarCode
     },
 });
 
-/** Sidecar Codec 的短别名。 */
-export const retrievalIndexSidecarCodec = contextRetrievalIndexSidecarCodec;
-
 /**
  * 基于 JSON 文件的 Retrieval Index Sidecar Store。
  *

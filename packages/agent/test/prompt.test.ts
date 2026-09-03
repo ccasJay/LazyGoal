@@ -219,10 +219,11 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", asy
     };
     const workingContext = new ModelInferenceProjector().projectWorkingContext(goal);
     assert.equal(control.phase, workingContext.phase);
-    assert.equal(control.intent, workingContext.intent);
+    assert.equal("intent" in control, false);
+    assert.equal("task" in control, false);
+    assert.equal("contextEpoch" in control, false);
     assert.deepEqual(control.workingMemory, currentWorkingMemory);
     assert.ok(control.trajectoryContext !== undefined);
-    assert.ok(control.contextEpoch !== undefined);
 });
 
 test("执行请求只展示调用方传入的授权 ToolDefinition", async () => {
@@ -433,8 +434,9 @@ test("Trajectory Assembler 只替换当前调用的分层 Context，不写入真
     const request = await stepRequest(goal);
     const control = JSON.parse(request.messages.at(-1)?.content ?? "{}");
 
-    assert.equal(control.trajectoryContext.softOverflow, false);
     assert.deepEqual(control.trajectoryContext.hot, []);
+    assert.equal("softOverflow" in control.trajectoryContext, false);
+    assert.equal("budget" in control.trajectoryContext, false);
     assert.deepEqual(goal.state.messages, JSON.parse(before));
     assert.deepEqual(control.execution.pendingAction, goal.state.run.pendingAction);
 });

@@ -32,9 +32,6 @@ export const currentContextEpoch = {
     openedAtSequence: 0,
     control: {
         status: "active" as const,
-        inputTokens: 0,
-        hardInputLimit: 0,
-        remainingTokens: 0,
     },
 };
 
