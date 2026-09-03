@@ -333,3 +333,58 @@ test("committer preserves ordinary execution tail handling", async () => {
         "state_committed",
     ]);
 });
+
+test("committer 严格保证 facts -> validate tail -> save Snapshot -> append state_committed 顺序且无维护旁路", async () => {
+    const callOrder: string[] = [];
+    class OrderTrackingStore implements GoalStore {
+        saved: Goal[] = [];
+        async save(value: Goal): Promise<void> {
+            callOrder.push("store.save");
+            this.saved.push(structuredClone(value));
+        }
+        async restore(): Promise<Goal | undefined> {
+            return undefined;
+        }
+    }
+    class OrderTrackingSink implements TrajectoryStore {
+        events: TrajectoryEvent[] = [];
+        async append(draft: TrajectoryEventDraft): Promise<Readonly<TrajectoryEvent>> {
+            callOrder.push(`trajectory.append:${draft.eventType}`);
+            const event = allocateImmutableEvent(
+                draft,
+                this.events.length + 1,
+                `event-${this.events.length + 1}`,
+            );
+            this.events.push(event);
+            return event;
+        }
+        async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+            return this.events;
+        }
+        async readWithBoundary(
+            query: TrajectoryReadQuery,
+            boundary: number,
+        ): Promise<Readonly<TrajectoryReadResult>> {
+            callOrder.push("trajectory.readWithBoundary");
+            return {
+                committed: this.events.filter((e) => e.sequence <= boundary),
+                uncommittedTail: this.events.filter((e) => e.sequence > boundary),
+            };
+        }
+    }
+
+    const store = new OrderTrackingStore();
+    const sink = new OrderTrackingSink();
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
+    const initial = goal();
+
+    await committer.commit(initial, { facts: [factDraft()] });
+
+    assert.deepEqual(callOrder, [
+        "trajectory.append:observation_recorded",
+        "trajectory.readWithBoundary",
+        "store.save",
+        "trajectory.append:state_committed",
+    ]);
+    assert.equal(store.saved[0]?.state.run.committedThroughSequence, 1);
+});

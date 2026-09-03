@@ -29,7 +29,6 @@ import {
     type ToolPolicy,
     type WorkingMemoryLimits,
     IndexedContextLookupService,
-    ContextMaintenanceWorker,
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -440,8 +439,6 @@ export interface CompositionRoot {
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
-    /** 提交后异步维护 Warm/检索旁路的资源。 */
-    readonly contextMaintenanceWorker: ContextMaintenanceWorker;
     /** 可重建、可删除的 Warm Context Sidecar Store。 */
     readonly sidecarStore: JsonFileWarmContextSidecarStore;
     /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
@@ -620,15 +617,10 @@ export async function createCompositionRoot(
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
     const abortController = new AbortController();
     const resources = new ManagedResourceRegistry();
-    const contextMaintenanceWorker = new ContextMaintenanceWorker(async () => {
-        // 主调用只依赖权威 Trajectory；后台维护默认保持确定性、无 LLM 调用。
-    });
-    resources.register(contextMaintenanceWorker);
     const checkpointCommitter = new TrajectoryCheckpointCommitter({
         store: checkpointStore,
         trajectoryStore,
         traceSink,
-        maintenancePort: contextMaintenanceWorker,
     });
     const runner = new Runner({
         store: checkpointStore,
@@ -733,7 +725,6 @@ export async function createCompositionRoot(
         store,
         trajectoryStore,
         contextLookupService,
-        contextMaintenanceWorker,
         sidecarStore,
         retrievalIndexStore,
         traceSink,

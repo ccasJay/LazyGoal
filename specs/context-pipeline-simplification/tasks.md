@@ -7,7 +7,7 @@
   - 运行 Agent package 测试与 TypeScript 编译
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 2. 删除 Runtime 的 Warm 维护生命周期
+- [x] //TODO 2. 删除 Runtime 的 Warm 维护生命周期
 
   - 删除 Warm Sidecar Runtime 契约、`ContextMaintenanceWorker` 与 Committer 的维护端口
   - 更新提交测试，确认 Snapshot 保存、provenance tail 校验和 `state_committed` 顺序不变

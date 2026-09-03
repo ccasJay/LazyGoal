@@ -17,7 +17,6 @@ import {
 import type {
     TrajectoryEvent,
     TrajectoryEventDraft,
-    WarmContextSidecar,
 } from "../../runtime/src/index";
 import {
     JsonFileWarmContextSidecarStore,
@@ -25,6 +24,7 @@ import {
     computeTrajectorySourceDigest,
     warmContextSidecarCodec,
 } from "../src/index";
+import type { WarmContextSidecar } from "../src/warm-context-sidecar";
 
 test("Warm Sidecar Codec 严格校验、隔离输入并冻结结果", () => {
     const input = sidecar();

@@ -97,14 +97,6 @@ export type {
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
-export type {
-    WarmContextSidecar,
-    WarmContextSidecarEntry,
-    WarmContextSidecarEntryKind,
-    WarmContextSidecarEntryStatus,
-    WarmContextSidecarRestoreOptions,
-    WarmContextSidecarStore,
-} from "./warm-context-sidecar";
 export { transition } from "./transition";
 export {
     MODEL_CONTEXT_CHECKPOINT_INVALID,
@@ -306,12 +298,6 @@ export {
 } from "./context-retrieval-index";
 export { IndexedContextLookupService } from "./indexed-context-lookup-service";
 export type { IndexedContextLookupServiceOptions } from "./indexed-context-lookup-service";
-export { ContextMaintenanceWorker } from "./context-maintenance-worker";
-export type {
-    ContextMaintenanceNotification,
-    ContextMaintenancePort,
-    ContextMaintenanceTask,
-} from "./context-maintenance-worker";
 export type {
     ContextRetrievalIndexSession,
     ContextRetrievalIndexSessionInput,

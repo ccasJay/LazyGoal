@@ -12,12 +12,57 @@ import { z } from "zod";
 
 import type {
     TrajectoryEvent,
-    WarmContextSidecar,
-    WarmContextSidecarEntry,
-    WarmContextSidecarRestoreOptions,
-    WarmContextSidecarStore,
 } from "../../runtime/src/index";
 import { freezeTrajectoryEvent } from "../../runtime/src/index";
+
+export type WarmContextSidecarEntryKind =
+    | "decision"
+    | "finding"
+    | "failure"
+    | "blocker"
+    | "unresolved";
+
+export type WarmContextSidecarEntryStatus = "active" | "resolved" | "superseded";
+
+export interface WarmContextSidecarEntry {
+    readonly id: string;
+    readonly kind: WarmContextSidecarEntryKind;
+    readonly summary: string;
+    readonly status: WarmContextSidecarEntryStatus;
+    readonly lossy: true;
+    readonly evidenceSequences: readonly number[];
+    readonly firstSequence: number;
+    readonly lastSequence: number;
+    readonly lastAccessedSequence: number;
+    readonly reinforcementCount: number;
+    readonly sourceHash: string;
+}
+
+export interface WarmContextSidecar {
+    readonly schemaVersion: 1;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly derivedThroughSequence: number;
+    readonly sourceDigest: string;
+    readonly compactorVersion: string;
+    readonly entries: readonly WarmContextSidecarEntry[];
+}
+
+export interface WarmContextSidecarRestoreOptions {
+    readonly committedThroughSequence?: number;
+    readonly compactorVersion?: string;
+    readonly expectedSourceDigest?: string;
+}
+
+export interface WarmContextSidecarStore {
+    restore(
+        goalId: string,
+        runId: string,
+        options?: WarmContextSidecarRestoreOptions,
+    ): Promise<WarmContextSidecar | undefined>;
+    save(sidecar: WarmContextSidecar): Promise<void>;
+    remove(goalId: string, runId: string): Promise<void>;
+}
 
 /** Warm Sidecar 协议错误代码。 */
 export const WARM_SIDECAR_PROTOCOL_ERROR_CODE = "WARM_SIDECAR_PROTOCOL_ERROR" as const;
