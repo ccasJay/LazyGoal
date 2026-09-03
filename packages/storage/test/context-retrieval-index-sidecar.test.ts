@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    mkdir,
     mkdtemp,
     readFile,
     readdir,
@@ -104,6 +105,35 @@ test("缺失、损坏和删除重建路径不修改领域状态", async (t) => {
     await store.remove(goalId, runId);
     await store.remove(goalId, runId);
     assert.equal(await store.restore(goalId, runId), undefined);
+});
+
+test("同目录下遗留的旧 warm-v1.json 文件不被处理，Retrieval Index 仍正常读写且旧文件完好", async (t) => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-retrieval-legacy-warm-"));
+    t.after(async () => rm(directory, { recursive: true, force: true }));
+    const store = new JsonFileContextRetrievalIndexStore(directory);
+
+    const goalDir = join(directory, Buffer.from(goalId).toString("base64url"));
+    const runDir = join(goalDir, Buffer.from(runId).toString("base64url"));
+    await mkdir(runDir, { recursive: true });
+    const legacyWarmFile = join(runDir, "warm-v1.json");
+    const legacyContent = JSON.stringify({ schemaVersion: 1, legacy: "historical-warm-data" });
+    await writeFile(legacyWarmFile, legacyContent, "utf8");
+
+    const input = sidecar(1);
+    await store.save(input);
+
+    const restored = await store.restore(goalId, runId, {
+        committedThroughSequence: 1,
+        indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
+        expectedSourceDigest: input.sourceDigest,
+    });
+
+    assert.ok(restored !== undefined);
+    assert.equal(restored.sourceDigest, input.sourceDigest);
+
+    // 验证旧 warm-v1.json 完全没有被读取、修改或删除
+    const currentWarmContent = await readFile(legacyWarmFile, "utf8");
+    assert.equal(currentWarmContent, legacyContent);
 });
 
 function sidecar(boundary = 0) {

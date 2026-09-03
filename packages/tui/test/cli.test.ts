@@ -173,7 +173,9 @@ test("composition root isolates workspace, freezes the default identity, and doe
         join(root.workspaceRoot, ".lazygoal", "context-sidecars"),
     );
     assert.ok(root.trajectoryStore !== undefined);
-    assert.ok(root.sidecarStore !== undefined);
+    assert.equal((root as any).sidecarStore, undefined);
+    assert.equal((root as any).contextMaintenanceWorker, undefined);
+    assert.ok(root.retrievalIndexStore !== undefined);
     assert.ok(root.trajectoryContextAssembler !== undefined);
     assert.equal(root.modelInputEstimator.unit, "character");
     assert.equal(root.modelContextPolicy.modelInputBudget, 196608);

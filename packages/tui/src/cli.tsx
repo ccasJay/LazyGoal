@@ -36,7 +36,6 @@ import {
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
     JsonFileTrajectoryStore,
-    JsonFileWarmContextSidecarStore,
     JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
 import {
@@ -439,8 +438,6 @@ export interface CompositionRoot {
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
-    /** 可重建、可删除的 Warm Context Sidecar Store。 */
-    readonly sidecarStore: JsonFileWarmContextSidecarStore;
     /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
     readonly retrievalIndexStore: JsonFileContextRetrievalIndexStore;
     /** 共享的独立诊断 Trace Sink。 */
@@ -605,9 +602,6 @@ export async function createCompositionRoot(
         indexStore: retrievalIndexStore,
     });
     const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
-    const sidecarStore = new JsonFileWarmContextSidecarStore(
-        contextSidecarsDirectory,
-    );
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         policy: modelContextPolicy,
@@ -725,7 +719,6 @@ export async function createCompositionRoot(
         store,
         trajectoryStore,
         contextLookupService,
-        sidecarStore,
         retrievalIndexStore,
         traceSink,
         protocolValidator,

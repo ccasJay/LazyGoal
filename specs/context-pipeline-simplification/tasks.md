@@ -21,7 +21,7 @@
   - 运行 Runtime package 测试与 TypeScript 编译
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 4. 清理 Warm Storage 与 Composition Root 装配
+- [x] //TODO 4. 清理 Warm Storage 与 Composition Root 装配
 
   - 删除 Warm Sidecar Store/Codec，并从 TUI Composition Root 移除 Store、Worker 和相关资源注册
   - 更新 Storage/TUI 测试，确认旧 Warm 文件不被处理且 Retrieval Index Sidecar 仍正常读写

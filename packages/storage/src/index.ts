@@ -49,17 +49,6 @@ export {
     JsonFileDiagnosticTraceSink,
 } from "./json-file-diagnostic-trace-sink";
 export {
-    JsonFileWarmContextSidecarStore,
-    WarmContextSidecarProtocolError,
-    WarmContextSidecarSchema,
-    WARM_SIDECAR_PROTOCOL_ERROR_CODE,
-    computeTrajectorySourceDigest,
-    warmContextSidecarCodec,
-} from "./warm-context-sidecar";
-export type {
-    WarmContextSidecarCodec,
-} from "./warm-context-sidecar";
-export {
     CONTEXT_RETRIEVAL_INDEX_SIDECAR_PROTOCOL_ERROR_CODE,
     ContextRetrievalIndexSidecarProtocolError,
     ContextRetrievalIndexSidecarSchema,
