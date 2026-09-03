@@ -4,9 +4,9 @@ status: active
 summary: "按阶段约束规划、证据账本与完成判定的工作流 Prompt"
 source_spec: specs/goal-driven-workflow-prompt/
 distilled_at: 2026-08-25
-reviewed_at: 2026-08-25
+reviewed_at: 2026-09-03
 tags: [prompt, workflow, evidence, planning, completion]
-authorities: [docs/architecture/agent.md, packages/agent/src/step-prompt/agent-decision@2.njk, packages/agent/src/preparation-prompt/planning@2.njk]
+authorities: [docs/architecture/agent.md, packages/agent/src/step-prompt/agent-decision@1.njk, packages/agent/src/preparation-prompt/planning@1.njk]
 ---
 
 # Goal-Driven Workflow Prompt
@@ -35,7 +35,7 @@ authorities: [docs/architecture/agent.md, packages/agent/src/step-prompt/agent-d
 
 - S1: `specs/goal-driven-workflow-prompt/requirements.md`
 - S2: `specs/goal-driven-workflow-prompt/design.md`
-- S3: `packages/agent/src/preparation-prompt/planning@2.njk`
-- S4: `packages/agent/src/step-prompt/agent-decision@2.njk`
+- S3: `packages/agent/src/preparation-prompt/planning@1.njk`
+- S4: `packages/agent/src/step-prompt/agent-decision@1.njk`
 - S5: `packages/agent/test/prompting-default-bundles.test.ts`
 - S6: `packages/agent/test/llm-preparation-executor.test.ts`
