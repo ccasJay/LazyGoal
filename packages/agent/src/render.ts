@@ -60,6 +60,35 @@ function createWorkingContextPayload(
         readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
     },
 ): Record<string, unknown> {
+    if (context.phase === "executing") {
+        const payload: Record<string, unknown> = {
+            phase: "executing",
+            execution: context.execution,
+        };
+
+        if (workingMemory !== undefined) {
+            payload.workingMemory = workingMemory;
+        }
+
+        if (trajectoryContext !== undefined) {
+            payload.trajectoryContext = {
+                hot: trajectoryContext.hot,
+                ...(trajectoryContext.warm.length > 0 ? { warm: trajectoryContext.warm } : {}),
+            };
+        }
+
+        if (contextLookupResult !== undefined) {
+            payload.contextLookupResult = contextLookupResult;
+        }
+
+        if (contextEpoch?.control.status === "checkpoint_required") {
+            payload.checkpointRequired = true;
+            payload.checkpointReason = contextEpoch.control.reason ?? "input_threshold";
+        }
+
+        return payload;
+    }
+
     return {
         ...context,
         ...(workingMemory === undefined ? {} : { workingMemory }),

@@ -14,7 +14,7 @@
   - 添加单元测试验证同一 Epoch 内前缀序列化哈希在多步之间完全不变
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 3. 精简 Step-dynamic 尾部控制消息为纯动态增量
+- [x] //TODO 3. 精简 Step-dynamic 尾部控制消息为纯动态增量
 
   - 重构 `packages/agent/src/render.ts` 中的 `createWorkingContextPayload` 为纯增量 `StepDynamicPayload`
   - 彻底剔除尾部 JSON 中重复的 `intent`、`task` 与 `contextEpoch` 只读静态常量，仅序列化 `stepCount`、最新 `previousStep`（观察输出与候选动作空间）、`trajectoryContext.hot` 与即时 `workingMemory`

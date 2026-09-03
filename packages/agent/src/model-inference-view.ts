@@ -372,6 +372,39 @@ export type ModelWorkingContext =
     };
 
 /**
+ * Executing 阶段向模型发送的纯动态 Step 增量负载。
+ *
+ * @remarks
+ * 仅包含推动单步推进所需的最小状态（执行步数、上一轮观察反馈、热轨迹与即时记忆），
+ * 不包含任何静态意图、任务目标契约或只读上下文预算，确保尾部控制消息体积最小化。
+ *
+ * @example
+ * ```ts
+ * const payload: StepDynamicPayload = {
+ *     phase: "executing",
+ *     execution: { stepCount: 1 },
+ * };
+ * ```
+ */
+export interface StepDynamicPayload {
+    readonly phase: "executing";
+    readonly execution: {
+        readonly stepCount: number;
+        readonly maxSteps?: number;
+        readonly previousStep?: ModelStepRecord;
+        readonly pendingAction?: ModelPendingAction;
+    };
+    readonly workingMemory?: ModelWorkingMemory;
+    readonly trajectoryContext?: {
+        readonly hot: readonly ModelExecutionUnitProjection[];
+        readonly warm?: readonly WarmCompactEntry[];
+    };
+    readonly contextLookupResult?: ModelContextLookupResult;
+    readonly checkpointRequired?: true;
+    readonly checkpointReason?: "conversation_pruned" | "input_threshold";
+}
+
+/**
  * 分层模型上下文的本轮不可变投影。
  *
  * @remarks

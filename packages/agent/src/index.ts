@@ -159,6 +159,7 @@ export type {
     ModelToolCallAction,
     ModelToolDefinition,
     ModelWorkingContext,
+    StepDynamicPayload,
     PromptContext,
     PromptPhase,
 } from "./model-inference-view";
