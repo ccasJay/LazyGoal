@@ -21,7 +21,7 @@
   - 添加单元测试断言尾部 JSON 的精简结构与体积缩减
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [4.1](./requirements.md#req-4-1), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 4. 验证纯函数组装、多轮前缀稳定性与快照幂等恢复
+- [x] //TODO 4. 验证纯函数组装、多轮前缀稳定性与快照幂等恢复
 
   - 编写连续多步 Executing 的组装测试，验证 `Goal-stable` 根前缀与 `Epoch-stable` 中间前缀的 SHA-256 跨步骤完全一致
   - 编写从已持久化 Goal Snapshot 恢复的测试，断言恢复后重新生成的首轮请求与中断前对应步骤完全幂等
