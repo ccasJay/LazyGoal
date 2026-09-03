@@ -192,8 +192,6 @@ export {
     CONTEXT_LOOKUP_RESULT_ERROR_CODE,
     ContextLookupResultError,
     buildContextLookupResultFromRanking,
-    contextLookupResultFromRanking,
-    createContextLookupResultFromRanking,
 } from "./context-lookup-result";
 export type {
     ContextLookupResultBuildInput,
@@ -228,8 +226,6 @@ export {
     CONTEXT_TOKENIZER_VERSION,
     ContextTokenizerError,
     FieldTokenizer,
-    FieldTokenizer as ContextFieldTokenizer,
-    buildContextIndex,
     buildContextInvertedIndex,
     tokenizeContextDocument,
 } from "./context-tokenizer";
@@ -255,7 +251,6 @@ export {
     ContextRankingError,
     FieldedBm25LiteRanker,
     rankContextDocuments,
-    rankFieldedBm25Lite,
 } from "./context-ranking";
 export type {
     ContextRankedMatch,
@@ -273,7 +268,6 @@ export {
     buildContextRetrievalIndexSidecar,
     canonicalizeContextRetrievalQuery,
     computeContextRetrievalSourceDigest,
-    computeRetrievalIndexSourceDigest,
     createContextRetrievalQueryKey,
     openContextRetrievalIndexSession,
     restoreContextInvertedIndex,

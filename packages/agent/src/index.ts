@@ -33,11 +33,12 @@ export {
     ConversationContextUnitAdapter,
     flattenContextUnits,
 } from "./conversation-context-unit-adapter";
-export { TrajectoryContextUnitAdapter } from "./trajectory-context-unit-adapter";
 export {
     HotWindowSelector,
     ModelContextSourceError,
     TrajectoryExecutionUnitAdapter,
+    TrajectoryExecutionUnitProjectionAdapter,
+    projectTrajectoryExecutionUnits,
     MODEL_CONTEXT_SOURCE_ERROR_CODE,
 } from "./trajectory-execution-unit-adapter";
 export type {

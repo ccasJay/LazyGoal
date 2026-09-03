@@ -298,9 +298,6 @@ export function rankContextDocuments(
     return new FieldedBm25LiteRanker(index, options).rank(query);
 }
 
-/** 函数式排名入口别名。 */
-export const rankFieldedBm25Lite = rankContextDocuments;
-
 function collectCandidates(
     index: ContextInvertedIndex,
     question: string,

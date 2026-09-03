@@ -54,7 +54,6 @@ export {
     ContextRetrievalIndexSidecarSchema,
     JsonFileContextRetrievalIndexStore,
     contextRetrievalIndexSidecarCodec,
-    retrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
 export type {
     ContextRetrievalIndexSidecarCodec,

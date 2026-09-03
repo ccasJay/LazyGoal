@@ -20,7 +20,7 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
 
 ## 单轮数据流
 
-1. TUI Composition Root 创建一次 Renderer 和一次无状态 `DropOldestContextCompactor` 并共享给两个 Executor，同时创建 Protocol Validator、Working Memory 限制和 `TrajectoryCheckpointCommitter`，注入 Launcher、Coordinator 与 Runner。它还创建不可变的 `ModelContextBudgetPolicy`、目标模型输入计量器、只读 `TrajectoryModelContextAssembler` 和可删除的 Warm Sidecar Store，并把 Assembler 注入两个 Executor。Conversation 预算来自 `LLM_CONVERSATION_CHAR_BUDGET`，缺失时为 `196608`；非法值在访问 Goal 或调用模型前失败。Composition Root 将唯一的 Prompt Bundle v1 与 `structured@1`、`trajectory-layered@1`、`bm25-lite@1` 组合传给 Launcher，由 `createGoal` 冻结进 GoalDefinition。
+1. TUI Composition Root 创建一次 Renderer 和一次无状态 `DropOldestContextCompactor` 并共享给两个 Executor，同时创建 Protocol Validator、Working Memory 限制和 `TrajectoryCheckpointCommitter`，注入 Launcher、Coordinator 与 Runner。它还创建不可变的 `ModelContextBudgetPolicy`、目标模型输入计量器和只读 `TrajectoryModelContextAssembler`，并把 Assembler 注入两个 Executor。Conversation 预算来自 `LLM_CONVERSATION_CHAR_BUDGET`，缺失时为 `196608`；非法值在访问 Goal 或调用模型前失败。Composition Root 将唯一的 Prompt Bundle v1 与 `structured@1`、`trajectory-layered@1`、`bm25-lite@1` 组合传给 Launcher，由 `createGoal` 冻结进 GoalDefinition。
 2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、冻结 Profile、Memory 协议、Model Context 协议与按 Tool ID 稳定排序的授权 Tool 描述）、保留 `sourceMessageIndex` 的真实会话投影与阶段化 Working Context。Structured Goal 还接收由 Runtime `WorkingMemorySession` 从 committed Trajectory 重建的临时 Memory；Preparation 另外接收独立的 hash-only provenance DTO。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不携带 Run 状态字段、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
 3. Conversation Adapter 以 user 消息为边界生成 `ContextUnit`，开头连续 assistant 消息形成独立前缀单元。默认 Compactor 按 UTF-16 `content.length` 从旧到新丢弃完整单元，只保留连续最新后缀；最新单元即使超出软预算也完整保留。Adapter、Compactor、Epoch 过滤和 Trajectory Assembler 都只复制原始消息索引；裁剪只生成本轮临时 View，不修改 Goal 或 Snapshot。
 4. `renderRequest(view, renderer)` 在最终 Conversation 和 Token 预算选择完成后生成唯一 system 消息，再追加不含索引正文的真实 Conversation 与完整 JSON Working Context；Preparation 控制消息额外包含 `visibleConversationMessageMap`，并只保留其 source index 仍可见的 provenance。Executing 不携带 map 或 Preparation provenance，Renderer 对手工注入字段 fail-closed。structured 请求额外包含 `facts/hypotheses/plan/blockers`。当前 v1 由 `TrajectoryModelContextAssembler` 按 committed boundary 注入 Hot/Warm 与有界 Lookup Result。固定输入先计量，Warm 未使用预算回借给 Hot；确定性 Warm 归约不触发主循环外的 LLM 调用。
@@ -40,7 +40,7 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
 - Adapter 异常保持原对象向上传播；Runner 将其记录为失败 Step。
 - `ExecutionAbortedError` 原样传播，不进入失败 Step 或协议错误分支。
 - Executor 不修改传入 Goal，也不直接写 Store。
-- `ContextCompactor` 不依赖 Runtime、Storage 或 Trajectory 类型，不缓存 Goal、Conversation 或上一次裁剪结果。`TrajectoryModelContextAssembler` 同样只读；Sidecar 失配或删除时回退到当前 committed Trajectory 的确定性结果。当前 Composition Root 不在主模型调用路径中装配独立 Compact 模型，因而不会因 Warm 归约额外等待或调用 LLM。
+- `ContextCompactor` 不依赖 Runtime、Storage 或 Trajectory 类型，不缓存 Goal、Conversation 或上一次裁剪结果。`TrajectoryModelContextAssembler` 同样只读且无状态，直接从当前 committed Trajectory 计算确定性结果。当前 Composition Root 不在主模型调用路径中装配独立 Compact 模型，因而不会因 Warm 归约额外等待或调用 LLM。
 - 模型原始请求/响应只进入可选 Diagnostic Trace；Trace 记录不进入 Domain Event，也不要求
   记录隐藏思维链。字符串、递归深度、集合项目和总 JSON 大小均有界，敏感字段按键名脱敏。
 - 只有 LazyGoal 注册的模板可被执行；Profile、Instructions、ToolDefinition、Conversation 与 Working Context 中的 Nunjucks 语法一律作为数据/文本插入，不二次执行。

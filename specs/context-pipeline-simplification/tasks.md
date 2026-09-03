@@ -28,7 +28,7 @@
   - 运行 Storage、TUI package 测试与 TypeScript 编译
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 5. 收窄上下文公共 API
+- [x] //TODO 5. 收窄上下文公共 API
 
   - 删除旧 `TrajectoryContextUnitAdapter`、重复 helper 别名及 Agent/Runtime/Storage barrel exports
   - 增加或调整编译期测试，确认规范接口保留且被删接口不再可导入
