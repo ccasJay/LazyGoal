@@ -65,7 +65,10 @@ function createWorkingContextPayload(
         ...(workingMemory === undefined ? {} : { workingMemory }),
         ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
         ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
-        ...(contextEpoch === undefined ? {} : { contextEpoch }),
+        ...(contextEpoch === undefined ? {} : {
+            contextEpoch,
+            ...(contextEpoch.control.status === "checkpoint_required" ? { checkpointRequired: true } : {}),
+        }),
         ...(preparationMetadata === undefined
             ? {}
             : {

@@ -411,12 +411,6 @@ export interface ModelContextControl {
     readonly status: "active" | "checkpoint_required";
     /** 触发检查点的稳定原因。 */
     readonly reason?: "conversation_pruned" | "input_threshold";
-    /** 不含 Hot/Warm 的 Epoch 输入 Token 数。 */
-    readonly inputTokens: number;
-    /** 该 Goal 的输入硬上限。 */
-    readonly hardInputLimit: number;
-    /** 距离硬上限的剩余 Token。 */
-    readonly remainingTokens: number;
 }
 
 /** `trajectory-layered@1` 的单轮 Epoch 投影。 */

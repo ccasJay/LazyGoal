@@ -7,7 +7,7 @@
   - 添加单元测试验证 `Goal-stable` 前缀的确定性渲染
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 2. 重构 Epoch-stable 前缀并隔离微观 Token 水位
+- [x] //TODO 2. 重构 Epoch-stable 前缀并隔离微观 Token 水位
 
   - 调整 `ModelContextEpochView`，剥离每步波动的 `inputTokens` 与 `remainingTokens`，仅保留 `epochNumber` 与当前 Epoch 截断后的会话历史基线
   - 当 Runtime 判定预算达到警戒线时，在尾部控制流中注入离散的 `checkpointRequired: true` 信号，避免微观数字变化污染前缀

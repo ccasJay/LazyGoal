@@ -9,6 +9,7 @@ import type {
     ModelToolDefinition,
     ModelWorkingContext,
     ModelPreparationInputEvidence,
+    ModelContextEpochView,
 } from "../src/model-inference-view";
 import {
     renderRequest,
@@ -87,9 +88,6 @@ function buildView(
             openedAtSequence: 0,
             control: {
                 status: "active",
-                inputTokens: 0,
-                hardInputLimit: 0,
-                remainingTokens: 0,
             },
         },
         ...(options.contextLookupResult === undefined
@@ -336,3 +334,49 @@ test("当前请求在控制消息中携带带时效边界的历史 Lookup Result
         contextLookupResult,
     });
 });
+
+test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检查点信号", () => {
+    const workingContext: ModelWorkingContext = {
+        phase: "executing",
+        intent: "完成示例任务",
+        task: {
+            objective: "实现三阶段上下文",
+            completionCriteria: ["请求顺序稳定"],
+        },
+        execution: { stepCount: 1 },
+    };
+    const activeEpoch: ModelContextEpochView = {
+        protocolVersion: 1,
+        epochNumber: 1,
+        conversationStartIndex: 0,
+        openedAtSequence: 5,
+        control: { status: "active" },
+    };
+    const renderedActive = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        undefined,
+        undefined,
+        activeEpoch,
+    );
+    const parsedActive = JSON.parse(renderedActive.content);
+    assert.equal("inputTokens" in parsedActive.contextEpoch.control, false);
+    assert.equal("remainingTokens" in parsedActive.contextEpoch.control, false);
+    assert.equal("checkpointRequired" in parsedActive, false);
+
+    const checkpointEpoch: ModelContextEpochView = {
+        ...activeEpoch,
+        control: { status: "checkpoint_required", reason: "input_threshold" },
+    };
+    const renderedCheckpoint = renderWorkingContextMessage(
+        workingContext,
+        undefined,
+        undefined,
+        undefined,
+        checkpointEpoch,
+    );
+    const parsedCheckpoint = JSON.parse(renderedCheckpoint.content);
+    assert.equal(parsedCheckpoint.checkpointRequired, true);
+    assert.equal(parsedCheckpoint.contextEpoch.control.status, "checkpoint_required");
+});
+

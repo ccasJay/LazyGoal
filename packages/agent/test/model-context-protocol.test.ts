@@ -83,9 +83,6 @@ test("Projector 暴露唯一当前协议和 Context Epoch", () => {
         openedAtSequence: 0,
         control: {
             status: "active",
-            inputTokens: 0,
-            hardInputLimit: 0,
-            remainingTokens: 0,
         },
     });
 });

@@ -179,10 +179,7 @@ export class ModelInferenceProjector {
                     ...(contextEpochStatus === "checkpoint_required"
                         ? { reason: "input_threshold" as const }
                         : {}),
-                    inputTokens: trajectoryContext.budget.fixedInput.count,
-                    hardInputLimit: trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve,
-                    remainingTokens: Math.max(0, trajectoryContext.budget.modelInputBudget - trajectoryContext.budget.responseReserve - trajectoryContext.budget.fixedInput.count),
-                    },
+                },
             },
         });
     }
@@ -270,9 +267,6 @@ function projectContextEpoch(
         openedAtSequence: state.openedAtSequence,
         control: {
             status: "active" as const,
-            inputTokens: 0,
-            hardInputLimit: 0,
-            remainingTokens: 0,
         },
     });
 }
