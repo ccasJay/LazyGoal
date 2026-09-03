@@ -187,23 +187,6 @@ export type {
     ContextLookupResult,
 } from "./context-retrieval";
 export {
-    CONTEXT_SOURCE_ROUTE_INVALID_CODE,
-    CONTEXT_SOURCE_ROUTE_REJECTED_CODE,
-    ContextSourceRouter,
-    ContextSourceRouterError,
-    routeContextSource,
-} from "./context-source-router";
-export type {
-    AuthorizedToolContextSourceRoute,
-    ContextSourceNeed,
-    ContextSourceRoute,
-    ContextSourceRouteInput,
-    CurrentContextSourceNeed,
-    GoalContextSourceNeed,
-    GoalContextSourceRoute,
-    TrajectoryContextSourceRoute,
-} from "./context-source-router";
-export {
     CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,
     CONTEXT_LOOKUP_RESULT_BUDGET_CODE,
     CONTEXT_LOOKUP_RESULT_ERROR_CODE,

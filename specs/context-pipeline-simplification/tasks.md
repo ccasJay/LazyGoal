@@ -14,7 +14,7 @@
   - 运行 Runtime package 测试与 TypeScript 编译
   - _Requirements: [2.2](./requirements.md#req-2-2), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 3. 以严格协议替代 Context Source Router
+- [x] //TODO 3. 以严格协议替代 Context Source Router
 
   - 删除 Router 实现和依赖注入，让 Coordinator 与 Runner 把规范化请求直接交给 `invokeContextLookup`
   - 更新 Runtime 测试，覆盖三类历史需求、非法请求、权威来源限制和 lookup chain 上限
