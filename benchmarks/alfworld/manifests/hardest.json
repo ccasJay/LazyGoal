@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "name": "hardest",
+  "tasks": [
+    {
+      "order": 0,
+      "taskId": "valid_seen-pick_heat_then_place_in_recep-apple-diningtable-26",
+      "split": "valid_seen",
+      "gameFile": "json_2.1.1/valid_seen/pick_heat_then_place_in_recep-Apple-None-DiningTable-26/trial_T20190907_060234_011675/game.tw-pddl",
+      "seed": 0,
+      "maxSteps": 100
+    }
+  ]
+}
+
