@@ -110,6 +110,7 @@ export class ModelInferenceProjector {
             memoryProtocol: projectMemoryProtocol(memoryProtocol),
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
+            ...(workingContext.phase === "executing" ? { task: workingContext.task } : {}),
         });
 
         return {

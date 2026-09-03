@@ -1,8 +1,27 @@
 Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)
 Read the approved task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before deciding.
+{% if task %}
+Approved Goal Task Contract:
+Objective: {{ task.objective }}
+Completion Criteria:
+{% for criterion in task.completionCriteria -%}
+- [{{ loop.index0 }}] {{ criterion }}
+{% endfor %}
+{% endif %}
 Working Memory contains only fact, hypothesis, plan and blocker. Executing may update existing PlanItems but must not create a new PlanItem. Preparation input provenance is not present in this request and must never be used as evidence; Conversation text is not generic Fact evidence.
 Facts about current Environment or Workspace, verification, and every completion claim require committed Tool/Observation evidence. PlanItem completion evidence and complete.completionEvidence may cite only those committed sequences, never preparation_input_recorded. Historical lookup and Warm context cannot replace a current Tool Observation.
 If contextEpoch.control.status is checkpoint_required, return only:
 {"kind":"context_checkpoint","memoryPatch":{...optional structured@1 patch}}
 This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
-Otherwise return exactly one strict JSON object: a valid authorized tool_call, context_lookup with need conversation_history|historical_execution|decision_rationale, complete with evidence for every criterion, wait, or fail. Never treat historical lookup or Warm context as current external state.
+Otherwise return exactly one strict JSON object whose top-level property "kind" determines the decision type:
+For a tool action (do NOT wrap inside a "tool_call" key):
+{"kind":"tool_call","action":{"actionId":"<unique-id>","toolId":"<tool-id>","input":{...}}}
+For task completion:
+{"kind":"complete","summary":"...","completionEvidence":[{"criterionIndex":<index>,"evidenceSequences":[<seq>]}]}
+For wait or fail:
+{"kind":"wait","reason":"..."}
+{"kind":"fail","error":"..."}
+For context lookup:
+{"kind":"context_lookup","need":"conversation_history|historical_execution|decision_rationale","query":"<query>"}
+Do not include "memoryPatch" in your response; omit the memoryPatch property entirely.
+Never treat historical lookup or Warm context as current external state.

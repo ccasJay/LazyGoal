@@ -329,6 +329,20 @@ export interface PromptContext {
     readonly modelContextProtocol: ModelContextProtocol;
     /** Goal 冻结的 Cold Trajectory 检索协议。 */
     readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
+    /**
+     * Executing 阶段绑定的已批准 GoalTask 契约。
+     *
+     * @remarks
+     * 属于 Goal-stable 根前缀的一部分，确保任务目标与验收标准在整个执行生命周期内拥有
+     * 完全不变的确定性前缀渲染。在 Preparation 阶段未形成批准任务时为 `undefined`。
+     *
+     * @example
+     * ```ts
+     * const task = promptContext.task;
+     * console.log(task?.objective);
+     * ```
+     */
+    readonly task?: ModelTask;
 }
 
 /** 与 GoalWorkflowState 对应的 Preparation 阶段。 */

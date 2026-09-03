@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 定义三层拓扑结构与 Goal-stable 任务契约提升
+- [x] //TODO 1. 定义三层拓扑结构与 Goal-stable 任务契约提升
 
   - 扩展 `PromptContext` 与 `ModelInferenceView`，将经过审批的 `GoalTask`（`objective` 与 `completionCriteria`）作为静态契约绑定到 `Goal-stable` 根前缀中
   - 更新执行阶段 System Prompt 模板以确定性呈现任务契约与规则，确保同一 Goal 连续步骤中根前缀 100% 逐字固定
