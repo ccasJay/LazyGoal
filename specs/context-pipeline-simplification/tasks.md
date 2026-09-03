@@ -35,7 +35,7 @@
   - 运行受影响 package 测试、TypeScript 编译和依赖边界检查
   - _Requirements: [2.4](./requirements.md#req-2-4), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 6. 完成跨包集成回归
+- [x] //TODO 6. 完成跨包集成回归
 
   - 更新受影响集成 fixture，确认现有 Provider 选择、Gemini Adapter 和协议版本均未变化
   - 运行全部 package、benchmark、Memory 工具测试，以及 TypeScript、依赖、Memory 和 diff 检查
