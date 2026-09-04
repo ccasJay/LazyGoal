@@ -28,7 +28,7 @@
   - 添加合法递归、非法定义、循环/共享输入、深度边界、确定性顺序和诊断截断测试
   - _Requirements: [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5)_
 
-- [ ] //TODO 5. 编译确定性 JSON Schema 2020-12
+- [x] //TODO 5. 编译确定性 JSON Schema 2020-12
 
   - 新增 `compileJsonSchema` 与只读 Schema 输出类型，映射所有受支持节点、strict/optional/nullable 语义和递归 `$defs`/`$ref`
   - 统一 AST 构造参数复制、节点冻结和 compiler 返回值隔离，保证相同 Contract 的结构与 `JSON.stringify` 输出稳定
