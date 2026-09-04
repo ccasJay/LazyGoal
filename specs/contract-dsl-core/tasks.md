@@ -35,7 +35,7 @@
   - 添加逐节点 Schema fixture、组合结构、递归引用、重复编译和外部修改隔离测试
   - _Requirements: [1.3](./requirements.md#req-1-3), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 使用 Ajv 建立受限子集语义 oracle
+- [x] //TODO 6. 使用 Ajv 建立受限子集语义 oracle
 
   - 仅在 `packages/contracts` devDependencies 中加入 Ajv，并确认生产 manifest 与 `src/` 不依赖任何外部校验器
   - 用 Ajv 2020-12 对 primitive、约束、strict object、record、union、nullable 和递归 fixture 交叉验证本地 Parser 与派生 Schema 的接受/拒绝结果
