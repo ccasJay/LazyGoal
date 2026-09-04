@@ -42,3 +42,4 @@ authorities: [docs/architecture/agent.md, packages/agent/src/model-inference-vie
 - S4: `packages/agent/src/render.ts`
 - S5: `packages/agent/src/step-prompt/agent-decision@1.njk`
 - S6: `packages/agent/test/prompt-cache-alignment.test.ts`
+
