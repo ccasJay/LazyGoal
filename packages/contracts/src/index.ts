@@ -1,6 +1,15 @@
 export {
     contract,
 } from "./contract";
+export {
+    parse,
+    safeParse,
+} from "./parser";
+export { ContractValidationError } from "./errors";
+export type {
+    ContractIssue,
+    ContractIssueCode,
+} from "./errors";
 export type {
     ArrayOptions,
     Contract,
@@ -15,3 +24,4 @@ export type {
     OptionalProperty,
     StringOptions,
 } from "./types";
+export type { SafeParseResult } from "./parser";

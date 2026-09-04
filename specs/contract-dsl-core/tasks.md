@@ -7,7 +7,7 @@
   - 添加编译期类型测试，覆盖只读 required/optional、集合、联合和递归输出，并确认公共入口不存在被禁止的规则 API
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 2. 实现严格 Parser 基础与输入深复制
+- [x] //TODO 2. 实现严格 Parser 基础与输入深复制
 
   - 新增 `safeParse`、`parse`、基础 Error/issue 类型和递归解释器，支持 primitive、array、strict object 与 record
   - 实现长度、范围、安全整数和 Unicode pattern 约束，拒绝额外字段与任何隐式规范化，并在成功时构造无共享引用的副本
