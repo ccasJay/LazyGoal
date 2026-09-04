@@ -28,6 +28,7 @@ project-memory/  Durable summaries of completed and verified feature specificati
 ## Core Rules
 
 * Avoid praise, superlatives, and unnecessary agreement. Evaluate proposals critically and state technical problems directly.
+* Trust TypeScript at typed same-process boundaries. Do not add runtime validation, fallback behavior, or hostile-input tests solely for values the static interface requires; validate at parser/config, queued, model/tool JSON, durable/file, worker, process, and wire boundaries
 * Never implement a feature unless it is explicitly requested by the user or defined by a clear specification.
 * Do not silently expand the requested scope. If adjacent work is required for correctness, keep it minimal and explain why it is necessary.
 * Do not skip, shorten, weaken, or bypass tests merely to finish a task faster.

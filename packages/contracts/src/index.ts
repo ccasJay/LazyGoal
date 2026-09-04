@@ -14,4 +14,4 @@ export type {
     ObjectShape,
     OptionalProperty,
     StringOptions,
-} from "./contract";
+} from "./types";
