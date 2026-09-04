@@ -319,6 +319,69 @@ function parseRecord(
     return output;
 }
 
+function parseUnion(
+    node: RuntimeContract,
+    input: unknown,
+    path: Path,
+    collector: IssueCollector,
+): unknown {
+    if (!Array.isArray(node.branches) || node.branches.length === 0) {
+        throw new TypeError("union Contract branches must be a non-empty array");
+    }
+    for (const branch of node.branches) {
+        const trial = new IssueCollector();
+        const value = parseNode(readContract(branch), input, path, trial);
+        if (trial.issues.length === 0) return value;
+    }
+    collector.add("union_no_match", path, "No union branch matched");
+    return undefined;
+}
+
+function readDiscriminatorLiteral(node: RuntimeContract, discriminator: string): JsonScalar {
+    if (node.kind !== "object" || !isPlainObject(node.shape)) {
+        throw new TypeError("discriminated union branches must be object Contracts");
+    }
+    const property = node.shape[discriminator];
+    if (!isPlainObject(property) || property.kind !== "literal") {
+        throw new TypeError("discriminated union branches must define a literal discriminator");
+    }
+    return property.value as JsonScalar;
+}
+
+function parseDiscriminatedUnion(
+    node: RuntimeContract,
+    input: unknown,
+    path: Path,
+    collector: IssueCollector,
+): unknown {
+    if (typeof node.discriminator !== "string" || node.discriminator.length === 0) {
+        throw new TypeError("discriminated union Contract must define a discriminator");
+    }
+    const discriminator = node.discriminator;
+    if (!Array.isArray(node.branches) || node.branches.length === 0) {
+        throw new TypeError("discriminated union Contract branches must be non-empty");
+    }
+    if (!isJsonInputObject(input)) {
+        return addTypeIssue(collector, path, "a JSON object");
+    }
+
+    const discriminatorPath = [...path, discriminator];
+    if (!hasOwn(input, discriminator)) {
+        collector.add("unknown_discriminator", discriminatorPath, "Discriminator is missing or unknown");
+        return undefined;
+    }
+    const tag = input[discriminator];
+    const branch = node.branches.find((candidate) => {
+        const candidateNode = readContract(candidate);
+        return tag === readDiscriminatorLiteral(candidateNode, discriminator);
+    });
+    if (branch === undefined) {
+        collector.add("unknown_discriminator", discriminatorPath, "Discriminator is unknown");
+        return undefined;
+    }
+    return parseNode(readContract(branch), input, path, collector);
+}
+
 function parseNode(
     node: RuntimeContract,
     input: unknown,
@@ -354,10 +417,12 @@ function parseNode(
             return parseArray(node, input, path, collector);
         case "record":
             return parseRecord(node, input, path, collector);
+        case "union":
+            return parseUnion(node, input, path, collector);
+        case "discriminatedUnion":
+            return parseDiscriminatedUnion(node, input, path, collector);
         case "optional":
             throw new TypeError("optional property can only be used in an object shape");
-        case "union":
-        case "discriminatedUnion":
         case "recursive":
         case "recursiveRef":
             throw new TypeError(`Contract kind ${node.kind} is not supported by the base parser`);

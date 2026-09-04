@@ -159,3 +159,85 @@ test("does not normalize values or mutate invalid input", () => {
     assert.equal(result.success, false);
     assert.deepEqual(input, before);
 });
+
+test("tries ordinary union branches in order and isolates branch issues", () => {
+    const definition = contract.union([
+        contract.object({
+            kind: contract.literal("text"),
+            value: contract.string(),
+        }),
+        contract.object({
+            kind: contract.literal("count"),
+            value: contract.number(),
+        }),
+    ] as const);
+
+    const matched = safeParse(definition, { kind: "count", value: 2 });
+    assert.equal(matched.success, true);
+    if (matched.success) assert.deepEqual(matched.data, { kind: "count", value: 2 });
+
+    const unmatched = safeParse(definition, { kind: "unknown", value: true });
+    assert.equal(unmatched.success, false);
+    if (!unmatched.success) {
+        assert.deepEqual(unmatched.issues, [{
+            code: "union_no_match",
+            path: [],
+            message: "No union branch matched",
+        }]);
+    }
+});
+
+test("selects only the matching discriminated union branch", () => {
+    const definition = contract.discriminatedUnion("kind", [
+        contract.object({
+            kind: contract.literal("created"),
+            id: contract.string(),
+        }),
+        contract.object({
+            kind: contract.literal("deleted"),
+            id: contract.number(),
+        }),
+    ] as const);
+
+    const deleted = safeParse(definition, { kind: "deleted", id: 3 });
+    assert.equal(deleted.success, true);
+    if (deleted.success) assert.deepEqual(deleted.data, { kind: "deleted", id: 3 });
+
+    const unknown = safeParse(definition, { kind: "restored", id: 3 });
+    assert.equal(unknown.success, false);
+    if (!unknown.success) {
+        assert.deepEqual(unknown.issues.map((issue) => ({ code: issue.code, path: issue.path })), [
+            { code: "unknown_discriminator", path: ["kind"] },
+        ]);
+    }
+
+    const invalidSelectedBranch = safeParse(definition, { kind: "created", id: 3 });
+    assert.equal(invalidSelectedBranch.success, false);
+    if (!invalidSelectedBranch.success) {
+        assert.deepEqual(invalidSelectedBranch.issues.map((issue) => ({ code: issue.code, path: issue.path })), [
+            { code: "invalid_type", path: ["id"] },
+        ]);
+    }
+});
+
+test("preserves nested union paths and parse/safeParse issue consistency", () => {
+    const event = contract.discriminatedUnion("kind", [
+        contract.object({ kind: contract.literal("created"), id: contract.string() }),
+        contract.object({ kind: contract.literal("deleted"), id: contract.number() }),
+    ] as const);
+    const definition = contract.object({ events: contract.array(event) });
+    const input = { events: [{ kind: "unknown" }] };
+    const safeResult = safeParse(definition, input);
+
+    assert.equal(safeResult.success, false);
+    if (safeResult.success) return;
+    assert.deepEqual(safeResult.issues.map((issue) => issue.path), [["events", 0, "kind"]]);
+
+    assert.throws(() => parse(definition, input), (error: unknown) => {
+        assert.equal(error instanceof ContractValidationError, true);
+        if (!(error instanceof ContractValidationError)) return false;
+        assert.deepEqual(error.issues, safeResult.issues);
+        assert.equal(error.truncated, safeResult.truncated);
+        return true;
+    });
+});

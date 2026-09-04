@@ -14,7 +14,7 @@
   - 添加 Parser 测试，覆盖合法输入、缺失/额外字段、动态键、约束失败、原输入不变和深复制隔离
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 3. 完成联合分支与公开校验错误契约
+- [x] //TODO 3. 完成联合分支与公开校验错误契约
 
   - 实现普通 union 的首个完整匹配和 discriminated union 的唯一分支选择，保持分支试验诊断隔离
   - 完成 `ContractValidationError`、稳定 issue code 与根路径语义，使 `parse` 和 `safeParse` 对同一数据错误携带一致 issues

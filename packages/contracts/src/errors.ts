@@ -1,9 +1,9 @@
 /**
- * 基础 Parser 可产生的稳定 issue code。
+ * Parser 可产生的稳定 issue code。
  *
  * @remarks
- * 调用方应根据 code 和 path 分类错误，不应解析 message。联合、递归和 Contract
- * 定义检查所需的 code 会在对应能力实现时扩展。
+ * 调用方应根据 code 和 path 分类错误，不应解析 message。递归和 Contract 定义检查
+ * 所需的 code 会在对应能力实现时扩展。
  */
 export type ContractIssueCode =
     | "invalid_type"
@@ -19,7 +19,9 @@ export type ContractIssueCode =
     | "not_integer"
     | "not_safe_integer"
     | "array_min_items"
-    | "array_max_items";
+    | "array_max_items"
+    | "union_no_match"
+    | "unknown_discriminator";
 
 /**
  * 一条定位到输入路径的 Contract 校验诊断。
