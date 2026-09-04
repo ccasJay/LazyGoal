@@ -12,14 +12,17 @@ import {
     type ContractIssue,
     type ContractIssueCode,
 } from "./errors";
+import { assertValidContract } from "./definition";
+import { recursiveOwner } from "./internal";
 
 type Path = readonly (string | number)[];
-type RuntimeContract = Omit<Contract<unknown>, "kind"> & Readonly<Record<string, unknown>> & {
+type RuntimeContract = Omit<Contract<unknown>, "kind"> & Readonly<Record<PropertyKey, unknown>> & {
     readonly kind: ContractKind;
 };
 type JsonObject = Record<string, unknown>;
 
 const MAX_ISSUES = 50;
+const MAX_DEPTH = 64;
 const knownContractKinds: readonly ContractKind[] = [
     "string",
     "number",
@@ -38,6 +41,11 @@ const knownContractKinds: readonly ContractKind[] = [
     "recursive",
     "recursiveRef",
 ];
+
+interface ParseState {
+    readonly ancestors: WeakSet<object>;
+    readonly recursiveScopes: ReadonlyMap<symbol, RuntimeContract>;
+}
 
 /** 收集单次解析中的确定性 issue，并在达到上限后停止继续遍历。 */
 class IssueCollector {
@@ -110,6 +118,32 @@ function readContract(value: unknown): RuntimeContract {
         throw new TypeError(`parser does not recognize Contract kind ${value.kind}`);
     }
     return value as RuntimeContract;
+}
+
+function readRecursiveOwner(node: RuntimeContract): symbol {
+    const owner = node[recursiveOwner];
+    if (typeof owner !== "symbol") {
+        throw new TypeError("recursive Contract node is missing its definition identity");
+    }
+    return owner;
+}
+
+function enterAncestor(
+    input: object,
+    path: Path,
+    collector: IssueCollector,
+    state: ParseState,
+): boolean {
+    if (state.ancestors.has(input)) {
+        collector.add("cyclic_value", path, "Input contains a cyclic reference");
+        return false;
+    }
+    state.ancestors.add(input);
+    return true;
+}
+
+function leaveAncestor(input: object, state: ParseState): void {
+    state.ancestors.delete(input);
 }
 
 function addTypeIssue(
@@ -223,6 +257,8 @@ function parseObject(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): JsonObject | undefined {
     if (!isJsonInputObject(input)) {
         return addTypeIssue(collector, path, "a JSON object");
@@ -231,40 +267,45 @@ function parseObject(
     if (!isPlainObject(shape)) {
         throw new TypeError("object Contract shape must be an object");
     }
+    if (!enterAncestor(input, path, collector, state)) return undefined;
 
-    const output: JsonObject = {};
-    const shapeKeys = Object.keys(shape);
-    const shapeKeySet = new Set(shapeKeys);
-    for (const key of shapeKeys) {
-        if (collector.stopped) break;
-        const property = shape[key];
-        if (!isPlainObject(property)) {
-            throw new TypeError(`object field ${key} is not a Contract property`);
-        }
-        const optional = property.kind === "optional";
-        if (!hasOwn(input, key)) {
-            if (!optional) {
-                collector.add("missing_field", [...path, key], "Required field is missing");
-            }
-            continue;
-        }
-
-        const child = readContract(optional ? property.inner : property);
-        const issueCount = collector.issues.length;
-        const value = parseNode(child, input[key], [...path, key], collector);
-        if (collector.issues.length === issueCount && value !== undefined) {
-            setOwn(output, key, value);
-        }
-    }
-
-    if (!collector.stopped) {
-        for (const key of sortedKeys(input)) {
-            if (shapeKeySet.has(key)) continue;
-            collector.add("extra_field", [...path, key], "Unexpected field");
+    try {
+        const output: JsonObject = {};
+        const shapeKeys = Object.keys(shape);
+        const shapeKeySet = new Set(shapeKeys);
+        for (const key of shapeKeys) {
             if (collector.stopped) break;
+            const property = shape[key];
+            if (!isPlainObject(property)) {
+                throw new TypeError(`object field ${key} is not a Contract property`);
+            }
+            const optional = property.kind === "optional";
+            if (!hasOwn(input, key)) {
+                if (!optional) {
+                    collector.add("missing_field", [...path, key], "Required field is missing");
+                }
+                continue;
+            }
+
+            const child = readContract(optional ? property.inner : property);
+            const issueCount = collector.issues.length;
+            const value = parseNode(child, input[key], [...path, key], collector, state, depth + 1);
+            if (collector.issues.length === issueCount && value !== undefined) {
+                setOwn(output, key, value);
+            }
         }
+
+        if (!collector.stopped) {
+            for (const key of sortedKeys(input)) {
+                if (shapeKeySet.has(key)) continue;
+                collector.add("extra_field", [...path, key], "Unexpected field");
+                if (collector.stopped) break;
+            }
+        }
+        return output;
+    } finally {
+        leaveAncestor(input, state);
     }
-    return output;
 }
 
 function parseArray(
@@ -272,6 +313,8 @@ function parseArray(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): readonly unknown[] | undefined {
     if (!Array.isArray(input)) {
         return addTypeIssue(collector, path, "an array");
@@ -283,18 +326,23 @@ function parseArray(
     if (options?.maxItems !== undefined && input.length > options.maxItems) {
         collector.add("array_max_items", path, `Array must contain at most ${options.maxItems} items`);
     }
+    if (!enterAncestor(input, path, collector, state)) return undefined;
 
-    const items = readContract(node.items);
-    const output: unknown[] = [];
-    for (let index = 0; index < input.length; index += 1) {
-        if (collector.stopped) break;
-        const issueCount = collector.issues.length;
-        const value = parseNode(items, input[index], [...path, index], collector);
-        if (collector.issues.length === issueCount && value !== undefined) {
-            output.push(value);
+    try {
+        const items = readContract(node.items);
+        const output: unknown[] = [];
+        for (let index = 0; index < input.length; index += 1) {
+            if (collector.stopped) break;
+            const issueCount = collector.issues.length;
+            const value = parseNode(items, input[index], [...path, index], collector, state, depth + 1);
+            if (collector.issues.length === issueCount && value !== undefined) {
+                output.push(value);
+            }
         }
+        return output;
+    } finally {
+        leaveAncestor(input, state);
     }
-    return output;
 }
 
 function parseRecord(
@@ -302,21 +350,29 @@ function parseRecord(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): JsonObject | undefined {
     if (!isJsonInputObject(input)) {
         return addTypeIssue(collector, path, "a JSON object");
     }
-    const valueContract = readContract(node.values);
-    const output: JsonObject = {};
-    for (const key of sortedKeys(input)) {
-        if (collector.stopped) break;
-        const issueCount = collector.issues.length;
-        const value = parseNode(valueContract, input[key], [...path, key], collector);
-        if (collector.issues.length === issueCount && value !== undefined) {
-            setOwn(output, key, value);
+    if (!enterAncestor(input, path, collector, state)) return undefined;
+
+    try {
+        const valueContract = readContract(node.values);
+        const output: JsonObject = {};
+        for (const key of sortedKeys(input)) {
+            if (collector.stopped) break;
+            const issueCount = collector.issues.length;
+            const value = parseNode(valueContract, input[key], [...path, key], collector, state, depth + 1);
+            if (collector.issues.length === issueCount && value !== undefined) {
+                setOwn(output, key, value);
+            }
         }
+        return output;
+    } finally {
+        leaveAncestor(input, state);
     }
-    return output;
 }
 
 function parseUnion(
@@ -324,13 +380,15 @@ function parseUnion(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): unknown {
     if (!Array.isArray(node.branches) || node.branches.length === 0) {
         throw new TypeError("union Contract branches must be a non-empty array");
     }
     for (const branch of node.branches) {
         const trial = new IssueCollector();
-        const value = parseNode(readContract(branch), input, path, trial);
+        const value = parseNode(readContract(branch), input, path, trial, state, depth);
         if (trial.issues.length === 0) return value;
     }
     collector.add("union_no_match", path, "No union branch matched");
@@ -353,6 +411,8 @@ function parseDiscriminatedUnion(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): unknown {
     if (typeof node.discriminator !== "string" || node.discriminator.length === 0) {
         throw new TypeError("discriminated union Contract must define a discriminator");
@@ -379,7 +439,7 @@ function parseDiscriminatedUnion(
         collector.add("unknown_discriminator", discriminatorPath, "Discriminator is unknown");
         return undefined;
     }
-    return parseNode(readContract(branch), input, path, collector);
+    return parseNode(readContract(branch), input, path, collector, state, depth);
 }
 
 function parseNode(
@@ -387,8 +447,14 @@ function parseNode(
     input: unknown,
     path: Path,
     collector: IssueCollector,
+    state: ParseState,
+    depth: number,
 ): unknown {
     if (collector.stopped) return undefined;
+    if (depth > MAX_DEPTH) {
+        collector.add("max_depth_exceeded", path, `Input depth must not exceed ${MAX_DEPTH}`);
+        return undefined;
+    }
     switch (node.kind) {
         case "string":
             return parseString(node, input, path, collector);
@@ -408,24 +474,49 @@ function parseNode(
         case "enum":
             return parseEnum(node, input, path, collector);
         case "object":
-            return parseObject(node, input, path, collector);
+            return parseObject(node, input, path, collector, state, depth);
         case "nullable":
             return input === null
                 ? null
-                : parseNode(readContract(node.inner), input, path, collector);
+                : parseNode(readContract(node.inner), input, path, collector, state, depth);
         case "array":
-            return parseArray(node, input, path, collector);
+            return parseArray(node, input, path, collector, state, depth);
         case "record":
-            return parseRecord(node, input, path, collector);
+            return parseRecord(node, input, path, collector, state, depth);
         case "union":
-            return parseUnion(node, input, path, collector);
+            return parseUnion(node, input, path, collector, state, depth);
         case "discriminatedUnion":
-            return parseDiscriminatedUnion(node, input, path, collector);
+            return parseDiscriminatedUnion(node, input, path, collector, state, depth);
         case "optional":
             throw new TypeError("optional property can only be used in an object shape");
-        case "recursive":
-        case "recursiveRef":
-            throw new TypeError(`Contract kind ${node.kind} is not supported by the base parser`);
+        case "recursive": {
+            const owner = readRecursiveOwner(node);
+            const recursiveScopes = new Map(state.recursiveScopes);
+            recursiveScopes.set(owner, node);
+            return parseNode(
+                readContract(node.body),
+                input,
+                path,
+                collector,
+                { ancestors: state.ancestors, recursiveScopes },
+                depth,
+            );
+        }
+        case "recursiveRef": {
+            const owner = readRecursiveOwner(node);
+            const definition = state.recursiveScopes.get(owner);
+            if (definition === undefined) {
+                throw new TypeError("recursive reference is outside its definition");
+            }
+            return parseNode(
+                readContract(definition.body),
+                input,
+                path,
+                collector,
+                state,
+                depth,
+            );
+        }
     }
 }
 
@@ -434,12 +525,12 @@ function parseNode(
  *
  * @remarks
  * 成功结果中的 array/object 均为新建结构；解析不会修改输入，也不会 trim、coerce 或补默认值。
- * 普通数据错误不会抛出异常；无效 Contract 配置会抛出 `TypeError`。
+ * 普通数据错误不会抛出异常；无效 Contract 配置会抛出 `ContractDefinitionError`。
  *
  * @param contract - 要解释的 Contract AST。
  * @param input - 可能来自 JSON 或外部边界的未知值。
  * @returns 成功时返回深复制数据，失败时返回按路径和遍历顺序排列的 issues。
- * @throws Contract 节点结构无效或当前基础 parser 尚不支持该节点种类时抛出 `TypeError`。
+ * @throws Contract 节点结构无效或递归声明非法时抛出 `ContractDefinitionError`。
  *
  * @example
  * ```ts
@@ -451,8 +542,16 @@ export function safeParse<C extends Contract<unknown>>(
     contract: C,
     input: unknown,
 ): SafeParseResult<InferContract<C>> {
+    assertValidContract(contract);
     const collector = new IssueCollector();
-    const data = parseNode(readContract(contract), input, [], collector);
+    const data = parseNode(
+        readContract(contract),
+        input,
+        [],
+        collector,
+        { ancestors: new WeakSet<object>(), recursiveScopes: new Map() },
+        1,
+    );
     if (collector.issues.length > 0) {
         return {
             success: false,
@@ -472,8 +571,8 @@ export function safeParse<C extends Contract<unknown>>(
  * @param contract - 要解释的 Contract AST。
  * @param input - 可能来自 JSON 或外部边界的未知值。
  * @returns 与 Contract 输出类型一致的深复制数据。
- * @throws `ContractValidationError` 表示普通输入错误；Contract 配置无效或基础 parser
- * 不支持该节点种类时抛出 `TypeError`。
+ * @throws `ContractValidationError` 表示普通输入错误；Contract 配置无效时抛出
+ * `ContractDefinitionError`。
  *
  * @example
  * ```ts

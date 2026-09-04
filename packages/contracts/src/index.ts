@@ -5,10 +5,14 @@ export {
     parse,
     safeParse,
 } from "./parser";
-export { ContractValidationError } from "./errors";
+export {
+    ContractDefinitionError,
+    ContractValidationError,
+} from "./errors";
 export type {
     ContractIssue,
     ContractIssueCode,
+    ContractDefinitionReasonCode,
 } from "./errors";
 export type {
     ArrayOptions,

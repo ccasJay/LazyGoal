@@ -27,6 +27,13 @@ import type {
     StringOptions,
     UnionContract,
 } from "./types";
+import {
+    contractBrand,
+    isContractNode,
+    isOptionalPropertyNode,
+    optionalBrand,
+    recursiveOwner,
+} from "./internal";
 
 export type {
     ArrayContract,
@@ -79,19 +86,12 @@ function freezeContractNode<Node extends object>(node: Node): Readonly<Node> {
     return Object.freeze(node);
 }
 
-/** 运行时品牌；不通过公共入口导出。 */
-const contractBrand = Symbol("lazygoal.contract");
-
-/** optional 节点的运行时品牌；不通过公共入口导出。 */
-const optionalBrand = Symbol("lazygoal.optionalProperty");
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isContract(value: unknown): value is Contract<unknown> {
-    return isObjectRecord(value)
-        && (value as Record<PropertyKey, unknown>)[contractBrand] === true;
+    return isContractNode(value);
 }
 
 function assertContract(value: unknown, label: string): asserts value is Contract<unknown> {
@@ -218,10 +218,7 @@ function copyShape<Shape extends ObjectShape>(shape: Shape): Readonly<Shape> {
             });
             continue;
         }
-        if (
-            isObjectRecord(property)
-            && (property as Record<PropertyKey, unknown>)[optionalBrand] === true
-        ) {
+        if (isOptionalPropertyNode(property)) {
             Object.defineProperty(copy, key, {
                 configurable: true,
                 enumerable: true,
@@ -456,13 +453,28 @@ function buildRecursive<const Name extends string, Body extends Contract<unknown
         throw new TypeError("recursive definition must be a function");
     }
 
-    const self = freezeContractNode({
+    const recursiveIdentity = Symbol("lazygoal.recursiveDefinition");
+    const selfNode = {
         kind: "recursiveRef",
         name,
-    }) as RecursiveSelfContract<Name>;
+    };
+    Object.defineProperty(selfNode, recursiveOwner, {
+        configurable: false,
+        enumerable: false,
+        value: recursiveIdentity,
+        writable: false,
+    });
+    const self = freezeContractNode(selfNode) as RecursiveSelfContract<Name>;
     const body = define(self);
     assertContract(body, "recursive body");
-    return freezeContractNode({ kind: "recursive", name, body }) as RecursiveContract<Name, Body>;
+    const recursiveNode = { kind: "recursive", name, body };
+    Object.defineProperty(recursiveNode, recursiveOwner, {
+        configurable: false,
+        enumerable: false,
+        value: recursiveIdentity,
+        writable: false,
+    });
+    return freezeContractNode(recursiveNode) as RecursiveContract<Name, Body>;
 }
 
 const builderSet: ContractBuilders = {

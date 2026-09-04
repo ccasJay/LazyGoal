@@ -21,7 +21,7 @@
   - 添加联合分支、未知 discriminator、嵌套字段路径和两种解析 API 一致性测试
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 4. 实现递归定义检查与有界校验
+- [x] //TODO 4. 实现递归定义检查与有界校验
 
   - 新增完整 Contract 图检查，拒绝重复递归名称、悬空 self、未受容器保护的递归和非法 optional 位置
   - 让解释器解析有限递归 JSON，并以祖先引用检测、64 层深度限制、稳定遍历顺序和 50 条 issue 上限保证有界失败

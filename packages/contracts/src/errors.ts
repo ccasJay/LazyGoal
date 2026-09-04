@@ -2,8 +2,8 @@
  * Parser 可产生的稳定 issue code。
  *
  * @remarks
- * 调用方应根据 code 和 path 分类错误，不应解析 message。递归和 Contract 定义检查
- * 所需的 code 会在对应能力实现时扩展。
+ * 调用方应根据 code 和 path 分类错误，不应解析 message。递归输入使用对应的 issue code；
+ * Contract 定义错误使用独立的 `reasonCode`，不混入输入校验 issue。
  */
 export type ContractIssueCode =
     | "invalid_type"
@@ -21,7 +21,18 @@ export type ContractIssueCode =
     | "array_min_items"
     | "array_max_items"
     | "union_no_match"
-    | "unknown_discriminator";
+    | "unknown_discriminator"
+    | "cyclic_value"
+    | "max_depth_exceeded";
+
+/** Contract AST 图检查失败时用于稳定分类的原因。 */
+export type ContractDefinitionReasonCode =
+    | "INVALID_NODE"
+    | "INVALID_OPTIONAL_POSITION"
+    | "INVALID_RECURSIVE_NAME"
+    | "DUPLICATE_RECURSIVE_NAME"
+    | "DANGLING_RECURSIVE_REFERENCE"
+    | "UNGUARDED_RECURSION";
 
 /**
  * 一条定位到输入路径的 Contract 校验诊断。
@@ -83,6 +94,50 @@ export class ContractValidationError extends Error {
         this.name = "ContractValidationError";
         this.issues = Object.freeze([...issues]);
         this.truncated = truncated;
+        Object.setPrototypeOf(this, new.target.prototype);
+    }
+}
+
+/**
+ * Contract AST 在消费前未通过完整定义检查时抛出的配置错误。
+ *
+ * @remarks
+ * `code` 用于识别错误类别，`reasonCode` 用于区分节点、递归引用和递归保护问题；此错误
+ * 不代表某个输入值校验失败。
+ *
+ * @example
+ * ```ts
+ * try {
+ *     safeParse(contract.recursive("Node", (self) => self), null);
+ * } catch (error) {
+ *     if (error instanceof ContractDefinitionError) {
+ *         console.log(error.reasonCode);
+ *     }
+ * }
+ * ```
+ */
+export class ContractDefinitionError extends Error {
+    /** Contract 定义错误的顶层标识。 */
+    readonly code = "INVALID_CONTRACT_DEFINITION" as const;
+    /** 用于稳定分类的定义错误原因。 */
+    readonly reasonCode: ContractDefinitionReasonCode;
+    /** 定义图中检测到问题的路径。 */
+    readonly path: readonly (string | number)[];
+
+    /**
+     * @param reasonCode - 稳定的定义错误原因。
+     * @param message - 面向诊断展示的英文消息。
+     * @param path - 从根 Contract 到问题节点的路径。
+     */
+    constructor(
+        reasonCode: ContractDefinitionReasonCode,
+        message: string,
+        path: readonly (string | number)[] = [],
+    ) {
+        super(message);
+        this.name = "ContractDefinitionError";
+        this.reasonCode = reasonCode;
+        this.path = Object.freeze([...path]);
         Object.setPrototypeOf(this, new.target.prototype);
     }
 }
