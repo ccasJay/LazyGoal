@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立 `@lazygoal/contracts` 包与 Contract AST 类型系统
+- [x] //TODO 1. 建立 `@lazygoal/contracts` 包与 Contract AST 类型系统
 
   - 新增独立 package manifest、公共入口和 AST/builder，实现 primitive、literal/enum、strict object、optional/nullable、array、record、union、discriminated union 与递归类型标记
   - 实现 `Contract`、`InferContract` 和递归固定点类型推导，为公开类型与 builder 补齐中文契约 TSDoc

@@ -12,6 +12,7 @@ LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into an
 bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
 packages/        Private `@lazygoal/*` workspaces
+  contracts/      Contract AST builders and static type inference core
   agent/         Agent prompts, response schemas, and LLM preparation/step executors
   llm/           LLM adapters and provider integrations (OpenAI-compatible, Gemini)
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
