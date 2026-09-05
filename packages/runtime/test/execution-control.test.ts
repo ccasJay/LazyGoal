@@ -13,7 +13,11 @@ import {
 } from "../src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import {
+    currentProtocols,
+    InMemoryTrajectoryStore,
+    trajectoryStoreFor,
+} from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -234,6 +238,177 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
     assert.equal(latest?.state.run.stepCount, 0);
     assert.equal(latest?.state.run.pendingAction?.status, "approved");
     assert.equal(latest?.state.run.lastStep, undefined);
+});
+
+test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async () => {
+    const abortError = new ExecutionAbortedError("contract parse aborted");
+    const goal = createExecutingGoal(["echo"]);
+    const store = new InMemoryGoalStore();
+    await seed(store, goal);
+    const input = {} as { readonly value: string };
+    let reads = 0;
+    Object.defineProperty(input, "value", {
+        configurable: true,
+        enumerable: true,
+        get() {
+            reads += 1;
+            if (reads === 2) throw abortError;
+            return "hello";
+        },
+    });
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "echo",
+            description: "Echo input",
+            inputContract: TEST_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute() {
+            return { kind: "success", output: "unreachable", summary: "unreachable" };
+        },
+    };
+    const runner = new Runner({
+        store,
+        trajectoryStore: new InMemoryTrajectoryStore(),
+        executor: {
+            async execute() {
+                return {
+                    kind: "tool_call" as const,
+                    action: { actionId: "action-parse-abort", toolId: "echo", input },
+                };
+            },
+        },
+        toolRegistry: { get: () => createToolRegistration(tool) },
+    });
+
+    await assert.rejects(
+        () => runner.run({ goalId: goal.id, runId: goal.state.run.id }),
+        (error: unknown) => {
+            assert.strictEqual(error, abortError);
+            return true;
+        },
+    );
+    assert.equal(reads, 2);
+    assert.deepEqual(await store.restore(goal.id), goal);
+});
+
+test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", async () => {
+    const abortError = new ExecutionAbortedError("semantic validation aborted");
+    const goal = createExecutingGoal(["echo"]);
+    const store = new InMemoryGoalStore();
+    await seed(store, goal);
+    let policyCalls = 0;
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "echo",
+            description: "Echo input",
+            inputContract: TEST_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate() {
+            throw abortError;
+        },
+        async execute() {
+            return { kind: "success", output: "unreachable", summary: "unreachable" };
+        },
+    };
+    const runner = new Runner({
+        store,
+        trajectoryStore: new InMemoryTrajectoryStore(),
+        executor: {
+            async execute() {
+                return {
+                    kind: "tool_call" as const,
+                    action: {
+                        actionId: "action-semantic-abort",
+                        toolId: "echo",
+                        input: { value: "hello" },
+                    },
+                };
+            },
+        },
+        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolPolicy: {
+            evaluate: () => {
+                policyCalls += 1;
+                return "allow";
+            },
+        },
+    });
+
+    await assert.rejects(
+        () => runner.run({ goalId: goal.id, runId: goal.state.run.id }),
+        (error: unknown) => {
+            assert.strictEqual(error, abortError);
+            return true;
+        },
+    );
+    assert.equal(policyCalls, 0);
+    assert.deepEqual(await store.restore(goal.id), goal);
+});
+
+test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 approved pendingAction", async () => {
+    const abortError = new ExecutionAbortedError("tool execution aborted");
+    const goal = createExecutingGoal(["echo"]);
+    const store = new InMemoryGoalStore();
+    await seed(store, goal);
+    const trajectory = new InMemoryTrajectoryStore();
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "echo",
+            description: "Echo input",
+            inputContract: TEST_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute() {
+            throw abortError;
+        },
+    };
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: {
+            async execute() {
+                return {
+                    kind: "tool_call" as const,
+                    action: {
+                        actionId: "action-execute-abort",
+                        toolId: "echo",
+                        input: { value: "hello" },
+                    },
+                };
+            },
+        },
+        toolRegistry: { get: () => createToolRegistration(tool) },
+    });
+
+    await assert.rejects(
+        () => runner.run({ goalId: goal.id, runId: goal.state.run.id }),
+        (error: unknown) => {
+            assert.strictEqual(error, abortError);
+            return true;
+        },
+    );
+    const latest = await store.restore(goal.id);
+    assert.equal(latest?.state.run.status, "running");
+    assert.equal(latest?.state.run.stepCount, 0);
+    assert.equal(latest?.state.run.pendingAction?.status, "approved");
+    assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "decision_received",
+        "action_staged",
+        "state_committed",
+        "tool_started",
+    ]);
+    assert.equal(
+        trajectory.events.some((event) => event.eventType === "tool_finished"),
+        false,
+    );
+    assert.equal(
+        trajectory.events.some((event) => event.eventType === "observation_recorded"),
+        false,
+    );
 });
 
 test("InlineScheduler forwards and checks the shared execution control", async () => {

@@ -23,7 +23,7 @@
   - 删除失去生产消费者的 JSON 字段解析 helper，并运行 Tools 与 ALFWorld 的现有行为回归。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.4](./requirements.md#req-2-4), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 4. 保持审批、恢复、中止与提交顺序
+- [x] //TODO 4. 保持审批、恢复、中止与提交顺序
 
   - 让等待审批路径只持久化 canonical Action，并在批准或新恢复尝试中重新 prepare；safe 恢复把当前 Prepared 对象传入首轮执行，manual 恢复继续进入 `outcome_unknown`。
   - 增加 Runner、Storage 恢复和 Trajectory 测试，断言每次尝试只解析一次、原 `actionId` 与 replay policy 不变，Action/Observation/Snapshot 顺序不变。

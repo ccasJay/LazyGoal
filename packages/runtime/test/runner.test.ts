@@ -5,6 +5,8 @@ import {
     createGoal,
     createRun,
     createToolRegistration,
+    GoalCoordinator,
+    InlineScheduler,
     Runner,
     transition,
 } from "../src/index";
@@ -34,6 +36,7 @@ import type {
     Tool,
     ToolDefinition,
     ToolPolicy,
+    ToolRegistration,
     ToolRegistry,
 } from "../src/index";
 
@@ -133,6 +136,23 @@ function createRunnerTool(
 
 function registerTool(tool: TestTool) {
     return createToolRegistration(tool);
+}
+
+function countPreparation(registration: ToolRegistration): {
+    readonly registration: ToolRegistration;
+    readonly prepareCalls: () => number;
+} {
+    let calls = 0;
+    return {
+        registration: {
+            ...registration,
+            prepare(input, control) {
+                calls += 1;
+                return registration.prepare(input, control);
+            },
+        },
+        prepareCalls: () => calls,
+    };
 }
 
 function createSaveFailingStore(
@@ -1756,6 +1776,116 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
     assert.equal(executor.receivedGoals.length, 1);
 });
 
+test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评估 Policy", async () => {
+    const initial = createInitialGoal(
+        "run-approval-reprepare",
+        "goal-1",
+        { ...profile, toolIds: ["read_file"] },
+    );
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    await store.save(initial);
+    const action = {
+        actionId: "action-approval-reprepare",
+        toolId: "read_file",
+        input: { path: "README.md" },
+    } as const;
+    let toolCalls = 0;
+    let policyCalls = 0;
+    const tool = createRunnerTool(async ({ actionId }) => {
+        toolCalls += 1;
+        assert.equal(actionId, action.actionId);
+        return { kind: "success", output: "文件内容", summary: "读取完成" };
+    });
+    const counted = countPreparation(registerTool(tool));
+    const executor = new SequenceDecisionExecutor([
+        { kind: "tool_call", action },
+        { kind: "complete", completionEvidence: [], summary: "批准后完成" },
+    ]);
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor,
+        toolRegistry: { get: () => counted.registration },
+        toolPolicy: {
+            evaluate: ({ action: evaluatedAction }) => {
+                policyCalls += 1;
+                assert.deepEqual(evaluatedAction, action);
+                return "require_approval";
+            },
+        },
+    });
+
+    const waiting = requireSuccessfulState(
+        await runner.run(createRef(initial, "run-approval-reprepare")),
+    );
+    assert.equal(waiting.status, "waiting");
+    assert.equal(counted.prepareCalls(), 1);
+    assert.deepEqual(waiting.pendingAction, {
+        action,
+        status: "awaiting_approval",
+    });
+    assert.equal(policyCalls, 1);
+    assert.equal(toolCalls, 0);
+
+    const coordinator = new GoalCoordinator({
+        store,
+        trajectoryStore: trajectory,
+        preparationExecutor: {
+            async execute() {
+                throw new Error("approval recovery must not enter preparation");
+            },
+        },
+        scheduler: new InlineScheduler(runner),
+    });
+    const resumed = await coordinator.resume({
+        ref: createRef(initial, "run-approval-reprepare"),
+        action: { kind: "approve_action", actionId: action.actionId },
+    });
+    if (!resumed.ok) {
+        assert.fail(`expected approval to resume execution: ${resumed.error.message}`);
+    }
+
+    assert.equal(resumed.kind, "terminal");
+    assert.equal(resumed.goal.state.run.status, "completed");
+    assert.equal(resumed.goal.state.run.stepCount, 2);
+    assert.equal(resumed.goal.state.run.pendingAction, undefined);
+    assert.equal(counted.prepareCalls(), 2);
+    assert.equal(policyCalls, 1);
+    assert.equal(toolCalls, 1);
+
+    const actionEvents = trajectory.events.filter((event) =>
+        event.eventType === "action_staged"
+        || event.eventType === "tool_started"
+        || event.eventType === "tool_finished"
+        || event.eventType === "observation_recorded"
+        || (
+            event.eventType === "decision_received"
+            && event.payload.decision.kind === "tool_call"
+        ),
+    );
+    assert.deepEqual(actionEvents.map((event) =>
+        event.eventType === "decision_received"
+            ? event.payload.decision.kind === "tool_call"
+                ? event.payload.decision.action.actionId
+                : undefined
+            : event.actionId,
+    ), [
+        action.actionId,
+        action.actionId,
+        action.actionId,
+        action.actionId,
+        action.actionId,
+    ]);
+    const approvalIndex = trajectory.events.findIndex(
+        (event) => event.eventType === "action_approved",
+    );
+    const toolStartedIndex = trajectory.events.findIndex(
+        (event) => event.eventType === "tool_started",
+    );
+    assert.ok(approvalIndex >= 0 && approvalIndex < toolStartedIndex);
+});
+
 test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step", async () => {
     const initialGoal = createInitialGoal(
         "run-authorized-action",
@@ -1843,6 +1973,7 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
     }));
     const store = new InMemoryGoalStore();
     await store.save(interrupted);
+    const trajectory = new InMemoryTrajectoryStore();
     const actionIds: string[] = [];
     const tool = createRunnerTool(async ({ actionId }) => {
         actionIds.push(actionId);
@@ -1854,11 +1985,12 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
         summary: "任务完成",
     }]);
 
+    const counted = countPreparation(registerTool(tool));
     const result = await new Runner({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore: trajectory,
         store,
         executor,
-        toolRegistry: { get: () => registerTool(tool) },
+        toolRegistry: { get: () => counted.registration },
         toolPolicy: {
             evaluate: () => {
                 throw new Error("恢复 safe Action 不应重新评估 Policy");
@@ -1882,6 +2014,14 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
         },
     });
     assert.equal(state.pendingAction, undefined);
+    assert.equal(counted.prepareCalls(), 1);
+    assert.equal(counted.registration.replayPolicy, "safe");
+    assert.deepEqual(
+        trajectory.events
+            .filter((event) => event.actionId !== undefined)
+            .map((event) => event.actionId),
+        [action.actionId, action.actionId, action.actionId],
+    );
 });
 
 test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而不调用 Tool", async () => {
@@ -1908,6 +2048,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     }));
     const store = new InMemoryGoalStore();
     await store.save(interrupted);
+    const trajectory = new InMemoryTrajectoryStore();
     let toolCalls = 0;
     const tool = {
         ...createRunnerTool(async () => {
@@ -1922,12 +2063,13 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
         replayPolicy: "manual" as const,
     };
     const executor = new SequenceDecisionExecutor([]);
+    const counted = countPreparation(registerTool(tool));
 
     const result = await new Runner({
-        trajectoryStore: trajectoryStoreFor(store),
+        trajectoryStore: trajectory,
         store,
         executor,
-        toolRegistry: { get: () => registerTool(tool) },
+        toolRegistry: { get: () => counted.registration },
     }).run(createRef(interrupted));
 
     const state = requireSuccessfulState(result);
@@ -1939,6 +2081,17 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
     });
     assert.equal(toolCalls, 0);
     assert.equal(executor.receivedGoals.length, 0);
+    assert.equal(counted.prepareCalls(), 1);
+    assert.equal(counted.registration.replayPolicy, "manual");
+    assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "action_recovered",
+        "state_committed",
+    ]);
+    assert.deepEqual(trajectory.events[0]?.payload, {
+        type: "action_recovered",
+        actionId: action.actionId,
+        replayPolicy: "manual",
+    });
     assert.deepEqual((await store.restore(interrupted.id))?.state.run, state);
 });
 

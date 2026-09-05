@@ -7,6 +7,7 @@ import {
     allocateImmutableEvent,
     createGoal,
     createToolRegistration,
+    transition,
 } from "../src/index";
 import { contract } from "../../contracts/src/index";
 import type {
@@ -14,7 +15,9 @@ import type {
     AgentProfile,
     Goal,
     GoalStore,
+    RunInput,
     Tool,
+    ToolRegistration,
     TrajectoryEvent,
     TrajectoryEventDraft,
     TrajectoryReadQuery,
@@ -96,6 +99,14 @@ function executingGoal(): Goal {
             },
         },
     };
+}
+
+function applyRunTransition(goal: Goal, input: RunInput): Goal {
+    const result = transition(goal.state.run, input);
+    if (!result.ok) {
+        assert.fail(result.error.message);
+    }
+    return { ...goal, state: { ...goal.state, run: result.state } };
 }
 
 test("Runner appends ordered execution facts and commits Snapshot boundary after facts", async () => {
@@ -187,6 +198,97 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
             && persisted.state.run.committedThroughSequence
                 < (sink.events.at(-1)?.sequence ?? 0),
         true,
+    );
+});
+
+test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提交顺序", async () => {
+    const store = new MemoryGoalStore();
+    const sink = new RecordingTrajectorySink();
+    const action = {
+        actionId: "action-recovered-order",
+        toolId: "echo",
+        input: { value: "恢复输入" },
+    } as const;
+    const interrupted = applyRunTransition(
+        applyRunTransition(executingGoal(), { kind: "start" }),
+        { kind: "stage_action", action, status: "approved" },
+    );
+    await store.save(interrupted);
+    let prepareCalls = 0;
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "echo",
+            description: "echo",
+            inputContract: TEST_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute({ actionId }) {
+            assert.equal(actionId, action.actionId);
+            return { kind: "success", output: "ok", summary: "done" };
+        },
+    };
+    const baseRegistration = createToolRegistration(tool);
+    const registration: ToolRegistration = {
+        ...baseRegistration,
+        prepare(input, control) {
+            prepareCalls += 1;
+            return baseRegistration.prepare(input, control);
+        },
+    };
+    const runner = new Runner({
+        store,
+        trajectoryStore: sink,
+        toolRegistry: {
+            get: (toolId) => toolId === action.toolId ? registration : undefined,
+        },
+        executor: {
+            async execute() {
+                return { kind: "complete", completionEvidence: [], summary: "done" };
+            },
+        },
+    });
+
+    const result = await runner.run({
+        goalId: interrupted.id,
+        runId: interrupted.state.run.id,
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.state.status, "completed");
+    assert.equal(result.state.stepCount, 2);
+    assert.equal(prepareCalls, 1);
+
+    assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "tool_started",
+        "tool_finished",
+        "observation_recorded",
+        "state_committed",
+        "decision_received",
+        "run_completed",
+        "context_epoch_closed",
+        "memory_patch_accepted",
+        "state_committed",
+    ]);
+    assert.deepEqual(
+        sink.events
+            .filter((event) => event.actionId !== undefined)
+            .map((event) => event.actionId),
+        [action.actionId, action.actionId, action.actionId],
+    );
+    assert.deepEqual(sink.events[0]?.payload, {
+        type: "tool_started",
+        actionId: action.actionId,
+        toolId: action.toolId,
+        input: action.input,
+    });
+    assert.deepEqual(sink.events[2]?.payload, {
+        type: "observation_recorded",
+        actionId: action.actionId,
+        observation: { kind: "success", output: "ok", summary: "done" },
+    });
+    assert.equal(
+        (await store.restore(interrupted.id))?.state.run.committedThroughSequence,
+        sink.events.at(-2)?.sequence,
     );
 });
 

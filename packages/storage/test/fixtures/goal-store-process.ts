@@ -7,6 +7,7 @@ import type {
     StepExecutionInput,
     StepExecutor,
     Tool,
+    ToolRegistration,
 } from "../../../runtime/src/index";
 import {
     READ_FILE_INPUT_CONTRACT,
@@ -58,7 +59,15 @@ async function main(): Promise<void> {
         }
 
         const tool = new ReadFileTool(workspaceRoot);
-        const registration = createToolRegistration(tool);
+        const baseRegistration = createToolRegistration(tool);
+        let prepareCalls = 0;
+        const registration: ToolRegistration = {
+            ...baseRegistration,
+            prepare(input, control) {
+                prepareCalls += 1;
+                return baseRegistration.prepare(input, control);
+            },
+        };
         let observedActionId: string | undefined;
         const result = await new Runner({
             trajectoryStore: new InMemoryTrajectoryStore(),
@@ -84,7 +93,12 @@ async function main(): Promise<void> {
             },
         }).run({ goalId, runId });
 
-        process.stdout.write(JSON.stringify({ result, observedActionId }));
+        process.stdout.write(JSON.stringify({
+            result,
+            observedActionId,
+            prepareCalls,
+            replayPolicy: registration.replayPolicy,
+        }));
         return;
     }
 
@@ -187,6 +201,15 @@ async function main(): Promise<void> {
                 return { kind: "success", output: "不应执行", summary: "不应执行" };
             },
         };
+        const baseRegistration = createToolRegistration(tool);
+        let prepareCalls = 0;
+        const registration: ToolRegistration = {
+            ...baseRegistration,
+            prepare(input, control) {
+                prepareCalls += 1;
+                return baseRegistration.prepare(input, control);
+            },
+        };
         const result = await new Runner({
             trajectoryStore: new InMemoryTrajectoryStore(),
             store: new JsonFileGoalStore(directory),
@@ -199,13 +222,19 @@ async function main(): Promise<void> {
             toolRegistry: {
                 get(id) {
                     return id === "manual_tool"
-                        ? createToolRegistration(tool)
+                        ? registration
                         : undefined;
                 },
             },
         }).run({ goalId, runId });
 
-        process.stdout.write(JSON.stringify({ result, toolCalls, executorCalls }));
+        process.stdout.write(JSON.stringify({
+            result,
+            toolCalls,
+            executorCalls,
+            prepareCalls,
+            replayPolicy: registration.replayPolicy,
+        }));
         return;
     }
 
