@@ -1,4 +1,4 @@
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { ToolDefinition } from "../../runtime/src/tool";
@@ -37,14 +37,7 @@ import {
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
-
-/**
- * 结构化输出运行模式。
- *
- * @remarks
- * `strict` 依赖 Provider 原生结构化输出参数；`prompt_only` 仅在最后一条控制消息注入 Shape Guide。
- */
-export type StructuredOutputMode = "strict" | "prompt_only";
+export type { StructuredOutputMode } from "../../llm/src/core/types";
 
 /**
  * 绑定单轮 LLM 请求与对应响应解析契约包的请求计划。
@@ -311,11 +304,24 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
         return renderRequest(targetView, renderer, shapeGuide);
     };
 
+    const finalizePlan = (
+        req: LLMRequest,
+        bundle: ModelOutputContractBundle<Result>,
+    ): ModelOutputRequestPlan<Result> => ({
+        request: structuredOutputMode === "strict"
+            ? {
+                ...req,
+                structuredOutput: {
+                    name: bundle.name,
+                    schema: bundle.jsonSchema,
+                },
+            }
+            : req,
+        bundle,
+    });
+
     if (modelCapabilities === undefined) {
-        return {
-            request: render(view, currentBundle),
-            bundle: currentBundle,
-        };
+        return finalizePlan(render(view, currentBundle), currentBundle);
     }
 
     const planner = new TokenBudgetPlanner(modelCapabilities);
@@ -389,8 +395,5 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
         throw new ModelContextHardOverflowError();
     }
 
-    return {
-        request,
-        bundle: currentBundle,
-    };
+    return finalizePlan(request, currentBundle);
 }

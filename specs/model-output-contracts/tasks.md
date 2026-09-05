@@ -37,7 +37,7 @@
   - 更新 Prompt Bundle v1 与 Executor 测试，确认缓存稳定前缀、request/parser Bundle 一致、阶段分支和 checkpoint 独占，且每轮仍只调用一次 Adapter。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 6. 为 LLM Adapter 接入固定结构化输出模式
+- [x] //TODO 6. 为 LLM Adapter 接入固定结构化输出模式
 
   - 扩展 LLM 核心请求与 Adapter 契约，使实例构造时显式固定 `strict` 或 `prompt_only`，并在模式与 structured output 字段不一致时于网络调用前失败。
   - 将共用 Schema 原样映射到 OpenAI-compatible `response_format.json_schema` 和 Gemini `responseJsonSchema`/`responseMimeType`，不做 Provider 专用改写或 fallback。

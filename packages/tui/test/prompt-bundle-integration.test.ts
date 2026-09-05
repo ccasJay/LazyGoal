@@ -63,46 +63,60 @@ test("Composition Root carries Preparation Memory through approval into Executin
     await writeDefaultProfile(workspace);
     const responses = [
         JSON.stringify({
-            kind: "question",
-            question: "Which workflow should be verified?",
-        }),
-        JSON.stringify({
-            kind: "context_ready",
-            memoryPatch: {
-                protocolVersion: 1,
-                operations: [{
-                    type: "upsert_fact",
-                    fact: {
-                        subject: "user",
-                        predicate: "workflow_requested",
-                        value: "Verify the current workflow",
-                        stability: "stable",
-                        evidenceSequences: [2],
-                        scope: "goal",
-                    },
-                }],
+            result: {
+                kind: "question",
+                question: "Which workflow should be verified?",
+                memoryPatch: null,
             },
         }),
         JSON.stringify({
-            kind: "task_proposal",
-            task: {
-                objective: "Initial proposal",
-                completionCriteria: [],
+            result: {
+                kind: "context_ready",
+                memoryPatch: {
+                    protocolVersion: 1,
+                    operations: [{
+                        type: "upsert_fact",
+                        fact: {
+                            subject: "user",
+                            predicate: "workflow_requested",
+                            value: "Verify the current workflow",
+                            stability: "stable",
+                            evidenceSequences: [2],
+                            scope: "goal",
+                        },
+                    }],
+                },
             },
-            approvalRequest: "Approve the initial task contract?",
         }),
         JSON.stringify({
-            kind: "task_proposal",
-            task: {
-                objective: "Approved proposal",
-                completionCriteria: [],
+            result: {
+                kind: "task_proposal",
+                task: {
+                    objective: "Initial proposal",
+                    completionCriteria: [],
+                },
+                approvalRequest: "Approve the initial task contract?",
+                memoryPatch: null,
             },
-            approvalRequest: "Approve the revised task contract?",
         }),
         JSON.stringify({
-            kind: "complete",
-            summary: "The current workflow completed",
-            completionEvidence: [],
+            result: {
+                kind: "task_proposal",
+                task: {
+                    objective: "Approved proposal",
+                    completionCriteria: [],
+                },
+                approvalRequest: "Approve the revised task contract?",
+                memoryPatch: null,
+            },
+        }),
+        JSON.stringify({
+            result: {
+                kind: "complete",
+                summary: "The current workflow completed",
+                completionEvidence: [],
+                memoryPatch: null,
+            },
         }),
     ];
     const requests: CapturedRequest[] = [];

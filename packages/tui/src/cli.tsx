@@ -577,7 +577,10 @@ export async function createCompositionRoot(
         );
     }
 
-    const adapter = new OpenAICompatible(llmConfig);
+    const adapter = new OpenAICompatible({
+        ...llmConfig,
+        structuredOutputMode: "strict",
+    });
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor(
         conversationCharBudget,

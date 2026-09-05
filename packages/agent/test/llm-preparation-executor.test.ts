@@ -69,8 +69,14 @@ function createPreparationGoal(
 
 class FakeAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode: "strict" | "prompt_only";
 
-    constructor(private readonly content: string) {}
+    constructor(
+        private readonly content: string,
+        structuredOutputMode: "strict" | "prompt_only" = "strict",
+    ) {
+        this.structuredOutputMode = structuredOutputMode;
+    }
 
     async generate(request: LLMRequest): Promise<{ content: string }> {
         this.requests.push(request);
@@ -80,6 +86,7 @@ class FakeAdapter implements LLMAdapter {
 
 class RejectingAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly failure: unknown) {}
 

@@ -1,6 +1,12 @@
 import OpenAI from "openai";
 import type { LLMAdapter } from "./core/adapter";
-import type { LLMMessage, LLMRequest, LLMResponse } from "./core/types";
+import {
+    LLMRequestModeMismatchError,
+    type LLMMessage,
+    type LLMRequest,
+    type LLMResponse,
+    type StructuredOutputMode,
+} from "./core/types";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -16,6 +22,8 @@ export interface OpenAICompatibleConfig {
     baseURL: string;
     /** 每次生成请求使用的模型名称。 */
     model: string;
+    /** 固定的结构化输出模式。 */
+    structuredOutputMode: StructuredOutputMode;
 }
 
 /**
@@ -24,13 +32,18 @@ export interface OpenAICompatibleConfig {
  * @remarks
  * `baseURL` 可指向 OpenAI 或实现兼容协议的第三方服务。消息角色和顺序会
  * 原样映射；响应没有文本内容时返回空字符串，SDK 异常原样传播。
+ * 在 strict 模式下将结构 Schema 原样映射为 `response_format.json_schema` 且 `strict: true`；
+ * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
+ * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
  */
 export class OpenAICompatible implements LLMAdapter {
+    readonly structuredOutputMode: StructuredOutputMode;
     private readonly client: OpenAI;
     private readonly model: string;
 
-    /** @param config - API Key、兼容端点地址与模型名称。 */
+    /** @param config - API Key、兼容端点地址、模型名称与固定的结构化输出模式。 */
     constructor (config: OpenAICompatibleConfig){
+        this.structuredOutputMode = config.structuredOutputMode;
         this.client = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.baseURL,
@@ -43,21 +56,48 @@ export class OpenAICompatible implements LLMAdapter {
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns Chat Completions 首个候选的文本内容。
      * @throws OpenAI SDK 暴露的网络、鉴权、限流或协议异常；中止时抛出
-     *   `ExecutionAbortedError`。
+     *   `ExecutionAbortedError`；请求参数模式不匹配时抛出 `LLMRequestModeMismatchError`。
      */
     async generate(
         _request: LLMRequest,
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
+
+        if (this.structuredOutputMode === "strict") {
+            if (_request.structuredOutput === undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "OpenAICompatible adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
+                );
+            }
+        } else if (this.structuredOutputMode === "prompt_only") {
+            if (_request.structuredOutput !== undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "OpenAICompatible adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
+                );
+            }
+        }
+
         const messages = toOpenAIMessages(_request.messages);
 
         try {
-            const request = {
+            const request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
                 model: this.model,
                 messages,
                 ...(typeof _request.maxOutputTokens === "number"
                     ? { max_tokens: _request.maxOutputTokens }
+                    : {}),
+                ...(this.structuredOutputMode === "strict" && _request.structuredOutput !== undefined
+                    ? {
+                        response_format: {
+                            type: "json_schema" as const,
+                            json_schema: {
+                                name: _request.structuredOutput.name,
+                                schema: _request.structuredOutput.schema as Record<string, unknown>,
+                                strict: true,
+                            },
+                        },
+                    }
                     : {}),
             };
             const response = control?.signal === undefined

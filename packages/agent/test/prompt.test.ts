@@ -837,3 +837,70 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
     assert.equal(typeof lastPayload.responseShapeGuide, "string");
     assert.match(lastPayload.responseShapeGuide, /checkpoint/);
 });
+
+test("buildStepRequest and buildPreparationRequest populate structuredOutput in strict mode and omit in prompt_only mode", async () => {
+    const goal = createExecutingGoal();
+    const strictStepPlan = await buildStepRequest(
+        goal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        "strict",
+    );
+    assert.ok(strictStepPlan.request.structuredOutput !== undefined);
+    assert.equal(strictStepPlan.request.structuredOutput.name, strictStepPlan.bundle.name);
+    assert.deepEqual(strictStepPlan.request.structuredOutput.schema, strictStepPlan.bundle.jsonSchema);
+
+    const promptOnlyStepPlan = await buildStepRequest(
+        goal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        "prompt_only",
+    );
+    assert.equal(promptOnlyStepPlan.request.structuredOutput, undefined);
+
+    const prepGoal = createPreparationGoal("gathering_context");
+    const strictPrepPlan = await buildPreparationRequest(
+        prepGoal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        undefined,
+        "strict",
+    );
+    assert.ok(strictPrepPlan.request.structuredOutput !== undefined);
+    assert.equal(strictPrepPlan.request.structuredOutput.name, strictPrepPlan.bundle.name);
+    assert.deepEqual(strictPrepPlan.request.structuredOutput.schema, strictPrepPlan.bundle.jsonSchema);
+
+    const promptOnlyPrepPlan = await buildPreparationRequest(
+        prepGoal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        undefined,
+        undefined,
+        undefined,
+        "prompt_only",
+    );
+    assert.equal(promptOnlyPrepPlan.request.structuredOutput, undefined);
+});
+

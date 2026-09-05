@@ -99,7 +99,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             );
         }
 
-        const mode = (this.adapter as { readonly structuredOutputMode?: "strict" | "prompt_only" }).structuredOutputMode ?? "strict";
+        const mode = this.adapter.structuredOutputMode;
         const plan = await buildPreparationRequest(
             goal,
             tools,

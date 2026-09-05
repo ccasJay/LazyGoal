@@ -77,6 +77,7 @@ function createStepGoal(): Goal {
 }
 
 class BlockingAdapter implements LLMAdapter {
+    readonly structuredOutputMode = "strict" as const;
     readonly requests: LLMRequest[] = [];
     readonly controls: unknown[] = [];
     private startedResolver: (() => void) | undefined;
@@ -171,6 +172,7 @@ test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Ad
     controller.abort();
     let calls = 0;
     const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             calls += 1;
             return {
@@ -202,6 +204,7 @@ test("LLMPreparationExecutor awaits Context Assembler and passes the same signal
     const assembler = new BlockingAssembler();
     let calls = 0;
     const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             calls += 1;
             return {

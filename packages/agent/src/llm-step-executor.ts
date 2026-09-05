@@ -96,7 +96,7 @@ export class LLMStepExecutor implements StepExecutor {
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
         const { goal, authorizedTools: tools, control } = input;
 
-        const mode = (this.adapter as { readonly structuredOutputMode?: "strict" | "prompt_only" }).structuredOutputMode ?? "strict";
+        const mode = this.adapter.structuredOutputMode;
         const plan = await buildStepRequest(
             goal,
             tools,

@@ -73,6 +73,7 @@ class CaptureTraceSink implements DiagnosticTraceSink {
 }
 
 class ResponseAdapter implements LLMAdapter {
+    readonly structuredOutputMode = "strict" as const;
     constructor(private readonly response: LLMResponse) {}
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {
