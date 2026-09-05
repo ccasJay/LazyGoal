@@ -8,9 +8,16 @@ import {
     Runner,
     transition,
 } from "../src/index";
-import { contract } from "../../contracts/src/index";
+import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import {
+    currentProtocols,
+    InMemoryTrajectoryStore,
+    trajectoryStoreFor,
+} from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -44,8 +51,10 @@ const profile: AgentProfile = {
 
 const toolProfile: AgentProfile = { ...profile, toolIds: ["read_file"] };
 const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 
 type TestTool = Tool<typeof TEST_INPUT_CONTRACT>;
+type PathInput = InferContract<typeof PATH_INPUT_CONTRACT>;
 
 type ExecuteAction = (
     goal: Goal,
@@ -1241,6 +1250,178 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
         message: "path 必须是工作区内相对路径",
     });
     assert.equal(executeCalls, 0);
+});
+
+test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也不记录 Action 事实", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-invalid-contract",
+        "goal-1",
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    const trajectory = new InMemoryTrajectoryStore();
+    let validateCalls = 0;
+    let policyCalls = 0;
+    let executeCalls = 0;
+    const tool: Tool<typeof PATH_INPUT_CONTRACT> = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputContract: PATH_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: () => {
+            validateCalls += 1;
+            return { ok: true };
+        },
+        async execute() {
+            executeCalls += 1;
+            return { kind: "success", output: "不应执行", summary: "不应执行" };
+        },
+    };
+    const executor = new FakeDecisionExecutor({
+        kind: "tool_call",
+        action: {
+            actionId: "action-invalid-contract",
+            toolId: "read_file",
+            input: { unexpected: true },
+        },
+    });
+
+    const result = await new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectory,
+        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolPolicy: {
+            evaluate: () => {
+                policyCalls += 1;
+                return "allow";
+            },
+        },
+    }).run(createRef(initial, "run-invalid-contract"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.pendingAction, undefined);
+    assert.equal(state.stopReason?.kind, "execution_error");
+    assert.equal(state.stopReason?.code, "INVALID_TOOL_INPUT");
+    assert.equal(validateCalls, 0);
+    assert.equal(policyCalls, 0);
+    assert.equal(executeCalls, 0);
+    assert.equal(trajectory.events.some((event) => event.eventType === "decision_received"), false);
+    assert.equal(trajectory.events.some((event) => event.eventType === "action_staged"), false);
+    assert.equal(trajectory.events.some((event) => event.eventType === "tool_started"), false);
+});
+
+test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事实与 Tool 共享 canonical 输入", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-canonical-input",
+        "goal-1",
+        { ...profile, toolIds: ["read_file"] },
+    );
+    await store.save(initial);
+    const trajectory = new InMemoryTrajectoryStore();
+    const rawInput: { path: string } = { path: "before.txt" };
+    const decision = {
+        kind: "tool_call" as const,
+        action: {
+            actionId: "action-canonical-input",
+            toolId: "read_file",
+            input: rawInput,
+        },
+    };
+    let executorCalls = 0;
+    const executor: StepExecutor = {
+        async execute() {
+            executorCalls += 1;
+            return executorCalls === 1
+                ? decision
+                : {
+                    kind: "complete" as const,
+                    completionEvidence: [],
+                    summary: "完成",
+                };
+        },
+    };
+    let validateCalls = 0;
+    let policyCalls = 0;
+    let executeCalls = 0;
+    let validatedInput: PathInput | undefined;
+    let policyInput: unknown;
+    let executedInput: PathInput | undefined;
+    const tool: Tool<typeof PATH_INPUT_CONTRACT> = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputContract: PATH_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: (input) => {
+            validateCalls += 1;
+            validatedInput = input;
+            return { ok: true };
+        },
+        async execute({ input }) {
+            executeCalls += 1;
+            executedInput = input;
+            return {
+                kind: "success",
+                output: input.path,
+                summary: "读取完成",
+            };
+        },
+    };
+    const policy: ToolPolicy = {
+        evaluate: ({ action }) => {
+            policyCalls += 1;
+            policyInput = action.input;
+            rawInput.path = "after.txt";
+            return "allow";
+        },
+    };
+
+    const result = await new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectory,
+        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolPolicy: policy,
+    }).run(createRef(initial, "run-canonical-input"));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(validateCalls, 1);
+    assert.equal(policyCalls, 1);
+    assert.equal(executeCalls, 1);
+    assert.equal(rawInput.path, "after.txt");
+    assert.ok(validatedInput);
+    assert.ok(executedInput);
+    assert.notStrictEqual(validatedInput, rawInput);
+    assert.strictEqual(policyInput, validatedInput);
+    assert.strictEqual(executedInput, validatedInput);
+    assert.deepEqual(validatedInput, { path: "before.txt" });
+    assert.deepEqual(state.lastStep, {
+        kind: "decision",
+        result: { kind: "complete", completionEvidence: [], summary: "完成" },
+    });
+
+    const actionInputs = trajectory.events.flatMap((event) => {
+        if (event.eventType === "decision_received" && event.payload.decision.kind === "tool_call") {
+            return [event.payload.decision.action.input];
+        }
+        if (event.eventType === "action_staged") return [event.payload.action.input];
+        if (event.eventType === "tool_started") return [event.payload.input];
+        return [];
+    });
+    assert.deepEqual(actionInputs, [
+        { path: "before.txt" },
+        { path: "before.txt" },
+        { path: "before.txt" },
+    ]);
 });
 
 test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_ERROR", async () => {

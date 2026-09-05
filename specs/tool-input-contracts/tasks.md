@@ -9,7 +9,7 @@
   - 更新公共导出和依赖边界配置，运行 TypeScript 与受影响包的 smoke tests，确保破坏性替换后仓库保持可编译。
   - _Requirements: [1.1](./requirements.md#req-1-1), [3.1](./requirements.md#req-3-1), [4.1](./requirements.md#req-4-1), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 2. 强制新 Action 的单次 Contract 准备边界
+- [x] //TODO 2. 强制新 Action 的单次 Contract 准备边界
 
   - 调整 Runner 的新 `tool_call` 路径，在 Profile 与 Registry 检查后、Policy 和任何 Action 事实或状态写入前完成结构解析、语义校验与 canonical Action 重建。
   - 让 Policy、pending Action、`tool_started` 和执行闭包共享隔离后的解析结果，删除同一尝试中的重复解析入口。

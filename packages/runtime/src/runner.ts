@@ -1812,15 +1812,6 @@ export class Runner {
                     continue;
                 }
 
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "decision_received",
-                    payload: { type: "decision_received", decision: normalized.decision },
-                }, control);
-
                 if (normalized.decision.kind === "tool_call") {
                     let validated;
 
@@ -1866,6 +1857,21 @@ export class Runner {
 
                         return this.stopWithExecutionError(goal, stableError, control);
                     }
+
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "decision_received",
+                        payload: {
+                            type: "decision_received",
+                            decision: {
+                                ...normalized.decision,
+                                action: validated.action,
+                            },
+                        },
+                    }, control);
 
                     if (validated.policy !== "allow") {
                         throwIfAborted(control);
@@ -1941,6 +1947,15 @@ export class Runner {
                     contextLookupChainCount = 0;
                     continue;
                 }
+
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "decision_received",
+                    payload: { type: "decision_received", decision: normalized.decision },
+                }, control);
 
                 throwIfAborted(control);
                 const nextRun = this.applyTransition(goal.state.run, {
