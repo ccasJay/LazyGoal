@@ -89,9 +89,12 @@ class FailingTraceSink implements DiagnosticTraceSink {
 test("LLMStepExecutor records bounded request/response diagnostics with redaction", async () => {
     const response = {
         content: JSON.stringify({
-            kind: "complete",
-            summary: "完成",
-            completionEvidence: [],
+            result: {
+                kind: "complete",
+                summary: "完成",
+                completionEvidence: [],
+                memoryPatch: null,
+            },
         }),
         providerRequestId: "request-1",
         apiKey: "must-not-be-written",
@@ -134,9 +137,12 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
 test("LLM diagnostics apply a total size bound and do not require a working TraceSink", async () => {
     const longResponse = {
         content: JSON.stringify({
-            kind: "complete",
-            summary: "x".repeat(40_000),
-            completionEvidence: [],
+            result: {
+                kind: "complete",
+                summary: "x".repeat(40_000),
+                completionEvidence: [],
+                memoryPatch: null,
+            },
         }),
     };
     const traceSink = new CaptureTraceSink();
@@ -163,9 +169,12 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
     const isolatedResult = await new LLMStepExecutor({
         adapter: new ResponseAdapter({
             content: JSON.stringify({
-                kind: "complete",
-                summary: "Trace 失败不改变结果",
-                completionEvidence: [],
+                result: {
+                    kind: "complete",
+                    summary: "Trace 失败不改变结果",
+                    completionEvidence: [],
+                    memoryPatch: null,
+                },
             }),
         }),
         renderer,

@@ -25,8 +25,47 @@ import {
 } from "./model-context-budget";
 import { ModelContextHardOverflowError } from "./context-selector";
 
+import type {
+    AgentDecision,
+    AuthorizedToolContract,
+    ModelOutputContractBundle,
+    PreparationResult,
+} from "../../contracts/src/index";
+import {
+    createModelOutputContractBundle,
+} from "../../contracts/src/index";
+
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
+
+/**
+ * 结构化输出运行模式。
+ *
+ * @remarks
+ * `strict` 依赖 Provider 原生结构化输出参数；`prompt_only` 仅在最后一条控制消息注入 Shape Guide。
+ */
+export type StructuredOutputMode = "strict" | "prompt_only";
+
+/**
+ * 绑定单轮 LLM 请求与对应响应解析契约包的请求计划。
+ *
+ * @remarks
+ * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputContractBundle}，
+ * 确保阶段分支、已授权工具以及 Context Checkpoint 在请求与解析两端保持绝对一致。
+ *
+ * @example
+ * ```ts
+ * const plan = await buildStepRequest(goal, tools, renderer, compactor);
+ * const response = await adapter.generate(plan.request);
+ * const decision = parseModelOutput(response.content, plan.bundle);
+ * ```
+ */
+export interface ModelOutputRequestPlan<Result = PreparationResult | AgentDecision> {
+    /** 渲染完成且计入预算的单轮 LLM 请求。 */
+    readonly request: LLMRequest;
+    /** 专门用于解析该响应的契约包。 */
+    readonly bundle: ModelOutputContractBundle<Result>;
+}
 
 function project(
     goal: Goal,
@@ -144,7 +183,8 @@ export async function buildStepRequest(
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
     contextLookupResult?: ContextLookupResult,
     modelCapabilities?: ModelCapabilities,
-): Promise<LLMRequest> {
+    structuredOutputMode: StructuredOutputMode = "strict",
+): Promise<ModelOutputRequestPlan<AgentDecision>> {
     const projected = project(
         goal,
         tools,
@@ -168,7 +208,15 @@ export async function buildStepRequest(
         trajectoryContextAssembler,
     );
 
-    return renderFinalRequest(assembled, renderer, modelCapabilities);
+    const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
+    const initialBundle = isInitialCheckpoint
+        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<AgentDecision>)
+        : (createModelOutputContractBundle({
+            kind: "executing",
+            authorizedTools: tools.map((t) => ({ id: t.id, inputContract: t.inputContract })),
+        }) as unknown as ModelOutputContractBundle<AgentDecision>);
+
+    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode);
 }
 
 /**
@@ -187,9 +235,11 @@ export async function buildStepRequest(
  * @param workingMemory - structured@1 的即时 Working Memory。
  * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
+ * @param modelCapabilities - 模型能力配置。
  * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only provenance；
  *   只在 Preparation 请求中传递。
- * @returns 保持真实消息顺序并附带当前阶段控制消息的请求。
+ * @param structuredOutputMode - 结构化输出模式。
+ * @returns 保持真实消息顺序并附带当前阶段控制消息的请求计划。
  * @throws Goal 不处于 active Preparation 阶段时抛出；渲染失败同样在调用前抛出。
  */
 export async function buildPreparationRequest(
@@ -203,7 +253,8 @@ export async function buildPreparationRequest(
     contextLookupResult?: ContextLookupResult,
     modelCapabilities?: ModelCapabilities,
     preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
-): Promise<LLMRequest> {
+    structuredOutputMode: StructuredOutputMode = "strict",
+): Promise<ModelOutputRequestPlan<PreparationResult>> {
     const projected = project(
         goal,
         goal.state.workflow.phase === "planning"
@@ -230,17 +281,41 @@ export async function buildPreparationRequest(
         trajectoryContextAssembler,
     );
 
-    return renderFinalRequest(assembled, renderer, modelCapabilities);
+    const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
+    const initialBundle = isInitialCheckpoint
+        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<PreparationResult>)
+        : (createModelOutputContractBundle({
+            kind: goal.state.workflow.phase === "gathering_context" ? "gathering" : "planning",
+        }) as unknown as ModelOutputContractBundle<PreparationResult>);
+
+    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode);
 }
 
 /** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
-function renderFinalRequest(
+function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
+    initialBundle: ModelOutputContractBundle<Result>,
     modelCapabilities?: ModelCapabilities,
-): LLMRequest {
+    structuredOutputMode: StructuredOutputMode = "strict",
+): ModelOutputRequestPlan<Result> {
+    let currentBundle = initialBundle;
+
+    const render = (
+        targetView: ModelInferenceView,
+        bundle: ModelOutputContractBundle<Result>,
+    ): LLMRequest => {
+        const shapeGuide = structuredOutputMode === "prompt_only"
+            ? bundle.shapeGuide
+            : undefined;
+        return renderRequest(targetView, renderer, shapeGuide);
+    };
+
     if (modelCapabilities === undefined) {
-        return renderRequest(view, renderer);
+        return {
+            request: render(view, currentBundle),
+            bundle: currentBundle,
+        };
     }
 
     const planner = new TokenBudgetPlanner(modelCapabilities);
@@ -251,14 +326,14 @@ function renderFinalRequest(
     const warm = [...(view.trajectoryContext?.warm ?? [])];
     let conversationPruned = false;
 
-    const render = (): LLMRequest => {
+    const buildCandidateView = (): ModelInferenceView => {
         const conversation = latest === undefined
             ? []
             : flattenContextUnits([
                 ...olderConversation,
                 latest,
             ]);
-        const candidate: ModelInferenceView = {
+        return {
             ...structuredClone(view),
             conversation,
             ...(view.trajectoryContext === undefined
@@ -283,29 +358,39 @@ function renderFinalRequest(
                     },
                 }),
         };
-        return renderRequest(candidate, renderer);
     };
 
-    let request = render();
+    let request = render(buildCandidateView(), currentBundle);
     let measured = planner.measure(request);
+
     while (measured.hardOverflow && warm.length > 0) {
         warm.shift();
-        request = render();
+        request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }
+
     while (measured.hardOverflow && olderConversation.length > 0) {
         conversationPruned = true;
         olderConversation.shift();
-        request = render();
+        currentBundle = createModelOutputContractBundle({
+            kind: "checkpoint",
+        }) as unknown as ModelOutputContractBundle<Result>;
+        request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }
+
     while (measured.hardOverflow && hot.length > 0) {
         hot.shift();
-        request = render();
+        request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }
+
     if (measured.hardOverflow) {
         throw new ModelContextHardOverflowError();
     }
-    return request;
+
+    return {
+        request,
+        bundle: currentBundle,
+    };
 }

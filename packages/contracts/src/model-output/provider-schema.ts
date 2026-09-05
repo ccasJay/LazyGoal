@@ -80,12 +80,16 @@ function assertPortableSchemaNode(
         const propKeys = Object.keys(props);
 
         if (!Array.isArray(obj.required)) {
-            throw new ModelOutputContractDefinitionError(
-                "Object schema must declare required array",
-                [...path, "required"],
-            );
+            if (propKeys.length === 0) {
+                obj.required = [];
+            } else {
+                throw new ModelOutputContractDefinitionError(
+                    "Object schema must declare required array",
+                    [...path, "required"],
+                );
+            }
         }
-        const requiredSet = new Set(obj.required);
+        const requiredSet = new Set(obj.required as readonly string[]);
         for (const propKey of propKeys) {
             if (!requiredSet.has(propKey)) {
                 throw new ModelOutputContractDefinitionError(

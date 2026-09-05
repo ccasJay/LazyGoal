@@ -30,7 +30,7 @@
   - 添加 Agent 协议测试，覆盖合法结果、正文夹带、非法 JSON、空白文本、结构/语义路径以及单次失败不修复、不重试、不降级。
   - _Requirements: [1.3](./requirements.md#req-1-3), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 5. 将阶段、checkpoint 与 Shape Guide 接入请求计划
+- [x] //TODO 5. 将阶段、checkpoint 与 Shape Guide 接入请求计划
 
   - 让 Preparation/Step 请求构建返回绑定最终 `LLMRequest` 和 Bundle 的请求计划，并按 gathering、planning、executing 或 checkpoint 选择唯一允许分支。
   - 在 prompt-only 模式把 Guide 写入最终动态控制消息并计入 TokenBudgetPlanner；预算裁剪触发 checkpoint 时单向切换 Bundle，strict 模式不注入 Guide。

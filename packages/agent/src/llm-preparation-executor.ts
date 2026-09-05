@@ -13,8 +13,7 @@ import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildPreparationRequest } from "./prompt";
 import {
-    parsePreparationResult,
-    requestRequiresContextCheckpoint,
+    parseModelOutput,
 } from "./model-output";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -100,7 +99,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             );
         }
 
-        const request = await buildPreparationRequest(
+        const mode = (this.adapter as { readonly structuredOutputMode?: "strict" | "prompt_only" }).structuredOutputMode ?? "strict";
+        const plan = await buildPreparationRequest(
             goal,
             tools,
             this.renderer,
@@ -111,12 +111,13 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             input.contextLookupResult,
             this.modelCapabilities,
             input.preparationInputEvidence,
+            mode,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
         const providerRequest = this.modelCapabilities === undefined
-            ? request
-            : { ...request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+            ? plan.request
+            : { ...plan.request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
         await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
@@ -149,21 +150,10 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         );
 
         try {
-            const result = parsePreparationResult(
+            const result = parseModelOutput(
                 response.content,
-                workflow.phase,
+                plan.bundle,
             );
-            const checkpointRequired = requestRequiresContextCheckpoint(providerRequest);
-            if (checkpointRequired && result.kind !== "context_checkpoint") {
-                throw new LLMResponseProtocolError(
-                    "checkpoint_required 请求只接受 context_checkpoint 结果",
-                );
-            }
-            if (!checkpointRequired && result.kind === "context_checkpoint") {
-                throw new LLMResponseProtocolError(
-                    "context_checkpoint 只能在 checkpoint_required 请求中返回",
-                );
-            }
             return result;
         } catch (error) {
             await recordLlmError(

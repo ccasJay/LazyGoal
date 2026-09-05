@@ -204,7 +204,14 @@ test("LLMPreparationExecutor awaits Context Assembler and passes the same signal
     const adapter: LLMAdapter = {
         async generate(): Promise<LLMResponse> {
             calls += 1;
-            return { content: JSON.stringify({ kind: "context_ready" }) };
+            return {
+                content: JSON.stringify({
+                    result: {
+                        kind: "context_ready",
+                        memoryPatch: null,
+                    },
+                }),
+            };
         },
     };
     const executor = new LLMPreparationExecutor({

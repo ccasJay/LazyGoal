@@ -15,8 +15,7 @@ import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
 import { buildStepRequest } from "./prompt";
 import {
-    parseAgentDecision,
-    requestRequiresContextCheckpoint,
+    parseModelOutput,
 } from "./model-output";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -97,8 +96,8 @@ export class LLMStepExecutor implements StepExecutor {
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
         const { goal, authorizedTools: tools, control } = input;
 
-        throwIfAborted(control);
-        const request = await buildStepRequest(
+        const mode = (this.adapter as { readonly structuredOutputMode?: "strict" | "prompt_only" }).structuredOutputMode ?? "strict";
+        const plan = await buildStepRequest(
             goal,
             tools,
             this.renderer,
@@ -108,12 +107,13 @@ export class LLMStepExecutor implements StepExecutor {
             this.trajectoryContextAssembler,
             input.contextLookupResult,
             this.modelCapabilities,
+            mode,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
         const providerRequest = this.modelCapabilities === undefined
-            ? request
-            : { ...request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+            ? plan.request
+            : { ...plan.request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
         await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
@@ -148,20 +148,10 @@ export class LLMStepExecutor implements StepExecutor {
         let decision: AgentDecision;
 
         try {
-            decision = parseAgentDecision(
+            decision = parseModelOutput(
                 response.content,
+                plan.bundle,
             );
-            const checkpointRequired = requestRequiresContextCheckpoint(providerRequest);
-            if (checkpointRequired && decision.kind !== "context_checkpoint") {
-                throw new LLMResponseProtocolError(
-                    "checkpoint_required 请求只接受 context_checkpoint 结果",
-                );
-            }
-            if (!checkpointRequired && decision.kind === "context_checkpoint") {
-                throw new LLMResponseProtocolError(
-                    "context_checkpoint 只能在 checkpoint_required 请求中返回",
-                );
-            }
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

@@ -9,6 +9,10 @@ export {
     buildPreparationRequest,
     buildStepRequest,
 } from "./prompt";
+export type {
+    ModelOutputRequestPlan,
+    StructuredOutputMode,
+} from "./prompt";
 
 export {
     ModelInferenceProjector,
