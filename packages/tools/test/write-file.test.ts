@@ -12,7 +12,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { JsonValue } from "../../runtime/src/index";
-import { ExecutionAbortedError } from "../../runtime/src/index";
+import {
+    createToolRegistration,
+    ExecutionAbortedError,
+} from "../../runtime/src/index";
 import {
     WRITE_FILE_TOOL_ID,
     WriteFileTool,
@@ -94,6 +97,7 @@ test("WriteFileTool 拒绝非法输入且不访问文件系统", async () => {
 
     try {
         const tool = new WriteFileTool(workspaceRoot);
+        const registration = createToolRegistration(tool);
         const invalidInputs: unknown[] = [
             null,
             [],
@@ -114,7 +118,7 @@ test("WriteFileTool 拒绝非法输入且不访问文件系统", async () => {
         ];
 
         for (const input of invalidInputs) {
-            const result = tool.validate(asJsonValue(input));
+            const result = registration.prepare(asJsonValue(input));
 
             assert.equal(result.ok, false, `expected reject: ${JSON.stringify(input)}`);
             if (!result.ok) {
@@ -122,13 +126,8 @@ test("WriteFileTool 拒绝非法输入且不访问文件系统", async () => {
             }
         }
 
-        await assert.rejects(
-            () => tool.execute({
-                actionId: "action-invalid",
-                input: { path: "../secret.txt", content: "x" },
-            }),
-            /INVALID_TOOL_INPUT/,
-        );
+        const result = registration.prepare({ path: "../secret.txt", content: "x" });
+        assert.equal(result.ok, false);
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

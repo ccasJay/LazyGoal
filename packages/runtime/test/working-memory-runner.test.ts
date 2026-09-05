@@ -6,9 +6,11 @@ import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createGoal,
+    createToolRegistration,
     rebuildWorkingMemory,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { contract } from "../../contracts/src/index";
 import { currentProtocols } from "./current-fixtures";
 import type {
     AgentDecision,
@@ -34,6 +36,8 @@ const profile: AgentProfile = {
     instructions: [],
     toolIds: ["read_file"],
 };
+
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
 class MemoryTrajectoryStore implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
@@ -111,12 +115,12 @@ function executingGoal(id: string): Goal {
     };
 }
 
-function tool(): Tool {
+function tool(): Tool<typeof TEST_INPUT_CONTRACT> {
     return {
         definition: {
             id: "read_file",
             description: "read",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -149,7 +153,8 @@ function complete(): Extract<AgentDecision, { kind: "complete" }> {
 
 function registry(): ToolRegistry {
     const implementation = tool();
-    return { get: (id) => id === "read_file" ? implementation : undefined };
+    const registration = createToolRegistration(implementation);
+    return { get: (id) => id === "read_file" ? registration : undefined };
 }
 
 test("Fake Projector commits Observation and Runtime Patch in one Snapshot boundary", async () => {

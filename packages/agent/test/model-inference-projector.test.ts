@@ -1,6 +1,31 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
+import {
+    BASH_INPUT_CONTRACT,
+    BASH_MAX_TIMEOUT_MS,
+    BASH_TOOL_ID,
+    BashTool,
+    EDIT_FILE_INPUT_CONTRACT,
+    EDIT_FILE_TOOL_ID,
+    EditFileTool,
+    GREP_INPUT_CONTRACT,
+    GREP_TOOL_ID,
+    GrepTool,
+    READ_FILE_INPUT_CONTRACT,
+    READ_FILE_TOOL_ID,
+    ReadFileTool,
+    WRITE_FILE_INPUT_CONTRACT,
+    WRITE_FILE_TOOL_ID,
+    WriteFileTool,
+} from "../../tools/src/index";
+import {
+    ALFWORLD_RESET_INPUT_CONTRACT,
+    ALFWORLD_RESET_TOOL_ID,
+    ALFWORLD_STEP_INPUT_CONTRACT,
+    ALFWORLD_STEP_TOOL_ID,
+} from "../../../benchmarks/alfworld/src/alfworld-tools";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
 import type {
@@ -30,6 +55,45 @@ const profile: AgentProfile = {
 };
 
 const projector = new ModelInferenceProjector();
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
+
+const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
+    {
+        id: BASH_TOOL_ID,
+        description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
+        inputContract: BASH_INPUT_CONTRACT,
+    },
+    {
+        id: READ_FILE_TOOL_ID,
+        description: "读取 workspaceRoot 内的 UTF-8 文本文件",
+        inputContract: READ_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: WRITE_FILE_TOOL_ID,
+        description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
+        inputContract: WRITE_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: EDIT_FILE_TOOL_ID,
+        description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
+        inputContract: EDIT_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: GREP_TOOL_ID,
+        description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+        inputContract: GREP_INPUT_CONTRACT,
+    },
+    {
+        id: ALFWORLD_RESET_TOOL_ID,
+        description: "初始化固定 ALFWorld TextWorld 任务会话",
+        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+    },
+    {
+        id: ALFWORLD_STEP_TOOL_ID,
+        description: "向活动 ALFWorld TextWorld 会话提交一条命令",
+        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+    },
+];
 
 function createPreparationGoal(
     phase: "gathering_context" | "planning" = "gathering_context",
@@ -105,10 +169,7 @@ function toolDefinition(id = "read_file"): ToolDefinition {
     return {
         id,
         description: "读取工作区内文本文件",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-        },
+        inputContract: PATH_INPUT_CONTRACT,
     };
 }
 
@@ -118,6 +179,57 @@ function project(
     memory: WorkingMemory = currentWorkingMemory,
 ) {
     return projector.project(goal, tools, memory);
+}
+
+function assertNoContractAst(value: unknown, path: string): void {
+    if (Array.isArray(value)) {
+        value.forEach((entry, index) => assertNoContractAst(entry, `${path}[${index}]`));
+        return;
+    }
+
+    if (value === null || typeof value !== "object") return;
+
+    const record = value as Record<string, unknown>;
+    assert.equal("kind" in record, false, `${path} 泄漏了 Contract AST`);
+    for (const [key, child] of Object.entries(record)) {
+        assertNoContractAst(child, `${path}.${key}`);
+    }
+}
+
+function assertPortableSchema(schema: Record<string, unknown>, path: string): void {
+    assert.equal("$ref" in schema, false, `${path} 不应包含递归引用`);
+    assert.equal("$defs" in schema, false, `${path} 不应包含递归定义`);
+    assert.equal("pattern" in schema, false, `${path} 不应包含供应商相关 pattern`);
+
+    if (schema.type === "object") {
+        assert.equal(
+            schema.additionalProperties,
+            false,
+            `${path} 必须是 strict object，而不是开放 record`,
+        );
+    }
+
+    const properties = schema.properties;
+    if (properties !== null && typeof properties === "object" && !Array.isArray(properties)) {
+        for (const [key, child] of Object.entries(properties)) {
+            assertPortableSchema(child as Record<string, unknown>, `${path}.properties.${key}`);
+        }
+    }
+
+    if (schema.items !== null && typeof schema.items === "object" && !Array.isArray(schema.items)) {
+        assertPortableSchema(schema.items as Record<string, unknown>, `${path}.items`);
+    }
+
+    for (const unionKey of ["anyOf", "oneOf", "allOf"] as const) {
+        const branches = schema[unionKey];
+        if (Array.isArray(branches)) {
+            branches.forEach((branch, index) => {
+                if (branch !== null && typeof branch === "object") {
+                    assertPortableSchema(branch as Record<string, unknown>, `${path}.${unionKey}[${index}]`);
+                }
+            });
+        }
+    }
 }
 
 test("Projector 按阶段投影当前 PromptContext、Conversation 与 Working Context", () => {
@@ -198,7 +310,12 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     assert.deepEqual(view.prompt.authorizedTools[0], {
         id: "read_file",
         description: "读取工作区内文本文件",
-        inputSchema: toolDefinition().inputSchema,
+        inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+            additionalProperties: false,
+        },
     });
 });
 
@@ -253,6 +370,112 @@ test("Projector 按 Tool ID 代码单元顺序升序排序并拒绝重复 ID", (
         () => project(createExecutingGoal(), [toolDefinition(), toolDefinition()]),
         /重复的 Tool ID：read_file/,
     );
+});
+
+test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schema", () => {
+    const first = project(createExecutingGoal(), CURRENT_TOOL_DEFINITIONS)
+        .prompt.authorizedTools;
+    const second = project(
+        createExecutingGoal(),
+        [...CURRENT_TOOL_DEFINITIONS].reverse(),
+    ).prompt.authorizedTools;
+
+    assert.deepEqual(first.map(({ id, inputSchema }) => ({ id, inputSchema })), [
+        {
+            id: ALFWORLD_RESET_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: {},
+                additionalProperties: false,
+            },
+        },
+        {
+            id: ALFWORLD_STEP_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: { command: { type: "string" } },
+                required: ["command"],
+                additionalProperties: false,
+            },
+        },
+        {
+            id: BASH_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: {
+                    command: { type: "string" },
+                    timeoutMs: {
+                        type: "integer",
+                        minimum: 1,
+                        maximum: BASH_MAX_TIMEOUT_MS,
+                    },
+                },
+                required: ["command"],
+                additionalProperties: false,
+            },
+        },
+        {
+            id: EDIT_FILE_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: {
+                    path: { type: "string" },
+                    oldString: { type: "string" },
+                    newString: { type: "string" },
+                },
+                required: ["path", "oldString", "newString"],
+                additionalProperties: false,
+            },
+        },
+        {
+            id: GREP_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: {
+                    pattern: { type: "string" },
+                    path: { type: "string" },
+                    ignoreCase: { type: "boolean" },
+                },
+                required: ["pattern"],
+                additionalProperties: false,
+            },
+        },
+        {
+            id: READ_FILE_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: { path: { type: "string" } },
+                required: ["path"],
+                additionalProperties: false,
+            },
+        },
+        {
+            id: WRITE_FILE_TOOL_ID,
+            inputSchema: {
+                type: "object",
+                properties: {
+                    path: { type: "string" },
+                    content: { type: "string" },
+                },
+                required: ["path", "content"],
+                additionalProperties: false,
+            },
+        },
+    ]);
+    assert.equal(JSON.stringify(first), JSON.stringify(second));
+
+    for (const [index, tool] of first.entries()) {
+        const source = CURRENT_TOOL_DEFINITIONS.find(({ id }) => id === tool.id);
+        assert.ok(source !== undefined);
+        assert.deepEqual(Object.keys(tool).sort(), ["description", "id", "inputSchema"]);
+        assert.notStrictEqual(tool.inputSchema, source.inputContract);
+        assert.notStrictEqual(tool.inputSchema, second[index]?.inputSchema);
+
+        const schema = tool.inputSchema as Record<string, unknown>;
+        assert.equal("$schema" in schema, false);
+        assertNoContractAst(schema, `${tool.id}[${index}]`);
+        assertPortableSchema(schema, `${tool.id}[${index}]`);
+    }
 });
 
 test("Projector 不修改 Goal 且不泄漏 Snapshot 或瞬时资源字段", () => {
@@ -423,4 +646,56 @@ test("Projector 在 executing 阶段拒绝任何 Preparation provenance 字段",
         ),
         /Preparation input evidence requires a preparation phase/,
     );
+});
+
+test("Projector 在遇到无效 Tool Contract 时快速抛出异常", () => {
+    const invalidTool: ToolDefinition = {
+        id: "invalid_tool",
+        description: "无效工具",
+        inputContract: {
+            kind: "unknown_kind" as any,
+        } as any,
+    };
+
+    assert.throws(
+        () => project(createExecutingGoal(), [invalidTool]),
+    );
+});
+
+test("Projector 确保 View 与外部输入完全隔离且子对象不可变", () => {
+    const tools = [toolDefinition()];
+    const view = project(createExecutingGoal(), tools);
+
+    tools.push(toolDefinition("extra_tool"));
+    assert.equal(view.prompt.authorizedTools.length, 1);
+
+    const toolSchema = view.prompt.authorizedTools[0]?.inputSchema as Record<string, any>;
+    assert.ok(Object.isFrozen(toolSchema));
+    assert.ok(Object.isFrozen(toolSchema.properties));
+    assert.ok(Object.isFrozen(toolSchema.properties.path));
+    assert.ok(Object.isFrozen(toolSchema.required));
+
+    assert.throws(
+        () => {
+            toolSchema.properties.newProp = { type: "string" };
+        },
+        /Cannot add property newProp|read only/,
+    );
+});
+
+test("五类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 完全一致", () => {
+    const instances: readonly ToolDefinition[] = [
+        new BashTool("/workspace").definition,
+        new ReadFileTool("/workspace").definition,
+        new WriteFileTool("/workspace").definition,
+        new EditFileTool("/workspace").definition,
+        new GrepTool("/workspace").definition,
+    ];
+
+    for (const inst of instances) {
+        const found = CURRENT_TOOL_DEFINITIONS.find((t) => t.id === inst.id);
+        assert.ok(found !== undefined, `未找到工具 ${inst.id}`);
+        assert.equal(inst.description, found.description);
+        assert.strictEqual(inst.inputContract, found.inputContract);
+    }
 });

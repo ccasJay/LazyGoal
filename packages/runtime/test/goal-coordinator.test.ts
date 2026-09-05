@@ -4,12 +4,14 @@ import { test } from "node:test";
 import {
     computeContentHash,
     createGoal,
+    createToolRegistration,
     GoalCoordinator,
     InlineScheduler,
     Runner,
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { contract } from "../../contracts/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentProfile,
@@ -38,7 +40,9 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function createTool(definition: ToolDefinition): Tool {
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
+
+function createTool(definition: ToolDefinition<typeof TEST_INPUT_CONTRACT>): Tool<typeof TEST_INPUT_CONTRACT> {
     return {
         definition,
         replayPolicy: "safe",
@@ -67,7 +71,7 @@ class FakePreparationExecutor implements PreparationExecutor {
         const { goal, authorizedTools } = input;
         const action = this.actions[this.receivedGoals.length];
         this.receivedGoals.push(goal);
-        this.receivedTools.push(structuredClone([...authorizedTools]));
+        this.receivedTools.push([...authorizedTools]);
         this.receivedPreparationInputEvidence.push(
             input.preparationInputEvidence === undefined
                 ? undefined
@@ -503,15 +507,15 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
     };
     const store = new RecordingGoalStore();
     await store.seed(planning);
-    const readDefinition: ToolDefinition = {
+    const readDefinition: ToolDefinition<typeof TEST_INPUT_CONTRACT> = {
         id: "read_file",
         description: "读取文件",
-        inputSchema: { type: "object", properties: { path: { type: "string" } } },
+        inputContract: TEST_INPUT_CONTRACT,
     };
-    const writeDefinition: ToolDefinition = {
+    const writeDefinition: ToolDefinition<typeof TEST_INPUT_CONTRACT> = {
         id: "write_file",
         description: "写入文件",
-        inputSchema: { type: "object" },
+        inputContract: TEST_INPUT_CONTRACT,
     };
     const tools = new Map<string, Tool>([
         ["read_file", createTool(readDefinition)],
@@ -519,7 +523,7 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
         ["not_authorized", createTool({
             id: "not_authorized",
             description: "未授权",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         })],
     ]);
     const executor = new FakePreparationExecutor([{
@@ -532,16 +536,21 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
         store,
         preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
-        toolRegistry: { get: (toolId) => tools.get(toolId) },
+        toolRegistry: {
+            get: (toolId) => {
+                const tool = tools.get(toolId);
+                return tool === undefined ? undefined : createToolRegistration(tool);
+            },
+        },
     });
 
     await coordinator.advance({ goalId: planning.id, runId: planning.state.run.id });
 
     assert.deepEqual(executor.receivedTools, [[writeDefinition, readDefinition]]);
     assert.notStrictEqual(executor.receivedTools[0]?.[0], writeDefinition);
-    assert.notStrictEqual(
-        executor.receivedTools[0]?.[0]?.inputSchema,
-        writeDefinition.inputSchema,
+    assert.strictEqual(
+        executor.receivedTools[0]?.[0]?.inputContract,
+        writeDefinition.inputContract,
     );
 });
 
@@ -986,11 +995,11 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     const store = new InMemoryGoalStore();
     await store.save(interrupted);
     let executedActionId: string | undefined;
-    const manualTool: Tool = {
+    const manualTool: Tool<typeof TEST_INPUT_CONTRACT> = {
         definition: {
             id: "read_file",
             description: "需要人工确认的读取 Tool",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -1020,7 +1029,7 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
         trajectoryStore: trajectoryStoreFor(store),
             store,
             executor,
-            toolRegistry: { get: () => manualTool },
+            toolRegistry: { get: () => createToolRegistration(manualTool) },
         })),
     });
     const ref = { goalId: interrupted.id, runId: interrupted.state.run.id };

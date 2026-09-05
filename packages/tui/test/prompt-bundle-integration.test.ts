@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -63,46 +64,60 @@ test("Composition Root carries Preparation Memory through approval into Executin
     await writeDefaultProfile(workspace);
     const responses = [
         JSON.stringify({
-            kind: "question",
-            question: "Which workflow should be verified?",
-        }),
-        JSON.stringify({
-            kind: "context_ready",
-            memoryPatch: {
-                protocolVersion: 1,
-                operations: [{
-                    type: "upsert_fact",
-                    fact: {
-                        subject: "user",
-                        predicate: "workflow_requested",
-                        value: "Verify the current workflow",
-                        stability: "stable",
-                        evidenceSequences: [2],
-                        scope: "goal",
-                    },
-                }],
+            result: {
+                kind: "question",
+                question: "Which workflow should be verified?",
+                memoryPatch: null,
             },
         }),
         JSON.stringify({
-            kind: "task_proposal",
-            task: {
-                objective: "Initial proposal",
-                completionCriteria: [],
+            result: {
+                kind: "context_ready",
+                memoryPatch: {
+                    protocolVersion: 1,
+                    operations: [{
+                        type: "upsert_fact",
+                        fact: {
+                            subject: "user",
+                            predicate: "workflow_requested",
+                            value: "Verify the current workflow",
+                            stability: "stable",
+                            evidenceSequences: [2],
+                            scope: "goal",
+                        },
+                    }],
+                },
             },
-            approvalRequest: "Approve the initial task contract?",
         }),
         JSON.stringify({
-            kind: "task_proposal",
-            task: {
-                objective: "Approved proposal",
-                completionCriteria: [],
+            result: {
+                kind: "task_proposal",
+                task: {
+                    objective: "Initial proposal",
+                    completionCriteria: [],
+                },
+                approvalRequest: "Approve the initial task contract?",
+                memoryPatch: null,
             },
-            approvalRequest: "Approve the revised task contract?",
         }),
         JSON.stringify({
-            kind: "complete",
-            summary: "The current workflow completed",
-            completionEvidence: [],
+            result: {
+                kind: "task_proposal",
+                task: {
+                    objective: "Approved proposal",
+                    completionCriteria: [],
+                },
+                approvalRequest: "Approve the revised task contract?",
+                memoryPatch: null,
+            },
+        }),
+        JSON.stringify({
+            result: {
+                kind: "complete",
+                summary: "The current workflow completed",
+                completionEvidence: [],
+                memoryPatch: null,
+            },
         }),
     ];
     const requests: CapturedRequest[] = [];
@@ -150,6 +165,7 @@ test("Composition Root carries Preparation Memory through approval into Executin
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
+                LLM_STRUCTURED_OUTPUT_MODE: "strict",
             },
             goalIdGenerator: () => "goal-current",
             runIdGenerator: () => "run-current",
@@ -257,8 +273,12 @@ test("Composition Root carries Preparation Memory through approval into Executin
         }
 
         const executingControl = controlPayload(requests[4]!);
-        if (executingControl.task?.objective !== "Approved proposal") {
-            throw new Error("Expected only the approved proposal in Executing");
+        const executingSystem = systemContent(requests[4]!);
+        if (!executingSystem.includes("Approved Goal Task Contract:\nObjective: Approved proposal")) {
+            throw new Error("Expected only the approved proposal in Executing system prompt");
+        }
+        if ("task" in executingControl) {
+            throw new Error("Executing must not receive redundant task in control message");
         }
         if ("preparationInputEvidence" in executingControl) {
             throw new Error("Executing must not receive Preparation provenance");
@@ -326,6 +346,161 @@ test("Composition Root carries Preparation Memory through approval into Executin
         )) {
             throw new Error("Preparation model responses must not enter Goal messages");
         }
+
+        const persistedRaw = JSON.parse(await readFile(
+            join(root.goalsDirectory, files[0]!),
+            "utf8",
+        )) as Record<string, unknown>;
+
+        // 1. Snapshot 顶层绝不能是 wire envelope
+        assert.equal("result" in persistedRaw, false);
+
+        // 2. Snapshot 中的 lastStep（若是 decision）内部绝不能嵌套 wire envelope
+        if (persisted.state.run.lastStep?.kind === "decision") {
+            const decision = persisted.state.run.lastStep.result as Record<string, unknown>;
+            assert.equal("result" in decision, false, "lastStep decision must not retain wire result envelope");
+            assert.notEqual(decision.memoryPatch, null, "lastStep decision must not retain placeholder null memoryPatch");
+        }
+
+        // 3. Trajectory 中所有 decision_received 事件的 decision 绝不能包含 wire result envelope 或占位 null
+        for (const event of trajectory.committed) {
+            if (event.eventType === "decision_received") {
+                const decision = (event.payload as { decision: Record<string, unknown> }).decision;
+                assert.equal("result" in decision, false, "Trajectory decision must not retain wire result envelope");
+                assert.notEqual(decision.memoryPatch, null, "Trajectory decision must not retain placeholder null memoryPatch");
+            }
+        }
+
+        // 4. 全局深度检查：持久化 Snapshot 和 Trajectory 中绝无任何 null 值的 memoryPatch
+        function assertNoPlaceholderNullMemoryPatch(value: unknown, path = "root"): void {
+            if (value === null || typeof value !== "object") return;
+            if (Array.isArray(value)) {
+                for (let i = 0; i < value.length; i++) {
+                    assertNoPlaceholderNullMemoryPatch(value[i], `${path}[${i}]`);
+                }
+            } else {
+                const record = value as Record<string, unknown>;
+                assert.notEqual(record.memoryPatch, null, `Found placeholder null memoryPatch at ${path}`);
+                for (const [key, child] of Object.entries(record)) {
+                    assertNoPlaceholderNullMemoryPatch(child, `${path}.${key}`);
+                }
+            }
+        }
+        assertNoPlaceholderNullMemoryPatch(persistedRaw, "snapshot");
+        for (const event of trajectory.committed) {
+            assertNoPlaceholderNullMemoryPatch(event, `trajectory.committed[${event.sequence}]`);
+        }
+    } finally {
+        await close(server);
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-bundle-invalid-wire-"));
+    await writeDefaultProfile(workspace);
+    const responses: string[] = [
+        // 1. gathering -> context_ready
+        JSON.stringify({
+            result: {
+                kind: "context_ready",
+                memoryPatch: null,
+            },
+        }),
+        // 2. planning -> task_proposal
+        JSON.stringify({
+            result: {
+                kind: "task_proposal",
+                task: {
+                    objective: "Invalid wire test",
+                    completionCriteria: [],
+                },
+                approvalRequest: "Approve?",
+                memoryPatch: null,
+            },
+        }),
+        // 3. executing -> 旧格式裸 tool_call（缺失 result envelope）
+        JSON.stringify({
+            kind: "tool_call",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "default.json" },
+            },
+        }),
+    ];
+    const requests: CapturedRequest[] = [];
+    const server = createServer((request, response) => {
+        if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+            response.statusCode = 404;
+            response.end();
+            return;
+        }
+        const chunks: Buffer[] = [];
+        request.on("data", (chunk: Buffer) => chunks.push(chunk));
+        request.on("end", () => {
+            const responseContent = responses[requests.length];
+            if (responseContent === undefined) {
+                response.statusCode = 500;
+                response.end("Unexpected model request");
+                return;
+            }
+            requests.push(JSON.parse(Buffer.concat(chunks).toString("utf8")) as CapturedRequest);
+            response.setHeader("Content-Type", "application/json");
+            response.end(JSON.stringify({
+                id: `completion-${requests.length}`,
+                object: "chat.completion",
+                created: 0,
+                model: "test-model",
+                choices: [{
+                    index: 0,
+                    message: { role: "assistant", content: responseContent },
+                    finish_reason: "stop",
+                }],
+            }));
+        });
+    });
+    const port = await listen(server);
+
+    try {
+        const root = await createCompositionRoot({
+            cwd: workspace,
+            env: {
+                LLM_API_KEY: "test-key",
+                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
+                LLM_MODEL: "test-model",
+                LLM_STRUCTURED_OUTPUT_MODE: "strict",
+            },
+            goalIdGenerator: () => "goal-invalid-wire",
+            runIdGenerator: () => "run-invalid-wire",
+        });
+
+        await root.controller.dispatch({
+            kind: "create",
+            intent: "Test invalid wire response handling",
+        });
+        await root.controller.dispatch({ kind: "approveTask" });
+        const failedView = root.controller.getSnapshot();
+
+        assert.equal(failedView.screen, "session");
+        if (failedView.screen === "session") {
+            assert.equal(failedView.phase, "executing");
+            assert.equal(failedView.terminal?.status, "failed");
+            assert.match(failedView.terminal?.reason ?? "", /^INVALID_LLM_RESPONSE: /);
+            assert.equal(failedView.goal.state.run.stopReason?.kind, "execution_error");
+            if (failedView.goal.state.run.stopReason?.kind === "execution_error") {
+                assert.equal(failedView.goal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
+                assert.match(failedView.goal.state.run.stopReason.message, /^INVALID_LLM_RESPONSE: /);
+            }
+        }
+
+        const trajectory = await root.readTrajectory({
+            goalId: "goal-invalid-wire",
+            runId: "run-invalid-wire",
+        });
+        const eventTypes = trajectory.committed.map((event) => event.eventType);
+        assert.equal(eventTypes.includes("action_staged"), false);
+        assert.equal(eventTypes.includes("observation_recorded"), false);
     } finally {
         await close(server);
         await rm(workspace, { recursive: true, force: true });

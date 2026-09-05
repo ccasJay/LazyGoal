@@ -11,7 +11,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { JsonValue } from "../../runtime/src/index";
-import { ExecutionAbortedError } from "../../runtime/src/index";
+import {
+    createToolRegistration,
+    ExecutionAbortedError,
+} from "../../runtime/src/index";
 import {
     GREP_TOOL_ID,
     GrepTool,
@@ -201,6 +204,7 @@ test("GrepTool 拒绝非法输入且不访问文件系统", async () => {
 
     try {
         const tool = new GrepTool(workspaceRoot);
+        const registration = createToolRegistration(tool);
         const invalidInputs: unknown[] = [
             null,
             [],
@@ -219,7 +223,7 @@ test("GrepTool 拒绝非法输入且不访问文件系统", async () => {
         ];
 
         for (const input of invalidInputs) {
-            const result = tool.validate(asJsonValue(input));
+            const result = registration.prepare(asJsonValue(input));
 
             assert.equal(result.ok, false, `expected reject: ${JSON.stringify(input)}`);
             if (!result.ok) {
@@ -227,13 +231,8 @@ test("GrepTool 拒绝非法输入且不访问文件系统", async () => {
             }
         }
 
-        await assert.rejects(
-            () => tool.execute({
-                actionId: "action-invalid",
-                input: { pattern: "a", path: "../secret" },
-            }),
-            /INVALID_TOOL_INPUT/,
-        );
+        const result = registration.prepare({ pattern: "a", path: "../secret" });
+        assert.equal(result.ok, false);
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

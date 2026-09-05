@@ -1,54 +1,17 @@
 import type {
     Goal,
-    GoalTask,
     WorkingMemory,
-    WorkingMemoryPatch,
-    ModelContextCheckpointResult,
 } from "./domain";
 import type { ContextLookupResult } from "./context-retrieval";
 import type { ExecutionControl } from "./execution-control";
 import type { ToolDefinition } from "./tool";
 import type { PreparationInputEvidence } from "./trajectory";
+import type { PreparationResult } from "../../contracts/src/index";
 
-/**
- * Preparation Executor 单轮返回的结构化决策。
- *
- * @remarks
- * `question`、`context_ready` 与 `context_lookup` 属于准备阶段；
- * `task_proposal` 仅属于 `planning`。`context_lookup` 不携带 Memory Patch，且
- * 不消费 Run Step。该结果不直接包含待持久化消息，阶段推进和消息规范化由
- * Coordinator 负责。
- */
-export type PreparationResult =
-    | ModelContextCheckpointResult
-    | {
-        readonly kind: "question";
-        readonly question: string;
-        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
-        readonly memoryPatch?: WorkingMemoryPatch;
-    }
-    | {
-        readonly kind: "context_ready";
-        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
-        readonly memoryPatch?: WorkingMemoryPatch;
-    }
-    | {
-        readonly kind: "task_proposal";
-        readonly task: GoalTask;
-        readonly approvalRequest: string;
-        /** structured@1 可选的 Memory 增量；由 Coordinator 验证后提交。 */
-        readonly memoryPatch?: WorkingMemoryPatch;
-    }
-    | {
-        /** 请求从 committed Trajectory 查询历史信息；该分支不携带 Memory Patch。 */
-        readonly kind: "context_lookup";
-        readonly need:
-            | "historical_execution"
-            | "decision_rationale"
-            | "conversation_history";
-        readonly question: string;
-        readonly filters?: import("./context-retrieval").ContextLookupFilters;
-    };
+export type {
+    PreparationResult,
+};
+
 
 /**
  * Preparation Executor 的单轮对象式输入。

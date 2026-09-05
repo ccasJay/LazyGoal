@@ -162,6 +162,66 @@ test("跨进程 Action 生命周期按 pendingAction→Tool→Observation 顺序
     }
 });
 
+test("跨进程恢复 safe Action 只 prepare 一次并沿用 actionId", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "kai-safe-replay-"));
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "kai-safe-replay-ws-"));
+
+    try {
+        await writeFile(join(workspaceRoot, "README.md"), "恢复文件内容", "utf8");
+        const created = createExecutingGoal({
+            id: "goal-safe",
+            runId: "run-safe",
+            profile,
+        });
+        const action: ToolCallAction = {
+            actionId: "action-safe",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        };
+        const started = applyTransition(created, { kind: "start" });
+        const interrupted = applyTransition(started, {
+            kind: "stage_action",
+            action,
+            status: "approved",
+        });
+        await new JsonFileGoalStore(directory).save(interrupted);
+
+        const output = await runFixture([
+            "run-safe-replay",
+            directory,
+            interrupted.id,
+            "",
+            interrupted.state.run.id,
+            workspaceRoot,
+        ]);
+        const parsed = JSON.parse(output) as {
+            readonly result: {
+                readonly ok: boolean;
+                readonly state?: { readonly status: string; readonly stepCount: number };
+            };
+            readonly observedActionId?: string;
+            readonly prepareCalls: number;
+            readonly replayPolicy: string;
+        };
+
+        assert.equal(parsed.result.ok, true);
+        assert.equal(parsed.result.state?.status, "completed");
+        assert.equal(parsed.result.state?.stepCount, 2);
+        assert.equal(parsed.observedActionId, action.actionId);
+        assert.equal(parsed.prepareCalls, 1);
+        assert.equal(parsed.replayPolicy, "safe");
+
+        const latest = await new JsonFileGoalStore(directory).restore(interrupted.id);
+        assert.equal(latest?.state.run.status, "completed");
+        assert.equal(latest?.state.run.stepCount, 2);
+        assert.equal(latest?.state.run.pendingAction, undefined);
+        assert.equal(latest?.state.run.lastStep?.kind, "decision");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 test("跨进程恢复 manual Action 进入 outcome_unknown waiting 且不执行 Tool", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kai-manual-replay-"));
 
@@ -202,6 +262,8 @@ test("跨进程恢复 manual Action 进入 outcome_unknown waiting 且不执行 
             };
             readonly toolCalls: number;
             readonly executorCalls: number;
+            readonly prepareCalls: number;
+            readonly replayPolicy: string;
         };
 
         assert.equal(parsed.result.ok, true);
@@ -213,6 +275,8 @@ test("跨进程恢复 manual Action 进入 outcome_unknown waiting 且不执行 
         });
         assert.equal(parsed.toolCalls, 0);
         assert.equal(parsed.executorCalls, 0);
+        assert.equal(parsed.prepareCalls, 1);
+        assert.equal(parsed.replayPolicy, "manual");
 
         const latest = await new JsonFileGoalStore(directory).restore(interrupted.id);
         assert.deepEqual(latest?.state.run, parsed.result.state);

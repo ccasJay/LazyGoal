@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { ToolExecutionRequest } from "../../../packages/runtime/src/index.js";
+import type { JsonValue, ToolExecutionRequest } from "../../../packages/runtime/src/index.js";
 import {
     ALFWORLD_PROFILE_ID,
     ALFWORLD_PROFILE_TOOL_IDS,
@@ -52,6 +52,7 @@ class FakeSession implements AlfworldSession {
     phase: AlfworldSession["phase"] = "idle";
     resetCount = 0;
     stepCount = 0;
+    commands: string[] = [];
     closeCount = 0;
     nextStep: SidecarStepResult = {
         observation: "You see a key.",
@@ -75,8 +76,9 @@ class FakeSession implements AlfworldSession {
         };
     }
 
-    async step(): Promise<SidecarStepResult> {
+    async step(command: string): Promise<SidecarStepResult> {
         if (this.phase !== "active") throw new AlfworldSessionStateError("SESSION_IDLE", "idle");
+        this.commands.push(command);
         this.stepCount += 1;
         if (this.nextStep.done) this.phase = "done";
         return this.nextStep;
@@ -89,8 +91,8 @@ class FakeSession implements AlfworldSession {
     }
 }
 
-function request(toolId: string, input: unknown): ToolExecutionRequest {
-    return { actionId: `${toolId}-1`, input: input as never };
+function request<Input extends JsonValue>(toolId: string, input: Input): ToolExecutionRequest<Input> {
+    return { actionId: `${toolId}-1`, input };
 }
 
 test("Profile loader freezes the fixed ID and allowlist from .lazygoal/profiles", async () => {
@@ -146,11 +148,18 @@ test("ALFWorld tools enforce reset/step state and expose existing basic tool ins
     assert.equal(session.resetCount, 1);
     assert.equal(session.stepCount, 1);
 
+    const spacedObservation = await step.execute(
+        request("alfworld_step", { command: "  look  " }),
+    );
+    assert.equal(spacedObservation.kind, "success");
+    assert.deepEqual(session.commands, ["look", "  look  "]);
+
     session.nextStep = { ...session.nextStep, accepted: false, error: { code: "DOMAIN_COMMAND_REJECTED", message: "invalid" } };
     const domainFailure = await step.execute(request("alfworld_step", { command: "bad" }));
     assert.equal(domainFailure.kind, "failure");
     if (domainFailure.kind === "failure") assert.equal(domainFailure.code, "DOMAIN_COMMAND_REJECTED");
-    assert.equal(session.stepCount, 2);
+    assert.equal(session.stepCount, 3);
+    assert.deepEqual(session.commands, ["look", "  look  ", "bad"]);
 
     await session.close();
     await session.close();

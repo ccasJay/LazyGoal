@@ -9,7 +9,6 @@ import {
 } from "node:path";
 
 import type {
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -17,12 +16,16 @@ import type {
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
+import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
-import { isJsonObject, invalidInput } from "./internal/json-input";
+import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
@@ -70,62 +73,20 @@ const GREP_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-interface GrepInput {
-    readonly pattern: string;
-    readonly path?: string;
-    readonly ignoreCase?: boolean;
-}
+/** Grep Tool 的唯一输入 Contract。 */
+export const GREP_INPUT_CONTRACT = contract.object({
+    pattern: contract.string(),
+    path: contract.optional(contract.string()),
+    ignoreCase: contract.optional(contract.boolean()),
+});
+
+type GrepInput = InferContract<typeof GREP_INPUT_CONTRACT>;
 
 type GrepMatch = {
     readonly path: string;
     readonly line: number;
     readonly text: string;
 };
-
-function parseInput(input: JsonValue): GrepInput | undefined {
-    if (!isJsonObject(input)) {
-        return undefined;
-    }
-
-    const keys = Object.keys(input);
-
-    if (
-        !keys.every(
-            (key) => key === "pattern" || key === "path" || key === "ignoreCase",
-        )
-    ) {
-        return undefined;
-    }
-
-    if (
-        !Object.prototype.hasOwnProperty.call(input, "pattern")
-        || typeof input.pattern !== "string"
-    ) {
-        return undefined;
-    }
-
-    if (
-        Object.prototype.hasOwnProperty.call(input, "path")
-        && typeof input.path !== "string"
-    ) {
-        return undefined;
-    }
-
-    if (
-        Object.prototype.hasOwnProperty.call(input, "ignoreCase")
-        && typeof input.ignoreCase !== "boolean"
-    ) {
-        return undefined;
-    }
-
-    return {
-        pattern: input.pattern,
-        ...(typeof input.path === "string" ? { path: input.path } : {}),
-        ...(typeof input.ignoreCase === "boolean"
-            ? { ignoreCase: input.ignoreCase }
-            : {}),
-    };
-}
 
 /**
  * 截断超长匹配行，保留行首内容并标注省略。
@@ -165,20 +126,11 @@ function truncateLine(text: string): string {
  * });
  * ```
  */
-export class GrepTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof GREP_INPUT_CONTRACT> = {
         id: GREP_TOOL_ID,
         description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
-        inputSchema: {
-            type: "object",
-            properties: {
-                pattern: { type: "string" },
-                path: { type: "string" },
-                ignoreCase: { type: "boolean" },
-            },
-            required: ["pattern"],
-            additionalProperties: false,
-        },
+        inputContract: GREP_INPUT_CONTRACT,
     };
 
     readonly replayPolicy = "safe" as const;
@@ -201,20 +153,11 @@ export class GrepTool implements Tool {
      * 校验严格的 `{ pattern, path?, ignoreCase? }` 输入、正则可编译性与
      * 工作区边界规则，不访问文件系统。
      *
-     * @param input - Agent 提交的 JSON 输入。
-     * @returns 输入合法性；`pattern` 必须是非空可编译正则。
+     * @param input - 已由 Input Contract 解析的结构化输入。
+     * @returns 领域语义合法性；`pattern` 必须是非空可编译正则。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        const parsed = parseInput(input);
-
-        if (parsed === undefined) {
-            return invalidInput(
-                "grep 输入必须是只含 pattern（必填字符串）、path（可选字符串）"
-                + "与 ignoreCase（可选布尔）的对象",
-            );
-        }
-
-        return this.checkSemantics(parsed);
+    validate(input: GrepInput): ToolValidationResult {
+        return this.checkSemantics(input);
     }
 
     /**
@@ -223,28 +166,15 @@ export class GrepTool implements Tool {
      * @param request - Action ID 与 `{ pattern, path?, ignoreCase? }` 输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 匹配列表（可能截断）或可恢复的领域失败 Observation。
-     * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常；
-     *   中止时抛出 `ExecutionAbortedError`。
+     * @throws workspaceRoot 无法解析或发生未分类文件系统异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<GrepInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-
-        const parsed = parseInput(request.input);
-
-        if (parsed === undefined) {
-            throw new Error(
-                "INVALID_TOOL_INPUT: grep requires { pattern: string, path?: string, ignoreCase?: boolean }",
-            );
-        }
-
-        const semantic = this.checkSemantics(parsed);
-
-        if (!semantic.ok) {
-            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
-        }
+        const parsed = request.input;
 
         const regex = new RegExp(
             parsed.pattern,

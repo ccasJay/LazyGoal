@@ -351,6 +351,7 @@ export type {
     AgentProfileStore,
 } from "./agent-profile";
 export {
+    createToolRegistration,
     InMemoryToolRegistry,
     resolveAuthorizedToolDefinitions,
 } from "./tool";
@@ -358,9 +359,12 @@ export type {
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
+    ToolInputContract,
     ToolObservation,
     ToolPolicy,
     ToolPolicyContext,
+    ToolPreparationResult,
+    ToolRegistration,
     ToolRegistry,
     ToolValidationResult,
 } from "./tool";
