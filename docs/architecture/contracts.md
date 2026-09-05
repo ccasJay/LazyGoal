@@ -4,8 +4,8 @@
 
 `@lazygoal/contracts` 是独立的结构契约基础包。调用方通过公开 builder 创建带品牌且不可变的
 Contract AST；同一份 AST 可用于 TypeScript 类型推导、严格 JSON 输入校验和 JSON Schema
-2020-12 编译。当前实现只提供通用内核，既有 Agent、Runtime、Storage 等业务协议仍使用各自的
-校验入口，没有迁移到该包。
+2020-12 编译。当前 Tool 输入已全面迁移至不可变 Input Contract，其余 AgentDecision、Snapshot、
+Trajectory、Profile 等业务协议仍使用各自既有校验入口。
 
 ## 数据流
 
@@ -33,8 +33,8 @@ flowchart LR
 - `packages/contracts/src/` 不依赖 LazyGoal 其它 package，也不依赖外部结构校验器；Ajv 仅存在于
   [package devDependencies](../../packages/contracts/package.json) 和 [oracle 测试](../../packages/contracts/test/json-schema-oracle.test.ts) 中。
 - [依赖检查器](../../scripts/check-dependencies.mjs) 将 `contracts` 声明为零出站基础包，并允许其它
-  package 单向依赖它；当前既有 package 尚未导入该包，现有 AgentDecision、Tool input、Snapshot、
-  Trajectory、Profile 和 Diagnostic Trace 协议保持原校验入口。
+  package 单向依赖它；当前 `runtime`、`tools`、`agent` 与 `benchmarks` 已单向依赖它处理 Tool
+  输入契约，其余 AgentDecision、Snapshot、Trajectory、Profile 和 Diagnostic Trace 协议保持原校验入口。
 - AST 是进程内定义，不是 wire protocol；Schema 是按次编译的派生产物。Parser 只接受有限 JSON 值，
   optional 只能直接用于 object 字段，递归输入受固定深度和诊断数量上限约束。
 

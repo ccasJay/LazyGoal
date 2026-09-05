@@ -37,7 +37,7 @@
   - 对编译结果断言七个当前 Contract 不含开放 record、递归引用或其它非可移植结构，可供后续模型输出组合直接消费。
   - _Requirements: [1.4](./requirements.md#req-1-4), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 6. 同步当前架构说明并完成全量回归
+- [x] //TODO 6. 同步当前架构说明并完成全量回归
 
   - 更新 Runtime、Agent 与 Benchmark 架构文档中的 Tool 输入事实源、注册、单次解析和模型 Schema 投影边界，不修改历史 Spec 或 Project Memory。
   - 全仓搜索并删除旧 `inputSchema` 定义面、旧输入解析入口和悬空导出，确认模型响应、Provider、Observation 与持久化协议没有随本特性变化。

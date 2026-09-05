@@ -10,8 +10,7 @@ AgentDecision。
 
 ## 负责 / 不负责
 
-- 负责：三阶段 Working Context 派生、不可变 PromptContext 投影、Prompt Bundle
-  版本化组合与确定性渲染、Conversation 完整单元适配与字符预算裁剪、调用方传入的授权 ToolDefinition 展示、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
+- 负责：三阶段 Working Context 派生、不可变 PromptContext 投影、从授权 ToolDefinition 的 Input Contract 确定性导出并展示模型可见 inputSchema、Prompt Bundle 版本化组合与确定性渲染、Conversation 完整单元适配与字符预算裁剪、PreparationResult/AgentDecision 输出约束、JSON/Zod 校验、稳定协议错误。
 - 不负责：Profile 文件 I/O、Run 状态转换、Profile/Registry/Policy 授权、Tool 执行、循环、GoalStore、重试、具体供应商 SDK、决定 Prompt Bundle 版本是否受支持（只根据 Goal 冻结版本解析，未知版本即失败）。
 
 主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立模型视图位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，投影、请求组装和响应 Schema 分别位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts)、[render.ts](../../packages/agent/src/render.ts) 与 [response-schema.ts](../../packages/agent/src/response-schema.ts)。Preparation View 可接收 Runtime 已提交的 hash-only `preparation_input_recorded` provenance；Executing View 不能携带该字段。当前 v1 可接收一次已提交的 `bm25-lite@1` Lookup Result，不触发 Agent 内部查询；历史命中保留 source refs，但不升级为 Evidence。
@@ -21,7 +20,7 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
 ## 单轮数据流
 
 1. TUI Composition Root 创建一次 Renderer 和一次无状态 `DropOldestContextCompactor` 并共享给两个 Executor，同时创建 Protocol Validator、Working Memory 限制和 `TrajectoryCheckpointCommitter`，注入 Launcher、Coordinator 与 Runner。它还创建不可变的 `ModelContextBudgetPolicy`、目标模型输入计量器和只读 `TrajectoryModelContextAssembler`，并把 Assembler 注入两个 Executor。Conversation 预算来自 `LLM_CONVERSATION_CHAR_BUDGET`，缺失时为 `196608`；非法值在访问 Goal 或调用模型前失败。Composition Root 将唯一的 Prompt Bundle v1 与 `structured@1`、`trajectory-layered@1`、`bm25-lite@1` 组合传给 Launcher，由 `createGoal` 冻结进 GoalDefinition。
-2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、执行期已审批的 Goal Task 契约、冻结 Profile、Memory 协议、Model Context 协议与按 Tool ID 稳定排序的授权 Tool 描述）、保留 `sourceMessageIndex` 的真实会话投影与阶段化 Working Context。Structured Goal 还接收由 Runtime `WorkingMemorySession` 从 committed Trajectory 重建的临时 Memory；Preparation 另外接收独立的 hash-only provenance DTO。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不在 Epoch 前缀携带浮动 Token 水位、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
+2. 每轮先从 Goal 单向投影出独立 `ModelInferenceView`：深冻结的 `PromptContext`（含冻结 Bundle 版本、当前 Phase、执行期已审批的 Goal Task 契约、冻结 Profile、Memory 协议、Model Context 协议与按 Tool ID 稳定排序的授权 Tool 描述）、保留 `sourceMessageIndex` 的真实会话投影与阶段化 Working Context。Projector 对每个已授权 ToolDefinition 的 `inputContract` 调用 `compileJsonSchema`，仅剔除根 `$schema` 元数据，将确定性 JSON Schema 投影为 `ModelToolDefinition.inputSchema`；Contract AST 本身不进入 `ModelInferenceView`，View 保持纯 JSON 数据，Prompt 模板直接消费稳定的 JSON Schema。Structured Goal 还接收由 Runtime `WorkingMemorySession` 从 committed Trajectory 重建的临时 Memory；Preparation 另外接收独立的 hash-only provenance DTO。Projector 逐字段深复制并递归冻结，不修改 Goal、消息历史或 Snapshot，也不在 Epoch 前缀携带浮动 Token 水位、瞬时执行资源或非确定性数据（时间、随机数、环境变量）。Preparation Executor 接收 Runtime 解析的 ToolDefinition，但 `gathering_context` 与 v1 `planning` 固定投影空集合；支持 planning Tool 能力的 Bundle 才投影调用方输入。
 3. Conversation Adapter 以 user 消息为边界生成 `ContextUnit`，开头连续 assistant 消息形成独立前缀单元。默认 Compactor 按 UTF-16 `content.length` 从旧到新丢弃完整单元，只保留连续最新后缀；最新单元即使超出软预算也完整保留。Adapter、Compactor、Epoch 过滤和 Trajectory Assembler 都只复制原始消息索引；裁剪只生成本轮临时 View，不修改 Goal 或 Snapshot。
 4. `renderRequest(view, renderer)` 按照面向 KV 缓存对齐的“三层拓扑”组装模型请求：
    - **Goal-stable 根前缀（System 消息）**：由 Global Overview、Phase Protocol、Approved Goal Task Contract（含 `[0]`, `[1]` 明确索引编号）、Profile 与授权 Tool Definitions 确定性组装，在同一阶段与 Goal 执行期跨步 100% 逐字固定。
@@ -49,7 +48,7 @@ Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)�
   记录隐藏思维链。字符串、递归深度、集合项目和总 JSON 大小均有界，敏感字段按键名脱敏。
 - 只有 LazyGoal 注册的模板可被执行；Profile、Instructions、ToolDefinition、Conversation 与 Working Context 中的 Nunjucks 语法一律作为数据/文本插入，不二次执行。
 - Global Overview 与 Active Phase Protocol 高于冻结 Profile，Profile 只补充不冲突的角色、领域和工作方式。
-- 相同输入产生字符级一致输出：模板与结果统一 LF，Tools 按 Tool ID 稳定升序，`stableJson` 键按代码单元排序，fragment 以 `\n\n` 连接且无结尾换行，空 Instructions/空 Tools 有固定表示。
+- 相同输入产生字符级一致输出：模板与结果统一 LF，Tools 按 Tool ID 稳定升序且其 `inputSchema` 由 Input Contract 确定性编译（仅剔除根 `$schema`，字段顺序和 optional 语义稳定，不含开放 record 或非可移植结构），`stableJson` 键按代码单元排序，fragment 以 `\n\n` 连接且无结尾换行，空 Instructions/空 Tools 有固定表示。
 - Global Overview、Profile 与阶段协议都不写入 Goal 消息历史；恢复后的 user/assistant 内容和顺序原样参与后续请求，assistant 来源仍保存在 Goal 的 `profileId` 中。
 
 ## 当前限制与背景
