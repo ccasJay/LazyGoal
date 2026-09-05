@@ -42,7 +42,7 @@
   - 运行 contracts 完整测试与 TypeScript 编译，确认 oracle 不进入公共入口或运行时依赖图
   - _Requirements: [5.4](./requirements.md#req-5-4), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 7. 接入仓库依赖边界并完成全量回归
+- [x] //TODO 7. 接入仓库依赖边界并完成全量回归
 
   - 更新依赖检查器，把 `contracts` 声明为无内部出站依赖的基础包，并允许现有 package 单向依赖它
   - 同步仓库布局、架构总览和 `docs/architecture/contracts.md`，只描述已实现 Core，不宣称现有业务协议已经迁移
