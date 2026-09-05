@@ -9,7 +9,6 @@
   - 添加 Contracts 与 Runtime 测试，覆盖恶意替换 Executor、额外/缺失字段、循环输入、空白语义和无副作用失败。
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.5](./requirements.md#req-2-5), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 2. 派生 required-nullable wire Contract 与确定性 decoder
 - [x] //TODO 2. 派生 required-nullable wire Contract 与确定性 decoder
 
   - 实现请求级 `ModelOutputContractBundle`、严格 `result` envelope 和递归 optional-to-nullable 派生，拒绝 `optional(nullable(...))` 等不可逆形状。
@@ -17,7 +16,7 @@
   - 添加四类请求基础 fixture，覆盖缺失/额外字段、错误 null、业务 null、嵌套 optional、旧无 envelope 响应和稳定深复制。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 组合授权 Tool 分支并编译 Provider 共用表面
+- [x] //TODO 3. 组合授权 Tool 分支并编译 Provider 共用表面
 
   - 从已授权 Tool 的原始 Input Contract 按稳定 Tool ID 顺序派生 `tool_call` 分支，绑定 `toolId` 与 required-nullable `action.input`；空集合不生成该分支。
   - 实现共用可移植子集检查、确定性 JSON Schema 与 minified Shape Guide，拒绝重复 Tool ID、开放 record、递归和不支持的字符串约束。

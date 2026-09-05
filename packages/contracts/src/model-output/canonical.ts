@@ -122,7 +122,6 @@ export type ContextLookupFilters = InferContract<typeof ContextLookupFiltersCont
 export const ContextLookupRequestContract = contract.object({
     kind: contract.literal("context_lookup"),
     need: ContextLookupNeedContract,
-    question: contract.string({ maxLength: 2000 }),
     question: contract.string(),
     filters: contract.optional(ContextLookupFiltersContract),
 });

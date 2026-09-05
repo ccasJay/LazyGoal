@@ -120,6 +120,11 @@ export {
     deriveWireEnvelopeContract,
 } from "./model-output/wire";
 export {
+    buildShapeGuide,
+    compileModelOutputSchema,
+    SHAPE_GUIDE_PREFIX,
+} from "./model-output/provider-schema";
+export {
     createModelOutputContractBundle,
 } from "./model-output/factory";
 export type {

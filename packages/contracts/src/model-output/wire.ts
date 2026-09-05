@@ -10,7 +10,6 @@ import type {
     NumberOptions,
     ObjectContract,
     ObjectShape,
-    OptionalProperty,
     StringOptions,
 } from "../types";
 import { ModelOutputContractDefinitionError } from "./errors";
@@ -39,16 +38,12 @@ function deriveWireNode(
         throw new ModelOutputContractDefinitionError("Invalid Contract node", path);
     }
 
-    switch (node.kind) {
     const runtimeNode = node as unknown as RuntimeContract;
 
     switch (runtimeNode.kind) {
         case "string": {
             const options = runtimeNode.options as StringOptions | undefined;
             if (
-                node.options?.pattern !== undefined
-                || node.options?.minLength !== undefined
-                || node.options?.maxLength !== undefined
                 options?.pattern !== undefined
                 || options?.minLength !== undefined
                 || options?.maxLength !== undefined
@@ -61,31 +56,24 @@ function deriveWireNode(
             return contract.string();
         }
         case "number":
-            return contract.number(node.options);
             return contract.number(runtimeNode.options as NumberOptions | undefined);
         case "integer":
-            return contract.integer(node.options);
             return contract.integer(runtimeNode.options as NumberOptions | undefined);
         case "boolean":
             return contract.boolean();
         case "null":
             return contract.null();
         case "literal":
-            return contract.enum([node.value as JsonScalar]);
             return contract.enum([runtimeNode.value as JsonScalar]);
         case "enum": {
-            const values = node.values as readonly [JsonScalar, ...JsonScalar[]];
             const values = runtimeNode.values as readonly [JsonScalar, ...JsonScalar[]];
             return contract.enum(values);
         }
         case "array": {
-            const wireItems = deriveWireNode(node.items, [...path, "items"]);
-            return contract.array(wireItems, node.options);
             const wireItems = deriveWireNode(runtimeNode.items, [...path, "items"]);
             return contract.array(wireItems, runtimeNode.options as ArrayOptions | undefined);
         }
         case "nullable": {
-            const wireInner = deriveWireNode(node.inner, [...path, "inner"]);
             const wireInner = deriveWireNode(runtimeNode.inner, [...path, "inner"]);
             return contract.nullable(wireInner);
         }
@@ -101,7 +89,6 @@ function deriveWireNode(
                 path,
             );
         case "union": {
-            const branches = node.branches as readonly Contract<unknown>[];
             const branches = runtimeNode.branches as readonly Contract<unknown>[];
             if (branches.length === 0) {
                 throw new ModelOutputContractDefinitionError("Union branches must be non-empty", path);
@@ -109,11 +96,9 @@ function deriveWireNode(
             const wireBranches = branches.map((b, i) =>
                 deriveWireNode(b, [...path, "branches", i]),
             );
-            return contract.union(wireBranches as readonly [Contract<unknown>, ...Contract<unknown>[]]);
             return contract.union(wireBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]);
         }
         case "discriminatedUnion": {
-            const branches = node.branches as readonly ObjectContract<ObjectShape>[];
             const branches = runtimeNode.branches as readonly ObjectContract<ObjectShape>[];
             if (branches.length === 0) {
                 throw new ModelOutputContractDefinitionError("Discriminated union branches must be non-empty", path);
@@ -121,11 +106,9 @@ function deriveWireNode(
             const wireBranches = branches.map((branch, i) =>
                 deriveWireObject(branch, [...path, "branches", i]),
             );
-            return contract.union(wireBranches as readonly [Contract<unknown>, ...Contract<unknown>[]]);
             return contract.union(wireBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]);
         }
         case "object":
-            return deriveWireObject(node as ObjectContract<ObjectShape>, path);
             return deriveWireObject(node as unknown as ObjectContract<ObjectShape>, path);
         default:
             throw new ModelOutputContractDefinitionError(
@@ -152,7 +135,6 @@ function deriveWireObject(
         const propPath = [...path, key];
         if (isOptionalPropertyNode(prop)) {
             const inner = prop.inner;
-            if (isContractNode(inner) && inner.kind === "nullable") {
             if (isContractNode(inner) && (inner as unknown as RuntimeContract).kind === "nullable") {
                 throw new ModelOutputContractDefinitionError(
                     "optional(nullable(...)) is ambiguous and forbidden in wire contract",
@@ -211,6 +193,40 @@ export function deriveWireEnvelopeContract<Result>(
 }
 
 /**
+ * 检查某个 object contract 分支是否与当前的 input 对象相匹配。
+ */
+function isMatchingBranch(branch: RuntimeContract, value: Record<string, unknown>): boolean {
+    if (branch.kind !== "object" || !isObjectRecord(branch.shape)) {
+        return false;
+    }
+    const shape = branch.shape as Record<string, unknown>;
+
+    // 检查是否有字面量判别字段（例如 kind）
+    if ("kind" in shape && "kind" in value) {
+        const kindProp = shape.kind as RuntimeContract;
+        if (kindProp.kind === "literal" && kindProp.value !== value.kind) {
+            return false;
+        }
+    }
+
+    // 针对 tool_call 特殊匹配：检查 action.toolId
+    if (value.kind === "tool_call" && "action" in shape && isObjectRecord(value.action)) {
+        const actionProp = shape.action as RuntimeContract;
+        if (actionProp.kind === "object" && isObjectRecord(actionProp.shape)) {
+            const actionShape = actionProp.shape as Record<string, unknown>;
+            if ("toolId" in actionShape && "toolId" in value.action) {
+                const toolIdProp = actionShape.toolId as RuntimeContract;
+                if (toolIdProp.kind === "literal" && toolIdProp.value !== value.action.toolId) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true;
+}
+
+/**
  * 递归沿 Canonical 契约树遍历以消除 Wire 数据中由 optional 派生的占位 null，保留合法业务 null。
  */
 function decodeNode(
@@ -222,7 +238,6 @@ function decodeNode(
         return value;
     }
 
-    switch (canonicalNode.kind) {
     const runtimeNode = canonicalNode as unknown as RuntimeContract;
 
     switch (runtimeNode.kind) {
@@ -231,7 +246,6 @@ function decodeNode(
                 return value;
             }
             const decoded: Record<string, unknown> = {};
-            const shape = (canonicalNode as ObjectContract<ObjectShape>).shape;
             const shape = (canonicalNode as unknown as ObjectContract<ObjectShape>).shape;
 
             for (const [key, prop] of Object.entries(shape)) {
@@ -268,14 +282,10 @@ function decodeNode(
             if (!isObjectRecord(value)) {
                 return value;
             }
-            const discriminator = canonicalNode.discriminator as string;
             const discriminator = runtimeNode.discriminator as string;
             const tag = value[discriminator];
-            const branches = canonicalNode.branches as readonly ObjectContract<ObjectShape>[];
             const branches = runtimeNode.branches as readonly ObjectContract<ObjectShape>[];
             const matchingBranch = branches.find((branch) => {
-                const tagProp = branch.shape[discriminator];
-                return isContractNode(tagProp) && tagProp.kind === "literal" && tagProp.value === tag;
                 const tagProp = branch.shape[discriminator] as unknown as RuntimeContract | undefined;
                 return tagProp !== undefined && tagProp.kind === "literal" && tagProp.value === tag;
             });
@@ -286,12 +296,17 @@ function decodeNode(
         }
         case "union": {
             if (Array.isArray(value)) {
-                const branches = canonicalNode.branches as readonly Contract<unknown>[];
-                const arrayBranch = branches.find((b) => b.kind === "array");
                 const branches = runtimeNode.branches as readonly Contract<unknown>[];
                 const arrayBranch = branches.find((b) => (b as unknown as RuntimeContract).kind === "array");
                 if (arrayBranch !== undefined) {
                     return decodeNode(arrayBranch, value, path);
+                }
+            }
+            if (isObjectRecord(value)) {
+                const branches = runtimeNode.branches as readonly Contract<unknown>[];
+                const matchingBranch = branches.find((b) => isMatchingBranch(b as unknown as RuntimeContract, value));
+                if (matchingBranch !== undefined) {
+                    return decodeNode(matchingBranch, value, path);
                 }
             }
             return value;
@@ -300,7 +315,6 @@ function decodeNode(
             if (!Array.isArray(value)) {
                 return value;
             }
-            const itemNode = canonicalNode.items;
             const itemNode = runtimeNode.items;
             return value.map((item, index) => decodeNode(itemNode, item, [...path, index]));
         }
@@ -308,7 +322,6 @@ function decodeNode(
             if (value === null) {
                 return null;
             }
-            return decodeNode(canonicalNode.inner, value, path);
             return decodeNode(runtimeNode.inner, value, path);
         }
         default:
@@ -344,7 +357,6 @@ export function decodeWireResult<Result>(
                 {
                     code: "missing_field",
                     path: ["result"],
-                    message: "Required envelope field "result" is missing",
                     message: "Required envelope field 'result' is missing",
                 },
             ],

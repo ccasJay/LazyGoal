@@ -137,17 +137,10 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
         result: {
             kind: "context_lookup",
             need: "historical_execution",
-            query: "查找错误日志",
             question: "查找错误日志",
             filters: {
                 eventTypes: null,
                 sequenceRange: null,
-                toolId: "read_file",
-                actionId: null,
-                stepIndex: null,
-                path: null,
-                errorCode: null,
-                objectId: null,
                 toolIds: ["read_file"],
                 actionIds: null,
                 stepIndexes: null,
@@ -160,7 +153,6 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
     const decodedLookup = decodeWireResult(wireLookup, OrdinaryExecutingDecisionContract);
     assert.equal(decodedLookup.kind, "context_lookup");
     if (decodedLookup.kind === "context_lookup") {
-        assert.deepEqual(decodedLookup.filters, { toolId: "read_file" });
         assert.deepEqual(decodedLookup.filters, { toolIds: ["read_file"] });
         assert.equal("eventTypes" in (decodedLookup.filters ?? {}), false);
     }
@@ -170,7 +162,6 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
         result: {
             kind: "context_lookup",
             need: "historical_execution",
-            query: "查找错误日志",
             question: "查找错误日志",
             filters: null,
         },
