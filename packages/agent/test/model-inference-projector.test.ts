@@ -6,14 +6,19 @@ import {
     BASH_INPUT_CONTRACT,
     BASH_MAX_TIMEOUT_MS,
     BASH_TOOL_ID,
+    BashTool,
     EDIT_FILE_INPUT_CONTRACT,
     EDIT_FILE_TOOL_ID,
+    EditFileTool,
     GREP_INPUT_CONTRACT,
     GREP_TOOL_ID,
+    GrepTool,
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
+    ReadFileTool,
     WRITE_FILE_INPUT_CONTRACT,
     WRITE_FILE_TOOL_ID,
+    WriteFileTool,
 } from "../../tools/src/index";
 import {
     ALFWORLD_RESET_INPUT_CONTRACT,
@@ -208,6 +213,21 @@ function assertPortableSchema(schema: Record<string, unknown>, path: string): vo
     if (properties !== null && typeof properties === "object" && !Array.isArray(properties)) {
         for (const [key, child] of Object.entries(properties)) {
             assertPortableSchema(child as Record<string, unknown>, `${path}.properties.${key}`);
+        }
+    }
+
+    if (schema.items !== null && typeof schema.items === "object" && !Array.isArray(schema.items)) {
+        assertPortableSchema(schema.items as Record<string, unknown>, `${path}.items`);
+    }
+
+    for (const unionKey of ["anyOf", "oneOf", "allOf"] as const) {
+        const branches = schema[unionKey];
+        if (Array.isArray(branches)) {
+            branches.forEach((branch, index) => {
+                if (branch !== null && typeof branch === "object") {
+                    assertPortableSchema(branch as Record<string, unknown>, `${path}.${unionKey}[${index}]`);
+                }
+            });
         }
     }
 }
@@ -626,4 +646,56 @@ test("Projector 在 executing 阶段拒绝任何 Preparation provenance 字段",
         ),
         /Preparation input evidence requires a preparation phase/,
     );
+});
+
+test("Projector 在遇到无效 Tool Contract 时快速抛出异常", () => {
+    const invalidTool: ToolDefinition = {
+        id: "invalid_tool",
+        description: "无效工具",
+        inputContract: {
+            kind: "unknown_kind" as any,
+        } as any,
+    };
+
+    assert.throws(
+        () => project(createExecutingGoal(), [invalidTool]),
+    );
+});
+
+test("Projector 确保 View 与外部输入完全隔离且子对象不可变", () => {
+    const tools = [toolDefinition()];
+    const view = project(createExecutingGoal(), tools);
+
+    tools.push(toolDefinition("extra_tool"));
+    assert.equal(view.prompt.authorizedTools.length, 1);
+
+    const toolSchema = view.prompt.authorizedTools[0]?.inputSchema as Record<string, any>;
+    assert.ok(Object.isFrozen(toolSchema));
+    assert.ok(Object.isFrozen(toolSchema.properties));
+    assert.ok(Object.isFrozen(toolSchema.properties.path));
+    assert.ok(Object.isFrozen(toolSchema.required));
+
+    assert.throws(
+        () => {
+            toolSchema.properties.newProp = { type: "string" };
+        },
+        /Cannot add property newProp|read only/,
+    );
+});
+
+test("五类实际通用 Tool 实例的 definition 与 CURRENT_TOOL_DEFINITIONS 完全一致", () => {
+    const instances: readonly ToolDefinition[] = [
+        new BashTool("/workspace").definition,
+        new ReadFileTool("/workspace").definition,
+        new WriteFileTool("/workspace").definition,
+        new EditFileTool("/workspace").definition,
+        new GrepTool("/workspace").definition,
+    ];
+
+    for (const inst of instances) {
+        const found = CURRENT_TOOL_DEFINITIONS.find((t) => t.id === inst.id);
+        assert.ok(found !== undefined, `未找到工具 ${inst.id}`);
+        assert.equal(inst.description, found.description);
+        assert.strictEqual(inst.inputContract, found.inputContract);
+    }
 });

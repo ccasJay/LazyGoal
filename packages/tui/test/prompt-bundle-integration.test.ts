@@ -257,8 +257,12 @@ test("Composition Root carries Preparation Memory through approval into Executin
         }
 
         const executingControl = controlPayload(requests[4]!);
-        if (executingControl.task?.objective !== "Approved proposal") {
-            throw new Error("Expected only the approved proposal in Executing");
+        const executingSystem = systemContent(requests[4]!);
+        if (!executingSystem.includes("Approved Goal Task Contract:\nObjective: Approved proposal")) {
+            throw new Error("Expected only the approved proposal in Executing system prompt");
+        }
+        if ("task" in executingControl) {
+            throw new Error("Executing must not receive redundant task in control message");
         }
         if ("preparationInputEvidence" in executingControl) {
             throw new Error("Executing must not receive Preparation provenance");

@@ -5,7 +5,22 @@ import { contract } from "../../contracts/src/index";
 import {
     BASH_INPUT_CONTRACT,
     BASH_MAX_TIMEOUT_MS,
+    BASH_TOOL_ID,
+    EDIT_FILE_INPUT_CONTRACT,
+    EDIT_FILE_TOOL_ID,
+    GREP_INPUT_CONTRACT,
+    GREP_TOOL_ID,
+    READ_FILE_INPUT_CONTRACT,
+    READ_FILE_TOOL_ID,
+    WRITE_FILE_INPUT_CONTRACT,
+    WRITE_FILE_TOOL_ID,
 } from "../../tools/src/index";
+import {
+    ALFWORLD_RESET_INPUT_CONTRACT,
+    ALFWORLD_RESET_TOOL_ID,
+    ALFWORLD_STEP_INPUT_CONTRACT,
+    ALFWORLD_STEP_TOOL_ID,
+} from "../../../benchmarks/alfworld/src/alfworld-tools";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type {
@@ -248,23 +263,49 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(systemContent, /Active Phase Protocol: executing/);
 });
 
+const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
+    {
+        id: BASH_TOOL_ID,
+        description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
+        inputContract: BASH_INPUT_CONTRACT,
+    },
+    {
+        id: READ_FILE_TOOL_ID,
+        description: "读取 workspaceRoot 内的 UTF-8 文本文件",
+        inputContract: READ_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: WRITE_FILE_TOOL_ID,
+        description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
+        inputContract: WRITE_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: EDIT_FILE_TOOL_ID,
+        description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
+        inputContract: EDIT_FILE_INPUT_CONTRACT,
+    },
+    {
+        id: GREP_TOOL_ID,
+        description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+        inputContract: GREP_INPUT_CONTRACT,
+    },
+    {
+        id: ALFWORLD_RESET_TOOL_ID,
+        description: "初始化固定 ALFWorld TextWorld 任务会话",
+        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+    },
+    {
+        id: ALFWORLD_STEP_TOOL_ID,
+        description: "向活动 ALFWorld TextWorld 会话提交一条命令",
+        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+    },
+];
+
 test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", async () => {
     const goal = createExecutingGoal();
-    const tools: readonly ToolDefinition[] = [
-        {
-            id: "read_file",
-            description: "读取文件",
-            inputContract: PATH_INPUT_CONTRACT,
-        },
-        {
-            id: "bash",
-            description: "执行命令",
-            inputContract: BASH_INPUT_CONTRACT,
-        },
-    ];
 
-    const first = await stepRequest(goal, tools);
-    const second = await stepRequest(goal, [...tools].reverse());
+    const first = await stepRequest(goal, CURRENT_TOOL_DEFINITIONS);
+    const second = await stepRequest(goal, [...CURRENT_TOOL_DEFINITIONS].reverse());
     const firstSystemContent = first.messages[0]?.content ?? "";
     const secondSystemContent = second.messages[0]?.content ?? "";
 
@@ -281,6 +322,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     const toolsOffset = firstSystemContent.lastIndexOf(toolsMarker);
 
     assert.notEqual(toolsOffset, -1);
+    const serializedToolsSection = firstSystemContent.slice(toolsOffset);
     const projectedTools = JSON.parse(
         firstSystemContent.slice(toolsOffset + toolsMarker.length),
     );
@@ -289,8 +331,27 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         projectedTools,
         [
             {
-                id: "bash",
-                description: "执行命令",
+                id: ALFWORLD_RESET_TOOL_ID,
+                description: "初始化固定 ALFWorld TextWorld 任务会话",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: ALFWORLD_STEP_TOOL_ID,
+                description: "向活动 ALFWorld TextWorld 会话提交一条命令",
+                inputSchema: {
+                    type: "object",
+                    properties: { command: { type: "string" } },
+                    required: ["command"],
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: BASH_TOOL_ID,
+                description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -306,12 +367,53 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
                 },
             },
             {
-                id: "read_file",
-                description: "读取文件",
+                id: EDIT_FILE_TOOL_ID,
+                description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        newString: { type: "string" },
+                        oldString: { type: "string" },
+                        path: { type: "string" },
+                    },
+                    required: ["path", "oldString", "newString"],
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: GREP_TOOL_ID,
+                description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        ignoreCase: { type: "boolean" },
+                        path: { type: "string" },
+                        pattern: { type: "string" },
+                    },
+                    required: ["pattern"],
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: READ_FILE_TOOL_ID,
+                description: "读取 workspaceRoot 内的 UTF-8 文本文件",
                 inputSchema: {
                     type: "object",
                     properties: { path: { type: "string" } },
                     required: ["path"],
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: WRITE_FILE_TOOL_ID,
+                description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        content: { type: "string" },
+                        path: { type: "string" },
+                    },
+                    required: ["path", "content"],
                     additionalProperties: false,
                 },
             },
@@ -320,15 +422,28 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
 
     const planningRequest = await preparationRequest(
         createPreparationGoal("planning"),
-        tools,
+        [...CURRENT_TOOL_DEFINITIONS].reverse(),
     );
     const planningSystemContent = planningRequest.messages[0]?.content ?? "";
     const planningToolsOffset = planningSystemContent.lastIndexOf(toolsMarker);
 
     assert.notEqual(planningToolsOffset, -1);
+    assert.equal(
+        planningSystemContent.slice(planningToolsOffset),
+        serializedToolsSection,
+    );
+
+    const gatheringRequest = await preparationRequest(
+        createPreparationGoal("gathering_context"),
+        CURRENT_TOOL_DEFINITIONS,
+    );
+    const gatheringSystemContent = gatheringRequest.messages[0]?.content ?? "";
+    const gatheringToolsOffset = gatheringSystemContent.lastIndexOf(toolsMarker);
+
+    assert.notEqual(gatheringToolsOffset, -1);
     assert.deepEqual(
-        JSON.parse(planningSystemContent.slice(planningToolsOffset + toolsMarker.length)),
-        projectedTools,
+        JSON.parse(gatheringSystemContent.slice(gatheringToolsOffset + toolsMarker.length)),
+        [],
     );
 });
 
