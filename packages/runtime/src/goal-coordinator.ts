@@ -15,6 +15,12 @@ import type {
     PreparationResult,
 } from "./preparation-executor";
 import {
+    PreparationResultContract,
+    safeParse,
+    validateModelOutputSemantics,
+} from "../../contracts/src/index";
+
+import {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
@@ -315,7 +321,7 @@ export class GoalCoordinator {
                 throwIfAborted(control);
                 const session = await this.openWorkingMemorySession(goal, control);
                 try {
-                    const result = await this.preparationExecutor.execute({
+                    const rawResult = await this.preparationExecutor.execute({
                         goal,
                         authorizedTools: [],
                         ...(session === undefined
@@ -330,6 +336,11 @@ export class GoalCoordinator {
                             : { contextLookupResult }),
                     });
                     throwIfAborted(control);
+
+                    const validation = this.validatePreparationResult(rawResult);
+                    if (!validation.ok) return validation;
+                    const result = validation.result;
+
 
                     if (result.kind === "context_lookup") {
                         const lookup = await this.prepareContextLookup(
@@ -458,7 +469,7 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const session = await this.openWorkingMemorySession(goal, control);
             try {
-                const result = await this.preparationExecutor.execute({
+                const rawResult = await this.preparationExecutor.execute({
                     goal,
                     authorizedTools: tools,
                     ...(session === undefined
@@ -473,6 +484,11 @@ export class GoalCoordinator {
                         : { contextLookupResult }),
                 });
                 throwIfAborted(control);
+
+                const validation = this.validatePreparationResult(rawResult);
+                if (!validation.ok) return validation;
+                const result = validation.result;
+
 
                 if (result.kind === "context_lookup") {
                     const lookup = await this.prepareContextLookup(
@@ -1536,6 +1552,40 @@ export class GoalCoordinator {
             ...criteria,
             `Approval request: ${approvalRequest}`,
         ].join("\n");
+    }
+
+    private validatePreparationResult(
+        rawResult: unknown,
+    ):
+        | { readonly ok: true; readonly result: PreparationResult }
+        | {
+            readonly ok: false;
+            readonly error: {
+                readonly code: "INVALID_PHASE_RESULT";
+                readonly message: string;
+            };
+        } {
+        const parsed = safeParse(PreparationResultContract, rawResult);
+        if (!parsed.success) {
+            return {
+                ok: false,
+                error: {
+                    code: "INVALID_PHASE_RESULT",
+                    message: `Preparation result violates canonical Contract: ${parsed.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+                },
+            };
+        }
+        const semanticIssues = validateModelOutputSemantics(parsed.data);
+        if (semanticIssues.length > 0) {
+            return {
+                ok: false,
+                error: {
+                    code: "INVALID_PHASE_RESULT",
+                    message: `Preparation result violates semantic rules: ${semanticIssues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+                },
+            };
+        }
+        return { ok: true, result: parsed.data };
     }
 
     private invalidPhaseResult(

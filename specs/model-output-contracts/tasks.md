@@ -2,7 +2,7 @@
 
 > 前置条件：`contract-dsl-core` 与 `tool-input-contracts` 已按顺序实现并通过验证；若其公共 API 与本设计不一致，先返回 Design 阶段处理，不在本 Spec 内复制 DSL 或 Tool Input Contract。
 
-- [ ] //TODO 1. 建立 canonical 模型输出 Contract 与 Runtime 结构边界
+- [x] //TODO 1. 建立 canonical 模型输出 Contract 与 Runtime 结构边界
 
   - 在 `@lazygoal/contracts` 声明模型输出共享结构、推导公开类型并实现无规范化的基础语义检查，覆盖 Preparation、AgentDecision、Memory Patch、Context Lookup、Tool Action 与受限 Fact value。
   - 让 Runtime 从 Contracts 重导出兼容类型，并在 Coordinator/Runner 的任何副作用前用 canonical Contract 深复制校验，保留现有阶段、Evidence、授权和完成证明 gate。
