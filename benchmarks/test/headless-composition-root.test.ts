@@ -102,26 +102,31 @@ function createDependencies<TTask, TOutcome>(
         workspaceRoot: "/workspace",
         profile,
         llmAdapter: {
+            structuredOutputMode: "strict" as const,
             generate: async () => {
                 modelCalls += 1;
                 return {
-                    content: JSON.stringify(modelCalls === 1
-                        ? {
-                            kind: "tool_call",
-                            action: {
-                                actionId: "benchmark-evidence-1",
-                                toolId: "benchmark_evidence",
-                                input: {},
+                    content: JSON.stringify({
+                        result: modelCalls === 1
+                            ? {
+                                kind: "tool_call",
+                                action: {
+                                    actionId: "benchmark-evidence-1",
+                                    toolId: "benchmark_evidence",
+                                    input: {},
+                                },
+                                memoryPatch: null,
+                            }
+                            : {
+                                kind: "complete",
+                                summary: "done",
+                                completionEvidence: [{
+                                    criterionIndex: 0,
+                                    evidenceSequences: [latestObservationSequence(trajectoryStore)],
+                                }],
+                                memoryPatch: null,
                             },
-                        }
-                        : {
-                            kind: "complete",
-                            summary: "done",
-                            completionEvidence: [{
-                                criterionIndex: 0,
-                                evidenceSequences: [latestObservationSequence(trajectoryStore)],
-                            }],
-                        }),
+                    }),
                 };
             },
         },

@@ -24,6 +24,7 @@ function environment(): NodeJS.ProcessEnv {
         LLM_API_KEY: "test-key",
         LLM_BASE_URL: "https://llm.example.test/v1",
         LLM_MODEL: "test-model",
+        LLM_STRUCTURED_OUTPUT_MODE: "strict",
     };
 }
 
@@ -46,8 +47,44 @@ test("readLlmConfig reports every missing variable before creating a root", () =
                 "LLM_API_KEY",
                 "LLM_BASE_URL",
                 "LLM_MODEL",
+                "LLM_STRUCTURED_OUTPUT_MODE",
             ]);
-            assert.match(error.message, /LLM_API_KEY, LLM_BASE_URL, LLM_MODEL/);
+            assert.match(error.message, /LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_STRUCTURED_OUTPUT_MODE/);
+            return true;
+        },
+    );
+});
+
+test("readLlmConfig accepts both strict and prompt_only modes", () => {
+    const strictConfig = readLlmConfig({
+        LLM_API_KEY: "key",
+        LLM_BASE_URL: "url",
+        LLM_MODEL: "model",
+        LLM_STRUCTURED_OUTPUT_MODE: "strict",
+    });
+    assert.equal(strictConfig.structuredOutputMode, "strict");
+
+    const promptOnlyConfig = readLlmConfig({
+        LLM_API_KEY: "key",
+        LLM_BASE_URL: "url",
+        LLM_MODEL: "model",
+        LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+    });
+    assert.equal(promptOnlyConfig.structuredOutputMode, "prompt_only");
+});
+
+test("readLlmConfig rejects invalid LLM_STRUCTURED_OUTPUT_MODE", () => {
+    assert.throws(
+        () => readLlmConfig({
+            LLM_API_KEY: "key",
+            LLM_BASE_URL: "url",
+            LLM_MODEL: "model",
+            LLM_STRUCTURED_OUTPUT_MODE: "auto",
+        }),
+        (error: unknown) => {
+            assert.ok(error instanceof CliConfigurationError);
+            assert.equal(error.code, "INVALID_LLM_CONFIG");
+            assert.match(error.message, /Invalid LLM_STRUCTURED_OUTPUT_MODE "auto"/);
             return true;
         },
     );
@@ -230,8 +267,27 @@ test("missing CLI configuration exits before touching the workspace", async () =
 
     assert.equal(exitCode, 1);
     assert.deepEqual(errors, [
-        "Missing required environment variable(s): LLM_API_KEY, LLM_BASE_URL, LLM_MODEL",
+        "Missing required environment variable(s): LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_STRUCTURED_OUTPUT_MODE",
     ]);
+    await assert.rejects(access(join(workspace, ".lazygoal")));
+});
+
+test("runCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE before Store or Goal side effects", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-invalid-mode-"));
+    const errors: string[] = [];
+    const exitCode = await runCli([], {
+        cwd: workspace,
+        env: {
+            LLM_API_KEY: "test-key",
+            LLM_BASE_URL: "https://llm.example.test/v1",
+            LLM_MODEL: "test-model",
+            LLM_STRUCTURED_OUTPUT_MODE: "unsupported_mode",
+        },
+        writeError: (message) => errors.push(message),
+    });
+
+    assert.equal(exitCode, 1);
+    assert.match(errors[0] ?? "", /Invalid LLM_STRUCTURED_OUTPUT_MODE "unsupported_mode"/);
     await assert.rejects(access(join(workspace, ".lazygoal")));
 });
 

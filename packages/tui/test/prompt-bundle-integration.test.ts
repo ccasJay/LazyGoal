@@ -164,6 +164,7 @@ test("Composition Root carries Preparation Memory through approval into Executin
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
+                LLM_STRUCTURED_OUTPUT_MODE: "strict",
             },
             goalIdGenerator: () => "goal-current",
             runIdGenerator: () => "run-current",

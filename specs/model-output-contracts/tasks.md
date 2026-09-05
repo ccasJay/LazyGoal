@@ -44,7 +44,7 @@
   - 更新全部直接构造调用方与 Provider mock 测试，覆盖两种模式、原生参数、SDK 拒绝、中止和无隐式重试。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 7. 接入 TUI 与 benchmark 模式配置
+- [x] //TODO 7. 接入 TUI 与 benchmark 模式配置
 
   - 在 TUI 与 benchmark 配置边界读取必填 `LLM_STRUCTURED_OUTPUT_MODE`，只接受 `strict` / `prompt_only`，并把已校验值传给 OpenAI-compatible Adapter。
   - 保持现有 Provider 装配不变，不为 Gemini 新增 CLI 路径；同步环境示例和测试 fixture 中的显式模式。
