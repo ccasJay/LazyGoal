@@ -4,12 +4,14 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createToolRegistration,
     ExecutionAbortedError,
     GoalCoordinator,
     InlineScheduler,
     Runner,
     throwIfAborted,
 } from "../src/index";
+import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
@@ -31,6 +33,8 @@ const profile: AgentProfile = {
     instructions: ["Stop promptly when the execution signal is aborted."],
     toolIds: [],
 };
+
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
 function createExecutingGoal(
     toolIds: readonly string[] = [],
@@ -169,11 +173,11 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
     const toolStarted = new Promise<void>((resolve) => {
         started = resolve;
     });
-    const tool: Tool = {
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
         definition: {
             id: "echo",
             description: "Echo input",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -208,7 +212,9 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: (toolId) => toolId === "echo" ? tool : undefined },
+        toolRegistry: {
+            get: (toolId) => toolId === "echo" ? createToolRegistration(tool) : undefined,
+        },
     });
     const operation = runner.run(
         { goalId: goal.id, runId: goal.state.run.id },

@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest } from "../../llm/src/core/types";
+import { contract } from "../../contracts/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
@@ -23,6 +24,9 @@ import {
     currentWorkingMemory,
 } from "./current-fixtures";
 import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-context-assembler";
+
+const EMPTY_INPUT_CONTRACT = contract.object({});
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -163,7 +167,7 @@ test("planning 只解析 task_proposal 协议", async () => {
     const tool: ToolDefinition = {
         id: "read_file",
         description: "v1 不应看见",
-        inputSchema: { type: "object" },
+        inputContract: EMPTY_INPUT_CONTRACT,
     };
     const result = await executor.execute({
         goal,
@@ -225,12 +229,7 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
     const tool: ToolDefinition = {
         id: "inspect_release",
         description: "检查发布包并返回文件清单 Observation",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"],
-            additionalProperties: false,
-        },
+        inputContract: PATH_INPUT_CONTRACT,
     };
 
     await executor.execute({
@@ -255,7 +254,16 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
     assert.notEqual(toolsOffset, -1);
     assert.deepEqual(
         JSON.parse(systemContent.slice(toolsOffset + toolsMarker.length)),
-        [tool],
+        [{
+            id: tool.id,
+            description: tool.description,
+            inputSchema: {
+                type: "object",
+                properties: { path: { type: "string" } },
+                required: ["path"],
+                additionalProperties: false,
+            },
+        }],
     );
     assert.equal(workingContext.phase, "planning");
     assert.equal(workingContext.intent, "生成发布包，并由外部审核人确认签字");

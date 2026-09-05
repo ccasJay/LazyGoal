@@ -1,5 +1,4 @@
 import type {
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -7,12 +6,16 @@ import type {
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
+import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
-import { isJsonObject, invalidInput } from "./internal/json-input";
+import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
@@ -45,30 +48,12 @@ const READ_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-interface ReadFileInput {
-    readonly path: string;
-}
+/** Read File Tool 的唯一输入 Contract。 */
+export const READ_FILE_INPUT_CONTRACT = contract.object({
+    path: contract.string(),
+});
 
-function parseInput(input: JsonValue): ReadFileInput | undefined {
-    if (!isJsonObject(input)) {
-        return undefined;
-    }
-
-    const keys = Object.keys(input);
-
-    if (
-        keys.length !== 1
-        || !Object.prototype.hasOwnProperty.call(input, "path")
-    ) {
-        return undefined;
-    }
-
-    if (typeof input.path !== "string") {
-        return undefined;
-    }
-
-    return { path: input.path };
-}
+type ReadFileInput = InferContract<typeof READ_FILE_INPUT_CONTRACT>;
 
 /**
  * 在指定 workspaceRoot 内读取 UTF-8 文本文件的只读 Tool。
@@ -88,18 +73,11 @@ function parseInput(input: JsonValue): ReadFileInput | undefined {
  * });
  * ```
  */
-export class ReadFileTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof READ_FILE_INPUT_CONTRACT> = {
         id: READ_FILE_TOOL_ID,
         description: "读取 workspaceRoot 内的 UTF-8 文本文件",
-        inputSchema: {
-            type: "object",
-            properties: {
-                path: { type: "string" },
-            },
-            required: ["path"],
-            additionalProperties: false,
-        },
+        inputContract: READ_FILE_INPUT_CONTRACT,
     };
 
     readonly replayPolicy = "safe" as const;
@@ -118,17 +96,11 @@ export class ReadFileTool implements Tool {
     /**
      * 校验严格的 `{ path: string }` 输入和工作区边界规则，不访问文件系统。
      *
-     * @param input - Agent 提交的 JSON 输入。
-     * @returns 输入合法性；符号链接越界需在执行时解析后拒绝。
+     * @param input - 已由 Input Contract 解析的结构化输入。
+     * @returns 领域语义合法性；符号链接越界需在执行时解析后拒绝。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        const parsed = parseInput(input);
-
-        if (parsed === undefined) {
-            return invalidInput("read_file 输入只能包含 path 字段");
-        }
-
-        return this.checkSemantics(parsed);
+    validate(input: ReadFileInput): ToolValidationResult {
+        return this.checkSemantics(input);
     }
 
     /**
@@ -137,28 +109,15 @@ export class ReadFileTool implements Tool {
      * @param request - Action ID 与 `{ path: string }` 输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 文件内容或可恢复的文件领域失败 Observation。
-     * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常；
-     *   中止时抛出 `ExecutionAbortedError`。
+     * @throws workspaceRoot 无法解析或发生未分类文件系统异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<ReadFileInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-
-        const parsed = parseInput(request.input);
-
-        if (parsed === undefined) {
-            throw new Error("INVALID_TOOL_INPUT: read_file.path must be a string");
-        }
-
-        const semantic = this.checkSemantics(parsed);
-
-        if (!semantic.ok) {
-            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
-        }
-
-        const requestedPath = parsed.path;
+        const requestedPath = request.input.path;
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,

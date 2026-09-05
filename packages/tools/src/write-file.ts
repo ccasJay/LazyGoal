@@ -1,7 +1,6 @@
 import { basename, dirname, join } from "node:path";
 
 import type {
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -9,12 +8,16 @@ import type {
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
+import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
-import { isJsonObject, invalidInput } from "./internal/json-input";
+import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
@@ -47,32 +50,13 @@ const WRITE_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-interface WriteFileInput {
-    readonly path: string;
-    readonly content: string;
-}
+/** Write File Tool 的唯一输入 Contract。 */
+export const WRITE_FILE_INPUT_CONTRACT = contract.object({
+    path: contract.string(),
+    content: contract.string(),
+});
 
-function parseInput(input: JsonValue): WriteFileInput | undefined {
-    if (!isJsonObject(input)) {
-        return undefined;
-    }
-
-    const keys = Object.keys(input);
-
-    if (
-        keys.length !== 2
-        || !Object.prototype.hasOwnProperty.call(input, "path")
-        || !Object.prototype.hasOwnProperty.call(input, "content")
-    ) {
-        return undefined;
-    }
-
-    if (typeof input.path !== "string" || typeof input.content !== "string") {
-        return undefined;
-    }
-
-    return { path: input.path, content: input.content };
-}
+type WriteFileInput = InferContract<typeof WRITE_FILE_INPUT_CONTRACT>;
 
 /**
  * 在指定 workspaceRoot 内写入 UTF-8 文本文件的 Tool。
@@ -94,19 +78,11 @@ function parseInput(input: JsonValue): WriteFileInput | undefined {
  * });
  * ```
  */
-export class WriteFileTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof WRITE_FILE_INPUT_CONTRACT> = {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
-        inputSchema: {
-            type: "object",
-            properties: {
-                path: { type: "string" },
-                content: { type: "string" },
-            },
-            required: ["path", "content"],
-            additionalProperties: false,
-        },
+        inputContract: WRITE_FILE_INPUT_CONTRACT,
     };
 
     readonly replayPolicy = "safe" as const;
@@ -125,17 +101,11 @@ export class WriteFileTool implements Tool {
     /**
      * 校验严格的 `{ path, content }` 输入和工作区边界规则，不访问文件系统。
      *
-     * @param input - Agent 提交的 JSON 输入。
-     * @returns 输入合法性；`content` 允许为空字符串；符号链接越界需在执行时解析后拒绝。
+     * @param input - 已由 Input Contract 解析的结构化输入。
+     * @returns 领域语义合法性；`content` 允许为空字符串；符号链接越界需在执行时解析后拒绝。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        const parsed = parseInput(input);
-
-        if (parsed === undefined) {
-            return invalidInput("write_file 输入只能包含 path 与 content 字段");
-        }
-
-        return this.checkSemantics(parsed);
+    validate(input: WriteFileInput): ToolValidationResult {
+        return this.checkSemantics(input);
     }
 
     /**
@@ -144,31 +114,16 @@ export class WriteFileTool implements Tool {
      * @param request - Action ID 与 `{ path, content }` 输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 写入字节数或可恢复的文件领域失败 Observation。
-     * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常；
-     *   中止时抛出 `ExecutionAbortedError`。
+     * @throws workspaceRoot 无法解析或发生未分类文件系统异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<WriteFileInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-
-        const parsed = parseInput(request.input);
-
-        if (parsed === undefined) {
-            throw new Error(
-                "INVALID_TOOL_INPUT: write_file.path and write_file.content must be strings",
-            );
-        }
-
-        const semantic = this.checkSemantics(parsed);
-
-        if (!semantic.ok) {
-            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
-        }
-
-        const requestedPath = parsed.path;
-        const content = parsed.content;
+        const requestedPath = request.input.path;
+        const content = request.input.content;
 
         let targetPath: string;
 

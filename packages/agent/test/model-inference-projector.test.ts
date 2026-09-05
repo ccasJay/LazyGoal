@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createEmptyWorkingMemory, createGoal } from "../../runtime/src/domain";
 import type {
@@ -30,6 +31,7 @@ const profile: AgentProfile = {
 };
 
 const projector = new ModelInferenceProjector();
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 
 function createPreparationGoal(
     phase: "gathering_context" | "planning" = "gathering_context",
@@ -105,10 +107,7 @@ function toolDefinition(id = "read_file"): ToolDefinition {
     return {
         id,
         description: "读取工作区内文本文件",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-        },
+        inputContract: PATH_INPUT_CONTRACT,
     };
 }
 
@@ -198,7 +197,12 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     assert.deepEqual(view.prompt.authorizedTools[0], {
         id: "read_file",
         description: "读取工作区内文本文件",
-        inputSchema: toolDefinition().inputSchema,
+        inputSchema: {
+            type: "object",
+            properties: { path: { type: "string" } },
+            required: ["path"],
+            additionalProperties: false,
+        },
     });
 });
 

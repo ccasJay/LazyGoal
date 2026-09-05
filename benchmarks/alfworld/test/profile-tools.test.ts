@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { ToolExecutionRequest } from "../../../packages/runtime/src/index.js";
+import type { JsonValue, ToolExecutionRequest } from "../../../packages/runtime/src/index.js";
 import {
     ALFWORLD_PROFILE_ID,
     ALFWORLD_PROFILE_TOOL_IDS,
@@ -89,8 +89,8 @@ class FakeSession implements AlfworldSession {
     }
 }
 
-function request(toolId: string, input: unknown): ToolExecutionRequest {
-    return { actionId: `${toolId}-1`, input: input as never };
+function request<Input extends JsonValue>(toolId: string, input: Input): ToolExecutionRequest<Input> {
+    return { actionId: `${toolId}-1`, input };
 }
 
 test("Profile loader freezes the fixed ID and allowlist from .lazygoal/profiles", async () => {

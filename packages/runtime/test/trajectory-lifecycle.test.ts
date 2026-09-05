@@ -6,7 +6,9 @@ import {
     Runner,
     allocateImmutableEvent,
     createGoal,
+    createToolRegistration,
 } from "../src/index";
+import { contract } from "../../contracts/src/index";
 import type {
     AgentDecision,
     AgentProfile,
@@ -27,6 +29,8 @@ const profile: AgentProfile = {
     instructions: [],
     toolIds: ["echo"],
 };
+
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
 class RecordingTrajectorySink implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
@@ -100,11 +104,11 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const toolEvents: string[] = [];
     let decisionCount = 0;
 
-    const tool: Tool = {
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
         definition: {
             id: "echo",
             description: "echo",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -128,7 +132,9 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: (id) => id === tool.definition.id ? tool : undefined },
+        toolRegistry: {
+            get: (id) => id === tool.definition.id ? createToolRegistration(tool) : undefined,
+        },
         executor: {
             async execute() {
                 decisionCount += 1;

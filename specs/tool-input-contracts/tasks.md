@@ -2,7 +2,7 @@
 
 > 前置条件：`contract-dsl-core` 已实现并通过验证；若其公共 API 与本设计不一致，先返回 Design 阶段处理，不在本 Spec 内复制 DSL。
 
-- [ ] //TODO 1. 原子迁移 Tool Contract 公共接口与仓库内消费者
+- [x] //TODO 1. 原子迁移 Tool Contract 公共接口与仓库内消费者
 
   - 在 Runtime 实现泛型 `Tool<C>`、`ToolRegistration`、`createToolRegistration`、Registry 查询和 `PreparedToolAction`，并补齐公共接口的中文契约级 TSDoc。
   - 同步迁移七个 Tool、Agent Projector、TUI/benchmark 组合根以及仓库内测试替身，移除 `inputSchema`、重复输入类型和结构解析器。

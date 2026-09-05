@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type {
@@ -18,6 +19,8 @@ import type {
     ModelPreparationInputEvidence,
     PromptContext,
 } from "../src/model-inference-view";
+
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 import type { ContextCompactor } from "../src/context-compactor";
 import type { PromptBundleRenderer } from "../src/prompting/types";
 import { buildPreparationRequest, buildStepRequest } from "../src/prompt";
@@ -231,10 +234,7 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     const tool: ToolDefinition = {
         id: "read_file",
         description: "读取工作区内文本文件",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-        },
+        inputContract: PATH_INPUT_CONTRACT,
     };
     const request = await stepRequest(goal, [tool]);
     const systemContent = request.messages[0]?.content ?? "";
@@ -381,14 +381,10 @@ test("裁剪后的 Preparation 请求保留原始索引并过滤不可见 proven
 });
 
 test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition", async () => {
-    const inputSchema = {
-        type: "object",
-        properties: { path: { type: "string" } },
-    };
     const tools: readonly ToolDefinition[] = [{
         id: "read_file",
         description: "读取文件",
-        inputSchema,
+        inputContract: PATH_INPUT_CONTRACT,
     }];
     const contexts: PromptContext[] = [];
     const capturingRenderer: PromptBundleRenderer = {
@@ -407,7 +403,7 @@ test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition"
     assert.ok(contexts.length > 0);
     assert.ok(contexts.every((context) => context.authorizedTools.length === 1));
     assert.notStrictEqual(contexts[0]?.authorizedTools[0], tools[0]);
-    assert.notStrictEqual(contexts[0]?.authorizedTools[0]?.inputSchema, inputSchema);
+    assert.notStrictEqual(contexts[0]?.authorizedTools[0]?.inputSchema, PATH_INPUT_CONTRACT);
     assert.equal(Object.isFrozen(contexts[0]?.authorizedTools[0]?.inputSchema), true);
 });
 

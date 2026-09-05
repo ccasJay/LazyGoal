@@ -1,5 +1,6 @@
 import { JsonFileGoalStore } from "../../src/index";
-import { Runner } from "../../../runtime/src/index";
+import { Runner, createToolRegistration } from "../../../runtime/src/index";
+import { contract } from "../../../contracts/src/index";
 import type {
     Goal,
     GoalStore,
@@ -7,7 +8,11 @@ import type {
     StepExecutor,
     Tool,
 } from "../../../runtime/src/index";
-import { READ_FILE_TOOL_ID, ReadFileTool } from "../../../tools/src/index";
+import {
+    READ_FILE_INPUT_CONTRACT,
+    READ_FILE_TOOL_ID,
+    ReadFileTool,
+} from "../../../tools/src/index";
 import { InMemoryTrajectoryStore, trajectoryStoreFor } from "../../../runtime/test/current-fixtures";
 
 const [
@@ -53,6 +58,7 @@ async function main(): Promise<void> {
         }
 
         const tool = new ReadFileTool(workspaceRoot);
+        const registration = createToolRegistration(tool);
         let observedActionId: string | undefined;
         const result = await new Runner({
             trajectoryStore: new InMemoryTrajectoryStore(),
@@ -73,7 +79,7 @@ async function main(): Promise<void> {
             },
             toolRegistry: {
                 get(toolId) {
-                    return toolId === READ_FILE_TOOL_ID ? tool : undefined;
+                    return toolId === READ_FILE_TOOL_ID ? registration : undefined;
                 },
             },
         }).run({ goalId, runId });
@@ -111,7 +117,7 @@ async function main(): Promise<void> {
         };
         const tool = new ReadFileTool(workspaceRoot);
         const observedActionIds: string[] = [];
-        const recordingTool: Tool = {
+        const recordingTool: Tool<typeof READ_FILE_INPUT_CONTRACT> = {
             definition: tool.definition,
             replayPolicy: tool.replayPolicy,
             validate: (input) => tool.validate(input),
@@ -149,7 +155,9 @@ async function main(): Promise<void> {
             executor,
             toolRegistry: {
                 get(id) {
-                    return id === READ_FILE_TOOL_ID ? recordingTool : undefined;
+                    return id === READ_FILE_TOOL_ID
+                        ? createToolRegistration(recordingTool)
+                        : undefined;
                 },
             },
         }).run({ goalId, runId });
@@ -165,11 +173,12 @@ async function main(): Promise<void> {
 
         let toolCalls = 0;
         let executorCalls = 0;
-        const tool: Tool = {
+        const MANUAL_INPUT_CONTRACT = contract.record(contract.string());
+        const tool: Tool<typeof MANUAL_INPUT_CONTRACT> = {
             definition: {
                 id: "manual_tool",
                 description: "需要人工确认的 Tool",
-                inputSchema: { type: "object" },
+                inputContract: MANUAL_INPUT_CONTRACT,
             },
             replayPolicy: "manual",
             validate: () => ({ ok: true }),
@@ -189,7 +198,9 @@ async function main(): Promise<void> {
             },
             toolRegistry: {
                 get(id) {
-                    return id === "manual_tool" ? tool : undefined;
+                    return id === "manual_tool"
+                        ? createToolRegistration(tool)
+                        : undefined;
                 },
             },
         }).run({ goalId, runId });
@@ -228,7 +239,7 @@ async function main(): Promise<void> {
 
                     const base = new ReadFileTool(workspaceRoot);
 
-                    return {
+                    const decorated: Tool<typeof READ_FILE_INPUT_CONTRACT> = {
                         definition: base.definition,
                         replayPolicy: base.replayPolicy,
                         validate: (input) => base.validate(input),
@@ -237,6 +248,7 @@ async function main(): Promise<void> {
                             return base.execute(request, control);
                         },
                     };
+                    return createToolRegistration(decorated);
                 },
             },
         });

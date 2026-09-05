@@ -1,6 +1,5 @@
 import type {
     JsonObject,
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -9,12 +8,17 @@ import type {
     ToolValidationResult,
 } from "../../../packages/runtime/src/index.js";
 import {
+    createToolRegistration,
     ExecutionAbortedError,
     InMemoryToolRegistry,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../../packages/runtime/src/index.js";
+import {
+    contract,
+    type InferContract,
+} from "../../../packages/contracts/src/index.js";
 import { GrepTool, ReadFileTool } from "../../../packages/tools/src/index.js";
 import {
     SidecarAbortedError,
@@ -27,6 +31,17 @@ import {
 
 export const ALFWORLD_RESET_TOOL_ID = "alfworld_reset";
 export const ALFWORLD_STEP_TOOL_ID = "alfworld_step";
+
+/** ALFWorld Reset Tool 的唯一输入 Contract。 */
+export const ALFWORLD_RESET_INPUT_CONTRACT = contract.object({});
+
+/** ALFWorld Step Tool 的唯一输入 Contract。 */
+export const ALFWORLD_STEP_INPUT_CONTRACT = contract.object({
+    command: contract.string(),
+});
+
+type AlfworldResetInput = InferContract<typeof ALFWORLD_RESET_INPUT_CONTRACT>;
+type AlfworldStepInput = InferContract<typeof ALFWORLD_STEP_INPUT_CONTRACT>;
 
 /**
  * 专用 ALFWorld Tool 使用的 sidecar 会话边界。
@@ -159,11 +174,11 @@ export class SidecarAlfworldSession implements AlfworldSession {
  * await tool.execute({ actionId: "reset-1", input: {} });
  * ```
  */
-export class AlfworldResetTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class AlfworldResetTool implements Tool<typeof ALFWORLD_RESET_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof ALFWORLD_RESET_INPUT_CONTRACT> = {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
-        inputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+        inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
     };
     readonly replayPolicy = "manual" as const;
 
@@ -173,13 +188,11 @@ export class AlfworldResetTool implements Tool {
     ) {}
 
     /**
-     * @param input - Agent 提交的空对象。
-     * @returns 输入合法性结果。
+     * @param input - 已由 Input Contract 解析的空对象。
+     * @returns 领域语义合法性结果。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        return isEmptyObject(input)
-            ? { ok: true }
-            : invalidInput("alfworld_reset 输入必须是空对象");
+    validate(_input: AlfworldResetInput): ToolValidationResult {
+        return { ok: true };
     }
 
     /**
@@ -189,12 +202,10 @@ export class AlfworldResetTool implements Tool {
      * @throws 中止、sidecar 协议或基础设施错误。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<AlfworldResetInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const validation = this.validate(request.input);
-        if (!validation.ok) throw new Error(`${validation.error.code}: ${validation.error.message}`);
         try {
             const result = await this.session.reset(this.task, control?.signal);
             throwIfAborted(control);
@@ -230,29 +241,21 @@ export class AlfworldResetTool implements Tool {
  * await tool.execute({ actionId: "step-1", input: { command: "look" } });
  * ```
  */
-export class AlfworldStepTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class AlfworldStepTool implements Tool<typeof ALFWORLD_STEP_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof ALFWORLD_STEP_INPUT_CONTRACT> = {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
-        inputSchema: {
-            type: "object",
-            properties: { command: { type: "string" } },
-            required: ["command"],
-            additionalProperties: false,
-        },
+        inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
     };
     readonly replayPolicy = "manual" as const;
 
     constructor(private readonly session: AlfworldSession) {}
 
     /**
-     * @param input - Agent 提交的 `{ command: string }`。
-     * @returns 输入合法性结果。
+     * @param input - 已由 Input Contract 解析的 `{ command: string }`。
+     * @returns 领域语义合法性结果。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        if (!isRecord(input) || Object.keys(input).length !== 1 || typeof input.command !== "string") {
-            return invalidInput("alfworld_step 输入必须是 { command: string }");
-        }
+    validate(input: AlfworldStepInput): ToolValidationResult {
         if (input.command.trim() === "") return invalidInput("alfworld_step.command 不能为空");
         return { ok: true };
     }
@@ -264,15 +267,10 @@ export class AlfworldStepTool implements Tool {
      * @throws 中止、sidecar 协议或基础设施错误。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<AlfworldStepInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-        const validation = this.validate(request.input);
-        if (!validation.ok) throw new Error(`${validation.error.code}: ${validation.error.message}`);
-        if (!isRecord(request.input) || typeof request.input.command !== "string") {
-            throw new Error("INVALID_TOOL_INPUT: alfworld_step.command must be a string");
-        }
         try {
             const result = await this.session.step(request.input.command, control?.signal);
             throwIfAborted(control);
@@ -327,16 +325,13 @@ export function createAlfworldToolSet(
     const stepTool = new AlfworldStepTool(session);
     const readFileTool = new ReadFileTool(workspaceRoot);
     const grepTool = new GrepTool(workspaceRoot);
-    const registry = new InMemoryToolRegistry([readFileTool, grepTool, resetTool, stepTool]);
+    const registry = new InMemoryToolRegistry([
+        createToolRegistration(readFileTool),
+        createToolRegistration(grepTool),
+        createToolRegistration(resetTool),
+        createToolRegistration(stepTool),
+    ]);
     return { session, registry };
-}
-
-function isRecord(value: JsonValue): value is JsonObject {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isEmptyObject(value: JsonValue): value is JsonObject {
-    return isRecord(value) && Object.keys(value).length === 0;
 }
 
 function invalidInput(message: string): ToolValidationResult {

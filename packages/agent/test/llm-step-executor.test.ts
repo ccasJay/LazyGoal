@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
@@ -29,6 +30,8 @@ import {
     currentProtocols,
     currentWorkingMemory,
 } from "./current-fixtures";
+
+const EMPTY_INPUT_CONTRACT = contract.object({});
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -288,7 +291,7 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
     const readFileTool: ToolDefinition = {
         id: "read_file",
         description: "读取工作区文件",
-        inputSchema: { type: "object" },
+        inputContract: EMPTY_INPUT_CONTRACT,
     };
 
     assert.deepEqual(

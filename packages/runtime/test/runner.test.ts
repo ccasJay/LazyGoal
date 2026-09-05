@@ -4,9 +4,11 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createToolRegistration,
     Runner,
     transition,
 } from "../src/index";
+import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
@@ -41,6 +43,9 @@ const profile: AgentProfile = {
 };
 
 const toolProfile: AgentProfile = { ...profile, toolIds: ["read_file"] };
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
+
+type TestTool = Tool<typeof TEST_INPUT_CONTRACT>;
 
 type ExecuteAction = (
     goal: Goal,
@@ -102,19 +107,23 @@ class SequenceDecisionExecutor implements StepExecutor {
 }
 
 function createRunnerTool(
-    execute: Tool["execute"],
-    validate: Tool["validate"] = () => ({ ok: true }),
-): Tool {
+    execute: TestTool["execute"],
+    validate: TestTool["validate"] = () => ({ ok: true }),
+): TestTool {
     return {
         definition: {
             id: "read_file",
             description: "读取文件",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate,
         execute,
     };
+}
+
+function registerTool(tool: TestTool) {
+    return createToolRegistration(tool);
 }
 
 function createSaveFailingStore(
@@ -307,7 +316,7 @@ test("starts a created Goal, saves every transition, and executes until complete
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     });
 
     const state = requireSuccessfulState(
@@ -739,7 +748,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     });
 
     const state = requireSuccessfulState(
@@ -936,7 +945,7 @@ test("maxSteps 为 0 时连续执行不受 Step 数量限制", async () => {
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     });
 
     const state = requireSuccessfulState(
@@ -1064,7 +1073,7 @@ test("propagates a recovered step save error and does not execute another step",
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     });
 
     await assertRejectsWithSameError(
@@ -1093,11 +1102,11 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     let registryCalls = 0;
     let validateCalls = 0;
     let executeCalls = 0;
-    const tool: Tool = {
+    const tool: TestTool = {
         definition: {
             id: "read_file",
             description: "读取文件",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1112,7 +1121,7 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     const registry: ToolRegistry = {
         get: () => {
             registryCalls += 1;
-            return tool;
+            return registerTool(tool);
         },
     };
     const executor = new FakeDecisionExecutor({
@@ -1190,11 +1199,11 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     );
     await store.save(initial);
     let executeCalls = 0;
-    const tool: Tool = {
+    const tool: TestTool = {
         definition: {
             id: "read_file",
             description: "读取文件",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({
@@ -1221,7 +1230,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial, "run-invalid-input"));
 
     const state = requireSuccessfulState(result);
@@ -1242,11 +1251,11 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
-    const tool: Tool = {
+    const tool: TestTool = {
         definition: {
             id: "read_file",
             description: "读取文件",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1269,7 +1278,7 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial, "run-tool-infrastructure"));
 
     const state = requireSuccessfulState(result);
@@ -1290,11 +1299,11 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
         { ...profile, toolIds: ["read_file"] },
     );
     await store.save(initial);
-    const tool: Tool = {
+    const tool: TestTool = {
         definition: {
             id: "read_file",
             description: "读取文件",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1332,7 +1341,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     const registry: ToolRegistry = {
         get: (toolId) => {
             events.push(`registry:${toolId}`);
-            return tool;
+            return registerTool(tool);
         },
     };
     const policy: ToolPolicy = {
@@ -1411,7 +1420,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         toolPolicy: { evaluate: () => "allow" },
     }).run(createRef(initial, "run-auto-action"));
 
@@ -1478,11 +1487,11 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
             summary: "完成",
         },
     ]);
-    const tool: Tool = {
+    const tool: TestTool = {
         definition: {
             id: "bash",
             description: "执行 Bash 命令",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -1500,7 +1509,7 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: (toolId) => toolId === "bash" ? tool : undefined },
+        toolRegistry: { get: (toolId) => toolId === "bash" ? registerTool(tool) : undefined },
         toolPolicy: { evaluate: () => "allow" },
     }).run(createRef(initial, "run-bash-command"));
 
@@ -1547,7 +1556,7 @@ test("require_approval 会保存等待中的 Action 且不调用 Tool", async ()
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         toolPolicy: { evaluate: () => "require_approval" },
     }).run(createRef(initial, "run-action-approval"));
 
@@ -1605,7 +1614,7 @@ test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step",
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         toolPolicy: { evaluate: () => "require_approval" },
     });
 
@@ -1668,7 +1677,7 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         toolPolicy: {
             evaluate: () => {
                 throw new Error("恢复 safe Action 不应重新评估 Policy");
@@ -1727,7 +1736,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
         definition: {
             id: "manual_tool",
             description: "需要人工确认的 Tool",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "manual" as const,
     };
@@ -1737,7 +1746,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(interrupted));
 
     const state = requireSuccessfulState(result);
@@ -1780,7 +1789,7 @@ test("Action loop reaches maxSteps after completing a pending Action", async () 
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial));
 
     const state = requireSuccessfulState(result);
@@ -1835,7 +1844,7 @@ test("Action loop 在 maxSteps 为 0 时持续完成多个 Tool 周期", async (
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial));
 
     const state = requireSuccessfulState(result);
@@ -1879,7 +1888,7 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial, "run-domain-failure"));
 
     const state = requireSuccessfulState(result);
@@ -1930,7 +1939,7 @@ test("pendingAction 保存失败时不调用 Tool 并传播 Store 错误", async
         trajectoryStore: trajectoryStoreFor(control.store),
             store: control.store,
             executor,
-            toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         }).run(createRef(initial, "run-pending-save-failure")),
         saveError,
     );
@@ -1970,7 +1979,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
         trajectoryStore: trajectoryStoreFor(control.store),
             store: control.store,
             executor,
-            toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
         }).run(createRef(initial, "run-observation-save-failure")),
         saveError,
     );
@@ -2015,7 +2024,7 @@ test("Tool 异常会保存 outcome_unknown execution_error", async () => {
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => registerTool(tool) },
     }).run(createRef(initial, "run-tool-error"));
 
     const state = requireSuccessfulState(result);

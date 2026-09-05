@@ -1,5 +1,4 @@
 import type {
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -7,12 +6,16 @@ import type {
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
+import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
-import { isJsonObject, invalidInput } from "./internal/json-input";
+import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
@@ -45,42 +48,14 @@ const EDIT_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-interface EditFileInput {
-    readonly path: string;
-    readonly oldString: string;
-    readonly newString: string;
-}
+/** Edit File Tool 的唯一输入 Contract。 */
+export const EDIT_FILE_INPUT_CONTRACT = contract.object({
+    path: contract.string(),
+    oldString: contract.string(),
+    newString: contract.string(),
+});
 
-function parseInput(input: JsonValue): EditFileInput | undefined {
-    if (!isJsonObject(input)) {
-        return undefined;
-    }
-
-    const keys = Object.keys(input);
-
-    if (
-        keys.length !== 3
-        || !Object.prototype.hasOwnProperty.call(input, "path")
-        || !Object.prototype.hasOwnProperty.call(input, "oldString")
-        || !Object.prototype.hasOwnProperty.call(input, "newString")
-    ) {
-        return undefined;
-    }
-
-    if (
-        typeof input.path !== "string"
-        || typeof input.oldString !== "string"
-        || typeof input.newString !== "string"
-    ) {
-        return undefined;
-    }
-
-    return {
-        path: input.path,
-        oldString: input.oldString,
-        newString: input.newString,
-    };
-}
+type EditFileInput = InferContract<typeof EDIT_FILE_INPUT_CONTRACT>;
 
 /**
  * 在指定 workspaceRoot 内对 UTF-8 文本文件执行精确字符串替换的 Tool。
@@ -104,20 +79,11 @@ function parseInput(input: JsonValue): EditFileInput | undefined {
  * });
  * ```
  */
-export class EditFileTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof EDIT_FILE_INPUT_CONTRACT> = {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
-        inputSchema: {
-            type: "object",
-            properties: {
-                path: { type: "string" },
-                oldString: { type: "string" },
-                newString: { type: "string" },
-            },
-            required: ["path", "oldString", "newString"],
-            additionalProperties: false,
-        },
+        inputContract: EDIT_FILE_INPUT_CONTRACT,
     };
 
     readonly replayPolicy = "safe" as const;
@@ -136,20 +102,12 @@ export class EditFileTool implements Tool {
     /**
      * 校验严格的 `{ path, oldString, newString }` 输入和工作区边界规则，不访问文件系统。
      *
-     * @param input - Agent 提交的 JSON 输入。
-     * @returns 输入合法性；`oldString` 不能为空且不能与 `newString` 相同；
+     * @param input - 已由 Input Contract 解析的结构化输入。
+     * @returns 领域语义合法性；`oldString` 不能为空且不能与 `newString` 相同；
      *   符号链接越界需在执行时解析后拒绝。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        const parsed = parseInput(input);
-
-        if (parsed === undefined) {
-            return invalidInput(
-                "edit_file 输入只能包含 path、oldString 与 newString 字段",
-            );
-        }
-
-        return this.checkSemantics(parsed);
+    validate(input: EditFileInput): ToolValidationResult {
+        return this.checkSemantics(input);
     }
 
     /**
@@ -158,32 +116,17 @@ export class EditFileTool implements Tool {
      * @param request - Action ID 与 `{ path, oldString, newString }` 输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 替换成功（含幂等重放）或可恢复的领域失败 Observation。
-     * @throws 输入未通过校验、workspaceRoot 无法解析或发生未分类文件系统异常；
-     *   中止时抛出 `ExecutionAbortedError`。
+     * @throws workspaceRoot 无法解析或发生未分类文件系统异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<EditFileInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-
-        const parsed = parseInput(request.input);
-
-        if (parsed === undefined) {
-            throw new Error(
-                "INVALID_TOOL_INPUT: edit_file requires string path, oldString and newString",
-            );
-        }
-
-        const semantic = this.checkSemantics(parsed);
-
-        if (!semantic.ok) {
-            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
-        }
-
-        const requestedPath = parsed.path;
-        const oldString = parsed.oldString;
-        const newString = parsed.newString;
+        const requestedPath = request.input.path;
+        const oldString = request.input.oldString;
+        const newString = request.input.newString;
 
         const resolved = await this.sandbox.resolveTarget(
             requestedPath,

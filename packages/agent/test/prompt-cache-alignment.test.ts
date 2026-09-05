@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, StepRecord } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
@@ -21,6 +22,7 @@ import {
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();
+const LOCATION_INPUT_CONTRACT = contract.object({ location: contract.string() });
 
 function sha256(content: string): string {
     return createHash("sha256").update(content).digest("hex");
@@ -43,11 +45,7 @@ const tools: readonly ToolDefinition[] = [
     {
         id: "navigate_to",
         description: "移动到指定目标位置",
-        inputSchema: {
-            type: "object",
-            properties: { location: { type: "string" } },
-            required: ["location"],
-        },
+        inputContract: LOCATION_INPUT_CONTRACT,
     },
 ];
 

@@ -6,6 +6,7 @@ import {
 } from "../../runtime/src/domain";
 import type { PreparationInputEvidence } from "../../runtime/src/trajectory";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
     ModelConversationMessage,
@@ -332,10 +333,14 @@ function projectTools(
 
         seen.add(tool.id);
 
+        const { $schema: _schema, ...inputSchema } = compileJsonSchema(
+            tool.inputContract,
+        );
+
         return {
             id: tool.id,
             description: tool.description,
-            inputSchema: structuredClone(tool.inputSchema),
+            inputSchema,
         };
     });
 

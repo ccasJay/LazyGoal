@@ -8,6 +8,7 @@ import { render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
+    createToolRegistration,
     DEFAULT_WORKING_MEMORY_LIMITS,
     ManagedResourceRegistry,
     ProcessExitPort,
@@ -558,11 +559,11 @@ export async function createCompositionRoot(
     const grepTool = new GrepTool(workspaceRoot);
     const bashTool = new BashTool(workspaceRoot);
     const toolRegistry = new InMemoryToolRegistry([
-        readFileTool,
-        writeFileTool,
-        editFileTool,
-        grepTool,
-        bashTool,
+        createToolRegistration(readFileTool),
+        createToolRegistration(writeFileTool),
+        createToolRegistration(editFileTool),
+        createToolRegistration(grepTool),
+        createToolRegistration(bashTool),
     ]);
     const missingToolId = profile.toolIds.find(
         (toolId) => toolRegistry.get(toolId) === undefined,
