@@ -59,7 +59,7 @@ flowchart LR
 - Working Memory 只在 Coordinator/Runner 调用链内存在；`WorkingMemorySession` 从 Snapshot 的 `memoryRevision` 与 `committedThroughSequence` 重建，原始 Trajectory 永不被 Compact 或归约覆盖。
 - accepted Patch、Runtime 生命周期 Patch、Action/Observation 和终态事实共享同一提交顺序；模型 Patch 在关联 Action 前提交，Projector Patch 与 Observation 处于同一 Snapshot 边界，终态清理 phase intent。
 - Prompt Bundle（Global Overview 与 Phase Protocol）是 Agent 拥有的上层模型契约，Profile 只补充不冲突的角色与领域细节；Tool 权限和状态合法性仍由 Runtime 强制执行。
-- `contracts` 是零出站依赖的基础包；依赖检查器允许其它 package 单向依赖它，但当前既有业务 package 尚未接入，现有协议和校验入口保持不变。
+- `contracts` 是零出站依赖的基础包；依赖检查器允许其它 package 单向依赖它；当前 Tool 输入契约已全面接入该包，其余 AgentDecision、Snapshot、Trajectory、Profile 与 Diagnostic Trace 协议保持原校验入口。
 - 分层依赖方向由 `npm run check:dependencies` 自动校验：View DTO、Prompt Renderer 与 Storage DTO/Schema 不得反向引用 Runtime，只有 Codec 与 Projector 允许同时看到两侧；脚本同时拒绝任何 package 反向加载 Storage 或 Agent。
 - 当前只保存最新快照，不提供历史版本或并发冲突检测；Runtime 与 Runner 已支持自动允许、审批等待、拒绝、瞬时授权以及 safe/manual 中断恢复。
 

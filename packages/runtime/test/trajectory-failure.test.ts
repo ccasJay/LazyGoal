@@ -8,7 +8,9 @@ import {
     allocateDiagnosticTraceRecord,
     allocateImmutableEvent,
     createGoal,
+    createToolRegistration,
 } from "../src/index";
+import { contract } from "../../contracts/src/index";
 import type {
     AgentProfile,
     Goal,
@@ -29,6 +31,8 @@ const profile: AgentProfile = {
     instructions: [],
     toolIds: ["echo"],
 };
+
+const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
 class MemoryGoalStore implements GoalStore {
     private goal?: Goal;
@@ -109,12 +113,12 @@ function executingGoal(id: string): Goal {
     };
 }
 
-function toolThatFails(): Tool {
+function toolThatFails(): Tool<typeof TEST_INPUT_CONTRACT> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -124,12 +128,12 @@ function toolThatFails(): Tool {
     };
 }
 
-function toolWithoutResult(): Tool {
+function toolWithoutResult(): Tool<typeof TEST_INPUT_CONTRACT> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -139,12 +143,12 @@ function toolWithoutResult(): Tool {
     };
 }
 
-function toolThatSucceeds(onExecute?: () => void): Tool {
+function toolThatSucceeds(onExecute?: () => void): Tool<typeof TEST_INPUT_CONTRACT> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputSchema: { type: "object" },
+            inputContract: TEST_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -178,7 +182,7 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => createToolRegistration(tool) },
         executor: { execute: async () => toolDecision() },
     });
     await assert.rejects(
@@ -202,7 +206,7 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => createToolRegistration(tool) },
         executor: { execute: async () => toolDecision() },
     });
 
@@ -236,7 +240,7 @@ test("an Observation append failure keeps the durable pending Action and prior f
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => tool },
+        toolRegistry: { get: () => createToolRegistration(tool) },
         executor: { execute: async () => toolDecision() },
     });
 
@@ -266,7 +270,7 @@ test("a Tool without a result records an execution error without a fabricated fi
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => toolWithoutResult() },
+        toolRegistry: { get: () => createToolRegistration(toolWithoutResult()) },
         executor: { execute: async () => toolDecision() },
     });
 

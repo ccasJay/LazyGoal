@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, StepRecord } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
@@ -21,6 +22,7 @@ import {
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();
+const LOCATION_INPUT_CONTRACT = contract.object({ location: contract.string() });
 
 function sha256(content: string): string {
     return createHash("sha256").update(content).digest("hex");
@@ -43,11 +45,7 @@ const tools: readonly ToolDefinition[] = [
     {
         id: "navigate_to",
         description: "移动到指定目标位置",
-        inputSchema: {
-            type: "object",
-            properties: { location: { type: "string" } },
-            required: ["location"],
-        },
+        inputContract: LOCATION_INPUT_CONTRACT,
     },
 ];
 
@@ -116,7 +114,7 @@ test("同一 Goal 在 Executing 阶段连续执行 10 步，Goal-stable 根前�
         const trajectoryStore = createInMemoryTrajectoryStore();
         const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
-        const request = await buildStepRequest(
+        const { request } = await buildStepRequest(
             goal,
             tools,
             renderer,
@@ -152,7 +150,7 @@ test("同一 Epoch 内连续执行多步，Epoch-stable 会话前缀 SHA-256 100
         const trajectoryStore = createInMemoryTrajectoryStore();
         const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
-        const request = await buildStepRequest(
+        const { request } = await buildStepRequest(
             goal,
             tools,
             renderer,
@@ -181,7 +179,7 @@ test("尾部 Step-dynamic 控制消息精简为纯增量，彻底剥离 intent�
     const trajectoryStore = createInMemoryTrajectoryStore();
     const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
-    const request = await buildStepRequest(
+    const { request } = await buildStepRequest(
         goal,
         tools,
         renderer,
@@ -200,8 +198,62 @@ test("尾部 Step-dynamic 控制消息精简为纯增量，彻底剥离 intent�
     assert.equal("intent" in payload, false, "不能在尾部重复序列化 intent");
     assert.equal("task" in payload, false, "不能在尾部重复序列化 task");
     assert.equal("contextEpoch" in payload, false, "不能在尾部序列化静态 contextEpoch");
+    assert.equal("responseShapeGuide" in payload, false, "strict 模式默认不注入 responseShapeGuide");
     if (payload.trajectoryContext) {
         assert.equal("budget" in payload.trajectoryContext, false, "不能在尾部泄露内部 budget 报告");
+    }
+});
+
+test("prompt-only 模式仅在尾部动态消息末尾注入 Shape Guide，Goal-stable 与 Epoch-stable 前缀完全保持固定", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const goalHashes: string[] = [];
+    const epochHashes: string[] = [];
+
+    for (let step = 1; step <= 5; step++) {
+        const goal = createExecutingGoal({ stepCount: step });
+        const trajectoryStore = createInMemoryTrajectoryStore();
+        const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
+
+        const { request } = await buildStepRequest(
+            goal,
+            tools,
+            renderer,
+            contextCompactor,
+            undefined,
+            currentWorkingMemory,
+            assembler,
+            undefined,
+            undefined,
+            "prompt_only",
+        );
+
+        // 1. Goal-stable 根前缀 (system 消息)
+        goalHashes.push(sha256(request.messages[0]!.content));
+
+        // 2. Epoch-stable 会话前缀
+        const conversationMessages = request.messages.slice(1, -1);
+        epochHashes.push(sha256(JSON.stringify(conversationMessages)));
+
+        // 3. 尾部动态控制消息
+        const lastMessage = request.messages.at(-1)!;
+        assert.equal(lastMessage.role, "user");
+        const payload = JSON.parse(lastMessage.content);
+        assert.equal(typeof payload.responseShapeGuide, "string");
+        assert.match(payload.responseShapeGuide, /Respond with a JSON object conforming to the following schema:/);
+        assert.match(payload.responseShapeGuide, /"result"/);
+    }
+
+    // 验证前缀稳定完全一致
+    assert.equal(goalHashes.length, 5);
+    const expectedGoalHash = goalHashes[0]!;
+    for (const h of goalHashes) {
+        assert.equal(h, expectedGoalHash, "prompt_only 模式下 Goal-stable 根前缀 SHA-256 必须 100% 完全相同");
+    }
+
+    assert.equal(epochHashes.length, 5);
+    const expectedEpochHash = epochHashes[0]!;
+    for (const h of epochHashes) {
+        assert.equal(h, expectedEpochHash, "prompt_only 模式下 Epoch-stable 会话前缀 SHA-256 必须 100% 完全相同");
     }
 });
 
@@ -226,7 +278,7 @@ test("从已持久化的 Goal Snapshot 恢复后生成的 LLM 请求完全幂等
     const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
     // 恢复前构建请求
-    const requestBefore = await buildStepRequest(
+    const planBefore = await buildStepRequest(
         originalGoal,
         tools,
         renderer,
@@ -241,7 +293,7 @@ test("从已持久化的 Goal Snapshot 恢复后生成的 LLM 请求完全幂等
     const restoredGoal = goalSnapshotCodec.decode(snapshot);
 
     // 恢复后构建请求
-    const requestAfter = await buildStepRequest(
+    const planAfter = await buildStepRequest(
         restoredGoal,
         tools,
         renderer,
@@ -252,7 +304,8 @@ test("从已持久化的 Goal Snapshot 恢复后生成的 LLM 请求完全幂等
     );
 
     // 断言请求消息完全相同且逐字节幂等
-    assert.deepStrictEqual(requestBefore.messages, requestAfter.messages);
+    assert.deepStrictEqual(planBefore.request.messages, planAfter.request.messages);
+    assert.equal(planBefore.bundle.name, planAfter.bundle.name);
 });
 
 test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中恢复连续哈希稳定性", async () => {
@@ -268,7 +321,7 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
             preparation: { status: "active" },
         },
     });
-    const planningRequest = await buildPreparationRequest(
+    const planningPlan = await buildPreparationRequest(
         planningGoal,
         tools,
         renderer,
@@ -277,12 +330,12 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(planningRequest.messages[0]!.content, /Active Phase Protocol: planning/);
-    assert.doesNotMatch(planningRequest.messages[0]!.content, /Approved Goal Task Contract:/);
+    assert.match(planningPlan.request.messages[0]!.content, /Active Phase Protocol: planning/);
+    assert.doesNotMatch(planningPlan.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
     // 2. 进入 Executing 阶段后，注入 Task 契约
     const executingGoal1 = createExecutingGoal({ stepCount: 1 });
-    const executingRequest1 = await buildStepRequest(
+    const executingPlan1 = await buildStepRequest(
         executingGoal1,
         tools,
         renderer,
@@ -291,12 +344,12 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(executingRequest1.messages[0]!.content, /Active Phase Protocol: executing/);
-    assert.match(executingRequest1.messages[0]!.content, /Approved Goal Task Contract:/);
+    assert.match(executingPlan1.request.messages[0]!.content, /Active Phase Protocol: executing/);
+    assert.match(executingPlan1.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
     // 3. 进入 Executing 阶段的后续步，哈希保持一致
     const executingGoal2 = createExecutingGoal({ stepCount: 2 });
-    const executingRequest2 = await buildStepRequest(
+    const executingPlan2 = await buildStepRequest(
         executingGoal2,
         tools,
         renderer,
@@ -306,7 +359,7 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
         assembler,
     );
     assert.equal(
-        sha256(executingRequest1.messages[0]!.content),
-        sha256(executingRequest2.messages[0]!.content),
+        sha256(executingPlan1.request.messages[0]!.content),
+        sha256(executingPlan2.request.messages[0]!.content),
     );
 });

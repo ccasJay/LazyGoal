@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../packages/contracts/src/index.js";
 import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
+    createToolRegistration,
     ExecutionAbortedError,
     TrajectoryAppendError,
     type AgentProfile,
@@ -31,12 +33,13 @@ const profile: AgentProfile = {
     instructions: ["Use the available tools."],
     toolIds: ["benchmark_evidence"],
 };
+const EMPTY_INPUT_CONTRACT = contract.object({});
 
 const evidenceTool: Tool = {
     definition: {
         id: "benchmark_evidence",
         description: "Produce a committed benchmark fact.",
-        inputSchema: { type: "object" },
+        inputContract: EMPTY_INPUT_CONTRACT,
     },
     replayPolicy: "safe",
     validate: () => ({ ok: true }),
@@ -46,6 +49,7 @@ const evidenceTool: Tool = {
         summary: "benchmark evidence recorded",
     }),
 };
+const evidenceRegistration = createToolRegistration(evidenceTool);
 
 class InMemoryTrajectoryStore implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
@@ -98,26 +102,31 @@ function createDependencies<TTask, TOutcome>(
         workspaceRoot: "/workspace",
         profile,
         llmAdapter: {
+            structuredOutputMode: "strict" as const,
             generate: async () => {
                 modelCalls += 1;
                 return {
-                    content: JSON.stringify(modelCalls === 1
-                        ? {
-                            kind: "tool_call",
-                            action: {
-                                actionId: "benchmark-evidence-1",
-                                toolId: "benchmark_evidence",
-                                input: {},
+                    content: JSON.stringify({
+                        result: modelCalls === 1
+                            ? {
+                                kind: "tool_call",
+                                action: {
+                                    actionId: "benchmark-evidence-1",
+                                    toolId: "benchmark_evidence",
+                                    input: {},
+                                },
+                                memoryPatch: null,
+                            }
+                            : {
+                                kind: "complete",
+                                summary: "done",
+                                completionEvidence: [{
+                                    criterionIndex: 0,
+                                    evidenceSequences: [latestObservationSequence(trajectoryStore)],
+                                }],
+                                memoryPatch: null,
                             },
-                        }
-                        : {
-                            kind: "complete",
-                            summary: "done",
-                            completionEvidence: [{
-                                criterionIndex: 0,
-                                evidenceSequences: [latestObservationSequence(trajectoryStore)],
-                            }],
-                        }),
+                    }),
                 };
             },
         },
@@ -130,9 +139,9 @@ function createDependencies<TTask, TOutcome>(
                 return {
                     ...episode,
                     registry: {
-                        get(toolId: string): Tool | undefined {
+                        get(toolId: string) {
                             return toolId === evidenceTool.definition.id
-                                ? evidenceTool
+                                ? evidenceRegistration
                                 : episode.registry.get(toolId);
                         },
                     },

@@ -43,6 +43,7 @@ async function main(): Promise<void> {
         apiKey: requiredEnv("LLM_API_KEY"),
         baseURL: requiredEnv("LLM_BASE_URL"),
         model: requiredEnv("LLM_MODEL"),
+        structuredOutputMode: "strict",
     });
     const store = new SmokeGoalStore();
     const renderer = await createDefaultPromptBundleRenderer();

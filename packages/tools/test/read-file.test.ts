@@ -16,6 +16,10 @@ import type {
     Tool,
 } from "../../runtime/src/index";
 import {
+    contract,
+} from "../../contracts/src/index";
+import {
+    createToolRegistration,
     ExecutionAbortedError,
     InMemoryToolRegistry,
 } from "../../runtime/src/index";
@@ -24,16 +28,18 @@ import {
     ReadFileTool,
 } from "../src/index";
 
+const ECHO_INPUT_CONTRACT = contract.object({});
+
 function asJsonValue(value: unknown): JsonValue {
     return value as JsonValue;
 }
 
-function createEchoTool(id = "echo"): Tool {
+function createEchoTool(id = "echo"): Tool<typeof ECHO_INPUT_CONTRACT> {
     return {
         definition: {
             id,
             description: "返回输入",
-            inputSchema: { type: "object" },
+            inputContract: ECHO_INPUT_CONTRACT,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -48,17 +54,20 @@ function createEchoTool(id = "echo"): Tool {
 }
 
 test("InMemoryToolRegistry 按 toolId 查找并拒绝重复注册", () => {
-    const echo = createEchoTool();
+    const echo = createToolRegistration(createEchoTool());
     const registry = new InMemoryToolRegistry([echo]);
 
     assert.strictEqual(registry.get("echo"), echo);
     assert.equal(registry.get("missing"), undefined);
     assert.throws(
-        () => new InMemoryToolRegistry([createEchoTool(), createEchoTool()]),
+        () => new InMemoryToolRegistry([
+            createToolRegistration(createEchoTool()),
+            createToolRegistration(createEchoTool()),
+        ]),
         /Duplicate Tool definition id/,
     );
     assert.throws(
-        () => new InMemoryToolRegistry([createEchoTool("   ")]),
+        () => new InMemoryToolRegistry([createToolRegistration(createEchoTool("   "))]),
         /Tool definition id must be non-empty/,
     );
 });
@@ -98,6 +107,7 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
 
     try {
         const tool = new ReadFileTool(workspaceRoot);
+        const registration = createToolRegistration(tool);
         const invalidInputs: unknown[] = [
             null,
             [],
@@ -111,7 +121,7 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
         ];
 
         for (const input of invalidInputs) {
-            const result = tool.validate(asJsonValue(input));
+            const result = registration.prepare(asJsonValue(input));
 
             assert.equal(result.ok, false);
             if (!result.ok) {
@@ -119,13 +129,8 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
             }
         }
 
-        await assert.rejects(
-            () => tool.execute({
-                actionId: "action-invalid",
-                input: { path: "../secret.txt" },
-            }),
-            /INVALID_TOOL_INPUT/,
-        );
+        const result = registration.prepare({ path: "../secret.txt" });
+        assert.equal(result.ok, false);
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

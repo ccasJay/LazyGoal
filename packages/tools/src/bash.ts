@@ -3,7 +3,6 @@ import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import type {
-    JsonValue,
     Tool,
     ToolDefinition,
     ToolExecutionRequest,
@@ -11,11 +10,15 @@ import type {
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
+    contract,
+    type InferContract,
+} from "../../contracts/src/index";
+import {
     ExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
-import { isJsonObject, invalidInput } from "./internal/json-input";
+import { invalidInput } from "./internal/invalid-input";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -29,43 +32,16 @@ export const BASH_MAX_TIMEOUT_MS = 120_000;
 /** stdout/stderr 各自保留在 Observation 中的最大字符数。 */
 export const BASH_MAX_OUTPUT_CHARS = 10_000;
 
-interface BashInput {
-    readonly command: string;
-    readonly timeoutMs?: number;
-}
+/** Bash Tool 的唯一输入 Contract。 */
+export const BASH_INPUT_CONTRACT = contract.object({
+    command: contract.string(),
+    timeoutMs: contract.optional(contract.integer({
+        minimum: 1,
+        maximum: BASH_MAX_TIMEOUT_MS,
+    })),
+});
 
-function parseInput(input: JsonValue): BashInput | undefined {
-    if (!isJsonObject(input)) {
-        return undefined;
-    }
-
-    const keys = Object.keys(input);
-
-    if (!keys.every((key) => key === "command" || key === "timeoutMs")) {
-        return undefined;
-    }
-
-    if (!Object.prototype.hasOwnProperty.call(input, "command")) {
-        return undefined;
-    }
-
-    const command = input.command;
-
-    if (typeof command !== "string") {
-        return undefined;
-    }
-
-    if (
-        Object.prototype.hasOwnProperty.call(input, "timeoutMs")
-        && typeof input.timeoutMs !== "number"
-    ) {
-        return undefined;
-    }
-
-    return typeof input.timeoutMs === "number"
-        ? { command, timeoutMs: input.timeoutMs }
-        : { command };
-}
+type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
 
 /**
  * 单个子进程输出流的有界尾部收集器。
@@ -230,19 +206,11 @@ function runShellCommand(
  * });
  * ```
  */
-export class BashTool implements Tool {
-    readonly definition: ToolDefinition = {
+export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
+    readonly definition: ToolDefinition<typeof BASH_INPUT_CONTRACT> = {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
-        inputSchema: {
-            type: "object",
-            properties: {
-                command: { type: "string" },
-                timeoutMs: { type: "integer", minimum: 1 },
-            },
-            required: ["command"],
-            additionalProperties: false,
-        },
+        inputContract: BASH_INPUT_CONTRACT,
     };
 
     readonly replayPolicy = "manual" as const;
@@ -264,19 +232,11 @@ export class BashTool implements Tool {
     /**
      * 校验严格的 `{ command, timeoutMs? }` 输入，不启动子进程。
      *
-     * @param input - Agent 提交的 JSON 输入。
-     * @returns 输入合法性；`command` 不能为空白，`timeoutMs` 为可选正整数。
+     * @param input - 已由 Input Contract 解析的结构化输入。
+     * @returns 领域语义合法性；`command` 不能为空白，`timeoutMs` 为可选正整数。
      */
-    validate(input: JsonValue): ToolValidationResult {
-        const parsed = parseInput(input);
-
-        if (parsed === undefined) {
-            return invalidInput(
-                "bash 输入必须是只含 command（必填字符串）与 timeoutMs（可选数值）的对象",
-            );
-        }
-
-        return this.checkSemantics(parsed);
+    validate(input: BashInput): ToolValidationResult {
+        return this.checkSemantics(input);
     }
 
     private checkSemantics(parsed: BashInput): ToolValidationResult {
@@ -288,21 +248,6 @@ export class BashTool implements Tool {
             return invalidInput("bash.command 不能包含 NUL 字符");
         }
 
-        if (parsed.timeoutMs !== undefined) {
-            if (
-                !Number.isInteger(parsed.timeoutMs)
-                || parsed.timeoutMs <= 0
-            ) {
-                return invalidInput("bash.timeoutMs 必须是正整数（毫秒）");
-            }
-
-            if (parsed.timeoutMs > BASH_MAX_TIMEOUT_MS) {
-                return invalidInput(
-                    `bash.timeoutMs 不能超过 ${BASH_MAX_TIMEOUT_MS} 毫秒`,
-                );
-            }
-        }
-
         return { ok: true };
     }
 
@@ -312,36 +257,22 @@ export class BashTool implements Tool {
      * @param request - Action ID 与 `{ command, timeoutMs? }` 输入。
      * @param control - 当前 Run 推进调用共享的中止控制；中止会终止子进程。
      * @returns 截断输出组成的成功或命令领域失败 Observation。
-     * @throws 输入未通过校验、workspaceRoot 无法解析或 shell 无法启动等
-     *   基础设施异常；中止时抛出 `ExecutionAbortedError`。
+     * @throws workspaceRoot 无法解析或 shell 无法启动等基础设施异常；中止时抛出
+     *   `ExecutionAbortedError`。
      */
     async execute(
-        request: ToolExecutionRequest,
+        request: ToolExecutionRequest<BashInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
         throwIfAborted(control);
-
-        const parsed = parseInput(request.input);
-
-        if (parsed === undefined) {
-            throw new Error(
-                "INVALID_TOOL_INPUT: bash requires { command: string, timeoutMs?: number }",
-            );
-        }
-
-        const semantic = this.checkSemantics(parsed);
-
-        if (!semantic.ok) {
-            throw new Error(`${semantic.error.code}: ${semantic.error.message}`);
-        }
-
-        const timeoutMs = parsed.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
+        const input = request.input;
+        const timeoutMs = input.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
         const resolvedRoot = await realpath(this.workspaceRoot);
         throwIfAborted(control);
 
         const stdout = createTailCollector(BASH_MAX_OUTPUT_CHARS);
         const stderr = createTailCollector(BASH_MAX_OUTPUT_CHARS);
-        const outcome = await runShellCommand(parsed.command, {
+        const outcome = await runShellCommand(input.command, {
             cwd: resolvedRoot,
             timeoutMs,
             ...(control?.signal === undefined

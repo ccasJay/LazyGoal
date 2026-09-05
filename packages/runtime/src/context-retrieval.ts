@@ -11,47 +11,18 @@ import type {
     TrajectoryPhase,
 } from "./trajectory";
 import type { ContextDocumentSource } from "./context-document";
+import type {
+    ContextLookupFilters,
+    ContextLookupNeed,
+    ContextLookupRequest,
+} from "../../contracts/src/index";
 
-/** Context Lookup 支持的历史信息需求类别。 */
-export type ContextLookupNeed =
-    | "conversation_history"
-    | "historical_execution"
-    | "decision_rationale";
+export type {
+    ContextLookupFilters,
+    ContextLookupNeed,
+    ContextLookupRequest,
+};
 
-/** Context Lookup 可用于缩小 committed Trajectory 候选集的字段过滤器。 */
-export interface ContextLookupFilters {
-    /** 事件类型过滤；最多 16 项。 */
-    readonly eventTypes?: readonly string[];
-    /** Tool ID 过滤；最多 16 项。 */
-    readonly toolIds?: readonly string[];
-    /** Action ID 过滤；最多 16 项。 */
-    readonly actionIds?: readonly string[];
-    /** executing Step index 过滤；最多 16 项。 */
-    readonly stepIndexes?: readonly number[];
-    /** 文件路径过滤；最多 16 项。 */
-    readonly paths?: readonly string[];
-    /** 错误码过滤；最多 16 项。 */
-    readonly errorCodes?: readonly string[];
-    /** 对象标识过滤；最多 16 项。 */
-    readonly objectIds?: readonly string[];
-    /** 可选的闭区间 sequence 范围。 */
-    readonly sequenceRange?: {
-        readonly from: number;
-        readonly to: number;
-    };
-}
-
-/** Agent 发起的独占历史 Context Lookup 请求。 */
-export interface ContextLookupRequest {
-    /** 判别字段；该请求不能与 Action、Memory Patch 或终态结果并存。 */
-    readonly kind: "context_lookup";
-    /** 请求的历史信息类别。 */
-    readonly need: ContextLookupNeed;
-    /** 面向 committed Trajectory 的具体问题。 */
-    readonly question: string;
-    /** 可选的结构化候选过滤器。 */
-    readonly filters?: ContextLookupFilters;
-}
 
 /** 检索结果中的稳定字段名称。 */
 export type ContextLookupMatchedField =

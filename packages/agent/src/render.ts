@@ -28,6 +28,8 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * @param workingMemory - structured@1 的即时 Memory。
  * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
+ * @param contextEpoch - 可选的 Context Epoch 视图。
+ * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时完全省略。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */
 export function renderWorkingContextMessage(
@@ -36,6 +38,7 @@ export function renderWorkingContextMessage(
     trajectoryContext?: ModelTrajectoryContext,
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
+    responseShapeGuide?: string,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     return {
         role: "user",
@@ -45,6 +48,8 @@ export function renderWorkingContextMessage(
             trajectoryContext,
             contextLookupResult,
             contextEpoch,
+            undefined,
+            responseShapeGuide,
         ), null, 2),
     };
 }
@@ -59,6 +64,7 @@ function createWorkingContextPayload(
         readonly visibleConversationMessageMap: readonly VisibleConversationMessageMapEntry[];
         readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
     },
+    responseShapeGuide?: string,
 ): Record<string, unknown> {
     if (context.phase === "executing") {
         const payload: Record<string, unknown> = {
@@ -86,10 +92,14 @@ function createWorkingContextPayload(
             payload.checkpointReason = contextEpoch.control.reason ?? "input_threshold";
         }
 
+        if (responseShapeGuide !== undefined) {
+            payload.responseShapeGuide = responseShapeGuide;
+        }
+
         return payload;
     }
 
-    return {
+    const payload: Record<string, unknown> = {
         ...context,
         ...(workingMemory === undefined ? {} : { workingMemory }),
         ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
@@ -107,10 +117,17 @@ function createWorkingContextPayload(
                     : { preparationInputEvidence: preparationMetadata.preparationInputEvidence }),
             }),
     };
+
+    if (responseShapeGuide !== undefined) {
+        payload.responseShapeGuide = responseShapeGuide;
+    }
+
+    return payload;
 }
 
 function renderViewWorkingContextMessage(
     view: ModelInferenceView,
+    responseShapeGuide?: string,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     const preparationMetadata = view.workingContext.phase === "executing"
         ? undefined
@@ -128,6 +145,7 @@ function renderViewWorkingContextMessage(
             view.contextLookupResult,
             view.contextEpoch,
             preparationMetadata,
+            responseShapeGuide,
         ), null, 2),
     };
 }
@@ -175,6 +193,7 @@ function createPreparationRenderMetadata(
  *
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
+ * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时省略。
  * @returns 按 system → 真实会话 → Working Context 顺序组装的消息列表。
  * @throws 渲染失败（未知 Bundle 版本、缺失变量、模板错误等）时抛出，
  *   保证发生在 LLM Adapter 调用之前。
@@ -182,6 +201,7 @@ function createPreparationRenderMetadata(
 export function renderRequest(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
+    responseShapeGuide?: string,
 ): LLMRequest {
     if (
         view.workingContext.phase === "executing"
@@ -202,7 +222,7 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
-            renderViewWorkingContextMessage(view),
+            renderViewWorkingContextMessage(view, responseShapeGuide),
         ],
     };
 }
