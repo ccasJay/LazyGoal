@@ -30,7 +30,7 @@
   - 覆盖解析、语义校验与执行边界上的 `ExecutionAbortedError` 原样传播。
   - _Requirements: [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 5. 从 Input Contract 投影稳定的模型 Tool Schema
+- [x] //TODO 5. 从 Input Contract 投影稳定的模型 Tool Schema
 
   - 在 `ModelInferenceProjector` 中编译每个授权 Tool 的 JSON Schema，只省略根 `$schema` 元数据，并保持 Tool ID 排序与 View 数据隔离。
   - 增加 Agent 与 Prompt 测试，确认 AST 不进入 `ModelInferenceView`、重复投影字符稳定、字段和 optional 语义不变。

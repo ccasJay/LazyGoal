@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { contract } from "../../contracts/src/index";
+import {
+    BASH_INPUT_CONTRACT,
+    BASH_MAX_TIMEOUT_MS,
+} from "../../tools/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type {
@@ -242,6 +246,90 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
     assert.match(systemContent, /Active Phase Protocol: executing/);
+});
+
+test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", async () => {
+    const goal = createExecutingGoal();
+    const tools: readonly ToolDefinition[] = [
+        {
+            id: "read_file",
+            description: "读取文件",
+            inputContract: PATH_INPUT_CONTRACT,
+        },
+        {
+            id: "bash",
+            description: "执行命令",
+            inputContract: BASH_INPUT_CONTRACT,
+        },
+    ];
+
+    const first = await stepRequest(goal, tools);
+    const second = await stepRequest(goal, [...tools].reverse());
+    const firstSystemContent = first.messages[0]?.content ?? "";
+    const secondSystemContent = second.messages[0]?.content ?? "";
+
+    assert.equal(firstSystemContent, secondSystemContent);
+    assert.equal(
+        firstSystemContent.includes("https://json-schema.org/draft/2020-12/schema"),
+        false,
+    );
+
+    const toolsMarker = [
+        "Authorized Tool definitions (only these Tool IDs may be requested):",
+        "",
+    ].join("\n");
+    const toolsOffset = firstSystemContent.lastIndexOf(toolsMarker);
+
+    assert.notEqual(toolsOffset, -1);
+    const projectedTools = JSON.parse(
+        firstSystemContent.slice(toolsOffset + toolsMarker.length),
+    );
+    assert.equal(JSON.stringify(projectedTools).includes('"kind"'), false);
+    assert.deepEqual(
+        projectedTools,
+        [
+            {
+                id: "bash",
+                description: "执行命令",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        command: { type: "string" },
+                        timeoutMs: {
+                            type: "integer",
+                            minimum: 1,
+                            maximum: BASH_MAX_TIMEOUT_MS,
+                        },
+                    },
+                    required: ["command"],
+                    additionalProperties: false,
+                },
+            },
+            {
+                id: "read_file",
+                description: "读取文件",
+                inputSchema: {
+                    type: "object",
+                    properties: { path: { type: "string" } },
+                    required: ["path"],
+                    additionalProperties: false,
+                },
+            },
+        ],
+    );
+
+    const planningRequest = await preparationRequest(
+        createPreparationGoal("planning"),
+        tools,
+    );
+    const planningSystemContent = planningRequest.messages[0]?.content ?? "";
+    const planningToolsOffset = planningSystemContent.lastIndexOf(toolsMarker);
+
+    assert.notEqual(planningToolsOffset, -1);
+    assert.deepEqual(
+        JSON.parse(planningSystemContent.slice(planningToolsOffset + toolsMarker.length)),
+        projectedTools,
+    );
 });
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {
