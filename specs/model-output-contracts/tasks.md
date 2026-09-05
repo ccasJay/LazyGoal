@@ -10,6 +10,7 @@
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.5](./requirements.md#req-2-5), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
 - [ ] //TODO 2. 派生 required-nullable wire Contract 与确定性 decoder
+- [x] //TODO 2. 派生 required-nullable wire Contract 与确定性 decoder
 
   - 实现请求级 `ModelOutputContractBundle`、严格 `result` envelope 和递归 optional-to-nullable 派生，拒绝 `optional(nullable(...))` 等不可逆形状。
   - 实现只消除 optional 占位 null 的 wire-to-canonical decoder，并在解码后以请求专用 canonical Contract 复验和隔离结果。

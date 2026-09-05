@@ -61,6 +61,7 @@ export {
     MemoryEntryStatusContract,
     MemoryPatchOperationContract,
     ModelContextCheckpointResultContract,
+    NonToolExecutingDecisionContract,
     OrdinaryExecutingDecisionContract,
     PlanItemCreateContract,
     PlanItemCreateStatusContract,
@@ -112,4 +113,18 @@ export type {
     ToolCallAction,
     WorkingMemoryPatch,
 } from "./model-output/canonical";
+export { ModelOutputContractDefinitionError } from "./model-output/errors";
+export {
+    decodeWireResult,
+    deriveWireContract,
+    deriveWireEnvelopeContract,
+} from "./model-output/wire";
+export {
+    createModelOutputContractBundle,
+} from "./model-output/factory";
+export type {
+    AuthorizedToolContract,
+    ModelOutputContractBundle,
+    ModelOutputRequest,
+} from "./model-output/factory";
 

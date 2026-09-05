@@ -123,6 +123,7 @@ export const ContextLookupRequestContract = contract.object({
     kind: contract.literal("context_lookup"),
     need: ContextLookupNeedContract,
     question: contract.string({ maxLength: 2000 }),
+    question: contract.string(),
     filters: contract.optional(ContextLookupFiltersContract),
 });
 
@@ -700,6 +701,24 @@ export type StructuredAgentDecision = InferContract<typeof StructuredAgentDecisi
  * 普通 Executing 决策契约（与 StructuredAgentDecisionContract 等价）。
  */
 export const OrdinaryExecutingDecisionContract = StructuredAgentDecisionContract;
+
+/**
+ * 未授权任何 Tool 时的 Executing 决策契约。
+ *
+ * @remarks
+ * 省略 tool_call 分支，仅允许 complete、wait、fail 与 context_lookup。
+ *
+ * @example
+ * ```ts
+ * const parsed = safeParse(NonToolExecutingDecisionContract, decision);
+ * ```
+ */
+export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kind", [
+    CompleteAgentDecisionContract,
+    WaitAgentDecisionContract,
+    FailAgentDecisionContract,
+    ContextLookupRequestContract,
+]);
 
 /**
  * 完整 Agent 决策契约。
