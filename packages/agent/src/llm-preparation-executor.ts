@@ -15,7 +15,7 @@ import { buildPreparationRequest } from "./prompt";
 import {
     parsePreparationResult,
     requestRequiresContextCheckpoint,
-} from "./response-schema";
+} from "./model-output";
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";

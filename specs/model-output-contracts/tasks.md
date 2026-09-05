@@ -23,7 +23,7 @@
   - 添加动态 Tool、输入错配、不可移植定义、Schema/Guide 字符稳定性和原 Input Contract 复验测试。
   - _Requirements: [3.5](./requirements.md#req-3-5), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.1](./requirements.md#req-5-1), [7.4](./requirements.md#req-7-4)_
 
-- [ ] //TODO 4. 用请求 Bundle 替换 Agent Zod 响应解析
+- [x] //TODO 4. 用请求 Bundle 替换 Agent Zod 响应解析
 
   - 新增 Bundle 驱动的裸 JSON/完整 fenced JSON 解析、wire 校验、decoder 与语义错误映射，使 issue 保留稳定 code/path/message。
   - 删除 `response-schema.ts` 的 Zod Schema、旧无 envelope parser 和 Agent 的 Zod 生产依赖，更新公共导出与 `LLMResponseProtocolError`。
