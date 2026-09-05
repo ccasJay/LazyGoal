@@ -36,7 +36,7 @@ authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages
 - S1: `specs/action-observation-loop/requirements.md`
 - S2: `specs/action-observation-loop/design.md`
 - S3: `packages/runtime/src/runner.ts`
-- S4: `packages/agent/src/response-schema.ts`
+- S4: `packages/agent/src/model-output.ts`
 - S5: `packages/runtime/test/runner.test.ts`
 - S6: `packages/storage/test/action-observation-recovery.test.ts`
 - S7: `packages/tools/test/read-file.test.ts`

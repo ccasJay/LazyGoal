@@ -6,6 +6,7 @@ async function main(): Promise<void> {
         apiKey: process.env.LLM_API_KEY!,
         baseURL: process.env.LLM_BASE_URL!,
         model: process.env.LLM_MODEL!,
+        structuredOutputMode: "prompt_only",
     });
 
     const response = await adapter.generate({

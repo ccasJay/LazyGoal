@@ -252,7 +252,7 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
         enumerable: true,
         get() {
             reads += 1;
-            if (reads === 2) throw abortError;
+            if (reads === 1) throw abortError;
             return "hello";
         },
     });
@@ -289,7 +289,7 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
             return true;
         },
     );
-    assert.equal(reads, 2);
+    assert.equal(reads, 1);
     assert.deepEqual(await store.restore(goal.id), goal);
 });
 

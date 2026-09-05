@@ -26,6 +26,12 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
+import {
+    AgentDecisionContract,
+    safeParse,
+    validateModelOutputSemantics,
+} from "../../contracts/src/index";
+
 import type {
     ToolDefinition,
     ToolObservation,
@@ -169,81 +175,22 @@ function invalidAgentDecision(message: string): never {
 function validateAgentDecision(
     value: unknown,
 ): AgentDecision {
-    if (!isRecord(value) || !isNonEmptyText(value.kind)) {
-        return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
+    const parsed = safeParse(AgentDecisionContract, value);
+    if (!parsed.success) {
+        return invalidAgentDecision(
+            `AgentDecision 不符合 canonical Contract: ${parsed.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+        );
     }
-
-    if (value.kind === "context_lookup") {
-        return normalizeContextLookupRequest(value);
+    const semanticIssues = validateModelOutputSemantics(parsed.data);
+    if (semanticIssues.length > 0) {
+        return invalidAgentDecision(
+            `AgentDecision 不符合语义规则: ${semanticIssues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+        );
     }
-
-    if (value.kind === "context_checkpoint") {
-        if (!hasOnlyKeys(value, ["kind", "memoryPatch"])) {
-            return invalidAgentDecision("context_checkpoint contains protocol fields");
-        }
-        if (value.memoryPatch !== undefined && !isRecord(value.memoryPatch)) {
-            return invalidAgentDecision("context_checkpoint memoryPatch is invalid");
-        }
-        return value as unknown as ModelContextCheckpointResult;
+    if (parsed.data.kind === "context_lookup") {
+        return normalizeContextLookupRequest(parsed.data);
     }
-
-    if (value.kind === "tool_call") {
-        if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
-            return invalidAgentDecision("structured tool_call 包含协议外字段");
-        }
-
-        const action = value.action;
-
-        if (
-            !isRecord(action)
-            || !hasOnlyKeys(action, ["actionId", "toolId", "input"])
-            || !isNonEmptyText(action.actionId)
-            || !isNonEmptyText(action.toolId)
-            || !isJsonValue(action.input)
-        ) {
-            return invalidAgentDecision("structured tool_call action 不符合严格协议");
-        }
-
-        return value as unknown as AgentDecision;
-    }
-
-    const terminalFields: Record<string, "summary" | "reason" | "error"> = {
-        complete: "summary",
-        wait: "reason",
-        fail: "error",
-    };
-    const textField = terminalFields[value.kind];
-
-    if (textField === undefined) {
-        return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
-    }
-
-    const allowed = ["kind", textField, "memoryPatch"];
-    if (value.kind === "complete") {
-        allowed.push("completionEvidence");
-        if (!Array.isArray(value.completionEvidence)) {
-            return invalidAgentDecision("structured complete 必须包含 completionEvidence");
-        }
-    }
-
-    const memoryPatch = value.memoryPatch;
-    if (
-        memoryPatch !== undefined
-        && (
-            !isRecord(memoryPatch)
-            || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
-            || memoryPatch.protocolVersion !== 1
-            || !Array.isArray(memoryPatch.operations)
-        )
-    ) {
-        return invalidAgentDecision("structured memoryPatch 不符合基础协议");
-    }
-
-    if (!hasOnlyKeys(value, allowed) || !isNonEmptyText(value[textField])) {
-        return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
-    }
-
-    return value as unknown as AgentDecision;
+    return parsed.data;
 }
 
 function isProtocolError(error: unknown): boolean {

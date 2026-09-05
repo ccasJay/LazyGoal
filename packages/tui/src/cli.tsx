@@ -59,6 +59,7 @@ import {
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
 import { OpenAICompatible } from "../../llm/src/openai-compatible";
+import type { StructuredOutputMode } from "../../llm/src/core/types";
 import {
     BashTool,
     EditFileTool,
@@ -125,6 +126,8 @@ export interface LlmConfig {
     readonly baseURL: string;
     /** `LLM_MODEL` 的去除首尾空白值。 */
     readonly model: string;
+    /** `LLM_STRUCTURED_OUTPUT_MODE` 的已校验模式（"strict" 或 "prompt_only"）。 */
+    readonly structuredOutputMode: StructuredOutputMode;
 }
 
 /**
@@ -149,10 +152,13 @@ export class CliConfigurationError extends Error {
     /** 去除空白后仍缺失的环境变量。 */
     readonly missing: readonly string[];
 
-    /** @param missing - 缺失变量名，按协议顺序排列。 */
-    constructor(missing: readonly string[]) {
+    /**
+     * @param missing - 缺失变量名，按协议顺序排列。
+     * @param customMessage - 可选自定义错误消息。
+     */
+    constructor(missing: readonly string[], customMessage?: string) {
         const names = [...missing];
-        super(`Missing required environment variable(s): ${names.join(", ")}`);
+        super(customMessage ?? `Missing required environment variable(s): ${names.join(", ")}`);
         this.name = "CliConfigurationError";
         this.missing = names;
     }
@@ -163,30 +169,45 @@ export class CliConfigurationError extends Error {
  *
  * @param env - 要读取的环境对象；默认使用当前进程环境。
  * @returns 可直接传给 `OpenAICompatible` 的配置。
- * @throws `CliConfigurationError` 在任一变量不存在或去除空白后为空时抛出。
+ * @throws `CliConfigurationError` 在任一变量不存在、去除空白后为空或模式值非法时抛出。
  * @example
  * ```ts
  * const config = readLlmConfig({
  *     LLM_API_KEY: "secret",
  *     LLM_BASE_URL: "https://api.example.test/v1",
  *     LLM_MODEL: "agent-model",
+ *     LLM_STRUCTURED_OUTPUT_MODE: "strict",
  * });
  * ```
  */
 export function readLlmConfig(
     env: NodeJS.ProcessEnv = process.env,
 ): LlmConfig {
-    const names = ["LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL"] as const;
+    const names = [
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "LLM_MODEL",
+        "LLM_STRUCTURED_OUTPUT_MODE",
+    ] as const;
     const missing = names.filter((name) => (env[name] ?? "").trim() === "");
 
     if (missing.length > 0) {
         throw new CliConfigurationError(missing);
     }
 
+    const modeRaw = env.LLM_STRUCTURED_OUTPUT_MODE!.trim();
+    if (modeRaw !== "strict" && modeRaw !== "prompt_only") {
+        throw new CliConfigurationError(
+            [],
+            `Invalid LLM_STRUCTURED_OUTPUT_MODE "${modeRaw}": must be either "strict" or "prompt_only"`,
+        );
+    }
+
     return {
         apiKey: env.LLM_API_KEY!.trim(),
         baseURL: env.LLM_BASE_URL!.trim(),
         model: env.LLM_MODEL!.trim(),
+        structuredOutputMode: modeRaw,
     };
 }
 

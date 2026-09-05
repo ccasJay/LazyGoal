@@ -38,7 +38,7 @@ authorities: [docs/architecture/agent.md, packages/agent/src/llm-step-executor.t
 - S1: `specs/llm-step-executor/requirements.md`
 - S2: `specs/llm-step-executor/design.md`
 - S3: `packages/agent/src/llm-step-executor.ts`
-- S4: `packages/agent/src/response-schema.ts`
+- S4: `packages/agent/src/model-output.ts`
 - S5: `packages/agent/test/llm-step-executor.test.ts`
-- S6: `packages/agent/test/response-schema.test.ts`
+- S6: `packages/agent/test/model-output.test.ts`
 - S7: `packages/agent/test/prompt.test.ts`

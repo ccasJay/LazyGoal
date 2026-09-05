@@ -96,8 +96,14 @@ function createTestGoal(
 
 class FakeAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode: "strict" | "prompt_only";
 
-    constructor(private readonly content: string) {}
+    constructor(
+        private readonly content: string,
+        structuredOutputMode: "strict" | "prompt_only" = "strict",
+    ) {
+        this.structuredOutputMode = structuredOutputMode;
+    }
 
     async generate(request: LLMRequest): Promise<{ content: string }> {
         this.requests.push(request);
@@ -107,6 +113,7 @@ class FakeAdapter implements LLMAdapter {
 
 class RejectingAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly failure: unknown) {}
 
@@ -118,6 +125,7 @@ class RejectingAdapter implements LLMAdapter {
 
 class SequenceAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly contents: readonly string[]) {}
 
@@ -148,9 +156,12 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         { role: "assistant", assistant: { profileId: "profile-1" }, content: "已恢复的历史响应" },
     ]);
     const responseContent = JSON.stringify({
-        kind: "complete",
-        summary: "继续执行",
-        completionEvidence: [],
+        result: {
+            kind: "complete",
+            summary: "继续执行",
+            completionEvidence: [],
+            memoryPatch: null,
+        },
     });
     const adapter = new FakeAdapter(responseContent);
     const executor = createExecutor(adapter);
@@ -167,18 +178,16 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
         completionEvidence: [],
     });
     assert.equal(adapter.requests.length, 1);
-    assert.deepEqual(
-        adapter.requests[0],
-        await buildStepRequest(
-            currentGoal,
-            [],
-            renderer,
-            contextCompactor,
-            undefined,
-            currentWorkingMemory,
-            createCurrentContextAssembler(),
-        ),
+    const expectedPlan = await buildStepRequest(
+        currentGoal,
+        [],
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        createCurrentContextAssembler(),
     );
+    assert.deepEqual(adapter.requests[0], expectedPlan.request);
     assert.deepEqual(
         adapter.requests[0]?.messages.slice(1, -1),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
@@ -233,10 +242,13 @@ test("LLMStepExecutor 不修改传入的 Goal", async () => {
     };
     const before = JSON.stringify(currentGoal);
     const executor = createExecutor(new FakeAdapter(JSON.stringify({
+        result: {
             kind: "complete",
             summary: "已完成",
             completionEvidence: [],
-        })));
+            memoryPatch: null,
+        },
+    })));
 
     await executor.execute({
         goal: currentGoal,
@@ -257,9 +269,12 @@ test("LLMStepExecutor 在未知 Prompt Bundle 版本时不调用 Adapter", async
         },
     } as unknown as Goal;
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "complete",
-        summary: "不应生成",
-        completionEvidence: [],
+        result: {
+            kind: "complete",
+            summary: "不应生成",
+            completionEvidence: [],
+            memoryPatch: null,
+        },
     }));
     const executor = createExecutor(adapter);
 
@@ -277,21 +292,24 @@ test("LLMStepExecutor 在未知 Prompt Bundle 版本时不调用 Adapter", async
 test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", async () => {
     const currentGoal = createTestGoal("run-3", {
         ...profile,
-        toolIds: ["web-search"],
+        toolIds: ["read_file"],
     });
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "tool_call",
-        action: {
-            actionId: "action-1",
-            toolId: "read_file",
-            input: { path: "README.md" },
+        result: {
+            kind: "tool_call",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+            memoryPatch: null,
         },
     }));
     const executor = createExecutor(adapter);
     const readFileTool: ToolDefinition = {
         id: "read_file",
         description: "读取工作区文件",
-        inputContract: EMPTY_INPUT_CONTRACT,
+        inputContract: contract.object({ path: contract.string() }),
     };
 
     assert.deepEqual(
@@ -350,6 +368,34 @@ test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
     assert.equal(adapter.requests.length, 1);
 });
 
+test("LLMStepExecutor 收到非 executing 阶段分支时严格拒绝且不重试", async () => {
+    const currentGoal = createTestGoal("run-exclusive");
+    const adapter = new FakeAdapter(JSON.stringify({
+        result: {
+            kind: "task_proposal",
+            task: { objective: "不属于 executing", completionCriteria: [] },
+            approvalRequest: "请批准",
+            memoryPatch: null,
+        },
+    }));
+    const executor = createExecutor(adapter);
+
+    await assert.rejects(
+        executor.execute({
+            goal: currentGoal,
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
+        (error: unknown) => {
+            assert.ok(error instanceof LLMResponseProtocolError);
+            assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
+            assert.match(error.message, /executing_agent_decision/);
+            return true;
+        },
+    );
+    assert.equal(adapter.requests.length, 1);
+});
+
 function createStoredGoal(
     store: InMemoryGoalStore,
     runId: string,
@@ -363,9 +409,12 @@ function createStoredGoal(
 test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async () => {
     const store = new InMemoryGoalStore();
     const completeContent = JSON.stringify({
-        kind: "complete",
-        summary: "完成",
-        completionEvidence: [],
+        result: {
+            kind: "complete",
+            summary: "完成",
+            completionEvidence: [],
+            memoryPatch: null,
+        },
     });
     const adapter = new SequenceAdapter([completeContent]);
     const executor = createExecutor(adapter);
@@ -418,14 +467,16 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     ]);
 });
 
-test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async () => {
+test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async () => {
     const store = new InMemoryGoalStore();
     const adapter = new SequenceAdapter([JSON.stringify({
-        kind: "tool_call",
-        action: {
-            actionId: "action-1",
-            toolId: "read_file",
-            input: { path: "README.md" },
+        result: {
+            kind: "tool_call",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
         },
     })]);
     const executor = createExecutor(adapter);
@@ -452,8 +503,8 @@ test("Runner 对未注册 Tool 保存稳定执行错误且不消费 Step", async
     assert.equal(result.state.lastStep, undefined);
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
-        code: "TOOL_NOT_FOUND",
-        message: 'Authorized Tool "read_file" is not registered',
+        code: "INVALID_AGENT_DECISION",
+        message: "INVALID_LLM_RESPONSE: 响应不符合 executing_agent_decision 契约",
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
