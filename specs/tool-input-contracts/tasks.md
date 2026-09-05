@@ -16,7 +16,7 @@
   - 增加 Runtime 测试，覆盖非法结构不调用 Policy/Tool、不写 pending 或 `decision_received`，以及原始输入突变不能影响已准备 Action。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.4](./requirements.md#req-3-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 3. 验证七个 Tool Contract 与领域语义分层
+- [x] //TODO 3. 验证七个 Tool Contract 与领域语义分层
 
   - 为 Bash、Read File、Write File、Edit File、Grep、ALFWorld Reset 和 ALFWorld Step 增加类型推导、合法/非法输入和确定性 Schema 测试。
   - 保留现有跨字段、正则、Workspace 沙箱、NUL、`.lazygoal`、超时和空白规则，确认校验与执行不 trim、coerce 或补默认值。
