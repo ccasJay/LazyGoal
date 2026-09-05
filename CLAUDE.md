@@ -48,13 +48,13 @@ node bin/lazygoal.cjs -c
 node bin/lazygoal.cjs resume
 ```
 
-The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, and `LLM_MODEL`, plus a manually-created `.lazygoal/profiles/default.json`. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace.
+The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_OUTPUT_MODE` (`strict` or `prompt_only`), plus a manually-created `.lazygoal/profiles/default.json`. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace.
 
 ## Architecture
 
 `runtime` is the control plane. It owns the Goal/Run domain model, state transitions, preparation workflow, scheduling, execution loop, persistence, cancellation, and shutdown. `Launcher` validates intent and freezes the selected Profile into a new Goal; `GoalCoordinator` advances preparation and approval; `Runner` restores and executes a Run; `JsonFileGoalStore` persists the latest complete snapshot using atomic replacement. `Transition` is pure state-transition logic. `InlineScheduler` currently dispatches in-process and does not provide queues, leases, or automatic restart scanning.
 
-`agent` is the protocol boundary between runtime and an LLM adapter. `LLMPreparationExecutor` and `LLMStepExecutor` derive the phase-specific working context, build prompts, make one adapter call, and strictly parse the response with Zod schemas. Agent executors do not persist Goals, execute tools, perform authorization, or run the loop.
+`agent` is the protocol boundary between runtime and an LLM adapter. `LLMPreparationExecutor` and `LLMStepExecutor` derive the phase-specific working context, build prompt plans with paired ModelOutputContractBundles, make one adapter call, and strictly decode and validate wire responses using immutable Contract ASTs. Agent executors do not persist Goals, execute tools, perform authorization, or run the loop.
 
 `llm` isolates provider SDKs behind the `LLMAdapter.generate` contract. `OpenAICompatible` maps system/user/assistant messages to Chat Completions, while `Gemini` maps system instructions and model history to Gemini's API. Provider/network errors propagate upward; response protocol validation belongs to `agent`.
 

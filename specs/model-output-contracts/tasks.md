@@ -51,7 +51,7 @@
   - 添加缺失、非法和两种合法配置测试，确认失败发生在首次模型请求以及 Store/Goal 副作用之前。
   - _Requirements: [4.1](./requirements.md#req-4-1), [7.5](./requirements.md#req-7-5)_
 
-- [ ] //TODO 8. 验证协议隔离、提交顺序与全仓回归
+- [x] //TODO 8. 验证协议隔离、提交顺序与全仓回归
 
   - 增加端到端自动化回归，确认合法 wire 只产生既有 canonical Goal/Trajectory/Snapshot/Trace 数据，非法结果不会调用 Tool 或产生持久化副作用。
   - 原地同步 `structured@1`、Prompt Bundle v1 和受影响架构文档，确认 Storage Zod、持久化 codec、协议版本及提交/恢复顺序未改变，且不存在旧 Schema 或悬空导出。
