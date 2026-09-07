@@ -21,7 +21,7 @@
   - 验证方式:待实现用例加入 `packages/runtime/test/runner.test.ts`
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 4. Benchmark descriptor 注入
+- [x] //TODO 4. Benchmark descriptor 注入
 
   - 实现目标:`headless-composition-root.ts` 的 `BenchmarkTaskDescriptor.completionCriteria` 演进为 `readonly (string | CompletionCriterion)[]`,解析时字符串归一为 `{text}`、结构校验 acceptance 形态并要求 `expectToolId ∈ profile.toolIds`(违反抛 TypeError)
   - 成功判据:字符串简写与结构化声明均正确注入 Goal Task;未授权工具声明被拒绝

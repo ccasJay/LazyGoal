@@ -2,6 +2,7 @@ export {
     HeadlessCompositionRoot,
     HeadlessEpisodeCleanupError,
     readHeadlessTrajectoryAtSnapshot,
+    validateTaskDescriptor,
 } from "./headless-composition-root.js";
 export type {
     BenchmarkAdapter,
@@ -16,6 +17,7 @@ export type {
     HeadlessEpisodeResult,
     HeadlessModelResult,
     HeadlessRunOptions,
+    NormalizedBenchmarkTaskDescriptor,
 } from "./headless-composition-root.js";
 export {
     JsonFileBenchmarkPersistenceAdapter,

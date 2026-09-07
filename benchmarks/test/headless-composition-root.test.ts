@@ -22,6 +22,7 @@ import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     HeadlessCompositionRoot,
     HeadlessEpisodeCleanupError,
+    validateTaskDescriptor,
     type BenchmarkAdapter,
     type BenchmarkPersistenceAdapter,
     type HeadlessCompositionRootDependencies,
@@ -639,3 +640,222 @@ test("isolates a Trace sink failure from the successful Runtime result", async (
     assert.equal(result.model.completed, true);
     assert.equal(result.cleanupError, undefined);
 });
+
+test("validateTaskDescriptor normalizes string and structured criteria and validates tools against profile", () => {
+    const validDescriptor = {
+        intent: "Test intent",
+        objective: "Test objective",
+        completionCriteria: [
+            "String criterion",
+            { text: "Plain structured criterion" },
+            {
+                text: "Structured with acceptance",
+                acceptance: {
+                    expectToolId: "benchmark_evidence",
+                    expectOutcome: "success" as const,
+                },
+            },
+        ],
+        maxSteps: 10,
+    };
+
+    const normalized = validateTaskDescriptor(validDescriptor, profile);
+    assert.deepEqual(normalized.completionCriteria, [
+        { text: "String criterion" },
+        { text: "Plain structured criterion" },
+        {
+            text: "Structured with acceptance",
+            acceptance: {
+                expectToolId: "benchmark_evidence",
+                expectOutcome: "success",
+            },
+        },
+    ]);
+
+    // Unauthorized tool in profile
+    assert.throws(
+        () => validateTaskDescriptor({
+            ...validDescriptor,
+            completionCriteria: [{
+                text: "Requires unauthorized tool",
+                acceptance: {
+                    expectToolId: "unauthorized_tool",
+                    expectOutcome: "success",
+                },
+            }],
+        }, profile),
+        (error: unknown) => {
+            assert.ok(error instanceof TypeError);
+            assert.match(error.message, /not present in agent profile/);
+            return true;
+        },
+    );
+
+    // Invalid expectOutcome
+    assert.throws(
+        () => validateTaskDescriptor({
+            ...validDescriptor,
+            completionCriteria: [{
+                text: "Invalid outcome",
+                acceptance: {
+                    expectToolId: "benchmark_evidence",
+                    expectOutcome: "invalid" as unknown as "success",
+                },
+            }],
+        }),
+        (error: unknown) => {
+            assert.ok(error instanceof TypeError);
+            assert.match(error.message, /expectOutcome must be "success" or "failure"/);
+            return true;
+        },
+    );
+
+    // Invalid acceptance shape
+    assert.throws(
+        () => validateTaskDescriptor({
+            ...validDescriptor,
+            completionCriteria: [{
+                text: "Invalid acceptance",
+                acceptance: "not-an-object" as unknown as { expectToolId: string; expectOutcome: "success" },
+            }],
+        }),
+        (error: unknown) => {
+            assert.ok(error instanceof TypeError);
+            assert.match(error.message, /acceptance must be an object/);
+            return true;
+        },
+    );
+});
+
+test("injects structured completion criteria with acceptance into Goal Task during headless execution", async () => {
+    type Task = { readonly prompt: string };
+    type Outcome = { readonly ok: boolean };
+
+    const adapter: BenchmarkAdapter<Task, Outcome> = {
+        describeTask: (task) => ({
+            intent: task.prompt,
+            objective: "Complete task with verifiable evidence",
+            completionCriteria: [
+                "String criterion",
+                {
+                    text: "Evidence produced by tool",
+                    acceptance: {
+                        expectToolId: "benchmark_evidence",
+                        expectOutcome: "success",
+                    },
+                },
+            ],
+            maxSteps: 5,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: true }),
+            close: async () => undefined,
+        }),
+    };
+
+    const trajectoryStore = new InMemoryTrajectoryStore();
+    const dependencies = createDependencies(adapter, trajectoryStore);
+
+    // Provide completionEvidence referencing both criteria
+    let modelCalls = 0;
+    dependencies.llmAdapter.generate = async () => {
+        modelCalls += 1;
+        if (modelCalls === 1) {
+            return {
+                content: JSON.stringify({
+                    result: {
+                        kind: "tool_call",
+                        action: {
+                            actionId: "benchmark-evidence-1",
+                            toolId: "benchmark_evidence",
+                            input: {},
+                        },
+                        memoryPatch: null,
+                    },
+                }),
+            };
+        }
+        const obsSeq = latestObservationSequence(trajectoryStore);
+        return {
+            content: JSON.stringify({
+                result: {
+                    kind: "complete",
+                    summary: "done",
+                    completionEvidence: [
+                        {
+                            criterionIndex: 0,
+                            evidenceSequences: [obsSeq],
+                        },
+                        {
+                            criterionIndex: 1,
+                            evidenceSequences: [obsSeq],
+                        },
+                    ],
+                    memoryPatch: null,
+                },
+            }),
+        };
+    };
+
+    const root = new HeadlessCompositionRoot(dependencies);
+    const result = await root.run({ prompt: "Verify structured criteria injection" });
+
+    assert.equal(result.model.completed, true);
+    assert.equal(result.goal.state.workflow.phase, "executing");
+    if (result.goal.state.workflow.phase === "executing") {
+        assert.deepEqual(result.goal.state.workflow.task.completionCriteria, [
+            { text: "String criterion" },
+            {
+                text: "Evidence produced by tool",
+                acceptance: {
+                    expectToolId: "benchmark_evidence",
+                    expectOutcome: "success",
+                },
+            },
+        ]);
+    }
+});
+
+test("fails before creating episode when task descriptor requires an unauthorized tool", async () => {
+    let episodeCreated = 0;
+    const adapter: BenchmarkAdapter<{ readonly prompt: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run unauthorized tool test",
+            objective: "Expect fast failure",
+            completionCriteria: [
+                {
+                    text: "Requires missing tool",
+                    acceptance: {
+                        expectToolId: "unauthorized_tool",
+                        expectOutcome: "success",
+                    },
+                },
+            ],
+            maxSteps: 5,
+        }),
+        createEpisode: async () => {
+            episodeCreated += 1;
+            return {
+                registry: { get: () => undefined },
+                readOutcome: () => ({ ok: false }),
+                close: async () => undefined,
+            };
+        },
+    };
+
+    const root = new HeadlessCompositionRoot(
+        createDependencies(adapter, new InMemoryTrajectoryStore()),
+    );
+
+    await assert.rejects(
+        () => root.run({ prompt: "unauthorized" }),
+        (error: unknown) => {
+            assert.ok(error instanceof TypeError);
+            assert.match(error.message, /not present in agent profile/);
+            return true;
+        },
+    );
+    assert.equal(episodeCreated, 0);
+});
+
