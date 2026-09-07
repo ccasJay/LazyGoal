@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+    appendFile,
     mkdir,
     mkdtemp,
     readFile,
@@ -126,6 +127,88 @@ test("JsonFileTrajectoryStore serializes concurrent appends and preserves immuta
     });
 });
 
+test("JsonFileTrajectoryStore restarts sequence continuation via tail scan", async () => {
+    await withStore(async (store, directory) => {
+        await store.append(draft("run_started", { type: "run_started" }));
+        await store.append(
+            draft("run_waiting", { type: "run_waiting", reason: "等待输入" }),
+        );
+
+        // 新实例没有序号缓存,续接序号只能来自尾部扫描。
+        const restarted = new JsonFileTrajectoryStore(directory);
+        const resumed = await restarted.append(
+            draft("run_resumed", { type: "run_resumed" }),
+        );
+
+        assert.equal(resumed.sequence, 3);
+        assert.deepEqual(
+            (await restarted.read({ goalId: "goal-1", runId: "run-1" }))
+                .map((event) => event.sequence),
+            [1, 2, 3],
+        );
+    });
+});
+
+test("JsonFileTrajectoryStore continues sequence when the last line lacks a trailing newline", async () => {
+    await withStore(async (store, directory) => {
+        const first = await store.append(
+            draft("run_started", { type: "run_started" }),
+        );
+        const second = await store.append(
+            draft("run_waiting", { type: "run_waiting", reason: "等待输入" }),
+        );
+        const goalDirectory = join(
+            directory,
+            Buffer.from("goal-1", "utf8").toString("base64url"),
+        );
+        const filePath = join(
+            goalDirectory,
+            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
+        );
+        // 手工去掉末行换行符:末行仍须被识别为最后的非空行。
+        await writeFile(
+            filePath,
+            `${JSON.stringify(first)}\n${JSON.stringify(second)}`,
+            "utf8",
+        );
+
+        const restarted = new JsonFileTrajectoryStore(directory);
+        const third = await restarted.append(
+            draft("run_resumed", { type: "run_resumed" }),
+        );
+
+        assert.equal(third.sequence, 3);
+    });
+});
+
+test("JsonFileTrajectoryStore rejects appends when the tail line identity mismatches", async () => {
+    await withStore(async (store, directory) => {
+        const first = await store.append(
+            draft("run_started", { type: "run_started" }),
+        );
+        const goalDirectory = join(
+            directory,
+            Buffer.from("goal-1", "utf8").toString("base64url"),
+        );
+        const filePath = join(
+            goalDirectory,
+            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
+        );
+        await appendFile(
+            filePath,
+            `${JSON.stringify({ ...first, eventId: "event-2", sequence: 2, runId: "run-other" })}\n`,
+            "utf8",
+        );
+
+        const restarted = new JsonFileTrajectoryStore(directory);
+
+        await assert.rejects(
+            () => restarted.append(draft("run_resumed", { type: "run_resumed" })),
+            (error: unknown) => error instanceof TrajectoryProtocolError,
+        );
+    });
+});
+
 test("TrajectoryStore classifies the tail from the Snapshot boundary instead of marker position", async () => {
     await withStore(async (store) => {
         await store.append(draft("run_started", { type: "run_started" }));
@@ -155,6 +238,37 @@ test("TrajectoryStore classifies the tail from the Snapshot boundary instead of 
         const firstTailEvent = result.uncommittedTail[0];
         assert.ok(firstTailEvent !== undefined);
         assert.equal(firstTailEvent.eventType, "state_committed");
+    });
+});
+
+test("JsonFileTrajectoryStore keeps committed/tail classification across cache and tail-scan appends", async () => {
+    await withStore(async (store, directory) => {
+        await store.append(draft("run_started", { type: "run_started" }));
+        await store.append(
+            draft(
+                "state_committed",
+                { type: "state_committed", committedThroughSequence: 1 },
+            ),
+        );
+
+        const restarted = new JsonFileTrajectoryStore(directory);
+        await restarted.append(
+            draft("run_waiting", { type: "run_waiting", reason: "等待输入" }),
+        );
+
+        const result = await restarted.readWithBoundary(
+            { goalId: "goal-1", runId: "run-1" },
+            1,
+        );
+
+        assert.deepEqual(
+            result.committed.map((event) => event.sequence),
+            [1],
+        );
+        assert.deepEqual(
+            result.uncommittedTail.map((event) => event.sequence),
+            [2, 3],
+        );
     });
 });
 
