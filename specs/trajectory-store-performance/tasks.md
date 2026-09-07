@@ -7,7 +7,7 @@
   - 验证方式:`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`,记录三档数字
   - _Requirements: [1.1](./requirements.md#req-1-1)_
 
-- [ ] //TODO 2. 实现尾部扫描与序号缓存
+- [x] //TODO 2. 实现尾部扫描与序号缓存
 
   - 实现目标:`json-file-trajectory-store.ts` 新增 sequenceCache Map 与尾部反向扫描私有方法(4 KiB 块回读、最后非空行最小校验、ENOENT/空文件返回 0、协议错误抛 `TrajectoryProtocolError`);`append` 序号确定改为缓存优先、miss 走尾部扫描,`appendFile` 成功后写回缓存;`read`/`readWithBoundary` 零改动
   - 成功判据:现有 `trajectory-store.test.ts` 全部通过;追加路径不再调用 `readStoredEvents`

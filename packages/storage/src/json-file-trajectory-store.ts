@@ -1,7 +1,9 @@
 import {
     appendFile,
     mkdir,
+    open,
     readFile,
+    type FileHandle,
 } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -19,6 +21,67 @@ import {
     freezeTrajectoryEvent,
     TrajectoryProtocolError,
 } from "../../runtime/src/index";
+
+/** 尾部反向扫描的单次回读块大小(字节)。 */
+const TAIL_SCAN_BLOCK_BYTES = 4_096;
+
+/**
+ * 解析尾部扫描定位到的最后一个非空行,提取其 `sequence`。
+ *
+ * @remarks
+ * 只做序号确定所需的最小校验;与读取路径同类错误语义,错误信息以行起始
+ * 字节偏移定位,区别于读取路径的行号。
+ *
+ * @param line - 完整的非空 JSONL 行文本。
+ * @param lineOffset - 行起始字节偏移,用于错误信息。
+ * @param goalId - 期望的 Goal 标识。
+ * @param runId - 期望的 Run 标识。
+ * @returns 行内事件的序号。
+ * @throws JSON 非法、标识不匹配或序号非正整数时抛 `TrajectoryProtocolError`。
+ */
+function parseTailSequence(
+    line: string,
+    lineOffset: number,
+    goalId: string,
+    runId: string,
+): number {
+    let parsed: unknown;
+
+    try {
+        parsed = JSON.parse(line);
+    } catch {
+        throw new TrajectoryProtocolError(
+            `Invalid Trajectory JSONL at byte offset ${lineOffset}`,
+        );
+    }
+
+    const event = parsed as Record<string, unknown> | null;
+
+    if (
+        event === null
+        || typeof event !== "object"
+        || event.goalId !== goalId
+        || event.runId !== runId
+    ) {
+        throw new TrajectoryProtocolError(
+            `Trajectory event identity mismatch at byte offset ${lineOffset}`,
+        );
+    }
+
+    const sequence = event.sequence;
+
+    if (
+        typeof sequence !== "number"
+        || !Number.isInteger(sequence)
+        || sequence < 1
+    ) {
+        throw new TrajectoryProtocolError(
+            `Trajectory sequence must be a positive integer at byte offset ${lineOffset}`,
+        );
+    }
+
+    return sequence;
+}
 
 /**
  * 基于 JSONL 文件的单进程 Trajectory Store。
@@ -43,6 +106,8 @@ import {
 export class JsonFileTrajectoryStore implements TrajectoryStore {
     private readonly appendQueues = new Map<string, Promise<unknown>>();
 
+    private readonly sequenceCache = new Map<string, number>();
+
     /**
      * @param directory - JSONL 轨迹根目录；追加时按需创建 Goal 子目录。
      */
@@ -62,13 +127,13 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         const filePath = this.filePath(draft.goalId, draft.runId);
         const previous = this.appendQueues.get(key) ?? Promise.resolve();
         const operation = previous.catch(() => undefined).then(async () => {
-            const existing = await this.readStoredEvents(
-                filePath,
-                draft.goalId,
-                draft.runId,
-            );
-            const lastEvent = existing[existing.length - 1];
-            const sequence = (lastEvent?.sequence ?? 0) + 1;
+            const lastSequence = this.sequenceCache.get(key)
+                ?? await this.readLastStoredSequence(
+                    filePath,
+                    draft.goalId,
+                    draft.runId,
+                );
+            const sequence = lastSequence + 1;
             const event = allocateImmutableEvent(draft, sequence);
 
             await mkdir(join(this.directory, this.encodeIdentifier(draft.goalId)), {
@@ -79,6 +144,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
                 `${JSON.stringify(event)}\n`,
                 { encoding: "utf8", mode: 0o600 },
             );
+            this.sequenceCache.set(key, sequence);
             return event;
         });
         let tracked: Promise<unknown>;
@@ -128,6 +194,84 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     ): Promise<Readonly<TrajectoryReadResult>> {
         const events = await this.read(query);
         return classifyTrajectoryTail(events, committedThroughSequence);
+    }
+
+    /**
+     * 从文件尾部反向扫描最后一个非空 JSONL 行,返回其 `sequence`。
+     *
+     * @remarks
+     * 以固定块(4 KiB)从文件尾向前回读,累积到能完整框住最后一个非空行为止;
+     * 行首可能被块边界截断时继续向前读,读到文件头后首段即完整行。文件不
+     * 存在、为空或只有空行时返回 0。只做定位序号所需的最小校验:JSON 可
+     * 解析、`goalId`/`runId` 匹配、`sequence` 为正整数;完整协议校验仍由
+     * 读取路径负责。
+     *
+     * @param filePath - 目标 JSONL 文件。
+     * @param goalId - 期望的 Goal 标识。
+     * @param runId - 期望的 Run 标识。
+     * @returns 文件中最后一个非空事件的序号;无事件时为 0。
+     * @throws 尾部行 JSON 非法、标识不匹配或序号非正整数时抛
+     *   `TrajectoryProtocolError`,错误信息含行起始字节偏移。
+     */
+    private async readLastStoredSequence(
+        filePath: string,
+        goalId: string,
+        runId: string,
+    ): Promise<number> {
+        let handle: FileHandle;
+
+        try {
+            handle = await open(filePath, "r");
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                return 0;
+            }
+
+            throw error;
+        }
+
+        try {
+            const { size } = await handle.stat();
+            const chunks: Buffer[] = [];
+            let position = size;
+
+            while (position > 0) {
+                const readSize = Math.min(TAIL_SCAN_BLOCK_BYTES, position);
+                position -= readSize;
+                const block = Buffer.alloc(readSize);
+                await handle.read(block, 0, readSize, position);
+                chunks.unshift(block);
+
+                const segments = Buffer.concat(chunks).toString("utf8")
+                    .split("\n");
+                const headReached = position === 0;
+
+                for (let index = segments.length - 1; index >= 0; index -= 1) {
+                    const segment = segments[index];
+
+                    if (segment.trim() === "") {
+                        continue;
+                    }
+
+                    // 未到文件头时最前段的行首可能被截断,需继续向前读。
+                    if (index === 0 && !headReached) {
+                        break;
+                    }
+
+                    let lineOffset = position;
+
+                    for (let preceding = 0; preceding < index; preceding += 1) {
+                        lineOffset += Buffer.byteLength(segments[preceding]) + 1;
+                    }
+
+                    return parseTailSequence(segment, lineOffset, goalId, runId);
+                }
+            }
+
+            return 0;
+        } finally {
+            await handle.close();
+        }
     }
 
     private async readStoredEvents(
