@@ -15,6 +15,7 @@ import { contract } from "../../contracts/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentProfile,
+    CompletionCriterion,
     Goal,
     GoalProgressResult,
     GoalStore,
@@ -178,7 +179,7 @@ function createGatheringWaitingGoal(): Goal {
 function createPlanningWaitingGoal(
     proposal = {
         objective: "Implement persistence",
-        completionCriteria: ["Snapshots can be restored"],
+        completionCriteria: [{ text: "Snapshots can be restored" }],
     },
 ): Goal {
     const goal = createPreparationGoal();
@@ -210,7 +211,7 @@ function createExecutingWaitingGoal(): Goal {
     const goal = createExecutingGoal({
         id: "goal-blocked-resume",
         objective: "Deploy release",
-        completionCriteria: ["Deployed"],
+        completionCriteria: [{ text: "Deployed" }],
         profile,
         runId: "run-blocked-resume",
     });
@@ -341,7 +342,7 @@ function createExecutingGoal(
     input: {
         readonly id: string;
         readonly objective: string;
-        readonly completionCriteria: readonly string[];
+        readonly completionCriteria: readonly CompletionCriterion[];
         readonly profile: typeof profile;
         readonly runId: string;
     },
@@ -364,7 +365,7 @@ function createExecutingGoal(
                 preparation: { status: "completed" },
                 task: {
                     objective: input.objective,
-                    completionCriteria: [...input.completionCriteria],
+                    completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
                 },
             },
             messages: [],
@@ -421,7 +422,7 @@ test("saves planning before the next model call and persists the complete propos
     events.length = 0;
     const task = {
         objective: "Implement GoalCoordinator",
-        completionCriteria: ["Questions are persisted", "Execution is delegated"],
+        completionCriteria: [{ text: "Questions are persisted" }, { text: "Execution is delegated" }],
     } as const;
     const executor = new FakePreparationExecutor([
         { kind: "context_ready" },
@@ -528,7 +529,7 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
     ]);
     const executor = new FakePreparationExecutor([{
         kind: "task_proposal",
-        task: { objective: "完成规划", completionCriteria: ["有可验证证据"] },
+        task: { objective: "完成规划", completionCriteria: [{ text: "有可验证证据" }] },
         approvalRequest: "Approve?",
     }]);
     const coordinator = new GoalCoordinator({
@@ -691,7 +692,7 @@ test("delegates an executing Goal and returns the latest persisted terminal snap
     const executing = createExecutingGoal({
         id: "goal-executing",
         objective: "Execute",
-        completionCriteria: ["Done"],
+        completionCriteria: [{ text: "Done" }],
         profile,
         runId: "run-executing",
     });
@@ -1184,7 +1185,7 @@ test("saves planning feedback without the current proposal before replanning", a
     const trajectory = trajectoryStoreFor(store);
     const revisedTask = {
         objective: "Implement encrypted persistence",
-        completionCriteria: ["Snapshots are encrypted and restorable"],
+        completionCriteria: [{ text: "Snapshots are encrypted and restorable" }],
     } as const;
     const executor = new FakePreparationExecutor([
         (goal) => {
@@ -1259,7 +1260,7 @@ test("saves an approved proposal as the final task before scheduling execution",
     const events: string[] = [];
     const proposal = {
         objective: "Implement persistence",
-        completionCriteria: ["Snapshots can be restored"],
+        completionCriteria: [{ text: "Snapshots can be restored" }],
     };
     const waiting = createPlanningWaitingGoal(proposal);
     const store = new RecordingGoalStore(events);

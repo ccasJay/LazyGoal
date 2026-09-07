@@ -23,6 +23,7 @@ import {
     throwIfAborted,
     type AgentProfile,
     type AgentProfileRegistry,
+    type CompletionCriterion,
     type ExecutionControl,
     type Goal,
     type GoalProgressResult,
@@ -47,13 +48,20 @@ import {
  * @remarks
  * 该描述只包含 LazyGoal 构造 Goal 所需的通用字段，不应携带 benchmark 专用
  * Manifest、环境句柄或评分结果。`maxSteps` 直接冻结到 Goal 的执行策略中。
+ * `completionCriteria` 支持简写纯文本字符串或携带验收声明的结构化 {@link CompletionCriterion}。
  *
  * @example
  * ```ts
  * const descriptor: BenchmarkTaskDescriptor = {
  *     intent: "完成一个算术任务",
  *     objective: "返回正确的计算结果",
- *     completionCriteria: ["环境确认答案正确"],
+ *     completionCriteria: [
+ *         "环境确认答案正确",
+ *         {
+ *             text: "运行验证工具",
+ *             acceptance: { expectToolId: "verify", expectOutcome: "success" },
+ *         },
+ *     ],
  *     maxSteps: 10,
  * };
  * ```
@@ -63,8 +71,8 @@ export interface BenchmarkTaskDescriptor {
     readonly intent: string;
     /** 批准后冻结到 Goal 的任务目标。 */
     readonly objective: string;
-    /** 批准后冻结到 Goal 的可验证完成条件。 */
-    readonly completionCriteria: readonly string[];
+    /** 批准后冻结到 Goal 的可验证完成条件，支持纯文本或结构化验收声明。 */
+    readonly completionCriteria: readonly (string | CompletionCriterion)[];
     /** executing 阶段允许的最大 Step 数；`0` 表示不按数量限制。 */
     readonly maxSteps: number;
 }
@@ -477,6 +485,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         throwIfAborted(control);
         const descriptor = validateTaskDescriptor(
             this.dependencies.adapter.describeTask(task),
+            this.dependencies.profile,
         );
         throwIfAborted(control);
         const goalId = createIdentifier(
@@ -719,7 +728,7 @@ function createSingleProfileRegistry(profile: AgentProfile): AgentProfileRegistr
 }
 
 function createDescriptorPreparationExecutor(
-    descriptor: BenchmarkTaskDescriptor,
+    descriptor: Pick<NormalizedBenchmarkTaskDescriptor, "objective" | "completionCriteria">,
 ): PreparationExecutor {
     return {
         async execute({ goal }) {
@@ -732,7 +741,19 @@ function createDescriptorPreparationExecutor(
                     kind: "task_proposal",
                     task: {
                         objective: descriptor.objective,
-                        completionCriteria: [...descriptor.completionCriteria],
+                        completionCriteria: descriptor.completionCriteria.map(
+                            (criterion) => ({
+                                text: criterion.text,
+                                ...(criterion.acceptance === undefined
+                                    ? {}
+                                    : {
+                                        acceptance: {
+                                            expectToolId: criterion.acceptance.expectToolId,
+                                            expectOutcome: criterion.acceptance.expectOutcome,
+                                        },
+                                    }),
+                            }),
+                        ),
                     },
                     approvalRequest: "Headless benchmark task is ready for execution.",
                 };
@@ -840,9 +861,54 @@ function validateRootDependencies<TTask, TOutcome>(
     }
 }
 
-function validateTaskDescriptor(
+/**
+ * 校验并规范化后的 Benchmark 任务描述。
+ *
+ * @remarks
+ * 所有完成条件均归一化为 {@link CompletionCriterion} 结构化对象。
+ */
+export interface NormalizedBenchmarkTaskDescriptor {
+    /** 任务意图。 */
+    readonly intent: string;
+    /** 任务目标。 */
+    readonly objective: string;
+    /** 规范化后的结构化完成条件列表。 */
+    readonly completionCriteria: readonly CompletionCriterion[];
+    /** executing 阶段允许的最大 Step 数。 */
+    readonly maxSteps: number;
+}
+
+/**
+ * 校验并规范化 BenchmarkTaskDescriptor。
+ *
+ * @remarks
+ * 验证 descriptor 各字段合法性。完成条件列表中的纯文本字符串会被自动归一化为
+ * `{ text: criterion }`；结构化条件会严格检查 `text` 非空及可选 `acceptance` 的字段取值。
+ * 若提供了 `profile`，声明的 `expectToolId` 必须属于 `profile.toolIds`，否则抛出 `TypeError`，
+ * 防止未授权工具导致任务永无法完成。
+ *
+ * @param descriptor - 待校验的原始任务描述。
+ * @param profile - 当前运行冻结的 AgentProfile，用于校验验收工具授权。
+ * @returns 规范化后的任务描述，所有 completionCriteria 均为 {@link CompletionCriterion}。
+ * @throws 当 descriptor 非法、缺少必要字段、包含未授权工具或非法验收形态时抛出 `TypeError` 或 `RangeError`。
+ *
+ * @example
+ * ```ts
+ * const normalized = validateTaskDescriptor({
+ *     intent: "运行测试",
+ *     objective: "测试通过",
+ *     completionCriteria: [
+ *         "输出通过",
+ *         { text: "命令执行成功", acceptance: { expectToolId: "bash", expectOutcome: "success" } },
+ *     ],
+ *     maxSteps: 5,
+ * });
+ * ```
+ */
+export function validateTaskDescriptor(
     descriptor: BenchmarkTaskDescriptor,
-): BenchmarkTaskDescriptor {
+    profile?: AgentProfile,
+): NormalizedBenchmarkTaskDescriptor {
     if (!descriptor || typeof descriptor !== "object") {
         throw new TypeError("Benchmark adapter returned an invalid task descriptor");
     }
@@ -851,11 +917,47 @@ function validateTaskDescriptor(
     if (
         !Array.isArray(descriptor.completionCriteria)
         || descriptor.completionCriteria.length === 0
-        || descriptor.completionCriteria.some(
-            (criterion) => typeof criterion !== "string" || criterion.trim().length === 0,
-        )
     ) {
         throw new TypeError("task descriptor completionCriteria must be non-empty text values");
+    }
+    const normalizedCriteria: CompletionCriterion[] = [];
+    for (const criterion of descriptor.completionCriteria) {
+        if (typeof criterion === "string") {
+            if (criterion.trim().length === 0) {
+                throw new TypeError("task descriptor completionCriteria must be non-empty text values");
+            }
+            normalizedCriteria.push({ text: criterion });
+        } else if (typeof criterion === "object" && criterion !== null) {
+            if (typeof criterion.text !== "string" || criterion.text.trim().length === 0) {
+                throw new TypeError("task descriptor completionCriteria text must be non-empty text");
+            }
+            if (criterion.acceptance !== undefined) {
+                if (typeof criterion.acceptance !== "object" || criterion.acceptance === null) {
+                    throw new TypeError("task descriptor completion criterion acceptance must be an object");
+                }
+                const { expectToolId, expectOutcome } = criterion.acceptance;
+                if (typeof expectToolId !== "string" || expectToolId.trim().length === 0) {
+                    throw new TypeError("task descriptor completion criterion acceptance expectToolId must be non-empty text");
+                }
+                if (expectOutcome !== "success" && expectOutcome !== "failure") {
+                    throw new TypeError("task descriptor completion criterion acceptance expectOutcome must be \"success\" or \"failure\"");
+                }
+                if (profile !== undefined && !profile.toolIds.includes(expectToolId)) {
+                    throw new TypeError(`task descriptor completion criterion requires tool "${expectToolId}" not present in agent profile`);
+                }
+                normalizedCriteria.push({
+                    text: criterion.text,
+                    acceptance: {
+                        expectToolId,
+                        expectOutcome,
+                    },
+                });
+            } else {
+                normalizedCriteria.push({ text: criterion.text });
+            }
+        } else {
+            throw new TypeError("task descriptor completionCriteria must be non-empty text values or CompletionCriterion objects");
+        }
     }
     if (!Number.isSafeInteger(descriptor.maxSteps) || descriptor.maxSteps < 0) {
         throw new RangeError("task descriptor maxSteps must be a non-negative safe integer");
@@ -863,7 +965,7 @@ function validateTaskDescriptor(
     return {
         intent,
         objective,
-        completionCriteria: [...descriptor.completionCriteria],
+        completionCriteria: normalizedCriteria,
         maxSteps: descriptor.maxSteps,
     };
 }

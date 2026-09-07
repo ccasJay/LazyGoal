@@ -61,7 +61,7 @@ function createExecutingGoal(
                 preparation: { status: "completed" },
                 task: {
                     objective: goal.definition.intent,
-                    completionCriteria: ["Abort is not converted into a failure"],
+                    completionCriteria: [{ text: "Abort is not converted into a failure" }],
                 },
             },
             run: {

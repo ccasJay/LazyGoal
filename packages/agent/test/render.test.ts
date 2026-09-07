@@ -135,7 +135,7 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
         intent: "完成示例任务",
         task: {
             objective: "实现三阶段上下文",
-            completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
+            completionCriteria: [{ text: "请求顺序稳定" }, { text: "控制消息不持久化" }],
         },
         execution: { stepCount: 0 },
     };
@@ -239,7 +239,7 @@ test("Executing 请求注入 Preparation provenance 时在渲染器调用前失�
             intent: "完成示例任务",
             task: {
                 objective: "实现三阶段上下文",
-                completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
+                completionCriteria: [{ text: "请求顺序稳定" }, { text: "控制消息不持久化" }],
             },
             execution: { stepCount: 0 },
         },
@@ -312,7 +312,7 @@ test("当前请求在控制消息中携带带时效边界的历史 Lookup Result
         intent: "完成示例任务",
         task: {
             objective: "实现三阶段上下文",
-            completionCriteria: ["请求顺序稳定"],
+            completionCriteria: [{ text: "请求顺序稳定" }],
         },
         execution: { stepCount: 1 },
     };
@@ -342,7 +342,7 @@ test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检
         intent: "完成示例任务",
         task: {
             objective: "实现三阶段上下文",
-            completionCriteria: ["请求顺序稳定"],
+            completionCriteria: [{ text: "请求顺序稳定" }],
         },
         execution: { stepCount: 1 },
     };
@@ -388,7 +388,7 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
         intent: "完成示例任务",
         task: {
             objective: "实现三阶段上下文",
-            completionCriteria: ["请求顺序稳定"],
+            completionCriteria: [{ text: "请求顺序稳定" }],
         },
         execution: {
             stepCount: 2,

@@ -5,7 +5,7 @@ Approved Goal Task Contract:
 Objective: {{ task.objective }}
 Completion Criteria:
 {% for criterion in task.completionCriteria -%}
-- [{{ loop.index0 }}] {{ criterion }}
+- [{{ loop.index0 }}] {{ criterion.text }}
 {% endfor %}
 {% endif %}
 Working Memory contains only fact, hypothesis, plan and blocker. Executing may update existing PlanItems but must not create a new PlanItem. Preparation input provenance is not present in this request and must never be used as evidence; Conversation text is not generic Fact evidence.

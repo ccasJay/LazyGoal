@@ -32,6 +32,7 @@ import {
 } from "../src/index";
 import type {
     AgentProfile,
+    CompletionCriterion,
     Goal,
     GoalMessage,
     RunStatus,
@@ -53,7 +54,7 @@ const messages: GoalMessage[] = [
 function createExecutingGoal(input: {
     readonly id: string;
     readonly objective: string;
-    readonly completionCriteria: readonly string[];
+    readonly completionCriteria: readonly CompletionCriterion[];
     readonly profile: AgentProfile;
     readonly messages?: readonly GoalMessage[];
     readonly runId: string;
@@ -77,7 +78,7 @@ function createExecutingGoal(input: {
                 preparation: { status: "completed" },
                 task: {
                     objective: input.objective,
-                    completionCriteria: [...input.completionCriteria],
+                    completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
                 },
             },
         },
@@ -88,7 +89,7 @@ function createSnapshot(runId = "run-1"): Goal {
     return createExecutingGoal({
         id: "goal-1",
         objective: "完成快照存储",
-        completionCriteria: ["可以恢复最新 Goal"],
+        completionCriteria: [{ text: "可以恢复最新 Goal" }],
         profile,
         messages,
         runId,
@@ -153,7 +154,7 @@ function createCatalogGoal(id: string, status: RunStatus): Goal {
     const goal = createExecutingGoal({
         id,
         objective: `Intent ${id}`,
-        completionCriteria: ["完成目录测试"],
+        completionCriteria: [{ text: "完成目录测试" }],
         profile,
         runId: `run-${id}`,
     });
@@ -384,7 +385,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
                     status: "waiting_approval",
                     proposal: {
                         objective: "准备后的任务",
-                        completionCriteria: ["批准后执行"],
+                        completionCriteria: [{ text: "批准后执行" }],
                     },
                 },
             },
@@ -532,6 +533,98 @@ test("GoalSnapshotCodec isolates objects between Runtime and Snapshot", () => {
     assert.deepEqual(
         second.state.run.lastStep.action.input,
         { path: "README.md", options: { encoding: "utf8" } },
+    );
+});
+
+test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => {
+    const goal = createExecutingGoal({
+        id: "goal-with-acceptance",
+        objective: "验证 acceptance 持久化",
+        completionCriteria: [
+            { text: "纯文本标准" },
+            {
+                text: "带预期工具成功的标准",
+                acceptance: { expectToolId: "bash", expectOutcome: "success" },
+            },
+            {
+                text: "带预期工具失败的标准",
+                acceptance: { expectToolId: "test_runner", expectOutcome: "failure" },
+            },
+        ],
+        profile,
+        runId: "run-acceptance",
+    });
+
+    const encoded = goalSnapshotCodec.encode(goal);
+    assert.equal(encoded.state.workflow.phase, "executing");
+    if (encoded.state.workflow.phase === "executing") {
+        assert.deepEqual(
+            encoded.state.workflow.task.completionCriteria,
+            [
+                { text: "纯文本标准" },
+                {
+                    text: "带预期工具成功的标准",
+                    acceptance: { expectToolId: "bash", expectOutcome: "success" },
+                },
+                {
+                    text: "带预期工具失败的标准",
+                    acceptance: { expectToolId: "test_runner", expectOutcome: "failure" },
+                },
+            ],
+        );
+    }
+
+    const restored = goalSnapshotCodec.decode(encoded);
+    assert.equal(restored.state.workflow.phase, "executing");
+    if (restored.state.workflow.phase === "executing") {
+        assert.deepEqual(
+            restored.state.workflow.task.completionCriteria,
+            goal.state.workflow.phase === "executing" ? goal.state.workflow.task.completionCriteria : [],
+        );
+    }
+});
+
+test("GoalSnapshotCodec fails fast on legacy string completionCriteria", () => {
+    const validSnapshot = goalSnapshotCodec.encode(createSnapshot());
+    const legacySnapshot = JSON.parse(JSON.stringify(validSnapshot));
+    legacySnapshot.state.workflow.task.completionCriteria = ["旧版纯字符串条件 1", "旧版纯字符串条件 2"];
+
+    assert.throws(
+        () => goalSnapshotCodec.decode(legacySnapshot),
+        (error: unknown) => {
+            return (
+                error instanceof Error
+                && error.message.includes("legacy string completionCriteria are no longer supported")
+            );
+        },
+    );
+
+    const planningGoal: Goal = {
+        ...createSnapshot("run-planning"),
+        state: {
+            ...createSnapshot("run-planning").state,
+            workflow: {
+                phase: "planning",
+                preparation: {
+                    status: "waiting_approval",
+                    proposal: {
+                        objective: "计划目标",
+                        completionCriteria: [{ text: "结构化条件" }],
+                    },
+                },
+            },
+        },
+    };
+    const planningSnapshot = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(planningGoal)));
+    planningSnapshot.state.workflow.preparation.proposal.completionCriteria = ["旧版 proposal 条件"];
+    assert.throws(
+        () => goalSnapshotCodec.decode(planningSnapshot),
+        (error: unknown) => {
+            return (
+                error instanceof Error
+                && error.message.includes("legacy string completionCriteria are no longer supported")
+            );
+        },
     );
 });
 
@@ -736,7 +829,7 @@ test("JsonFileGoalStore uses a safe encoded filename for arbitrary Goal IDs", as
         const goal = createExecutingGoal({
             id: goalId,
             objective: "验证路径安全",
-            completionCriteria: ["文件仍位于存储目录内"],
+            completionCriteria: [{ text: "文件仍位于存储目录内" }],
             profile,
             messages,
             runId: "run-safe-path",

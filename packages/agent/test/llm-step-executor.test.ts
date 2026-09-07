@@ -39,7 +39,7 @@ const contextCompactor = new DropOldestContextCompactor();
 const goalId = "goal-1";
 const task: GoalTask = {
     objective: "完成单步执行",
-    completionCriteria: ["返回结构化结果"],
+    completionCriteria: [{ text: "返回结构化结果" }],
 };
 
 const profile: AgentProfile = {

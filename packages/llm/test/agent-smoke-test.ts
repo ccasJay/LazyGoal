@@ -84,7 +84,9 @@ async function main(): Promise<void> {
                 task: {
                     objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
                     completionCriteria: [
-                        "返回一个符合 AgentDecision 协议的 complete 结果，并为该完成标准提供 evidence",
+                        {
+                            text: "返回一个符合 AgentDecision 协议的 complete 结果，并为该完成标准提供 evidence",
+                        },
                     ],
                 },
             },

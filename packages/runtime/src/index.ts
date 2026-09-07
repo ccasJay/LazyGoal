@@ -38,7 +38,10 @@ export type {
 export type {
     AssistantMessage,
     AgentDecision,
+    CompletionAcceptance,
     CompletionEvidence,
+    CompletionExpectOutcome,
+    CompletionCriterion,
     StructuredAgentDecision,
     Blocker,
     BlockerCreate,
@@ -323,6 +326,7 @@ export {
     validateContextLookupSourceReferences,
     validateFactEvidence,
     validateMemoryPatchEvidence,
+    resolveEvidenceObservation,
 } from "./evidence-gate";
 export type {
     CommittedEvidenceIndex,

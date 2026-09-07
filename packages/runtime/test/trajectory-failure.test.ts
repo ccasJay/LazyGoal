@@ -107,7 +107,7 @@ function executingGoal(id: string): Goal {
             workflow: {
                 phase: "executing",
                 preparation: { status: "completed" },
-                task: { objective: "execute", completionCriteria: ["done"] },
+                task: { objective: "execute", completionCriteria: [{ text: "done" }] },
             },
         },
     };

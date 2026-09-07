@@ -96,6 +96,20 @@ function preparationInputRecorded(
     };
 }
 
+function cloneCriterion(criterion: GoalTask["completionCriteria"][number]): GoalTask["completionCriteria"][number] {
+    return {
+        text: criterion.text,
+        ...(criterion.acceptance === undefined
+            ? {}
+            : {
+                acceptance: {
+                    expectToolId: criterion.acceptance.expectToolId,
+                    expectOutcome: criterion.acceptance.expectOutcome,
+                },
+            }),
+    };
+}
+
 /** Goal 推进失败时返回的稳定业务错误码。 */
 export type GoalProgressErrorCode =
     | "RUN_NOT_FOUND"
@@ -1535,7 +1549,7 @@ export class GoalCoordinator {
     private cloneTask(task: GoalTask): GoalTask {
         return {
             objective: task.objective,
-            completionCriteria: [...task.completionCriteria],
+            completionCriteria: task.completionCriteria.map(cloneCriterion),
         };
     }
 
@@ -1543,7 +1557,7 @@ export class GoalCoordinator {
         const criteria = task.completionCriteria.length === 0
             ? ["None"]
             : task.completionCriteria.map(
-                (criterion, index) => `${index + 1}. ${criterion}`,
+                (criterion, index) => `${index + 1}. ${criterion.text}`,
             );
 
         return [

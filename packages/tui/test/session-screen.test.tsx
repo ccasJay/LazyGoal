@@ -54,7 +54,7 @@ function executingGoal(id = "goal-executing"): Goal {
                 preparation: { status: "completed" },
                 task: {
                     objective: "Inspect the repository",
-                    completionCriteria: ["Report the repository structure"],
+                    completionCriteria: [{ text: "Report the repository structure" }],
                 },
             },
         },

@@ -59,7 +59,7 @@ const contextCompactor = new DropOldestContextCompactor();
 const intent = "完成示例任务";
 const task = {
     objective: "实现三阶段上下文",
-    completionCriteria: ["请求顺序稳定", "控制消息不持久化"],
+    completionCriteria: [{ text: "请求顺序稳定" }, { text: "控制消息不持久化" }],
 };
 const profile: AgentProfile = {
     id: "profile-1",

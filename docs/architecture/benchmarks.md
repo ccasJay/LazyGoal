@@ -47,8 +47,8 @@ Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory
 `bm25-lite@1`，并把同一 `TrajectoryModelContextAssembler` 注入 `LLMStepExecutor`；
 模型上下文因此从当前 Trajectory Snapshot 组装。benchmark 目前只装配 Trajectory 层，
 不自动创建 Cold Trajectory 索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
-基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
-`won=true`，模型 `complete` 不能覆盖环境失败。
+任务描述符 `BenchmarkTaskDescriptor.completionCriteria` 支持纯文本与携带验收声明的结构化条件；Root 在启动前执行结构校验与 Profile 工具白名单授权检查，将声明注入 Goal Task。基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
+`won=true`，模型 `complete` 与验收声明不能覆盖环境失败。
 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
 归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。
 TextWorld 不提供部分目标完成率时，sidecar 以 `won` 生成二值完成率。

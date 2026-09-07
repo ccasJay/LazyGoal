@@ -139,7 +139,7 @@ test("Goal-stable 根前缀确定性渲染任务契约与决策分支", async ()
     const renderer = await createDefaultPromptBundleRenderer();
     const task = {
         objective: "完成测试目标",
-        completionCriteria: ["标准1", "标准2"],
+        completionCriteria: [{ text: "标准1" }, { text: "标准2" }],
     };
     const rendered1 = renderer.render(context({ phase: "executing", task }));
     const rendered2 = renderer.render(context({ phase: "executing", task }));

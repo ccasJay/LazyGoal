@@ -164,7 +164,7 @@ test("planning 只解析 task_proposal 协议", async () => {
             kind: "task_proposal",
             task: {
                 objective: "实现可恢复 Agent",
-                completionCriteria: ["恢复测试通过"],
+                completionCriteria: [{ text: "恢复测试通过", acceptance: null }],
             },
             approvalRequest: "是否批准该任务？",
             memoryPatch: null,
@@ -192,7 +192,7 @@ test("planning 只解析 task_proposal 协议", async () => {
         kind: "task_proposal",
         task: {
             objective: "实现可恢复 Agent",
-            completionCriteria: ["恢复测试通过"],
+            completionCriteria: [{ text: "恢复测试通过" }],
         },
         approvalRequest: "是否批准该任务？",
     });
@@ -228,8 +228,8 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
             task: {
                 objective: "生成可审核的发布包",
                 completionCriteria: [
-                    "通过 inspect_release 的 Observation 验证发布包内容",
-                    "取得外部审核人的签字确认",
+                    { text: "通过 inspect_release 的 Observation 验证发布包内容", acceptance: null },
+                    { text: "取得外部审核人的签字确认", acceptance: null },
                 ],
             },
             approvalRequest: "是否批准该完整任务契约及外部签字依赖？",

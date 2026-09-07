@@ -511,3 +511,68 @@ export type EvidenceEventType = typeof EVIDENCE_EVENT_TYPES[number];
 
 /** 供类型消费者引用的 Fact 证据字段形状。 */
 export type FactEvidence = Pick<EvidenceBackedFact, "evidenceSequences">;
+
+/**
+ * 从已提交的证据索引中解析指定 sequence 对应的工具观察结果。
+ *
+ * @remarks
+ * 用于完成条件的验收声明匹配判定：
+ * - 当事件为 `tool_finished` 时，直接从 payload 提取 `toolId` 与观察结果 `outcome`（`success` 或 `failure`）；
+ * - 当事件为 `observation_recorded` 时，若观察结果类型为 `success` 或 `failure`，则在索引内按 `actionId` 查找配对的 `tool_started` 或 `tool_finished` 事件提取 `toolId`；
+ * - 若配对事件缺失、观察结果为 `rejected` 或事件类型非工具观察事实，返回 `undefined`。
+ *
+ * @param sequence - 待解析的 Trajectory sequence。
+ * @param index - 当前 Goal/Run 的已提交证据索引。
+ * @returns 工具标识与观察结果形态；无法解析为有效工具观察时返回 `undefined`。
+ * @example
+ * ```ts
+ * const resolved = resolveEvidenceObservation(12, evidenceIndex);
+ * if (resolved !== undefined && resolved.toolId === "bash" && resolved.outcome === "success") {
+ *     // 匹配验收声明
+ * }
+ * ```
+ */
+export function resolveEvidenceObservation(
+    sequence: number,
+    index: CommittedEvidenceIndex,
+): { toolId: string; outcome: "success" | "failure" } | undefined {
+    const event = index.get(sequence);
+    if (event === undefined) {
+        return undefined;
+    }
+
+    if (event.payload.type === "tool_finished") {
+        const outcome = event.payload.observation.kind;
+        if (outcome !== "success" && outcome !== "failure") {
+            return undefined;
+        }
+        return {
+            toolId: event.payload.toolId,
+            outcome,
+        };
+    }
+
+    if (event.payload.type === "observation_recorded") {
+        const outcome = event.payload.observation.kind;
+        if (outcome !== "success" && outcome !== "failure") {
+            return undefined;
+        }
+        const targetActionId = event.payload.actionId;
+        for (const candidate of index.events.values()) {
+            if (
+                candidate.payload.type === "tool_started"
+                || candidate.payload.type === "tool_finished"
+            ) {
+                if (candidate.payload.actionId === targetActionId) {
+                    return {
+                        toolId: candidate.payload.toolId,
+                        outcome,
+                    };
+                }
+            }
+        }
+        return undefined;
+    }
+
+    return undefined;
+}

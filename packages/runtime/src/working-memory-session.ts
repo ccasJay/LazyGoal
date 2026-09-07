@@ -685,6 +685,25 @@ export class WorkingMemorySession {
     }
 
     /**
+     * 当前 Session 持有的已提交事件证据索引。
+     *
+     * @returns 已提交事件的只读索引。
+     * @throws WorkingMemorySessionClosedError 当 Session 已被关闭或未绑定索引时抛出。
+     *
+     * @example
+     * ```ts
+     * const index = session.evidenceIndex;
+     * console.log(index.committedThroughSequence);
+     * ```
+     */
+    get evidenceIndex(): CommittedEvidenceIndex {
+        if (this.currentEvidenceIndex === undefined) {
+            throw new WorkingMemorySessionClosedError();
+        }
+        return this.currentEvidenceIndex;
+    }
+
+    /**
      * 在当前 committed Snapshot 边界内校验模型提出的 Memory Patch。
      *
      * @param patch - 尚未接受的模型 Patch。

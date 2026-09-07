@@ -3,7 +3,10 @@ import type {
     AgentDecision,
     BlockerCreate,
     BlockerUpdate,
+    CompletionAcceptance,
     CompletionEvidence,
+    CompletionExpectOutcome,
+    CompletionCriterion,
     FactProposal,
     FactScalar,
     FactStability,
@@ -26,6 +29,9 @@ import type {
 } from "./context-retrieval";
 
 export type {
+    CompletionAcceptance,
+    CompletionExpectOutcome,
+    CompletionCriterion,
     GoalTask,
 };
 

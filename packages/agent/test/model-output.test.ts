@@ -103,7 +103,7 @@ test("parseModelOutput 成功解析四类请求的合法结果并还原 optional
             kind: "task_proposal",
             task: {
                 objective: "完成模块实现",
-                completionCriteria: ["所有测试通过"],
+                completionCriteria: [{ text: "所有测试通过", acceptance: null }],
             },
             approvalRequest: "是否批准？",
             memoryPatch: null,
@@ -114,7 +114,7 @@ test("parseModelOutput 成功解析四类请求的合法结果并还原 optional
         kind: "task_proposal",
         task: {
             objective: "完成模块实现",
-            completionCriteria: ["所有测试通过"],
+            completionCriteria: [{ text: "所有测试通过" }],
         },
         approvalRequest: "是否批准？",
     });

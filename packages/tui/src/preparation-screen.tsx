@@ -287,7 +287,7 @@ function ProposalPanel({
                 <Box flexDirection="column">
                     <Text>Completion criteria:</Text>
                     {proposal.completionCriteria.map((criterion) => (
-                        <Text key={criterion}>• {criterion}</Text>
+                        <Text key={criterion.text}>• {criterion.text}</Text>
                     ))}
                 </Box>
             ) : null}
