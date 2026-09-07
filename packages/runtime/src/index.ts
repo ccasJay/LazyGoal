@@ -326,6 +326,7 @@ export {
     validateContextLookupSourceReferences,
     validateFactEvidence,
     validateMemoryPatchEvidence,
+    resolveEvidenceObservation,
 } from "./evidence-gate";
 export type {
     CommittedEvidenceIndex,

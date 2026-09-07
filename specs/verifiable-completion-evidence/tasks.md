@@ -7,7 +7,7 @@
   - 验证方式:待实现用例加入 `packages/storage/test/`;`npx tsx --test packages/runtime/test/*.test.ts`
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2)_
 
-- [ ] //TODO 2. Evidence Gate 解析函数
+- [x] //TODO 2. Evidence Gate 解析函数
 
   - 实现目标:`evidence-gate.ts` 新增纯函数 `resolveEvidenceObservation(sequence, index)`,`tool_finished` 直接取 payload 的 toolId 与 observation.kind,`observation_recorded` 按 actionId 与索引内 `tool_started`/`tool_finished` 配对解析 toolId,其余返回 `undefined`
   - 成功判据:四类场景用例(直接解析/配对解析/配对缺失/非工具事件)全部符合预期
