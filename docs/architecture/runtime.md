@@ -31,7 +31,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [GoalCatalog 契约](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要的 Port | 写入快照或返回历史版本 |
 | [CheckpointGateGoalStore](../../packages/runtime/src/checkpoint-gate.ts) | 关闭流程中冻结新快照写入并等待已进入保存 | 回滚快照或修改 Goal 状态 |
 | [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
-| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入校验、重放声明、Registry 与 Policy 边界 | 具体 Tool 执行与 Goal 持久化 |
+| [Tool contracts](../../packages/runtime/src/tool.ts) | 泛型 `Tool<C>`、不可变 Input Contract 事实源、`ToolRegistration` 绑定与执行闭包、重放声明、Registry 与 Policy 边界 | 具体 Tool 业务逻辑与 Goal 持久化 |
 | [ExecutionControl](../../packages/runtime/src/execution-control.ts) | 在一次调用链内传播 AbortSignal，并将中止规范化为控制流错误 | 改写 Goal 状态或决定进程退出 |
 | [ShutdownCoordinator](../../packages/runtime/src/shutdown.ts) | 幂等编排 Gate 冻结、根 abort、受管资源清理与退出码 130 | 领域取消或快照回滚 |
 
@@ -62,7 +62,7 @@ Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存�
 
 模型 Patch 在关联 Action 执行前提交。Tool 返回后，Runner 用已分配的 Observation 事实 sequence 调用可选 `ToolMemoryProjector`；合法 proposal 仍由同一 Admission Core 接受，并和 `observation_recorded`、Snapshot 进入一个提交边界。Projector 缺失或返回 `no_op` 不写 Patch，抛错或非法结果只写 Diagnostic Trace，原始 Observation 仍提交。`stable` Fact 在更新证据出现前持续成立；`last_observed` 只表示证据序列处的最后观察，作为当前外部状态使用前必须重新观察。completed/failed 的 canonical lifecycle Patch 清理 executing phase 的 Hypothesis、Plan 与 Blocker。
 
-StepExecutor 生成 AgentDecision 后，Runner 对返回值做严格协议和 Evidence 校验。`context_lookup` 是独占分支，只允许历史执行/决策理由；当前 Workspace/Environment/验证状态必须重新调用 Tool。自动允许 Action 先保存 pending intent，再调用 Tool；需要批准时保存等待点。safe Tool 可沿用原 `actionId` 重放，manual Tool 转为 `outcome_unknown` waiting。`EvidenceGate` 的 Preparation scope 只允许匹配的 `preparation_input_recorded` 支持用户约束 Fact create/update；retire、Plan completion 和所有 Executing Fact/Completion evidence 均不接受该来源。structured `complete` 必须覆盖每个 completion criterion 的 committed Tool/Observation evidence。每个保存点成功后才进入下一步；`state_committed` marker 只用于审计，恢复以 Snapshot 的 `committedThroughSequence` 和 revision 为准。
+StepExecutor 生成 AgentDecision 后，Runner 对返回值做严格协议和 Evidence 校验。`context_lookup` 是独占分支，只允许历史执行/决策理由；当前 Workspace/Environment/验证状态必须重新调用 Tool。新 `tool_call` Action 先通过 Profile 白名单授权并在 Registry 中找到对应的 `ToolRegistration`，随后立即通过其 Input Contract 执行单次结构解析（`safeParse`）与 Tool 领域语义校验（`validate`）；解析失败以 `INVALID_TOOL_INPUT` 拒绝，不调用 Policy、不写 pending 或决策事实。校验通过后生成瞬时的 `PreparedToolAction`（携带隔离后的 canonical Action、Registration 与执行闭包），供 Policy、pending Action 持久化与执行闭包共享，单次尝试中不再重复解析原始 JSON。自动放行 Action 持久化后直接执行闭包；需要批准时仅持久化 canonical Action 并保存等待点。safe 恢复将当前 Prepared 对象传入首轮执行，manual 恢复转为 `outcome_unknown` waiting；审批批准或恢复的新尝试中必须重新 prepare。`EvidenceGate` 的 Preparation scope 只允许匹配的 `preparation_input_recorded` 支持用户约束 Fact create/update；retire、Plan completion 和所有 Executing Fact/Completion evidence 均不接受该来源。structured `complete` 必须覆盖每个 completion criterion 的 committed Tool/Observation evidence。每个保存点成功后才进入下一步；`state_committed` marker 只用于审计，恢复以 Snapshot 的 `committedThroughSequence` 和 revision 为准。
 
 `TrajectoryCheckpointCommitter` 使用同一个 `TrajectoryStore` 追加事实并在 `GoalStore.save` 前读取边界 tail。候选 Snapshot 中存在的 Goal/Run、message index、user 角色和 hash 必须与 tail 内所有 `preparation_input_recorded` 匹配；任一不匹配或缺少边界读取能力都会在 Snapshot、marker 和下游调用前抛出 `TrajectoryAppendError`。普通执行 tail 保持原有处理语义；当前实现不提供 Outbox、原子双写或异步重试。
 
@@ -83,27 +83,9 @@ Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Ad
 
 Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
 
-Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界；Agent 接收已注册的授权
-ToolDefinition 并自行选择下一步，生成并校验严格 AgentDecision，Runner 自动执行允许的
-Action。Runtime 不根据 Bash 命令文本改写或替换 Agent 的 Tool 选择；Profile 白名单、
-Registry、输入校验和 Policy 仍是实际授权边界。
-[`packages/tools`](../../packages/tools/src/index.ts) 提供五个 Tool：只读 `ReadFileTool`、
-写入 UTF-8 文本的 `WriteFileTool`（safe 重放，父目录须已存在，拒绝 `.lazygoal`
-前缀）、执行唯一匹配字符串替换的 `EditFileTool`（safe 重放，`oldString` 须恰好
-出现一次，重放时 `newString` 已存在则幂等成功，拒绝 `.lazygoal` 前缀）、按正则
-递归搜索文本文件的只读 `GrepTool`（safe 重放，跳过符号链接、`.git`、`.lazygoal`
-与 `node_modules`，扫描 2000 文件/返回 200 行匹配后截断）与 `BashTool`（manual
-重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为 workspaceRoot、默认 30 秒/上限
-120 秒超时，使用 `spawn` 持续消费 stdout/stderr，各自有界保留尾部 10000 字符，
-输出超量不提前终止命令）。五者共享 workspaceRoot
-沙箱：拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；文件不
-存在等领域问题返回 `failure`，非零退出码与超时分别返回 `COMMAND_FAILED`/
-`COMMAND_TIMEOUT`，替换不匹配分别返回 `STRING_NOT_FOUND`/`STRING_NOT_UNIQUE`
-领域失败。TUI 组合根的默认策略（`createDefaultToolPolicy`）只自动放行只读
-Tool（`read_file` 与 `grep`），`write_file`、`edit_file` 与 `bash` 需逐次
-批准。Runner、Agent 与 Coordinator 支持自动允许/审批 Action 的授权、持久化执行
-编排、拒绝 Observation、瞬时授权和 safe/manual 中断恢复；跨进程重放依赖
-JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
+Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界。Tool 采用泛型 `Tool<C>` 接口定义，其 `definition.inputContract`（来自 `@lazygoal/contracts`）是输入 JSON 结构的唯一事实源，只读 TypeScript 类型、本地结构解析与模型 Schema 均由其派生。`InMemoryToolRegistry` 不直接保存泛型 Tool，而是由组合根通过 `createToolRegistration(tool)` 将具体输入类型封装为类型擦除的 `ToolRegistration` 绑定（在注册时预编译 JSON Schema 验证契约图完整性）。Runner 在 Action 尝试中通过 `ToolRegistration.prepare(input)` 完成单次结构解析与语义校验，产出瞬时 `PreparedToolAction`，避免同一尝试内重复解析原始 JSON；输入不经 trim、coerce 或 default 规范化。Agent 接收已注册的授权 ToolDefinition 并自行选择下一步，生成并校验严格 AgentDecision，Runner 自动执行允许的 Action。Runtime 不根据 Bash 命令文本改写或替换 Agent 的 Tool 选择；Profile 白名单、Registry、输入校验和 Policy 仍是实际授权边界。
+
+[`packages/tools`](../../packages/tools/src/index.ts) 提供五个 Tool：只读 `ReadFileTool`、写入 UTF-8 文本的 `WriteFileTool`（safe 重放，父目录须已存在，拒绝 `.lazygoal` 前缀）、执行唯一匹配字符串替换的 `EditFileTool`（safe 重放，`oldString` 须恰好出现一次，重放时 `newString` 已存在则幂等成功，拒绝 `.lazygoal` 前缀）、按正则递归搜索文本文件的只读 `GrepTool`（safe 重放，跳过符号链接、`.git`、`.lazygoal` 与 `node_modules`，扫描 2000 文件/返回 200 行匹配后截断）与 `BashTool`（manual 重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为 workspaceRoot、默认 30 秒/上限 120 秒超时，使用 `spawn` 持续消费 stdout/stderr，各自有界保留尾部 10000 字符，输出超量不提前终止命令）。五者共享 workspaceRoot 沙箱：拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；文件不存在等领域问题返回 `failure`，非零退出码与超时分别返回 `COMMAND_FAILED`/`COMMAND_TIMEOUT`，替换不匹配分别返回 `STRING_NOT_FOUND`/`STRING_NOT_UNIQUE` 领域失败。TUI 组合根的默认策略（`createDefaultToolPolicy`）只自动放行只读 Tool（`read_file` 与 `grep`），`write_file`、`edit_file` 与 `bash` 需逐次批准。Runner、Agent 与 Coordinator 支持自动允许/审批 Action 的授权、持久化执行编排、拒绝 Observation、瞬时授权和 safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 
 ## 错误与不变量
 
@@ -119,7 +101,7 @@ JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
 - `preparation_input_recorded` 的字段、阶段、消息索引或 hash 无效：Trajectory 追加失败；恢复或 Snapshot 提交前发现 provenance 与候选 Goal 不匹配：以 `TrajectoryAppendError` fail-closed，不保存 Snapshot、不追加 marker、不继续下游调用。
 - Transition 非法组合：返回原状态与 `INVALID_TRANSITION`，不抛异常、不修改输入状态。
 - Action 状态不变量：pendingAction 必须与当前 Action 生命周期匹配；Observation/rejection 必须匹配 actionId；Action 暂存、取消和执行错误不消费 Step，只有完整 Observation、拒绝或终止决策消费一次 Step。
-- Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；首次执行 Tool 前必须完成输入校验和 Policy 评估，已批准且携带匹配瞬时授权的 Action 只重新校验 Tool 与输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标；`WriteFileTool` 同受 workspaceRoot 沙箱约束、父目录必须已存在且拒绝 `.lazygoal` 前缀写入；`EditFileTool` 要求 `oldString` 唯一匹配且与 `newString` 不同、拒绝 `.lazygoal` 前缀，未应用的重放返回 `STRING_NOT_FOUND`、已应用的重放幂等成功；`GrepTool` 跳过符号链接与 `.git`/`.lazygoal`/`node_modules` 目录、不读取含 NUL 字节的文件并在文件数或匹配数上限处截断；`BashTool` 在 workspaceRoot 内执行命令，超时终止与输出截断由 Tool 边界负责，命令内容本身不受限制。
+- Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；Action input 由 Input Contract 严格解析，缺少必填字段、未声明字段或类型错误立即返回 `INVALID_TOOL_INPUT`，不调用 Policy 或 Tool，不写 pending 或决策事实；结构解析成功后由 Tool `validate` 执行跨字段、正则、沙箱与文件状态等领域语义校验；单次尝试中最多执行一次 Contract 解析并生成 canonical Action；审批只持久化 canonical Action，新尝试重新校验输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标；`WriteFileTool` 同受 workspaceRoot 沙箱约束、父目录必须已存在且拒绝 `.lazygoal` 前缀写入；`EditFileTool` 要求 `oldString` 唯一匹配且与 `newString` 不同、拒绝 `.lazygoal` 前缀，未应用的重放返回 `STRING_NOT_FOUND`、已应用的重放幂等成功；`GrepTool` 跳过符号链接与 `.git`/`.lazygoal`/`node_modules` 目录、不读取含 NUL 字节的文件并在文件数或匹配数上限处截断；`BashTool` 在 workspaceRoot 内执行命令，超时终止与输出截断由 Tool 边界负责，命令内容本身不受限制；`ExecutionAbortedError` 在解析、语义校验与执行边界间原样传播。
 - Store I/O 或协议错误：原样向调用方传播；协议解码、迁移与并发覆盖语义由 [`@lazygoal/storage`](./storage.md) 拥有。Working Memory revision 链缺失、跨 Run、循环或越过 Snapshot 边界时，Session 抛出可识别的恢复错误并阻止模型继续；Session 不从原始 PreparationResult 或未提交 tail 恢复。
 - `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
 - Retrieval Index Sidecar 缺失、损坏、领先 Snapshot、来源摘要不匹配或索引统计失配：Session 丢弃缓存并从 committed Trajectory 重建；查询缓存失效只影响性能，不改变 Goal、Trajectory 或 Working Memory。

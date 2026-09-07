@@ -16,6 +16,7 @@ test("OpenAICompatible rejects before opening a request when aborted", async () 
         apiKey: "test-key",
         baseURL: "http://127.0.0.1:1/v1",
         model: "test-model",
+        structuredOutputMode: "prompt_only",
     });
 
     await assert.rejects(
@@ -30,6 +31,7 @@ test("Gemini rejects before opening a request when aborted", async () => {
     const adapter = new Gemini({
         apiKey: "test-key",
         model: "test-model",
+        structuredOutputMode: "prompt_only",
     });
 
     await assert.rejects(

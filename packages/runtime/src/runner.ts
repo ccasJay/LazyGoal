@@ -26,11 +26,18 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
+import {
+    AgentDecisionContract,
+    safeParse,
+    validateModelOutputSemantics,
+} from "../../contracts/src/index";
+
 import type {
-    Tool,
     ToolDefinition,
     ToolObservation,
     ToolPolicy,
+    ToolPreparationResult,
+    ToolRegistration,
     ToolRegistry,
 } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
@@ -168,81 +175,22 @@ function invalidAgentDecision(message: string): never {
 function validateAgentDecision(
     value: unknown,
 ): AgentDecision {
-    if (!isRecord(value) || !isNonEmptyText(value.kind)) {
-        return invalidAgentDecision("AgentDecision 必须是带 kind 的对象");
+    const parsed = safeParse(AgentDecisionContract, value);
+    if (!parsed.success) {
+        return invalidAgentDecision(
+            `AgentDecision 不符合 canonical Contract: ${parsed.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+        );
     }
-
-    if (value.kind === "context_lookup") {
-        return normalizeContextLookupRequest(value);
+    const semanticIssues = validateModelOutputSemantics(parsed.data);
+    if (semanticIssues.length > 0) {
+        return invalidAgentDecision(
+            `AgentDecision 不符合语义规则: ${semanticIssues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+        );
     }
-
-    if (value.kind === "context_checkpoint") {
-        if (!hasOnlyKeys(value, ["kind", "memoryPatch"])) {
-            return invalidAgentDecision("context_checkpoint contains protocol fields");
-        }
-        if (value.memoryPatch !== undefined && !isRecord(value.memoryPatch)) {
-            return invalidAgentDecision("context_checkpoint memoryPatch is invalid");
-        }
-        return value as unknown as ModelContextCheckpointResult;
+    if (parsed.data.kind === "context_lookup") {
+        return normalizeContextLookupRequest(parsed.data);
     }
-
-    if (value.kind === "tool_call") {
-        if (!hasOnlyKeys(value, ["kind", "action", "memoryPatch"])) {
-            return invalidAgentDecision("structured tool_call 包含协议外字段");
-        }
-
-        const action = value.action;
-
-        if (
-            !isRecord(action)
-            || !hasOnlyKeys(action, ["actionId", "toolId", "input"])
-            || !isNonEmptyText(action.actionId)
-            || !isNonEmptyText(action.toolId)
-            || !isJsonValue(action.input)
-        ) {
-            return invalidAgentDecision("structured tool_call action 不符合严格协议");
-        }
-
-        return value as unknown as AgentDecision;
-    }
-
-    const terminalFields: Record<string, "summary" | "reason" | "error"> = {
-        complete: "summary",
-        wait: "reason",
-        fail: "error",
-    };
-    const textField = terminalFields[value.kind];
-
-    if (textField === undefined) {
-        return invalidAgentDecision(`不支持的 AgentDecision kind: ${value.kind}`);
-    }
-
-    const allowed = ["kind", textField, "memoryPatch"];
-    if (value.kind === "complete") {
-        allowed.push("completionEvidence");
-        if (!Array.isArray(value.completionEvidence)) {
-            return invalidAgentDecision("structured complete 必须包含 completionEvidence");
-        }
-    }
-
-    const memoryPatch = value.memoryPatch;
-    if (
-        memoryPatch !== undefined
-        && (
-            !isRecord(memoryPatch)
-            || !hasOnlyKeys(memoryPatch, ["protocolVersion", "operations"])
-            || memoryPatch.protocolVersion !== 1
-            || !Array.isArray(memoryPatch.operations)
-        )
-    ) {
-        return invalidAgentDecision("structured memoryPatch 不符合基础协议");
-    }
-
-    if (!hasOnlyKeys(value, allowed) || !isNonEmptyText(value[textField])) {
-        return invalidAgentDecision(`structured ${value.kind} 不符合严格协议`);
-    }
-
-    return value as unknown as AgentDecision;
+    return parsed.data;
 }
 
 function isProtocolError(error: unknown): boolean {
@@ -264,14 +212,21 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
     return undefined;
 }
 
-function validateToolAction(
+interface PreparedToolAction {
+    readonly registration: ToolRegistration;
+    readonly action: ToolCallAction;
+    readonly policy: "allow" | "require_approval";
+    execute(control?: ExecutionControl): Promise<ToolObservation>;
+}
+
+function prepareToolAction(
     goal: Goal,
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
     registry: ToolRegistry,
     policy: ToolPolicy,
     evaluatePolicy = true,
     control?: ExecutionControl,
-): { readonly tool: Tool; readonly policy: "allow" | "require_approval" } {
+): PreparedToolAction {
     throwIfAborted(control);
 
     if (!goal.definition.profile.toolIds.includes(action.toolId)) {
@@ -281,10 +236,10 @@ function validateToolAction(
         );
     }
 
-    let tool: Tool | undefined;
+    let registration: ToolRegistration | undefined;
 
     try {
-        tool = registry.get(action.toolId);
+        registration = registry.get(action.toolId);
         throwIfAborted(control);
     } catch (error) {
         if (isExecutionAbortedError(error)) {
@@ -299,17 +254,17 @@ function validateToolAction(
         );
     }
 
-    if (tool === undefined) {
+    if (registration === undefined) {
         throw new RunnerExecutionError(
             "TOOL_NOT_FOUND",
             `Authorized Tool "${action.toolId}" is not registered`,
         );
     }
 
-    let validation;
+    let prepared: ToolPreparationResult;
 
     try {
-        validation = tool.validate(action.input);
+        prepared = registration.prepare(action.input, control);
         throwIfAborted(control);
     } catch (error) {
         if (isExecutionAbortedError(error)) {
@@ -324,33 +279,50 @@ function validateToolAction(
         );
     }
 
-    if (!isRecord(validation) || (validation.ok !== true && validation.ok !== false)) {
+    if (!isRecord(prepared) || (prepared.ok !== true && prepared.ok !== false)) {
         throw new RunnerExecutionError(
             "TOOL_EXECUTION_ERROR",
-            "Tool validate returned an invalid result",
+            "Tool prepare returned an invalid result",
         );
     }
 
-    if (validation.ok === false) {
+    if (prepared.ok === false) {
         if (
-            !isRecord(validation.error)
-            || validation.error.code !== "INVALID_TOOL_INPUT"
-            || !isNonEmptyText(validation.error.message)
+            !isRecord(prepared.error)
+            || prepared.error.code !== "INVALID_TOOL_INPUT"
+            || !isNonEmptyText(prepared.error.message)
         ) {
             throw new RunnerExecutionError(
                 "TOOL_EXECUTION_ERROR",
-                "Tool validate returned an invalid error",
+                "Tool prepare returned an invalid error",
             );
         }
 
         throw new RunnerExecutionError(
             "INVALID_TOOL_INPUT",
-            validation.error.message,
+            prepared.error.message,
         );
     }
 
+    if (!isJsonValue(prepared.input) || typeof prepared.execute !== "function") {
+        throw new RunnerExecutionError(
+            "TOOL_EXECUTION_ERROR",
+            "Tool prepare returned an invalid success result",
+        );
+    }
+
+    const canonicalAction: ToolCallAction = {
+        ...action,
+        input: prepared.input,
+    };
+
     if (!evaluatePolicy) {
-        return { tool, policy: "allow" };
+        return {
+            registration,
+            action: canonicalAction,
+            policy: "allow",
+            execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+        };
     }
 
     let policyResult: "allow" | "require_approval";
@@ -358,8 +330,8 @@ function validateToolAction(
     try {
         policyResult = policy.evaluate({
             goal,
-            action,
-            tool: tool.definition,
+            action: canonicalAction,
+            tool: registration.definition,
         });
         throwIfAborted(control);
     } catch (error) {
@@ -382,7 +354,12 @@ function validateToolAction(
         );
     }
 
-    return { tool, policy: policyResult };
+    return {
+        registration,
+        action: canonicalAction,
+        policy: policyResult,
+        execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+    };
 }
 
 function validateToolObservation(value: unknown): ToolObservation {
@@ -1185,7 +1162,7 @@ export class Runner {
         let validated;
 
         try {
-            validated = validateToolAction(
+            validated = prepareToolAction(
                 goal,
                 pendingAction.action,
                 this.toolRegistry,
@@ -1209,8 +1186,14 @@ export class Runner {
             return this.stopWithExecutionError(goal, stableError, control);
         }
 
-        if (validated.tool.replayPolicy === "safe") {
-            return this.runLoop(goal, pendingAction.action.actionId, control);
+        if (validated.registration.replayPolicy === "safe") {
+            return this.runLoop(
+                goal,
+                pendingAction.action.actionId,
+                control,
+                undefined,
+                validated,
+            );
         }
 
         throwIfAborted(control);
@@ -1223,7 +1206,7 @@ export class Runner {
             payload: {
                 type: "action_recovered",
                 actionId: pendingAction.action.actionId,
-                replayPolicy: validated.tool.replayPolicy,
+                replayPolicy: validated.registration.replayPolicy,
             },
         }, control);
         const recoveredRun = this.applyTransition(goal.state.run, {
@@ -1349,8 +1332,7 @@ export class Runner {
 
     private async executeToolAndObserve(
         goal: Goal,
-        tool: Tool,
-        action: ToolCallAction,
+        prepared: PreparedToolAction,
         executionUnitId: string,
         control?: ExecutionControl,
     ): Promise<
@@ -1366,19 +1348,16 @@ export class Runner {
                 runId: goal.state.run.id,
                 phase: "executing",
                 executionUnitId,
-                actionId: action.actionId,
+                actionId: prepared.action.actionId,
                 eventType: "tool_started",
                 payload: {
                     type: "tool_started",
-                    actionId: action.actionId,
-                    toolId: action.toolId,
-                    input: action.input,
+                    actionId: prepared.action.actionId,
+                    toolId: prepared.action.toolId,
+                    input: prepared.action.input,
                 },
             }, control);
-            const rawObservation = await tool.execute({
-                actionId: action.actionId,
-                input: action.input,
-            }, control);
+            const rawObservation = await prepared.execute(control);
             throwIfAborted(control);
             observation = validateToolObservation(rawObservation);
         } catch (error) {
@@ -1410,12 +1389,12 @@ export class Runner {
             runId: goal.state.run.id,
             phase: "executing",
             executionUnitId,
-            actionId: action.actionId,
+            actionId: prepared.action.actionId,
             eventType: "tool_finished",
             payload: {
                 type: "tool_finished",
-                actionId: action.actionId,
-                toolId: action.toolId,
+                actionId: prepared.action.actionId,
+                toolId: prepared.action.toolId,
                 observation,
             },
         }, control);
@@ -1423,14 +1402,14 @@ export class Runner {
             ? undefined
             : await this.projectToolMemoryPatch(
                 goal,
-                action,
+                prepared.action,
                 observation,
                 toolFinishedEvent.sequence,
                 control,
             );
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
-            actionId: action.actionId,
+            actionId: prepared.action.actionId,
             observation,
         });
         const observedGoal = this.withRun(goal, observedRun);
@@ -1443,11 +1422,11 @@ export class Runner {
                 runId: goal.state.run.id,
                 phase: "executing",
                 executionUnitId,
-                actionId: action.actionId,
+                actionId: prepared.action.actionId,
                 eventType: "observation_recorded",
                 payload: {
                     type: "observation_recorded",
-                    actionId: action.actionId,
+                    actionId: prepared.action.actionId,
                     observation,
                 },
             }],
@@ -1463,10 +1442,12 @@ export class Runner {
         authorizedActionId?: string,
         control?: ExecutionControl,
         initialContextLookupResult?: ContextLookupResult,
+        initialPreparedAction?: PreparedToolAction,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
         let contextLookupResult = initialContextLookupResult;
+        let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
 
         while (goal.state.run.status === "running") {
@@ -1481,17 +1462,20 @@ export class Runner {
                     );
                 }
 
-                let validated;
+                let validated: PreparedToolAction;
 
                 try {
-                    validated = validateToolAction(
-                        goal,
-                        pendingAction.action,
-                        this.toolRegistry,
-                        this.toolPolicy,
-                        false,
-                        control,
-                    );
+                    validated = preparedAction === undefined
+                        ? prepareToolAction(
+                            goal,
+                            pendingAction.action,
+                            this.toolRegistry,
+                            this.toolPolicy,
+                            false,
+                            control,
+                        )
+                        : preparedAction;
+                    preparedAction = undefined;
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
                         throw error;
@@ -1510,8 +1494,7 @@ export class Runner {
 
                 const outcome = await this.executeToolAndObserve(
                     goal,
-                    validated.tool,
-                    pendingAction.action,
+                    validated,
                     createExecutionUnitId(),
                     control,
                 );
@@ -1776,20 +1759,11 @@ export class Runner {
                     continue;
                 }
 
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    executionUnitId,
-                    eventType: "decision_received",
-                    payload: { type: "decision_received", decision: normalized.decision },
-                }, control);
-
                 if (normalized.decision.kind === "tool_call") {
                     let validated;
 
                     try {
-                        validated = validateToolAction(
+                        validated = prepareToolAction(
                             goal,
                             normalized.decision.action,
                             this.toolRegistry,
@@ -1814,7 +1788,7 @@ export class Runner {
                     }
 
                     try {
-                        validateActionLifecycle(goal, normalized.decision.action);
+                        validateActionLifecycle(goal, validated.action);
                     } catch (error) {
                         if (isExecutionAbortedError(error)) {
                             throw error;
@@ -1831,11 +1805,26 @@ export class Runner {
                         return this.stopWithExecutionError(goal, stableError, control);
                     }
 
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "decision_received",
+                        payload: {
+                            type: "decision_received",
+                            decision: {
+                                ...normalized.decision,
+                                action: validated.action,
+                            },
+                        },
+                    }, control);
+
                     if (validated.policy !== "allow") {
                         throwIfAborted(control);
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
-                            action: normalized.decision.action,
+                            action: validated.action,
                             status: "awaiting_approval",
                         });
                         const stagedGoal = this.withRun(goal, stagedRun);
@@ -1847,11 +1836,11 @@ export class Runner {
                                 runId: goal.state.run.id,
                                 phase: "executing",
                                 executionUnitId,
-                                actionId: normalized.decision.action.actionId,
+                                actionId: validated.action.actionId,
                                 eventType: "action_staged",
                                 payload: {
                                     type: "action_staged",
-                                    action: normalized.decision.action,
+                                    action: validated.action,
                                     approvalStatus: "awaiting_approval",
                                 },
                             }],
@@ -1864,7 +1853,7 @@ export class Runner {
                     throwIfAborted(control);
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
-                        action: normalized.decision.action,
+                        action: validated.action,
                         status: "approved",
                     });
                     const stagedGoal = this.withRun(goal, stagedRun);
@@ -1877,11 +1866,11 @@ export class Runner {
                             runId: goal.state.run.id,
                             phase: "executing",
                             executionUnitId,
-                            actionId: normalized.decision.action.actionId,
+                            actionId: validated.action.actionId,
                             eventType: "action_staged",
                             payload: {
                                 type: "action_staged",
-                                action: normalized.decision.action,
+                                action: validated.action,
                                 approvalStatus: "approved",
                             },
                         }],
@@ -1891,8 +1880,7 @@ export class Runner {
 
                     const outcome = await this.executeToolAndObserve(
                         stagedCheckpoint,
-                        validated.tool,
-                        normalized.decision.action,
+                        validated,
                         executionUnitId,
                         control,
                     );
@@ -1906,6 +1894,15 @@ export class Runner {
                     contextLookupChainCount = 0;
                     continue;
                 }
+
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    eventType: "decision_received",
+                    payload: { type: "decision_received", decision: normalized.decision },
+                }, control);
 
                 throwIfAborted(control);
                 const nextRun = this.applyTransition(goal.state.run, {

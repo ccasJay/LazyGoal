@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { contract } from "../../contracts/src/index";
 import type { Goal, ToolCallAction } from "../../runtime/src/index";
 import { createDefaultToolPolicy } from "../src/cli";
 import { BASH_TOOL_ID } from "../../tools/src/index";
@@ -15,6 +16,7 @@ const action: ToolCallAction = {
     toolId: "read_file",
     input: { path: "README.md" },
 };
+const EMPTY_INPUT_CONTRACT = contract.object({});
 
 test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关闭", () => {
     const policy = createDefaultToolPolicy();
@@ -23,7 +25,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: READ_FILE_TOOL_ID, description: "", inputSchema: {} },
+            tool: { id: READ_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "allow",
     );
@@ -31,7 +33,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: GREP_TOOL_ID, description: "", inputSchema: {} },
+            tool: { id: GREP_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "allow",
     );
@@ -39,7 +41,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: WRITE_FILE_TOOL_ID, description: "", inputSchema: {} },
+            tool: { id: WRITE_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "require_approval",
     );
@@ -47,7 +49,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: EDIT_FILE_TOOL_ID, description: "", inputSchema: {} },
+            tool: { id: EDIT_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "require_approval",
     );
@@ -55,7 +57,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: BASH_TOOL_ID, description: "", inputSchema: {} },
+            tool: { id: BASH_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "require_approval",
     );
@@ -63,7 +65,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: "unknown_tool", description: "", inputSchema: {} },
+            tool: { id: "unknown_tool", description: "", inputContract: EMPTY_INPUT_CONTRACT },
         }),
         "require_approval",
     );

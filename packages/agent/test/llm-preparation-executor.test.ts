@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest } from "../../llm/src/core/types";
+import { contract } from "../../contracts/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
@@ -23,6 +24,9 @@ import {
     currentWorkingMemory,
 } from "./current-fixtures";
 import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-context-assembler";
+
+const EMPTY_INPUT_CONTRACT = contract.object({});
+const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -65,8 +69,14 @@ function createPreparationGoal(
 
 class FakeAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode: "strict" | "prompt_only";
 
-    constructor(private readonly content: string) {}
+    constructor(
+        private readonly content: string,
+        structuredOutputMode: "strict" | "prompt_only" = "strict",
+    ) {
+        this.structuredOutputMode = structuredOutputMode;
+    }
 
     async generate(request: LLMRequest): Promise<{ content: string }> {
         this.requests.push(request);
@@ -76,6 +86,7 @@ class FakeAdapter implements LLMAdapter {
 
 class RejectingAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
+    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly failure: unknown) {}
 
@@ -95,9 +106,9 @@ function assertPreparationSystemContent(
     assert.ok(content.includes("Active Phase Protocol:"));
 
     if (phase === "gathering_context") {
-        assert.ok(content.includes("return exactly one question, context_ready, or context_lookup object"));
+        assert.ok(content.includes("return exactly one question, context_ready, or context_lookup result in the result envelope"));
     } else {
-        assert.ok(content.includes("return exactly one task_proposal or context_lookup object"));
+        assert.ok(content.includes("return exactly one task_proposal or context_lookup result in the result envelope"));
     }
 
     assert.ok(content.includes("Authorized Tool definitions (only these Tool IDs may be requested):"));
@@ -106,8 +117,11 @@ function assertPreparationSystemContent(
 test("gathering_context 只解析 question/context_ready 协议", async () => {
     const goal = createPreparationGoal();
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "question",
-        question: "任务需要兼容旧快照吗？",
+        result: {
+            kind: "question",
+            question: "任务需要兼容旧快照吗？",
+            memoryPatch: null,
+        },
     }));
     const executor = new LLMPreparationExecutor({
         adapter,
@@ -146,12 +160,15 @@ test("gathering_context 只解析 question/context_ready 协议", async () => {
 test("planning 只解析 task_proposal 协议", async () => {
     const goal = createPreparationGoal("planning");
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "task_proposal",
-        task: {
-            objective: "实现可恢复 Agent",
-            completionCriteria: ["恢复测试通过"],
+        result: {
+            kind: "task_proposal",
+            task: {
+                objective: "实现可恢复 Agent",
+                completionCriteria: ["恢复测试通过"],
+            },
+            approvalRequest: "是否批准该任务？",
+            memoryPatch: null,
         },
-        approvalRequest: "是否批准该任务？",
     }));
     const executor = new LLMPreparationExecutor({
         adapter,
@@ -163,7 +180,7 @@ test("planning 只解析 task_proposal 协议", async () => {
     const tool: ToolDefinition = {
         id: "read_file",
         description: "v1 不应看见",
-        inputSchema: { type: "object" },
+        inputContract: EMPTY_INPUT_CONTRACT,
     };
     const result = await executor.execute({
         goal,
@@ -206,15 +223,18 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
         },
     };
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "task_proposal",
-        task: {
-            objective: "生成可审核的发布包",
-            completionCriteria: [
-                "通过 inspect_release 的 Observation 验证发布包内容",
-                "取得外部审核人的签字确认",
-            ],
+        result: {
+            kind: "task_proposal",
+            task: {
+                objective: "生成可审核的发布包",
+                completionCriteria: [
+                    "通过 inspect_release 的 Observation 验证发布包内容",
+                    "取得外部审核人的签字确认",
+                ],
+            },
+            approvalRequest: "是否批准该完整任务契约及外部签字依赖？",
+            memoryPatch: null,
         },
-        approvalRequest: "是否批准该完整任务契约及外部签字依赖？",
     }));
     const executor = new LLMPreparationExecutor({
         adapter,
@@ -225,12 +245,7 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
     const tool: ToolDefinition = {
         id: "inspect_release",
         description: "检查发布包并返回文件清单 Observation",
-        inputSchema: {
-            type: "object",
-            properties: { path: { type: "string" } },
-            required: ["path"],
-            additionalProperties: false,
-        },
+        inputContract: PATH_INPUT_CONTRACT,
     };
 
     await executor.execute({
@@ -255,7 +270,16 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
     assert.notEqual(toolsOffset, -1);
     assert.deepEqual(
         JSON.parse(systemContent.slice(toolsOffset + toolsMarker.length)),
-        [tool],
+        [{
+            id: tool.id,
+            description: tool.description,
+            inputSchema: {
+                type: "object",
+                properties: { path: { type: "string" } },
+                required: ["path"],
+                additionalProperties: false,
+            },
+        }],
     );
     assert.equal(workingContext.phase, "planning");
     assert.equal(workingContext.intent, "生成发布包，并由外部审核人确认签字");
@@ -263,8 +287,11 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
 
 test("模型返回其他 phase 的 PreparationResult 时不重试", async () => {
     const adapter = new FakeAdapter(JSON.stringify({
-        kind: "question",
-        question: "不属于 planning",
+        result: {
+            kind: "question",
+            question: "不属于 planning",
+            memoryPatch: null,
+        },
     }));
     const executor = new LLMPreparationExecutor({
         adapter,
@@ -311,7 +338,12 @@ test("Adapter 异常保持原对象传播且不重试", async () => {
 });
 
 test("Preparation Profile 含 Tool 时仍允许 Adapter", async () => {
-    const adapter = new FakeAdapter(JSON.stringify({ kind: "context_ready" }));
+    const adapter = new FakeAdapter(JSON.stringify({
+        result: {
+            kind: "context_ready",
+            memoryPatch: null,
+        },
+    }));
     const executor = new LLMPreparationExecutor({
         adapter,
         renderer,

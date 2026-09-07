@@ -51,8 +51,7 @@ Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`�
 `AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
 Trajectory Store 和 Trace Sink 实例。Runner 注入
 `createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
-自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失
-`LLM_API_KEY`、`LLM_BASE_URL` 或 `LLM_MODEL` 时，在创建 Goal 前返回稳定非零错误；
+自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失或非法 LLM 配置（必填 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`，以及必须为 `strict` 或 `prompt_only` 的 `LLM_STRUCTURED_OUTPUT_MODE`）时，在创建 Goal 或 Store 副作用前返回稳定非零错误；
 Profile 文件不会由程序自动生成，构造根本身也不会创建 `.lazygoal` 或 Goal。用户需要手工创建
 `.lazygoal/profiles/default.json`，其当前结构为：
 

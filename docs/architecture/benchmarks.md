@@ -39,7 +39,7 @@ ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.jso
 [`EvaluationRunner`](../../benchmarks/alfworld/src/evaluation-runner.ts) 按 Manifest 顺序
 把每个任务委托给通用 [`HeadlessCompositionRoot`](../../benchmarks/src/headless-composition-root.ts)，
 由 Root 创建隔离的 Goal/Run、Profile ToolRegistry、自动放行 Policy、`LLMStepExecutor`
-和 Runtime `Runner`。ALFWorld adapter 绑定一个任务级 sidecar 会话；任务终态、错误
+和 Runtime `Runner`。ALFWorld Reset 与 Step 专用 Tool 使用不可变 Input Contract 声明其输入规范（Reset 为 strict empty object，Step 为非空 string `command`），由 Root 通过 `createToolRegistration` 封装为 `ToolRegistration` 注册入 Registry，并在执行时共享 Runtime 的单次 Contract 解析与结构/语义分层校验边界。ALFWorld adapter 绑定一个任务级 sidecar 会话；任务终态、错误
 或中止后关闭会话。每个 task 默认写入 `.lazygoal/benchmarks/` 下独立的 LazyGoal
 Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snapshot 的
 `committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。

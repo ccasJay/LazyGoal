@@ -9,6 +9,10 @@ export {
     buildPreparationRequest,
     buildStepRequest,
 } from "./prompt";
+export type {
+    ModelOutputRequestPlan,
+    StructuredOutputMode,
+} from "./prompt";
 
 export {
     ModelInferenceProjector,
@@ -165,34 +169,25 @@ export type {
 } from "./model-inference-view";
 
 export {
-    AgentDecisionSchema,
-    CompletionEvidenceSchema,
-    MemoryPatchSchema,
-    CompleteAgentDecisionSchema,
-    ContextReadyPreparationResultSchema,
-    FailAgentDecisionSchema,
-    GatheringContextPreparationResultSchema,
-    parsePreparationResult,
+    extractJsonPayload,
+    parseJson,
+    parseModelOutput,
     parseAgentDecision,
+    parsePreparationResult,
     requestRequiresContextCheckpoint,
-    PlanningPreparationResultSchema,
-    QuestionPreparationResultSchema,
-    TaskProposalPreparationResultSchema,
-    ToolCallActionSchema,
-    ToolCallAgentDecisionSchema,
-    ModelContextCheckpointResultSchema,
-    ContextLookupRequestSchema,
-    WaitAgentDecisionSchema,
-} from "./response-schema";
+} from "./model-output";
 export type {
     PreparationPhase,
-} from "./response-schema";
+} from "./model-output";
 
 export {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
 } from "./errors";
-export type { LLMResponseProtocolErrorDetails } from "./errors";
+export type {
+    LLMResponseProtocolErrorDetails,
+    LLMResponseProtocolIssue,
+} from "./errors";
 
 export {
     createDefaultPromptBundleRenderer,

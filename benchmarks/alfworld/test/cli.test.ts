@@ -219,3 +219,83 @@ test("runAlfworldCli returns non-zero while preserving stdout report when thresh
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+test("runAlfworldCli rejects missing or invalid LLM_STRUCTURED_OUTPUT_MODE in default evaluation", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-cli-llm-mode-"));
+    const dataRoot = join(workspace, "data");
+    const errors: string[] = [];
+    try {
+        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
+        await mkdir(dataRoot, { recursive: true });
+        await writeFile(
+            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
+            JSON.stringify(profile),
+            "utf8",
+        );
+        const manifestPath = join(workspace, "manifest.json");
+        await writeFile(manifestPath, JSON.stringify({
+            version: ALFWORLD_MANIFEST_VERSION,
+            name: "smoke",
+            tasks: [{
+                order: 0,
+                taskId: "task-1",
+                split: "valid_seen",
+                gameFile: "valid_seen/task-1/game.tw-pddl",
+                seed: 1,
+                maxSteps: 10,
+            }],
+        }), "utf8");
+
+        const probePython = async () => ({
+            stdout: JSON.stringify({
+                pythonVersion: "3.9.19",
+                alfworldVersion: "0.4.2",
+                textworldVersion: "1.6.2",
+                dataRoot,
+                textworldOnly: true,
+            }),
+            stderr: "",
+            exitCode: 0,
+        });
+
+        // 1. Missing mode
+        const missingExit = await runAlfworldCli([
+            "eval", "alfworld", "--manifest", manifestPath,
+        ], {
+            cwd: workspace,
+            env: {
+                ALFWORLD_PYTHON: "/fake/python",
+                ALFWORLD_DATA: dataRoot,
+                LLM_API_KEY: "test-key",
+                LLM_BASE_URL: "http://127.0.0.1/v1",
+                LLM_MODEL: "test-model",
+            },
+            writeError: (message) => errors.push(message),
+            probePython,
+        });
+        assert.equal(missingExit, 1);
+        assert.match(errors.join("\n"), /Missing required .* LLM_STRUCTURED_OUTPUT_MODE/);
+
+        // 2. Invalid mode
+        errors.length = 0;
+        const invalidExit = await runAlfworldCli([
+            "eval", "alfworld", "--manifest", manifestPath,
+        ], {
+            cwd: workspace,
+            env: {
+                ALFWORLD_PYTHON: "/fake/python",
+                ALFWORLD_DATA: dataRoot,
+                LLM_API_KEY: "test-key",
+                LLM_BASE_URL: "http://127.0.0.1/v1",
+                LLM_MODEL: "test-model",
+                LLM_STRUCTURED_OUTPUT_MODE: "invalid_mode",
+            },
+            writeError: (message) => errors.push(message),
+            probePython,
+        });
+        assert.equal(invalidExit, 1);
+        assert.match(errors.join("\n"), /Invalid LLM_STRUCTURED_OUTPUT_MODE "invalid_mode"/);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

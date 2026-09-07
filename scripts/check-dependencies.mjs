@@ -5,17 +5,19 @@ import { pathToFileURL } from "node:url";
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
- * runtime 是分层基座，不导入任何其它 package；llm 仅复用 runtime 的
- * ExecutionControl 中止原语；storage/agent/tools 只依赖 runtime；agent 额外
- * 依赖 llm 的供应商无关消息类型；tui 是组合根，可导入全部实现。
+ * contracts 是无出站依赖的基础包；其它 package 可以单向依赖它。runtime 当前
+ * 不导入其它实现包；llm 仅复用 runtime 的 ExecutionControl 中止原语；
+ * storage/agent/tools 只依赖 runtime；agent 额外依赖 llm 的供应商无关消息类型；
+ * tui 是组合根，可导入全部实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
-    runtime: [],
-    llm: ["runtime"],
-    storage: ["runtime"],
-    agent: ["runtime", "llm"],
-    tools: ["runtime"],
-    tui: ["runtime", "storage", "agent", "llm", "tools"],
+    contracts: [],
+    runtime: ["contracts"],
+    llm: ["runtime", "contracts"],
+    storage: ["runtime", "contracts"],
+    agent: ["runtime", "llm", "contracts"],
+    tools: ["runtime", "contracts"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

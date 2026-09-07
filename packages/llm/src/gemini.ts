@@ -5,7 +5,13 @@ import {
 } from "@google/genai";
 
 import type { LLMAdapter } from "./core/adapter";
-import type { LLMMessage, LLMRequest ,LLMResponse } from "./core/types";
+import {
+    LLMRequestModeMismatchError,
+    type LLMMessage,
+    type LLMRequest,
+    type LLMResponse,
+    type StructuredOutputMode,
+} from "./core/types";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -24,6 +30,8 @@ export interface GeminiConfig {
     apiKey: string;
     /** 每次生成请求使用的 Gemini 模型名称。 */
     model: string;
+    /** 固定的结构化输出模式。 */
+    structuredOutputMode: StructuredOutputMode;
 }
 
 /**
@@ -32,13 +40,18 @@ export interface GeminiConfig {
  * @remarks
  * system 消息合并为 `systemInstruction`，assistant 映射为 Gemini 的 model
  * 角色，其余消息保持顺序。响应没有文本内容时返回空字符串，SDK 异常原样传播。
+ * 在 strict 模式下将结构 Schema 原样映射为 `responseMimeType: "application/json"` 与 `responseJsonSchema: schema`；
+ * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
+ * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
  */
 export class Gemini implements LLMAdapter {
+    readonly structuredOutputMode: StructuredOutputMode;
     private readonly client: GoogleGenAI;
     private readonly model: string;
 
-    /** @param config - Google API Key 与 Gemini 模型名称。 */
+    /** @param config - Google API Key、Gemini 模型名称与固定的结构化输出模式。 */
     constructor(config: GeminiConfig) {
+        this.structuredOutputMode = config.structuredOutputMode;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
         });
@@ -50,14 +63,37 @@ export class Gemini implements LLMAdapter {
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns Gemini 响应中的文本内容。
      * @throws Google Gen AI SDK 暴露的网络、鉴权、限流或协议异常；中止时抛出
-     *   `ExecutionAbortedError`。
+     *   `ExecutionAbortedError`；请求参数模式不匹配时抛出 `LLMRequestModeMismatchError`。
      */
     async generate(
         request: LLMRequest,
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
+
+        if (this.structuredOutputMode === "strict") {
+            if (request.structuredOutput === undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "Gemini adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
+                );
+            }
+        } else if (this.structuredOutputMode === "prompt_only") {
+            if (request.structuredOutput !== undefined) {
+                throw new LLMRequestModeMismatchError(
+                    "Gemini adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
+                );
+            }
+        }
+
         const input = toGeminiInput(request.messages, request.maxOutputTokens);
+
+        if (this.structuredOutputMode === "strict" && request.structuredOutput !== undefined) {
+            input.config = {
+                ...input.config,
+                responseMimeType: "application/json",
+                responseJsonSchema: request.structuredOutput.schema,
+            };
+        }
 
         if (control?.signal !== undefined) {
             input.config = {

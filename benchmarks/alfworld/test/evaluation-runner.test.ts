@@ -147,6 +147,14 @@ async function withTempPersistence<T>(run: (persistenceRoot: string) => Promise<
 }
 
 function decision(content: unknown): string {
+    if (typeof content === "object" && content !== null && !("result" in content)) {
+        return JSON.stringify({
+            result: {
+                memoryPatch: null,
+                ...content,
+            },
+        });
+    }
     return JSON.stringify(content);
 }
 
@@ -171,6 +179,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
+                structuredOutputMode: "strict" as const,
                 generate: async () => {
                     const next = responses.shift();
                     if (next === undefined) throw new Error("fake LLM responses exhausted");
@@ -243,6 +252,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
+                structuredOutputMode: "strict" as const,
                 generate: async () => ({
                     content: decision(responses[responseIndex++ % responses.length]),
                 }),
@@ -290,6 +300,7 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
+                structuredOutputMode: "strict" as const,
                 generate: async () => ({
                     content: decision({
                         kind: "tool_call",
@@ -338,6 +349,7 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
         const maxStepExecutor = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
+                structuredOutputMode: "strict" as const,
                 generate: async () => ({
                     content: decision({
                         kind: "tool_call",
@@ -361,6 +373,7 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
         const modelFailExecutor = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
+                structuredOutputMode: "strict" as const,
                 generate: async () => ({
                     content: decision({ kind: "fail", error: "model failed" }),
                 }),
