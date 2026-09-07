@@ -28,7 +28,7 @@
   - 验证方式:待实现的测试用例,加入 `packages/tools/test/bash.test.ts`
   - _Requirements: [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 5. TSDoc 契约更新与全量回归
+- [x] //TODO 5. TSDoc 契约更新与全量回归
 
   - 实现目标:更新 `BashTool` 类 TSDoc 的终止语义描述(最迟 `timeoutMs` 加固定宽限返回、进程组为受管边界、Windows 兼容降级);运行 tools 包全部测试
   - 成功判据:TSDoc 与实现行为一致;`packages/tools/test/` 全部测试通过

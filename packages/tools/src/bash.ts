@@ -232,8 +232,12 @@ function runShellCommand(
  *
  * @remarks
  * 非 Windows 平台通过 `/bin/bash -c` 执行，`cwd` 固定为 workspaceRoot 的
- * 真实路径。命令带超时（默认 30 秒，输入可在 120 秒上限内覆盖），超时或
- * 中止时以 SIGTERM 终止子进程。stdout 与 stderr 以流式方式持续消费，各自
+ * 真实路径。命令带超时（默认 30 秒，输入可在 120 秒上限内覆盖），超时与
+ * 中止共用同一双阶段终止：先向整个受管进程组发送 SIGTERM，固定宽限
+ * （内部常量，约 2 秒）后升级 SIGKILL，因此命令连同后台派生进程最迟在
+ * `timeoutMs` 加固定宽限内终止并返回；主动脱离进程组（如 `setsid`）的
+ * 进程不受管。Windows 平台不创建进程组，维持对直接子进程的现有单进程
+ * 终止。stdout 与 stderr 以流式方式持续消费，各自
  * 只保留尾部 10000 字符并以省略标记标注被丢弃的前缀；输出超量不会终止
  * 命令，收集内存不随输出总量增长。退出码 0 返回包含截断输出的
  * `success`；非零退出码与超时分别返回 `COMMAND_FAILED` 和
@@ -300,7 +304,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
      * 执行一次已通过校验的 bash 命令。
      *
      * @param request - Action ID 与 `{ command, timeoutMs? }` 输入。
-     * @param control - 当前 Run 推进调用共享的中止控制；中止会终止子进程。
+     * @param control - 当前 Run 推进调用共享的中止控制；中止会触发与超时相同的双阶段进程组终止。
      * @returns 截断输出组成的成功或命令领域失败 Observation。
      * @throws workspaceRoot 无法解析或 shell 无法启动等基础设施异常；中止时抛出
      *   `ExecutionAbortedError`。
