@@ -89,9 +89,11 @@ function parseTailSequence(
  * @remarks
  * 每个 `(goalId, runId)` 使用独立的
  * `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 文件。实例内追加
- * 按 Run 串行化并从已有最后序号继续分配；该实现不提供跨进程锁、Outbox 或
- * exactly-once 语义。Snapshot 的 `committedThroughSequence` 由调用方传入，
- * 不从 `state_committed` marker 推导。
+ * 按 Run 串行化,下一序号优先取实例内会话级序号缓存,缓存 miss 时从文件尾部
+ * 反向扫描最后非空行取得,不读取全部历史;缓存只承担性能角色,实例重建后
+ * 自然失效,恢复权威始终是读取路径的全量协议校验。该实现不提供跨进程锁、
+ * Outbox 或 exactly-once 语义。Snapshot 的 `committedThroughSequence` 由调用方
+ * 传入,不从 `state_committed` marker 推导。
  *
  * @example
  * ```ts
@@ -116,10 +118,15 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     /**
      * 串行追加一个事实事件并分配同一 Run 内的下一个序号。
      *
+     * @remarks
+     * 下一序号优先取会话级序号缓存,缓存 miss 时从文件尾部反向扫描最后一个
+     * 非空行确定;追加不读取、解析全部历史,因此历史中段的损坏不再于追加时
+     * 发现,检测时机后移到读取(fail-closed 语义不变)。
+     *
      * @param draft - 已发生事实的 Domain Event 草稿。
      * @returns 深度冻结且与输入隔离的事件。
-     * @throws 草稿或历史 JSONL 损坏时抛出 `TrajectoryProtocolError`；文件系统
-     * 错误原样传播。
+     * @throws 草稿非法或尾部行最小校验失败(JSON 非法、Goal/Run 标识不匹配、
+     *   序号非正整数)时抛出 `TrajectoryProtocolError`；文件系统错误原样传播。
      */
     append(draft: TrajectoryEventDraft): Promise<Readonly<TrajectoryEvent>> {
         assertValidTrajectoryEventDraft(draft);

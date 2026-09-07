@@ -28,7 +28,7 @@
   - 验证方式:`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts packages/storage/test/trajectory-store.test.ts`
   - _Requirements: [1.2](./requirements.md#req-1-2)_
 
-- [ ] //TODO 5. TSDoc 更新与全量回归
+- [x] //TODO 5. TSDoc 更新与全量回归
 
   - 实现目标:更新 `JsonFileTrajectoryStore` 类与 `append` 的 TSDoc(序号确定方式:缓存/尾部扫描;损坏检测时机后移到读取;缓存为会话级非恢复权威);运行 storage 包全部测试
   - 成功判据:TSDoc 与实现一致;`packages/storage/test/` 全部通过
