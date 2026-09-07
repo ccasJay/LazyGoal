@@ -222,6 +222,8 @@ export type {
 } from "./prompting/types";
 
 export type { LLMAdapter } from "../../llm/src/core/adapter";
+export type { NormalizedUsage } from "../../llm/src/core/usage";
+export { readNormalizedUsage } from "../../llm/src/core/usage";
 export type {
     LLMMessage,
     LLMRequest,

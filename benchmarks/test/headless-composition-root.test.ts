@@ -240,6 +240,116 @@ test("the same Root contract supports a different task and outcome shape", async
     assert.deepEqual(result.outcome, { accepted: true, count: 3 });
 });
 
+test("aggregates normalized usage across model calls and counts missing usage calls", async () => {
+    const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run a usage aggregation test",
+            objective: "Aggregate model usage",
+            completionCriteria: ["The environment accepts completion"],
+            maxSteps: 5,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: true }),
+            close: async () => undefined,
+        }),
+    };
+    const trajectoryStore = new InMemoryTrajectoryStore();
+    const dependencies = createDependencies(adapter, trajectoryStore);
+    let modelCalls = 0;
+    dependencies.llmAdapter.generate = async () => {
+        modelCalls += 1;
+        if (modelCalls === 1) {
+            return {
+                content: JSON.stringify({
+                    result: {
+                        kind: "tool_call",
+                        action: {
+                            actionId: "benchmark-evidence-1",
+                            toolId: "benchmark_evidence",
+                            input: {},
+                        },
+                        memoryPatch: null,
+                    },
+                }),
+                providerMetadata: {
+                    usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 10 },
+                },
+            };
+        }
+        if (modelCalls === 2) {
+            return {
+                content: JSON.stringify({
+                    result: {
+                        kind: "tool_call",
+                        action: {
+                            actionId: "benchmark-evidence-2",
+                            toolId: "benchmark_evidence",
+                            input: {},
+                        },
+                        memoryPatch: null,
+                    },
+                }),
+            };
+        }
+        return {
+            content: JSON.stringify({
+                result: {
+                    kind: "complete",
+                    summary: "done",
+                    completionEvidence: [{
+                        criterionIndex: 0,
+                        evidenceSequences: [latestObservationSequence(trajectoryStore)],
+                    }],
+                    memoryPatch: null,
+                },
+            }),
+            providerMetadata: {
+                usage: { inputTokens: 50, outputTokens: 5 },
+            },
+        };
+    };
+    const root = new HeadlessCompositionRoot(dependencies);
+
+    const result = await root.run({ id: "usage-aggregation" });
+
+    assert.equal(result.model.completed, true);
+    assert.equal(modelCalls, 3);
+    assert.deepEqual(result.model.usage, {
+        inputTokens: 150,
+        outputTokens: 25,
+        missingCalls: 1,
+    });
+});
+
+test("does not record usage when the model call fails", async () => {
+    const modelError = new Error("model unavailable");
+    const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {
+        describeTask: () => ({
+            intent: "Run a usage failure test",
+            objective: "Fail before usage is recorded",
+            completionCriteria: ["The failure is reported"],
+            maxSteps: 2,
+        }),
+        createEpisode: async () => ({
+            registry: { get: () => undefined },
+            readOutcome: () => ({ ok: false }),
+            close: async () => undefined,
+        }),
+    };
+    const dependencies = createDependencies(adapter, new InMemoryTrajectoryStore());
+    dependencies.llmAdapter.generate = async () => {
+        throw modelError;
+    };
+    const root = new HeadlessCompositionRoot(dependencies);
+
+    const result = await root.run({ id: "usage-failure" });
+
+    assert.equal(result.model.runStatus, "failed");
+    assert.equal(result.model.completed, false);
+    assert.equal(result.model.usage, undefined);
+});
+
 test("reports a cleanup failure without changing a successful outcome", async () => {
     const cleanupError = new Error("environment close failed");
     const adapter: BenchmarkAdapter<{ readonly id: string }, { readonly ok: boolean }> = {

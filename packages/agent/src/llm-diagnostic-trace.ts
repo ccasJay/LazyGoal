@@ -174,7 +174,13 @@ function boundJsonValue(value: unknown): JsonValue {
 }
 
 function sanitizeValue(value: unknown, depth: number, key?: string): JsonValue {
-    if (key !== undefined && SENSITIVE_KEY_PATTERN.test(key)) {
+    // 数字值不可能是凭据;敏感键仅对非数字脱敏,避免误伤 token 计数字段
+    // (如 usage.inputTokens)。
+    if (
+        key !== undefined
+        && SENSITIVE_KEY_PATTERN.test(key)
+        && typeof value !== "number"
+    ) {
         return REDACTED;
     }
 

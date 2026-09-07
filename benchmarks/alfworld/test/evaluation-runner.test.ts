@@ -137,6 +137,73 @@ test("report serialization remains machine-readable and contains only bounded fa
     assert.equal(serialized.endsWith("\n"), true);
 });
 
+test("attempts record per-run usage and retries aggregate independently", async () => {
+    let calls = 0;
+    const evaluator = new EvaluationRunner({
+        metadata,
+        maxInfrastructureRetries: 1,
+        executeEpisode: async () => {
+            calls += 1;
+            if (calls === 1) {
+                return execution(
+                    { done: false, won: false, steps: 1, goalConditionSuccessRate: 0 },
+                    {
+                        runStatus: null,
+                        completed: false,
+                        usage: { inputTokens: 100, outputTokens: 20, missingCalls: 1 },
+                    },
+                    { category: "infrastructure", code: "PROCESS_EXITED" },
+                );
+            }
+            return execution(
+                { done: true, won: true, steps: 3, goalConditionSuccessRate: 1 },
+                {
+                    runStatus: "completed",
+                    completed: true,
+                    usage: { inputTokens: 50, outputTokens: 5, missingCalls: 0 },
+                },
+            );
+        },
+    });
+
+    const report = await evaluator.run();
+
+    assert.deepEqual(
+        report.attempts[0]?.usage,
+        { inputTokens: 100, outputTokens: 20, missingCalls: 1 },
+    );
+    assert.deepEqual(
+        report.attempts[1]?.usage,
+        { inputTokens: 50, outputTokens: 5, missingCalls: 0 },
+    );
+    assert.deepEqual(report.summary.usage, {
+        inputTokens: 150,
+        outputTokens: 25,
+        missingCalls: 1,
+        attemptsMissingUsage: 0,
+    });
+});
+
+test("old-shape facts without usage record fully missing and contribute no token totals", async () => {
+    const evaluator = new EvaluationRunner({
+        metadata,
+        executeEpisode: async () => execution(
+            { done: true, won: true, steps: 2, goalConditionSuccessRate: 1 },
+            { runStatus: "completed", completed: true },
+        ),
+    });
+
+    const report = await evaluator.run();
+
+    assert.equal(report.attempts[0]?.usage, undefined);
+    assert.deepEqual(report.summary.usage, {
+        inputTokens: 0,
+        outputTokens: 0,
+        missingCalls: 0,
+        attemptsMissingUsage: 1,
+    });
+});
+
 async function withTempPersistence<T>(run: (persistenceRoot: string) => Promise<T>): Promise<T> {
     const persistenceRoot = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-test-"));
     try {
@@ -229,7 +296,11 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             steps: 1,
             goalConditionSuccessRate: 1,
         });
-        assert.deepEqual(result.model, { runStatus: "completed", completed: true });
+        assert.deepEqual(result.model, {
+            runStatus: "completed",
+            completed: true,
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
+        });
         assert.equal(result.failure, undefined);
         assert.equal(closed, 1);
     });
@@ -283,7 +354,11 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             steps: 0,
             goalConditionSuccessRate: 0,
         });
-        assert.deepEqual(result.model, { runStatus: "completed", completed: true });
+        assert.deepEqual(result.model, {
+            runStatus: "completed",
+            completed: true,
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 2 },
+        });
         assert.equal(result.failure, undefined);
 
         const evaluator = new EvaluationRunner({
