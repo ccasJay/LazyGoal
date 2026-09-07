@@ -188,6 +188,113 @@ test("Gemini propagates SDK error directly without retry or fallback to prompt_o
     assert.equal(callCount, 1, "Must never retry or degrade upon SDK failure");
 });
 
+test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        models: {
+            generateContent: async () => ({
+                text: "ok",
+                usageMetadata: {
+                    promptTokenCount: 120,
+                    candidatesTokenCount: 34,
+                    totalTokenCount: 154,
+                    cachedContentTokenCount: 50,
+                },
+            }),
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.deepEqual(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        {
+            inputTokens: 120,
+            outputTokens: 34,
+            cachedInputTokens: 50,
+        },
+    );
+});
+
+test("Gemini omits cachedInputTokens when cachedContentTokenCount is absent", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        models: {
+            generateContent: async () => ({
+                text: "ok",
+                usageMetadata: {
+                    promptTokenCount: 10,
+                    candidatesTokenCount: 4,
+                    totalTokenCount: 14,
+                },
+            }),
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.deepEqual(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        {
+            inputTokens: 10,
+            outputTokens: 4,
+        },
+    );
+});
+
+test("Gemini omits providerMetadata.usage when response has no usageMetadata", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        models: {
+            generateContent: async () => ({
+                text: "ok",
+            }),
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.equal(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        undefined,
+    );
+});
+
+test("Gemini omits providerMetadata.usage when core token counts are non-finite or negative", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        models: {
+            generateContent: async () => ({
+                text: "ok",
+                usageMetadata: {
+                    promptTokenCount: Number.POSITIVE_INFINITY,
+                    candidatesTokenCount: -3,
+                    totalTokenCount: 0,
+                },
+            }),
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.equal(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        undefined,
+    );
+});
+
 test("Gemini passes abortSignal to generateContent config and handles abort cleanly", async () => {
     const adapter = createAdapter("strict");
     const controller = new AbortController();

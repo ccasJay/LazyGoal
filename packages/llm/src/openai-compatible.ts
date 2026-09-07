@@ -7,6 +7,7 @@ import {
     type LLMResponse,
     type StructuredOutputMode,
 } from "./core/types";
+import { extractOpenAIUsage } from "./core/usage";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -35,6 +36,8 @@ export interface OpenAICompatibleConfig {
  * 在 strict 模式下将结构 Schema 原样映射为 `response_format.json_schema` 且 `strict: true`；
  * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
  * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
+ * 响应携带 `usage` 时将其归一化写入 `providerMetadata.usage`
+ * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
  */
 export class OpenAICompatible implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
@@ -108,6 +111,7 @@ export class OpenAICompatible implements LLMAdapter {
                 );
             throwIfAborted(control);
             const choice = response.choices[0];
+            const usage = extractOpenAIUsage(response.usage);
 
             return {
                 content: choice?.message.content ?? "",
@@ -116,6 +120,7 @@ export class OpenAICompatible implements LLMAdapter {
                     model: response.model,
                     created: response.created,
                     finishReason: choice?.finish_reason ?? null,
+                    ...(usage !== undefined ? { usage } : {}),
                 },
             };
         } catch (error) {

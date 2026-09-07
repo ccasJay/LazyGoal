@@ -12,6 +12,7 @@ import {
     type LLMResponse,
     type StructuredOutputMode,
 } from "./core/types";
+import { extractGeminiUsage } from "./core/usage";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -43,6 +44,8 @@ export interface GeminiConfig {
  * 在 strict 模式下将结构 Schema 原样映射为 `responseMimeType: "application/json"` 与 `responseJsonSchema: schema`；
  * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
  * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
+ * 响应携带 `usageMetadata` 时将其归一化写入 `providerMetadata.usage`
+ * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
  */
 export class Gemini implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
@@ -108,10 +111,14 @@ export class Gemini implements LLMAdapter {
                 ...input,
             });
             throwIfAborted(control);
+            const usage = extractGeminiUsage(response.usageMetadata);
 
             return {
                 content: response.text ?? "",
-                providerMetadata: { model: this.model },
+                providerMetadata: {
+                    model: this.model,
+                    ...(usage !== undefined ? { usage } : {}),
+                },
             };
         } catch (error) {
             if (isExecutionAbortedError(error)) {

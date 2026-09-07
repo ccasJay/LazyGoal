@@ -222,6 +222,153 @@ test("OpenAICompatible propagates SDK error directly without retry or fallback t
     assert.equal(callCount, 1, "Must never retry or degrade upon SDK failure");
 });
 
+test("OpenAICompatible normalizes response usage into providerMetadata.usage", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        chat: {
+            completions: {
+                create: async () => ({
+                    id: "chatcmpl-usage-1",
+                    model: "test-model-name",
+                    created: 123456789,
+                    choices: [
+                        {
+                            message: { content: "ok" },
+                            finish_reason: "stop",
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: 120,
+                        completion_tokens: 34,
+                        total_tokens: 154,
+                        prompt_tokens_details: { cached_tokens: 50 },
+                    },
+                }),
+            },
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.deepEqual(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        {
+            inputTokens: 120,
+            outputTokens: 34,
+            cachedInputTokens: 50,
+        },
+    );
+});
+
+test("OpenAICompatible omits cachedInputTokens when prompt_tokens_details is absent", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        chat: {
+            completions: {
+                create: async () => ({
+                    id: "chatcmpl-usage-2",
+                    model: "test-model-name",
+                    created: 123456789,
+                    choices: [
+                        {
+                            message: { content: "ok" },
+                            finish_reason: "stop",
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: 10,
+                        completion_tokens: 4,
+                        total_tokens: 14,
+                    },
+                }),
+            },
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.deepEqual(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        {
+            inputTokens: 10,
+            outputTokens: 4,
+        },
+    );
+});
+
+test("OpenAICompatible omits providerMetadata.usage when response carries no usage", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        chat: {
+            completions: {
+                create: async () => ({
+                    id: "chatcmpl-usage-3",
+                    model: "test-model-name",
+                    created: 123456789,
+                    choices: [
+                        {
+                            message: { content: "ok" },
+                            finish_reason: "stop",
+                        },
+                    ],
+                }),
+            },
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.equal(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        undefined,
+    );
+});
+
+test("OpenAICompatible omits providerMetadata.usage when core token counts are non-finite or negative", async () => {
+    const adapter = createAdapter("prompt_only");
+
+    (adapter as any).client = {
+        chat: {
+            completions: {
+                create: async () => ({
+                    id: "chatcmpl-usage-4",
+                    model: "test-model-name",
+                    created: 123456789,
+                    choices: [
+                        {
+                            message: { content: "ok" },
+                            finish_reason: "stop",
+                        },
+                    ],
+                    usage: {
+                        prompt_tokens: Number.NaN,
+                        completion_tokens: -3,
+                        total_tokens: 0,
+                    },
+                }),
+            },
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "hi" }],
+    });
+
+    assert.equal(
+        (response.providerMetadata as Record<string, unknown> | undefined)?.usage,
+        undefined,
+    );
+});
+
 test("OpenAICompatible passes abortSignal to create call and handles abort cleanly", async () => {
     const adapter = createAdapter("strict");
     const controller = new AbortController();
