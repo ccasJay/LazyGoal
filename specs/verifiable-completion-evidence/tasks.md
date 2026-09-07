@@ -28,7 +28,7 @@
   - 验证方式:待实现用例加入 `benchmarks/test/`
   - _Requirements: [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 5. TSDoc、架构文档与全量回归
+- [x] //TODO 5. TSDoc、架构文档与全量回归
 
   - 实现目标:更新 `CompletionCriterion`/`resolveEvidenceObservation`/descriptor 的中文契约 TSDoc(含 @example);`docs/architecture/` 中完成判定相关描述同步(声明校验为追加分支、报告成功语义不变);跑 runtime/storage/agent/benchmarks 相关全部测试
   - 成功判据:TSDoc 与实现一致;文档与实现一致;相关测试目录全部通过
