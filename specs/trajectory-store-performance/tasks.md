@@ -21,7 +21,7 @@
   - 验证方式:待实现用例加入 `trajectory-store.test.ts`
   - _Requirements: [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 4. 优化后重跑压测与对比记录
+- [x] //TODO 4. 优化后重跑压测与对比记录
 
   - 实现目标:优化实现上重跑 benchmark 三档,与 TODO 1 基线对比;将两组数字与对比结论记录到 Feature Verification 的 Latest Result
   - 成功判据:10,000 档累计追加耗时相对基线显著下降且各档趋近线性;行为断言全部通过
@@ -54,12 +54,16 @@
 
 ### Latest Result
 
-优化前基线(2026-09-07,`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`,未优化实现):
+**passed**(压测与行为用例;任务级验证记录,Feature Verification 汇总见下)
 
-| 规模 | 追加耗时 | 范围读取耗时 |
-|---|---|---|
-| 100 | 38.9ms | 0.4ms |
-| 1,000 | 1,332.5ms | 2.6ms |
-| 10,000 | 122,497.2ms | 25.1ms |
+优化前后同机对比(2026-09-07,`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`):
 
-10,000 档追加耗时约为 1,000 档的 92 倍,印证 O(N²)。优化后对比待 TODO 4。
+| 规模 | 追加耗时(优化前) | 追加耗时(优化后) | 范围读取(优化前 → 优化后) |
+|---|---|---|---|
+| 100 | 38.9ms | 21.5ms | 0.4ms → 0.7ms |
+| 1,000 | 1,332.5ms | 112.0ms | 2.6ms → 2.8ms |
+| 10,000 | 122,497.2ms | 1,034.2ms | 25.1ms → 30.6ms |
+
+- 10,000 档累计追加耗时下降约 118 倍;1,000 → 10,000 档 10 倍事件对应 9.2 倍耗时,趋近线性(剩余固定开销为每次追加的 `appendFile`/`mkdir`)。
+- 读取耗时同量级波动,读取路径零改动符合预期。
+- 行为断言全部通过:序号连续、范围读取数量正确(`trajectory-benchmark.test.ts`),`trajectory-store.test.ts` 9 个用例(5 现有 + 4 新增)全部通过。
