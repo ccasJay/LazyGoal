@@ -135,6 +135,89 @@ test("LLMStepExecutor records bounded request/response diagnostics with redactio
     );
 });
 
+test("LLMStepExecutor records providerMetadata.usage in model_response trace without redaction", async () => {
+    const response = {
+        content: JSON.stringify({
+            result: {
+                kind: "complete",
+                summary: "完成",
+                completionEvidence: [],
+                memoryPatch: null,
+            },
+        }),
+        providerMetadata: {
+            requestId: "request-usage-1",
+            usage: { inputTokens: 120, outputTokens: 34, cachedInputTokens: 50 },
+        },
+    } as unknown as LLMResponse;
+    const traceSink = new CaptureTraceSink();
+    const result = await new LLMStepExecutor({
+        adapter: new ResponseAdapter(response),
+        renderer,
+        contextCompactor,
+        traceSink,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    }).execute({
+        goal: createGoalForPhase(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
+
+    assert.equal(result.kind, "complete");
+    const responseRecord = traceSink.records[1] as {
+        readonly payload: {
+            readonly providerMetadata?: {
+                readonly requestId?: string;
+                readonly usage?: unknown;
+            };
+        };
+    };
+    assert.equal(
+        responseRecord.payload.providerMetadata?.requestId,
+        "request-usage-1",
+    );
+    assert.deepEqual(responseRecord.payload.providerMetadata?.usage, {
+        inputTokens: 120,
+        outputTokens: 34,
+        cachedInputTokens: 50,
+    });
+});
+
+test("LLMStepExecutor omits usage field in model_response trace when providerMetadata has none", async () => {
+    const response = {
+        content: JSON.stringify({
+            result: {
+                kind: "complete",
+                summary: "完成",
+                completionEvidence: [],
+                memoryPatch: null,
+            },
+        }),
+        providerMetadata: {
+            requestId: "request-usage-2",
+        },
+    } as unknown as LLMResponse;
+    const traceSink = new CaptureTraceSink();
+    await new LLMStepExecutor({
+        adapter: new ResponseAdapter(response),
+        renderer,
+        contextCompactor,
+        traceSink,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    }).execute({
+        goal: createGoalForPhase(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
+
+    const responseRecord = traceSink.records[1] as {
+        readonly payload: {
+            readonly providerMetadata?: Record<string, unknown>;
+        };
+    };
+    assert.equal(responseRecord.payload.providerMetadata?.usage, undefined);
+});
+
 test("LLM diagnostics apply a total size bound and do not require a working TraceSink", async () => {
     const longResponse = {
         content: JSON.stringify({
