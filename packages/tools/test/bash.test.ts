@@ -227,6 +227,36 @@ test("BashTool 后台进程持有输出管道时超时仍按时返回", async ()
     }
 });
 
+test("BashTool 超时后连同后台派生进程整组清理", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const timeoutMs = 200;
+        const startedAt = Date.now();
+        // 前后台各一个 sleep:后台派生进程与前台的组长同组,验证整组终止。
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-background-children",
+            input: {
+                command: `echo $$ > "${pgidFile}"; sleep 30 & sleep 30`,
+                timeoutMs,
+            },
+        });
+        const elapsed = Date.now() - startedAt;
+
+        assert.equal(result.kind, "failure");
+        if (result.kind === "failure") {
+            assert.equal(result.code, "COMMAND_TIMEOUT");
+        }
+
+        assert.ok(elapsed <= timeoutMs + 3_000, `elapsed ${elapsed}ms > bound`);
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 test("BashTool 截断超长输出并保留尾部", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
 

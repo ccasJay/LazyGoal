@@ -14,7 +14,7 @@
   - 验证方式:待实现的测试用例,加入 `packages/tools/test/bash.test.ts`
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 3. 后台派生进程清理测试
+- [x] //TODO 3. 后台派生进程清理测试
 
   - 实现目标:新增用例——`sleep 30 & sleep 30` 超时后返回 `COMMAND_TIMEOUT`,随后以 `process.kill(-pgid, 0)` 预期 ESRCH 验证整组(含后台派生进程)已清理
   - 成功判据:返回后无遗留受管进程
