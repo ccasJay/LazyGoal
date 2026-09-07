@@ -7,7 +7,7 @@
   - 验证方式:`npx tsx --test packages/tools/test/bash.test.ts` 现有用例全部通过(正常退出、非零退出码、超时、abort、输出截断)
   - _Requirements: [1.1](./requirements.md#req-1-1), [3.1](./requirements.md#req-3-1), [2.2](./requirements.md#req-2-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 2. 超时上限与忽略信号测试
+- [x] //TODO 2. 超时上限与忽略信号测试
 
   - 实现目标:新增用例——`trap "" TERM; sleep 30` 配 `timeoutMs: 200` 返回 `COMMAND_TIMEOUT` 且耗时不超过 `timeoutMs + 3000`;bash 秒退但后台进程持有 stdout 管道的场景同样按时返回而非挂起
   - 成功判据:两个用例均在宽松上界内确定返回,超时后命令进程组无存活成员
