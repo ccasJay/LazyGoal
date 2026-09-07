@@ -6,8 +6,12 @@ import {
     TrajectoryModelContextAssembler,
     type ContextCompactor,
     type LLMAdapter,
+    type LLMRequest,
+    type LLMResponse,
     type ModelConversationMessage,
+    type NormalizedUsage,
     type PromptBundleRenderer,
+    readNormalizedUsage,
 } from "../../packages/agent/src/index.js";
 import {
     DEFAULT_WORKING_MEMORY_LIMITS,
@@ -248,13 +252,42 @@ export interface BenchmarkPersistenceAdapter<TTask> {
 }
 
 /**
+ * headless 单次 run 聚合的模型 token 用量事实。
+ *
+ * @remarks
+ * `inputTokens` 与 `outputTokens` 只对携带用量的调用求和;`missingCalls`
+ * 记录响应未携带用量的调用次数,缺失调用不向 token 总数贡献任何值。
+ * 该聚合是 run 级内存状态,不持久化;未发生任何模型调用时整个 `usage`
+ * 缺省。溢出防护为实现细节:求和超出安全整数后停止累加并保留最后一次
+ * 合法值。
+ *
+ * @example
+ * ```ts
+ * const usage: HeadlessModelUsage = { inputTokens: 150, outputTokens: 25, missingCalls: 1 };
+ * ```
+ */
+export interface HeadlessModelUsage {
+    /** 携带用量的调用的输入 token 总和。 */
+    readonly inputTokens: number;
+    /** 携带用量的调用的输出 token 总和。 */
+    readonly outputTokens: number;
+    /** 未携带用量(响应缺失 usage)的调用次数。 */
+    readonly missingCalls: number;
+}
+
+/**
  * Headless Root 的模型完成事实。
+ *
+ * @remarks
+ * `usage` 在 run 期间发生至少一次模型调用时提供;每次基础设施重试的
+ * `run()` 独立累计,天然满足按尝试独立聚合。
  *
  * @example
  * ```ts
  * const model: HeadlessModelResult = {
  *     runStatus: "completed",
  *     completed: true,
+ *     usage: { inputTokens: 150, outputTokens: 25, missingCalls: 0 },
  * };
  * ```
  */
@@ -263,6 +296,8 @@ export interface HeadlessModelResult {
     readonly runStatus: Goal["state"]["run"]["status"];
     /** 最后一个 Decision 是否为 `complete`。 */
     readonly completed: boolean;
+    /** run 级聚合的模型 token 用量；未发生模型调用时缺省。 */
+    readonly usage?: HeadlessModelUsage;
 }
 
 /**
@@ -481,6 +516,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
 
             const profileRegistry = createSingleProfileRegistry(this.dependencies.profile);
             const preparationExecutor = createDescriptorPreparationExecutor(descriptor);
+            const usageRecorder = new UsageRecordingLLMAdapter(this.dependencies.llmAdapter);
             const workingMemoryLimits = this.dependencies.workingMemoryLimits
                 ?? DEFAULT_WORKING_MEMORY_LIMITS;
             const checkpointCommitter = new TrajectoryCheckpointCommitter({
@@ -495,7 +531,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             const runner = new Runner({
                 store: bindings.goalStore,
                 executor: new LLMStepExecutor({
-                    adapter: this.dependencies.llmAdapter,
+                    adapter: usageRecorder,
                     renderer: this.dependencies.renderer,
                     contextCompactor: this.dependencies.contextCompactor,
                     ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
@@ -570,7 +606,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 goal,
                 progress,
                 runner: runnerResult ?? null,
-                model: modelResult(goal),
+                model: modelResult(goal, usageRecorder.snapshot()),
                 outcome: episode.readOutcome(),
                 persistence: bindings.locator,
             };
@@ -707,12 +743,78 @@ function createDescriptorPreparationExecutor(
     };
 }
 
-function modelResult(goal: Goal): HeadlessModelResult {
+/**
+ * 包装注入的 LLM Adapter,在每次成功调用后累计 run 级归一化用量。
+ *
+ * @remarks
+ * 只观察响应中的 `providerMetadata.usage`,不修改请求与响应语义;调用失败
+ * 或中止时异常原样传播且不记录用量。求和超出安全整数后停止累加并保留
+ * 最后一次合法值。
+ */
+class UsageRecordingLLMAdapter implements LLMAdapter {
+    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
+    private readonly inner: LLMAdapter;
+    private inputTokens = 0;
+    private outputTokens = 0;
+    private missingCalls = 0;
+    private calls = 0;
+    private frozen = false;
+
+    constructor(inner: LLMAdapter) {
+        this.inner = inner;
+        this.structuredOutputMode = inner.structuredOutputMode;
+    }
+
+    async generate(
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ): Promise<LLMResponse> {
+        const response = await this.inner.generate(request, control);
+        this.record(readNormalizedUsage(response.providerMetadata));
+        return response;
+    }
+
+    /** @returns run 级聚合用量;未发生任何模型调用时为 `undefined`。 */
+    snapshot(): HeadlessModelUsage | undefined {
+        if (this.calls === 0) return undefined;
+        return {
+            inputTokens: this.inputTokens,
+            outputTokens: this.outputTokens,
+            missingCalls: this.missingCalls,
+        };
+    }
+
+    private record(usage: NormalizedUsage | undefined): void {
+        this.calls += 1;
+        if (usage === undefined) {
+            this.missingCalls += 1;
+            return;
+        }
+        if (this.frozen) return;
+        const inputTokens = this.inputTokens + usage.inputTokens;
+        const outputTokens = this.outputTokens + usage.outputTokens;
+        if (
+            !Number.isSafeInteger(inputTokens)
+            || !Number.isSafeInteger(outputTokens)
+        ) {
+            this.frozen = true;
+            return;
+        }
+        this.inputTokens = inputTokens;
+        this.outputTokens = outputTokens;
+    }
+}
+
+function modelResult(
+    goal: Goal,
+    usage: HeadlessModelUsage | undefined,
+): HeadlessModelResult {
     const lastStep = goal.state.run.lastStep;
     return {
         runStatus: goal.state.run.status,
         completed: lastStep?.kind === "decision"
             && lastStep.result.kind === "complete",
+        ...(usage === undefined ? {} : { usage }),
     };
 }
 
