@@ -61,3 +61,10 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 由 Root 的持久化绑定单独保存，不混入报告 JSON，也不保存模型凭据。未来 benchmark
 只需实现通用 adapter，并将 task 映射到自己的持久化 namespace；不应复制 Storage
 编解码或 Runtime 提交语义。
+
+模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
+`providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，
+缺失时字段缺省），随 Diagnostic Trace 逐调用落盘；Headless Root 按 run 累计
+（无用量的调用只计入 `missingCalls`）并附到模型事实，报告的每个 Attempt 记录
+该次尝试的聚合用量，summary 只对已存在用量求和并把无用量数据的尝试计入
+`attemptsMissingUsage`。用量不进入 Domain Event、Goal Snapshot 或模型上下文。

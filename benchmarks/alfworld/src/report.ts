@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
+import type { HeadlessModelUsage } from "../../src/headless-composition-root.js";
 import type { AlfworldManifest, AlfworldManifestTask } from "./manifest.js";
 
 /** 评测尝试可以归入的稳定失败类别。 */
@@ -38,9 +39,17 @@ export interface EpisodeEnvironmentFacts {
 /**
  * Agent/Runner 状态的有限报告投影。
  *
+ * @remarks
+ * `usage` 是该次尝试的 run 级聚合用量(含缺失调用计数);执行路径未产生
+ * 用量数据(如旧形态 facts 或环境启动失败)时缺省,不以 0 值代替。
+ *
  * @example
  * ```ts
- * const model: EpisodeModelFacts = { runStatus: "completed", completed: true };
+ * const model: EpisodeModelFacts = {
+ *     runStatus: "completed",
+ *     completed: true,
+ *     usage: { inputTokens: 150, outputTokens: 25, missingCalls: 1 },
+ * };
  * ```
  */
 export interface EpisodeModelFacts {
@@ -48,6 +57,8 @@ export interface EpisodeModelFacts {
     readonly runStatus: string | null;
     /** 模型是否返回了 `complete` Decision。 */
     readonly completed: boolean;
+    /** 该次尝试聚合的模型 token 用量；执行路径未记录用量时缺省。 */
+    readonly usage?: HeadlessModelUsage;
 }
 
 /**
@@ -81,8 +92,36 @@ export interface EpisodeAttempt {
     readonly durationMs: number;
     readonly modelRunStatus: string | null;
     readonly modelCompleted: boolean;
+    /** 该次尝试聚合的模型 token 用量；执行路径未记录用量时缺省。 */
+    readonly usage?: HeadlessModelUsage;
     readonly failureCategory: EpisodeFailureCategory | null;
     readonly errorCode: string | null;
+}
+
+/**
+ * 全部尝试(含重试)聚合的模型 token 用量汇总。
+ *
+ * @remarks
+ * token 数只对携带用量的尝试求和,缺失调用不贡献任何值;`attemptsMissingUsage`
+ * 记录整个尝试没有用量数据的次数(如旧形态 facts),与逐调用的
+ * `missingCalls` 语义区分。
+ *
+ * @example
+ * ```ts
+ * const usage: EvaluationSummaryUsage = {
+ *   inputTokens: 150, outputTokens: 25, missingCalls: 1, attemptsMissingUsage: 0,
+ * };
+ * ```
+ */
+export interface EvaluationSummaryUsage {
+    /** 携带用量的尝试的输入 token 总和。 */
+    readonly inputTokens: number;
+    /** 携带用量的尝试的输出 token 总和。 */
+    readonly outputTokens: number;
+    /** 各尝试缺失用量的调用次数总和。 */
+    readonly missingCalls: number;
+    /** 完全没有用量数据的尝试次数。 */
+    readonly attemptsMissingUsage: number;
 }
 
 /**
@@ -102,6 +141,8 @@ export interface EvaluationSummary {
     /** 每个任务只取最后一次尝试，避免重试使步数加权。 */
     readonly averageSteps: number;
     readonly failureCounts: Readonly<Record<EpisodeFailureCategory, number>>;
+    /** 全部尝试聚合的模型 token 用量与缺失计数。 */
+    readonly usage: EvaluationSummaryUsage;
 }
 
 /**
@@ -208,6 +249,9 @@ export function createEpisodeAttempt(
         durationMs: normalizeFiniteNonNegative(durationMs),
         modelRunStatus: execution.model.runStatus,
         modelCompleted: execution.model.completed,
+        ...(execution.model.usage === undefined
+            ? {}
+            : { usage: execution.model.usage }),
         failureCategory,
         errorCode: execution.environment.won
             ? null
@@ -288,7 +332,36 @@ export function aggregateEvaluationReport(
             successRate: totalTasks === 0 ? 0 : successfulTasks / totalTasks,
             averageSteps,
             failureCounts,
+            usage: summarizeUsage(attempts),
         },
+    };
+}
+
+/**
+ * 汇总全部尝试的用量;只对携带用量的尝试求和,无用量数据的尝试只计入
+ * `attemptsMissingUsage`,不向 token 总数贡献任何值。
+ */
+function summarizeUsage(attempts: readonly EpisodeAttempt[]): EvaluationSummaryUsage {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let missingCalls = 0;
+    let attemptsMissingUsage = 0;
+
+    for (const attempt of attempts) {
+        if (attempt.usage === undefined) {
+            attemptsMissingUsage += 1;
+            continue;
+        }
+        inputTokens += attempt.usage.inputTokens;
+        outputTokens += attempt.usage.outputTokens;
+        missingCalls += attempt.usage.missingCalls;
+    }
+
+    return {
+        inputTokens,
+        outputTokens,
+        missingCalls,
+        attemptsMissingUsage,
     };
 }
 
