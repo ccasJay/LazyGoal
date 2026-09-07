@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +19,38 @@ import {
 
 function asJsonValue(value: unknown): JsonValue {
     return value as JsonValue;
+}
+
+/**
+ * 轮询断言受管进程组已无存活成员。
+ *
+ * @remarks
+ * BashTool 的受管边界是整个进程组(组长 PID 即 PGID),`process.kill(-pgid, 0)`
+ * 抛 ESRCH 表示组内含后台派生进程均已清理;被信号杀死的成员可能短暂保持
+ * 僵尸状态,因此用短轮询而非立即断言。
+ */
+async function assertProcessGroupGone(pgid: number): Promise<void> {
+    const deadline = Date.now() + 5_000;
+
+    for (;;) {
+        try {
+            process.kill(-pgid, 0);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ESRCH") {
+                return;
+            }
+
+            throw error;
+        }
+
+        assert.ok(
+            Date.now() < deadline,
+            `进程组 ${pgid} 在 5 秒内未完成清理`,
+        );
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 50);
+        });
+    }
 }
 
 test("BashTool 执行成功命令并声明 manual replay", async () => {
@@ -124,6 +156,102 @@ test("BashTool 超时被终止并返回 COMMAND_TIMEOUT", async () => {
             assert.match(result.message, /100ms/);
             assert.equal(result.retryable, true);
         }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 对忽略 SIGTERM 的命令在宽限后强制终止并按时返回", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const timeoutMs = 200;
+        const startedAt = Date.now();
+        // exec 前设置的 SIG_IGN 跨 exec 生效,使 sleep 进程本身忽略 SIGTERM,
+        // 只有宽限后的 SIGKILL 才能终止它。
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-term-ignored",
+            input: {
+                command: `echo $$ > "${pgidFile}"; trap "" TERM; exec sleep 30`,
+                timeoutMs,
+            },
+        });
+        const elapsed = Date.now() - startedAt;
+
+        assert.equal(result.kind, "failure");
+        if (result.kind === "failure") {
+            assert.equal(result.code, "COMMAND_TIMEOUT");
+            assert.equal(result.retryable, true);
+        }
+
+        // 宽限为 2 秒内部常量:忽略 SIGTERM 的命令只能等到 SIGKILL,耗时
+        // 必然不早于 timeoutMs + 宽限,上界再留 1 秒余量。
+        assert.ok(elapsed >= timeoutMs + 2_000, `elapsed ${elapsed}ms < grace`);
+        assert.ok(elapsed <= timeoutMs + 3_000, `elapsed ${elapsed}ms > bound`);
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 后台进程持有输出管道时超时仍按时返回", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const timeoutMs = 200;
+        const startedAt = Date.now();
+        // bash 立即退出,但后台 sleep 继承 stdout 管道,close 需等管道写端
+        // 全部关闭;进程组终止关闭写端后才能返回。
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-pipe-held",
+            input: {
+                command: `echo $$ > "${pgidFile}"; sleep 30 & disown; exit 0`,
+                timeoutMs,
+            },
+        });
+        const elapsed = Date.now() - startedAt;
+
+        assert.equal(result.kind, "failure");
+        if (result.kind === "failure") {
+            assert.equal(result.code, "COMMAND_TIMEOUT");
+        }
+
+        assert.ok(elapsed <= timeoutMs + 3_000, `elapsed ${elapsed}ms > bound`);
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 超时后连同后台派生进程整组清理", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const timeoutMs = 200;
+        const startedAt = Date.now();
+        // 前后台各一个 sleep:后台派生进程与前台的组长同组,验证整组终止。
+        const result = await new BashTool(workspaceRoot).execute({
+            actionId: "action-background-children",
+            input: {
+                command: `echo $$ > "${pgidFile}"; sleep 30 & sleep 30`,
+                timeoutMs,
+            },
+        });
+        const elapsed = Date.now() - startedAt;
+
+        assert.equal(result.kind, "failure");
+        if (result.kind === "failure") {
+            assert.equal(result.code, "COMMAND_TIMEOUT");
+        }
+
+        assert.ok(elapsed <= timeoutMs + 3_000, `elapsed ${elapsed}ms > bound`);
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }
@@ -244,6 +372,85 @@ test("BashTool 中止运行中的命令并传播 ExecutionAbortedError", async (
             execution,
             (error: unknown) => error instanceof ExecutionAbortedError,
         );
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 中止长命令时及时抛出且整组清理", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const controller = new AbortController();
+        const tool = new BashTool(workspaceRoot);
+        const abortDelayMs = 50;
+        const startedAt = Date.now();
+        // 中止前已产生的输出不进入任何 Observation:中止路径以
+        // ExecutionAbortedError 拒绝,而不是返回失败 Observation。
+        const execution = tool.execute(
+            {
+                actionId: "action-abort-group",
+                input: {
+                    command: `echo $$ > "${pgidFile}"; echo started; sleep 30`,
+                },
+            },
+            { signal: controller.signal },
+        );
+
+        setTimeout(() => controller.abort(), abortDelayMs);
+
+        await assert.rejects(
+            execution,
+            (error: unknown) => error instanceof ExecutionAbortedError,
+        );
+        const elapsed = Date.now() - startedAt;
+
+        assert.ok(
+            elapsed <= abortDelayMs + 3_000,
+            `elapsed ${elapsed}ms > bound`,
+        );
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
+test("BashTool 中止忽略 SIGTERM 的命令在宽限后强制终止", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const pgidFile = join(workspaceRoot, "pgid");
+        const controller = new AbortController();
+        const tool = new BashTool(workspaceRoot);
+        const abortDelayMs = 50;
+        const startedAt = Date.now();
+        // exec 前设置的 SIG_IGN 跨 exec 生效,中止的 SIGTERM 无法终止该
+        // 进程,只能等宽限后的 SIGKILL。
+        const execution = tool.execute(
+            {
+                actionId: "action-abort-term-ignored",
+                input: {
+                    command: `echo $$ > "${pgidFile}"; trap "" TERM; exec sleep 30`,
+                },
+            },
+            { signal: controller.signal },
+        );
+
+        setTimeout(() => controller.abort(), abortDelayMs);
+
+        await assert.rejects(
+            execution,
+            (error: unknown) => error instanceof ExecutionAbortedError,
+        );
+        const elapsed = Date.now() - startedAt;
+
+        // 与超时共用同一双阶段状态机:忽略 SIGTERM 的中止最迟在宽限后完成。
+        assert.ok(elapsed >= abortDelayMs + 2_000, `elapsed ${elapsed}ms < grace`);
+        assert.ok(elapsed <= abortDelayMs + 3_000, `elapsed ${elapsed}ms > bound`);
+
+        await assertProcessGroupGone(Number(await readFile(pgidFile, "utf8")));
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });
     }

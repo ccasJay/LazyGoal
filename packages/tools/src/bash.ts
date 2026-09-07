@@ -32,6 +32,9 @@ export const BASH_MAX_TIMEOUT_MS = 120_000;
 /** stdout/stderr 各自保留在 Observation 中的最大字符数。 */
 export const BASH_MAX_OUTPUT_CHARS = 10_000;
 
+/** SIGTERM 发往进程组后等待其自行退出的固定宽限(毫秒),到期升级 SIGKILL。 */
+const BASH_TERMINATION_GRACE_MS = 2_000;
+
 /** Bash Tool 的唯一输入 Contract。 */
 export const BASH_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -113,7 +116,7 @@ function combineOutput(stdout: string, stderr: string): string {
 
 /** 子进程 `close` 事件给出的命令结算事实。 */
 interface CommandOutcome {
-    /** 是否因本地超时计时器触发而发送过 SIGTERM。 */
+    /** 是否因本地超时计时器触发过终止。 */
     readonly timedOut: boolean;
     /** 命令退出码；被信号终止时为 `null`。 */
     readonly exitCode: number | null;
@@ -136,18 +139,60 @@ function runShellCommand(
             cwd: options.cwd,
             shell: process.platform === "win32" ? true : "/bin/bash",
             stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32",
         });
         let settled = false;
         let timedOut = false;
+        let terminationStarted = false;
+        let graceTimer: NodeJS.Timeout | undefined;
+        // POSIX 上信号发往整个受管进程组(组长 PID 即 PGID);Windows 不创建
+        // 进程组,维持单进程信号路径。组已消失时的 ESRCH 静默忽略。
+        const killManagedProcesses = (signal: NodeJS.Signals): void => {
+            if (child.pid === undefined) {
+                return;
+            }
+
+            if (process.platform === "win32") {
+                child.kill(signal);
+                return;
+            }
+
+            try {
+                process.kill(-child.pid, signal);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+                    throw error;
+                }
+            }
+        };
+        // 超时与 abort 共用同一双阶段终止:SIGTERM(整组)→ 固定宽限 →
+        // SIGKILL(整组)。terminationStarted 保证幂等;宽限内 close 先到则由
+        // settle 清除宽限计时,不升级 SIGKILL。
+        const startTermination = (): void => {
+            if (terminationStarted) {
+                return;
+            }
+
+            terminationStarted = true;
+            killManagedProcesses("SIGTERM");
+            graceTimer = setTimeout(() => {
+                killManagedProcesses("SIGKILL");
+            }, BASH_TERMINATION_GRACE_MS);
+        };
         const timer = setTimeout(() => {
             timedOut = true;
-            child.kill("SIGTERM");
+            startTermination();
         }, options.timeoutMs);
         const onAbort = (): void => {
-            child.kill("SIGTERM");
+            startTermination();
         };
         const cleanup = (): void => {
             clearTimeout(timer);
+
+            if (graceTimer !== undefined) {
+                clearTimeout(graceTimer);
+            }
+
             options.signal?.removeEventListener("abort", onAbort);
         };
         const settle = (callback: () => void): void => {
@@ -187,8 +232,12 @@ function runShellCommand(
  *
  * @remarks
  * 非 Windows 平台通过 `/bin/bash -c` 执行，`cwd` 固定为 workspaceRoot 的
- * 真实路径。命令带超时（默认 30 秒，输入可在 120 秒上限内覆盖），超时或
- * 中止时以 SIGTERM 终止子进程。stdout 与 stderr 以流式方式持续消费，各自
+ * 真实路径。命令带超时（默认 30 秒，输入可在 120 秒上限内覆盖），超时与
+ * 中止共用同一双阶段终止：先向整个受管进程组发送 SIGTERM，固定宽限
+ * （内部常量，约 2 秒）后升级 SIGKILL，因此命令连同后台派生进程最迟在
+ * `timeoutMs` 加固定宽限内终止并返回；主动脱离进程组（如 `setsid`）的
+ * 进程不受管。Windows 平台不创建进程组，维持对直接子进程的现有单进程
+ * 终止。stdout 与 stderr 以流式方式持续消费，各自
  * 只保留尾部 10000 字符并以省略标记标注被丢弃的前缀；输出超量不会终止
  * 命令，收集内存不随输出总量增长。退出码 0 返回包含截断输出的
  * `success`；非零退出码与超时分别返回 `COMMAND_FAILED` 和
@@ -255,7 +304,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
      * 执行一次已通过校验的 bash 命令。
      *
      * @param request - Action ID 与 `{ command, timeoutMs? }` 输入。
-     * @param control - 当前 Run 推进调用共享的中止控制；中止会终止子进程。
+     * @param control - 当前 Run 推进调用共享的中止控制；中止会触发与超时相同的双阶段进程组终止。
      * @returns 截断输出组成的成功或命令领域失败 Observation。
      * @throws workspaceRoot 无法解析或 shell 无法启动等基础设施异常；中止时抛出
      *   `ExecutionAbortedError`。
