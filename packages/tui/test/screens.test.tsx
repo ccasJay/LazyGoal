@@ -214,6 +214,32 @@ async function nextFrame(): Promise<void> {
     });
 }
 
+/** 轮询等待 frame 中出现 pattern;超时以最终 frame 断言失败并展示实际内容。 */
+async function waitForFrame(
+    instance: { lastFrame(): string | undefined },
+    pattern: RegExp,
+    timeoutMs = 2000,
+): Promise<string> {
+    const start = Date.now();
+    for (;;) {
+        const frame = instance.lastFrame() ?? "";
+        if (pattern.test(frame)) {
+            // frame 更新先于 React passive effect(ink 的 useInput handler 重注册);
+            // yield 一个 setImmediate 保证后续 stdin 写入打到最新 handler。
+            await new Promise<void>((resolve) => {
+                setImmediate(resolve);
+            });
+            return instance.lastFrame() ?? "";
+        }
+        if (Date.now() - start >= timeoutMs) {
+            assert.match(frame, pattern);
+        }
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 10);
+        });
+    }
+}
+
 test("IntentScreen rejects blank input and keeps the input screen", async () => {
     const submitted: string[] = [];
     const instance = render(
@@ -226,10 +252,9 @@ test("IntentScreen rejects blank input and keeps the input screen", async () => 
     );
 
     instance.stdin.write("\r");
-    await nextFrame();
+    await waitForFrame(instance, /Intent must not be empty/);
 
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Intent must not be empty/);
 });
 
 test("IntentScreen dispatches one semantic command for a valid intent", async () => {
@@ -244,7 +269,7 @@ test("IntentScreen dispatches one semantic command for a valid intent", async ()
     );
 
     instance.stdin.write("Build the TUI");
-    await nextFrame();
+    await waitForFrame(instance, /Build the TUI/);
     instance.stdin.write("\r");
     await nextFrame();
 
@@ -263,7 +288,7 @@ test("IntentScreen ignores a repeated submit before the parent rerenders busy", 
     );
 
     instance.stdin.write("Build once");
-    await nextFrame();
+    await waitForFrame(instance, /Build once/);
     instance.stdin.write("\r");
     await nextFrame();
     instance.stdin.write("\r");
@@ -284,12 +309,11 @@ test("IntentScreen disables input and shows progress while busy", async () => {
     );
 
     instance.stdin.write("Should not submit");
-    await nextFrame();
+    await waitForFrame(instance, /Creating goal/);
     instance.stdin.write("\r");
     await nextFrame();
 
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Creating goal/);
 });
 
 test("PreparationScreen displays an Agent question and submits a message", async () => {
@@ -307,7 +331,7 @@ test("PreparationScreen displays an Agent question and submits a message", async
     assert.match(instance.lastFrame() ?? "", /Agent question/);
     assert.match(instance.lastFrame() ?? "", /Which database should be used/);
     instance.stdin.write("Use SQLite");
-    await nextFrame();
+    await waitForFrame(instance, /Use SQLite/);
     instance.stdin.write("\r");
     await nextFrame();
 
@@ -356,10 +380,9 @@ test("PreparationScreen rejects blank question answers", async () => {
     );
 
     instance.stdin.write("\r");
-    await nextFrame();
+    await waitForFrame(instance, /Error: Message must not be empty/);
 
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Error: Message must not be empty/);
 });
 
 test("PreparationScreen supports proposal approval and non-empty feedback", async () => {
@@ -400,10 +423,9 @@ test("PreparationScreen supports proposal approval and non-empty feedback", asyn
         />,
     );
     feedbackInstance.stdin.write("n");
-    await nextFrame();
-    assert.match(feedbackInstance.lastFrame() ?? "", /Describe the changes/);
+    await waitForFrame(feedbackInstance, /Describe the changes/);
     feedbackInstance.stdin.write("Add a migration test");
-    await nextFrame();
+    await waitForFrame(feedbackInstance, /Add a migration test/);
     feedbackInstance.stdin.write("\r");
     await nextFrame();
 
@@ -490,18 +512,16 @@ test("TuiApp subscribes to Controller and moves from intent to question", async 
 
     assert.match(instance.lastFrame() ?? "", /What would you like to accomplish/);
     instance.stdin.write("Start a session");
-    await nextFrame();
+    await waitForFrame(instance, /Start a session/);
     instance.stdin.write("\r");
-    await nextFrame();
-    await nextFrame();
+    await waitForFrame(instance, /Agent question/);
+    await waitForFrame(instance, /Which database should be used/);
 
     assert.deepEqual(launcherRequests, [{
         goalId: "goal-app",
         intent: "Start a session",
         profileId: "profile-1",
     }]);
-    assert.match(instance.lastFrame() ?? "", /Agent question/);
-    assert.match(instance.lastFrame() ?? "", /Which database should be used/);
 });
 
 test("TuiApp routes the first raw-mode Ctrl+C to the shutdown callback once", async () => {
@@ -542,7 +562,7 @@ test("TuiApp reports unexpected dispatch failures instead of swallowing them", a
         } as unknown as SessionController;
         const instance = render(<TuiApp controller={controller} />);
         instance.stdin.write("Start a session");
-        await nextFrame();
+        await waitForFrame(instance, /Start a session/);
         instance.stdin.write("\r");
         await nextFrame();
 

@@ -13,7 +13,7 @@
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",
     "test:memory": "node --test scripts/project-memory.test.mjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node scripts/run-regression.mjs"
   },
   "keywords": [],
   "author": "",
