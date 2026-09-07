@@ -54,7 +54,7 @@
 
 ### Latest Result
 
-**passed**(压测与行为用例;任务级验证记录,Feature Verification 汇总见下)
+状态:**passed**(2026-09-07 18:03,被测代码 `feature/trajectory-store-performance@cddbeab`,工作树干净)
 
 优化前后同机对比(2026-09-07,`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`):
 
@@ -64,6 +64,17 @@
 | 1,000 | 1,332.5ms | 112.0ms | 2.6ms → 2.8ms |
 | 10,000 | 122,497.2ms | 1,034.2ms | 25.1ms → 30.6ms |
 
-- 10,000 档累计追加耗时下降约 118 倍;1,000 → 10,000 档 10 倍事件对应 9.2 倍耗时,趋近线性(剩余固定开销为每次追加的 `appendFile`/`mkdir`)。
-- 读取耗时同量级波动,读取路径零改动符合预期。
-- 行为断言全部通过:序号连续、范围读取数量正确(`trajectory-benchmark.test.ts`),`trajectory-store.test.ts` 9 个用例(5 现有 + 4 新增)全部通过。
+逐项证据:
+
+- [1.1](./requirements.md#req-1-1):压测可重复运行,三档追加/读取耗时如上表输出到 stdout。
+- [1.2](./requirements.md#req-1-2):10,000 档累计追加耗时下降约 118 倍;1,000 → 10,000 档 10 倍事件对应 9.2 倍耗时,趋近线性(剩余固定开销为每次追加的 `appendFile`/`mkdir`)。读取耗时同量级波动,读取路径零改动符合预期。
+- [2.1](./requirements.md#req-2-1):实现走查——`append` 内序号确定为 `sequenceCache.get(key) ?? readLastStoredSequence(...)`,追加路径不再调用 `readStoredEvents`。
+- [2.2](./requirements.md#req-2-2):重启续接用例——新实例对已有文件(2 个事件)追加得 sequence 3。
+- [2.3](./requirements.md#req-2-3):无 trailer newline 用例——手工构造末行无换行符的 JSONL,新实例续接得 sequence 3。
+- [3.1](./requirements.md#req-3-1):现有损坏文件/非单调/标识不匹配用例回归通过;新增尾部行标识不匹配用例按新语义抛 `TrajectoryProtocolError`(错误信息含字节偏移)。
+- [3.2](./requirements.md#req-3-2):readWithBoundary 跨缓存与尾部扫描两路径追加后 committed=[1]/tail=[2,3] 分类不变。
+- [3.3](./requirements.md#req-3-3):现有并发追加用例(序列 [1,2,3])回归通过。
+
+全量验证:`npm test` 通过——类型检查、依赖边界检查、97 个 `.ts/.tsx` + 2 个 `.mjs` 测试文件全部通过(`[regression] 全部通过`)。含新增 `trajectory-benchmark.test.ts` 自动进入回归。
+
+实施中修复的既有缺陷:新用例暴露 `append` 队列簿记 promise(`tracked`)在追加失败时产生无人处理的 rejection,已吞掉该拒绝(失败仍通过返回的 operation 传播给调用方)。
