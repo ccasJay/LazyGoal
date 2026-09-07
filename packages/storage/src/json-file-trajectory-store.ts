@@ -260,7 +260,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
                 for (let index = segments.length - 1; index >= 0; index -= 1) {
                     const segment = segments[index];
 
-                    if (segment.trim() === "") {
+                    if (segment === undefined || segment.trim() === "") {
                         continue;
                     }
 
@@ -272,7 +272,13 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
                     let lineOffset = position;
 
                     for (let preceding = 0; preceding < index; preceding += 1) {
-                        lineOffset += Buffer.byteLength(segments[preceding]) + 1;
+                        const precedingSegment = segments[preceding];
+
+                        if (precedingSegment === undefined) {
+                            continue;
+                        }
+
+                        lineOffset += Buffer.byteLength(precedingSegment) + 1;
                     }
 
                     return parseTailSequence(segment, lineOffset, goalId, runId);
