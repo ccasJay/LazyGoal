@@ -2405,3 +2405,327 @@ test("Runner 将运行时非法 AgentDecision 保存为 INVALID_AGENT_DECISION",
         "INVALID_AGENT_DECISION",
     );
 });
+
+function withExecutingTask(goal: Goal, task: GoalTask): Goal {
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task,
+            },
+        },
+    };
+}
+
+test("Runner 声明匹配：携带 acceptance 的条件引用匹配工具与成功结果时通过（Req 2.2）", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证通过条件",
+        completionCriteria: [
+            {
+                text: "成功读取文件",
+                acceptance: { expectToolId: "read_file", expectOutcome: "success" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-accept-pass", "goal-accept-pass", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: { content: "ok" },
+        summary: "read ok",
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-accept-pass"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.lastStep?.kind, "decision");
+});
+
+test("Runner 声明匹配：expect failure 声明引用匹配的 failure 观察时通过（Req 3.1）", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证失败预期条件",
+        completionCriteria: [
+            {
+                text: "预期报错测试",
+                acceptance: { expectToolId: "read_file", expectOutcome: "failure" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-accept-fail-pass", "goal-accept-fail-pass", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "failure",
+        code: "FILE_NOT_FOUND",
+        message: "文件不存在",
+        retryable: false,
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "nonexistent.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [8] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-accept-fail-pass"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.lastStep?.kind, "decision");
+});
+
+test("Runner 声明匹配：工具标识不匹配时拒绝 complete 并返回明确缺口（Req 2.1, Req 2.4）", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证工具不匹配",
+        completionCriteria: [
+            {
+                text: "需要 bash 工具",
+                acceptance: { expectToolId: "bash", expectOutcome: "success" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-mismatch-tool", "goal-mismatch-tool", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: { content: "ok" },
+        summary: "read ok",
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-mismatch-tool"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stopReason?.kind, "execution_error");
+    if (state.stopReason?.kind === "execution_error") {
+        assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
+        assert.match(
+            state.stopReason.message,
+            /completion criterion 0 requires bash success observation, referenced evidence does not match/,
+        );
+    }
+});
+
+test("Runner 声明匹配：expect failure 引用 success 观察时被拒（Req 2.3）", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证 failure 声明引用 success 被拒",
+        completionCriteria: [
+            {
+                text: "期望失败但成功了",
+                acceptance: { expectToolId: "read_file", expectOutcome: "failure" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-fail-got-success", "goal-fail-got-success", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: { content: "ok" },
+        summary: "read ok",
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-fail-got-success"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stopReason?.kind, "execution_error");
+    if (state.stopReason?.kind === "execution_error") {
+        assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
+        assert.match(
+            state.stopReason.message,
+            /completion criterion 0 requires read_file failure observation, referenced evidence does not match/,
+        );
+    }
+});
+
+test("Runner 声明匹配：expect success 引用 failure 观察时被拒", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证 success 声明引用 failure 被拒",
+        completionCriteria: [
+            {
+                text: "期望成功但失败了",
+                acceptance: { expectToolId: "read_file", expectOutcome: "success" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-success-got-fail", "goal-success-got-fail", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "failure",
+        code: "ERR",
+        message: "读取错误",
+        retryable: false,
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [8] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-success-got-fail"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stopReason?.kind, "execution_error");
+    if (state.stopReason?.kind === "execution_error") {
+        assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
+        assert.match(
+            state.stopReason.message,
+            /completion criterion 0 requires read_file success observation, referenced evidence does not match/,
+        );
+    }
+});
+
+test("Runner 声明匹配：无 acceptance 声明的条件保持现状校验通过（Req 1.2）", async () => {
+    const store = new InMemoryGoalStore();
+    const task: GoalTask = {
+        objective: "验证无声明条件",
+        completionCriteria: [
+            {
+                text: "任意已提交观察均可",
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-no-acceptance", "goal-no-acceptance", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: { content: "ok" },
+        summary: "read ok",
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            summary: "任务已完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-no-acceptance"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.lastStep?.kind, "decision");
+});

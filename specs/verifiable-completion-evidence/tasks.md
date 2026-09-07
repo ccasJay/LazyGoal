@@ -14,7 +14,7 @@
   - 验证方式:待实现用例加入 `packages/runtime/test/`
   - _Requirements: [2.1](./requirements.md#req-2-1)_
 
-- [ ] //TODO 3. Runner 声明匹配校验
+- [x] //TODO 3. Runner 声明匹配校验
 
   - 实现目标:`validateCompletionEvidence` 在现有校验后追加分支:携带 acceptance 的条件须有至少一条 evidenceSequences 解析为 (expectToolId, expectOutcome),否则抛 `INVALID_AGENT_DECISION` 且消息含条件序号、预期工具/结果与缺口;无声明条件路径不变
   - 成功判据:匹配通过/不匹配拒绝/expect failure 双向用例通过;无声明回归通过

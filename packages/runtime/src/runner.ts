@@ -63,6 +63,7 @@ import {
     validateMemoryPatchPhase,
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
+import { resolveEvidenceObservation } from "./evidence-gate";
 import {
     createNoopToolMemoryProjectorRegistry,
     normalizeToolMemoryProjectionResult,
@@ -1095,6 +1096,28 @@ export class Runner {
                     "INVALID_AGENT_DECISION",
                     "completionEvidence is missing a criterion",
                 );
+            }
+        }
+
+        const evidenceIndex = session.evidenceIndex;
+        for (const item of evidence as readonly { readonly criterionIndex: number; readonly evidenceSequences: readonly number[] }[]) {
+            const criterion = task.completionCriteria[item.criterionIndex];
+            if (criterion?.acceptance !== undefined) {
+                const { expectToolId, expectOutcome } = criterion.acceptance;
+                const hasMatch = item.evidenceSequences.some((seq) => {
+                    const observation = resolveEvidenceObservation(seq, evidenceIndex);
+                    return (
+                        observation !== undefined
+                        && observation.toolId === expectToolId
+                        && observation.outcome === expectOutcome
+                    );
+                });
+                if (!hasMatch) {
+                    throw new RunnerExecutionError(
+                        "INVALID_AGENT_DECISION",
+                        `completion criterion ${item.criterionIndex} requires ${expectToolId} ${expectOutcome} observation, referenced evidence does not match`,
+                    );
+                }
             }
         }
     }
