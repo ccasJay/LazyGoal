@@ -21,7 +21,7 @@
   - 验证方式:待实现的测试用例,加入 `packages/tools/test/bash.test.ts`
   - _Requirements: [2.1](./requirements.md#req-2-1)_
 
-- [ ] //TODO 4. abort 双阶段终止测试
+- [x] //TODO 4. abort 双阶段终止测试
 
   - 实现目标:新增用例——长命令运行中触发 AbortController,断言及时抛出 `ExecutionAbortedError`,中止前已有输出按现有语义不产生失败 Observation,进程组已清理
   - 成功判据:中止在宽限期内完成终止;忽略 SIGTERM 的长命令中止同样按时返回
