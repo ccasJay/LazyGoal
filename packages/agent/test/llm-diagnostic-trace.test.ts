@@ -53,7 +53,7 @@ function createGoalForPhase(
                 preparation: { status: "completed" },
                 task: {
                     objective: "验证诊断",
-                    completionCriteria: ["Trace 可读"],
+                    completionCriteria: [{ text: "Trace 可读" }],
                 },
             },
             run: {

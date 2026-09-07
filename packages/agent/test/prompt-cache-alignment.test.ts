@@ -38,7 +38,7 @@ const profile = {
 
 const task = {
     objective: "完成前缀对齐验证",
-    completionCriteria: ["根前缀完全固定", "尾部增量最小化"],
+    completionCriteria: [{ text: "根前缀完全固定" }, { text: "尾部增量最小化" }],
 };
 
 const tools: readonly ToolDefinition[] = [

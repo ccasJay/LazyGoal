@@ -1,5 +1,7 @@
 import type {
     AgentProfile,
+    CompletionAcceptance,
+    CompletionCriterion,
     Goal,
     GoalMessage,
     GoalTask,
@@ -13,6 +15,8 @@ import type {
 import {
     GoalSnapshotProtocolError,
     GoalSnapshotV1Schema,
+    type GoalSnapshotCompletionAcceptanceV1,
+    type GoalSnapshotCompletionCriterionV1,
     type GoalSnapshotDecisionResultV1,
     type GoalSnapshotMessageV1,
     type GoalSnapshotObservationV1,
@@ -84,10 +88,28 @@ function encodeProfile(profile: AgentProfile): GoalSnapshotProfileV1 {
     };
 }
 
+function encodeAcceptance(
+    acceptance: CompletionAcceptance,
+): GoalSnapshotCompletionAcceptanceV1 {
+    return {
+        expectToolId: acceptance.expectToolId,
+        expectOutcome: acceptance.expectOutcome,
+    };
+}
+
+function encodeCriterion(criterion: CompletionCriterion): GoalSnapshotCompletionCriterionV1 {
+    return {
+        text: criterion.text,
+        ...(criterion.acceptance === undefined
+            ? {}
+            : { acceptance: encodeAcceptance(criterion.acceptance) }),
+    };
+}
+
 function encodeTask(task: GoalTask): GoalSnapshotTaskV1 {
     return {
         objective: task.objective,
-        completionCriteria: [...task.completionCriteria],
+        completionCriteria: task.completionCriteria.map(encodeCriterion),
     };
 }
 
@@ -293,10 +315,30 @@ function decodeProfile(profile: GoalSnapshotProfileV1): AgentProfile {
     };
 }
 
-function decodeTask(task: { readonly objective: string; readonly completionCriteria: readonly string[] }): GoalTask {
+function decodeAcceptance(
+    acceptance: GoalSnapshotCompletionAcceptanceV1,
+): CompletionAcceptance {
+    return {
+        expectToolId: acceptance.expectToolId,
+        expectOutcome: acceptance.expectOutcome,
+    };
+}
+
+function decodeCriterion(
+    criterion: GoalSnapshotCompletionCriterionV1,
+): CompletionCriterion {
+    return {
+        text: criterion.text,
+        ...(criterion.acceptance === undefined
+            ? {}
+            : { acceptance: decodeAcceptance(criterion.acceptance) }),
+    };
+}
+
+function decodeTask(task: GoalSnapshotTaskV1): GoalTask {
     return {
         objective: task.objective,
-        completionCriteria: [...task.completionCriteria],
+        completionCriteria: task.completionCriteria.map(decodeCriterion),
     };
 }
 
@@ -461,6 +503,39 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     };
 }
 
+/**
+ * 检查快照中是否残留旧版 `string[]` 完成条件并给出明确错误。
+ *
+ * @remarks
+ * 开发期不保证旧快照兼容；旧形态 criteria 无法安全读取时必须 fail fast，
+ * 指引用户删除或重建 Goal 而不是猜测迁移。
+ */
+function assertNoLegacyStringCriteria(input: unknown): void {
+    if (!isRecord(input) || !isRecord(input.state) || !isRecord(input.state.workflow)) {
+        return;
+    }
+
+    const workflow = input.state.workflow;
+    const tasks: unknown[] = [];
+    if (isRecord(workflow.preparation) && isRecord(workflow.preparation.proposal)) {
+        tasks.push(workflow.preparation.proposal);
+    }
+    if (isRecord(workflow.task)) {
+        tasks.push(workflow.task);
+    }
+
+    for (const task of tasks) {
+        if (!isRecord(task) || !Array.isArray(task.completionCriteria)) {
+            continue;
+        }
+        if (task.completionCriteria.some((criterion) => typeof criterion === "string")) {
+            throw protocolError(
+                "Invalid Goal snapshot: legacy string completionCriteria are no longer supported; delete and recreate the Goal",
+            );
+        }
+    }
+}
+
 /** 共享的无状态 Codec 实例。 */
 export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSnapshotCodec {
     encode(goal: Goal): GoalSnapshotV1 {
@@ -474,6 +549,8 @@ export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSn
                 `Invalid Goal snapshot: unsupported schemaVersion ${String(schemaVersion)}`,
             );
         }
+
+        assertNoLegacyStringCriteria(input);
 
         const validation = GoalSnapshotV1Schema.safeParse(input);
         if (!validation.success) {

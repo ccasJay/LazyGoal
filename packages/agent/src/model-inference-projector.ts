@@ -226,7 +226,19 @@ export class ModelInferenceProjector {
             intent: goal.definition.intent,
             task: {
                 objective: workflow.task.objective,
-                completionCriteria: [...workflow.task.completionCriteria],
+                completionCriteria: workflow.task.completionCriteria.map(
+                    (criterion) => ({
+                        text: criterion.text,
+                        ...(criterion.acceptance === undefined
+                            ? {}
+                            : {
+                                acceptance: {
+                                    expectToolId: criterion.acceptance.expectToolId,
+                                    expectOutcome: criterion.acceptance.expectOutcome,
+                                },
+                            }),
+                    }),
+                ),
             },
             execution: {
                 stepCount: goal.state.run.stepCount,

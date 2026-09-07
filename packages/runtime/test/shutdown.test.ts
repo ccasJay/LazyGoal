@@ -32,7 +32,7 @@ const profile: AgentProfile = {
 function createPendingActionGoal(): Goal {
     const task = {
         objective: "保留关闭前检查点",
-        completionCriteria: ["pendingAction 仍可恢复"],
+        completionCriteria: [{ text: "pendingAction 仍可恢复" }],
     };
     const initial = createGoal({
         ...currentProtocols,

@@ -38,7 +38,10 @@ export type {
 export type {
     AssistantMessage,
     AgentDecision,
+    CompletionAcceptance,
     CompletionEvidence,
+    CompletionExpectOutcome,
+    CompletionCriterion,
     StructuredAgentDecision,
     Blocker,
     BlockerCreate,

@@ -26,7 +26,7 @@ test("deriveWireEnvelopeContract 严格要求顶层仅含必填 result envelope�
     const valid = {
         result: {
             objective: "完成目标",
-            completionCriteria: ["标准 1"],
+            completionCriteria: [{ text: "标准 1", acceptance: null }],
         },
     };
     const validParsed = safeParse(envelopeContract, valid);
@@ -35,7 +35,7 @@ test("deriveWireEnvelopeContract 严格要求顶层仅含必填 result envelope�
     // 缺少 result 字段（旧响应直接作为 payload）
     const noEnvelope = {
         objective: "完成目标",
-        completionCriteria: ["标准 1"],
+        completionCriteria: [{ text: "标准 1", acceptance: null }],
     };
     const noEnvelopeParsed = safeParse(envelopeContract, noEnvelope);
     assert.equal(noEnvelopeParsed.success, false);
@@ -48,7 +48,7 @@ test("deriveWireEnvelopeContract 严格要求顶层仅含必填 result envelope�
     const extraFields = {
         result: {
             objective: "完成目标",
-            completionCriteria: ["标准 1"],
+            completionCriteria: [{ text: "标准 1", acceptance: null }],
         },
         extraMetadata: "malicious",
     };
@@ -292,7 +292,7 @@ test("createModelOutputContractBundle 支持四类请求并正确派生与解码
             kind: "task_proposal",
             task: {
                 objective: "编写任务列表",
-                completionCriteria: ["任务分解完成"],
+                completionCriteria: [{ text: "任务分解完成", acceptance: null }],
             },
             approvalRequest: "请审批任务草案",
             memoryPatch: null,

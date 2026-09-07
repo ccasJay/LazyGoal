@@ -37,10 +37,19 @@ export type ModelConversationMessage =
         readonly sourceMessageIndex: number;
     };
 
+/** 模型可见的单条完成条件投影。 */
+export interface ModelCompletionCriterion {
+    readonly text: string;
+    readonly acceptance?: {
+        readonly expectToolId: string;
+        readonly expectOutcome: "success" | "failure";
+    };
+}
+
 /** 模型可见的稳定任务定义投影。 */
 export interface ModelTask {
     readonly objective: string;
-    readonly completionCriteria: readonly string[];
+    readonly completionCriteria: readonly ModelCompletionCriterion[];
 }
 
 /** 模型可见的单个 Tool Action 投影。 */

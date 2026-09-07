@@ -199,7 +199,7 @@ test("Coordinator restores Memory once per preparation call and commits an optio
             assert.equal(input.workingMemory?.facts[0]?.predicate, "config_observed");
             return {
                 kind: "task_proposal",
-                task: { objective: "执行任务", completionCriteria: ["完成"] },
+                task: { objective: "执行任务", completionCriteria: [{ text: "完成" }] },
                 approvalRequest: "批准吗？",
             };
         },

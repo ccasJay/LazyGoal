@@ -1,6 +1,6 @@
 # 可验证完成证据 实施计划
 
-- [ ] //TODO 1. CompletionCriterion 领域结构与 codec 演进
+- [x] //TODO 1. CompletionCriterion 领域结构与 codec 演进
 
   - 实现目标:`domain.ts` 定义 `CompletionCriterion { text, acceptance? { expectToolId, expectOutcome } }` 并将 `GoalTask.completionCriteria` 改为该结构;`goal-snapshot-codec.ts` 就地更新序列化/反序列化与结构校验(旧 `string[]` 快照解析报清晰 unsupported 错误);所有读取 criteria 文本的调用点(prompt 渲染、校验处)改读 `.text`
   - 成功判据:codec roundtrip 保留 acceptance;旧形态快照 fail-fast;现有 runtime 测试(改读 text 后)全部通过

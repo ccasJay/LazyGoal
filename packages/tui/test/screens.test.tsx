@@ -82,7 +82,7 @@ function proposalGoal(id = "goal-proposal"): Goal {
                     status: "waiting_approval",
                     proposal: {
                         objective: "Implement persistence",
-                        completionCriteria: ["Snapshots can be restored"],
+                        completionCriteria: [{ text: "Snapshots can be restored" }],
                     },
                 },
             },

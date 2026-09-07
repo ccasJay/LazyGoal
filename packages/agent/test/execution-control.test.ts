@@ -68,7 +68,7 @@ function createStepGoal(): Goal {
                 preparation: { status: "completed" },
                 task: {
                     objective: goal.definition.intent,
-                    completionCriteria: ["The adapter receives the signal"],
+                    completionCriteria: [{ text: "The adapter receives the signal" }],
                 },
             },
             run: { ...goal.state.run, status: "running" },

@@ -103,7 +103,7 @@ function executingGoal(id: string): Goal {
                 preparation: { status: "completed" },
                 task: {
                     objective: "Read a file",
-                    completionCriteria: ["A Tool observation confirms the read"],
+                    completionCriteria: [{ text: "A Tool observation confirms the read" }],
                 },
             },
             run: {

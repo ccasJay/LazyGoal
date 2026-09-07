@@ -19,7 +19,10 @@ import {
 test("GoalTaskContract 校验并深复制合法任务结构", () => {
     const original = {
         objective: "设计系统架构",
-        completionCriteria: ["文档编写完成", "通过评审"],
+        completionCriteria: [
+            { text: "文档编写完成" },
+            { text: "通过评审", acceptance: { expectToolId: "bash", expectOutcome: "success" as const } },
+        ],
     };
     const parsed = safeParse(GoalTaskContract, original);
     assert.equal(parsed.success, true);
@@ -28,7 +31,7 @@ test("GoalTaskContract 校验并深复制合法任务结构", () => {
     assert.notStrictEqual(parsed.data, original);
     assert.notStrictEqual(parsed.data.completionCriteria, original.completionCriteria);
 
-    original.completionCriteria.push("恶意修改");
+    original.completionCriteria.push({ text: "恶意修改" });
     assert.equal(parsed.data.completionCriteria.length, 2);
 });
 
@@ -82,7 +85,7 @@ test("PreparationResultContract 接受各合法 Preparation 分支并拒绝额�
         kind: "task_proposal" as const,
         task: {
             objective: "构建模块",
-            completionCriteria: ["标准 1"],
+            completionCriteria: [{ text: "标准 1" }],
         },
         approvalRequest: "是否确认？",
     };
@@ -205,14 +208,15 @@ test("validateModelOutputSemantics 拦截空白文本语义且不 trim 输入", 
         approvalRequest: "   ",
         task: {
             objective: "",
-            completionCriteria: ["标准 1", "  "],
+            completionCriteria: [{ text: "标准 1" }, { text: "  ", acceptance: { expectToolId: "  ", expectOutcome: "success" } }],
         },
     };
     const taskIssues = validateModelOutputSemantics(blankTask);
-    assert.equal(taskIssues.length, 3);
+    assert.equal(taskIssues.length, 4);
     assert.equal(taskIssues.some((i) => i.path.join(".") === "approvalRequest"), true);
     assert.equal(taskIssues.some((i) => i.path.join(".") === "task.objective"), true);
-    assert.equal(taskIssues.some((i) => i.path.join(".") === "task.completionCriteria.1"), true);
+    assert.equal(taskIssues.some((i) => i.path.join(".") === "task.completionCriteria.1.text"), true);
+    assert.equal(taskIssues.some((i) => i.path.join(".") === "task.completionCriteria.1.acceptance.expectToolId"), true);
 
     // 空白 Action 字段
     const blankAction = {

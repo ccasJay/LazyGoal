@@ -25,22 +25,88 @@ export const JsonValueContract: Contract<JsonValue> = contract.recursive("JsonVa
 );
 
 /**
+ * 验收结果的可取值契约。
+ *
+ * @example
+ * ```ts
+ * const outcome: CompletionExpectOutcome = "success";
+ * ```
+ */
+export const CompletionExpectOutcomeContract = contract.enum([
+    "success",
+    "failure",
+] as const);
+
+/** 验收声明的预期结果。 */
+export type CompletionExpectOutcome = InferContract<typeof CompletionExpectOutcomeContract>;
+
+/**
+ * 完成条件的验收声明契约。
+ *
+ * @remarks
+ * 声明该条件引用的证据中至少一条必须是指预期工具与预期结果的可信
+ * Observation；声明由任务创建方提供，模型自述不能覆盖验收结果。
+ *
+ * @example
+ * ```ts
+ * const acceptance: CompletionAcceptance = {
+ *     expectToolId: "bash",
+ *     expectOutcome: "success",
+ * };
+ * ```
+ */
+export const CompletionAcceptanceContract = contract.object({
+    expectToolId: contract.string(),
+    expectOutcome: CompletionExpectOutcomeContract,
+});
+
+/** 完成条件的验收声明公开类型。 */
+export type CompletionAcceptance = InferContract<typeof CompletionAcceptanceContract>;
+
+/**
+ * 单条完成条件契约。
+ *
+ * @remarks
+ * `text` 是面向模型与用户的条件描述；`acceptance` 是可选的验收声明，
+ * Runner 在 complete 校验时验证引用证据满足声明。
+ *
+ * @example
+ * ```ts
+ * const criterion: CompletionCriterion = {
+ *     text: "测试全部通过",
+ *     acceptance: { expectToolId: "bash", expectOutcome: "success" },
+ * };
+ * ```
+ */
+export const CompletionCriterionContract = contract.object({
+    text: contract.string(),
+    acceptance: contract.optional(CompletionAcceptanceContract),
+});
+
+/** 单条完成条件公开类型。 */
+export type CompletionCriterion = InferContract<typeof CompletionCriterionContract>;
+
+/**
  * Goal 任务定义契约。
  *
  * @remarks
- * 规定模型在规划阶段提出的目标与验收标准列表。
+ * 规定模型在规划阶段提出的目标与完成条件列表；每条条件是结构化的
+ * `CompletionCriterion`，可携带可选验收声明。
  *
  * @example
  * ```ts
  * const task: GoalTask = {
  *     objective: "实现功能 X",
- *     completionCriteria: ["标准 1", "标准 2"],
+ *     completionCriteria: [
+ *         { text: "标准 1" },
+ *         { text: "标准 2", acceptance: { expectToolId: "bash", expectOutcome: "success" } },
+ *     ],
  * };
  * ```
  */
 export const GoalTaskContract = contract.object({
     objective: contract.string(),
-    completionCriteria: contract.array(contract.string()),
+    completionCriteria: contract.array(CompletionCriterionContract),
 });
 
 /** Goal 任务公开类型。 */
@@ -792,6 +858,23 @@ function checkNonBlank(
     }
 }
 
+function checkCriterionSemantics(
+    criterion: unknown,
+    path: readonly (string | number)[],
+    issues: ModelOutputSemanticIssue[],
+): void {
+    if (!isRecord(criterion)) return;
+    checkNonBlank(criterion.text, [...path, "text"], issues, "completion criterion text");
+    if (isRecord(criterion.acceptance)) {
+        checkNonBlank(
+            criterion.acceptance.expectToolId,
+            [...path, "acceptance", "expectToolId"],
+            issues,
+            "expectToolId",
+        );
+    }
+}
+
 function validateFiltersSemantics(
     filters: unknown,
     parentPath: readonly (string | number)[],
@@ -1000,7 +1083,11 @@ export function validateModelOutputSemantics(
                     checkNonBlank(value.task.objective, [...basePath, "task", "objective"], issues, "objective");
                     if (Array.isArray(value.task.completionCriteria)) {
                         value.task.completionCriteria.forEach((item, index) => {
-                            checkNonBlank(item, [...basePath, "task", "completionCriteria", index], issues, `completionCriteria[${index}]`);
+                            checkCriterionSemantics(
+                                item,
+                                [...basePath, "task", "completionCriteria", index],
+                                issues,
+                            );
                         });
                     }
                 }
@@ -1038,7 +1125,7 @@ export function validateModelOutputSemantics(
             checkNonBlank(value.objective, [...basePath, "objective"], issues, "objective");
             if (Array.isArray(value.completionCriteria)) {
                 value.completionCriteria.forEach((item, index) => {
-                    checkNonBlank(item, [...basePath, "completionCriteria", index], issues, `completionCriteria[${index}]`);
+                    checkCriterionSemantics(item, [...basePath, "completionCriteria", index], issues);
                 });
             }
         }

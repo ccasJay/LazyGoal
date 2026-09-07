@@ -46,10 +46,22 @@ export interface GoalSnapshotDefinitionV1 {
     readonly executionPolicy: { readonly maxSteps: number };
 }
 
+/** Snapshot 中单条完成条件的验收声明。 */
+export interface GoalSnapshotCompletionAcceptanceV1 {
+    readonly expectToolId: string;
+    readonly expectOutcome: "success" | "failure";
+}
+
+/** Snapshot 中的单条完成条件。 */
+export interface GoalSnapshotCompletionCriterionV1 {
+    readonly text: string;
+    readonly acceptance?: GoalSnapshotCompletionAcceptanceV1 | undefined;
+}
+
 /** Snapshot 中的任务定义。 */
 export interface GoalSnapshotTaskV1 {
     readonly objective: string;
-    readonly completionCriteria: readonly string[];
+    readonly completionCriteria: readonly GoalSnapshotCompletionCriterionV1[];
 }
 
 /** Snapshot 中按时间顺序保存的真实会话消息。 */
@@ -249,9 +261,19 @@ const GoalSnapshotProfileSchema = z.object({
     toolIds: z.array(NonEmptyStringSchema),
 }).strict();
 
+const GoalSnapshotCompletionAcceptanceSchema = z.object({
+    expectToolId: NonEmptyStringSchema,
+    expectOutcome: z.enum(["success", "failure"]),
+}).strict();
+
+const GoalSnapshotCompletionCriterionSchema = z.object({
+    text: NonEmptyStringSchema,
+    acceptance: GoalSnapshotCompletionAcceptanceSchema.optional(),
+}).strict();
+
 const GoalSnapshotTaskSchema = z.object({
     objective: NonEmptyStringSchema,
-    completionCriteria: z.array(z.string()),
+    completionCriteria: z.array(GoalSnapshotCompletionCriterionSchema),
 }).strict();
 
 const GoalSnapshotMessageSchema = z.discriminatedUnion("role", [

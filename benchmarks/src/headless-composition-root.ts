@@ -732,7 +732,9 @@ function createDescriptorPreparationExecutor(
                     kind: "task_proposal",
                     task: {
                         objective: descriptor.objective,
-                        completionCriteria: [...descriptor.completionCriteria],
+                        completionCriteria: descriptor.completionCriteria.map(
+                            (criterion) => ({ text: criterion }),
+                        ),
                     },
                     approvalRequest: "Headless benchmark task is ready for execution.",
                 };

@@ -67,7 +67,7 @@ function createExecutingGoal(id: string): Goal {
                 preparation: { status: "completed" },
                 task: {
                     objective: "Test objective",
-                    completionCriteria: ["Test criteria"],
+                    completionCriteria: [{ text: "Test criteria" }],
                 },
             },
         },
