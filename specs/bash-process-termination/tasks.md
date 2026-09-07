@@ -55,4 +55,18 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+状态:**passed**(2026-09-07 17:48,被测代码 `feature/bash-process-termination@f06ae34`,工作树干净)
+
+| 验收范围 | 证据 |
+|---|---|
+| 1.1 | 忽略 SIGTERM 用例(`trap "" TERM; exec sleep 30`,`timeoutMs: 200`)耗时 2209ms 返回 `COMMAND_TIMEOUT`,落在 `[timeoutMs+2000, timeoutMs+3000]` 区间 |
+| 1.2 | 同上:进程在宽限后被 SIGKILL 强制结束(耗时下界断言证明无法提前终止) |
+| 1.3 | 管道悬置用例(`sleep 30 & disown; exit 0`)耗时 208ms 返回 `COMMAND_TIMEOUT`,不等待管道关闭 |
+| 2.1 | 后台派生用例(`sleep 30 & sleep 30`)按时返回,`assertProcessGroupGone` 轮询确认整组无存活成员 |
+| 2.2 | 代码走查:终止仅 `process.kill(-pid)` 组信号,无任何追杀脱组进程的逻辑 |
+| 3.1 | 两个 abort 用例均抛出 `ExecutionAbortedError`:常规中止及时返回且整组清理;忽略 SIGTERM 的中止在宽限后完成(≥ abort+2000ms) |
+| 4.1 | 现有正常退出、非零退出码、输出截断用例全部通过 |
+| 4.2 | 现有回归通过;`replayPolicy = "manual"` 声明未改动(代码走查) |
+| 4.3 | 代码走查:平台分支仅控制 `detached` 与信号路径,Windows 维持单进程 `child.kill` |
+
+全量验证:`npm test` 通过——类型检查、依赖边界检查、96 个 `.ts/.tsx` + 2 个 `.mjs` 测试文件全部通过(`[regression] 全部通过`)。
