@@ -148,11 +148,15 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
             return event;
         });
         let tracked: Promise<unknown>;
-        tracked = operation.finally(() => {
-            if (this.appendQueues.get(key) === tracked) {
-                this.appendQueues.delete(key);
-            }
-        });
+        // tracked 只承担队列簿记,吞掉拒绝避免无人处理的 rejection;
+        // 失败仍通过返回的 operation 传播给调用方。
+        tracked = operation
+            .catch(() => undefined)
+            .finally(() => {
+                if (this.appendQueues.get(key) === tracked) {
+                    this.appendQueues.delete(key);
+                }
+            });
         this.appendQueues.set(key, tracked);
         return operation;
     }

@@ -14,7 +14,7 @@
   - 验证方式:`npx tsx --test packages/storage/test/trajectory-store.test.ts`
   - _Requirements: [2.1](./requirements.md#req-2-1), [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 3. 新增行为用例:重启续接与无 trailer newline
+- [x] //TODO 3. 新增行为用例:重启续接与无 trailer newline
 
   - 实现目标:测试覆盖——新 store 实例对已有文件追加序号正确续接;手工构造末行无换行符的 JSONL 后续接正确;尾部行标识不匹配时抛 `TrajectoryProtocolError`;`readWithBoundary` committed/tail 分类不因优化改变
   - 成功判据:新用例全部通过,覆盖缓存 miss 回退路径与边界形态
