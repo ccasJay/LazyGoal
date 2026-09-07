@@ -31,6 +31,32 @@ async function nextFrame(): Promise<void> {
     });
 }
 
+/** 轮询等待 frame 中出现 pattern;超时以最终 frame 断言失败并展示实际内容。 */
+async function waitForFrame(
+    instance: { lastFrame(): string | undefined },
+    pattern: RegExp,
+    timeoutMs = 2000,
+): Promise<string> {
+    const start = Date.now();
+    for (;;) {
+        const frame = instance.lastFrame() ?? "";
+        if (pattern.test(frame)) {
+            // frame 更新先于 React passive effect(ink 的 useInput handler 重注册);
+            // yield 一个 setImmediate 保证后续 stdin 写入打到最新 handler。
+            await new Promise<void>((resolve) => {
+                setImmediate(resolve);
+            });
+            return instance.lastFrame() ?? "";
+        }
+        if (Date.now() - start >= timeoutMs) {
+            assert.match(frame, pattern);
+        }
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 10);
+        });
+    }
+}
+
 test("GoalSelectScreen preserves Catalog order and renders every summary field", () => {
     const goals = [
         entry("goal-newest", "Newest resumable workflow", "2026-08-17T02:00:00.000Z"),
@@ -70,7 +96,7 @@ test("GoalSelectScreen submits the focused keyboard selection once", async () =>
     );
 
     instance.stdin.write("\u001b[B");
-    await nextFrame();
+    await waitForFrame(instance, /❯ goal-sec/);
     instance.stdin.write("\r");
     await nextFrame();
     instance.stdin.write("\r");

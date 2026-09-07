@@ -94,6 +94,32 @@ async function nextFrame(): Promise<void> {
     });
 }
 
+/** 轮询等待 frame 中出现 pattern;超时以最终 frame 断言失败并展示实际内容。 */
+async function waitForFrame(
+    instance: { lastFrame(): string | undefined },
+    pattern: RegExp,
+    timeoutMs = 2000,
+): Promise<string> {
+    const start = Date.now();
+    for (;;) {
+        const frame = instance.lastFrame() ?? "";
+        if (pattern.test(frame)) {
+            // frame 更新先于 React passive effect(ink 的 useInput handler 重注册);
+            // yield 一个 setImmediate 保证后续 stdin 写入打到最新 handler。
+            await new Promise<void>((resolve) => {
+                setImmediate(resolve);
+            });
+            return instance.lastFrame() ?? "";
+        }
+        if (Date.now() - start >= timeoutMs) {
+            assert.match(frame, pattern);
+        }
+        await new Promise<void>((resolve) => {
+            setTimeout(resolve, 10);
+        });
+    }
+}
+
 test("SessionScreen renders ordered messages and the executing status", () => {
     const goal = executingGoal();
     const currentGoal: Goal = {
@@ -162,12 +188,11 @@ test("SessionScreen validates and submits blocked messages", async () => {
     assert.match(instance.lastFrame() ?? "", /Agent is blocked/);
     assert.match(instance.lastFrame() ?? "", /Which repository should be inspected/);
     instance.stdin.write("\r");
-    await nextFrame();
+    await waitForFrame(instance, /Message must not be empty/);
     assert.deepEqual(submitted, []);
-    assert.match(instance.lastFrame() ?? "", /Message must not be empty/);
 
     instance.stdin.write("Use the current repository");
-    await nextFrame();
+    await waitForFrame(instance, /Use the current repository/);
     instance.stdin.write("\r");
     await nextFrame();
     instance.stdin.write("\r");
@@ -324,13 +349,11 @@ test("SessionScreen requires a reason when rejecting an Action", async () => {
     );
 
     instance.stdin.write("n");
-    await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Why should this Action be rejected/);
+    await waitForFrame(instance, /Why should this Action be rejected/);
     instance.stdin.write("\r");
-    await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Rejection reason must not be empty/);
+    await waitForFrame(instance, /Rejection reason must not be empty/);
     instance.stdin.write("The path is outside the approved scope");
-    await nextFrame();
+    await waitForFrame(instance, /The path is outside the approved scope/);
     instance.stdin.write("\r");
     await nextFrame();
 

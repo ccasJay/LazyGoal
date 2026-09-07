@@ -14,11 +14,13 @@ Install dependencies from the repository root:
 npm install
 ```
 
-Run the complete test suite directly with `tsx` (the root `npm test` placeholder is not configured yet):
+Run the unified deterministic regression entry from the repository root (type check → dependency boundary check → all deterministic tests, in that order; any stage failing exits non-zero):
 
 ```bash
-npx tsx --test packages/agent/test/*.test.ts packages/llm/test/*.test.ts packages/runtime/test/*.test.ts packages/tools/test/*.test.ts packages/tui/test/*.test.tsx
+npm test
 ```
+
+New deterministic test files under `packages/*/test/`, `benchmarks/*/test/`, `benchmarks/test/`, or `scripts/*.test.mjs` are discovered automatically with zero configuration. Paid LLM smoke tests and external-environment evaluations stay outside this entry.
 
 Run tests for one package or one file:
 
