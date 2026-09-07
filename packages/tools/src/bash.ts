@@ -32,6 +32,9 @@ export const BASH_MAX_TIMEOUT_MS = 120_000;
 /** stdout/stderr 各自保留在 Observation 中的最大字符数。 */
 export const BASH_MAX_OUTPUT_CHARS = 10_000;
 
+/** SIGTERM 发往进程组后等待其自行退出的固定宽限(毫秒),到期升级 SIGKILL。 */
+const BASH_TERMINATION_GRACE_MS = 2_000;
+
 /** Bash Tool 的唯一输入 Contract。 */
 export const BASH_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -113,7 +116,7 @@ function combineOutput(stdout: string, stderr: string): string {
 
 /** 子进程 `close` 事件给出的命令结算事实。 */
 interface CommandOutcome {
-    /** 是否因本地超时计时器触发而发送过 SIGTERM。 */
+    /** 是否因本地超时计时器触发过终止。 */
     readonly timedOut: boolean;
     /** 命令退出码；被信号终止时为 `null`。 */
     readonly exitCode: number | null;
@@ -136,18 +139,60 @@ function runShellCommand(
             cwd: options.cwd,
             shell: process.platform === "win32" ? true : "/bin/bash",
             stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32",
         });
         let settled = false;
         let timedOut = false;
+        let terminationStarted = false;
+        let graceTimer: NodeJS.Timeout | undefined;
+        // POSIX 上信号发往整个受管进程组(组长 PID 即 PGID);Windows 不创建
+        // 进程组,维持单进程信号路径。组已消失时的 ESRCH 静默忽略。
+        const killManagedProcesses = (signal: NodeJS.Signals): void => {
+            if (child.pid === undefined) {
+                return;
+            }
+
+            if (process.platform === "win32") {
+                child.kill(signal);
+                return;
+            }
+
+            try {
+                process.kill(-child.pid, signal);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+                    throw error;
+                }
+            }
+        };
+        // 超时与 abort 共用同一双阶段终止:SIGTERM(整组)→ 固定宽限 →
+        // SIGKILL(整组)。terminationStarted 保证幂等;宽限内 close 先到则由
+        // settle 清除宽限计时,不升级 SIGKILL。
+        const startTermination = (): void => {
+            if (terminationStarted) {
+                return;
+            }
+
+            terminationStarted = true;
+            killManagedProcesses("SIGTERM");
+            graceTimer = setTimeout(() => {
+                killManagedProcesses("SIGKILL");
+            }, BASH_TERMINATION_GRACE_MS);
+        };
         const timer = setTimeout(() => {
             timedOut = true;
-            child.kill("SIGTERM");
+            startTermination();
         }, options.timeoutMs);
         const onAbort = (): void => {
-            child.kill("SIGTERM");
+            startTermination();
         };
         const cleanup = (): void => {
             clearTimeout(timer);
+
+            if (graceTimer !== undefined) {
+                clearTimeout(graceTimer);
+            }
+
             options.signal?.removeEventListener("abort", onAbort);
         };
         const settle = (callback: () => void): void => {

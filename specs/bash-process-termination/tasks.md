@@ -1,6 +1,6 @@
 # Bash 进程终止保障 实施计划
 
-- [ ] //TODO 1. 在 runShellCommand 实现进程组双阶段终止
+- [x] //TODO 1. 在 runShellCommand 实现进程组双阶段终止
 
   - 实现目标:POSIX 上以 `detached: true` 创建进程组,超时与 abort 共用 SIGTERM(整组)→ 2 秒宽限 → SIGKILL(整组)状态机;`terminationStarted` 保证幂等,`process.kill(-pid)` 的 ESRCH 静默忽略;不对主动脱组进程额外追杀;Windows 不启用 detached,维持现有单进程路径
   - 成功判据:宽限内 `close` 先到则不升级;超时/abort 触发的终止最迟在宽限后完成清理
