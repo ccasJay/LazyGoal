@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/acp/test/public-api.test.ts`；`npx tsc --noEmit`；`npm run check:dependencies`。
   - _Requirements: [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 2. 实现 ACP Agent 的 Session 生命周期与 Prompt 校验
+- [x] //TODO 2. 实现 ACP Agent 的 Session 生命周期与 Prompt 校验
 
   - 使用官方 SDK App API 实现 `initialize`、`session/new`、`session/prompt`、`session/cancel`，为每条连接拥有独立 Session Map、AbortSignal 和释放流程；校验绝对 cwd、空 MCP/额外目录、`Text` 与 cwd 内本地 `file:` `ResourceLink`，并按序交给 Session，拒绝其余非法内容。
   - 成功判据：能力声明不包含 load/resume、认证、客户端 FS 或终端；非法建会话和 Prompt 不创建副作用；合法请求只进入对应 Session。

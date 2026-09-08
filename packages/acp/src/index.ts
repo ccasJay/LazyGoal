@@ -1,4 +1,5 @@
 export type {
+    AcpAgentInput,
     AcpClientInput,
     AcpClientResult,
     AcpConnection,
@@ -15,3 +16,5 @@ export type {
     AcpStopReason,
     AcpStream,
 } from "./contracts";
+
+export { serveLazyGoalAcpAgent } from "./agent";

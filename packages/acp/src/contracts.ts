@@ -152,6 +152,24 @@ export interface AcpSessionFactory {
 }
 
 /**
+ * 在一条 ACP v1 双向流上启动 LazyGoal Agent 所需的装配输入。
+ *
+ * @example
+ * ```ts
+ * const input: AcpAgentInput = { stream, sessions: sessionFactory };
+ * const connection = serveLazyGoalAcpAgent(input);
+ * ```
+ */
+export interface AcpAgentInput {
+    /** ACP v1 对象级双向消息流。 */
+    readonly stream: AcpStream;
+    /** 为每个连接创建隔离 Session 的工厂。 */
+    readonly sessions: AcpSessionFactory;
+    /** 可选的 Agent 身份，未提供时使用 package 默认值。 */
+    readonly agentInfo?: { readonly name: string; readonly version: string };
+}
+
+/**
  * 一次性 Client 操作的输入。
  *
  * @example
