@@ -28,7 +28,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/multiplex.test.ts`；注入任意 chunk 边界、交错发送、重复/跳号和 16 MiB 边界数据。
   - _Requirements: [4.3](./requirements.md#req-4-3), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 5. 实现宿主 LLM RPC Client/Server 与取消传播
+- [x] //TODO 5. 实现宿主 LLM RPC Client/Server 与取消传播
 
   - 实现 Worker `RpcLlmAdapter`、宿主 RPC Server、唯一 request ID、structured-output mode 固定、完整 `LLMRequest/LLMResponse` 转发和独立 pending map；将错误脱敏，连接关闭、Session cancel 或任务超时都中止宿主 Adapter。
   - 成功判据：容器不读取模型配置；有效生成只调用宿主 Adapter 一次并保留完整响应；供应商错误和取消结果可区分且不泄露凭据。
