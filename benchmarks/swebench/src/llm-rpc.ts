@@ -80,7 +80,13 @@ export class RpcLlmAdapter implements LLMAdapter {
         if (this.closedError !== undefined) throw this.closedError;
         const id = `llm-${this.nextId++}`;
         return new Promise<LLMResponse>((resolve, reject) => {
-            const pending: PendingRequest = { resolve, reject, signal: control?.signal, abort: undefined, settled: false };
+            const pending: PendingRequest = {
+                resolve,
+                reject,
+                ...(control?.signal === undefined ? {} : { signal: control.signal }),
+                abort: undefined,
+                settled: false,
+            };
             this.pending.set(id, pending);
             const abort = () => {
                 if (pending.settled) return;
@@ -211,7 +217,7 @@ export class LlmRpcServer {
     private readonly readPromise: Promise<void>;
     private readonly writer: WritableStreamDefaultWriter<LlmRpcMessage>;
     private reader: ReadableStreamDefaultReader<LlmRpcMessage> | undefined;
-    private readonly resolveClosed: () => void;
+    private resolveClosed!: () => void;
     private closedState = false;
 
     constructor(options: LlmRpcServerOptions) {

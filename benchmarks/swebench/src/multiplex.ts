@@ -90,7 +90,12 @@ export function decodeMuxFrame(
     if (frame.sequence !== expectedSequence) {
         throw new MuxProtocolError("invalid_sequence", `Expected sequence ${expectedSequence}, received ${frame.sequence}`);
     }
-    return frame as MuxFrame;
+    return {
+        version: MUX_PROTOCOL_VERSION,
+        channel: frame.channel as MuxChannel,
+        sequence: frame.sequence as number,
+        payload: frame.payload as Record<string, unknown>,
+    };
 }
 
 /**
@@ -197,7 +202,7 @@ export class MultiplexedConnection {
     private roundRobin: MuxChannel = "acp";
     private writing = false;
     private closedState = false;
-    private readonly resolveClosed: () => void;
+    private resolveClosed!: () => void;
     private reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
 
     constructor(options: MultiplexedConnectionOptions) {
@@ -345,7 +350,8 @@ export function createAcpMuxStream(connection: MultiplexedConnection): AcpStream
 function validateFrame(frame: Partial<MuxFrame>): void {
     if (frame.version !== MUX_PROTOCOL_VERSION) throw new MuxProtocolError("invalid_frame", "Unknown Mux protocol version");
     if (frame.channel !== "acp" && frame.channel !== "llm") throw new MuxProtocolError("invalid_frame", "Unknown Mux channel");
-    if (!Number.isSafeInteger(frame.sequence) || frame.sequence <= 0) throw new MuxProtocolError("invalid_frame", "Mux sequence must be a positive safe integer");
+    const sequence = frame.sequence;
+    if (!Number.isSafeInteger(sequence) || sequence === undefined || sequence <= 0) throw new MuxProtocolError("invalid_frame", "Mux sequence must be a positive safe integer");
     if (!isRecord(frame.payload)) throw new MuxProtocolError("invalid_frame", "Mux payload must be an object");
 }
 
