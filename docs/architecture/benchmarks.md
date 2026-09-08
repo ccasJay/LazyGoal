@@ -3,16 +3,17 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-通用单 task Headless Composition Root，以及 ALFWorld TextWorld 的 Profile、固定
-Manifest、Python JSONL sidecar、专用 Tool 和机器可读报告；Conda/数据缺失只影响
+通用单 task Headless Composition Root，以及 ALFWorld TextWorld 和 SWE-bench Verified
+的显式评测适配；ALFWorld 提供 Profile、固定 Manifest、Python JSONL sidecar、专用 Tool
+和机器可读报告；Conda/数据缺失只影响
 显式评测命令。通用 Root 位于 [`benchmarks/src/`](../../benchmarks/src/)，只负责
 LazyGoal 生命周期、依赖注入和持久化接线；具体 benchmark 在自己的目录提供任务、
 Episode 和评分适配。
 
 ## Entry point
 
-`bin/lazygoal.cjs` 只有在参数前缀严格为 `eval alfworld` 时才转发到
-[`benchmarks/alfworld/src/cli.ts`](../../benchmarks/alfworld/src/cli.ts)，其它参数仍
+`bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld` 或 `eval swebench` 时分别转发到
+对应 benchmark CLI，其它参数仍
 进入 [`packages/tui/src/cli.tsx`](../../packages/tui/src/cli.tsx)。评测入口要求固定
 Manifest：
 
@@ -25,6 +26,8 @@ lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
 入口按 Profile → Manifest → Python/数据预检的顺序校验配置，全部通过后才构造
 模型 Adapter 和 sidecar。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
+SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命周期、产物与限制见
+[SWE-bench Evaluation](./swebench.md)。以下章节描述 ALFWorld 接线。
 数据准备使用 `npm --prefix benchmarks run alfworld:download`；该入口复用同一个
 `.env.alfworld` 解析器，把 `ALFWORLD_DATA` 作为 `--data-dir` 传给
 `alfworld-download`，并让进程环境覆盖文件值。

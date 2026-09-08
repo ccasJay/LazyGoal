@@ -1,0 +1,10 @@
+{
+  "dataset": "princeton-nlp/SWE-bench_Verified",
+  "revision": "c104f840cc67f8b6eec6f759ebc8b2693d585d4a",
+  "instanceIds": [
+    "astropy__astropy-12907"
+  ],
+  "maxSteps": 50,
+  "taskTimeoutSeconds": 1200,
+  "testTimeoutSeconds": 1800
+}
