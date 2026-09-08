@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `packages/acp/test/client-lifecycle.test.ts`；覆盖并发、cancel、断线和恰好一次 dispose。
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5)_
 
-- [ ] //TODO 4. 实现有序有界的 ACP/LLM 双通道 Mux
+- [x] //TODO 4. 实现有序有界的 ACP/LLM 双通道 Mux
 
   - 在 benchmark 进程边界实现版本化外层 NDJSON 帧、每方向单调 sequence、按字节限长解析、通道有界队列和单 writer 轮转调度，并向 ACP SDK 提供消息级 Stream；覆盖拆包、粘包、交错、背压和非法帧关闭。
   - 成功判据：ACP 与 LLM 帧不会互相误投或字节交错；合法帧保持顺序；任一非法帧不产生伪成功。
