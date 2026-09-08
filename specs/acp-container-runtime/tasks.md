@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/llm-rpc.test.ts`；覆盖 mode 不匹配、重复/未知 ID、provider failure、cancel race 和断线清理。
   - _Requirements: [4.2](./requirements.md#req-4-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 6. 构建可复现的 Linux amd64 Worker 产物
+- [x] //TODO 6. 构建可复现的 Linux amd64 Worker 产物
 
   - 使用 esbuild 生成包含 Prompt 资产的单一 ESM Worker，按入口、源码/锁文件摘要、构建参数、ACP SDK 与 Node 版本缓存并原子发布；从固定官方 Node 22.22.2 linux/amd64 镜像提取运行时，生成 identity manifest，禁止容器内 npm install。
   - 成功判据：相同输入命中相同摘要；源码、lockfile、SDK 或 Node 版本变化使缓存失效；并发构建不会暴露半成品。

@@ -24,6 +24,12 @@ base commit、instance ID 和镜像引用，参考补丁及评分测试不进入
 shell 状态不保留。进程执行、中止与输出边界由专用
 [`ProcessRunner`](../../benchmarks/swebench/src/process.ts) 管理。
 
+[`WorkerBuilder`](../../benchmarks/swebench/src/worker-builder.ts) 根据 Worker 入口依赖图、
+锁文件、Prompt 资产和固定 Node/ACP 构建参数计算 SHA-256 身份，并用 esbuild 生成单一
+Node 22 ESM Worker。构建结果先写入摘要临时目录，再以原子 rename 发布；完整 manifest
+校验通过后才能命中缓存。Node 二进制由宿主从固定 linux/amd64 镜像提供，构建器不在
+题目工作区安装依赖。
+
 ## 结束与评分
 
 Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。模型停止、
