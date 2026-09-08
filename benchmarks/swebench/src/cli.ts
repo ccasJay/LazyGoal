@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 import { createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../../../packages/agent/src/index.js";
-import { OpenAICompatible } from "../../../packages/llm/src/openai-compatible.js";
+import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
 
@@ -54,18 +55,13 @@ export async function runSwebenchCli(argv: readonly string[] = process.argv.slic
     process.on("SIGTERM", abort);
     try {
         const manifest = await loadSwebenchManifest(command.manifest);
-        const apiKey = process.env.LLM_API_KEY?.trim();
-        const baseURL = process.env.LLM_BASE_URL?.trim();
-        const model = process.env.LLM_MODEL?.trim();
-        const mode = process.env.LLM_STRUCTURED_OUTPUT_MODE?.trim();
-        if (!apiKey || !baseURL || !model || (mode !== "strict" && mode !== "prompt_only")) {
-            throw new Error("Set LLM_API_KEY, LLM_BASE_URL, LLM_MODEL and LLM_STRUCTURED_OUTPUT_MODE (strict or prompt_only)");
-        }
+        const config = readLlmConfig(process.env);
+        const adapter = createLlmAdapter(config);
         await preflightSwebench(command.python, undefined, controller.signal);
         await mkdir(dirname(command.output), { recursive: true });
         const report = await runSwebenchEvaluation({
-            manifest, outputDirectory: command.output, workspaceRoot: process.cwd(), python: command.python, modelId: model,
-            llmAdapter: new OpenAICompatible({ apiKey, baseURL, model, structuredOutputMode: mode }),
+            manifest, outputDirectory: command.output, workspaceRoot: process.cwd(), python: command.python, modelId: config.model,
+            llmAdapter: adapter,
             renderer: await createDefaultPromptBundleRenderer(), contextCompactor: new DropOldestContextCompactor(),
             signal: controller.signal, onProgress: (text) => process.stderr.write(`${text}\n`),
         });
