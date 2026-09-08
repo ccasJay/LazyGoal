@@ -1,24 +1,23 @@
-import { OpenAICompatible } from "./openai-compatible";
+import { createLlmAdapter } from "./factory";
+import { readLlmConfig } from "./config";
 import "dotenv/config";
 
 async function main(): Promise<void> {
-    const adapter = new OpenAICompatible({
-        apiKey: process.env.LLM_API_KEY!,
-        baseURL: process.env.LLM_BASE_URL!,
-        model: process.env.LLM_MODEL!,
-        structuredOutputMode: "prompt_only",
-    });
+    const adapter = createLlmAdapter(readLlmConfig(process.env));
 
     const response = await adapter.generate({
+        ...(adapter.structuredOutputMode === "strict" ? { structuredOutput: {
+            name: "smoke_answer", schema: { type: "object" as const, properties: { answer: { type: "string" as const } }, required: ["answer"], additionalProperties: false },
+        } } : {}),
         messages: [
             {
                 role: "user",
-                content: "用一句话介绍 TypeScript。",
+                content: "Return JSON with one string property named answer introducing TypeScript.",
             },
         ],
     });
 
-    console.log("模型响应:", response.content);
+    console.log("Model response:", response.content);
 }
 
 main().catch((error: unknown) => {

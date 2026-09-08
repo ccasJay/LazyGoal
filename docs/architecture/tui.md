@@ -45,13 +45,13 @@ flowchart LR
 Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
 `.lazygoal/goals`，事实事件放在 `.lazygoal/trajectories`，诊断 Trace 放在
 `.lazygoal/traces`，Retrieval Index Sidecar 放在 `.lazygoal/context-sidecars`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
-`OpenAICompatible`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
+`LLMAdapter`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
 `GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
 Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`、根
 `AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
 Trajectory Store 和 Trace Sink 实例。Runner 注入
 `createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
-自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失或非法 LLM 配置（必填 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`，以及必须为 `strict` 或 `prompt_only` 的 `LLM_STRUCTURED_OUTPUT_MODE`）时，在创建 Goal 或 Store 副作用前返回稳定非零错误；
+自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失或非法 [LLM 配置](./llm.md#配置)（包括 provider、模型目录及输出模式不匹配）时，在创建 Goal 或 Store 副作用前返回稳定非零错误；
 Profile 文件不会由程序自动生成，构造根本身也不会创建 `.lazygoal` 或 Goal。用户需要手工创建
 `.lazygoal/profiles/default.json`，其当前结构为：
 
@@ -110,7 +110,7 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
   `shutting_down`，随后冻结 Checkpoint Gate、abort 根 signal、卸载 Ink 并等待
   `waitUntilExit()`，最后由 `ShutdownCoordinator` 等待已进入的原子保存和受管
   资源；超过 2 秒则强制关闭剩余资源，调用 `ExitPort(130)`。
-- `OpenAICompatible`、Executor 和 Tool 共享根 signal；模型调用中断只传播
+- `LLMAdapter`、Executor 和 Tool 共享根 signal；模型调用中断只传播
   `ExecutionAbortedError`，不会生成 fail Step、`execution_error` 或新快照。
 - `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
   当前限制决定。

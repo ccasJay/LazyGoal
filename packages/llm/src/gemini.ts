@@ -25,7 +25,17 @@ type GeminiInput = Pick<
     "contents" | "config" //选择两个属性
 >;
 
-/** Gemini Adapter 的连接配置。 */
+/**
+ * 原生 Gemini的显式连接配置。
+ * @remarks 请求的 maxOutputTokens 优先于配置默认值；不额外查询环境凭据。
+ * @example
+ * ```ts
+ * const config: GeminiConfig = {
+ *     apiKey: "secret", model: "model-id",
+ *     structuredOutputMode: "strict", maxOutputTokens: 4096,
+ * };
+ * ```
+ */
 export interface GeminiConfig {
     /** Google Gen AI 服务使用的 API Key。 */
     apiKey: string;
@@ -33,6 +43,8 @@ export interface GeminiConfig {
     model: string;
     /** 固定的结构化输出模式。 */
     structuredOutputMode: StructuredOutputMode;
+    /** 请求未指定上限时使用的最大输出 Token。 */
+    maxOutputTokens?: number;
 }
 
 /**
@@ -51,6 +63,7 @@ export class Gemini implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
     private readonly client: GoogleGenAI;
     private readonly model: string;
+    private readonly maxOutputTokens: number | undefined;
 
     /** @param config - Google API Key、Gemini 模型名称与固定的结构化输出模式。 */
     constructor(config: GeminiConfig) {
@@ -59,6 +72,7 @@ export class Gemini implements LLMAdapter {
             apiKey: config.apiKey,
         });
         this.model = config.model;
+        this.maxOutputTokens = config.maxOutputTokens;
     }
 
     /**
@@ -88,7 +102,7 @@ export class Gemini implements LLMAdapter {
             }
         }
 
-        const input = toGeminiInput(request.messages, request.maxOutputTokens);
+        const input = toGeminiInput(request.messages, request.maxOutputTokens ?? this.maxOutputTokens);
 
         if (this.structuredOutputMode === "strict" && request.structuredOutput !== undefined) {
             input.config = {

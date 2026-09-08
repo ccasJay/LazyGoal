@@ -162,6 +162,7 @@ test("Composition Root carries Preparation Memory through approval into Executin
         const root = await createCompositionRoot({
             cwd: workspace,
             env: {
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
@@ -466,6 +467,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         const root = await createCompositionRoot({
             cwd: workspace,
             env: {
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",

@@ -1,3 +1,4 @@
+import { LlmConfigurationError, readLlmConfig } from "../../llm/src/config";
 import assert from "node:assert/strict";
 import { access, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -5,12 +6,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import {
-    CliConfigurationError,
     ConversationBudgetConfigurationError,
     createCompositionRoot,
     parseCliArgs,
     readConversationCharBudget,
-    readLlmConfig,
     runCli,
 } from "../src/cli";
 import { AgentProfileConfigurationError } from "../../storage/src/index";
@@ -21,6 +20,7 @@ import {
 
 function environment(): NodeJS.ProcessEnv {
     return {
+        LLM_PROVIDER: "openai",
         LLM_API_KEY: "test-key",
         LLM_BASE_URL: "https://llm.example.test/v1",
         LLM_MODEL: "test-model",
@@ -42,14 +42,14 @@ test("readLlmConfig reports every missing variable before creating a root", () =
     assert.throws(
         () => readLlmConfig({ LLM_API_KEY: "  " }),
         (error: unknown) => {
-            assert.ok(error instanceof CliConfigurationError);
+            assert.ok(error instanceof LlmConfigurationError);
             assert.deepEqual(error.missing, [
-                "LLM_API_KEY",
-                "LLM_BASE_URL",
+                "LLM_PROVIDER",
                 "LLM_MODEL",
+                "LLM_API_KEY",
                 "LLM_STRUCTURED_OUTPUT_MODE",
             ]);
-            assert.match(error.message, /LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_STRUCTURED_OUTPUT_MODE/);
+            assert.match(error.message, /LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_STRUCTURED_OUTPUT_MODE/);
             return true;
         },
     );
@@ -57,16 +57,18 @@ test("readLlmConfig reports every missing variable before creating a root", () =
 
 test("readLlmConfig accepts both strict and prompt_only modes", () => {
     const strictConfig = readLlmConfig({
+        LLM_PROVIDER: "openai",
         LLM_API_KEY: "key",
-        LLM_BASE_URL: "url",
+        LLM_BASE_URL: "https://llm.example.test/v1",
         LLM_MODEL: "model",
         LLM_STRUCTURED_OUTPUT_MODE: "strict",
     });
     assert.equal(strictConfig.structuredOutputMode, "strict");
 
     const promptOnlyConfig = readLlmConfig({
+        LLM_PROVIDER: "openai",
         LLM_API_KEY: "key",
-        LLM_BASE_URL: "url",
+        LLM_BASE_URL: "https://llm.example.test/v1",
         LLM_MODEL: "model",
         LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
     });
@@ -76,13 +78,14 @@ test("readLlmConfig accepts both strict and prompt_only modes", () => {
 test("readLlmConfig rejects invalid LLM_STRUCTURED_OUTPUT_MODE", () => {
     assert.throws(
         () => readLlmConfig({
+            LLM_PROVIDER: "openai",
             LLM_API_KEY: "key",
-            LLM_BASE_URL: "url",
+            LLM_BASE_URL: "https://llm.example.test/v1",
             LLM_MODEL: "model",
             LLM_STRUCTURED_OUTPUT_MODE: "auto",
         }),
         (error: unknown) => {
-            assert.ok(error instanceof CliConfigurationError);
+            assert.ok(error instanceof LlmConfigurationError);
             assert.equal(error.code, "INVALID_LLM_CONFIG");
             assert.match(error.message, /Invalid LLM_STRUCTURED_OUTPUT_MODE "auto"/);
             return true;
@@ -267,7 +270,7 @@ test("missing CLI configuration exits before touching the workspace", async () =
 
     assert.equal(exitCode, 1);
     assert.deepEqual(errors, [
-        "Missing required environment variable(s): LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_STRUCTURED_OUTPUT_MODE",
+        "Missing required environment variable(s): LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_STRUCTURED_OUTPUT_MODE",
     ]);
     await assert.rejects(access(join(workspace, ".lazygoal")));
 });
@@ -278,6 +281,7 @@ test("runCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE before Store or Goal sid
     const exitCode = await runCli([], {
         cwd: workspace,
         env: {
+            LLM_PROVIDER: "openai",
             LLM_API_KEY: "test-key",
             LLM_BASE_URL: "https://llm.example.test/v1",
             LLM_MODEL: "test-model",
@@ -375,4 +379,16 @@ test("composition root shares the checkpoint gate and abort signal with shutdown
             && error.code === "CHECKPOINT_GATE_FROZEN",
     );
     await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
+});
+
+test("provider and catalog failures precede workspace access and Goal creation", async () => {
+    for (const override of [
+        { LLM_PROVIDER: "anthropic", LLM_BASE_URL: "" },
+        { LLM_MODEL: "not-in-catalog", LLM_STRUCTURED_OUTPUT_MODE: "prompt_only" },
+        { LLM_MODEL: "gpt-4.1-mini", LLM_STRUCTURED_OUTPUT_MODE: "prompt_only", LLM_MAX_OUTPUT_TOKENS: "999999999" },
+    ]) {
+        await assert.rejects(createCompositionRoot({
+            cwd: "/nonexistent/lazygoal-provider-configuration-test", env: { ...environment(), ...override },
+        }), LlmConfigurationError);
+    }
 });

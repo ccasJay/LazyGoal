@@ -14,7 +14,7 @@ scripts/         Repository maintenance and validation utilities
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   agent/         Agent prompts, response schemas, and LLM preparation/step executors
-  llm/           LLM adapters and provider integrations (OpenAI-compatible, Gemini)
+  llm/           LLM configuration, native strict adapters, and pi-ai multi-provider integration
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   tools/         Agent tools such as filesystem, shell, and workspace utilities

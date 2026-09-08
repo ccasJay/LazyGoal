@@ -1,27 +1,66 @@
 # LLM 模块
 
-## 摘要
+## 职责与调用
 
-LLM 模块只负责供应商通信。统一的 `LLMAdapter.generate` 接收有序消息并返回原始文本及可选的供应商 metadata，使 Agent 无需依赖具体 SDK；metadata 仅供独立 Diagnostic Trace 使用。Adapter 构造时显式固定结构化输出模式（`strict` 或 `prompt_only`），按模式决定是否映射原生 JSON Schema 参数。
+LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本消息，返回原始文本及
+诊断 metadata；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
+CLI、ALFWorld 和 smoke 共用 [配置解析](../../packages/llm/src/config.ts) 与
+[工厂](../../packages/llm/src/factory.ts)，在创建 Goal、Store 或 sidecar 前完成模型解析。
+Adapter 构造时固定输出模式，不自动降级或切换 provider。
 
-## 负责 / 不负责
+| Provider | `prompt_only` | `strict` |
+| --- | --- | --- |
+| `openai` | pi-ai OpenAI Responses | 原生 OpenAI Chat Completions |
+| `google` | pi-ai Gemini | 原生 Google Gen AI |
+| `anthropic`、`openrouter`、`deepseek` | pi-ai 对应 provider | 配置错误 |
+| `openai-compatible` | pi-ai Chat Completions | 原生 OpenAI-compatible |
 
-- 负责：统一消息类型、供应商角色映射、鉴权配置、固定结构化输出模式校验与原生 Schema 映射、单次生成调用和非敏感 Provider metadata 透传。
-- 不负责：Prompt 业务语义、AgentDecision 解析、重试、Run 状态与持久化。
+[PiAiAdapter](../../packages/llm/src/pi-ai.ts) 使用锁定版本的目录，内部聚合 SDK 流式结果。
+前置 system 消息按顺序合并，user/assistant 顺序不变；中途 system 消息被拒绝。
+只返回正常结束的文本，隔离 thinking，拒绝截断、错误、意外工具调用及其它非完成状态。
+空文本仍交给 Agent 拒绝；不修复 JSON，不增加应用层重试，SDK 传输策略沿用其默认值。
 
-| 实现 | 映射规则 |
-| --- | --- |
-| [OpenAICompatible](../../packages/llm/src/openai-compatible.ts) | system/user/assistant 映射到 Chat Completions，可配置 `baseURL`；strict 模式映射 `response_format: { type: "json_schema", json_schema: { name, schema, strict: true } }` |
-| [Gemini](../../packages/llm/src/gemini.ts) | system 合并为 `systemInstruction`，assistant 映射为 model；strict 模式映射 `responseJsonSchema` 与 `responseMimeType: "application/json"` |
+所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
+pi-ai 返回型失败转换为 `PiAiProviderError`，SDK 抛出的异常原样传播。
+请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
+原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseJsonSchema`；
+strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../packages/llm/src/core/adapter.ts)。
 
-公共契约位于 [adapter.ts](../../packages/llm/src/core/adapter.ts) 和 [types.ts](../../packages/llm/src/core/types.ts)。
+## 配置
 
-## 调用与错误
+运行要求 Node ≥22.19.0。凭据仅取入口提供的环境并显式传入，不登录、不读取其它 API Key
+变量或持久化凭据。必填 `LLM_PROVIDER`、`LLM_MODEL`、`LLM_API_KEY`、
+`LLM_STRUCTURED_OUTPUT_MODE`；现有环境需手工补充 provider，不推断旧配置。
 
-Adapter 必须保持消息顺序和角色语义，不解析 AgentDecision。实例构造时显式固定 `structuredOutputMode: "strict" | "prompt_only"`：`strict` 模式要求请求必须携带 `structuredOutput`，`prompt_only` 模式要求请求不得携带 `structuredOutput`；模式与请求不一致时在发起网络请求前快速抛出 `TypeError` 失败。响应缺少文本时当前实现返回空字符串，随后由 Agent 协议校验拒绝；网络、鉴权、限流、SDK 拒绝和供应商错误原样传播，不进行重试或模式降级。`generate` 接收可选 `ExecutionControl`：OpenAICompatible 将 signal 传给 Chat Completions，所有 Adapter 在请求前后对齐中止语义，不把 `ExecutionAbortedError` 转成业务失败。OpenAI 的 request ID、model、created 和 finish reason，以及 Gemini 的 model 会作为 metadata 返回；Agent 再负责脱敏和限长后写入 Trace。
+```dotenv
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-4-5
+LLM_API_KEY=your-api-key
+LLM_STRUCTURED_OUTPUT_MODE=prompt_only
+```
 
-真实连通性可运行 `npm run llm:agent-smoke`，读取 `.env` 中的 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 和 `LLM_STRUCTURED_OUTPUT_MODE`。该命令会产生真实请求和费用，不属于自动化测试。
+`openai` 可用 `LLM_BASE_URL` 覆盖端点，未设置时使用官方地址；`openai-compatible`
+必须提供 HTTP(S) `LLM_BASE_URL`。其他 provider 不接受端点覆盖。
+标准 provider 的 prompt_only 模型必须存在于固定目录，strict 原生路径接受供应商模型名。
 
-## 当前限制
+自定义兼容服务使用文本 Chat Completions，需显式设置 `LLM_CONTEXT_WINDOW_TOKENS`
+与 `LLM_MAX_OUTPUT_TOKENS`，输出上限须小于上下文窗口；不声明 reasoning 能力或估算费用。
+CLI 使用这些容量启用既有 token 预算时，还需 `LLM_TOKENIZER_ENCODING`（`cl100k_base`
+或 `o200k_base`，按模型选择；不能将不匹配的 tokenizer 当作供应商精确计数）。
+目录不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
+请求显式上限优先于 Adapter 配置；两者都缺省时沿用 SDK 行为。
 
-统一协议只有 system/user/assistant 文本消息与可选的共用 `structuredOutput` JSON Schema；不支持原生 Provider Tool Calling、流式输出、多模态或统一重试策略；Provider metadata 不进入 Runtime 状态或 Domain Event。新增 Adapter 时必须实现相同 `LLMAdapter` 契约并提供明确的 `structuredOutputMode`。
+## 诊断与限制
+
+原生 Adapter 的真实上报计数写入 `providerMetadata.usage`，缺失时省略。
+pi-ai 不能证明计数是否真实上报，故只写非权威 `piUsage` 数值，始终省略 `usage`；
+benchmark 将这些调用计入 `missingCalls`。Trace 对 metadata 脱敏限长；metadata 不进入
+Goal Snapshot、Domain Event 或模型上下文。不保存认证头、完整 SDK 响应或 thinking。
+
+本期仅支持文本与显式 API Key，不支持原生 tool calling、流式 UI、多模态、OAuth、云身份、
+自动 JSON 修复或模型切换。自定义兼容服务必须支持 pi-ai 使用的流式 Chat Completions。
+
+`npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行 gathering、planning、
+批准测试任务、一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
+只使用内存存储；SIGINT 取消调用并返回 130。该命令会产生费用，不属于自动化回归。
+成功、失败或取消输出包含 provider、model 和 mode；凭据缺失时不代表已验证。

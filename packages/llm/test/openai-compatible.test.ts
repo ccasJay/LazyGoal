@@ -404,3 +404,16 @@ test("OpenAICompatible passes abortSignal to create call and handles abort clean
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
 });
+
+test("OpenAI native adapter applies configured output limit unless request overrides it", async () => {
+    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "strict", maxOutputTokens: 512 });
+    const limits: number[] = [];
+    (adapter as any).client = { chat: { completions: { create: async (params: any) => {
+        limits.push(params.max_tokens);
+        return { choices: [{ message: { content: "{}" } }] };
+    } } } };
+    const request = { messages: [{ role: "user" as const, content: "hi" }], structuredOutput: { name: "answer", schema: dummySchema } };
+    await adapter.generate(request);
+    await adapter.generate({ ...request, maxOutputTokens: 128 });
+    assert.deepEqual(limits, [512, 128]);
+});

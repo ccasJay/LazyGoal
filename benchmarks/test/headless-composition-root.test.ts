@@ -859,3 +859,47 @@ test("fails before creating episode when task descriptor requires an unauthorize
     assert.equal(episodeCreated, 0);
 });
 
+
+test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing", async () => {
+    const { createServer } = await import("node:http");
+    const { once } = await import("node:events");
+    const { createLlmAdapter } = await import("../../packages/llm/src/factory.js");
+    const { readLlmConfig } = await import("../../packages/llm/src/config.js");
+    const trajectoryStore = new InMemoryTrajectoryStore();
+    const dependencies = createDependencies({
+        describeTask: () => ({ intent: "Verify pi usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 3 }),
+        createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => true, close: async () => undefined }),
+    }, trajectoryStore);
+    let calls = 0;
+    const server = createServer((req, res) => {
+        req.resume();
+        calls += 1;
+        const result = calls === 1
+            ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
+            : { kind: "complete", summary: "done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [latestObservationSequence(trajectoryStore)] }], memoryPatch: null };
+        res.setHeader("Content-Type", "text/event-stream");
+        res.end(`data: ${JSON.stringify({
+            id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
+            usage: { prompt_tokens: 100, completion_tokens: 20 },
+        })}\n\ndata: [DONE]\n\n`);
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    try {
+        const llmAdapter = createLlmAdapter(readLlmConfig({
+            LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "test-key", LLM_MODEL: "local-model",
+            LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`, LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+            LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024",
+        }));
+        const root = new HeadlessCompositionRoot({ ...dependencies, llmAdapter });
+        const result = await root.run({ id: "pi-usage" });
+        assert.equal(result.model.completed, true);
+        assert.equal(calls, 2);
+        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 2 });
+    } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+});

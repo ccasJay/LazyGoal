@@ -15,7 +15,17 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 
-/** OpenAI Chat Completions 兼容服务的连接配置。 */
+/**
+ * 原生 OpenAI Chat Completions 兼容服务的显式连接配置。
+ * @remarks 请求的 maxOutputTokens 优先于配置默认值；不额外查询环境凭据。
+ * @example
+ * ```ts
+ * const config: OpenAICompatibleConfig = {
+ *     apiKey: "secret", baseURL: "https://api.openai.com/v1", model: "model-id",
+ *     structuredOutputMode: "strict", maxOutputTokens: 4096,
+ * };
+ * ```
+ */
 export interface OpenAICompatibleConfig {
     /** 服务端使用的 API Key。 */
     apiKey: string;
@@ -25,6 +35,8 @@ export interface OpenAICompatibleConfig {
     model: string;
     /** 固定的结构化输出模式。 */
     structuredOutputMode: StructuredOutputMode;
+    /** 请求未指定上限时使用的最大输出 Token。 */
+    maxOutputTokens?: number;
 }
 
 /**
@@ -43,6 +55,7 @@ export class OpenAICompatible implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
     private readonly client: OpenAI;
     private readonly model: string;
+    private readonly maxOutputTokens: number | undefined;
 
     /** @param config - API Key、兼容端点地址、模型名称与固定的结构化输出模式。 */
     constructor (config: OpenAICompatibleConfig){
@@ -52,6 +65,7 @@ export class OpenAICompatible implements LLMAdapter {
             baseURL: config.baseURL,
         });
         this.model = config.model;
+        this.maxOutputTokens = config.maxOutputTokens;
     }
 
     /**
@@ -82,13 +96,14 @@ export class OpenAICompatible implements LLMAdapter {
         }
 
         const messages = toOpenAIMessages(_request.messages);
+        const maxOutputTokens = _request.maxOutputTokens ?? this.maxOutputTokens;
 
         try {
             const request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
                 model: this.model,
                 messages,
-                ...(typeof _request.maxOutputTokens === "number"
-                    ? { max_tokens: _request.maxOutputTokens }
+                ...(maxOutputTokens !== undefined
+                    ? { max_tokens: maxOutputTokens }
                     : {}),
                 ...(this.structuredOutputMode === "strict" && _request.structuredOutput !== undefined
                     ? {

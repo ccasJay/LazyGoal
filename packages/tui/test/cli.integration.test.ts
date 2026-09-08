@@ -118,6 +118,7 @@ test("CLI composition child aborts an in-flight model request and preserves its 
             cwd: workspace,
             env: {
                 ...process.env,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
@@ -169,6 +170,7 @@ test("CLI bin resolves its TSX loader from the project when launched in another 
             cwd: workspace,
             env: {
                 ...process.env,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: "http://127.0.0.1:1/v1",
                 LLM_MODEL: "test-model",
@@ -230,6 +232,7 @@ test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves
             cwd: workspace,
             env: {
                 ...process.env,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",
@@ -348,6 +351,7 @@ test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation",
             cwd: workspace,
             env: {
                 ...process.env,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
                 LLM_MODEL: "test-model",

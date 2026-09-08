@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -266,6 +266,7 @@ test("runAlfworldCli rejects missing or invalid LLM_STRUCTURED_OUTPUT_MODE in de
             env: {
                 ALFWORLD_PYTHON: "/fake/python",
                 ALFWORLD_DATA: dataRoot,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: "http://127.0.0.1/v1",
                 LLM_MODEL: "test-model",
@@ -285,6 +286,7 @@ test("runAlfworldCli rejects missing or invalid LLM_STRUCTURED_OUTPUT_MODE in de
             env: {
                 ALFWORLD_PYTHON: "/fake/python",
                 ALFWORLD_DATA: dataRoot,
+                LLM_PROVIDER: "openai",
                 LLM_API_KEY: "test-key",
                 LLM_BASE_URL: "http://127.0.0.1/v1",
                 LLM_MODEL: "test-model",
@@ -295,6 +297,24 @@ test("runAlfworldCli rejects missing or invalid LLM_STRUCTURED_OUTPUT_MODE in de
         });
         assert.equal(invalidExit, 1);
         assert.match(errors.join("\n"), /Invalid LLM_STRUCTURED_OUTPUT_MODE "invalid_mode"/);
+        for (const override of [
+            { LLM_PROVIDER: "anthropic", LLM_BASE_URL: "", LLM_STRUCTURED_OUTPUT_MODE: "strict" },
+            { LLM_PROVIDER: "openai", LLM_MODEL: "not-in-catalog", LLM_STRUCTURED_OUTPUT_MODE: "prompt_only" },
+        ]) {
+            errors.length = 0;
+            const code = await runAlfworldCli(["eval", "alfworld", "--manifest", manifestPath], {
+                cwd: workspace,
+                env: {
+                    ALFWORLD_PYTHON: "/must-not-start-sidecar", ALFWORLD_DATA: dataRoot,
+                    LLM_API_KEY: "test-key", LLM_MODEL: "test-model", ...override,
+                },
+                probePython, writeError: message => errors.push(message),
+            });
+            assert.equal(code, 1);
+            assert.match(errors.join("\n"), /does not support strict|Unknown model/);
+            await assert.rejects(access(join(workspace, ".lazygoal", "benchmarks")));
+        }
+
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

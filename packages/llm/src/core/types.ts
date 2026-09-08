@@ -88,9 +88,10 @@ export class LLMRequestModeMismatchError extends Error {
  * `content` 是 Agent 协议解析所使用的原始文本；可选的
  * `providerMetadata` 只供 Diagnostic Trace 使用，不进入 Domain Event、Goal
  * Snapshot 或模型上下文。调用方应避免把凭据放入 metadata。
- * 官方 Adapter 在响应携带用量时把归一化 token 计数写入
+ * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
  * `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`），
  * 供应商缺失或核心字段非法时该子对象缺省，不以 0 或估算值代替。
+ * pi-ai 不提供计数原始存在性的保证，其数值仅写入 piUsage 诊断字段，usage 始终缺省。
  *
  * @example
  * ```ts

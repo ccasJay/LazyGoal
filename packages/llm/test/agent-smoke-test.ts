@@ -1,127 +1,122 @@
 import "dotenv/config";
-
+import { pathToFileURL } from "node:url";
+import { contract } from "../../contracts/src/index";
 import {
-    createGoal,
-    Runner,
+    GoalCoordinator, InlineScheduler, Runner, TrajectoryCheckpointCommitter,
+    InMemoryToolRegistry, createToolRegistration, launch,
+    type AgentProfile, type ExecutionControl, type Tool,
+    isExecutionAbortedError,
 } from "../../runtime/src/index";
-import type { Goal, GoalStore } from "../../runtime/src/index";
-import { currentProtocols, trajectoryStoreFor } from "../../runtime/test/current-fixtures";
+import { InMemoryGoalStore } from "../../storage/src/index";
+import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
-    createDefaultPromptBundleRenderer,
-    DropOldestContextCompactor,
-    LLMStepExecutor,
+    createDefaultPromptBundleRenderer, createDefaultModelContextBudgetPolicy,
+    DropOldestContextCompactor, LLMStepExecutor, LLMPreparationExecutor,
+    TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
-import { OpenAICompatible } from "../src/openai-compatible";
+import { readLlmConfig } from "../src/config";
+import { createLlmAdapter } from "../src/factory";
 
-/** 冒烟测试使用的最小内存 GoalStore，只保证保存最新快照。 */
-class SmokeGoalStore implements GoalStore {
-    private goal: Goal | undefined;
-
-    async save(goal: Goal): Promise<void> {
-        this.goal = structuredClone(goal);
-    }
-
-    async restore(goalId: string): Promise<Goal | undefined> {
-        return this.goal?.id === goalId
-            ? structuredClone(this.goal)
-            : undefined;
-    }
-}
-
-function requiredEnv(name: string): string {
-    const value = process.env[name];
-
-    if (value === undefined || value.trim() === "") {
-        throw new Error(`${name} 未配置`);
-    }
-
-    return value;
-}
-
-async function main(): Promise<void> {
-    const adapter = new OpenAICompatible({
-        apiKey: requiredEnv("LLM_API_KEY"),
-        baseURL: requiredEnv("LLM_BASE_URL"),
-        model: requiredEnv("LLM_MODEL"),
-        structuredOutputMode: "strict",
-    });
-    const store = new SmokeGoalStore();
+/**
+ * 用显式模型配置验证真实 Preparation、审批及工具执行链；仅使用内存存储。
+ * @param env - 模型环境配置；不写回环境或工作区。
+ * @param control - 可选取消控制，用于真实请求取消验收。
+ * @returns 成功完成时的模型、模式、阶段和调用统计；失败或取消时抛出异常。
+ * @example
+ * ```ts
+ * const report = await runAgentSmoke(process.env);
+ * ```
+ */
+export async function runAgentSmoke(
+    env: Readonly<Record<string, string | undefined>>,
+    control?: ExecutionControl,
+) {
+    const config = readLlmConfig(env);
+    const adapter = createLlmAdapter(config);
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = new InMemoryTrajectoryStore();
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
-    const executor = new LLMStepExecutor({
-        adapter,
-        renderer,
-        contextCompactor,
+    const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
+        trajectoryStore, policy: createDefaultModelContextBudgetPolicy(),
     });
-    const runner = new Runner({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        executor,
-    });
-    const created = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "live-llm-goal",
-        intent: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
-        profile: {
-            id: "live-llm-profile",
-            systemPrompt: "你是一个负责连通性验证的单步执行代理。",
-            instructions: [
-                "这是一次真实 LLM 请求验证。目标很简单，请直接完成，不要等待，也不要调用 Tool。",
-            ],
-            toolIds: [],
+    const checkpointCommitter = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
+    let toolCalls = 0;
+    const inputContract = contract.object({});
+    const tool: Tool<typeof inputContract> = {
+        definition: {
+            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputContract,
         },
-        runId: "live-llm-run",
-        maxSteps: 3,
-    });
-    const goal: Goal = {
-        ...created,
-        state: {
-            ...created.state,
-            workflow: {
-                phase: "executing",
-                preparation: { status: "completed" },
-                task: {
-                    objective: "完成一次真实 LLM 连通性验证，并直接给出完成摘要。",
-                    completionCriteria: [
-                        {
-                            text: "返回一个符合 AgentDecision 协议的 complete 结果，并为该完成标准提供 evidence",
-                        },
-                    ],
-                },
-            },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => {
+            toolCalls += 1;
+            return { kind: "success", output: { evidence: "smoke-observation" }, summary: "Smoke observation recorded" };
         },
     };
-
-    await store.save(goal);
-    const startedAt = performance.now();
-    const result = await runner.run({
-        goalId: goal.id,
-        runId: goal.state.run.id,
+    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(tool)]);
+    const dependencies = { adapter, renderer, contextCompactor, trajectoryContextAssembler };
+    const runner = new Runner({
+        store, trajectoryStore, checkpointCommitter, toolRegistry,
+        executor: new LLMStepExecutor(dependencies), toolPolicy: { evaluate: () => "allow" },
     });
-    const durationMs = Math.round(performance.now() - startedAt);
-
-    if (!result.ok) {
-        throw new Error(`${result.error.code}: ${result.error.message}`);
+    const coordinator = new GoalCoordinator({
+        store, trajectoryStore, checkpointCommitter, toolRegistry,
+        preparationExecutor: new LLMPreparationExecutor(dependencies),
+        scheduler: new InlineScheduler(runner),
+    });
+    const profile: AgentProfile = {
+        id: "live-llm-profile",
+        systemPrompt: "You verify the LazyGoal preparation and execution protocol.",
+        instructions: [
+            "The request is fully specified. During gathering return context_ready without questions.",
+            "During planning propose one completion criterion: obtain the smoke_evidence observation.",
+            "During execution call smoke_evidence exactly once, then complete with the recorded observation as evidence.",
+            "Do not request context lookups or user input. Leave memoryPatch null.",
+        ],
+        toolIds: [tool.definition.id],
+    };
+    const ref = { goalId: "live-llm-goal", runId: "live-llm-run" };
+    const startedAt = performance.now();
+    const preparation = await launch({
+        goalId: ref.goalId, profileId: profile.id,
+        intent: "Verify connectivity by calling smoke_evidence once and completing with its observation. No other work is needed.",
+        maxSteps: 3,
+    }, {
+        profiles: { get: id => id === profile.id ? profile : undefined },
+        runIdGenerator: () => ref.runId, store, coordinator, trajectoryStore,
+    }, control);
+    if (!preparation.ok) throw new Error(`${preparation.error.code}: ${preparation.error.message}`);
+    if (preparation.kind !== "waiting" || preparation.phase !== "planning" || preparation.waitingFor !== "approval") {
+        throw new Error("Smoke preparation did not produce a task proposal awaiting approval");
     }
-
-    console.log(JSON.stringify({
-        model: requiredEnv("LLM_MODEL"),
-        durationMs,
-        status: result.state.status,
-        stepCount: result.state.stepCount,
-        lastStep: result.state.lastStep,
-    }, null, 2));
-
-    if (result.state.status === "failed") {
-        process.exitCode = 1;
+    const execution = await coordinator.resume({ ref, action: { kind: "approve" } }, control);
+    if (!execution.ok) throw new Error(`${execution.error.code}: ${execution.error.message}`);
+    const goal = await store.restore(ref.goalId);
+    if (goal?.state.run.status !== "completed" || toolCalls !== 1) {
+        throw new Error(`Smoke execution did not complete with exactly one tool observation (status=${goal?.state.run.status}, toolCalls=${toolCalls})`);
     }
+    return {
+        provider: config.provider, model: config.model, mode: adapter.structuredOutputMode,
+        preparation: "passed", execution: "passed", toolCalls,
+        durationMs: Math.round(performance.now() - startedAt),
+    };
 }
 
-main().catch((error: unknown) => {
-    console.error(
-        "Live LLM Agent smoke test failed:",
-        error instanceof Error ? error.message : String(error),
-    );
-    process.exitCode = 1;
-});
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    process.once("SIGINT", cancel);
+    runAgentSmoke(process.env, { signal: controller.signal })
+        .then(report => console.log(JSON.stringify(report, null, 2)))
+        .catch((error: unknown) => {
+            console.error(JSON.stringify({
+                provider: process.env.LLM_PROVIDER, model: process.env.LLM_MODEL,
+                mode: process.env.LLM_STRUCTURED_OUTPUT_MODE,
+                status: isExecutionAbortedError(error) ? "cancelled" : "failed",
+                error: error instanceof Error ? error.message : String(error),
+            }));
+            process.exitCode = isExecutionAbortedError(error) ? 130 : 1;
+        })
+        .finally(() => process.removeListener("SIGINT", cancel));
+}

@@ -23,7 +23,8 @@ lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
 ```
 
 入口按 Profile → Manifest → Python/数据预检的顺序校验配置，全部通过后才构造
-模型 Adapter 和 sidecar。报告写到 `--report` 指定的 JSON 文件，未指定时只写
+模型 Adapter 和 sidecar。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
+不支持的 provider/mode、未知目录模型及容量错误均在 Episode 与 Goal 创建前失败。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
 数据准备使用 `npm --prefix benchmarks run alfworld:download`；该入口复用同一个
 `.env.alfworld` 解析器，把 `ALFWORLD_DATA` 作为 `--data-dir` 传给
@@ -68,3 +69,6 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 （无用量的调用只计入 `missingCalls`）并附到模型事实，报告的每个 Attempt 记录
 该次尝试的聚合用量，summary 只对已存在用量求和并把无用量数据的尝试计入
 `attemptsMissingUsage`。用量不进入 Domain Event、Goal Snapshot 或模型上下文。
+
+pi-ai 的 `piUsage` 只供诊断，不进入正式用量累计；这些调用计入 `missingCalls`，
+不能把汇总中的零值理解为真实零消耗。

@@ -7,7 +7,8 @@ import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
 } from "../../../packages/agent/src/index.js";
-import { OpenAICompatible } from "../../../packages/llm/src/openai-compatible.js";
+import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import {
     createAlfworldEpisodeExecutor,
     EvaluationRunner,
@@ -294,22 +295,7 @@ async function runDefaultEvaluation(
     context: AlfworldEvaluationContext,
     env: NodeJS.ProcessEnv,
 ): Promise<EvaluationReport> {
-    const apiKey = env.LLM_API_KEY?.trim();
-    const baseURL = env.LLM_BASE_URL?.trim();
-    const model = env.LLM_MODEL?.trim();
-    const mode = env.LLM_STRUCTURED_OUTPUT_MODE?.trim();
-    if (!apiKey || !baseURL || !model || !mode) {
-        throw new Error("Missing required LLM_API_KEY, LLM_BASE_URL, LLM_MODEL or LLM_STRUCTURED_OUTPUT_MODE for ALFWorld eval");
-    }
-    if (mode !== "strict" && mode !== "prompt_only") {
-        throw new Error(`Invalid LLM_STRUCTURED_OUTPUT_MODE "${mode}": must be either 'strict' or 'prompt_only'`);
-    }
-    const adapter = new OpenAICompatible({
-        apiKey,
-        baseURL,
-        model,
-        structuredOutputMode: mode,
-    });
+    const adapter = createLlmAdapter(readLlmConfig(env));
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
     const scriptPath = fileURLToPath(new URL("../python/sidecar.py", import.meta.url));

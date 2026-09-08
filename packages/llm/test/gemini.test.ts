@@ -328,3 +328,16 @@ test("Gemini passes abortSignal to generateContent config and handles abort clea
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
 });
+
+test("Gemini native adapter applies configured output limit unless request overrides it", async () => {
+    const adapter = new Gemini({ apiKey: "key", model: "model", structuredOutputMode: "strict", maxOutputTokens: 512 });
+    const limits: number[] = [];
+    (adapter as any).client = { models: { generateContent: async (params: any) => {
+        limits.push(params.config.maxOutputTokens);
+        return { text: "{}" };
+    } } };
+    const request = { messages: [{ role: "user" as const, content: "hi" }], structuredOutput: { name: "answer", schema: dummySchema } };
+    await adapter.generate(request);
+    await adapter.generate({ ...request, maxOutputTokens: 128 });
+    assert.deepEqual(limits, [512, 128]);
+});

@@ -58,8 +58,9 @@ import {
     type ModelInputEstimator,
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
-import { OpenAICompatible } from "../../llm/src/openai-compatible";
-import type { StructuredOutputMode } from "../../llm/src/core/types";
+import { readLlmConfig, type LlmConfig } from "../../llm/src/config";
+import { createLlmAdapter } from "../../llm/src/factory";
+import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
     BashTool,
     EditFileTool,
@@ -102,114 +103,6 @@ export function createDefaultToolPolicy(): ToolPolicy {
     };
 }
 
-
-/**
- * OpenAI-compatible CLI 所需的已校验模型配置。
- *
- * @remarks
- * 三个字段均已去除首尾空白且保证非空；该值可以直接传给
- * `OpenAICompatible`，不会再次从进程环境读取凭据。
- *
- * @example
- * ```ts
- * const config: LlmConfig = {
- *     apiKey: "secret",
- *     baseURL: "https://api.example.test/v1",
- *     model: "agent-model",
- * };
- * ```
- */
-export interface LlmConfig {
-    /** `LLM_API_KEY` 的去除首尾空白值。 */
-    readonly apiKey: string;
-    /** `LLM_BASE_URL` 的去除首尾空白值。 */
-    readonly baseURL: string;
-    /** `LLM_MODEL` 的去除首尾空白值。 */
-    readonly model: string;
-    /** `LLM_STRUCTURED_OUTPUT_MODE` 的已校验模式（"strict" 或 "prompt_only"）。 */
-    readonly structuredOutputMode: StructuredOutputMode;
-}
-
-/**
- * 表示 CLI 启动前环境变量校验失败。
- *
- * @remarks
- * 该错误在创建 Store、Adapter、Tool 或 SessionController 之前抛出，因此
- * 缺失配置不会创建、恢复或修改任何 Goal。`missing` 保留稳定的变量顺序。
- *
- * @example
- * ```ts
- * try {
- *     readLlmConfig(process.env);
- * } catch (error) {
- *     if (error instanceof CliConfigurationError) console.error(error.missing);
- * }
- * ```
- */
-export class CliConfigurationError extends Error {
-    /** 可供 CLI 和测试判断的稳定错误码。 */
-    readonly code = "INVALID_LLM_CONFIG" as const;
-    /** 去除空白后仍缺失的环境变量。 */
-    readonly missing: readonly string[];
-
-    /**
-     * @param missing - 缺失变量名，按协议顺序排列。
-     * @param customMessage - 可选自定义错误消息。
-     */
-    constructor(missing: readonly string[], customMessage?: string) {
-        const names = [...missing];
-        super(customMessage ?? `Missing required environment variable(s): ${names.join(", ")}`);
-        this.name = "CliConfigurationError";
-        this.missing = names;
-    }
-}
-
-/**
- * 读取并严格校验模型环境变量。
- *
- * @param env - 要读取的环境对象；默认使用当前进程环境。
- * @returns 可直接传给 `OpenAICompatible` 的配置。
- * @throws `CliConfigurationError` 在任一变量不存在、去除空白后为空或模式值非法时抛出。
- * @example
- * ```ts
- * const config = readLlmConfig({
- *     LLM_API_KEY: "secret",
- *     LLM_BASE_URL: "https://api.example.test/v1",
- *     LLM_MODEL: "agent-model",
- *     LLM_STRUCTURED_OUTPUT_MODE: "strict",
- * });
- * ```
- */
-export function readLlmConfig(
-    env: NodeJS.ProcessEnv = process.env,
-): LlmConfig {
-    const names = [
-        "LLM_API_KEY",
-        "LLM_BASE_URL",
-        "LLM_MODEL",
-        "LLM_STRUCTURED_OUTPUT_MODE",
-    ] as const;
-    const missing = names.filter((name) => (env[name] ?? "").trim() === "");
-
-    if (missing.length > 0) {
-        throw new CliConfigurationError(missing);
-    }
-
-    const modeRaw = env.LLM_STRUCTURED_OUTPUT_MODE!.trim();
-    if (modeRaw !== "strict" && modeRaw !== "prompt_only") {
-        throw new CliConfigurationError(
-            [],
-            `Invalid LLM_STRUCTURED_OUTPUT_MODE "${modeRaw}": must be either "strict" or "prompt_only"`,
-        );
-    }
-
-    return {
-        apiKey: env.LLM_API_KEY!.trim(),
-        baseURL: env.LLM_BASE_URL!.trim(),
-        model: env.LLM_MODEL!.trim(),
-        structuredOutputMode: modeRaw,
-    };
-}
 
 /**
  * 表示 Conversation 字符预算无法在启动期安全解析。
@@ -430,7 +323,7 @@ export interface CompositionRoot {
     readonly tracesDirectory: string;
     /** 项目级可删除 Warm Context Sidecar 目录。 */
     readonly contextSidecarsDirectory: string;
-    /** 已校验的 OpenAI-compatible 配置。 */
+    /** 已校验的供应商、模型、显式凭据及固定输出模式。 */
     readonly llmConfig: LlmConfig;
     /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
     readonly conversationCharBudget: number;
@@ -444,8 +337,8 @@ export interface CompositionRoot {
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     /** 从 committed Trajectory/Sidecar 组装分层模型上下文的无状态组件。 */
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
-    /** 组合根使用的 LLM Adapter。 */
-    readonly adapter: OpenAICompatible;
+    /** Preparation 与执行阶段共享的供应商无关 Adapter；构造时固定输出模式。 */
+    readonly adapter: LLMAdapter;
     /** 从当前 workspace Profile 文件加载的生效 Agent Profile。 */
     readonly profile: AgentProfile;
     /** 只承载当前生效 Profile 的内存 Registry。 */
@@ -518,7 +411,7 @@ export async function resolveWorkspaceRoot(
  *
  * @param options - 工作区、环境变量和可选测试 ID 生成器。
  * @returns 可直接交给 TUI CLI 的单 Goal 运行根。
- * @throws 环境变量缺失时抛出 `CliConfigurationError`，Conversation 预算非法时
+ * @throws 环境变量缺失时抛出 `LlmConfigurationError`，Conversation 预算非法时
  *   抛出 `ConversationBudgetConfigurationError`；Profile 文件缺失、读取或校验
  *   失败时抛出 `AgentProfileConfigurationError`；工作区无法解析时传播文件系统
  *   错误。所有配置失败均发生在工作区访问、Goal I/O 与 LLM 调用之前。
@@ -533,6 +426,7 @@ export async function createCompositionRoot(
 ): Promise<CompositionRoot> {
     const env = options.env ?? process.env;
     const llmConfig = readLlmConfig(env);
+    const adapter = createLlmAdapter(llmConfig);
     const conversationCharBudget = readConversationCharBudget(env);
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
@@ -598,7 +492,6 @@ export async function createCompositionRoot(
         );
     }
 
-    const adapter = new OpenAICompatible(llmConfig);
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor(
         conversationCharBudget,
