@@ -15,8 +15,7 @@ const source = isAlfworldEval
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const cwdEnv = resolve(process.cwd(), ".env");
-const repoEnv = resolve(__dirname, "../.env");
-const envFile = existsSync(cwdEnv) ? cwdEnv : existsSync(repoEnv) ? repoEnv : undefined;
+const envFile = existsSync(cwdEnv) ? cwdEnv : undefined;
 const nodeArgs = envFile !== undefined
     ? [`--env-file=${envFile}`, "--import", tsxLoader]
     : ["--import", tsxLoader];
