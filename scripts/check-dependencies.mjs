@@ -12,6 +12,7 @@ import { pathToFileURL } from "node:url";
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    acp: [],
     runtime: ["contracts"],
     llm: ["runtime", "contracts"],
     storage: ["runtime", "contracts"],

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立 `@lazygoal/acp` package 与依赖边界
+- [x] //TODO 1. 建立 `@lazygoal/acp` package 与依赖边界
 
   - 创建 package、入口导出、SDK 1.4.0 精确依赖、中文契约级 TSDoc 和最小示例；纳入依赖边界检查和 workspace 类型检查，并保持不依赖现有 Runtime、Agent、Storage、Tools 或 benchmark。
   - 成功判据：调用方能够从 package 入口导入公开 ACP 类型与工厂契约；依赖检查拒绝反向导入；待实现的导出与 TSDoc 测试通过。

@@ -255,7 +255,6 @@ function mergeGeminiUnion(branches: readonly JsonSchema202012[]): JsonSchema2020
         const description = discriminator === undefined ? undefined
             : "Return exactly one variant, including every listed property and no properties from other variants. "
                 + values.map((branch, index) =>
-                    `${discriminator}=${JSON.stringify(properties[index]![discriminator]!.enum![0])}: ${JSON.stringify(branch.required)}`,
                     `${discriminator}=${JSON.stringify((properties[index]![discriminator]!.enum as readonly unknown[])[0])}: ${JSON.stringify(branch.required)}`,
                 ).join("; ");
         return withNullability({
