@@ -74,7 +74,7 @@ export class PiAiAdapter implements LLMAdapter {
             if (model === undefined) {
                 throw new LlmConfigurationError([], `Unknown model "${config.model}" for provider "${config.provider}" in the pinned pi-ai catalog`);
             }
-            this.model = config.provider === "openai" && config.baseURL !== undefined
+            this.model = (config.provider === "openai" || config.provider === "google") && config.baseURL !== undefined
                 ? { ...model, baseUrl: config.baseURL }
                 : model;
         }

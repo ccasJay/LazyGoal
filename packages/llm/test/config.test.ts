@@ -49,7 +49,7 @@ test("unsupported strict also fails for typed factory callers", () => {
 
 test("endpoint overrides are explicit and never silently ignored", () => {
     assert.equal(readLlmConfig(base).provider, "openai");
-    for (const provider of ["google", "anthropic", "openrouter", "deepseek"]) {
+    for (const provider of ["anthropic", "openrouter", "deepseek"]) {
         assert.throws(() => readLlmConfig({ ...base, LLM_PROVIDER: provider, LLM_BASE_URL: "https://proxy.test" }), /LLM_BASE_URL is not supported/);
     }
     for (const url of ["url", "ftp://host", "https://key:secret@host", "https://host?key=secret", "https://host#fragment"]) {

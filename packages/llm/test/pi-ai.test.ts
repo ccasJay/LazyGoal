@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { once } from "node:events";
 import type { AssistantMessage, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { PiAiAdapter, PiAiProviderError } from "../src/pi-ai";
+import { createLlmAdapter } from "../src/factory";
 import { readLlmConfig, LlmConfigurationError } from "../src/config";
 import { LLMRequestModeMismatchError, type LLMRequest } from "../src/core/types";
 import { readNormalizedUsage } from "../src/core/usage";
@@ -153,6 +154,46 @@ async function withServer(handler: (req: IncomingMessage, res: ServerResponse) =
     try { await run(`http://127.0.0.1:${address.port}`); }
     finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }
+
+test("Google factory uses the configured API prefix with the real SDK in both output modes", async () => {
+    const schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] };
+    for (const mode of ["strict", "prompt_only"] as const) {
+        for (const prefix of ["/v1", "/gateway/v1beta/"]) {
+            const captured: { path: string; key: string | string[] | undefined; body: Record<string, any> }[] = [];
+            await withServer((req, res) => {
+                let data = "";
+                req.on("data", chunk => { data += chunk; });
+                req.on("end", () => {
+                    captured.push({ path: req.url!, key: req.headers["x-goog-api-key"], body: JSON.parse(data) });
+                    res.writeHead(200, { "Content-Type": mode === "strict" ? "application/json" : "text/event-stream" });
+                    res.end(mode === "strict"
+                        ? JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: json }] }, finishReason: "STOP" }] })
+                        : googleBody);
+                });
+            }, async url => {
+                const instance = createLlmAdapter(readLlmConfig({
+                    LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_API_KEY: "test-explicit-key",
+                    LLM_STRUCTURED_OUTPUT_MODE: mode, LLM_BASE_URL: url + prefix,
+                }));
+                const response = await instance.generate({
+                    ...request,
+                    ...(mode === "strict" ? { structuredOutput: { name: "answer", schema } } : {}),
+                });
+                assert.equal(response.content, json);
+            });
+            assert.equal(captured.length, 1);
+            const sent = captured[0]!;
+            const method = mode === "strict" ? "generateContent" : "streamGenerateContent?alt=sse";
+            assert.equal(sent.path, `${prefix.replace(/\/$/, "")}/models/gemini-2.5-flash:${method}`);
+            assert.equal(sent.key, "test-explicit-key");
+            assert.equal(sent.body.generationConfig.responseMimeType, mode === "strict" ? "application/json" : undefined);
+            assert.equal(sent.body.generationConfig.responseJsonSchema, undefined);
+            assert.deepEqual(sent.body.generationConfig.responseSchema, mode === "strict" ? {
+                type: "OBJECT", properties: { answer: { type: "STRING" } }, required: ["answer"],
+            } : undefined);
+        }
+    }
+});
 
 test("real pi-ai SDK maps four wire protocols against local SSE servers", async () => {
     for (const [provider, model, body] of [

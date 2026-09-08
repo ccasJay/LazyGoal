@@ -23,7 +23,9 @@ Adapter 构造时固定输出模式，不自动降级或切换 provider。
 所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
 pi-ai 返回型失败转换为 `PiAiProviderError`，SDK 抛出的异常原样传播。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
-原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseJsonSchema`；
+原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；
+Gemini 为枚举补齐类型，数值枚举映射为等值数值约束；SDK 负责 nullable 联合与原生类型转换。
+`responseSchema` 不支持的 `additionalProperties: false` 仍由本地契约执行，字符串与数值枚举之外的枚举在请求前报错。
 strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../packages/llm/src/core/adapter.ts)。
 
 ## 配置
@@ -39,8 +41,11 @@ LLM_API_KEY=your-api-key
 LLM_STRUCTURED_OUTPUT_MODE=prompt_only
 ```
 
-`openai` 可用 `LLM_BASE_URL` 覆盖端点，未设置时使用官方地址；`openai-compatible`
+`openai` 和 `google` 可用 `LLM_BASE_URL` 覆盖端点，未设置时使用官方地址；`openai-compatible`
 必须提供 HTTP(S) `LLM_BASE_URL`。其他 provider 不接受端点覆盖。
+Google 在两种输出模式下均将其视为完整 API 前缀（含所需版本路径），
+直接追加 `/models/{model}:generateContent` 或流式方法，不额外追加 API 版本。
+例如代理使用 `/v1beta` 时，应配置 `https://proxy.example/v1beta`；端点须支持 Google 原生协议。
 标准 provider 的 prompt_only 模型必须存在于固定目录，strict 原生路径接受供应商模型名。
 
 自定义兼容服务使用文本 Chat Completions，需显式设置 `LLM_CONTEXT_WINDOW_TOKENS`

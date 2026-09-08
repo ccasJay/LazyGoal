@@ -4,6 +4,7 @@ import {
     type GenerateContentParameters
 } from "@google/genai";
 
+import type { JsonSchema202012 } from "../../contracts/src/index";
 import type { LLMAdapter } from "./core/adapter";
 import {
     LLMRequestModeMismatchError,
@@ -39,6 +40,8 @@ type GeminiInput = Pick<
 export interface GeminiConfig {
     /** Google Gen AI 服务使用的 API Key。 */
     apiKey: string;
+    /** 完整 API 前缀（包含所需版本路径）；省略时使用 SDK 官方地址与默认版本。 */
+    baseURL?: string;
     /** 每次生成请求使用的 Gemini 模型名称。 */
     model: string;
     /** 固定的结构化输出模式。 */
@@ -53,7 +56,9 @@ export interface GeminiConfig {
  * @remarks
  * system 消息合并为 `systemInstruction`，assistant 映射为 Gemini 的 model
  * 角色，其余消息保持顺序。响应没有文本内容时返回空字符串，SDK 异常原样传播。
- * 在 strict 模式下将结构 Schema 原样映射为 `responseMimeType: "application/json"` 与 `responseJsonSchema: schema`；
+ * 在 strict 模式下将结构 Schema 转换后映射为 `responseMimeType: "application/json"` 与 `responseSchema`；
+ * 枚举补齐类型，nullable 由 SDK 转换；对象联合投影为字段并集与必填交集。
+ * 联合分支约束和 additionalProperties 仍由 Agent 本地契约严格校验。
  * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
  * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
  * 响应携带 `usageMetadata` 时将其归一化写入 `providerMetadata.usage`
@@ -70,6 +75,9 @@ export class Gemini implements LLMAdapter {
         this.structuredOutputMode = config.structuredOutputMode;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
+            ...(config.baseURL === undefined ? {} : {
+                httpOptions: { baseUrl: config.baseURL, apiVersion: "" },
+            }),
         });
         this.model = config.model;
         this.maxOutputTokens = config.maxOutputTokens;
@@ -108,7 +116,7 @@ export class Gemini implements LLMAdapter {
             input.config = {
                 ...input.config,
                 responseMimeType: "application/json",
-                responseJsonSchema: request.structuredOutput.schema,
+                responseSchema: prepareGeminiSchema(request.structuredOutput.schema),
             };
         }
 
@@ -194,4 +202,78 @@ function toGeminiInput(
         };
     }
     return input;
+}
+
+/** 投影为 Gemini 支持的结构约束；SDK 完成原生类型序列化，本地契约保持不变。 */
+function prepareGeminiSchema(schema: JsonSchema202012): JsonSchema202012 {
+    const result = { ...schema };
+    if (Array.isArray(schema.enum)) {
+        const values = schema.enum;
+        if (values.every(value => typeof value === "string")) {
+            result.type = "string";
+        } else if (values.every(value => typeof value === "number")) {
+            // 数值 literal 保持数值语义，不转成字符串枚举。
+            const branches = values.map(value => ({
+                type: Number.isInteger(value) ? "integer" : "number",
+                minimum: value, maximum: value,
+            }));
+            delete result.enum;
+            if (branches.length === 1) Object.assign(result, branches[0]);
+            else result.anyOf = branches;
+        } else {
+            throw new Error("Gemini responseSchema only supports string or numeric enums");
+        }
+    }
+    if (schema.properties !== undefined) {
+        result.properties = Object.fromEntries(Object.entries(schema.properties as Record<string, JsonSchema202012>).map(([key, value]) =>
+            [key, prepareGeminiSchema(value as JsonSchema202012)]));
+    }
+    if (schema.items !== undefined) result.items = prepareGeminiSchema(schema.items as JsonSchema202012);
+    if (Array.isArray(schema.anyOf)) {
+        delete result.anyOf;
+        Object.assign(result, mergeGeminiUnion(schema.anyOf.map(value => prepareGeminiSchema(value as JsonSchema202012))));
+    }
+    return result;
+}
+
+/** 对象联合投影为字段并集与必填交集；分支互斥和专属约束仍由本地契约校验。 */
+function mergeGeminiUnion(branches: readonly JsonSchema202012[]): JsonSchema202012 {
+    const nullable = branches.some(branch => branch.type === "null" || branch.nullable === true);
+    const values = [...new Map(branches.filter(branch => branch.type !== "null")
+        .map(branch => [JSON.stringify(branch), branch])).values()];
+    if (values.length === 0) return { type: "null" };
+    const withNullability = (schema: JsonSchema202012): JsonSchema202012 =>
+        nullable ? { ...schema, nullable: true } : schema;
+    if (values.length === 1) return withNullability(values[0]!);
+    if (values.every(branch => branch.type === "object")) {
+        const properties = values.map(branch => branch.properties as Record<string, JsonSchema202012>);
+        const keys = [...new Set(properties.flatMap(Object.keys))];
+        const required = (values[0]!.required as readonly string[]).filter(key =>
+            values.every(branch => (branch.required as readonly string[]).includes(key)));
+        const discriminator = required.find(key => properties.every(shape =>
+            Array.isArray(shape[key]?.enum) && shape[key]!.enum!.length === 1));
+        const description = discriminator === undefined ? undefined
+            : "Return exactly one variant, including every listed property and no properties from other variants. "
+                + values.map((branch, index) =>
+                    `${discriminator}=${JSON.stringify(properties[index]![discriminator]!.enum![0])}: ${JSON.stringify(branch.required)}`,
+                    `${discriminator}=${JSON.stringify((properties[index]![discriminator]!.enum as readonly unknown[])[0])}: ${JSON.stringify(branch.required)}`,
+                ).join("; ");
+        return withNullability({
+            type: "object",
+            ...(description === undefined ? {} : { description }),
+            properties: Object.fromEntries(keys.map(key => [key, mergeGeminiUnion(
+                properties.flatMap(shape => shape[key] === undefined ? [] : [shape[key]!]),
+            )])),
+            required,
+        });
+    }
+    if (values.every(branch => branch.type === "string")) {
+        return withNullability({
+            type: "string",
+            ...(values.every(branch => Array.isArray(branch.enum))
+                ? { enum: [...new Set(values.flatMap(branch => branch.enum as readonly string[]))] }
+                : {}),
+        });
+    }
+    return withNullability({ anyOf: values });
 }

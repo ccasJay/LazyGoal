@@ -15,6 +15,7 @@ type CommonConfig = {
  *
  * @remarks
  * 自定义模型必须声明容量；目录模型只允许覆盖输出上限。
+ * OpenAI 与 Google 可覆盖端点；Google baseURL 是包含所需版本路径的完整 API 前缀。
  * 配置不写入 Goal 或 Diagnostic Trace。
  * @example
  * ```ts
@@ -25,8 +26,8 @@ type CommonConfig = {
  * ```
  */
 export type LlmConfig = CommonConfig & (
-    | { readonly provider: "openai"; readonly baseURL?: string }
-    | { readonly provider: "google" | "anthropic" | "openrouter" | "deepseek" }
+    | { readonly provider: "openai" | "google"; readonly baseURL?: string }
+    | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );
 
@@ -70,7 +71,7 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
     }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {
-        if (provider !== "openai" && provider !== "openai-compatible") {
+        if (provider !== "openai" && provider !== "google" && provider !== "openai-compatible") {
             throw new LlmConfigurationError([], `LLM_BASE_URL is not supported for provider "${provider}"`);
         }
         let url: URL;
@@ -101,6 +102,6 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
         }
         return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
     }
-    if (provider === "openai") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
-    return { ...common, provider: provider as "google" | "anthropic" | "openrouter" | "deepseek" };
+    if (provider === "openai" || provider === "google") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
+    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" };
 }
