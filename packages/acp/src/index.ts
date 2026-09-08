@@ -18,3 +18,4 @@ export type {
 } from "./contracts";
 
 export { serveLazyGoalAcpAgent } from "./agent";
+export { runLazyGoalAcpClient, runAcpClient } from "./client";

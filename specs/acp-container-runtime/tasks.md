@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `packages/acp/test/agent-session.test.ts`；使用 SDK 内存 Stream 覆盖能力、路径、ResourceLink 和 JSON-RPC 错误。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 3. 实现一次性 ACP Client 与并发取消契约
+- [x] //TODO 3. 实现一次性 ACP Client 与并发取消契约
 
   - 实现 `connectWith` 生命周期的 initialize → newSession → prompt 流程、update 路由和终止结果收集，并在返回或异常时关闭连接及本地资源；为同一 Session 建立重入拒绝和取消终态仲裁，为不同 Session 保持并发隔离。
   - 成功判据：一次性 Client 在合法 Prompt 下返回终止结果；同 Session 并发请求被拒绝；不同 Session 可并发完成；断线后不再产生成功更新。
