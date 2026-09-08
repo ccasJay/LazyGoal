@@ -1,17 +1,29 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("node:child_process");
+const { existsSync } = require("node:fs");
 const { resolve } = require("node:path");
 
 const argv = process.argv.slice(2);
 const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
+const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
 const source = isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
-    : resolve(__dirname, "../packages/tui/src/cli.tsx");
+    : isSwebenchEval
+        ? resolve(__dirname, "../benchmarks/swebench/src/cli.ts")
+        : resolve(__dirname, "../packages/tui/src/cli.tsx");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
+
+const cwdEnv = resolve(process.cwd(), ".env");
+const repoEnv = resolve(__dirname, "../.env");
+const envFile = existsSync(cwdEnv) ? cwdEnv : existsSync(repoEnv) ? repoEnv : undefined;
+const nodeArgs = envFile !== undefined
+    ? [`--env-file=${envFile}`, "--import", tsxLoader]
+    : ["--import", tsxLoader];
+
 const result = spawnSync(
     process.execPath,
-    ["--import", tsxLoader, source, ...argv],
+    [...nodeArgs, source, ...argv],
     { stdio: "inherit" },
 );
 

@@ -68,7 +68,7 @@ flowchart LR
 - [Runtime](./runtime.md)：状态、生命周期、调度与持久化 Port。
 - [Storage](./storage.md)：Goal Snapshot 与 Profile 的 DTO、Schema、Codec 及内存/JSON Store。
 - [TUI Controller](./tui.md)：单 Goal UI 命令串行化与不可变会话快照。
-- [Benchmark Evaluation](./benchmarks.md)：显式 ALFWorld TextWorld 评测入口与 Episode 报告。
+- [Benchmark Evaluation](./benchmarks.md)：通用 Headless Root、ALFWorld 与 SWE-bench 评测入口。
 - [Contracts](./contracts.md)：不可变 Contract AST、严格 Parser 与 JSON Schema 2020-12 编译。
 - [Agent](./agent.md)：ModelInferenceView、Projector、Renderer、响应协议与 Step 执行。
 - [LLM](./llm.md)：供应商无关接口与模型适配器。

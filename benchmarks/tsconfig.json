@@ -19,6 +19,8 @@
     "test/**/*.ts",
     "alfworld/src/**/*.ts",
     "alfworld/scripts/**/*.ts",
-    "alfworld/test/**/*.ts"
+    "alfworld/test/**/*.ts",
+    "swebench/src/**/*.ts",
+    "swebench/test/**/*.ts"
   ]
 }

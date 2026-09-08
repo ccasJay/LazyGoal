@@ -8,7 +8,11 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts",
+    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts",
+    "swebench:test-python": "python3 -B -m unittest discover -s swebench/python -p 'test_*.py'",
+    "swebench:eval": "cd .. && tsx benchmarks/swebench/src/cli.ts",
+    "swebench:single": "cd .. && tsx benchmarks/swebench/src/cli.ts eval swebench --manifest benchmarks/swebench/manifests/single.json",
+    "swebench:smoke": "cd .. && tsx benchmarks/swebench/src/cli.ts eval swebench --manifest benchmarks/swebench/manifests/smoke.json",
     "alfworld:test-python": "python -B -m unittest discover -s alfworld/python -p 'test_*.py'",
     "alfworld:init": "tsx alfworld/scripts/init-alfworld.ts",
     "alfworld:download": "tsx alfworld/scripts/download-alfworld.ts",
