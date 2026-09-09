@@ -116,7 +116,7 @@
 - **passed**：`npm test` 通过 783 个 TypeScript/TSX 测试与 11 个脚本测试；`npx tsc --noEmit`、`npm run check:dependencies`、benchmark typecheck、108 个 benchmark 测试、5 个 Python 测试及 `git diff --check` 均通过。
 - **passed**：Contracts/Gemini 定向测试共 83 项通过；executing Schema、Shape Guide 与 decode 拒绝 `create_plan_item`，Planning 仍允许创建；Google 请求使用 `responseJsonSchema` 并保留 `anyOf`、`required` 与 `additionalProperties`。
 - **passed**：`SWEBENCH_PYTHON=/Users/sawyerlau/Project/LazyGoal/.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks` 通过，固定 Worker SHA-256 为 `bbecd51b4445b02ef55e3a63dd159f50915c15db1fb7ccd0b22ac502af977317`。
-- **failed**：本地 `http://127.0.0.1:8317/v1beta` 上的 `gemini-3.1-flash-lite` 未遵守 native strict 的复杂执行 Schema，见 `.lazygoal/benchmarks/swebench-runs/google-native-single-fixed-20260909-1805/`；Google 原生 `prompt_only` 已连续解析并执行两轮 Tool、导出 847-byte patch，随后供应商请求失败，见 `.lazygoal/benchmarks/swebench-runs/google-native-prompt-single-fixed-20260909-1820/`。因单题未形成完整终态，五题按门禁未执行。
+- **failed**：本地 `http://127.0.0.1:8317/v1beta` 上的 `gemini-3.1-flash-lite` 未遵守 native strict 的复杂执行 Schema，见 `.lazygoal/benchmarks/swebench-runs/google-native-single-fixed-20260909-1805/`；Google 原生 `prompt_only` 已连续解析并执行两轮 Tool、导出 847-byte patch，随后供应商请求失败，见 `.lazygoal/benchmarks/swebench-runs/google-native-prompt-single-fixed-20260909-1820/`。`gemini-3.6-flash-high` 在当前 `responseJsonSchema` 路径返回旧式 `action/toolID/rationale` 结构，见 `.lazygoal/benchmarks/swebench-runs/google-native-strict-36-single-20260909-1900/`；受控 `responseSchema` 对照已生成正确决策外层，但遗漏 wire 契约要求的 nullable Tool 参数，见 `.lazygoal/benchmarks/swebench-runs/google-native-response-schema-36-single-20260909-1910/`。因单题未形成完整终态，五题按门禁未执行。
 
 整体状态：**failed**。新鲜度：**current**。实现提交：`3fe7ae9`。
 
@@ -128,4 +128,4 @@
 - 观察：本地代理接受 `responseJsonSchema` 请求，但 `gemini-3.1-flash-lite` 返回旧式 Tool 形状；`responseSchema` 路径也会遗漏 wire 契约要求的 nullable 字段。相同模型在 `prompt_only` 下能生成并执行合法决策。
 - 已验证做法：Adapter 继续发送官方 `responseJsonSchema` 并保持本地严格解码；端点不能可靠执行该字段时显式选择 `prompt_only`，不得修复响应或静默降级。
 - 证据：上述两个真实单题目录、Gemini Adapter 定向测试和 Google 原生请求集成测试。
-- 限制与复查条件：结论只覆盖 2026-09-09 的本地代理与所测模型；代理升级、模型变更或官方端点凭据可用后，应重新运行 strict 单题，成功后再执行五题。
+- 限制与复查条件：结论只覆盖 2026-09-09 的本地代理及 `gemini-3.1-flash-lite`、`gemini-3.6-flash-high`；代理升级、其他模型或官方端点凭据可用后，应重新运行 strict 单题，成功后再执行五题。
