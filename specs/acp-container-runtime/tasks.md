@@ -77,7 +77,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/evaluation.test.ts`、`manifest-cli.test.ts` 和报告 fixture；执行 TypeScript/Python SWE-bench 回归。
   - _Requirements: [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 12. 完成组合回归与显式 Docker Worker 冒烟
+- [x] //TODO 12. 完成组合回归与显式 Docker Worker 冒烟
 
   - 将 ACP、benchmark TypeScript/Python、真实 Headless Root、伪 Docker 边界、协议/模型失败和取消清理测试纳入确定性回归；新增 `swebench:worker-smoke`，在固定 linux/amd64 fixture 中验证 Node、动态库、Conda、双通道、隔离边界、宿主假模型和题目文件修改。
   - 成功判据：默认回归不依赖 Docker 或外部供应商；显式 smoke 能证明 Worker 真实启动；风险相关检查均有可定位的测试证据。

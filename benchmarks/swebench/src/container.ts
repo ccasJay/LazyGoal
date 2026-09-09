@@ -99,7 +99,7 @@ export class SwebenchContainer {
      * 把完整 Worker 目录注入 `/opt/lazygoal`；源文件只作为 Docker 参数传递，不进入 shell。
      * @param artifact - 已通过 WorkerBuilder manifest 校验的宿主产物。
      * @param signal - 取消时中止尚未完成的注入命令。
-     * @throws 任一目录创建、复制或权限设置失败时抛出；调用方应记录 `worker_inject` 阶段。
+     * @throws 任一目录创建或复制失败时抛出；调用方应记录 `worker_inject` 阶段。
      */
     async injectWorker(artifact: WorkerArtifact, signal?: AbortSignal): Promise<void> {
         if (!this.created || this.closed) throw new Error("Cannot inject Worker into a non-running container");
@@ -108,7 +108,6 @@ export class SwebenchContainer {
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.run("docker", ["cp", source, `${this.name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
         }
-        requireSuccess(await this.run("docker", ["exec", this.name, "/bin/chmod", "0755", "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], options), "Set Worker permissions");
     }
 
     /** 在首次模型调用或 Runtime 副作用前运行固定 Worker 预检。 */

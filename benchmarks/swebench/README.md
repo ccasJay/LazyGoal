@@ -61,6 +61,18 @@ for integration debugging. Both manifests fix the dataset revision, instance
 order, step limit, task timeout and grading timeout; neither is a representative
 sample of the full Verified dataset.
 
+To exercise the injected Worker with a deterministic host model, run the explicit
+Docker smoke command:
+
+```bash
+npm run swebench:worker-smoke --prefix benchmarks
+```
+
+It uses the fixed single-task manifest and official image, checks the linux/amd64
+Node and Conda preflight, drives both ACP and LLM channels, and verifies a file
+change in the exported patch. It requires Docker and the pinned SWE-bench Python
+environment; it is not part of the default regression.
+
 Task time includes image preparation and inference. The container has no network
 or host mounts. The ACP profile exposes only `read_file`, `write_file`,
 `edit_file`, `grep`, and `bash`, all rooted at `/testbed`; dependencies come from

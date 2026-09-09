@@ -15,6 +15,9 @@ export const WORKER_NODE_IMAGE = "node:22.22.2-bookworm-slim@sha256:868499d55378
 /** Worker 内嵌 Prompt 资产在 Node 全局对象上的内部入口。 */
 export const WORKER_PROMPT_ASSETS_GLOBAL = "__lazygoalPromptAssets" as const;
 
+/** ESM Worker 中为被打包 CommonJS 依赖提供 Node 内置模块的同步 require。 */
+const WORKER_NODE_REQUIRE_BANNER = 'import { createRequire as __lazygoalCreateRequire } from "node:module"; const require = __lazygoalCreateRequire(import.meta.url);';
+
 /**
  * 从固定镜像提取后可供 WorkerBuilder 使用的 Node 运行时。
  *
@@ -260,6 +263,7 @@ export async function buildSwebenchWorker(options: WorkerBuilderOptions): Promis
         nodeSha256,
         platform: WORKER_PLATFORM,
         acpSdkVersion: WORKER_ACP_SDK_VERSION,
+        nodeRequireBanner: WORKER_NODE_REQUIRE_BANNER,
         esbuild: options.esbuild ?? {},
     };
     const buildDigest = sha256(JSON.stringify(buildConfig));
@@ -275,10 +279,10 @@ export async function buildSwebenchWorker(options: WorkerBuilderOptions): Promis
         const promptBanner = await createPromptAssetBanner(projectRoot, promptAssets);
         const existingBanner = options.esbuild?.banner?.js;
         const banner = promptBanner === undefined && existingBanner === undefined
-            ? options.esbuild?.banner
+            ? { ...(options.esbuild?.banner ?? {}), js: WORKER_NODE_REQUIRE_BANNER }
             : {
                 ...(options.esbuild?.banner ?? {}),
-                js: [existingBanner, promptBanner].filter((value): value is string => value !== undefined).join("\n"),
+                js: [WORKER_NODE_REQUIRE_BANNER, existingBanner, promptBanner].filter((value): value is string => value !== undefined).join("\n"),
             };
         const result = await build({
             ...(options.esbuild ?? {}),
