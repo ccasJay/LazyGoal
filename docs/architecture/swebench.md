@@ -45,6 +45,13 @@ JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata �
 structured-output mode 一致性检查在首次 Root 副作用前完成。当前宿主 Evaluator 仍使用
 下面描述的 baseline shell 路径，Worker 入口将在后续 Supervisor 任务接入。
 
+Worker ACP Session 通过 [`createSwebenchAcpSessionFactory`](../../benchmarks/swebench/src/worker-runtime.ts)
+绑定单次 Prompt 和单题 metadata。`AcpTrajectoryStore` 只在 `tool_started` 与
+`tool_finished` 事实成功追加后发送对应 ACP Tool 更新，使用 Runtime `actionId` 作为
+稳定 Tool Call ID，并按固定字节上限标记截断输入和输出。Headless `completed`/`waiting`
+映射为 `end_turn`，步数上限映射为 `max_turn_requests`，取消映射为 `cancelled`；
+Runtime、通知或清理错误不会形成成功终态。
+
 ## 结束与评分
 
 Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。模型停止、

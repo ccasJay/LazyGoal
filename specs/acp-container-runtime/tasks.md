@@ -56,7 +56,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/container-headless-runtime.test.ts`；使用临时 testbed、假 LLM 和真实 Headless Root 验证文件修改、确定性审批与隔离。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 9. 映射 Trajectory Tool 更新与 ACP Prompt 终态
+- [x] //TODO 9. 映射 Trajectory Tool 更新与 ACP Prompt 终态
 
   - 装饰 `TrajectoryStore`，在 `tool_started`/`tool_finished` 成功提交后发送稳定 actionId、Tool 类型、状态和有界结果的 ACP update；将完成、等待、步数耗尽、取消和基础设施错误映射为约定终态或协议错误，并填充校验后的 `_meta`。
   - 成功判据：Tool 更新只属于对应 Session；正常/上限/取消终态可区分；通知失败和 Runtime 基础设施异常不会形成成功终态。
