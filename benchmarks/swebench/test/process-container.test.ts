@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -87,11 +87,13 @@ test("exported patch includes committed, staged, unstaged, deleted and new files
         await writeFile(join(directory, "new.txt"), "new\n");
         await rm(join(directory, "deleted.txt"));
         const container = new SwebenchContainer("test", { ...task, base_commit }, async (_command, args, options) =>
-            runProcess("/bin/bash", ["-c", args.at(-1)!], { ...options, cwd: directory }));
+            runProcess("/bin/bash", ["-c", args.at(-1)!.replaceAll("/opt/lazygoal", join(directory, ".lazygoal"))], { ...options, cwd: directory }));
+        await mkdir(join(directory, ".lazygoal"), { recursive: true });
         const patch = await container.exportPatch();
         assert.match(patch, /new file mode/);
         assert.match(patch, /deleted file mode/);
         await git("reset", "--hard", base_commit);
+        await git("clean", "-fd");
         await writeFile(join(directory, "prediction.patch"), patch);
         await git("apply", "prediction.patch");
         assert.equal(await readFile(join(directory, "tracked.txt"), "utf8"), "final\n");

@@ -34,7 +34,8 @@ Node 22 ESM Worker。构建结果先写入摘要临时目录，再以原子 rena
 manifest 写入 `/opt/lazygoal`，不向 `/testbed` 添加挂载或环境变量；
 `preflightWorker` 在任何模型请求和 Runtime 副作用前检查容器平台、Node 版本、动态库、
 两个文件摘要、base commit 和 `conda testbed`。题目 Tool 使用不继承 Worker 控制流的
-独立 stdio，Worker 进程通过 `docker exec -i` 启动。
+独立 stdio，Worker 进程通过 `docker exec -i` 启动；交互进程的 stdin/stdout 作为 ACP
+控制流，stderr 单独限长收集为诊断。
 
 Worker 侧的 [`runSwebenchAcpTask`](../../benchmarks/swebench/src/worker-runtime.ts) 在
 容器内装配真实 `HeadlessCompositionRoot`，固定 `swebench-acp-profile` 和
@@ -42,8 +43,7 @@ Worker 侧的 [`runSwebenchAcpTask`](../../benchmarks/swebench/src/worker-runtim
 `/testbed` 为根，每个调用创建独立 Registry。任务 metadata 只在 Worker 内生成确定性
 objective 和完成条件，Preparation 不调用模型并自动批准进入 executing；Goal、Run 和
 JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验和
-structured-output mode 一致性检查在首次 Root 副作用前完成。当前宿主 Evaluator 仍使用
-下面描述的 baseline shell 路径，Worker 入口将在后续 Supervisor 任务接入。
+structured-output mode 一致性检查在首次 Root 副作用前完成。
 
 Worker ACP Session 通过 [`createSwebenchAcpSessionFactory`](../../benchmarks/swebench/src/worker-runtime.ts)
 绑定单次 Prompt 和单题 metadata。`AcpTrajectoryStore` 只在 `tool_started` 与
@@ -52,10 +52,21 @@ Worker ACP Session 通过 [`createSwebenchAcpSessionFactory`](../../benchmarks/s
 映射为 `end_turn`，步数上限映射为 `max_turn_requests`，取消映射为 `cancelled`；
 Runtime、通知或清理错误不会形成成功终态。
 
+单题 [`runSwebenchSupervisor`](../../benchmarks/swebench/src/supervisor.ts) 负责把上述
+Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP/LLM 双通道、一次性 Client
+和宿主 RPC Server。任务超时或外部取消共用一个 AbortSignal；Worker 停止后，Supervisor
+在独立的有界宽限期内按 Goal Snapshot、Trajectory、Trace、patch 顺序逐项复制或导出，
+单步失败只追加对应阶段错误，最后幂等删除本题容器。patch 使用 `/opt/lazygoal` 下的
+临时 `GIT_INDEX_FILE` 相对已校验 base commit 导出，不修改题目仓库的 `.git/index`。
+成功复制的 Goal 文件会校验 Goal/Run 身份，报告 locator 只保存相对于宿主 output 根的路径。
+
 ## 结束与评分
 
-Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。模型停止、
-步数耗尽和执行异常均尝试保留补丁；未能创建环境或导出补丁的题目单独记录，不重试。
+当前 `eval swebench` 入口仍由 `evaluation.ts` 直接使用 baseline shell Profile；Supervisor
+提供新的单题 ACP 执行边界，评测入口替换与报告 schema 更新在后续任务完成。baseline
+Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。Supervisor 与
+baseline 都在模型停止、步数耗尽和执行异常时尽力保留补丁；未能创建环境或导出补丁的题目
+单独记录，不重试。
 `readOutcome` 不做评分。Evaluator 逐题保存补丁、预测和阶段报告后，才将预测交给
 官方 harness 在新的干净环境评分；正式测试结果不反馈给本次作答。
 

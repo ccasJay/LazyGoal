@@ -116,6 +116,7 @@ async function createSession(
         sessionId,
         cwd: params.cwd,
         signal: connectionSignal,
+        ...(params._meta === undefined || params._meta === null ? {} : { sessionMeta: params._meta }),
         update: async (update) => {
             const record = state.sessions.get(sessionId);
             if (state.closed || record === undefined || record.state === "disposed") return;

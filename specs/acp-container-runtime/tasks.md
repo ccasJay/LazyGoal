@@ -63,7 +63,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/acp-result-projection.test.ts`；覆盖 Tool 失败、取消竞态、迟到模型响应、终态 metadata 和错误阶段。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 10. 接入单题 Supervisor 与有界产物回收
+- [x] //TODO 10. 接入单题 Supervisor 与有界产物回收
 
   - 用 ACP Client 驱动每题容器 Session，传播超时和 SIGINT/SIGTERM，按阶段记录错误；在宽限期内复制 Snapshot、Trajectory、Trace，并用 `/opt/lazygoal` 临时 `GIT_INDEX_FILE` 相对 base commit 导出 patch，任何单步失败都继续幂等清理。
   - 成功判据：正常、模型停止、步数耗尽、Runtime 错误、协议错误和取消均尽力保存可读取产物；宽限期结束后本次唯一容器必被删除；locator 只指向宿主 output。

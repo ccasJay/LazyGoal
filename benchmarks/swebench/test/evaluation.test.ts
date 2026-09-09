@@ -46,7 +46,7 @@ async function fixture(t: TestContext, changes: {
         if (command === "docker") {
             if (args[0] === "pull" && changes.setupFails) return { ...ok, code: 1, stderr: "image unavailable" };
             if (args[0] === "image") return { ...ok, stdout: "sha256:abc\n" };
-            if (args.at(-1)?.startsWith("git add -A")) {
+            if (args.at(-1)?.includes("git add -A")) {
                 if (changes.exportFails) return { ...ok, code: 1, stderr: "git export failed" };
                 return { ...ok, stdout: changes.emptyPatch ? "" : patch };
             }

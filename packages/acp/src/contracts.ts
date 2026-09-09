@@ -65,6 +65,7 @@ export interface AcpPromptControl {
  *   sessionId: "session-1",
  *   cwd: "/testbed",
  *   signal: new AbortController().signal,
+ *   sessionMeta: { instanceId: "task-1" },
  *   update: async () => undefined,
  * };
  * ```
@@ -76,6 +77,8 @@ export interface AcpSessionInput {
     readonly cwd: string;
     /** 连接关闭时中止的 signal。 */
     readonly signal: AbortSignal;
+    /** `session/new` 传入的受信 metadata；未提供时省略。 */
+    readonly sessionMeta?: Readonly<Record<string, unknown>>;
     /** 向该 Session 的 ACP Client 发送更新。 */
     readonly update: (update: AcpSessionUpdate) => Promise<void>;
 }
