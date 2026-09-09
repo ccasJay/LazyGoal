@@ -111,14 +111,14 @@
 
 ### Latest Result
 
-验证时间：2026-09-09（Asia/Shanghai）。被测提交：`b7edc84`，另含本任务列出的未提交修改；实现与文档 diff SHA-256：`942f21f05653d052596185b3b44fb6bc00329c8cc59b762024fce81509268201`。契约：`structured@1`、`swebench-acp-container-v1`、ACP SDK `1.4.0`、Google Gen AI SDK `2.15.0`。
+验证时间：2026-09-09（Asia/Shanghai）。被测树基于 `b7edc84`，实现与文档 diff SHA-256 为 `942f21f05653d052596185b3b44fb6bc00329c8cc59b762024fce81509268201`；该树随后提交为 `3fe7ae9`。契约：`structured@1`、`swebench-acp-container-v1`、ACP SDK `1.4.0`、Google Gen AI SDK `2.15.0`。
 
 - **passed**：`npm test` 通过 783 个 TypeScript/TSX 测试与 11 个脚本测试；`npx tsc --noEmit`、`npm run check:dependencies`、benchmark typecheck、108 个 benchmark 测试、5 个 Python 测试及 `git diff --check` 均通过。
 - **passed**：Contracts/Gemini 定向测试共 83 项通过；executing Schema、Shape Guide 与 decode 拒绝 `create_plan_item`，Planning 仍允许创建；Google 请求使用 `responseJsonSchema` 并保留 `anyOf`、`required` 与 `additionalProperties`。
 - **passed**：`SWEBENCH_PYTHON=/Users/sawyerlau/Project/LazyGoal/.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks` 通过，固定 Worker SHA-256 为 `bbecd51b4445b02ef55e3a63dd159f50915c15db1fb7ccd0b22ac502af977317`。
 - **failed**：本地 `http://127.0.0.1:8317/v1beta` 上的 `gemini-3.1-flash-lite` 未遵守 native strict 的复杂执行 Schema，见 `.lazygoal/benchmarks/swebench-runs/google-native-single-fixed-20260909-1805/`；Google 原生 `prompt_only` 已连续解析并执行两轮 Tool、导出 847-byte patch，随后供应商请求失败，见 `.lazygoal/benchmarks/swebench-runs/google-native-prompt-single-fixed-20260909-1820/`。因单题未形成完整终态，五题按门禁未执行。
 
-整体状态：**failed**。新鲜度：**current**。未提交修改涉及 `packages/contracts/`、`packages/llm/`、`docs/architecture/`、`benchmarks/swebench/README.md` 与本文件。
+整体状态：**failed**。新鲜度：**current**。实现提交：`3fe7ae9`。
 
 ## Learning Candidates
 
