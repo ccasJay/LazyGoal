@@ -6,6 +6,7 @@ import { test } from "node:test";
 import { createToolRegistration, isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
 import { createSwebenchShell, SwebenchContainer } from "../src/container.js";
 import { requireSuccess, runProcess, type ProcessRunner } from "../src/process.js";
+import type { WorkerArtifact } from "../src/worker-builder.js";
 
 const task = { instance_id: "astropy__astropy-12907", repo: "astropy/astropy", base_commit: "a".repeat(40),
     problem_statement: "Issue", image: "swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest" };
@@ -97,4 +98,28 @@ test("exported patch includes committed, staged, unstaged, deleted and new files
         assert.equal(await readFile(join(directory, "new.txt"), "utf8"), "new\n");
         await assert.rejects(readFile(join(directory, "deleted.txt")), /ENOENT/);
     } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("injects Worker files outside /testbed and starts it with interactive docker exec", async () => {
+    const calls: { command: string; args: readonly string[] }[] = [];
+    const container = new SwebenchContainer("unique", task, async (command, args) => {
+        calls.push({ command, args });
+        return { ...ok, stdout: args[0] === "image" ? "sha256:abc\n" : "" };
+    });
+    await container.start();
+    const artifact = {
+        digest: "a".repeat(64), directory: "/tmp/worker", workerPath: "/tmp/worker/worker.mjs",
+        nodePath: "/tmp/worker/node", manifestPath: "/tmp/worker/manifest.json",
+        manifest: {} as WorkerArtifact["manifest"], cacheHit: false,
+    } satisfies WorkerArtifact;
+    await container.injectWorker(artifact);
+    await container.runWorker();
+    const copies = calls.filter((call) => call.args[0] === "cp");
+    assert.equal(copies.length, 3);
+    assert.ok(copies.every((call) => call.args.some((arg) => arg.includes(":/opt/lazygoal/"))));
+    const worker = calls.at(-1)!;
+    assert.equal(worker.args[0], "exec");
+    assert.ok(worker.args.includes("-i"));
+    assert.ok(!worker.args.some((arg) => ["-v", "--mount", "--volume", "-e", "--env", "--privileged"].includes(arg)));
+    await container.close();
 });

@@ -42,7 +42,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/worker-builder.test.ts`；覆盖缓存命中、输入变化、并发构建和 manifest 摘要。
   - _Requirements: [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 7. 接入容器注入与启动前预检
+- [x] //TODO 7. 接入容器注入与启动前预检
 
   - 扩展 `SwebenchContainer` 执行 `docker cp`、`docker exec -i` 和固定资源参数，将 Worker、Node 和 manifest 注入 `/opt/lazygoal`，保持 `/testbed` 无挂载、无网络和无凭据；实现 preflight 验证平台、Node、动态库、摘要、base commit 与 `conda testbed`，并隔离 Tool 子进程 stdio。
   - 成功判据：预检失败发生在首次模型调用和 Goal 副作用前并保留诊断；有效容器只能看到题目工作区和注入目录，不能看到模型凭据。

@@ -2,6 +2,8 @@ import type { Tool } from "../../../packages/runtime/src/index.js";
 import { contract, type InferContract } from "../../../packages/contracts/src/index.js";
 import { isRecord } from "./manifest.js";
 import { requireSuccess, runProcess, type ProcessRunner } from "./process.js";
+import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
+import { preflightWorker, type WorkerPreflightResult } from "./worker-preflight.js";
 
 /**
  * 从固定数据集投影的作答输入；禁止携带 gold patch、测试补丁或评分目标。
@@ -92,6 +94,45 @@ export class SwebenchContainer {
             "timeout", "--signal=TERM", "--kill-after=5", String(timeoutSeconds),
             "/bin/bash", "-c", `source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && ${command}`],
         { timeoutMs: (timeoutSeconds + 15) * 1000, signal, maxBytes: 16000, truncate: true });
+    }
+
+    /**
+     * 把完整 Worker 目录注入 `/opt/lazygoal`；源文件只作为 Docker 参数传递，不进入 shell。
+     * @param artifact - 已通过 WorkerBuilder manifest 校验的宿主产物。
+     * @param signal - 取消时中止尚未完成的注入命令。
+     * @throws 任一目录创建、复制或权限设置失败时抛出；调用方应记录 `worker_inject` 阶段。
+     */
+    async injectWorker(artifact: WorkerArtifact, signal?: AbortSignal): Promise<void> {
+        if (!this.created || this.closed) throw new Error("Cannot inject Worker into a non-running container");
+        const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
+        requireSuccess(await this.run("docker", ["exec", this.name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker injection directory");
+        for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
+            requireSuccess(await this.run("docker", ["cp", source, `${this.name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
+        }
+        requireSuccess(await this.run("docker", ["exec", this.name, "/bin/chmod", "0755", "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], options), "Set Worker permissions");
+    }
+
+    /** 在首次模型调用或 Runtime 副作用前运行固定 Worker 预检。 */
+    async preflightWorker(manifest: WorkerManifest, signal?: AbortSignal): Promise<WorkerPreflightResult> {
+        if (!this.created || this.closed || this.imageId === undefined) throw new Error("Cannot preflight a non-running container");
+        return preflightWorker({
+            containerName: this.name,
+            imageId: this.imageId,
+            baseCommit: this.task.base_commit,
+            manifest,
+            run: this.run,
+            ...(signal === undefined ? {} : { signal }),
+        });
+    }
+
+    /** 以 `docker exec -i` 启动 Worker；stdin/stdout 仍由宿主 ProcessRunner 持有。 */
+    async runWorker(signal?: AbortSignal) {
+        if (!this.created || this.closed) throw new Error("Cannot run Worker in a non-running container");
+        return this.run("docker", ["exec", "-i", "--workdir", "/opt/lazygoal", this.name, "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], {
+            timeoutMs: 120_000,
+            signal,
+            maxBytes: 16 * 1024 * 1024,
+        });
     }
 
     /** 导出相对 base_commit 的最终树差异，包含新增文件、暂存修改和 Agent 自己提交的修改。 */

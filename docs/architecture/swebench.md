@@ -30,6 +30,12 @@ Node 22 ESM Worker。构建结果先写入摘要临时目录，再以原子 rena
 校验通过后才能命中缓存。Node 二进制由宿主从固定 linux/amd64 镜像提供，构建器不在
 题目工作区安装依赖。
 
+容器启动后，`SwebenchContainer.injectWorker` 通过 `docker cp` 将 Worker、Node 和
+manifest 写入 `/opt/lazygoal`，不向 `/testbed` 添加挂载或环境变量；
+`preflightWorker` 在任何模型请求和 Runtime 副作用前检查容器平台、Node 版本、动态库、
+两个文件摘要、base commit 和 `conda testbed`。题目 Tool 使用不继承 Worker 控制流的
+独立 stdio，Worker 进程通过 `docker exec -i` 启动。
+
 ## 结束与评分
 
 Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。模型停止、
