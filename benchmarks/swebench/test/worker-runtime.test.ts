@@ -15,7 +15,6 @@ test("Worker Profile exposes exactly five tools rooted at the supplied workspace
     assert.equal(Object.isFrozen(SWE_ACP_PROFILE.instructions), true);
     assert.equal(Object.isFrozen(SWE_ACP_TOOL_IDS), true);
     assert.deepEqual([...SWE_ACP_TOOL_IDS].map((id) => toolSet.registry.get(id)?.definition.id), [...SWE_ACP_TOOL_IDS]);
-    assert.equal(toolSet.registry.get("swebench_shell"), undefined);
 
     const write = toolSet.registry.get("write_file")!.prepare({ path: "fixed.txt", content: "container fact\n" });
     assert.equal(write.ok, true);

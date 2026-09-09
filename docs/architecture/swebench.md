@@ -5,7 +5,7 @@
 [`eval swebench`](../../benchmarks/swebench/src/cli.ts) 是显式评测入口，使用固定
 Verified Manifest、单题单次作答和官方 `swebench==4.1.0` 评分。普通 TUI 不加载
 Python 或 Docker。配置与依赖预检通过后才构造模型 Adapter。
-运行方式和产物说明见 [SWE-bench baseline](../../benchmarks/swebench/README.md)。
+运行方式和产物说明见 [SWE-bench ACP container evaluation](../../benchmarks/swebench/README.md)。
 
 ## 数据与执行
 
@@ -13,10 +13,11 @@ Python 或 Docker。配置与依赖预检通过后才构造模型 Adapter。
 固定实例，保存原始记录供官方 harness 使用；作答适配器只接收 issue、repo、
 base commit、instance ID 和镜像引用，参考补丁及评分测试不进入 Agent 上下文。
 
-[`Evaluator`](../../benchmarks/swebench/src/evaluation.ts) 顺序委托通用
-[`HeadlessCompositionRoot`](../../benchmarks/src/headless-composition-root.ts)，
-复用既有 Goal 生命周期、Trajectory 上下文、Storage 编解码与 Trace。Profile 固定
-授权唯一的 `swebench_shell`，Runtime 的 Tool 校验和 Evidence Gate 仍然生效。
+[`Evaluator`](../../benchmarks/swebench/src/evaluation.ts) 顺序委托单题 ACP
+[`Supervisor`](../../benchmarks/swebench/src/supervisor.ts)，由容器 Worker 内的
+[`HeadlessCompositionRoot`](../../benchmarks/src/headless-composition-root.ts) 复用既有
+Goal 生命周期、Trajectory 上下文、Storage 编解码与 Trace。容器 Profile 只授权五个
+内置文件/命令 Tool，Runtime 的 Tool 校验和 Evidence Gate 仍然生效。
 
 [`SwebenchContainer`](../../benchmarks/swebench/src/container.ts) 在官方 amd64
 实例镜像中创建 `/testbed` 工作区并重置至 base commit。每题独立容器无网络、无
@@ -62,11 +63,10 @@ Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP
 
 ## 结束与评分
 
-当前 `eval swebench` 入口仍由 `evaluation.ts` 直接使用 baseline shell Profile；Supervisor
-提供新的单题 ACP 执行边界，评测入口替换与报告 schema 更新在后续任务完成。baseline
-Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。Supervisor 与
-baseline 都在模型停止、步数耗尽和执行异常时尽力保留补丁；未能创建环境或导出补丁的题目
-单独记录，不重试。
+当前 `eval swebench` 入口由 `evaluation.ts` 直接使用 ACP 容器 Supervisor，报告身份为
+`swebench-acp-container-v1`。每次评测先构建或复用一个带 Prompt 资产的 Worker 产物，
+再按 Manifest 顺序将同一产物注入各自容器；模型完成、ACP 终态或 Runtime 状态不参与
+官方评分事实。未能创建环境或导出补丁的题目单独记录，不重试。
 `readOutcome` 不做评分。Evaluator 逐题保存补丁、预测和阶段报告后，才将预测交给
 官方 harness 在新的干净环境评分；正式测试结果不反馈给本次作答。
 

@@ -70,7 +70,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/evaluation-cleanup.test.ts`；使用伪容器注入每个导出步骤失败并检查顺序、超时和报告错误。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 11. 替换 SWE-bench 评测路径并更新报告
+- [x] //TODO 11. 替换 SWE-bench 评测路径并更新报告
 
   - 将 `eval swebench` 从 `swebench_shell` 切换到 ACP 容器 Supervisor，更新当前报告 schema 与 `swebench-acp-container-v1` identity，保留完整 Manifest 分母和官方 `resolved` 唯一评分来源；同步更新 benchmarks README、架构文档、package 清单和仓库布局说明。
   - 成功判据：预测文件只提交成功导出的 patch；官方 grading 结果决定 resolved；旧 `swebench_shell` 与旧报告兼容分支不再对外暴露。

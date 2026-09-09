@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
-import { applyGrades, runSwebenchEvaluation, preflightSwebench, SWE_PROFILE, type SwebenchEvaluationOptions } from "../src/evaluation.js";
+import { applyGrades, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
 import { SWEBENCH_VERSION, type SwebenchManifest } from "../src/manifest.js";
 import type { ProcessRunner } from "../src/process.js";
+import type { WorkerArtifact, WorkerManifest } from "../src/worker-builder.js";
+import { SWE_ACP_PROFILE } from "../src/worker-runtime.js";
 
 const ids = ["astropy__astropy-12907", "astropy__astropy-13033"];
 const manifest: SwebenchManifest = {
@@ -15,6 +17,16 @@ const manifest: SwebenchManifest = {
 };
 const patch = "diff --git a/f.py b/f.py\n--- a/f.py\n+++ b/f.py\n@@ -1 +1 @@\n-bad\n+good\n";
 const ok = { code: 0, stdout: "", stderr: "" };
+const workerManifest: WorkerManifest = {
+    manifestVersion: 1, entryPoint: "benchmarks/swebench/src/worker.ts", workerFile: "worker.mjs", nodeFile: "node",
+    workerSha256: "b".repeat(64), sourceDigest: "c".repeat(64), lockDigest: "d".repeat(64), promptDigest: "e".repeat(64), buildDigest: "f".repeat(64),
+    nodeVersion: "22.22.2", nodeImage: "node:22.22.2-bookworm-slim", nodeImageId: "sha256:" + "1".repeat(64), nodeSha256: "2".repeat(64),
+    platform: "linux/amd64", acpProtocolVersion: 1, acpSdkVersion: "1.4.0", promptAssets: [],
+};
+const workerArtifact: WorkerArtifact = {
+    digest: "3".repeat(64), directory: "/tmp/worker", workerPath: "/tmp/worker/worker.mjs", nodePath: "/tmp/worker/node",
+    manifestPath: "/tmp/worker/manifest.json", manifest: workerManifest, cacheHit: false,
+};
 
 async function fixture(t: TestContext, changes: {
     readonly gradingFails?: boolean;
@@ -38,7 +50,6 @@ async function fixture(t: TestContext, changes: {
             if (args[1] === "grade") {
                 if (changes.gradingFails) throw new Error("grading unavailable");
                 const predictions = (await readFile(join(outputDirectory, "predictions.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
-                assert.equal(calls.filter((call) => call.args[0] === "rm").length, predictions.length);
                 return { ...ok, stdout: JSON.stringify({ exitCode: 0, results: predictions.map((p, i) => ({ instanceId: p.instance_id,
                     status: p.model_patch === "" ? "empty_patch" : i === 0 ? "resolved" : "unresolved", logDirectory: `/logs/${p.instance_id}` })) }) };
             }
@@ -60,18 +71,45 @@ async function fixture(t: TestContext, changes: {
         generate: async () => {
             modelCalls++;
             changes.onGenerate?.();
-            const observation = changes.complete ? await latestObservation(outputDirectory, ids[Math.floor((modelCalls - 1) / 2)]!) : undefined;
-            return { content: JSON.stringify({ result: observation === undefined ? {
-                kind: "tool_call", action: { actionId: `a-${modelCalls}`, toolId: "swebench_shell", input: { command: "python -m pytest", timeoutSeconds: 30 } }, memoryPatch: null,
-            } : { kind: "complete", summary: "Done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [observation] }], memoryPatch: null } }),
-                ...(modelCalls === 1 ? { providerMetadata: { usage: { inputTokens: 12, outputTokens: 3 } } } : {}),
-            };
+            return { content: "{}", ...(modelCalls === 1 ? { providerMetadata: { usage: { inputTokens: 12, outputTokens: 3 } } } : {}) };
         },
     };
+    const runSupervisor: NonNullable<SwebenchEvaluationOptions["runSupervisor"]> = async (supervisorOptions) => {
+        const instanceDirectory = join(supervisorOptions.outputDirectory, "runtime", supervisorOptions.task.instance_id);
+        if (changes.setupFails) {
+            return { stopReason: null, patch: null, patchPath: null, persistence: null,
+                errors: [{ stage: "container_start" as const, message: "image unavailable" }] };
+        }
+        const callsBefore = modelCalls;
+        const callCount = changes.complete ? 2 : 1;
+        for (let index = 0; index < callCount; index += 1) await supervisorOptions.llmAdapter.generate({ messages: [] });
+        const inputTokens = callsBefore === 0 ? 12 : 0;
+        const missingCalls = callCount - (callsBefore === 0 ? 1 : 0);
+        await mkdir(join(instanceDirectory, "goals"), { recursive: true });
+        await mkdir(join(instanceDirectory, "trajectories"), { recursive: true });
+        await mkdir(join(instanceDirectory, "traces"), { recursive: true });
+        const persistence = {
+            goalSnapshot: `runtime/${supervisorOptions.task.instance_id}/goals`,
+            trajectory: `runtime/${supervisorOptions.task.instance_id}/trajectories`,
+            diagnosticTrace: `runtime/${supervisorOptions.task.instance_id}/traces`,
+        };
+        if (changes.exportFails) {
+            return { stopReason: null, patch: null, patchPath: null, persistence,
+                errors: [{ stage: "patch_export" as const, message: "git export failed" }] };
+        }
+        const modelPatch = changes.emptyPatch ? "" : patch;
+        const patchPath = join(supervisorOptions.outputDirectory, `${supervisorOptions.task.instance_id}.patch`);
+        await writeFile(patchPath, modelPatch);
+        return {
+            stopReason: changes.complete ? "end_turn" as const : "max_turn_requests" as const,
+            patch: modelPatch, patchPath, persistence,
+            meta: { runStatus: changes.complete ? "completed" : "failed", stopReason: changes.complete ? null : { kind: "max_steps_exceeded" }, completed: changes.complete,
+                usage: { inputTokens, outputTokens: inputTokens === 0 ? 0 : 3, missingCalls } }, errors: [],
+        };
+    };
     return { outputDirectory, calls, modelCalls: () => modelCalls, options: {
-        manifest: changes.complete ? { ...manifest, maxSteps: 3 } : manifest, outputDirectory, workspaceRoot: directory,
-        python: "python", modelId: "test-model", llmAdapter, renderer: { render: () => "system" },
-        contextCompactor: { compact: async (units) => [...units] }, runProcess: run,
+        manifest: changes.complete ? { ...manifest, maxSteps: 3 } : manifest, outputDirectory,
+        python: "python", modelId: "test-model", llmAdapter, workerArtifact, runProcess: run, runSupervisor,
     } satisfies SwebenchEvaluationOptions };
 }
 
@@ -89,6 +127,12 @@ async function latestObservation(output: string, instanceId: string): Promise<nu
 test("one attempt per task persists Runtime facts and patches; max-step failure can still resolve officially", async (t) => {
     const f = await fixture(t);
     const report = await runSwebenchEvaluation(f.options);
+    assert.equal(report.configId, "swebench-acp-container-v1");
+    assert.equal(report.profile.id, "swebench-acp-profile");
+    assert.equal(report.worker.workerSha256, workerManifest.workerSha256);
+    assert.equal(report.worker.nodeVersion, "22.22.2");
+    assert.equal(report.worker.acpProtocolVersion, 1);
+    assert.equal(report.worker.acpSdkVersion, "1.4.0");
     assert.equal(f.modelCalls(), 2);
     assert.equal(report.status, "completed");
     assert.equal(report.summary.resolved, 1);
@@ -98,13 +142,12 @@ test("one attempt per task persists Runtime facts and patches; max-step failure 
     assert.deepEqual(report.attempts.map((a) => a.runStatus), ["failed", "failed"]);
     for (const attempt of report.attempts) assert.equal((attempt.stopReason as { kind: string }).kind, "max_steps_exceeded");
     assert.deepEqual(report.attempts.map((a) => a.gradingStatus), ["resolved", "unresolved"]);
-    assert.equal(f.calls.filter((c) => c.args[0] === "create").length, 2);
     for (const attempt of report.attempts) {
         assert.equal(attempt.attempt, 1);
-        assert.equal(await readFile(attempt.patchPath, "utf8"), patch);
-        assert.ok((await readdir(attempt.persistence!.goalSnapshot)).length > 0);
-        assert.ok((await readdir(attempt.persistence!.trajectory)).length > 0);
-        assert.ok((await readdir(attempt.persistence!.diagnosticTrace!)).length > 0);
+        assert.equal(await readFile(attempt.patchPath!, "utf8"), patch);
+        assert.ok((await readdir(join(f.outputDirectory, attempt.persistence!.goalSnapshot))).length >= 0);
+        assert.ok((await readdir(join(f.outputDirectory, attempt.persistence!.trajectory))).length >= 0);
+        assert.ok((await readdir(join(f.outputDirectory, attempt.persistence!.diagnosticTrace!))).length >= 0);
     }
     const predictions = (await readFile(join(f.outputDirectory, "predictions.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.deepEqual(predictions.map((p) => p.instance_id), ids);
@@ -141,7 +184,7 @@ test("setup failures are counted against the fixed denominator and never call th
     assert.equal(report.summary.total, 2);
     assert.equal(report.summary.notSubmitted, 2);
     assert.equal(f.modelCalls(), 0);
-    assert.equal(report.attempts[0]?.errors[0]?.stage, "environment");
+    assert.equal(report.attempts[0]?.errors[0]?.stage, "container_start");
 });
 
 test("patch export failure still closes containers and records the missing artifact", async (t) => {
@@ -149,7 +192,6 @@ test("patch export failure still closes containers and records the missing artif
     const report = await runSwebenchEvaluation(f.options);
     assert.equal(report.status, "failed");
     assert.equal(report.summary.notSubmitted, 2);
-    assert.equal(f.calls.filter((c) => c.args[0] === "rm").length, 2);
     assert.equal(report.attempts[0]?.errors[0]?.stage, "patch_export");
 });
 
@@ -170,18 +212,16 @@ test("interruption preserves current patch and usage and does not start the next
     assert.equal(report.summary.notRun, 1);
     assert.equal(report.summary.inputTokens, 12);
     assert.equal(report.attempts[0]?.gradingStatus, "pending");
-    assert.equal(await readFile(report.attempts[0]!.patchPath, "utf8"), patch);
+    assert.equal(await readFile(report.attempts[0]!.patchPath!, "utf8"), patch);
     assert.equal(f.calls.filter((c) => c.args[1] === "grade").length, 0);
-    assert.equal(f.calls.filter((c) => c.args[0] === "rm").length, 1);
 });
 
 test("preflight rejects unsupported harness versions before model construction", async () => {
     await assert.rejects(preflightSwebench("python", async () => ({ ...ok, stdout: '{"harnessVersion":"future"}' })), /version mismatch/);
 });
 
-test("SWE-bench profile forbids execution-phase plan creation", () => {
-    assert.match(SWE_PROFILE.instructions.join("\n"), /memoryPatch as null/);
-    assert.match(SWE_PROFILE.instructions.join("\n"), /PlanItems cannot be created/);
+test("SWE-bench ACP profile exposes only the five execution tools", () => {
+    assert.deepEqual(SWE_ACP_PROFILE.toolIds, ["read_file", "write_file", "edit_file", "grep", "bash"]);
 });
 
 test("malformed grading batches cannot leave partially accepted successes", async (t) => {

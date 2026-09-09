@@ -2,36 +2,23 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ContextCompactor, LLMAdapter, ModelConversationMessage, PromptBundleRenderer } from "../../../packages/agent/src/index.js";
-import { createDefaultPromptBundleProtocolValidator, readNormalizedUsage } from "../../../packages/agent/src/index.js";
-import { createToolRegistration, InMemoryToolRegistry, type AgentProfile } from "../../../packages/runtime/src/index.js";
-import { HeadlessCompositionRoot, type BenchmarkPersistenceBindings, type HeadlessEpisodeResult, type HeadlessModelUsage } from "../../src/headless-composition-root.js";
-import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
-import { createSwebenchShell, parseSwebenchTasks, SwebenchContainer, type SwebenchTask } from "./container.js";
+import type { LLMAdapter } from "../../../packages/agent/src/index.js";
+import type { HeadlessModelUsage, BenchmarkPersistenceLocator } from "../../src/headless-composition-root.js";
+import { SwebenchContainer, parseSwebenchTasks, type SwebenchTask } from "./container.js";
 import { isRecord, SWEBENCH_VERSION, type SwebenchManifest } from "./manifest.js";
 import { requireSuccess, runProcess, type ProcessRunner } from "./process.js";
+import {
+    runSwebenchSupervisor,
+    type SwebenchSupervisorOptions,
+    type SwebenchSupervisorResult,
+} from "./supervisor.js";
+import { SWE_ACP_PROFILE } from "./worker-runtime.js";
+import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
 
-export const SWE_PROFILE: AgentProfile = {
-    id: "swebench-profile",
-    name: "SWE-bench shell baseline",
-    systemPrompt: "You are a software engineer resolving the provided repository issue.",
-    instructions: [
-        "Use swebench_shell to inspect and modify /testbed. Run relevant tests or a reproduction before completing.",
-        "Your final repository changes are exported automatically as a patch. A final text answer alone does not modify files.",
-        "Do not modify .git or use reference solutions. The official grading tests are unavailable during this attempt.",
-        "Always return memoryPatch as null. This benchmark starts directly in executing, where new PlanItems cannot be created.",
-        "There is one attempt per issue. Complete when your fix is ready; report limitations honestly.",
-    ],
-    toolIds: ["swebench_shell"],
-};
+/** 当前 SWE-bench ACP 容器评测身份。 */
+export const SWE_ACP_CONFIG_ID = "swebench-acp-container-v1" as const;
 
-/**
- * 单题作答与评分的独立记录；usage 对缺失供应商数据显式计数。
- * @example
- * ```ts
- * console.log(report.attempts[0]?.gradingStatus, report.attempts[0]?.runStatus);
- * ```
- */
+/** 单题作答与评分的独立记录；usage 对缺失供应商数据显式计数。 */
 export interface SwebenchAttempt {
     readonly instanceId: string;
     readonly goalId: string;
@@ -42,17 +29,30 @@ export interface SwebenchAttempt {
     readonly stopReason: unknown;
     readonly usage: HeadlessModelUsage;
     readonly imageId: string | null;
-    readonly patchPath: string;
+    readonly patchPath: string | null;
     readonly patchBytes: number;
     readonly patchSha256: string | null;
-    readonly persistence: HeadlessEpisodeResult<null>["persistence"] | null;
+    readonly persistence: BenchmarkPersistenceLocator | null;
     readonly errors: readonly { readonly stage: string; readonly message: string }[];
     gradingStatus: "pending" | "resolved" | "unresolved" | "empty_patch" | "grading_error" | "not_submitted";
     gradingLogDirectory?: string;
 }
 
+/** 报告中固定 Worker、Node 和 ACP 协议身份；不包含容器内路径或模型凭据。 */
+export interface SwebenchWorkerReportIdentity {
+    readonly workerSha256: string;
+    readonly nodeSha256: string;
+    readonly nodeVersion: WorkerManifest["nodeVersion"];
+    readonly nodeImage: string;
+    readonly nodeImageId: string;
+    readonly platform: WorkerManifest["platform"];
+    readonly acpProtocolVersion: 1;
+    readonly acpSdkVersion: WorkerManifest["acpSdkVersion"];
+}
+
 /**
  * 完整清单是成功率分母，模型声明完成不参与评分；中止保留已有题目及未运行数量。
+ *
  * @example
  * ```ts
  * console.log(report.summary.resolved, report.summary.total);
@@ -61,12 +61,13 @@ export interface SwebenchAttempt {
 export interface SwebenchReport {
     readonly schemaVersion: 1;
     readonly runId: string;
-    readonly configId: "swebench-shell-v1";
+    readonly configId: typeof SWE_ACP_CONFIG_ID;
     readonly harnessVersion: string;
+    readonly profile: typeof SWE_ACP_PROFILE;
+    readonly profileSha256: string;
+    readonly worker: SwebenchWorkerReportIdentity;
     readonly manifest: SwebenchManifest;
     readonly manifestSha256: string;
-    readonly profile: AgentProfile;
-    readonly profileSha256: string;
     readonly modelId: string;
     readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     readonly attempts: SwebenchAttempt[];
@@ -76,25 +77,28 @@ export interface SwebenchReport {
 }
 
 /**
- * 评测接线；outputDirectory 必须是专属的新目录，外部进程可注入确定性替身。
+ * 评测接线；Worker 产物由 CLI 构建并在所有题目间复用，Supervisor 可替换为确定性测试替身。
+ *
  * @example
  * ```ts
- * const report = await runSwebenchEvaluation({ manifest, outputDirectory, workspaceRoot,
- *   python: "python3", modelId: "model", llmAdapter, renderer, contextCompactor });
+ * const report = await runSwebenchEvaluation({
+ *   manifest, outputDirectory, python: "python3", modelId: "model",
+ *   llmAdapter, workerArtifact,
+ * });
  * ```
  */
 export interface SwebenchEvaluationOptions {
     readonly manifest: SwebenchManifest;
     readonly outputDirectory: string;
-    readonly workspaceRoot: string;
     readonly python: string;
     readonly modelId: string;
     readonly llmAdapter: LLMAdapter;
-    readonly renderer: PromptBundleRenderer;
-    readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
+    readonly workerArtifact: WorkerArtifact;
     readonly signal?: AbortSignal;
     readonly runProcess?: ProcessRunner;
     readonly onProgress?: (message: string) => void;
+    /** 测试注入的单题 Supervisor；生产默认使用真实 ACP 容器实现。 */
+    readonly runSupervisor?: (options: SwebenchSupervisorOptions) => Promise<SwebenchSupervisorResult>;
 }
 
 export const BRIDGE_PATH = fileURLToPath(new URL("../python/bridge.py", import.meta.url));
@@ -106,25 +110,30 @@ export async function preflightSwebench(python: string, run: ProcessRunner = run
     if (!isRecord(response) || response.harnessVersion !== SWEBENCH_VERSION) throw new Error("SWE-bench harness version mismatch");
 }
 
-/**
- * 顺序单次作答、逐题保存补丁与报告，再委托官方 harness 评分；不会依据评分重新作答。
- * @remarks
- * 每次调用分配唯一 runId，避免官方评分缓存复用旧补丁。SIGINT 中止后保存已有产物。
- * Python 数据集原始记录仅保存在宿主 outputDirectory，Agent 只能访问隔离容器。
- */
+/** 顺序单次作答、逐题保存补丁与报告，再委托官方 harness 评分。 */
 export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions): Promise<SwebenchReport> {
     const run = options.runProcess ?? runProcess;
+    validateWorkerArtifact(options.workerArtifact);
     const output = resolve(options.outputDirectory);
     await mkdir(output, { recursive: false });
     const runId = `lg-${randomUUID()}`;
     const manifestPath = join(output, "manifest.json");
     await writeFile(manifestPath, JSON.stringify(options.manifest, null, 2) + "\n");
     const report: SwebenchReport = {
-        schemaVersion: 1, runId, configId: "swebench-shell-v1", harnessVersion: SWEBENCH_VERSION,
-        manifest: options.manifest, manifestSha256: hash(JSON.stringify(options.manifest)),
-        profile: SWE_PROFILE, profileSha256: hash(JSON.stringify(SWE_PROFILE)), modelId: options.modelId,
+        schemaVersion: 1,
+        runId,
+        configId: SWE_ACP_CONFIG_ID,
+        harnessVersion: SWEBENCH_VERSION,
+        profile: SWE_ACP_PROFILE,
+        profileSha256: hash(JSON.stringify(SWE_ACP_PROFILE)),
+        worker: workerIdentity(options.workerArtifact.manifest),
+        manifest: options.manifest,
+        manifestSha256: hash(JSON.stringify(options.manifest)),
+        modelId: options.modelId,
         structuredOutputMode: options.llmAdapter.structuredOutputMode,
-        attempts: [], status: "running", summary: summarize([], options.manifest.instanceIds.length),
+        attempts: [],
+        status: "running",
+        summary: summarize([], options.manifest.instanceIds.length),
     };
     const predictions: { instance_id: string; model_name_or_path: string; model_patch: string }[] = [];
     const save = async () => {
@@ -176,7 +185,6 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
                 if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
             }
         }
-        // 官方 harness 被中止时可能没来得及执行其 finally；只回收本次唯一 runId 的评分容器。
         try {
             const ids = requireSuccess(await run("docker", ["ps", "-aq", "--filter", `name=sweb.eval.*.${runId}`],
                 { timeoutMs: 10000 }), "Find grading containers").trim().split(/\s+/).filter(Boolean);
@@ -191,99 +199,61 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
     return report;
 }
 
-async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask, name: string, run: ProcessRunner) {
+async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask, name: string, run: ProcessRunner): Promise<{ readonly attempt: SwebenchAttempt; readonly patch: string | null }> {
     const started = Date.now();
-    const controller = new AbortController();
-    const abort = () => controller.abort();
-    options.signal?.addEventListener("abort", abort, { once: true });
-    if (options.signal?.aborted) abort();
-    const timer = setTimeout(abort, options.manifest.taskTimeoutSeconds * 1000);
-    const container = new SwebenchContainer(name, task, run);
     const goalId = randomUUID();
-    const runId = randomUUID();
-    let bindings: BenchmarkPersistenceBindings | undefined;
-    let patch: string | null = null;
-    const errors: { stage: string; message: string }[] = [];
-    let stage = "environment";
-    let result: HeadlessEpisodeResult<null> | undefined;
-    const usage = { inputTokens: 0, outputTokens: 0, missingCalls: 0 };
-    // Root 抛出时不会返回 model 事实，此计数器仍保留已经发生的调用用量。
-    const measuredAdapter: LLMAdapter = {
+    const taskRunId = randomUUID();
+    const container = new SwebenchContainer(`lg-swe-${name}`, task, run);
+    const metadata = {
+        instanceId: task.instance_id,
+        repo: task.repo,
+        baseCommit: task.base_commit,
+        problemStatement: task.problem_statement,
+        goalId,
+        runId: taskRunId,
+        maxSteps: options.manifest.maxSteps,
         structuredOutputMode: options.llmAdapter.structuredOutputMode,
-        generate: async (request, control) => {
-            let recorded = false;
-            try {
-                const response = await options.llmAdapter.generate(request, control);
-                const tokens = readNormalizedUsage(response.providerMetadata);
-                if (tokens !== undefined) {
-                    usage.inputTokens += tokens.inputTokens;
-                    usage.outputTokens += tokens.outputTokens;
-                    recorded = true;
-                }
-                return response;
-            } finally { if (!recorded) usage.missingCalls++; }
-        },
-    };
-    const persistence = new JsonFileBenchmarkPersistenceAdapter<SwebenchTask>({
-        rootDirectory: join(options.outputDirectory, "runtime"), namespaceFor: (value) => value.instance_id, enableTrace: true,
-    });
+    } as const;
+    let result: SwebenchSupervisorResult = { stopReason: null, patch: null, patchPath: null, persistence: null, errors: [] };
     try {
-        const root = new HeadlessCompositionRoot<SwebenchTask, null>({
-            benchmarkId: "swebench", workspaceRoot: options.workspaceRoot, profile: SWE_PROFILE,
-            llmAdapter: measuredAdapter, renderer: options.renderer, contextCompactor: options.contextCompactor,
-            protocolValidator: createDefaultPromptBundleProtocolValidator(), toolPolicy: { evaluate: () => "allow" },
-            goalIdGenerator: () => goalId, runIdGenerator: () => runId,
-            persistence: {
-                namespaceFor: (value) => persistence.namespaceFor(value),
-                open: async (context) => { bindings = await persistence.open(context); return bindings; },
-            },
-            adapter: {
-                describeTask: () => ({ intent: task.problem_statement,
-                    objective: `Resolve the issue in ${task.repo} at ${task.base_commit}:\n\n${task.problem_statement}`,
-                    completionCriteria: ["Implement the issue fix in /testbed and run relevant verification."], maxSteps: options.manifest.maxSteps }),
-                createEpisode: async () => {
-                    await container.start(controller.signal);
-                    stage = "agent";
-                    return {
-                        registry: new InMemoryToolRegistry([createToolRegistration(createSwebenchShell(container))]),
-                        readOutcome: () => null,
-                        close: async () => {
-                            try { patch = await container.exportPatch(); }
-                            catch (error) { errors.push({ stage: "patch_export", message: errorMessage(error) }); }
-                            finally { await container.close(); }
-                        },
-                    };
-                },
-            },
-        });
-        result = await root.run(task, { signal: controller.signal });
-        if (result.cleanupError !== undefined) errors.push({ stage: "cleanup", message: errorMessage(result.cleanupError) });
-        if (!result.progress.ok) errors.push({ stage: "runtime", message: result.progress.error.code });
-        if (result.runner !== null && !result.runner.ok) errors.push({ stage: "runtime", message: result.runner.error.code });
-        if (result.goal.state.run.stopReason?.kind === "execution_error") {
-            errors.push({ stage: "execution", message: result.goal.state.run.stopReason.code });
-        }
+        const supervisor = options.runSupervisor ?? runSwebenchSupervisor;
+        const supervisorInput = {
+            task,
+            container,
+            artifact: options.workerArtifact,
+            manifest: options.workerArtifact.manifest,
+            metadata,
+            llmAdapter: options.llmAdapter,
+            outputDirectory: options.outputDirectory,
+            taskTimeoutMs: options.manifest.taskTimeoutSeconds * 1000,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+        };
+        result = await supervisor(supervisorInput);
     } catch (error) {
-        errors.push({ stage: controller.signal.aborted ? (options.signal?.aborted ? "aborted" : "task_timeout") : stage,
-            message: errorMessage(error) });
+        result = { ...result, errors: [{ stage: options.signal?.aborted ? "cancel" : "runtime", message: errorMessage(error) }] };
     } finally {
-        clearTimeout(timer);
-        options.signal?.removeEventListener("abort", abort);
         try { await container.close(); }
-        catch (error) { errors.push({ stage: "cleanup", message: errorMessage(error) }); }
+        catch (error) { result = { ...result, errors: [...result.errors, { stage: "cleanup", message: errorMessage(error) }] }; }
     }
-    const patchPath = join(options.outputDirectory, `${task.instance_id}.patch`);
-    if (patch !== null) await writeArtifact(patchPath, patch);
-    let savedGoal = result?.goal;
-    if (savedGoal === undefined) {
-        try { savedGoal = await bindings?.goalStore.restore(goalId); }
-        catch (error) { errors.push({ stage: "snapshot_read", message: errorMessage(error) }); }
-    }
+    const patch = result.patch;
+    const patchPath = patch === null ? null : result.patchPath ?? join(options.outputDirectory, `${task.instance_id}.patch`);
+    if (patch !== null && result.patchPath === null) await writeArtifact(patchPath!, patch);
+    const meta = result.meta;
     const attempt: SwebenchAttempt = {
-        instanceId: task.instance_id, goalId, runId, attempt: 1, durationMs: Date.now() - started,
-        runStatus: savedGoal?.state.run.status ?? "not_started", stopReason: savedGoal?.state.run.stopReason ?? null,
-        usage, imageId: container.imageId ?? null, patchPath, patchBytes: patch === null ? 0 : Buffer.byteLength(patch),
-        patchSha256: patch === null ? null : hash(patch), persistence: bindings?.locator ?? null, errors,
+        instanceId: task.instance_id,
+        goalId,
+        runId: taskRunId,
+        attempt: 1,
+        durationMs: Date.now() - started,
+        runStatus: typeof meta?.runStatus === "string" ? meta.runStatus : "not_started",
+        stopReason: meta?.stopReason ?? result.stopReason,
+        usage: readUsage(meta?.usage),
+        imageId: container.imageId ?? null,
+        patchPath,
+        patchBytes: patch === null ? 0 : Buffer.byteLength(patch),
+        patchSha256: patch === null ? null : hash(patch),
+        persistence: result.persistence ?? readPersistence(meta?.persistence),
+        errors: result.errors,
         gradingStatus: patch === null ? "not_submitted" : "pending",
     };
     return { attempt, patch };
@@ -324,6 +294,35 @@ function summarize(attempts: readonly SwebenchAttempt[], total: number) {
         outputTokens: attempts.reduce((sum, a) => sum + a.usage.outputTokens, 0),
         missingUsageCalls: attempts.reduce((sum, a) => sum + a.usage.missingCalls, 0),
         durationMs: attempts.reduce((sum, a) => sum + a.durationMs, 0) };
+}
+
+function workerIdentity(manifest: WorkerManifest): SwebenchWorkerReportIdentity {
+    return { workerSha256: manifest.workerSha256, nodeSha256: manifest.nodeSha256, nodeVersion: manifest.nodeVersion,
+        nodeImage: manifest.nodeImage, nodeImageId: manifest.nodeImageId, platform: manifest.platform,
+        acpProtocolVersion: manifest.acpProtocolVersion, acpSdkVersion: manifest.acpSdkVersion };
+}
+
+function validateWorkerArtifact(artifact: WorkerArtifact): void {
+    if (artifact.manifest.platform !== "linux/amd64" || artifact.manifest.nodeVersion !== "22.22.2"
+        || artifact.manifest.acpProtocolVersion !== 1 || artifact.manifest.acpSdkVersion !== "1.4.0") {
+        throw new TypeError("Worker artifact identity is not supported by SWE-bench ACP evaluation");
+    }
+}
+
+function readUsage(value: unknown): HeadlessModelUsage {
+    if (!isRecord(value)
+        || typeof value.inputTokens !== "number" || !Number.isSafeInteger(value.inputTokens) || value.inputTokens < 0
+        || typeof value.outputTokens !== "number" || !Number.isSafeInteger(value.outputTokens) || value.outputTokens < 0
+        || typeof value.missingCalls !== "number" || !Number.isSafeInteger(value.missingCalls) || value.missingCalls < 0) {
+        return { inputTokens: 0, outputTokens: 0, missingCalls: 0 };
+    }
+    return { inputTokens: value.inputTokens, outputTokens: value.outputTokens, missingCalls: value.missingCalls };
+}
+
+function readPersistence(value: unknown): BenchmarkPersistenceLocator | null {
+    if (!isRecord(value) || typeof value.goalSnapshot !== "string" || typeof value.trajectory !== "string") return null;
+    return { goalSnapshot: value.goalSnapshot, trajectory: value.trajectory,
+        ...(typeof value.diagnosticTrace === "string" ? { diagnosticTrace: value.diagnosticTrace } : {}) };
 }
 
 function hash(value: string): string { return createHash("sha256").update(value).digest("hex"); }

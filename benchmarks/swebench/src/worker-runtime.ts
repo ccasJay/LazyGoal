@@ -128,6 +128,45 @@ export interface SwebenchAcpTaskMetadata {
 }
 
 /**
+ * 在 ACP `session/new` 的 metadata 边界校验并提取 SWE-bench 任务身份。
+ *
+ * @param value - 来自 Worker wire boundary 的未知 metadata。
+ * @returns 通过字段、标识和模式校验的当前任务 metadata。
+ * @throws metadata 缺失、类型错误或身份字段不符合当前协议时抛出。
+ * @example
+ * ```ts
+ * const metadata = parseSwebenchAcpTaskMetadata(sessionMeta);
+ * console.log(metadata.instanceId, metadata.structuredOutputMode);
+ * ```
+ */
+export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMetadata {
+    if (!isRecord(value)
+        || typeof value.instanceId !== "string"
+        || typeof value.repo !== "string"
+        || typeof value.baseCommit !== "string"
+        || typeof value.problemStatement !== "string"
+        || typeof value.goalId !== "string"
+        || typeof value.runId !== "string"
+        || typeof value.maxSteps !== "number"
+        || !Number.isSafeInteger(value.maxSteps)
+        || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")) {
+        throw new TypeError("Invalid SWE-bench ACP session metadata");
+    }
+    const metadata = {
+        instanceId: value.instanceId,
+        repo: value.repo,
+        baseCommit: value.baseCommit,
+        problemStatement: value.problemStatement,
+        goalId: value.goalId,
+        runId: value.runId,
+        maxSteps: value.maxSteps,
+        structuredOutputMode: value.structuredOutputMode,
+    } satisfies SwebenchAcpTaskMetadata;
+    validateMetadata(metadata);
+    return metadata;
+}
+
+/**
  * Worker Headless Root 的模型与持久化装配依赖。
  *
  * @example
@@ -327,4 +366,8 @@ function validateMetadata(metadata: SwebenchAcpTaskMetadata): void {
     if (!/^[A-Za-z0-9_.-]+$/u.test(metadata.goalId) || !/^[A-Za-z0-9_.-]+$/u.test(metadata.runId)) throw new TypeError("goalId and runId are invalid");
     if (!Number.isSafeInteger(metadata.maxSteps) || metadata.maxSteps <= 0) throw new RangeError("maxSteps must be positive");
     if (metadata.structuredOutputMode !== "strict" && metadata.structuredOutputMode !== "prompt_only") throw new TypeError("structuredOutputMode is invalid");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

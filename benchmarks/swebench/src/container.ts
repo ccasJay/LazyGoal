@@ -1,7 +1,5 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import type { Tool } from "../../../packages/runtime/src/index.js";
-import { contract, type InferContract } from "../../../packages/contracts/src/index.js";
 import { isRecord } from "./manifest.js";
 import { requireSuccess, runInteractiveProcess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "./process.js";
 import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
@@ -39,16 +37,10 @@ export function parseSwebenchTasks(value: unknown): SwebenchTask[] {
     });
 }
 
-export const SWE_SHELL_CONTRACT = contract.object({
-    command: contract.string(),
-    timeoutSeconds: contract.optional(contract.integer({ minimum: 1, maximum: 120 })),
-});
-type ShellInput = InferContract<typeof SWE_SHELL_CONTRACT>;
-
 /**
  * 单题 Docker 工作区。无宿主挂载、无网络，固定 linux/amd64；close 仅删除自己的容器。
  * @remarks
- * shell 的目录与环境不跨调用保留，文件修改保留；补丁须在 close 前导出。
+ * Worker 的控制流与 `/testbed` 工作区分离；文件修改保留，补丁须在 close 前导出。
  * @example
  * ```ts
  * const container = new SwebenchContainer("lg-swe-unique-0", task);
@@ -209,23 +201,4 @@ export class SwebenchContainer {
         if (result.code !== 0 && !result.stderr.includes("No such container")) requireSuccess(result, "Remove SWE-bench container");
         this.closed = true;
     }
-}
-
-/** 构造只在任务容器执行的 shell 工具；非零命令退出是可观察的作答失败。 */
-export function createSwebenchShell(container: SwebenchContainer): Tool<typeof SWE_SHELL_CONTRACT> {
-    return {
-        definition: { id: "swebench_shell", inputContract: SWE_SHELL_CONTRACT,
-            description: "Run bash in /testbed with conda testbed activated. Read, search, edit files and run tests here. No network. Shell state resets each call; file changes persist. Output is bounded." },
-        replayPolicy: "manual",
-        validate: (input: ShellInput) => input.command.trim() && !input.command.includes("\0")
-            ? { ok: true } : { ok: false, error: { code: "INVALID_TOOL_INPUT", message: "command must be non-empty and contain no NUL" } },
-        execute: async ({ input }, control) => {
-            const result = await container.exec(input.command, input.timeoutSeconds ?? 30, control?.signal);
-            const output = `${result.stdout}\n${result.stderr}`.trim();
-            return result.code === 0
-                ? { kind: "success", output, summary: "Container command exited 0" }
-                : { kind: "failure", code: result.code === 124 || result.code === 137 ? "COMMAND_TIMEOUT" : "COMMAND_FAILED",
-                    message: `Container command exited ${result.code}: ${output}`, retryable: true };
-        },
-    };
 }

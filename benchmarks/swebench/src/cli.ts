@@ -3,9 +3,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
-import { createDefaultPromptBundleRenderer, DropOldestContextCompactor } from "../../../packages/agent/src/index.js";
 import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { buildSwebenchWorker } from "./worker-builder.js";
+import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
 import { preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
 
@@ -58,11 +59,16 @@ export async function runSwebenchCli(argv: readonly string[] = process.argv.slic
         const config = readLlmConfig(process.env);
         const adapter = createLlmAdapter(config);
         await preflightSwebench(command.python, undefined, controller.signal);
+        const workerArtifact = await buildSwebenchWorker({
+            projectRoot: process.cwd(),
+            entryPoint: SWE_ACP_WORKER_ENTRYPOINT,
+            cacheDirectory: ".lazygoal/benchmarks/swebench-worker-cache",
+            promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
+        });
         await mkdir(dirname(command.output), { recursive: true });
         const report = await runSwebenchEvaluation({
-            manifest, outputDirectory: command.output, workspaceRoot: process.cwd(), python: command.python, modelId: config.model,
-            llmAdapter: adapter,
-            renderer: await createDefaultPromptBundleRenderer(), contextCompactor: new DropOldestContextCompactor(),
+            manifest, outputDirectory: command.output, python: command.python, modelId: config.model,
+            llmAdapter: adapter, workerArtifact,
             signal: controller.signal, onProgress: (text) => process.stderr.write(`${text}\n`),
         });
         process.stdout.write(JSON.stringify({ outputDirectory: command.output, status: report.status, summary: report.summary }) + "\n");

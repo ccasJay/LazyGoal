@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createToolRegistration, isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
-import { createSwebenchShell, SwebenchContainer } from "../src/container.js";
+import { isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
+import { SwebenchContainer } from "../src/container.js";
 import { requireSuccess, runProcess, type ProcessRunner } from "../src/process.js";
 import type { WorkerArtifact } from "../src/worker-builder.js";
 
@@ -29,7 +29,7 @@ test("process abort terminates the child and propagates Runtime abort semantics"
     await assert.rejects(runProcess("missing-lazygoal-command", [], { timeoutMs: 1000 }), /ENOENT/);
 });
 
-test("container shell never mounts the host or forwards its credentials, and executes input as one container argument", async () => {
+test("container boundary never mounts the host or forwards credentials", async () => {
     const calls: { command: string; args: readonly string[] }[] = [];
     const run: ProcessRunner = async (command, args) => {
         calls.push({ command, args });
@@ -37,21 +37,10 @@ test("container shell never mounts the host or forwards its credentials, and exe
     };
     const container = new SwebenchContainer("unique", task, run);
     await container.start();
-    const input = "printf '%s' 'a; $(echo b)'\nls";
-    const registration = createToolRegistration(createSwebenchShell(container));
-    assert.equal(registration.prepare({ command: input, timeoutSeconds: 121 }).ok, false);
-    assert.equal(registration.prepare({ command: " " }).ok, false);
-    const prepared = registration.prepare({ command: input, timeoutSeconds: 10 });
-    assert.equal(prepared.ok, true);
-    if (prepared.ok) await prepared.execute("action");
     const create = calls.find((c) => c.args[0] === "create")!;
     assert.ok(create.args.includes("none"));
     assert.ok(create.args.includes("linux/amd64"));
     assert.ok(!create.args.some((a) => ["-v", "--mount", "--volume", "-e", "--env", "--privileged"].includes(a)));
-    const shell = calls.at(-1)!;
-    assert.equal(shell.command, "docker");
-    assert.equal(shell.args.at(-1), `source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && ${input}`);
-    assert.ok(shell.args.includes("timeout"));
     await container.close();
     await container.close();
     assert.equal(calls.filter((c) => c.args[0] === "rm").length, 1);
