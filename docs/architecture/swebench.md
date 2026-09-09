@@ -36,6 +36,15 @@ manifest 写入 `/opt/lazygoal`，不向 `/testbed` 添加挂载或环境变量�
 两个文件摘要、base commit 和 `conda testbed`。题目 Tool 使用不继承 Worker 控制流的
 独立 stdio，Worker 进程通过 `docker exec -i` 启动。
 
+Worker 侧的 [`runSwebenchAcpTask`](../../benchmarks/swebench/src/worker-runtime.ts) 在
+容器内装配真实 `HeadlessCompositionRoot`，固定 `swebench-acp-profile` 和
+`read_file`、`write_file`、`edit_file`、`grep`、`bash` 五个 Tool；五个 Tool 都以
+`/testbed` 为根，每个调用创建独立 Registry。任务 metadata 只在 Worker 内生成确定性
+objective 和完成条件，Preparation 不调用模型并自动批准进入 executing；Goal、Run 和
+JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验和
+structured-output mode 一致性检查在首次 Root 副作用前完成。当前宿主 Evaluator 仍使用
+下面描述的 baseline shell 路径，Worker 入口将在后续 Supervisor 任务接入。
+
 ## 结束与评分
 
 Episode 关闭前导出相对原始 base commit 的最终 Git diff，再删除容器。模型停止、

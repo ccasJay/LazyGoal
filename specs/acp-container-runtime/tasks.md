@@ -49,7 +49,7 @@
   - 验证方式：待实现的 `benchmarks/swebench/test/process-container.test.ts` 与 `worker-preflight.test.ts`；使用伪 ProcessRunner 断言 Docker 参数、凭据隔离和零模型调用。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.4](./requirements.md#req-4-4), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 8. 在容器内装配 SWE-bench Headless Runtime
+- [x] //TODO 8. 在容器内装配 SWE-bench Headless Runtime
 
   - 为 Worker 接入真实 `HeadlessCompositionRoot`，固定 `/testbed`、`swebench-acp-profile` 五个 Tool、容器内 Storage 和确定性任务描述，以 metadata 隔离 instance/Goal/Run；问题描述经现有状态转换和自动批准进入 executing，题目之间不共享容器、Registry 或命名空间。
   - 成功判据：五个 Tool 直接读写 `/testbed`；Goal、Run、Storage 和 Tool Registry 在题目之间不共享；Headless Root 的状态事实仍由现有 Runtime 产生。
