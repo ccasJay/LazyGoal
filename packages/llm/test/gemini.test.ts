@@ -37,23 +37,29 @@ test("Gemini SDK serializes every LazyGoal phase with typed enums and nullable u
             await createAdapter("strict").generate({ messages: [{ role: "user", content: "Return JSON" }], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
             assert.equal(JSON.stringify(bundle.jsonSchema), before, "conversion must not mutate the shared contract");
             const config = sent.at(-1).generationConfig;
-            assert.equal(config.responseJsonSchema, undefined);
+            assert.equal(config.responseSchema, undefined);
             let nullableCount = 0;
             let versionCount = 0;
             function inspect(node: any) {
-                assert.equal(node.additionalProperties, undefined);
-                if (node.enum) assert.equal(node.type, "STRING");
+                if (node.type === "object") assert.equal(node.additionalProperties, false);
+                else assert.equal(node.additionalProperties, undefined);
+                if (node.enum) assert.equal(node.type, "string");
                 if (node.nullable) nullableCount++;
                 if (node.minimum === 1 && node.maximum === 1) {
-                    assert.equal(node.type, "INTEGER");
+                    assert.equal(node.type, "integer");
                     versionCount++;
                 }
                 if (node.properties) Object.values(node.properties).forEach(inspect);
                 if (node.items) inspect(node.items);
-                if (node.anyOf) node.anyOf.forEach(inspect);
+                if (node.anyOf) {
+                    node.anyOf.forEach((branch: any) => {
+                        if (branch.type === "null") nullableCount++;
+                        inspect(branch);
+                    });
+                }
             }
-            inspect(config.responseSchema);
-            assert.equal(config.responseSchema.type, "OBJECT");
+            inspect(config.responseJsonSchema);
+            assert.equal(config.responseJsonSchema.type, "object");
             assert.ok(nullableCount > 0, kind);
             assert.ok(versionCount > 0, kind);
         }
@@ -72,7 +78,7 @@ test("Gemini retains numeric enum values as numeric constraints and rejects unsu
     await adapter.generate({ messages: [], structuredOutput: { name: "numbers", schema: {
         type: "object", properties: { choice: { enum: [1, 2.5] } }, required: ["choice"], additionalProperties: false,
     } } });
-    assert.deepEqual(captured.config.responseSchema.properties.choice, { anyOf: [
+    assert.deepEqual(captured.config.responseJsonSchema.properties.choice, { anyOf: [
         { type: "integer", minimum: 1, maximum: 1 },
         { type: "number", minimum: 2.5, maximum: 2.5 },
     ] });
@@ -81,6 +87,43 @@ test("Gemini retains numeric enum values as numeric constraints and rejects unsu
         type: "object", properties: { fixed: { enum: [true] } }, required: ["fixed"], additionalProperties: false,
     } } }), /only supports string or numeric enums/);
     assert.equal(captured, undefined);
+});
+
+test("Gemini preserves object union branches in the native JSON schema", async () => {
+    const adapter = createAdapter("strict");
+    let capturedInput: any;
+    (adapter as any).client = {
+        models: {
+            generateContent: async (input: any) => {
+                capturedInput = input;
+                return { text: "{}" };
+            },
+        },
+    };
+
+    const bundle = createModelOutputContractBundle({
+        kind: "executing",
+        authorizedTools: [{
+            id: "bash",
+            inputContract: contract.object({ command: contract.string() }),
+        }],
+    });
+    await adapter.generate({
+        messages: [],
+        structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
+    });
+
+    const resultSchema = capturedInput.config.responseJsonSchema.properties.result;
+    assert.ok(Array.isArray(resultSchema.anyOf));
+    const branches = resultSchema.anyOf as any[];
+    const toolBranch = branches.find((branch) => branch.properties.kind.enum?.[0] === "tool_call");
+    const completeBranch = branches.find((branch) => branch.properties.kind.enum?.[0] === "complete");
+    assert.ok(toolBranch);
+    assert.ok(completeBranch);
+    assert.ok(toolBranch.properties.action);
+    assert.equal(completeBranch.properties.action, undefined);
+    assert.deepEqual(toolBranch.required, ["kind", "action", "memoryPatch"]);
+    assert.deepEqual(completeBranch.required, ["kind", "summary", "completionEvidence", "memoryPatch"]);
 });
 
 function createAdapter(mode: "strict" | "prompt_only") {
@@ -99,7 +142,7 @@ test("Gemini exposes configured structuredOutputMode immutably", () => {
     assert.equal(promptOnlyAdapter.structuredOutputMode, "prompt_only");
 });
 
-test("Gemini in strict mode maps structuredOutput to responseMimeType and responseSchema", async () => {
+test("Gemini in strict mode maps structuredOutput to responseMimeType and responseJsonSchema", async () => {
     const adapter = createAdapter("strict");
     let capturedInput: any = undefined;
     let callCount = 0;
@@ -130,7 +173,7 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
     assert.equal(response.content, JSON.stringify({ summary: "done" }));
     assert.equal(capturedInput.model, "gemini-2.5-flash");
     assert.equal(capturedInput.config?.responseMimeType, "application/json");
-    assert.deepEqual(capturedInput.config?.responseSchema, dummySchema);
+    assert.deepEqual(capturedInput.config?.responseJsonSchema, dummySchema);
 });
 
 test("Gemini in strict mode fails fast when structuredOutput is missing without calling client", async () => {

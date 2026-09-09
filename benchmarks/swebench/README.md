@@ -28,17 +28,32 @@ set `DOCKER_HOST` to the daemon both should use.
 
 ## Run one complete task
 
-Set the provider configuration required by the selected LLM Adapter in the shell:
+Set the provider configuration required by the selected LLM Adapter in the shell.
+For an OpenAI-compatible endpoint:
 
 ```bash
+export LLM_PROVIDER='openai-compatible'
 export LLM_API_KEY='<your-key>'
 export LLM_BASE_URL='<your-compatible-api-url>'
 export LLM_MODEL='<your-model>'
 export LLM_STRUCTURED_OUTPUT_MODE='strict'
 ```
 
+For the native Google protocol, select the Google provider. Leave `LLM_BASE_URL`
+unset for the official endpoint, or set it to a proxy prefix that implements the
+Google API, including its version path:
+
+```bash
+export LLM_PROVIDER='google'
+export LLM_API_KEY='<your-key>'
+export LLM_MODEL='<your-gemini-model>'
+export LLM_STRUCTURED_OUTPUT_MODE='strict'
+unset LLM_BASE_URL
+```
+
 Use `prompt_only` if the provider does not support strict structured output. The
-host keeps provider credentials; the Worker receives only model responses through
+Google strict path requires the endpoint to implement `responseJsonSchema`.
+The host keeps provider credentials; the Worker receives only model responses through
 the LLM RPC channel.
 This command reads process environment variables; it does not load ALFWorld's
 environment file or a repository `.env` file.

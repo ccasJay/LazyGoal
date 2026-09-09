@@ -5,16 +5,16 @@ import type { JsonSchema202012 } from "../json-schema";
 import type { Contract } from "../types";
 import {
     type AgentDecision,
-    CompleteAgentDecisionContract,
     ContextLookupRequestContract,
-    FailAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
+    ExecutingFailAgentDecisionContract,
+    ExecutingWaitAgentDecisionContract,
+    ExecutingWorkingMemoryPatchContract,
     GatheringPreparationResultContract,
     ModelContextCheckpointResultContract,
     NonToolExecutingDecisionContract,
     PlanningPreparationResultContract,
     type PreparationResult,
-    WaitAgentDecisionContract,
-    WorkingMemoryPatchContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
@@ -105,7 +105,7 @@ function buildCanonicalToolBranch(tool: AuthorizedToolContract): Contract<unknow
             toolId: contract.literal(tool.id),
             input: tool.inputContract,
         }),
-        memoryPatch: contract.optional(WorkingMemoryPatchContract),
+        memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
     });
 }
 
@@ -120,7 +120,7 @@ function buildWireToolBranch(tool: AuthorizedToolContract): Contract<unknown> {
             toolId: contract.enum([tool.id]),
             input: deriveWireContract(tool.inputContract),
         }),
-        memoryPatch: contract.nullable(deriveWireContract(WorkingMemoryPatchContract)),
+        memoryPatch: contract.nullable(deriveWireContract(ExecutingWorkingMemoryPatchContract)),
     });
 }
 
@@ -210,15 +210,15 @@ export function createModelOutputContractBundle(
                 const toolWireBranches = sortedTools.map(buildWireToolBranch);
 
                 const nonToolCanonicalBranches = [
-                    CompleteAgentDecisionContract,
-                    WaitAgentDecisionContract,
-                    FailAgentDecisionContract,
+                    ExecutingCompleteAgentDecisionContract,
+                    ExecutingWaitAgentDecisionContract,
+                    ExecutingFailAgentDecisionContract,
                     ContextLookupRequestContract,
                 ];
                 const nonToolWireBranches = [
-                    deriveWireContract(CompleteAgentDecisionContract),
-                    deriveWireContract(WaitAgentDecisionContract),
-                    deriveWireContract(FailAgentDecisionContract),
+                    deriveWireContract(ExecutingCompleteAgentDecisionContract),
+                    deriveWireContract(ExecutingWaitAgentDecisionContract),
+                    deriveWireContract(ExecutingFailAgentDecisionContract),
                     deriveWireContract(ContextLookupRequestContract),
                 ];
 

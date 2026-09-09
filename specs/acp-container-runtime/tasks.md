@@ -84,6 +84,13 @@
   - 验证方式：`npm test`；`npx tsc --noEmit`；`npm run check:dependencies`；`npm run typecheck --prefix benchmarks`；`npm run test --prefix benchmarks`；`npm run swebench:test-python --prefix benchmarks`；显式 `npm run swebench:worker-smoke --prefix benchmarks`；`git diff --check`。
   - _Requirements: [8.4](./requirements.md#req-8-4)_
 
+- [x] //TODO 13. 修复 Google 原生 strict 执行协议
+
+  - 将 Gemini strict 请求改用原生 `responseJsonSchema` 并保留对象联合的分支约束；为 executing 输出派生阶段专用 MemoryPatch 契约，排除 Runtime 阶段门禁止的 `create_plan_item`，同时保持 Planning 可创建 PlanItem。
+  - 成功判据：Google 原生 strict Schema 保留 `anyOf`、`required` 与 `additionalProperties`；executing Schema、Shape Guide 和本地 decode 均拒绝 `create_plan_item`；真实单题不再在首轮因该协议矛盾失败。
+  - 验证方式：Contracts 与 Gemini Adapter 定向测试；TypeScript、依赖、全仓库及 benchmark 回归；Docker Worker smoke；Google 原生单题与五题运行。
+  - _Requirements: [3.1](./requirements.md#req-3-1), [4.2](./requirements.md#req-4-2)_
+
 ## Feature Verification
 
 风险依据：[Design 风险与待确认](./design.md#风险与待确认)
@@ -100,7 +107,25 @@
 | [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | Tool update 有稳定 ID 和有界结果；终态、取消传播、迟到响应和阶段错误保持可区分；取消后无成功终态 | ACP 投影、RPC cancel、Runtime 集成和错误注入测试（待实现） |
 | [7.1](./requirements.md#req-7-1)、[7.2](./requirements.md#req-7-2)、[7.3](./requirements.md#req-7-3) | 正常/异常/取消都尽力复制状态和导出 patch；宽限期有限且最终删除容器；locator 指向宿主可读文件 | Supervisor cleanup 测试（待实现）；伪容器逐步骤失败注入 |
 | [8.1](./requirements.md#req-8-1)、[8.2](./requirements.md#req-8-2)、[8.3](./requirements.md#req-8-3)、[8.4](./requirements.md#req-8-4) | 新 CLI 路径保持退出与评分语义；报告身份完整；官方 `resolved` 是唯一成功事实；默认回归与显式 smoke 分离 | SWE-bench TS/Python、全仓库回归、依赖检查、`git diff --check` 和显式 Docker smoke |
+| TODO 13；[3.1](./requirements.md#req-3-1)、[4.2](./requirements.md#req-4-2) | Google strict 请求保留执行决策联合与严格对象边界；executing 模型契约不再提供 Runtime 禁止的 `create_plan_item` | Gemini/Contracts 定向测试；Google 原生单题；单题通过后执行五题 |
 
 ### Latest Result
 
-未执行。执行后按 `delivery-loop.md` 记录每项实际证据、被测提交或未提交状态、契约版本、时间、整体状态和新鲜度。
+验证时间：2026-09-09（Asia/Shanghai）。被测提交：`b7edc84`，另含本任务列出的未提交修改；实现与文档 diff SHA-256：`942f21f05653d052596185b3b44fb6bc00329c8cc59b762024fce81509268201`。契约：`structured@1`、`swebench-acp-container-v1`、ACP SDK `1.4.0`、Google Gen AI SDK `2.15.0`。
+
+- **passed**：`npm test` 通过 783 个 TypeScript/TSX 测试与 11 个脚本测试；`npx tsc --noEmit`、`npm run check:dependencies`、benchmark typecheck、108 个 benchmark 测试、5 个 Python 测试及 `git diff --check` 均通过。
+- **passed**：Contracts/Gemini 定向测试共 83 项通过；executing Schema、Shape Guide 与 decode 拒绝 `create_plan_item`，Planning 仍允许创建；Google 请求使用 `responseJsonSchema` 并保留 `anyOf`、`required` 与 `additionalProperties`。
+- **passed**：`SWEBENCH_PYTHON=/Users/sawyerlau/Project/LazyGoal/.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks` 通过，固定 Worker SHA-256 为 `bbecd51b4445b02ef55e3a63dd159f50915c15db1fb7ccd0b22ac502af977317`。
+- **failed**：本地 `http://127.0.0.1:8317/v1beta` 上的 `gemini-3.1-flash-lite` 未遵守 native strict 的复杂执行 Schema，见 `.lazygoal/benchmarks/swebench-runs/google-native-single-fixed-20260909-1805/`；Google 原生 `prompt_only` 已连续解析并执行两轮 Tool、导出 847-byte patch，随后供应商请求失败，见 `.lazygoal/benchmarks/swebench-runs/google-native-prompt-single-fixed-20260909-1820/`。因单题未形成完整终态，五题按门禁未执行。
+
+整体状态：**failed**。新鲜度：**current**。未提交修改涉及 `packages/contracts/`、`packages/llm/`、`docs/architecture/`、`benchmarks/swebench/README.md` 与本文件。
+
+## Learning Candidates
+
+### 本地 Google 原生代理的复杂结构化输出能力需要实测
+
+- 适用范围：通过可覆盖 `LLM_BASE_URL` 的 Google 原生端点运行复杂 `structured@1` 决策 Schema。
+- 观察：本地代理接受 `responseJsonSchema` 请求，但 `gemini-3.1-flash-lite` 返回旧式 Tool 形状；`responseSchema` 路径也会遗漏 wire 契约要求的 nullable 字段。相同模型在 `prompt_only` 下能生成并执行合法决策。
+- 已验证做法：Adapter 继续发送官方 `responseJsonSchema` 并保持本地严格解码；端点不能可靠执行该字段时显式选择 `prompt_only`，不得修复响应或静默降级。
+- 证据：上述两个真实单题目录、Gemini Adapter 定向测试和 Google 原生请求集成测试。
+- 限制与复查条件：结论只覆盖 2026-09-09 的本地代理与所测模型；代理升级、模型变更或官方端点凭据可用后，应重新运行 strict 单题，成功后再执行五题。

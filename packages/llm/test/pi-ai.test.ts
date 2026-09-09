@@ -187,10 +187,8 @@ test("Google factory uses the configured API prefix with the real SDK in both ou
             assert.equal(sent.path, `${prefix.replace(/\/$/, "")}/models/gemini-2.5-flash:${method}`);
             assert.equal(sent.key, "test-explicit-key");
             assert.equal(sent.body.generationConfig.responseMimeType, mode === "strict" ? "application/json" : undefined);
-            assert.equal(sent.body.generationConfig.responseJsonSchema, undefined);
-            assert.deepEqual(sent.body.generationConfig.responseSchema, mode === "strict" ? {
-                type: "OBJECT", properties: { answer: { type: "STRING" } }, required: ["answer"],
-            } : undefined);
+            assert.equal(sent.body.generationConfig.responseSchema, undefined);
+            assert.deepEqual(sent.body.generationConfig.responseJsonSchema, mode === "strict" ? schema : undefined);
         }
     }
 });
