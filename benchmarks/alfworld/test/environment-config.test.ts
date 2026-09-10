@@ -13,6 +13,7 @@ import {
     loadAlfworldEnvironmentFile,
     preflightAlfworldEnvironment,
     resolveAlfworldEnvironment,
+    resolveAlfworldContainerEnvironment,
     runAlfworldPythonProbe,
     type AlfworldEnvironmentConfig,
 } from "../src/environment-config.js";
@@ -101,6 +102,17 @@ test("resolveAlfworldEnvironment rejects missing Python and data settings", () =
         (error: unknown) =>
             error instanceof AlfworldConfigurationError && error.code === "INVALID_DATA_PATH",
     );
+});
+
+test("resolveAlfworldContainerEnvironment keeps host Python paths out of the container command", () => {
+    const config = resolveAlfworldContainerEnvironment({
+        env: {
+            ALFWORLD_PYTHON: "/Users/tester/miniconda/bin/python",
+            ALFWORLD_DATA: "/data/alfworld",
+        },
+    });
+    assert.equal(config.pythonExecutable, "python3");
+    assert.equal(config.dataRoot, "/data/alfworld");
 });
 
 test("getCondaSubdir supports explicit override and known platforms", () => {

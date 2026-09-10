@@ -137,10 +137,10 @@ export function validateManifest(
             `Unsupported ALFWorld manifest version: ${String(value.version)}`,
         );
     }
-    if (typeof value.name !== "string" || value.name.trim().length === 0) {
+    if (typeof value.name !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(value.name)) {
         throw new ManifestValidationError(
             "INVALID_NAME",
-            "ALFWorld manifest name must be a non-empty string",
+            "ALFWorld manifest name must contain only letters, digits, '-', '_' or '.'",
         );
     }
     if (!Array.isArray(value.tasks) || value.tasks.length === 0) {

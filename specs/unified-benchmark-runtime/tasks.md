@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `benchmarks/test/attempt-recorder.test.ts`；覆盖原子写入、中断恢复和领域字段隔离。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 6. 构建 ALFWorld `EnvironmentSpec` 与托管镜像安装层
+- [x] //TODO 6. 构建 ALFWorld `EnvironmentSpec` 与托管镜像安装层
 
   - 实现 `AlfworldEnvironmentSpec`，使用 `managed` 模式声明 Python/ALFWorld/TextWorld 安装命令和游戏数据复制。`prepareEnvironment` 通过 `EnvironmentHandle` 在容器内执行安装和数据准备。`preflight` 验证 Python 和 sidecar 而非 Conda 和 base commit。`collectArtifacts` 回收环境结果。
   - 成功判据：`AlfworldEnvironmentSpec` 实现 `EnvironmentSpec` 接口；通过 `EnvironmentHandle` 操作容器内部而不直接调用 Docker；预检验证 Python 和 sidecar 可用性。
