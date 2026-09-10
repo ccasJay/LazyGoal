@@ -42,7 +42,7 @@
   - 验证方式：待实现的 `benchmarks/alfworld/test/environment-spec.test.ts`；伪 EnvironmentHandle 验证安装命令和预检内容。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 7. 实现 ALFWorld Worker 入口与容器化 sidecar
+- [x] //TODO 7. 实现 ALFWorld Worker 入口与容器化 sidecar
 
   - 创建 ALFWorld Worker 入口（独立于 SWE-bench），在容器内 spawn sidecar 子进程并装配 HeadlessRoot + ALFWorld 专用工具。Worker 构建器为两个入口分别构建。
   - 成功判据：宿主未安装 ALFWorld Python 环境时容器评测通过；不同任务的 sidecar 实例和环境互不污染；ALFWorld Worker 不注册 SWE-bench 的文件工具。
