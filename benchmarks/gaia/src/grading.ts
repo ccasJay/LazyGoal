@@ -287,7 +287,10 @@ export async function runGaiaGradeCli(argv: readonly string[]): Promise<number> 
     }
 
     const manifest = values.manifest as string | undefined;
-    const result = await gradeGaiaEvaluation({ outputDirectory: output, manifest });
+    const result = await gradeGaiaEvaluation({
+        outputDirectory: output,
+        ...(manifest ? { manifest } : {}),
+    });
 
     process.stdout.write(`\n=== GAIA 评分报告 ===\n`);
     process.stdout.write(`总任务数: ${result.totalTasks}\n`);
@@ -304,3 +307,4 @@ export async function runGaiaGradeCli(argv: readonly string[]): Promise<number> 
 
     return 0;
 }
+

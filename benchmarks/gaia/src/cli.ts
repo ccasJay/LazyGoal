@@ -82,17 +82,22 @@ export async function runGaiaEvalCli(argv: readonly string[]): Promise<number> {
     const manifest = await loadGaiaManifest(resolve(manifestPath));
 
     // 读取 LLM 配置
-    const llmConfig = readLlmConfig();
-    const adapter = createLlmAdapter({
-        config: llmConfig,
-        provider: values.provider as string | undefined,
-        model: values.model as string | undefined,
+    const env = process.env;
+    const provider = (values.provider as string | undefined) ?? env.LLM_PROVIDER;
+    const model = (values.model as string | undefined) ?? env.LLM_MODEL;
+    const llmConfig = readLlmConfig({
+        ...env,
+        ...(provider ? { LLM_PROVIDER: provider } : {}),
+        ...(model ? { LLM_MODEL: model } : {}),
     });
+    const adapter = createLlmAdapter(llmConfig);
 
     // 构建 GAIA Worker 产物
     process.stdout.write("构建 GAIA Worker 容器产物...\n");
     const workerArtifact = await buildBenchmarkWorker({
-        workerEntrypoint: resolve("benchmarks/gaia/src/worker-entry.ts"),
+        projectRoot: resolve("."),
+        entryPoint: resolve("benchmarks/gaia/src/worker-entry.ts"),
+        cacheDirectory: resolve(".lazygoal/benchmarks/gaia-worker-cache"),
     });
 
     let targetTasks = manifest.tasks;
@@ -107,7 +112,7 @@ export async function runGaiaEvalCli(argv: readonly string[]): Promise<number> {
     process.stdout.write(`开始评测 GAIA (${targetTasks.length} 个任务)，输出目录: ${outputDirectory}\n`);
 
     for (let i = 0; i < targetTasks.length; i++) {
-        const task = targetTasks[i];
+        const task = targetTasks[i]!;
         process.stdout.write(`[${i + 1}/${targetTasks.length}] 正在评测任务 ${task.taskId} (Level ${task.level})...\n`);
 
         try {
@@ -117,7 +122,7 @@ export async function runGaiaEvalCli(argv: readonly string[]): Promise<number> {
                 outputDirectory,
                 llmAdapter: adapter,
                 workerArtifact,
-                baseImage: values["base-image"] as string | undefined,
+                ...(values["base-image"] ? { baseImage: values["base-image"] as string } : {}),
                 runId,
             });
 
@@ -187,3 +192,4 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("cli.ts")) {
         process.exitCode = 1;
     });
 }
+

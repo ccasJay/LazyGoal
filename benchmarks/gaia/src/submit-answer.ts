@@ -63,7 +63,7 @@ export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRAC
 
     private readonly taskId: string;
     private readonly answerFilePath: string;
-    private readonly onSubmit?: (answer: string) => void;
+    private readonly onSubmit?: ((answer: string) => void) | undefined;
     private submitted = false;
 
     constructor(options: SubmitAnswerToolOptions) {
@@ -150,3 +150,4 @@ export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRAC
         }
     }
 }
+

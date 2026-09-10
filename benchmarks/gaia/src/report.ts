@@ -230,3 +230,4 @@ export async function writeGaiaReport(
     const json = JSON.stringify(report, null, 2) + "\n";
     await writeFile(reportPath, json, "utf8");
 }
+

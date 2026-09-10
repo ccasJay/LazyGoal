@@ -72,20 +72,21 @@ export async function runGaiaSupervisor(
     const spec = new GaiaEnvironmentSpec({
         task: options.task,
         dataRoot: options.dataRoot,
-        workerArtifact: options.workerArtifact,
-        baseImage: options.baseImage,
-        installCommands: options.installCommands,
+        ...(options.workerArtifact !== undefined ? { workerArtifact: options.workerArtifact } : {}),
+        ...(options.baseImage !== undefined ? { baseImage: options.baseImage } : {}),
+        ...(options.installCommands !== undefined ? { installCommands: options.installCommands } : {}),
         runId,
     });
 
     const env = options.isolatedEnvironment ?? new IsolatedEnvironment();
     const problemStatement = `Please answer the following GAIA question. Read the question carefully, consult any attachments or web sources needed, and submit your final answer via submit_answer.\n\n${options.task.question}`;
 
+    const startTime = Date.now();
     const envResult = await env.run({
         task: options.task,
         spec,
         outputDirectory: options.outputDirectory,
-        workerArtifact: options.workerArtifact,
+        ...(options.workerArtifact !== undefined ? { workerArtifact: options.workerArtifact } : {}),
         ...(options.taskTimeoutMs !== undefined ? { taskTimeoutMs: options.taskTimeoutMs } : {}),
         ...(options.artifactGraceMs !== undefined ? { artifactGraceMs: options.artifactGraceMs } : {}),
         ...(options.signal !== undefined ? { signal: options.signal } : {}),
@@ -106,8 +107,9 @@ export async function runGaiaSupervisor(
             },
         },
     });
+    const durationMs = Date.now() - startTime;
 
-    const submittedAnswer = envResult.artifacts?.submittedAnswer ?? null;
+    const submittedAnswer = envResult.artifact?.submittedAnswer ?? null;
     const domainResult = scoreGaiaAnswer(
         submittedAnswer,
         options.task.expectedAnswer,
@@ -128,10 +130,10 @@ export async function runGaiaSupervisor(
         runId,
         attempt: 1,
         status: envResult.status,
-        durationMs: envResult.durationMs,
-        usage: envResult.usage,
+        durationMs,
+        usage: null,
         errors: envResult.errors,
-        artifactLocator: envResult.artifacts?.persistence ?? null,
+        artifactLocator: envResult.artifact?.persistence ?? null,
         domainResult,
     };
 
@@ -142,9 +144,10 @@ export async function runGaiaSupervisor(
         taskId: options.task.taskId,
         goalId,
         runId,
-        durationMs: envResult.durationMs,
+        durationMs,
         domainResult,
-        persistence: envResult.artifacts?.persistence ?? null,
+        persistence: envResult.artifact?.persistence ?? null,
         errors: envResult.errors,
     };
 }
+

@@ -34,7 +34,7 @@ export interface GaiaDatasetLoaderOptions {
  * ```
  */
 export class GaiaDatasetLoader {
-    private readonly hfToken?: string;
+    private readonly hfToken?: string | undefined;
     private readonly fetchFn: typeof fetch;
 
     constructor(options: GaiaDatasetLoaderOptions = {}) {
@@ -191,3 +191,4 @@ export class GaiaDatasetLoader {
         return manifest;
     }
 }
+

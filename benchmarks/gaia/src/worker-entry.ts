@@ -1,10 +1,10 @@
 import { Readable, Writable } from "node:stream";
 import {
-    createPromptBundleRenderer,
-    DEFAULT_PROMPT_BUNDLE_MANIFEST,
+    createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
     type ContextCompactor,
     type LLMAdapter,
+    type ModelConversationMessage,
     type PromptBundleRenderer,
 } from "../../../packages/agent/src/index.js";
 import {
@@ -106,8 +106,8 @@ export function createGaiaWorkerToolRegistry(
     const workspaceRoot = options.workspaceRoot ?? "/workspace";
     const submitAnswerTool = new SubmitAnswerTool({
         taskId: options.taskId,
-        answerFilePath: options.answerFilePath,
-        onSubmit: options.onSubmit,
+        ...(options.answerFilePath !== undefined ? { answerFilePath: options.answerFilePath } : {}),
+        ...(options.onSubmit !== undefined ? { onSubmit: options.onSubmit } : {}),
     });
 
     return new InMemoryToolRegistry([
@@ -222,7 +222,7 @@ export interface GaiaAcpRuntimeOptions {
     readonly metadata: GaiaAcpTaskMetadata;
     readonly llmAdapter: LLMAdapter;
     readonly renderer: PromptBundleRenderer;
-    readonly contextCompactor: ContextCompactor;
+    readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     readonly workspaceRoot?: string;
     readonly stateRoot?: string;
     readonly signal?: AbortSignal;
@@ -277,9 +277,7 @@ export async function runGaiaWorker(): Promise<void> {
     });
 
     let adapter: RpcLlmAdapter | undefined;
-    const renderer = createPromptBundleRenderer({
-        bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST],
-    });
+    const renderer = await createDefaultPromptBundleRenderer();
 
     const sessions: AcpSessionFactory = {
         async create(input: AcpSessionInput): Promise<AcpSession> {
@@ -303,7 +301,7 @@ export async function runGaiaWorker(): Promise<void> {
                         signal: control.signal,
                     });
                     if (control.signal.aborted) return { stopReason: "cancelled" };
-                    const stopReason = result.outcome.submitted ? "completed" : "max_steps";
+                    const stopReason = result.outcome.submitted ? "end_turn" : "max_turn_requests";
                     return { stopReason };
                 },
                 dispose: async () => {
@@ -334,3 +332,4 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-entry.ts")
         process.exitCode = 1;
     });
 }
+

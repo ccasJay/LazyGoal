@@ -107,3 +107,4 @@ export interface GaiaDomainResult {
     /** 任务所属难度级别。 */
     readonly level: GaiaLevel;
 }
+

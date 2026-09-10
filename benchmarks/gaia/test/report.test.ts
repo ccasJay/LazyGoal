@@ -138,11 +138,11 @@ test("readGaiaAttempts 能够在存在异常中断和未写完文件时安全读
 
         const recovered = await readGaiaAttempts(tmpDir);
         assert.equal(recovered.length, 2);
-        assert.equal(recovered[0].taskId, "gaia-lvl1-1");
-        assert.equal(recovered[1].taskId, "gaia-lvl1-2");
-        assert.equal(recovered[0].domainResult.submittedAnswer, "paris");
-        assert.equal(recovered[0].domainResult.correct, true);
-        assert.equal(recovered[0].domainResult.level, 1);
+        assert.equal(recovered[0]!.taskId, "gaia-lvl1-1");
+        assert.equal(recovered[1]!.taskId, "gaia-lvl1-2");
+        assert.equal(recovered[0]!.domainResult.submittedAnswer, "paris");
+        assert.equal(recovered[0]!.domainResult.correct, true);
+        assert.equal(recovered[0]!.domainResult.level, 1);
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }
@@ -163,3 +163,4 @@ test("writeGaiaReport 成功落盘格式化报告", async () => {
         await rm(tmpDir, { recursive: true, force: true });
     }
 });
+

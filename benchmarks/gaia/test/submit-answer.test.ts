@@ -94,3 +94,4 @@ test("Worker 工具注册表包含且仅包含四个工具", () => {
     assert.equal(registry.get("edit_file"), undefined);
     assert.equal(registry.get("grep"), undefined);
 });
+

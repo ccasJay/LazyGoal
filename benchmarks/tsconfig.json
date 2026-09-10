@@ -21,6 +21,8 @@
     "alfworld/scripts/**/*.ts",
     "alfworld/test/**/*.ts",
     "swebench/src/**/*.ts",
-    "swebench/test/**/*.ts"
+    "swebench/test/**/*.ts",
+    "gaia/src/**/*.ts",
+    "gaia/test/**/*.ts"
   ]
 }

@@ -44,7 +44,7 @@ class MockEnvironmentHandle implements EnvironmentHandle {
         } catch {
             // source 可能在测试中只是一个路径
         }
-        this.copiedInto.push({ source, target, content });
+        this.copiedInto.push({ source, target, ...(content !== undefined ? { content } : {}) });
     }
 
     async copyOut(source: string, target: string): Promise<string> {
@@ -188,3 +188,4 @@ test("GaiaEnvironmentSpec collectArtifacts 正确回收 answer.json", async () =
         await rm(tmpOutputDir, { recursive: true, force: true });
     }
 });
+

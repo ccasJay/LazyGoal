@@ -28,7 +28,7 @@ test("GaiaDatasetLoader 正确解析 JSONL 并为 validation split 构建完整 
     assert.equal(manifest.source, "huggingface");
     assert.equal(manifest.tasks.length, 3);
 
-    const task1 = manifest.tasks[0];
+    const task1 = manifest.tasks[0]!;
     assert.equal(task1.taskId, "gaia-001");
     assert.equal(task1.question, "What is the capital of France?");
     assert.equal(task1.expectedAnswer, "Paris");
@@ -36,13 +36,13 @@ test("GaiaDatasetLoader 正确解析 JSONL 并为 validation split 构建完整 
     assert.equal(task1.split, "validation");
     assert.deepEqual(task1.attachments, ["attachments/gaia-001/france.png"]);
 
-    const task2 = manifest.tasks[1];
+    const task2 = manifest.tasks[1]!;
     assert.equal(task2.taskId, "gaia-002");
     assert.equal(task2.expectedAnswer, "42");
     assert.equal(task2.level, 2);
     assert.deepEqual(task2.attachments, []);
 
-    const task3 = manifest.tasks[2];
+    const task3 = manifest.tasks[2]!;
     assert.equal(task3.level, 3);
     assert.deepEqual(task3.attachments, ["attachments/gaia-003/doc.pdf"]);
 });
@@ -144,3 +144,4 @@ test("GaiaDatasetLoader downloadSplit 在 mock fetch 下正确保存并返回 Ma
         await rm(tmpDir, { recursive: true, force: true });
     }
 });
+

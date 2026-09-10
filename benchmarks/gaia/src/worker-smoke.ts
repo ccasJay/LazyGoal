@@ -29,7 +29,9 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
     }
 
     const artifact = await buildBenchmarkWorker({
-        workerEntrypoint: join(projectRoot, "benchmarks/gaia/src/worker-entry.ts"),
+        projectRoot,
+        entryPoint: join(projectRoot, "benchmarks/gaia/src/worker-entry.ts"),
+        cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/gaia-worker-cache"),
     });
 
     const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-worker-smoke-"));
@@ -37,8 +39,6 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
     try {
         let calls = 0;
         const adapter: LLMAdapter = {
-            providerName: "mock",
-            modelName: "mock-model",
             structuredOutputMode: "strict",
             generate: async () => {
                 calls += 1;
@@ -54,7 +54,6 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                             memoryPatch: null,
                         },
                     }),
-                    raw: "",
                 };
             },
         };
@@ -95,3 +94,4 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-smoke.ts")
         process.exitCode = 1;
     });
 }
+

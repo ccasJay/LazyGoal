@@ -230,3 +230,4 @@ export async function saveGaiaManifest(
     const content = JSON.stringify(validated, null, 2) + "\n";
     await writeFile(manifestPath, content, "utf8");
 }
+

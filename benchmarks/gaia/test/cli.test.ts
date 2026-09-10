@@ -29,13 +29,10 @@ const dummyTask: GaiaManifestTask = {
 };
 
 const dummyAdapter: LLMAdapter = {
-    providerName: "mock",
-    modelName: "mock-model",
     structuredOutputMode: "strict",
-    async generate(request: LLMRequest): Promise<LLMResponse> {
+    async generate(_request: LLMRequest): Promise<LLMResponse> {
         return {
             content: "4",
-            raw: "4",
         };
     },
 };
@@ -67,15 +64,15 @@ test("runGaiaSupervisor 正确构造 GaiaEnvironmentSpec 并传递给伪 Isolate
                 capturedOptions = options;
                 return {
                     status: "completed",
-                    durationMs: 500,
-                    usage: null,
-                    errors: [],
-                    artifacts: {
+                    artifact: {
                         submittedAnswer: "4",
                         answerTaskId: dummyTask.taskId,
                         persistence: null,
                         errors: [],
                     },
+                    imageId: null,
+                    acp: null,
+                    errors: [],
                 };
             },
         } as unknown as IsolatedEnvironment;
@@ -99,9 +96,12 @@ test("runGaiaSupervisor 正确构造 GaiaEnvironmentSpec 并传递给伪 Isolate
         assert.equal(capturedOptions.spec.benchmarkId, "gaia");
 
         // 验证 sessionMeta 正确传递
-        assert.equal(capturedOptions.acp.sessionMeta.taskId, dummyTask.taskId);
-        assert.equal(capturedOptions.acp.sessionMeta.structuredOutputMode, "strict");
+        assert.ok(capturedOptions.acp !== undefined && capturedOptions.acp.sessionMeta !== undefined);
+        const meta = capturedOptions.acp.sessionMeta as Record<string, unknown>;
+        assert.equal(meta.taskId, dummyTask.taskId);
+        assert.equal(meta.structuredOutputMode, "strict");
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }
 });
+

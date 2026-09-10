@@ -75,10 +75,10 @@ export class GaiaEnvironmentSpec
     readonly benchmarkId = "gaia";
     private readonly task: GaiaManifestTask;
     private readonly dataRoot: string;
-    private readonly workerArtifact?: WorkerArtifact;
-    private readonly baseImage?: string;
+    private readonly workerArtifact?: WorkerArtifact | undefined;
+    private readonly baseImage?: string | undefined;
     private readonly installCommands: readonly string[];
-    private readonly runId?: string;
+    private readonly runId?: string | undefined;
 
     constructor(options: GaiaEnvironmentSpecOptions) {
         this.task = options.task;
@@ -276,3 +276,4 @@ export class GaiaEnvironmentSpec
         }
     }
 }
+
