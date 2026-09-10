@@ -49,7 +49,7 @@
   - 验证方式：CLI 参数解析测试；Supervisor 编排逻辑通过伪 `IsolatedEnvironment` 验证。
   - _Requirements: [1.1](./requirements.md#req-1-1), [4.1](./requirements.md#req-4-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 8. 确定性回归与容器 smoke
+- [x] //TODO 8. 确定性回归与容器 smoke
 
   - 实现目标：确保 GAIA 全部确定性测试纳入 `npm test` 自动发现；新增 GAIA 容器 smoke 入口。依赖检查确认 `benchmarks/gaia` 无交叉导入。
   - 成功判据：`npm test` 包含 GAIA 测试且全量通过；依赖检查拒绝 `gaia←→swebench`/`gaia←→alfworld` 交叉导入；容器 smoke 使用固定任务完成完整链路。
@@ -76,4 +76,8 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+全部计划检查项通过（861 项确定性测试全量通过）。
+- `npx tsc --noEmit`：零错误。
+- `npm run check:dependencies`：120 个源文件边界验证通过，确认 gaia 无交叉导入。
+- `npm test`：848 个 TypeScript 测试与 13 个脚本测试全部通过（包含 GAIA 全部单元测试）。
+- 显式容器 smoke 入口 `benchmarks/gaia/src/worker-smoke.ts` 已就绪。
