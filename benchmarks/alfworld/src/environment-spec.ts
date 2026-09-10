@@ -24,7 +24,7 @@ import { requireSuccess } from "../../src/process.js";
 
 /** ALFWorld 托管镜像的默认安装层。 */
 export const ALFWORLD_MANAGED_INSTALL_COMMANDS = Object.freeze([
-    "apt-get update && apt-get install -y --no-install-recommends python3 python3-pip && rm -rf /var/lib/apt/lists/*",
+    "apt-get update && apt-get install -y --no-install-recommends build-essential python-is-python3 python3 python3-pip && rm -rf /var/lib/apt/lists/*",
     "python3 -m pip install --break-system-packages --no-cache-dir alfworld==0.4.2 textworld==1.6.2",
 ] as const);
 
@@ -142,6 +142,7 @@ export class AlfworldEnvironmentSpec
         }
         const sidecar = await env.exec([
             "set -eu",
+            `export ALFWORLD_DATA=${shellQuote(ALFWORLD_CONTAINER_DATA_ROOT)}`,
             `test -s ${shellQuote(ALFWORLD_CONTAINER_SIDECAR_PATH)}`,
             `printf '%s\\n' '{"requestId":1,"op":"health"}' | ${shellQuote(this.workerPython)} ${shellQuote(ALFWORLD_CONTAINER_SIDECAR_PATH)}`,
         ].join("; "), { timeoutMs: 120_000, maxBytes: 64 * 1024, truncate: true });

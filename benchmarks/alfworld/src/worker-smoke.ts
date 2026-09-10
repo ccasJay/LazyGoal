@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
-import { resolveAlfworldContainerEnvironment } from "./environment-config.js";
+import {
+    loadAlfworldEnvironmentFile,
+    resolveAlfworldContainerEnvironment,
+} from "./environment-config.js";
 import { loadManifest } from "./manifest.js";
 import { runAlfworldSupervisor } from "./supervisor.js";
 import { ALFWORLD_ACP_WORKER_ENTRYPOINT, ALFWORLD_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
@@ -13,8 +16,9 @@ import { ALFWORLD_ACP_WORKER_ENTRYPOINT, ALFWORLD_ACP_WORKER_PROMPT_ASSETS } fro
  * 使用真实 Docker 验证 ALFWorld Worker、Python sidecar 和 ACP 双通道。
  *
  * @remarks
- * 该入口是显式 smoke，不进入默认回归；它只需要 `ALFWORLD_DATA` 和 Docker，
- * 不读取宿主 `ALFWORLD_PYTHON`，模型 Adapter 是立即完成的确定性替身。
+ * 该入口是显式 smoke，不进入默认回归；它需要 `.env.alfworld` 或
+ * `ALFWORLD_DATA` 和 Docker，不读取宿主 `ALFWORLD_PYTHON`，模型 Adapter 是立即
+ * 完成的确定性替身。
  *
  * @example
  * ```bash
@@ -23,9 +27,11 @@ import { ALFWORLD_ACP_WORKER_ENTRYPOINT, ALFWORLD_ACP_WORKER_PROMPT_ASSETS } fro
  */
 export async function runAlfworldWorkerSmoke(): Promise<void> {
     const projectRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
-    const dataRoot = process.env.ALFWORLD_DATA;
+    const fileEnv = await loadAlfworldEnvironmentFile(undefined, process.env);
+    const environmentEnv = { ...fileEnv, ...process.env };
+    const dataRoot = environmentEnv.ALFWORLD_DATA;
     if (dataRoot === undefined || dataRoot.trim() === "") throw new Error("ALFWORLD_DATA is required for ALFWorld container smoke");
-    const environment = resolveAlfworldContainerEnvironment({ env: process.env, cwd: projectRoot });
+    const environment = resolveAlfworldContainerEnvironment({ env: environmentEnv, cwd: projectRoot });
     const manifest = await loadManifest(join(projectRoot, "benchmarks/alfworld/manifests/smoke.json"), dataRoot);
     const task = manifest.tasks[0];
     if (task === undefined) throw new Error("ALFWorld smoke manifest is empty");
@@ -69,7 +75,8 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
             workerArtifact: artifact,
             llmAdapter: adapter,
             outputDirectory,
-            taskTimeoutMs: 120_000,
+            // 托管镜像首次构建包含 Python 依赖编译；冷缓存也需保留有限的较长超时。
+            taskTimeoutMs: 900_000,
         });
         if (result.errors.length > 0) throw new Error(result.errors.map((error) => `${error.stage}: ${error.message}`).join("; "));
         if (calls !== 2) throw new Error(`ALFWorld smoke expected reset and completion calls, got ${calls}`);

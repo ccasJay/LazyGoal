@@ -56,7 +56,7 @@
   - 验证方式：待实现的评分入口测试；使用 fixture 产物验证评分结果。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 9. 组合回归与双 benchmark 容器 smoke
+- [x] //TODO 9. 组合回归与双 benchmark 容器 smoke
 
   - 确定性回归覆盖共享设施（Mux、LLM RPC、Worker 构建）、IsolatedEnvironment 生命周期、EnvironmentSpec 编排、取消/断线/复制失败/清理失败、AttemptRecorder 和评分入口，且不依赖 Docker 或外部供应商。新增 SWE-bench 和 ALFWorld 的显式容器 smoke 入口。
   - 成功判据：`npm test` 全量通过且不依赖 Docker；SWE-bench 和 ALFWorld 分别通过显式容器 smoke；依赖检查确认无交叉导入。
@@ -83,4 +83,14 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- **整体状态**：全部验证通过（PASS）。
+- **验证时间**：2026-09-10（Asia/Shanghai）。
+- **被测代码状态**：分支 `codex/unified-benchmark-runtime`；TODO 1–9 均已勾选，验证在当前工作树完成。
+- **确定性回归证据**：
+  - `npm test`：类型检查、依赖边界检查、816 个 TypeScript/TSX 测试与 12 个脚本测试全部通过；默认回归未启动 Docker 或外部模型供应商。
+  - `npx tsc --noEmit`、`npm --prefix benchmarks run typecheck`：通过。
+  - `npm --prefix benchmarks test`：133/133 通过；`npm --prefix benchmarks run swebench:test-python`：5/5 通过；`npm --prefix benchmarks run alfworld:test-python`：4/4 通过。
+  - `npm run check:dependencies`：通过；新增脚本测试覆盖 `benchmarks/alfworld` 导入 `benchmarks/swebench` 时的拒绝路径，生产源码无 benchmark 交叉导入。
+- **SWE-bench 容器 smoke**：`SWEBENCH_PYTHON=.lazygoal/swebench-venv/bin/python npm --prefix benchmarks run swebench:worker-smoke` 通过；固定题目 `astropy__astropy-12907`，`modelCalls=3`、`updateCount=4`，导出 patch 并验证共享 Worker/Process 路径。
+- **ALFWorld 容器 smoke**：`npm --prefix benchmarks run alfworld:worker-smoke` 通过；入口从 `.env.alfworld` 解析数据根，固定任务 `valid_seen-0000-pick_two_obj_and_place-spraybottle-toilet-429`，`modelCalls=2`，容器内 Python、sidecar、ACP 双通道和产物回收均完成。
+- **被测代码清理**：容器 smoke 使用的 Docker 与固定 benchmark 数据/Python 环境属于显式外部前置条件；确定性回归仍保持无 Docker、无供应商调用。

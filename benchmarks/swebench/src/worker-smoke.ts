@@ -4,11 +4,11 @@ import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
-import { buildSwebenchWorker } from "./worker-builder.js";
+import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { parseSwebenchTasks, SwebenchContainer } from "./container.js";
 import { BRIDGE_PATH } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
-import { requireSuccess, runInteractiveProcess, runProcess } from "./process.js";
+import { requireSuccess, runProcess } from "../../src/process.js";
 import { runSwebenchSupervisor } from "./supervisor.js";
 import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
 
@@ -22,7 +22,7 @@ import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worke
  *
  * @example
  * ```bash
- * npm run swebench:worker-smoke --prefix benchmarks
+ * SWEBENCH_PYTHON=.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
  * ```
  */
 export async function runSwebenchWorkerSmoke(): Promise<void> {
@@ -102,12 +102,6 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
             llmAdapter,
             outputDirectory: artifactOutput,
             taskTimeoutMs: manifest.taskTimeoutSeconds * 1000,
-            openWorkerProcess: async (command, args, options) => {
-                const worker = await runInteractiveProcess(command, args, options);
-                const [diagnostic, control] = worker.errorOutput.tee();
-                void drainDiagnostic(diagnostic);
-                return { ...worker, errorOutput: control };
-            },
             onUpdate: (notification) => {
                 updateCount += 1;
                 const update = notification.update;
@@ -127,32 +121,6 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
-}
-
-async function drainDiagnostic(stream: ReadableStream<Uint8Array>): Promise<void> {
-    const reader = stream.getReader();
-    const chunks: Uint8Array[] = [];
-    try {
-        while (true) {
-            const next = await reader.read();
-            if (next.done) break;
-            chunks.push(next.value);
-        }
-    } finally {
-        reader.releaseLock();
-    }
-    if (chunks.length > 0) process.stderr.write(new TextDecoder().decode(concat(chunks)));
-}
-
-function concat(chunks: readonly Uint8Array[]): Uint8Array {
-    const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-    const output = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) {
-        output.set(chunk, offset);
-        offset += chunk.byteLength;
-    }
-    return output;
 }
 
 if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-smoke.ts")) {

@@ -46,3 +46,15 @@ test("rejects outbound dependencies from contracts", async () => {
         "禁止依赖方向：packages/contracts 不得导入 packages/runtime（packages/contracts/src/index.ts 引用 ../../runtime/src/index）",
     ]);
 });
+
+test("rejects cross benchmark imports", async () => {
+    const root = await fixtureProject({
+        "benchmarks/alfworld/src/index.ts":
+            'export { run } from "../../swebench/src/worker-runtime";\n',
+        "benchmarks/swebench/src/worker-runtime.ts": "export const run = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止 benchmark 交叉依赖：benchmarks/alfworld 不得导入 benchmarks/swebench（benchmarks/alfworld/src/index.ts 引用 ../../swebench/src/worker-runtime）",
+    ]);
+});

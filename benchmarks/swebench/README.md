@@ -82,7 +82,7 @@ To exercise the injected Worker with a deterministic host model, run the explici
 Docker smoke command:
 
 ```bash
-npm run swebench:worker-smoke --prefix benchmarks
+SWEBENCH_PYTHON=.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
 ```
 
 It uses the fixed single-task manifest and official image, checks the linux/amd64

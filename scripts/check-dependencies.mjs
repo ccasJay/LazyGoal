@@ -23,6 +23,9 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 
+/** Benchmark 目录之间只允许通过 `benchmarks/src/` 共享层通信。 */
+const BENCHMARKS = ["alfworld", "swebench"];
+
 /**
  * 即使 package 出站边被允许、也禁止导入所列 package 的单个文件。
  *
@@ -124,6 +127,24 @@ async function collectSourceFiles(projectRoot) {
     return files.sort();
 }
 
+/** 递归收集 benchmark 自己的 TypeScript 源文件。 */
+async function collectBenchmarkSourceFiles(projectRoot) {
+    const files = [];
+    for (const benchmarkName of BENCHMARKS) {
+        await walkSourceFiles(
+            path.join(projectRoot, "benchmarks", benchmarkName, "src"),
+            files,
+        );
+    }
+    return files.sort();
+}
+
+/** 从 `benchmarks/<name>/src/...` 绝对路径提取 benchmark 名。 */
+function benchmarkNameOf(filePath) {
+    const match = /[/\\]benchmarks[/\\]([^/\\]+)[/\\]src(?:[/\\]|$)/.exec(filePath);
+    return match === null || !BENCHMARKS.includes(match[1]) ? null : match[1];
+}
+
 /**
  * 分析源码依赖方向并返回违反边界的情况列表。
  *
@@ -171,6 +192,22 @@ export async function analyzeDependencies(projectRoot) {
                     `边界违规：${rule.label} 不得导入 packages/${targetPackage}（${relativePath} 引用 ${specifier}）`,
                 );
             }
+        }
+    }
+
+    for (const file of await collectBenchmarkSourceFiles(projectRoot)) {
+        const sourceBenchmark = benchmarkNameOf(file);
+        if (sourceBenchmark === null) continue;
+        const text = await readFile(file, "utf8");
+        const relativePath = path.relative(projectRoot, file).split(path.sep).join("/");
+        for (const specifier of extractRelativeImports(text)) {
+            const targetBenchmark = benchmarkNameOf(
+                path.resolve(path.dirname(file), specifier),
+            );
+            if (targetBenchmark === null || targetBenchmark === sourceBenchmark) continue;
+            violations.push(
+                `禁止 benchmark 交叉依赖：benchmarks/${sourceBenchmark} 不得导入 benchmarks/${targetBenchmark}（${relativePath} 引用 ${specifier}）`,
+            );
         }
     }
 
