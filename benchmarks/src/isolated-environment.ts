@@ -185,10 +185,15 @@ export interface IsolatedEnvironmentError {
  * ```
  */
 export interface IsolatedEnvironmentAcpOptions {
+    /** 宿主侧供应商适配器；Worker 只通过 LLM RPC 访问它。 */
     readonly llmAdapter: LLMAdapter;
+    /** ACP Session 使用的绝对容器工作目录；省略时使用 Spec 工作目录。 */
     readonly cwd?: string;
+    /** 发送给 Worker ACP Session 的一次性 Prompt。 */
     readonly prompt: readonly AcpContentBlock[];
+    /** 附加到 `session/new` 的非敏感领域 metadata。 */
     readonly sessionMeta?: Readonly<Record<string, unknown>>;
+    /** 接收 Worker Tool 更新；回调失败会终止当前作答。 */
     readonly onUpdate?: (update: AcpSessionUpdate) => void | Promise<void>;
 }
 
@@ -203,17 +208,25 @@ export interface IsolatedEnvironmentAcpOptions {
  * ```
  */
 export interface IsolatedEnvironmentRunOptions<TTask, TArtifact> {
+    /** 当前 benchmark 的领域任务。 */
     readonly task: TTask;
+    /** 当前任务的声明式环境适配。 */
     readonly spec: EnvironmentSpec<TTask, TArtifact>;
+    /** 宿主产物输出根；隔离环境只向其回收领域文件。 */
     readonly outputDirectory: string;
+    /** 共享 Worker 产物；未提供时使用 Spec 配置或不注入 Worker。 */
     readonly workerArtifact?: WorkerArtifact;
+    /** 作答、环境准备和清理前的总任务时间上限。 */
     readonly taskTimeoutMs?: number;
+    /** Worker 退出后领域产物的有界回收时间。 */
     readonly artifactGraceMs?: number;
+    /** 外部取消信号。 */
     readonly signal?: AbortSignal;
     /** 提供 ACP 时由共享层建立 Mux、LLM RPC 和一次性 Client。 */
     readonly acp?: IsolatedEnvironmentAcpOptions;
     /** 无需标准 ACP Client 的确定性测试或自定义 Agent 回调。 */
     readonly runAgent?: (context: IsolatedEnvironmentAgentContext) => Promise<void>;
+    /** 测试可注入的交互式 Worker 启动器。 */
     readonly openWorkerProcess?: InteractiveProcessRunner;
     /** 已由 benchmark 适配的容器驱动；省略时使用共享 Docker 实现。 */
     readonly container?: IsolatedContainer;
@@ -256,11 +269,34 @@ export interface IsolatedEnvironmentAgentContext {
  * ```
  */
 export interface IsolatedContainer {
+    /** 已解析的镜像内容 ID；容器尚未启动时可省略。 */
     readonly imageId?: string;
+    /**
+     * 创建并启动底层容器。
+     * @param signal - 当前 Attempt 的取消信号。
+     */
     start(signal?: AbortSignal): Promise<void>;
+    /**
+     * 将共享 Worker 产物注入容器。
+     * @param artifact - 已构建的 Worker；无 Worker 时传 `undefined`。
+     * @param signal - 当前 Attempt 的取消信号。
+     */
     injectWorker(artifact: WorkerArtifact | undefined, signal?: AbortSignal): Promise<void>;
+    /**
+     * 创建不暴露容器身份的领域句柄。
+     * @param workdir - 领域命令使用的容器工作目录。
+     * @param signal - 当前 Attempt 的取消信号。
+     * @returns 受限的容器操作句柄。
+     */
     createHandle(workdir: string, signal: AbortSignal): EnvironmentHandle;
+    /**
+     * 启动可接入共享 Mux 的 Worker。
+     * @param timeoutMs - Worker 启动与交互的宿主时间上限。
+     * @param signal - 当前 Attempt 的取消信号。
+     * @returns 交互式 Worker 句柄。
+     */
     openWorkerProcess(timeoutMs: number, signal?: AbortSignal): Promise<InteractiveProcess>;
+    /** 删除当前容器；重复调用必须幂等。 */
     close(): Promise<void>;
 }
 
@@ -436,7 +472,7 @@ export class IsolatedEnvironment {
                         mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
                         await options.runAgent!({ environment: handle, worker, mux, signal: controller.signal });
                     }
-                    status = controller.signal.aborted ? "cancelled" : "completed";
+                    status = controller.signal.aborted || acp?.stopReason === "cancelled" ? "cancelled" : "completed";
                 } catch (error) {
                     pushError(errors, controller.signal.aborted ? "cancel" : "agent", error);
                     status = controller.signal.aborted ? "cancelled" : "failed";
@@ -619,7 +655,9 @@ export class IsolatedEnvironment {
  * ```
  */
 export interface IsolatedEnvironmentOptions {
+    /** 单次 Docker 命令执行器；省略时使用共享 ProcessRunner。 */
     readonly run?: ProcessRunner;
+    /** 交互式 Worker 启动器；省略时使用共享 InteractiveProcessRunner。 */
     readonly interactiveRun?: InteractiveProcessRunner;
 }
 

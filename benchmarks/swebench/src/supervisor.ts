@@ -1,6 +1,6 @@
 import { swebenchWorkerArgs } from "./worker-config.js";
 import { access, mkdir, writeFile } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import {
     runLazyGoalAcpClient,
@@ -8,13 +8,17 @@ import {
 } from "../../../packages/acp/src/index.js";
 import type { BenchmarkPersistenceLocator } from "../../src/headless-composition-root.js";
 import {
+    IsolatedEnvironment,
+    type IsolatedEnvironmentError,
+} from "../../src/isolated-environment.js";
+import {
     createAcpMuxStream,
     MultiplexedConnection,
-} from "./multiplex.js";
+} from "../../src/multiplex.js";
 import {
     createLlmRpcServer,
     type LlmRpcServer,
-} from "./llm-rpc.js";
+} from "../../src/llm-rpc.js";
 import {
     SwebenchContainer,
     type SwebenchTask,
@@ -23,11 +27,12 @@ import {
     runInteractiveProcess,
     type InteractiveProcess,
     type InteractiveProcessRunner,
-} from "./process.js";
-import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
+} from "../../src/process.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
 import type { SwebenchAcpTaskMetadata } from "./worker-runtime.js";
 import { recoverSwebenchResult } from "./result-recovery.js";
 import { SwebenchAcpProjectionError, readSwebenchAcpFailure, parseSwebenchAcpMeta } from "./acp-result-projection.js";
+import { SwebenchEnvironmentSpec, type SwebenchCollectedArtifacts } from "./environment-spec.js";
 
 /** Supervisor 记录的可区分失败阶段。 */
 export type SwebenchSupervisorFailureStage =
@@ -109,6 +114,8 @@ export interface SwebenchSupervisorOptions {
  */
 export interface SwebenchSupervisorResult {
     readonly stopReason: "end_turn" | "max_turn_requests" | "cancelled" | null;
+    /** 实际启动镜像的内容 ID；容器尚未创建时为 `null`。 */
+    readonly imageId?: string | null;
     readonly meta?: Readonly<Record<string, unknown>>;
     readonly patch: string | null;
     readonly patchPath: string | null;
@@ -137,6 +144,9 @@ export async function runSwebenchSupervisor(
     options: SwebenchSupervisorOptions,
 ): Promise<SwebenchSupervisorResult> {
     validateOptions(options);
+    if (options.openWorkerProcess === undefined) {
+        return runSwebenchSupervisorWithIsolatedEnvironment(options);
+    }
     const outputDirectory = resolve(options.outputDirectory);
     await mkdir(outputDirectory, { recursive: true });
     const errors: SwebenchSupervisorError[] = [];
@@ -300,7 +310,135 @@ export async function runSwebenchSupervisor(
     }
     meta ??= { runStatus: workerAttempted ? "unknown" : "not_started",
         ...(!workerAttempted ? { usage: { inputTokens: 0, outputTokens: 0, missingCalls: 0 } } : {}) };
-    return { stopReason, meta, patch, patchPath, persistence, errors };
+    return { stopReason, imageId: options.container.imageId ?? null, meta, patch, patchPath, persistence, errors };
+}
+
+/** 生产路径使用共享隔离环境；自定义 Worker runner 仍保留给确定性测试注入。 */
+async function runSwebenchSupervisorWithIsolatedEnvironment(
+    options: SwebenchSupervisorOptions,
+): Promise<SwebenchSupervisorResult> {
+    const outputDirectory = resolve(options.outputDirectory);
+    await mkdir(outputDirectory, { recursive: true });
+    let stopReason: SwebenchSupervisorResult["stopReason"] = null;
+    let meta: Readonly<Record<string, unknown>> | undefined;
+    let modelFailed = false;
+    let providerStatus: number | undefined;
+    let failure: SwebenchAcpProjectionError | undefined;
+    const hostAdapter: LLMAdapter = {
+        structuredOutputMode: options.llmAdapter.structuredOutputMode,
+        generate: async (request, control) => {
+            try {
+                return await options.llmAdapter.generate(request, control);
+            } catch (error) {
+                modelFailed = true;
+                if (typeof error === "object" && error !== null && "status" in error
+                    && typeof error.status === "number" && Number.isInteger(error.status)
+                    && error.status >= 100 && error.status <= 599) {
+                    providerStatus = error.status;
+                }
+                throw error;
+            }
+        },
+    };
+    const spec = new SwebenchEnvironmentSpec({
+        task: options.task,
+        artifact: options.artifact,
+        manifest: options.manifest,
+        metadata: options.metadata,
+    });
+    const environment = new IsolatedEnvironment();
+    const result = await environment.run({
+        task: options.task,
+        spec,
+        outputDirectory,
+        workerArtifact: options.artifact,
+        taskTimeoutMs: options.taskTimeoutMs,
+        ...(options.artifactGraceMs === undefined ? {} : { artifactGraceMs: options.artifactGraceMs }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        runAgent: async ({ mux, signal }) => {
+            const rpc = createLlmRpcServer({ stream: mux.channel("llm"), adapter: hostAdapter });
+            try {
+                const response = await runLazyGoalAcpClient({
+                    stream: createAcpMuxStream(mux),
+                    cwd: "/testbed",
+                    prompt: [{ type: "text" as const, text: options.task.problem_statement }],
+                    sessionMeta: {
+                        instanceId: options.metadata.instanceId,
+                        repo: options.metadata.repo,
+                        baseCommit: options.metadata.baseCommit,
+                        problemStatement: options.metadata.problemStatement,
+                        goalId: options.metadata.goalId,
+                        runId: options.metadata.runId,
+                        maxSteps: options.metadata.maxSteps,
+                        structuredOutputMode: options.metadata.structuredOutputMode,
+                    },
+                    signal,
+                    ...(options.onUpdate === undefined ? {} : { onUpdate: options.onUpdate }),
+                });
+                try {
+                    meta = parseSwebenchAcpMeta(response.meta, options.metadata);
+                } catch {
+                    throw new SwebenchAcpProjectionError("protocol", "INVALID_RESULT_META", "Invalid Worker result metadata");
+                }
+                if (response.stopReason === "end_turn" || response.stopReason === "max_turn_requests" || response.stopReason === "cancelled") {
+                    stopReason = response.stopReason;
+                } else {
+                    throw new SwebenchAcpProjectionError("protocol", "INVALID_STOP_REASON", "Unsupported ACP stop reason");
+                }
+            } catch (error) {
+                try { failure = readSwebenchAcpFailure(error, options.metadata); }
+                catch { failure = new SwebenchAcpProjectionError("protocol", "INVALID_ERROR_DATA", "Invalid Worker error data"); }
+                if (failure?.meta !== undefined) meta = failure.meta;
+                throw error;
+            } finally {
+                await rpc.close().catch(() => undefined);
+            }
+        },
+    });
+
+    const errors: SwebenchSupervisorError[] = [];
+    for (const error of result.errors) {
+        if (error.stage === "agent" && modelFailed) {
+            errors.push({ stage: "model", code: "MODEL_PROVIDER_ERROR", message: `Model provider request failed${providerStatus === undefined ? "" : ` (HTTP ${providerStatus})`}` });
+        } else if (error.stage === "agent" && failure !== undefined) {
+            errors.push({ stage: projectionFailureStage(failure), code: failure.code, message: failure.message });
+        } else {
+            errors.push(mapIsolatedSupervisorError(error));
+        }
+    }
+    const collected = result.artifact;
+    if (collected !== null) {
+        if (collected.meta !== undefined) meta = { ...collected.meta, ...meta };
+        for (const error of collected.errors) errors.push({ stage: error.stage, message: error.message });
+    }
+    let patch: string | null = collected?.patch ?? null;
+    let patchPath: string | null = null;
+    if (patch !== null) {
+        patchPath = join(outputDirectory, `${options.task.instance_id}.patch`);
+        try {
+            await writeFile(patchPath, patch, "utf8");
+        } catch (error) {
+            errors.push({ stage: "patch_export", message: boundMessage(error) });
+            patch = null;
+            patchPath = null;
+        }
+    }
+    return {
+        stopReason,
+        imageId: result.imageId,
+        ...(meta === undefined ? {} : { meta }),
+        patch,
+        patchPath,
+        persistence: collected?.persistence ?? null,
+        errors,
+    };
+}
+
+function mapIsolatedSupervisorError(error: IsolatedEnvironmentError): SwebenchSupervisorError {
+    const stage: SwebenchSupervisorFailureStage = error.stage === "environment_prepare" || error.stage === "preflight"
+        ? "worker_preflight"
+        : error.stage === "artifact_collect" ? "artifact_copy" : error.stage;
+    return { stage, ...(error.code === undefined ? {} : { code: error.code }), message: error.message };
 }
 
 async function openWorker(
