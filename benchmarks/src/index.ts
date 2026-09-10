@@ -20,12 +20,6 @@ export type {
     NormalizedBenchmarkTaskDescriptor,
 } from "./headless-composition-root.js";
 export {
-    JsonFileBenchmarkPersistenceAdapter,
-} from "./file-persistence-adapter.js";
-export type {
-    FilePersistenceAdapterOptions,
-} from "./file-persistence-adapter.js";
-export {
     createAcpMuxStream,
     MultiplexedConnection,
 } from "./multiplex.js";
@@ -72,3 +66,28 @@ export type {
     WorkerNodeExtractorOptions,
     WorkerNodeRuntime,
 } from "./worker-builder.js";
+export {
+    JsonFileBenchmarkPersistenceAdapter,
+} from "./file-persistence-adapter.js";
+export {
+    DEFAULT_MANAGED_IMAGE,
+    IsolatedEnvironment,
+} from "./isolated-environment.js";
+export type {
+    EnvironmentHandle,
+    EnvironmentSpec,
+    ImageSource,
+    IsolatedContainer,
+    IsolatedEnvironmentAcpOptions,
+    IsolatedEnvironmentAgentContext,
+    IsolatedEnvironmentError,
+    IsolatedEnvironmentFailureStage,
+    IsolatedEnvironmentOptions,
+    IsolatedEnvironmentResult,
+    IsolatedEnvironmentRunOptions,
+    PreflightResult,
+    WorkerEntryConfig,
+} from "./isolated-environment.js";
+export type {
+    FilePersistenceAdapterOptions,
+} from "./file-persistence-adapter.js";
