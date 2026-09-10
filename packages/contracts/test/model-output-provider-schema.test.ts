@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import Ajv2020 from "ajv/dist/2020.js";
+
 import {
     buildShapeGuide,
     compileModelOutputSchema,
@@ -81,6 +83,65 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
         return Array.isArray(kindProp?.enum) && kindProp?.enum[0] === "tool_call";
     });
     assert.equal(hasToolCall, false);
+});
+
+test("Executing Schema、Shape Guide 与 decode 均拒绝 create_plan_item，并允许合法更新", () => {
+    const bundle = createModelOutputContractBundle({ kind: "executing" });
+    const validate = new Ajv2020({ allErrors: true, strict: true }).compile(bundle.jsonSchema);
+    const invalidCreatePlanItem = {
+        result: {
+            kind: "wait",
+            reason: "等待执行",
+            memoryPatch: {
+                protocolVersion: 1,
+                operations: [{
+                    type: "create_plan_item",
+                    planItem: {
+                        description: "不应在 Executing 创建",
+                        status: null,
+                        dependsOnFactIds: null,
+                        dependsOnPlanItemIds: null,
+                    },
+                }],
+            },
+        },
+    };
+    assert.equal(validate(invalidCreatePlanItem), false);
+    assert.equal(bundle.shapeGuide.includes("create_plan_item"), false);
+    assert.throws(
+        () => bundle.decode(invalidCreatePlanItem),
+        (error: unknown) => error instanceof ContractValidationError,
+    );
+
+    const validUpdatePlanItem = {
+        result: {
+            kind: "wait",
+            reason: "等待执行",
+            memoryPatch: {
+                protocolVersion: 1,
+                operations: [{
+                    type: "update_plan_item",
+                    planItem: {
+                        id: "plan-1",
+                        description: null,
+                        status: "completed",
+                        dependsOnFactIds: null,
+                        dependsOnPlanItemIds: null,
+                        completionEvidenceSequences: null,
+                    },
+                }],
+            },
+        },
+    };
+    assert.equal(validate(validUpdatePlanItem), true);
+    const decoded = bundle.decode(validUpdatePlanItem);
+    assert.equal(decoded.kind, "wait");
+    if (decoded.kind === "wait") {
+        assert.deepEqual(decoded.memoryPatch?.operations, [{
+            type: "update_plan_item",
+            planItem: { id: "plan-1", status: "completed" },
+        }]);
+    }
 });
 
 test("拒绝空 Tool ID 与重复 Tool ID（Req 3.5）", () => {

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     AgentDecisionContract,
     ContextLookupRequestContract,
+    ExecutingWorkingMemoryPatchContract,
     FactProposalContract,
     GatheringPreparationResultContract,
     GoalTaskContract,
@@ -63,6 +64,28 @@ test("FactProposalContract 仅接受标量与一维标量数组（Req 2.5）", (
 
     const arrayWithObjectResult = safeParse(FactProposalContract, { ...baseProposal, value: [{ obj: 1 }] });
     assert.equal(arrayWithObjectResult.success, false);
+});
+
+test("Preparation 允许创建 PlanItem，而 Executing Patch 契约拒绝创建", () => {
+    const createPlanItemPatch = {
+        protocolVersion: 1 as const,
+        operations: [{
+            type: "create_plan_item" as const,
+            planItem: { description: "实现执行契约" },
+        }],
+    };
+
+    assert.equal(safeParse(WorkingMemoryPatchContract, createPlanItemPatch).success, true);
+    assert.equal(safeParse(ExecutingWorkingMemoryPatchContract, createPlanItemPatch).success, false);
+
+    const validExecutingPatch = {
+        protocolVersion: 1 as const,
+        operations: [{
+            type: "update_plan_item" as const,
+            planItem: { id: "plan-1", status: "completed" as const },
+        }],
+    };
+    assert.equal(safeParse(ExecutingWorkingMemoryPatchContract, validExecutingPatch).success, true);
 });
 
 test("PreparationResultContract 接受各合法 Preparation 分支并拒绝额外字段", () => {

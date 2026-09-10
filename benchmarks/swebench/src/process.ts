@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { Readable, Writable } from "node:stream";
 import { ExecutionAbortedError } from "../../../packages/runtime/src/index.js";
 
 /**
@@ -31,6 +32,37 @@ export interface ProcessResult {
 }
 
 export type ProcessRunner = (command: string, args: readonly string[], options: ProcessOptions) => Promise<ProcessResult>;
+
+/**
+ * 可交互子进程的 stdin/stdout 与退出事实。
+ *
+ * @remarks
+ * `input` 和 `output` 是唯一的控制通道；Worker 日志应走 `errorOutput`。调用方负责
+ * 在关闭 ACP/Mux 后调用 `kill`，`closed` 会在子进程退出时完成。
+ *
+ * @example
+ * ```ts
+ * const worker = await runInteractiveProcess("docker", ["exec", "-i", "worker"], {
+ *     timeoutMs: 120_000,
+ * });
+ * await worker.input.getWriter().write(new TextEncoder().encode("frame\n"));
+ * ```
+ */
+export interface InteractiveProcess {
+    readonly input: WritableStream<Uint8Array>;
+    readonly output: ReadableStream<Uint8Array>;
+    readonly errorOutput: ReadableStream<Uint8Array>;
+    readonly closed: Promise<ProcessResult>;
+    /** 尽力终止进程及其进程组；重复调用幂等。 */
+    kill(): void;
+}
+
+/** 交互式 Worker 进程的可替换启动边界。 */
+export type InteractiveProcessRunner = (
+    command: string,
+    args: readonly string[],
+    options: ProcessOptions,
+) => Promise<InteractiveProcess>;
 
 /** 启动参数数组指定的进程；启动失败、超时、协议输出超限和中止均抛错。 */
 export const runProcess: ProcessRunner = async (command, args, options) => {
@@ -95,6 +127,87 @@ export const runProcess: ProcessRunner = async (command, args, options) => {
             });
         });
     });
+};
+
+/**
+ * 启动一个不经过 shell 的交互式子进程，并把 stdin/stdout 映射为 Web Stream。
+ *
+ * @param command - 可执行文件名或绝对路径。
+ * @param args - 原样传递的参数数组。
+ * @param options - 超时、取消和输出上限；输出上限只约束 stderr 诊断。
+ * @returns 可接入 Mux 的进程句柄。
+ * @throws 启动失败、超时或外部取消时拒绝 `closed`。
+ * @example
+ * ```ts
+ * const process = await runInteractiveProcess("node", ["worker.mjs"], { timeoutMs: 120_000 });
+ * ```
+ */
+export const runInteractiveProcess: InteractiveProcessRunner = async (command, args, options) => {
+    if (options.signal?.aborted) throw new ExecutionAbortedError();
+    const child = spawn(command, [...args], {
+        cwd: options.cwd,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32",
+    });
+    if (child.stdin === null || child.stdout === null || child.stderr === null) {
+        child.kill();
+        throw new Error(`${command} did not expose interactive stdio`);
+    }
+    const maxBytes = options.maxBytes ?? 16 * 1024 * 1024;
+    let stderr = Buffer.alloc(0);
+    let stderrTruncated = false;
+    let failure: Error | undefined;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+    let stopped = false;
+    const kill = (signal: NodeJS.Signals = "SIGTERM") => {
+        if (child.pid === undefined) return;
+        try {
+            if (process.platform === "win32") child.kill(signal);
+            else process.kill(-child.pid, signal);
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ESRCH") failure ??= error as Error;
+        }
+    };
+    const stop = (error: Error) => {
+        if (failure !== undefined || closed) return;
+        failure = error;
+        kill("SIGTERM");
+        killTimer = setTimeout(() => kill("SIGKILL"), 1000);
+    };
+    child.stderr.on("data", (chunk: Buffer) => {
+        const next = Buffer.concat([stderr, chunk]);
+        stderrTruncated ||= next.length > maxBytes;
+        stderr = next.length <= maxBytes ? next : next.subarray(-maxBytes);
+    });
+    const timer = setTimeout(() => stop(new Error(`${command} exceeded ${options.timeoutMs}ms`)), options.timeoutMs);
+    const abort = () => stop(new ExecutionAbortedError());
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
+    const closedPromise = new Promise<ProcessResult>((resolve, reject) => {
+        child.once("error", (error) => { if (!stopped) failure ??= error; });
+        child.once("close", (code) => {
+            closed = true;
+            clearTimeout(timer);
+            if (killTimer !== undefined) clearTimeout(killTimer);
+            options.signal?.removeEventListener("abort", abort);
+            const diagnostic = (stderrTruncated ? "[earlier output truncated]\n" : "") + stderr.toString("utf8");
+            if (failure !== undefined) reject(failure);
+            else resolve({ code: code ?? 1, stdout: "", stderr: diagnostic });
+        });
+    });
+    return {
+        input: Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+        output: Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+        errorOutput: Readable.toWeb(child.stderr) as ReadableStream<Uint8Array>,
+        closed: closedPromise,
+        kill: () => {
+            if (closed || stopped) return;
+            stopped = true;
+            kill("SIGTERM");
+            killTimer = setTimeout(() => kill("SIGKILL"), 1000);
+        },
+    };
 };
 
 /** 基础设施命令必须正常退出；错误保留有界 stderr 供诊断。 */

@@ -50,6 +50,9 @@ export interface GeminiConfig {
     maxOutputTokens?: number;
 }
 
+const GEMINI_NULL_SENTINEL = "__lazygoal_null__";
+const GEMINI_ABSENT_SENTINEL = "__lazygoal_absent__";
+
 /**
  * 使用 Google Gen AI SDK 调用 Gemini 的 Adapter。
  *
@@ -62,7 +65,17 @@ export interface GeminiConfig {
  * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
  * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
  * 响应携带 `usageMetadata` 时将其归一化写入 `providerMetadata.usage`
- * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
+ * 中；缺失或非标准值写为 `undefined`。
+ *
+ * @example
+ * ```ts
+ * const adapter = new Gemini({
+ *     apiKey: "secret", model: "model-id", structuredOutputMode: "strict",
+ * });
+ * const response = await adapter.generate({
+ *     messages: [{ role: "user", content: "hello" }],
+ * });
+ * ```
  */
 export class Gemini implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
@@ -70,14 +83,11 @@ export class Gemini implements LLMAdapter {
     private readonly model: string;
     private readonly maxOutputTokens: number | undefined;
 
-    /** @param config - Google API Key、Gemini 模型名称与固定的结构化输出模式。 */
     constructor(config: GeminiConfig) {
         this.structuredOutputMode = config.structuredOutputMode;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
-            ...(config.baseURL === undefined ? {} : {
-                httpOptions: { baseUrl: config.baseURL, apiVersion: "" },
-            }),
+            ...(config.baseURL !== undefined ? { httpOptions: { baseUrl: config.baseURL, apiVersion: "" } } : {}),
         });
         this.model = config.model;
         this.maxOutputTokens = config.maxOutputTokens;
@@ -95,7 +105,6 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-
         if (this.structuredOutputMode === "strict") {
             if (request.structuredOutput === undefined) {
                 throw new LLMRequestModeMismatchError(
@@ -135,8 +144,11 @@ export class Gemini implements LLMAdapter {
             throwIfAborted(control);
             const usage = extractGeminiUsage(response.usageMetadata);
 
+            const content = response.text ?? "";
             return {
-                content: response.text ?? "",
+                content: this.structuredOutputMode === "strict" && request.structuredOutput !== undefined
+                    ? restoreGeminiResponseProjection(content, request.structuredOutput.schema)
+                    : content,
                 providerMetadata: {
                     model: this.model,
                     ...(usage !== undefined ? { usage } : {}),
@@ -205,7 +217,10 @@ function toGeminiInput(
 }
 
 /** 投影为 Gemini 支持的结构约束；SDK 完成原生类型序列化，本地契约保持不变。 */
-function prepareGeminiSchema(schema: JsonSchema202012): JsonSchema202012 {
+function prepareGeminiSchema(
+    schema: JsonSchema202012,
+    path: readonly string[] = [],
+): JsonSchema202012 {
     const result = { ...schema };
     if (Array.isArray(schema.enum)) {
         const values = schema.enum;
@@ -226,18 +241,247 @@ function prepareGeminiSchema(schema: JsonSchema202012): JsonSchema202012 {
     }
     if (schema.properties !== undefined) {
         result.properties = Object.fromEntries(Object.entries(schema.properties as Record<string, JsonSchema202012>).map(([key, value]) =>
-            [key, prepareGeminiSchema(value as JsonSchema202012)]));
+            [key, prepareGeminiSchema(value as JsonSchema202012, [...path, "properties", key])]));
     }
-    if (schema.items !== undefined) result.items = prepareGeminiSchema(schema.items as JsonSchema202012);
+    if (schema.items !== undefined) {
+        result.items = prepareGeminiSchema(schema.items as JsonSchema202012, [...path, "items"]);
+    }
     if (Array.isArray(schema.anyOf)) {
         delete result.anyOf;
-        Object.assign(result, mergeGeminiUnion(schema.anyOf.map(value => prepareGeminiSchema(value as JsonSchema202012))));
+        Object.assign(result, mergeGeminiUnion(
+            schema.anyOf.map(value => prepareGeminiSchema(value as JsonSchema202012, path)),
+            path,
+        ));
     }
     return result;
 }
 
-/** 对象联合投影为字段并集与必填交集；分支互斥和专属约束仍由本地契约校验。 */
-function mergeGeminiUnion(branches: readonly JsonSchema202012[]): JsonSchema202012 {
+/** 将 Google provider projection 的省略字段和占位值逆向归一为 Wire 结构。 */
+function restoreGeminiResponseProjection(content: string, schema: JsonSchema202012): string {
+    let value: unknown;
+    try {
+        value = JSON.parse(content);
+    } catch {
+        return content;
+    }
+
+    if (isJsonObject(value) && isJsonObject(value.result)) {
+        const result = value.result;
+
+        // 1. 若具有有效的 action 对象，确认为 tool_call，清理非当前分支的字段
+        if (result.action !== undefined && result.action !== null && typeof result.action === "object") {
+            result.kind = "tool_call";
+            delete result.type;
+            delete result.summary;
+            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
+                delete result.completionEvidence;
+            }
+            delete result.reason;
+            delete result.error;
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+        } else if (result.action === null || result.action === undefined) {
+            delete result.action;
+            if (result.kind === "tool_call" && typeof result.summary === "string") {
+                result.kind = "complete";
+            }
+        }
+
+        // 2. 根据确定或纠正后的 kind 清理多余空字段与哨兵值
+        if (result.kind === "complete") {
+            delete result.action;
+            delete result.reason;
+            delete result.error;
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
+                delete result.completionEvidence;
+            }
+        } else if (result.kind === "tool_call") {
+            delete result.summary;
+            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
+                delete result.completionEvidence;
+            }
+            delete result.reason;
+            delete result.error;
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+        } else if (result.kind === "wait") {
+            delete result.action;
+            delete result.summary;
+            delete result.completionEvidence;
+            delete result.error;
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+        } else if (result.kind === "fail") {
+            delete result.action;
+            delete result.summary;
+            delete result.completionEvidence;
+            delete result.reason;
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+        } else if (result.kind === "context_lookup") {
+            delete result.action;
+            delete result.summary;
+            delete result.completionEvidence;
+            delete result.reason;
+            delete result.error;
+        }
+
+        // 清理常见非对应分支残留的 null 字段
+        if (result.summary === null && result.kind !== "complete") {
+            delete result.summary;
+        }
+        if (result.reason === null && result.kind !== "wait") {
+            delete result.reason;
+        }
+        if (result.error === null && result.kind !== "fail") {
+            delete result.error;
+        }
+    }
+
+    restoreGeminiProjectedValue(value, schema);
+    return JSON.stringify(value);
+}
+
+/** 只沿唯一匹配的 Wire 联合分支恢复 nullable 字段和紧凑 completion evidence。 */
+function restoreGeminiProjectedValue(value: unknown, schema: JsonSchema202012): boolean {
+    if (Array.isArray(schema.anyOf)) {
+        const matches = schema.anyOf.filter(branch => matchesKnownSchemaShape(value, branch as JsonSchema202012));
+        return matches.length === 1
+            ? restoreGeminiProjectedValue(value, matches[0] as JsonSchema202012)
+            : false;
+    }
+    if (schema.type === "array" && Array.isArray(value) && schema.items !== undefined) {
+        return value.reduce((changed, item) =>
+            restoreGeminiProjectedValue(item, schema.items as JsonSchema202012) || changed, false);
+    }
+    if (schema.type !== "object" || !isJsonObject(value) || schema.properties === undefined) return false;
+
+    const properties = schema.properties as Record<string, JsonSchema202012>;
+    const required = new Set(Array.isArray(schema.required) ? schema.required as readonly string[] : []);
+    let changed = false;
+    for (const key of Object.keys(value)) {
+        if (!(key in properties) && key === "completionEvidence" && value[key] === GEMINI_ABSENT_SENTINEL) {
+            delete value[key];
+            changed = true;
+        }
+    }
+    for (const [key, propertySchema] of Object.entries(properties)) {
+        if (!(key in value)) {
+            if (required.has(key) && schemaAllowsNull(propertySchema)) {
+                value[key] = null;
+                changed = true;
+            }
+            continue;
+        }
+        if (value[key] === GEMINI_NULL_SENTINEL && schemaAllowsNull(propertySchema)) {
+            value[key] = null;
+            changed = true;
+            continue;
+        }
+        if (key === "completionEvidence" && propertySchema.type === "array" && typeof value[key] === "string") {
+            const parsed = parseGeminiCompletionEvidence(value[key]);
+            if (parsed !== undefined) {
+                value[key] = parsed;
+                changed = true;
+                continue;
+            }
+        }
+        changed = restoreGeminiProjectedValue(value[key], propertySchema) || changed;
+    }
+    return changed;
+}
+
+/** 用响应中已存在的字段选择联合分支，不把缺失必填字段视为匹配失败。 */
+function matchesKnownSchemaShape(value: unknown, schema: JsonSchema202012): boolean {
+    if (value === GEMINI_NULL_SENTINEL && schemaAllowsNull(schema)) return true;
+    if (schema.nullable === true && value === null) return true;
+    if (Array.isArray(schema.anyOf)) {
+        return schema.anyOf.some(branch => matchesKnownSchemaShape(value, branch as JsonSchema202012));
+    }
+    if (Array.isArray(schema.enum) && !schema.enum.some(candidate => Object.is(candidate, value))) return false;
+    switch (schema.type) {
+        case "null": return value === null;
+        case "string": return typeof value === "string";
+        case "boolean": return typeof value === "boolean";
+        case "integer": return typeof value === "number" && Number.isInteger(value);
+        case "number": return typeof value === "number" && Number.isFinite(value);
+        case "array":
+            return Array.isArray(value) && (schema.items === undefined
+                || value.every(item => matchesKnownSchemaShape(item, schema.items as JsonSchema202012)));
+        case "object": {
+            if (!isJsonObject(value) || schema.properties === undefined) return false;
+            const properties = schema.properties as Record<string, JsonSchema202012>;
+            if (schema.additionalProperties === false && Object.keys(value).some(key =>
+                !(key in properties) && !(key === "completionEvidence" && value[key] === GEMINI_ABSENT_SENTINEL))) return false;
+            return Object.entries(value).every(([key, propertyValue]) =>
+                properties[key] === undefined
+                    || (key === "completionEvidence"
+                        && properties[key]!.type === "array"
+                        && parseGeminiCompletionEvidence(propertyValue) !== undefined)
+                    || matchesKnownSchemaShape(propertyValue, properties[key]!));
+        }
+        default:
+            return true;
+    }
+}
+
+function parseGeminiCompletionEvidence(
+    value: unknown,
+): readonly { criterionIndex: number; evidenceSequences: readonly number[] }[] | undefined {
+    if (typeof value !== "string" || value.length === 0 || value === GEMINI_ABSENT_SENTINEL) return undefined;
+
+    const seenCriteria = new Set<number>();
+    const evidence: { criterionIndex: number; evidenceSequences: readonly number[] }[] = [];
+    for (const segment of value.split(";")) {
+        const fields = segment.split(":");
+        if (fields.length !== 2) return undefined;
+        const criterionIndex = parseGeminiSafeInteger(fields[0]!);
+        if (criterionIndex === undefined || seenCriteria.has(criterionIndex)) return undefined;
+
+        const sequenceValues = fields[1]!.split(",");
+        if (sequenceValues.length === 0 || sequenceValues.some(sequence => sequence.length === 0)) return undefined;
+        const evidenceSequences: number[] = [];
+        for (const sequence of sequenceValues) {
+            const parsed = parseGeminiSafeInteger(sequence);
+            if (parsed === undefined) return undefined;
+            evidenceSequences.push(parsed);
+        }
+
+        seenCriteria.add(criterionIndex);
+        evidence.push({ criterionIndex, evidenceSequences });
+    }
+    return evidence.length === 0 ? undefined : evidence;
+}
+
+function parseGeminiSafeInteger(value: string): number | undefined {
+    if (!/^(?:0|[1-9][0-9]*)$/.test(value)) return undefined;
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function schemaAllowsNull(schema: JsonSchema202012): boolean {
+    return schema.type === "null"
+        || schema.nullable === true
+        || (Array.isArray(schema.anyOf)
+            && schema.anyOf.some(branch => schemaAllowsNull(branch as JsonSchema202012)));
+}
+
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 合并决策判别联合，转换 nullable，并保持内部对象联合的独立分支。 */
+function mergeGeminiUnion(
+    branches: readonly JsonSchema202012[],
+    path: readonly string[],
+): JsonSchema202012 {
     const nullable = branches.some(branch => branch.type === "null" || branch.nullable === true);
     const values = [...new Map(branches.filter(branch => branch.type !== "null")
         .map(branch => [JSON.stringify(branch), branch])).values()];
@@ -245,28 +489,103 @@ function mergeGeminiUnion(branches: readonly JsonSchema202012[]): JsonSchema2020
     const withNullability = (schema: JsonSchema202012): JsonSchema202012 =>
         nullable ? { ...schema, nullable: true } : schema;
     if (values.length === 1) return withNullability(values[0]!);
+
     if (values.every(branch => branch.type === "object")) {
         const properties = values.map(branch => branch.properties as Record<string, JsonSchema202012>);
-        const keys = [...new Set(properties.flatMap(Object.keys))];
-        const required = (values[0]!.required as readonly string[]).filter(key =>
-            values.every(branch => (branch.required as readonly string[]).includes(key)));
+        const requiredByBranch = values.map(branch => branch.required as readonly string[]);
+        const required = requiredByBranch[0]!.filter(key =>
+            requiredByBranch.every(branchRequired => branchRequired.includes(key)));
         const discriminator = required.find(key => properties.every(shape =>
             Array.isArray(shape[key]?.enum) && shape[key]!.enum!.length === 1));
-        const description = discriminator === undefined ? undefined
-            : "Return exactly one variant, including every listed property and no properties from other variants. "
+        const mayFlatten = path.join(".") === "properties.result"
+            || path.join(".") === "properties.result.properties.action";
+
+        if (mayFlatten && discriminator !== undefined) {
+            const keys = [...new Set(properties.flatMap(Object.keys))];
+            const discriminatorValues = properties.map(shape =>
+                (shape[discriminator]!.enum as readonly unknown[])[0]);
+            const description = "Return one selected variant. Branch-specific properties are required only for the discriminator values listed below. "
                 + values.map((branch, index) =>
-                    `${discriminator}=${JSON.stringify(properties[index]![discriminator]!.enum![0])}: ${JSON.stringify(branch.required)}`,
-                    `${discriminator}=${JSON.stringify((properties[index]![discriminator]!.enum as readonly unknown[])[0])}: ${JSON.stringify(branch.required)}`,
+                    `${discriminator}=${JSON.stringify(discriminatorValues[index])}: ${JSON.stringify(branch.required)}`,
                 ).join("; ");
-        return withNullability({
-            type: "object",
-            ...(description === undefined ? {} : { description }),
-            properties: Object.fromEntries(keys.map(key => [key, mergeGeminiUnion(
-                properties.flatMap(shape => shape[key] === undefined ? [] : [shape[key]!]),
-            )])),
-            required,
-        });
+            return withNullability({
+                type: "object",
+                description,
+                properties: Object.fromEntries(keys.map(key => {
+                    let merged = mergeGeminiUnion(
+                        properties.flatMap(shape => shape[key] === undefined ? [] : [shape[key]!]),
+                        [...path, "properties", key],
+                    );
+                    const requiredWhen = [...new Set(values.flatMap((_, index) =>
+                        requiredByBranch[index]!.includes(key) ? [discriminatorValues[index]] : []))];
+                    if (
+                        path.join(".") === "properties.result"
+                        && ["summary", "reason", "question", "error"].includes(key)
+                        && merged.type === "string"
+                    ) {
+                        merged = { ...merged, maxLength: "2000" };
+                    }
+                    if (path.join(".") === "properties.result" && key === "summary") {
+                        merged = {
+                            ...merged,
+                            type: "string",
+                            maxLength: "2000",
+                            nullable: true,
+                            description: 'Required. If kind="complete", provide the task completion summary. For any other kind, return null.',
+                        };
+                        delete (merged as any).enum;
+                    }
+                    if (path.join(".") === "properties.result" && key === "action") {
+                        merged = {
+                            ...merged,
+                            nullable: true,
+                            description: 'Required. If kind="tool_call", provide the tool action object. For any other kind, return null.',
+                        };
+                    }
+                    if (path.join(".") === "properties.result" && ["reason", "error", "need", "question", "filters"].includes(key)) {
+                        merged = {
+                            ...merged,
+                            nullable: true,
+                        };
+                    }
+                    if (path.join(".") === "properties.result" && key === "kind") {
+                        merged = {
+                            ...merged,
+                            description: "Select exactly one result shape: kind=\"tool_call\" requires action and completionEvidence=\"__lazygoal_absent__\" and forbids summary, reason, and error; kind=\"complete\" requires summary and compact completionEvidence and forbids action; kind=\"wait\" requires reason and completionEvidence=\"__lazygoal_absent__\" and forbids action, summary, and error; kind=\"fail\" requires error and completionEvidence=\"__lazygoal_absent__\" and forbids action, summary, and reason; kind=\"context_lookup\" requires need, question, filters, and completionEvidence=\"__lazygoal_absent__\".",
+                        };
+                    }
+                    if (path.join(".") === "properties.result" && key === "memoryPatch") {
+                        merged = {
+                            type: "string",
+                            enum: [GEMINI_NULL_SENTINEL],
+                            nullable: true,
+                            description: "Required. Return null. Google strict output does not emit Working Memory updates.",
+                        };
+                    }
+                    if (path.join(".") === "properties.result" && key === "completionEvidence") {
+                        merged = {
+                            type: "string",
+                            description: "For kind=\"complete\", use <criterionIndex>:<sequence>[,<sequence>][;<criterionIndex>:...] (for example, 0:96), with at least one committed observation sequence for every criterion. For every other kind, return __lazygoal_absent__.",
+                        };
+                    }
+                    if (path.join(".") === "properties.result" && key === "completionEvidence") {
+                        return [key, merged];
+                    }
+                    if (requiredWhen.length === 0 || required.includes(key)) return [key, merged];
+                    return [key, {
+                        ...merged,
+                        description: `Required when ${discriminator} is ${requiredWhen.map(value => JSON.stringify(value)).join(" or ")}.`
+                            + (schemaAllowsNull(merged) ? " Return null when no value is needed." : "")
+                            + (key === "memoryPatch" ? " Google strict output does not emit Working Memory updates." : ""),
+                    }];
+                })),
+                required: path.join(".") === "properties.result"
+                    ? [...new Set([...required, "action", "summary", "completionEvidence", "memoryPatch"].filter(k => keys.includes(k)))]
+                    : required,
+            });
+        }
     }
+
     if (values.every(branch => branch.type === "string")) {
         return withNullability({
             type: "string",

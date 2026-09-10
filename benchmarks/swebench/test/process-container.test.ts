@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createToolRegistration, isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
-import { createSwebenchShell, SwebenchContainer } from "../src/container.js";
-import { requireSuccess, runProcess, type ProcessRunner } from "../src/process.js";
+import { isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
+import { SwebenchContainer } from "../src/container.js";
+import { requireSuccess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../src/process.js";
+import type { WorkerArtifact } from "../src/worker-builder.js";
 
 const task = { instance_id: "astropy__astropy-12907", repo: "astropy/astropy", base_commit: "a".repeat(40),
     problem_statement: "Issue", image: "swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest" };
@@ -28,7 +29,7 @@ test("process abort terminates the child and propagates Runtime abort semantics"
     await assert.rejects(runProcess("missing-lazygoal-command", [], { timeoutMs: 1000 }), /ENOENT/);
 });
 
-test("container shell never mounts the host or forwards its credentials, and executes input as one container argument", async () => {
+test("container boundary never mounts the host or forwards credentials", async () => {
     const calls: { command: string; args: readonly string[] }[] = [];
     const run: ProcessRunner = async (command, args) => {
         calls.push({ command, args });
@@ -36,21 +37,10 @@ test("container shell never mounts the host or forwards its credentials, and exe
     };
     const container = new SwebenchContainer("unique", task, run);
     await container.start();
-    const input = "printf '%s' 'a; $(echo b)'\nls";
-    const registration = createToolRegistration(createSwebenchShell(container));
-    assert.equal(registration.prepare({ command: input, timeoutSeconds: 121 }).ok, false);
-    assert.equal(registration.prepare({ command: " " }).ok, false);
-    const prepared = registration.prepare({ command: input, timeoutSeconds: 10 });
-    assert.equal(prepared.ok, true);
-    if (prepared.ok) await prepared.execute("action");
     const create = calls.find((c) => c.args[0] === "create")!;
     assert.ok(create.args.includes("none"));
     assert.ok(create.args.includes("linux/amd64"));
     assert.ok(!create.args.some((a) => ["-v", "--mount", "--volume", "-e", "--env", "--privileged"].includes(a)));
-    const shell = calls.at(-1)!;
-    assert.equal(shell.command, "docker");
-    assert.equal(shell.args.at(-1), `source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && ${input}`);
-    assert.ok(shell.args.includes("timeout"));
     await container.close();
     await container.close();
     assert.equal(calls.filter((c) => c.args[0] === "rm").length, 1);
@@ -86,15 +76,61 @@ test("exported patch includes committed, staged, unstaged, deleted and new files
         await writeFile(join(directory, "new.txt"), "new\n");
         await rm(join(directory, "deleted.txt"));
         const container = new SwebenchContainer("test", { ...task, base_commit }, async (_command, args, options) =>
-            runProcess("/bin/bash", ["-c", args.at(-1)!], { ...options, cwd: directory }));
+            runProcess("/bin/bash", ["-c", args.at(-1)!.replaceAll("/opt/lazygoal", join(directory, ".lazygoal"))], { ...options, cwd: directory }));
+        await mkdir(join(directory, ".lazygoal"), { recursive: true });
         const patch = await container.exportPatch();
         assert.match(patch, /new file mode/);
         assert.match(patch, /deleted file mode/);
         await git("reset", "--hard", base_commit);
+        await git("clean", "-fd");
         await writeFile(join(directory, "prediction.patch"), patch);
         await git("apply", "prediction.patch");
         assert.equal(await readFile(join(directory, "tracked.txt"), "utf8"), "final\n");
         assert.equal(await readFile(join(directory, "new.txt"), "utf8"), "new\n");
         await assert.rejects(readFile(join(directory, "deleted.txt")), /ENOENT/);
     } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("injects Worker files outside /testbed and starts it with interactive docker exec", async () => {
+    const calls: { command: string; args: readonly string[] }[] = [];
+    const container = new SwebenchContainer("unique", task, async (command, args) => {
+        calls.push({ command, args });
+        return { ...ok, stdout: args[0] === "image" ? "sha256:abc\n" : "" };
+    });
+    await container.start();
+    const artifact = {
+        digest: "a".repeat(64), directory: "/tmp/worker", workerPath: "/tmp/worker/worker.mjs",
+        nodePath: "/tmp/worker/node", manifestPath: "/tmp/worker/manifest.json",
+        manifest: {} as WorkerArtifact["manifest"], cacheHit: false,
+    } satisfies WorkerArtifact;
+    await container.injectWorker(artifact);
+    await container.runWorker();
+    const copies = calls.filter((call) => call.args[0] === "cp");
+    assert.equal(copies.length, 3);
+    assert.ok(copies.every((call) => call.args.some((arg) => arg.includes(":/opt/lazygoal/"))));
+    const worker = calls.at(-1)!;
+    assert.equal(worker.args[0], "exec");
+    assert.ok(worker.args.includes("-i"));
+    assert.match(worker.args.at(-1)!, /conda activate testbed; } >&2 && exec \/opt\/lazygoal\/node/);
+    assert.ok(!worker.args.some((arg) => ["-v", "--mount", "--volume", "-e", "--env", "--privileged"].includes(arg)));
+    await container.close();
+});
+
+test("container passes the configured timeout to the interactive Worker runner", async () => {
+    let timeoutMs: number | undefined;
+    const interactiveRun: InteractiveProcessRunner = async (_command, _args, options): Promise<InteractiveProcess> => {
+        timeoutMs = options.timeoutMs;
+        return {
+            input: new WritableStream<Uint8Array>(),
+            output: new ReadableStream<Uint8Array>(),
+            errorOutput: new ReadableStream<Uint8Array>(),
+            closed: Promise.resolve(ok),
+            kill: () => undefined,
+        };
+    };
+    const container = new SwebenchContainer("unique", task, async () => ok, interactiveRun);
+    await container.start();
+    await container.openWorkerProcess(37_000);
+    assert.equal(timeoutMs, 37_000);
+    await container.close();
 });

@@ -15,7 +15,7 @@ AgentDecision。
 
 主要入口是 [LLMPreparationExecutor](../../packages/agent/src/llm-preparation-executor.ts) 与 [LLMStepExecutor](../../packages/agent/src/llm-step-executor.ts)。独立模型视图位于 [model-inference-view.ts](../../packages/agent/src/model-inference-view.ts)，投影、请求组装分别位于 [model-inference-projector.ts](../../packages/agent/src/model-inference-projector.ts) 与 [render.ts](../../packages/agent/src/render.ts)；模型输出响应契约由 `@lazygoal/contracts` 的模型输出契约 Bundle 统一驱动。Preparation View 可接收 Runtime 已提交的 hash-only `preparation_input_recorded` provenance；Executing View 不能携带该字段。当前 v1 可接收一次已提交的 `bm25-lite@1` Lookup Result，不触发 Agent 内部查询；历史命中保留 source refs，但不升级为 Evidence。
 
-Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)。默认 Renderer 只注册 Prompt Bundle v1 及其当前 `.njk` 资产；v1 固定 `structured@1`、`trajectory-layered@1` 与 `bm25-lite@1`，要求 MemoryPatch 只提交 durable semantic delta，禁止保存 next Action 与 Runtime 控制状态。业务 Prompt 以版本化 `.njk` 资产维护于对应业务目录。
+Prompt 基础设施集中在 [prompting/](../../packages/agent/src/prompting/)。默认 Renderer 只注册 Prompt Bundle v1 及其当前 `.njk` 资产；v1 固定 `structured@1`、`trajectory-layered@1` 与 `bm25-lite@1`，要求 MemoryPatch 只提交 durable semantic delta，禁止保存 next Action 与 Runtime 控制状态。Preparation 使用完整 MemoryPatch 契约，executing 输出契约排除阶段门禁止的 `create_plan_item`，使模型可见 Schema 与 Runtime 准入保持一致。业务 Prompt 以版本化 `.njk` 资产维护于对应业务目录。
 
 ## 单轮数据流
 

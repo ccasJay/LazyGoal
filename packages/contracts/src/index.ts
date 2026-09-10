@@ -50,6 +50,8 @@ export {
     ContextLookupRequestContract,
     ContextLookupSequenceRangeContract,
     ContextReadyPreparationResultContract,
+    ExecutingMemoryPatchOperationContract,
+    ExecutingWorkingMemoryPatchContract,
     FactProposalContract,
     FactScalarContract,
     FactStabilityContract,
@@ -94,6 +96,8 @@ export type {
     ContextLookupNeed,
     ContextLookupRequest,
     ContextLookupSequenceRange,
+    ExecutingMemoryPatchOperation,
+    ExecutingWorkingMemoryPatch,
     FactProposal,
     FactScalar,
     FactStability,
@@ -138,4 +142,3 @@ export type {
     ModelOutputContractBundle,
     ModelOutputRequest,
 } from "./model-output/factory";
-

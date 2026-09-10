@@ -564,6 +564,57 @@ export const WorkingMemoryPatchContract = contract.object({
 export type WorkingMemoryPatch = InferContract<typeof WorkingMemoryPatchContract>;
 
 /**
+ * Executing 阶段 Memory Patch 单项操作契约。
+ *
+ * @remarks
+ * Executing 只能更新已存在的 PlanItem；PlanItem 的创建属于 Planning 阶段，
+ * 因此此契约刻意不包含 `create_plan_item` 分支。
+ *
+ * @example
+ * ```ts
+ * const op: ExecutingMemoryPatchOperation = {
+ *     type: "update_plan_item",
+ *     planItem: { id: "plan-1", status: "completed" },
+ * };
+ * ```
+ */
+export const ExecutingMemoryPatchOperationContract = contract.discriminatedUnion("type", [
+    contract.object({ type: contract.literal("upsert_fact"), fact: FactProposalContract }),
+    contract.object({ type: contract.literal("retire_fact"), fact: RetireFactProposalContract }),
+    contract.object({ type: contract.literal("create_hypothesis"), hypothesis: HypothesisCreateContract }),
+    contract.object({ type: contract.literal("update_hypothesis"), hypothesis: HypothesisUpdateContract }),
+    contract.object({ type: contract.literal("update_plan_item"), planItem: PlanItemUpdateContract }),
+    contract.object({ type: contract.literal("create_blocker"), blocker: BlockerCreateContract }),
+    contract.object({ type: contract.literal("update_blocker"), blocker: BlockerUpdateContract }),
+]);
+
+/** Executing 阶段 Memory Patch 单项操作公开类型。 */
+export type ExecutingMemoryPatchOperation = InferContract<typeof ExecutingMemoryPatchOperationContract>;
+
+/**
+ * Executing 阶段 Working Memory 增量 Patch 契约。
+ *
+ * @remarks
+ * 与 Preparation 使用的 `WorkingMemoryPatchContract` 共用协议版本，
+ * 但禁止创建 PlanItem；Runtime 的阶段门仍负责对已解码 Patch 做最终校验。
+ *
+ * @example
+ * ```ts
+ * const patch: ExecutingWorkingMemoryPatch = {
+ *     protocolVersion: 1,
+ *     operations: [],
+ * };
+ * ```
+ */
+export const ExecutingWorkingMemoryPatchContract = contract.object({
+    protocolVersion: contract.literal(1),
+    operations: contract.array(ExecutingMemoryPatchOperationContract),
+});
+
+/** Executing 阶段 Working Memory 增量 Patch 公开类型。 */
+export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingMemoryPatchContract>;
+
+/**
  * Preparation Question 结果契约。
  *
  * @example
@@ -741,6 +792,45 @@ export const FailAgentDecisionContract = contract.object({
 });
 
 /**
+ * Executing 阶段 Tool 调用决策契约。
+ *
+ * @remarks
+ * 与通用 Agent 决策共用 Action 结构，但 Memory Patch 禁止创建 PlanItem。
+ *
+ * @example
+ * ```ts
+ * const decision = { kind: "tool_call", action: { actionId: "a1", toolId: "bash", input: {} } };
+ * ```
+ */
+export const ExecutingToolCallAgentDecisionContract = contract.object({
+    kind: contract.literal("tool_call"),
+    action: ToolCallActionContract,
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Executing 阶段任务完成决策契约。 */
+export const ExecutingCompleteAgentDecisionContract = contract.object({
+    kind: contract.literal("complete"),
+    summary: contract.string(),
+    completionEvidence: contract.array(CompletionEvidenceContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Executing 阶段等待决策契约。 */
+export const ExecutingWaitAgentDecisionContract = contract.object({
+    kind: contract.literal("wait"),
+    reason: contract.string(),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Executing 阶段失败决策契约。 */
+export const ExecutingFailAgentDecisionContract = contract.object({
+    kind: contract.literal("fail"),
+    error: contract.string(),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/**
  * 结构化 Agent 决策契约（不含 checkpoint）。
  *
  * @remarks
@@ -752,10 +842,10 @@ export const FailAgentDecisionContract = contract.object({
  * ```
  */
 export const StructuredAgentDecisionContract = contract.discriminatedUnion("kind", [
-    ToolCallAgentDecisionContract,
-    CompleteAgentDecisionContract,
-    WaitAgentDecisionContract,
-    FailAgentDecisionContract,
+    ExecutingToolCallAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
+    ExecutingWaitAgentDecisionContract,
+    ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
 ]);
 
@@ -779,9 +869,9 @@ export const OrdinaryExecutingDecisionContract = StructuredAgentDecisionContract
  * ```
  */
 export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kind", [
-    CompleteAgentDecisionContract,
-    WaitAgentDecisionContract,
-    FailAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
+    ExecutingWaitAgentDecisionContract,
+    ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
 ]);
 

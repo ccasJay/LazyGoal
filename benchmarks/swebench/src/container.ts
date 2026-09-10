@@ -1,7 +1,10 @@
-import type { Tool } from "../../../packages/runtime/src/index.js";
-import { contract, type InferContract } from "../../../packages/contracts/src/index.js";
+import { swebenchWorkerArgs } from "./worker-config.js";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { isRecord } from "./manifest.js";
-import { requireSuccess, runProcess, type ProcessRunner } from "./process.js";
+import { requireSuccess, runInteractiveProcess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "./process.js";
+import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
+import { preflightWorker, type WorkerPreflightResult } from "./worker-preflight.js";
 
 /**
  * 从固定数据集投影的作答输入；禁止携带 gold patch、测试补丁或评分目标。
@@ -35,16 +38,10 @@ export function parseSwebenchTasks(value: unknown): SwebenchTask[] {
     });
 }
 
-export const SWE_SHELL_CONTRACT = contract.object({
-    command: contract.string(),
-    timeoutSeconds: contract.optional(contract.integer({ minimum: 1, maximum: 120 })),
-});
-type ShellInput = InferContract<typeof SWE_SHELL_CONTRACT>;
-
 /**
  * 单题 Docker 工作区。无宿主挂载、无网络，固定 linux/amd64；close 仅删除自己的容器。
  * @remarks
- * shell 的目录与环境不跨调用保留，文件修改保留；补丁须在 close 前导出。
+ * Worker 的控制流与 `/testbed` 工作区分离；文件修改保留，补丁须在 close 前导出。
  * @example
  * ```ts
  * const container = new SwebenchContainer("lg-swe-unique-0", task);
@@ -61,7 +58,12 @@ export class SwebenchContainer {
      * @param task - 已校验的作答输入与官方镜像引用。
      * @param run - 子进程边界，测试可注入替身；构造期间不启动容器。
      */
-    constructor(readonly name: string, readonly task: SwebenchTask, private readonly run: ProcessRunner = runProcess) {}
+    constructor(
+        readonly name: string,
+        readonly task: SwebenchTask,
+        private readonly run: ProcessRunner = runProcess,
+        private readonly interactiveRun: InteractiveProcessRunner = runInteractiveProcess,
+    ) {}
 
     /** 拉取官方镜像并重置到指定 base_commit；部分创建失败也会清理本容器。 */
     async start(signal?: AbortSignal): Promise<void> {
@@ -94,11 +96,109 @@ export class SwebenchContainer {
         { timeoutMs: (timeoutSeconds + 15) * 1000, signal, maxBytes: 16000, truncate: true });
     }
 
+    /**
+     * 把完整 Worker 目录注入 `/opt/lazygoal`；源文件只作为 Docker 参数传递，不进入 shell。
+     * @param artifact - 已通过 WorkerBuilder manifest 校验的宿主产物。
+     * @param signal - 取消时中止尚未完成的注入命令。
+     * @throws 任一目录创建或复制失败时抛出；调用方应记录 `worker_inject` 阶段。
+     */
+    async injectWorker(artifact: WorkerArtifact, signal?: AbortSignal): Promise<void> {
+        if (!this.created || this.closed) throw new Error("Cannot inject Worker into a non-running container");
+        const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
+        requireSuccess(await this.run("docker", ["exec", this.name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker injection directory");
+        for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
+            requireSuccess(await this.run("docker", ["cp", source, `${this.name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
+        }
+    }
+
+    /** 在首次模型调用或 Runtime 副作用前运行固定 Worker 预检。 */
+    async preflightWorker(manifest: WorkerManifest, signal?: AbortSignal): Promise<WorkerPreflightResult> {
+        if (!this.created || this.closed || this.imageId === undefined) throw new Error("Cannot preflight a non-running container");
+        return preflightWorker({
+            containerName: this.name,
+            imageId: this.imageId,
+            baseCommit: this.task.base_commit,
+            manifest,
+            run: this.run,
+            ...(signal === undefined ? {} : { signal }),
+        });
+    }
+
+    /** 以 `docker exec -i` 启动 Worker；stdin/stdout 仍由宿主 ProcessRunner 持有。 */
+    async runWorker(signal?: AbortSignal) {
+        if (!this.created || this.closed) throw new Error("Cannot run Worker in a non-running container");
+        return this.run("docker", swebenchWorkerArgs(this.name), {
+            timeoutMs: 120_000,
+            signal,
+            maxBytes: 16 * 1024 * 1024,
+        });
+    }
+
+    /**
+     * 启动可接入 ACP/Mux 的 Worker 进程；不会等待 Worker 退出。
+     *
+     * @param timeoutMs - Worker 进程的宿主超时，必须与当前题目的 Supervisor 总超时一致。
+     * @param signal - 取消尚未完成的 Worker 启动或运行。
+     * @returns 可接入 ACP/Mux 的交互式 Worker 进程句柄。
+     * @throws 容器未运行，或 Worker 进程启动、超时或取消时抛出异常。
+     */
+    async openWorkerProcess(timeoutMs: number, signal?: AbortSignal): Promise<InteractiveProcess> {
+        if (!this.created || this.closed) throw new Error("Cannot run Worker in a non-running container");
+        return this.interactiveRun("docker", swebenchWorkerArgs(this.name), {
+            timeoutMs,
+            signal,
+            maxBytes: 16 * 1024 * 1024,
+        });
+    }
+
+    /**
+     * 从容器内固定状态根复制一个可审计目录；返回值仍然是宿主 output 下的绝对目录。
+     *
+     * @param instanceId - 经过 metadata 校验的题目 ID，用于计算 Storage namespace。
+     * @param outputDirectory - 宿主本次评测的专属 output 目录。
+     * @param kind - Goal、Trajectory 或 Diagnostic Trace 目录。
+     * @param signal - 复制过程的可选取消信号。
+     * @returns 宿主上复制出的目录路径。
+     * @throws Docker 复制失败或参数不安全时抛出。
+     * @example
+     * ```ts
+     * const goals = await container.copyWorkerArtifact("astropy__astropy-12907", output, "goals");
+     * ```
+     */
+    async copyWorkerArtifact(
+        instanceId: string,
+        outputDirectory: string,
+        kind: "goals" | "trajectories" | "traces",
+        signal?: AbortSignal,
+    ): Promise<string> {
+        if (!/^[a-zA-Z0-9_.-]+__[a-zA-Z0-9_.-]+-\d+$/u.test(instanceId)) throw new TypeError("instanceId is invalid");
+        const encodedBenchmark = Buffer.from("swebench-acp", "utf8").toString("base64url");
+        const encodedInstance = Buffer.from(instanceId, "utf8").toString("base64url");
+        const hostRoot = join(outputDirectory, "runtime", encodedBenchmark, encodedInstance);
+        await mkdir(hostRoot, { recursive: true });
+        const source = `${this.name}:/opt/lazygoal/state/${encodedBenchmark}/${encodedInstance}/${kind}`;
+        requireSuccess(await this.run("docker", ["cp", source, hostRoot], {
+            timeoutMs: 30_000,
+            signal,
+            maxBytes: 16 * 1024,
+            truncate: true,
+        }), `Copy Worker ${kind}`);
+        return join(hostRoot, kind);
+    }
+
     /** 导出相对 base_commit 的最终树差异，包含新增文件、暂存修改和 Agent 自己提交的修改。 */
-    async exportPatch(): Promise<string> {
+    async exportPatch(signal?: AbortSignal): Promise<string> {
         return requireSuccess(await this.run("docker", ["exec", "--workdir", "/testbed", this.name,
-            "/bin/bash", "-c", `git add -A && git diff --cached --binary --no-ext-diff ${this.task.base_commit}`],
-        { timeoutMs: 30000, maxBytes: 16 * 1024 * 1024 }), "Export SWE-bench patch");
+            "/bin/bash", "-c", [
+                "set -eu",
+                "index=/opt/lazygoal/git-index",
+                "rm -f \"$index\"",
+                "trap 'rm -f \"$index\"' EXIT",
+                `GIT_INDEX_FILE=\"$index\" git read-tree ${this.task.base_commit}`,
+                "GIT_INDEX_FILE=\"$index\" git add -A",
+                `GIT_INDEX_FILE=\"$index\" git diff --cached --binary --no-ext-diff ${this.task.base_commit}`,
+            ].join("; ")],
+        { timeoutMs: 30000, maxBytes: 16 * 1024 * 1024, ...(signal === undefined ? {} : { signal }) }), "Export SWE-bench patch");
     }
 
     /** 幂等删除本题容器；Docker 删除失败向调用方传播，允许之后再次清理。 */
@@ -108,23 +208,4 @@ export class SwebenchContainer {
         if (result.code !== 0 && !result.stderr.includes("No such container")) requireSuccess(result, "Remove SWE-bench container");
         this.closed = true;
     }
-}
-
-/** 构造只在任务容器执行的 shell 工具；非零命令退出是可观察的作答失败。 */
-export function createSwebenchShell(container: SwebenchContainer): Tool<typeof SWE_SHELL_CONTRACT> {
-    return {
-        definition: { id: "swebench_shell", inputContract: SWE_SHELL_CONTRACT,
-            description: "Run bash in /testbed with conda testbed activated. Read, search, edit files and run tests here. No network. Shell state resets each call; file changes persist. Output is bounded." },
-        replayPolicy: "manual",
-        validate: (input: ShellInput) => input.command.trim() && !input.command.includes("\0")
-            ? { ok: true } : { ok: false, error: { code: "INVALID_TOOL_INPUT", message: "command must be non-empty and contain no NUL" } },
-        execute: async ({ input }, control) => {
-            const result = await container.exec(input.command, input.timeoutSeconds ?? 30, control?.signal);
-            const output = `${result.stdout}\n${result.stderr}`.trim();
-            return result.code === 0
-                ? { kind: "success", output, summary: "Container command exited 0" }
-                : { kind: "failure", code: result.code === 124 || result.code === 137 ? "COMMAND_TIMEOUT" : "COMMAND_FAILED",
-                    message: `Container command exited ${result.code}: ${output}`, retryable: true };
-        },
-    };
 }
