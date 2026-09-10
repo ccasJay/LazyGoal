@@ -7,8 +7,8 @@ import {
     LlmRpcServer,
     RpcLlmAdapter,
     type LlmRpcMessage,
-} from "../src/llm-rpc.js";
-import type { MuxChannelStream } from "../src/multiplex.js";
+} from "../../src/llm-rpc.js";
+import type { MuxChannelStream } from "../../src/multiplex.js";
 
 function pair(): [MuxChannelStream<LlmRpcMessage>, MuxChannelStream<LlmRpcMessage>] {
     const leftToRight = new TransformStream<LlmRpcMessage, LlmRpcMessage>();

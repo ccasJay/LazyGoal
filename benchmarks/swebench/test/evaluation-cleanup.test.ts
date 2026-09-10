@@ -2,7 +2,7 @@ import { createGoal } from "../../../packages/runtime/src/index.js";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures.js";
 import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";
 import { serveLazyGoalAcpAgent } from "../../../packages/acp/src/index.js";
-import { MultiplexedConnection, createAcpMuxStream } from "../src/multiplex.js";
+import { MultiplexedConnection, createAcpMuxStream } from "../../src/multiplex.js";
 import { SwebenchAcpProjectionError, toSwebenchAcpFailure } from "../src/acp-result-projection.js";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
@@ -13,7 +13,7 @@ import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { SwebenchContainer, type SwebenchTask } from "../src/container.js";
 import type { WorkerPreflightResult } from "../src/worker-preflight.js";
 import { runSwebenchSupervisor } from "../src/supervisor.js";
-import type { WorkerArtifact, WorkerManifest } from "../src/worker-builder.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
 import type { SwebenchAcpTaskMetadata } from "../src/worker-runtime.js";
 
 const task: SwebenchTask = {

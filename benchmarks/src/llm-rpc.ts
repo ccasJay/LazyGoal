@@ -1,7 +1,7 @@
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/agent/src/index.js";
-import type { ExecutionControl } from "../../../packages/runtime/src/index.js";
-import { ExecutionAbortedError, throwIfAborted } from "../../../packages/runtime/src/index.js";
-import type { StructuredOutputMode } from "../../../packages/llm/src/core/types.js";
+import type { LLMAdapter, LLMRequest, LLMResponse } from "../../packages/agent/src/index.js";
+import type { ExecutionControl } from "../../packages/runtime/src/index.js";
+import { ExecutionAbortedError, throwIfAborted } from "../../packages/runtime/src/index.js";
+import type { StructuredOutputMode } from "../../packages/llm/src/core/types.js";
 import type { MuxChannelStream } from "./multiplex.js";
 
 /** Worker 与宿主之间传输的结构化 LLM RPC 消息。 */

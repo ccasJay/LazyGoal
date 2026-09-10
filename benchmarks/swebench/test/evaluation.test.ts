@@ -6,8 +6,8 @@ import { test, type TestContext } from "node:test";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { applyGrades, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
 import { SWEBENCH_VERSION, type SwebenchManifest } from "../src/manifest.js";
-import type { ProcessRunner } from "../src/process.js";
-import type { WorkerArtifact, WorkerManifest } from "../src/worker-builder.js";
+import type { ProcessRunner } from "../../src/process.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
 import { SWE_ACP_PROFILE } from "../src/worker-runtime.js";
 
 const ids = ["astropy__astropy-12907", "astropy__astropy-13033"];

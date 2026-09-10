@@ -9,7 +9,7 @@ import {
     buildSwebenchWorker,
     extractWorkerNode,
     readWorkerManifest,
-} from "../src/worker-builder.js";
+} from "../../src/worker-builder.js";
 
 async function fixture() {
     const root = await mkdtemp(join(tmpdir(), "lazygoal-worker-builder-"));

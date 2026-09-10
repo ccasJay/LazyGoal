@@ -7,7 +7,7 @@ import {
     MuxProtocolError,
     MultiplexedConnection,
     encodeMuxFrame,
-} from "../src/multiplex.js";
+} from "../../src/multiplex.js";
 
 function bytes(value: string): Uint8Array {
     return new TextEncoder().encode(value);
