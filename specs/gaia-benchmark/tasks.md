@@ -28,7 +28,7 @@
   - 验证方式：待实现的 `benchmarks/gaia/test/submit-answer.test.ts`；覆盖单次提交和重复拒绝。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 5. 实现 GAIA 答案评分逻辑
+- [x] //TODO 5. 实现 GAIA 答案评分逻辑
 
   - 实现目标：在 `benchmarks/gaia/src/grading.ts` 实现 GAIA 官方归一化精确匹配函数和独立 `grade` CLI 入口。归一化步骤：小写 → 去冠词 → 去标点 → 压缩空格 → 数字标准化 → trim。`grade` 读取 Attempt 记录和答案文件，执行评分后更新 `domainResult`。
   - 成功判据：归一化函数覆盖大小写（"Paris" = "paris"）、冠词（"the answer" = "answer"）、标点（"answer." = "answer"）、数字（"1,000" = "1000"，"1.0" = "1"）；`grade` 入口在无 LLM 环境变量时可运行。

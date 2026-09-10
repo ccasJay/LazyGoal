@@ -44,3 +44,11 @@ export {
     type GaiaAcpTaskMetadata,
     type GaiaAcpRuntimeOptions,
 } from "./worker-entry";
+export {
+    normalizeGaiaAnswer,
+    scoreGaiaAnswer,
+    gradeGaiaEvaluation,
+    runGaiaGradeCli,
+    type GaiaGradeOptions,
+    type GaiaGradeResult,
+} from "./grading";
