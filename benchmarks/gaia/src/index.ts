@@ -61,3 +61,13 @@ export {
     type GaiaEvaluationSummary,
     type GaiaEvaluationReport,
 } from "./report";
+export {
+    runGaiaSupervisor,
+    type GaiaSupervisorOptions,
+    type GaiaSupervisorResult,
+} from "./supervisor";
+export {
+    runGaiaCli,
+    runGaiaEvalCli,
+    runGaiaLoadCli,
+} from "./cli";

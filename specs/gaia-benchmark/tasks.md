@@ -42,7 +42,7 @@
   - 验证方式：待实现的 `benchmarks/gaia/test/report.test.ts`；使用 fixture Attempt 记录。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 7. 实现 GAIA CLI 入口和 Supervisor 编排
+- [x] //TODO 7. 实现 GAIA CLI 入口和 Supervisor 编排
 
   - 实现目标：创建 `benchmarks/gaia/src/cli.ts` 和 `supervisor.ts`，提供 `eval`（评测）、`load`（数据集加载）、`grade`（独立评分）子命令。Supervisor 消费 `IsolatedEnvironment` + `GaiaEnvironmentSpec`，驱动逐题评测循环。
   - 成功判据：CLI `eval` 接受 Manifest 路径和 LLM 配置参数；Supervisor 正确构造 `GaiaEnvironmentSpec` 并传递给 `IsolatedEnvironment`；`grade` 子命令不触发模型调用。
