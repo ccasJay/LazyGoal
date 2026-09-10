@@ -23,9 +23,10 @@ Adapter 构造时固定输出模式，不自动降级或切换 provider。
 所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
 pi-ai 返回型失败转换为 `PiAiProviderError`，SDK 抛出的异常原样传播。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
-原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseJsonSchema`；
-Gemini 为枚举补齐类型并递归保留 `anyOf` 分支、必填字段和 `additionalProperties`，数值枚举映射为等值数值约束。
-字符串与数值枚举之外的枚举在请求前报错。
+原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`。
+Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
+`action` 等关键字段生成；逆向投影安全剥离非目标分支生成的 null 属性与证据哨兵值，恢复为 Wire Contract。
+端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
 strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../packages/llm/src/core/adapter.ts)。
 
 ## 配置
