@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `benchmarks/gaia/test/manifest.test.ts`；使用 fixture 数据不依赖 HuggingFace API。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 3. 实现 `GaiaEnvironmentSpec`
+- [x] //TODO 3. 实现 `GaiaEnvironmentSpec`
 
   - 实现目标：在 `benchmarks/gaia/src/environment-spec.ts` 实现 `GaiaEnvironmentSpec`，声明 managed 镜像安装命令、`/workspace` 工作目录、附件注入、Python 文件处理库预检和答案文件回收。
   - 成功判据：`resolveImage` 返回 managed 模式和正确的安装命令；`prepareEnvironment` 通过伪 `EnvironmentHandle` 验证附件 `copyInto` 和 question.txt 写入；`preflight` 验证 Python 和关键库；`collectArtifacts` 回收 `/workspace/answer.json`。
