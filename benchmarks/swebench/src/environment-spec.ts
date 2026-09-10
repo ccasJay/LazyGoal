@@ -139,7 +139,7 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
         const output = resolve(outputDirectory);
         const benchmarkKey = encode("swebench-acp");
         const instanceKey = encode(this.metadata.instanceId);
-        const runtimeRoot = join(output, "runtime", benchmarkKey, instanceKey);
+        const runtimeRoot = join(output, "runtime", benchmarkKey, instanceKey, encode(this.metadata.runId));
         await mkdir(runtimeRoot, { recursive: true });
         const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
         const errors: SwebenchCollectedArtifactError[] = [];

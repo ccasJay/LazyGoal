@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import type { HeadlessModelUsage, BenchmarkPersistenceLocator } from "../../src/headless-composition-root.js";
@@ -267,30 +267,70 @@ export async function gradeSwebenchEvaluation(options: SwebenchGradeOptions): Pr
     const output = resolve(options.outputDirectory);
     const run = options.runProcess ?? runProcess;
     const report = JSON.parse(await readFile(join(output, "report.json"), "utf8")) as SwebenchReport;
-    validateSwebenchReportForGrade(report);
+    validateSwebenchReportForGrade(report, output);
+    const savedAttempts = await readSwebenchAttemptRecords(output, report);
     const predictionsText = await readFile(join(output, "predictions.jsonl"), "utf8");
     const predictions = parsePredictions(predictionsText, report.manifest.instanceIds);
+    for (const prediction of predictions) {
+        const saved = savedAttempts.get(prediction.instance_id);
+        if (saved === undefined) continue;
+        const patch = saved.domainResult.patch;
+        if (patch !== prediction.model_patch) {
+            throw new TypeError(`Prediction patch does not match saved Attempt: ${prediction.instance_id}`);
+        }
+    }
+    if (predictions.length === 0) {
+        report.status = "failed";
+        report.gradingError = "No saved predictions are available for grading";
+        for (const attempt of report.attempts) {
+            if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
+        }
+        await persistSwebenchGrades(output, report.attempts);
+        report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
+        await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+        return report;
+    }
     const predictionIds = new Set(predictions.map((prediction) => prediction.instance_id));
     for (const attempt of report.attempts) {
         if (predictionIds.has(attempt.instanceId)) attempt.gradingStatus = "pending";
     }
-    const grading: unknown = JSON.parse(requireSuccess(await run(options.python ?? "python3", [
-        BRIDGE_PATH,
-        "grade",
-        output,
-        report.runId,
-        String(report.manifest.testTimeoutSeconds),
-    ], {
-        timeoutMs: (report.manifest.testTimeoutSeconds + 300) * 1000 * Math.max(1, predictions.length),
-        maxBytes: 4 * 1024 * 1024,
-    }), "SWE-bench grading"));
-    applyGrades(report.attempts, grading);
+    const gradingRunId = `lg-grade-${randomUUID()}`;
+    let grading: unknown;
+    try {
+        grading = JSON.parse(requireSuccess(await run(options.python ?? "python3", [
+            BRIDGE_PATH,
+            "grade",
+            output,
+            gradingRunId,
+            String(report.manifest.testTimeoutSeconds),
+        ], {
+            timeoutMs: (report.manifest.testTimeoutSeconds + 300) * 1000 * Math.max(1, predictions.length),
+            maxBytes: 4 * 1024 * 1024,
+        }), "SWE-bench grading"));
+        applyGrades(report.attempts, grading);
+    } catch (error) {
+        markPendingGradesAsErrors(report.attempts);
+        report.status = "failed";
+        report.gradingError = errorMessage(error);
+        await persistSwebenchGrades(output, report.attempts);
+        report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
+        await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+        return report;
+    }
     await persistSwebenchGrades(output, report.attempts);
-    report.status = report.attempts.some((attempt) => attempt.gradingStatus === "grading_error" || attempt.gradingStatus === "pending" || attempt.gradingStatus === "not_submitted")
+    const harnessExitCode = isRecord(grading) && typeof grading.exitCode === "number" ? grading.exitCode : 0;
+    report.status = harnessExitCode !== 0 || report.attempts.some((attempt) => attempt.gradingStatus === "grading_error" || attempt.gradingStatus === "pending" || attempt.gradingStatus === "not_submitted")
         ? "failed" : "completed";
+    if (harnessExitCode !== 0) report.gradingError = `Official harness exited with code ${harnessExitCode}`;
     report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
     await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
     return report;
+}
+
+function markPendingGradesAsErrors(attempts: readonly SwebenchAttempt[]): void {
+    for (const attempt of attempts) {
+        if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
+    }
 }
 
 async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask, name: string, run: ProcessRunner): Promise<{ readonly attempt: SwebenchAttempt; readonly patch: string | null }> {
@@ -447,7 +487,7 @@ async function persistSwebenchAttempt(
         errors: attempt.errors,
         artifactLocator: attempt.persistence,
         domainResult: {
-            patch: attempt.patchPath === null ? null : await readPatch(attempt.patchPath),
+            patch: attempt.patchPath === null ? null : await readPatch(resolveArtifactPath(outputDirectory, attempt.patchPath)),
             patchSha256: attempt.patchSha256,
             gradingStatus: attempt.gradingStatus,
             resolved: attempt.gradingStatus === "resolved" ? true : attempt.gradingStatus === "unresolved" ? false : null,
@@ -469,7 +509,7 @@ async function persistSwebenchGrades(outputDirectory: string, attempts: readonly
         const recorder = new AttemptRecorder<SwebenchAttemptDomainResult>(attemptPath(outputDirectory, attempt.instanceId, attempt.attempt));
         const current = await recorder.read();
         if (current === undefined) {
-            const patch = attempt.patchPath === null ? null : await readPatch(attempt.patchPath);
+            const patch = attempt.patchPath === null ? null : await readPatch(resolveArtifactPath(outputDirectory, attempt.patchPath));
             await recorder.commit({
                 benchmarkId: "swebench",
                 taskId: attempt.instanceId,
@@ -554,7 +594,7 @@ async function readPatch(path: string): Promise<string | null> {
     catch { return null; }
 }
 
-function validateSwebenchReportForGrade(report: SwebenchReport): void {
+function validateSwebenchReportForGrade(report: SwebenchReport, outputDirectory: string): void {
     if (!isRecord(report) || report.schemaVersion !== 1
         || report.configId !== SWE_ACP_CONFIG_ID
         || report.harnessVersion !== SWEBENCH_VERSION
@@ -572,10 +612,56 @@ function validateSwebenchReportForGrade(report: SwebenchReport): void {
             || typeof value.goalId !== "string" || typeof value.runId !== "string"
             || value.attempt !== 1
             || typeof value.patchPath !== "string" && value.patchPath !== null
+            || (typeof value.patchPath === "string" && !isPathInside(outputDirectory, value.patchPath))
             || typeof value.patchBytes !== "number" || !Number.isSafeInteger(value.patchBytes) || value.patchBytes < 0
+            || (value.patchSha256 !== null && (typeof value.patchSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.patchSha256)))
             || !["pending", "resolved", "unresolved", "empty_patch", "grading_error", "not_submitted"].includes(String(value.gradingStatus))) {
             throw new TypeError("Invalid SWE-bench attempt for grading");
         }
         seen.add(value.instanceId);
     }
+}
+
+async function readSwebenchAttemptRecords(
+    outputDirectory: string,
+    report: SwebenchReport,
+): Promise<Map<string, BenchmarkAttemptRecord<SwebenchAttemptDomainResult>>> {
+    const records = new Map<string, BenchmarkAttemptRecord<SwebenchAttemptDomainResult>>();
+    for (const attempt of report.attempts) {
+        const recorder = new AttemptRecorder<SwebenchAttemptDomainResult>(attemptPath(outputDirectory, attempt.instanceId, attempt.attempt));
+        const record = await recorder.read();
+        if (record === undefined) continue;
+        if (record.benchmarkId !== "swebench"
+            || record.taskId !== attempt.instanceId
+            || record.goalId !== attempt.goalId
+            || record.runId !== attempt.runId
+            || record.attempt !== attempt.attempt
+            || !isSwebenchAttemptDomainResult(record.domainResult)
+            || record.domainResult.patchSha256 !== attempt.patchSha256
+            || (record.domainResult.patch === null ? 0 : Buffer.byteLength(record.domainResult.patch)) !== attempt.patchBytes
+            || (record.domainResult.patch === null ? null : hash(record.domainResult.patch)) !== attempt.patchSha256) {
+            throw new TypeError(`SWE-bench Attempt record does not match report: ${attempt.instanceId}`);
+        }
+        records.set(attempt.instanceId, record);
+    }
+    return records;
+}
+
+function isSwebenchAttemptDomainResult(value: unknown): value is SwebenchAttemptDomainResult {
+    return isRecord(value)
+        && (typeof value.patch === "string" || value.patch === null)
+        && (value.patchSha256 === null || (typeof value.patchSha256 === "string" && /^[a-f0-9]{64}$/u.test(value.patchSha256)))
+        && ["pending", "resolved", "unresolved", "empty_patch", "grading_error", "not_submitted"].includes(String(value.gradingStatus))
+        && (value.resolved === null || typeof value.resolved === "boolean");
+}
+
+function isPathInside(rootDirectory: string, candidate: string): boolean {
+    const root = resolve(rootDirectory);
+    const resolved = resolveArtifactPath(root, candidate);
+    const remainder = relative(root, resolved);
+    return remainder === "" || (!remainder.startsWith("..") && !isAbsolute(remainder));
+}
+
+function resolveArtifactPath(rootDirectory: string, candidate: string): string {
+    return isAbsolute(candidate) ? resolve(candidate) : resolve(rootDirectory, candidate);
 }

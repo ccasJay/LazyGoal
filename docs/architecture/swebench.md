@@ -19,13 +19,14 @@ base commit、instance ID 和镜像引用，参考补丁及评分测试不进入
 Goal 生命周期、Trajectory 上下文、Storage 编解码与 Trace。容器 Profile 只授权五个
 内置文件/命令 Tool，Runtime 的 Tool 校验和 Evidence Gate 仍然生效。
 
-[`SwebenchContainer`](../../benchmarks/swebench/src/container.ts) 在官方 amd64
-实例镜像中创建 `/testbed` 工作区并重置至 base commit。每题独立容器无网络、无
-宿主挂载，有固定资源上限；所有模型 shell 操作只进入容器，文件修改跨调用保留，
-shell 状态不保留。进程执行、中止与输出边界由专用
-[`ProcessRunner`](../../benchmarks/swebench/src/process.ts) 管理。
+[`SwebenchEnvironmentSpec`](../../benchmarks/swebench/src/environment-spec.ts) 声明官方
+amd64 实例镜像、`/testbed` 工作区、base commit 预检和 patch 导出；
+[`SwebenchContainer`](../../benchmarks/swebench/src/container.ts) 只作为共享隔离环境的
+生命周期适配。每题独立容器无网络、无宿主挂载，有固定资源上限；所有模型 shell 操作只
+进入容器，文件修改跨调用保留，shell 状态不保留。进程执行、中止与输出边界由共享
+[`ProcessRunner`](../../benchmarks/src/process.ts) 管理。
 
-[`WorkerBuilder`](../../benchmarks/swebench/src/worker-builder.ts) 根据 Worker 入口依赖图、
+[`WorkerBuilder`](../../benchmarks/src/worker-builder.ts) 根据 Worker 入口依赖图、
 锁文件、Prompt 资产和固定 Node/ACP 构建参数计算 SHA-256 身份，并用 esbuild 生成单一
 Node 22 ESM Worker。构建结果先写入摘要临时目录，再以原子 rename 发布；完整 manifest
 校验通过后才能命中缓存。Node 二进制由宿主从固定 linux/amd64 镜像提供，构建器不在
@@ -55,8 +56,9 @@ Runtime、通知或清理错误不会形成成功终态。已知失败通过标�
 传递阶段、业务错误码及已有结果 metadata；未知异常只发送固定安全消息。
 宿主校验错误数据和 Goal/Run 身份，不依赖远端 Error 原型。
 
-单题 [`runSwebenchSupervisor`](../../benchmarks/swebench/src/supervisor.ts) 负责把上述
-Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP/LLM 双通道、一次性 Client
+单题 [`runSwebenchSupervisor`](../../benchmarks/swebench/src/supervisor.ts) 通过共享
+[`IsolatedEnvironment`](../../benchmarks/src/isolated-environment.ts) 把上述 Worker 接入
+宿主模型：它先启动、注入并预检容器，再创建 ACP/LLM 双通道、一次性 Client
 和宿主 RPC Server。任务超时或外部取消共用一个 AbortSignal；Worker 停止后，Supervisor
 在独立的有界宽限期内按 Goal Snapshot、Trajectory、Trace、patch 顺序逐项复制或导出，
 单步失败只追加对应阶段错误，最后幂等删除本题容器。patch 使用 `/opt/lazygoal` 下的
@@ -65,7 +67,7 @@ Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP
 
 ## 结束与评分
 
-当前 `eval swebench` 入口由 `evaluation.ts` 直接使用 ACP 容器 Supervisor，报告身份为
+当前 `eval swebench` 入口由 `evaluation.ts` 使用共享隔离 Supervisor，报告身份为
 `swebench-acp-container-v1`。每次评测先构建或复用一个带 Prompt 资产的 Worker 产物，
 再按 Manifest 顺序将同一产物注入各自容器；模型完成、ACP 终态或 Runtime 状态不参与
 官方评分事实。未能创建环境或导出补丁的题目单独记录，不重试。
@@ -76,7 +78,8 @@ Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP
 区分未运行、未提交、空补丁、未解决和评分错误；错误不得缩小分母。输出目录与
 评分 run ID 每次独立，避免覆盖已有产物或命中旧预测的评分缓存。
 
-Snapshot、Trajectory、Trace 位于本次输出目录的 `runtime/`；报告保存定位、模型
+Snapshot、Trajectory、Trace 位于本次输出目录的 `runtime/`；共享 Attempt 记录位于
+`attempts/<instanceId>/attempt-1.json`，报告保存定位、模型
 配置、Manifest/Profile 哈希、镜像 ID、补丁哈希、任务耗时和 token 用量。终态 metadata
 缺失时，Supervisor 从回收 Snapshot 恢复状态、从 Trace 聚合已记录响应的用量；恢复失败
 独立记录诊断。状态无法确认时为 `unknown`，仅确定未启动 Worker 时为 `not_started`；
@@ -88,3 +91,6 @@ Snapshot、Trajectory、Trace 位于本次输出目录的 `runtime/`；报告保
 镜像 tag 为上游 `latest`，报告记录实际镜像 ID；跨运行比较需核对镜像一致性。
 SIGINT/SIGTERM 清理本次容器并保存已有产物，但不支持从 Goal Snapshot 恢复容器。
 预置五题 Astropy 清单只用于接入冒烟测试，不代表整体能力。
+
+已有预测可使用 `grade swebench --output <run-directory>` 重新调用官方 harness；该入口
+只读取 `dataset.json`、`predictions.jsonl` 和已有 patch，不解析 LLM 配置。

@@ -49,7 +49,7 @@
   - 验证方式：ALFWorld 容器 smoke 测试（显式入口）；容器内 HeadlessRoot + 假 LLM 隔离测试。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 8. 实现独立评分入口
+- [x] //TODO 8. 实现独立评分入口
 
   - 各 benchmark CLI 新增 `grade` 子命令，读取指定输出目录的 Attempt 记录和产物，执行领域评分并更新 Attempt 评分字段。SWE-bench 调用官方 Python harness；ALFWorld 重新聚合统计。
   - 成功判据：`grade` 读取已有产物完成评分且不触发模型调用；无 LLM 环境变量时评分入口仍可运行。

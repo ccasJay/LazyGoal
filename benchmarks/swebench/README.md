@@ -106,6 +106,7 @@ IDs when comparing runs because the upstream `latest` image tag is mutable.
 | `<instance_id>.patch` | Final diff against the original base commit, including new files |
 | `predictions.jsonl` | Official prediction format; model identifier `lazygoal`, actual model in `report.json` |
 | `report.json` | ACP container identity, Worker/Node identity, per-attempt Goal/Run state, image ID, patch hash, usage, timing, failure stages and official result |
+| `attempts/<instance_id>/attempt-1.json` | 原子发布的共享 Attempt 记录，包含领域 patch/resolved 字段 |
 | `runtime/` | Host-readable Goal Snapshots, committed Trajectories and Diagnostic Traces copied before container deletion |
 | `harness.log` | Output from the official evaluator |
 | `logs/run_evaluation/<run_id>/lazygoal/<instance_id>/` | Official per-instance reports and test logs |
@@ -141,8 +142,14 @@ existing artifacts and leave ungraded exported patches `pending`. This version
 does not resume agent containers from Goal Snapshots. Start a new output directory
 for a new attempt.
 
-To grade saved predictions independently, use the same pinned Python environment
-and an unused run ID. This does not rerun LazyGoal or update its `report.json`:
+To grade saved predictions independently through the benchmark CLI, use the same pinned
+Python environment. This does not rerun LazyGoal model inference:
+
+```bash
+lazygoal grade swebench --output .lazygoal/benchmarks/swebench-runs/astropy-12907
+```
+
+The underlying harness can also be called directly with an unused run ID:
 
 ```bash
 .lazygoal/swebench-venv/bin/python -m swebench.harness.run_evaluation \

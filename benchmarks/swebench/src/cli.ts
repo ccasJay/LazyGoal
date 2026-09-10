@@ -5,9 +5,9 @@ import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
-import { buildSwebenchWorker } from "./worker-builder.js";
+import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
-import { preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
+import { gradeSwebenchEvaluation, preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
 
 /**
@@ -19,6 +19,21 @@ import { loadSwebenchManifest } from "./manifest.js";
  */
 export interface SwebenchCommand {
     readonly manifest: string;
+    readonly output: string;
+    readonly python: string;
+}
+
+/**
+ * 独立 SWE-bench 评分命令；只读取现有目录并调用官方 harness。
+ *
+ * @example
+ * ```ts
+ * const command: SwebenchGradeCommand = {
+ *   output: "/tmp/swebench-run", python: "python3",
+ * };
+ * ```
+ */
+export interface SwebenchGradeCommand {
     readonly output: string;
     readonly python: string;
 }
@@ -40,6 +55,49 @@ export function parseSwebenchArgs(argv: readonly string[], cwd = process.cwd()):
     };
 }
 
+/** 解析 `grade swebench --output <directory>`，不加载模型配置。 */
+export function parseSwebenchGradeArgs(argv: readonly string[], cwd = process.cwd()): SwebenchGradeCommand {
+    let parsed: ReturnType<typeof parseArgs>;
+    try {
+        parsed = parseArgs({
+            args: [...argv],
+            strict: true,
+            allowPositionals: true,
+            options: { output: { type: "string" }, python: { type: "string" } },
+        });
+    } catch (error: unknown) {
+        throw new Error(`Invalid SWE-bench grade arguments: ${message(error)}`);
+    }
+    if (parsed.positionals.length !== 2 || parsed.positionals[0] !== "grade" || parsed.positionals[1] !== "swebench") {
+        throw new Error("Usage: lazygoal grade swebench --output <existing-directory> [--python <executable>]");
+    }
+    if (typeof parsed.values.output !== "string" || parsed.values.output.trim() === "") {
+        throw new Error("SWE-bench grade requires --output <existing-directory>");
+    }
+    if (parsed.values.python !== undefined && (typeof parsed.values.python !== "string" || parsed.values.python.trim() === "")) {
+        throw new Error("--python must be non-empty");
+    }
+    return {
+        output: resolve(cwd, parsed.values.output),
+        python: typeof parsed.values.python === "string" ? parsed.values.python : "python3",
+    };
+}
+
+/** 执行独立 SWE-bench 官方评分，不会读取 LLM 环境变量或构造 Worker。 */
+export async function runSwebenchGradeCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+    let command: SwebenchGradeCommand;
+    try { command = parseSwebenchGradeArgs(argv); }
+    catch (error) { process.stderr.write(`${message(error)}\n`); return 2; }
+    try {
+        const report = await gradeSwebenchEvaluation({ outputDirectory: command.output, python: command.python });
+        process.stdout.write(JSON.stringify({ outputDirectory: command.output, status: report.status, summary: report.summary }) + "\n");
+        return report.status === "completed" ? 0 : 1;
+    } catch (error) {
+        process.stderr.write(`${message(error)}\n`);
+        return 1;
+    }
+}
+
 /**
  * 运行显式评测；配置失败返回 1，参数错误返回 2，中止返回 130。
  * @remarks
@@ -47,6 +105,7 @@ export function parseSwebenchArgs(argv: readonly string[], cwd = process.cwd()):
  * stdout 只打印机器可读摘要，进度与诊断写 stderr。SIGINT/SIGTERM 触发资源清理。
  */
 export async function runSwebenchCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+    if (argv[0] === "grade" && argv[1] === "swebench") return runSwebenchGradeCli(argv);
     let command: SwebenchCommand;
     try { command = parseSwebenchArgs(argv); }
     catch (error) { process.stderr.write(`${message(error)}\n`); return 2; }
