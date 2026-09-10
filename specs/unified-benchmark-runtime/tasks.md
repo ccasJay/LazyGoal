@@ -7,7 +7,7 @@
   - 验证方式：`npm run check:dependencies`；`npx tsc --noEmit`；`npm test`；检查 SWE-bench 测试结果不变。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2)_
 
-- [ ] //TODO 2. 实现 `IsolatedEnvironment` 和 `EnvironmentSpec` 接口
+- [x] //TODO 2. 实现 `IsolatedEnvironment` 和 `EnvironmentSpec` 接口
 
   - 在 `benchmarks/src/` 实现 `IsolatedEnvironment`（LazyGoal 拥有的隔离执行环境，统一处理容器创建、安全约束、Worker 注入、通信建立、文件回收和容器销毁）、`EnvironmentSpec` 接口（benchmark 声明式适配：镜像来源、工作目录、环境准备、预检、产物导出）和 `EnvironmentHandle`（向 EnvironmentSpec 暴露的受限操作接口，只允许容器内执行和文件复制）。实现 `ImageSource` 双模式：`custom`（自带镜像）和 `managed`（LazyGoal 基础镜像 + 安装命令层）。
   - 成功判据：伪 `EnvironmentSpec` 不引用 Conda 或 `/testbed` 时仍正常完成容器生命周期；安全约束（无网络、cap-drop ALL、no-new-privileges）在容器参数中可断言；`EnvironmentHandle` 不暴露容器名或 Docker API。
