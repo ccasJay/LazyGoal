@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `benchmarks/test/isolated-environment.test.ts`；使用伪 ProcessRunner 验证 Docker 参数、生命周期和 EnvironmentHandle 操作。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 实现 `IsolatedEnvironment` 编排流程
+- [x] //TODO 3. 实现 `IsolatedEnvironment` 编排流程
 
   - 从 `runSwebenchSupervisor` 提取通用编排逻辑到 `benchmarks/src/isolated-environment.ts`：`spec.resolveImage()` → create container → start → inject Worker → `spec.prepareEnvironment()` → `spec.preflight()` → Mux + LLM RPC → ACP Client → `spec.collectArtifacts()` → rm。统一取消传播和错误阶段分类。`IsolatedEnvironment` 驱动 `EnvironmentSpec`，benchmark 不直接操作 Docker。
   - 成功判据：伪 `EnvironmentSpec` 驱动 `IsolatedEnvironment` 可完成正常终态、取消终态和基础设施错误终态；取消后无成功终态产生。
