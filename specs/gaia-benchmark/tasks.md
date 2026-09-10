@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 实现宿主代理网页工具 `web_search` 和 `web_fetch`
+- [x] //TODO 1. 实现宿主代理网页工具 `web_search` 和 `web_fetch`
 
   - 实现目标：在 `packages/tools/src/` 新增 `web-search.ts` 和 `web-fetch.ts`，实现 `ToolDefinition` 接口。`web_search` 接收查询字符串并返回有界结果列表；`web_fetch` 接收 URL 并返回有界纯文本。两个工具在宿主执行网络请求，通过已有 ACP 工具通道传递请求和结果。
   - 成功判据：伪搜索后端下 `web_search` 返回符合 schema 的结果列表（title、url、snippet）；`web_fetch` 返回有界纯文本且超过 `maxChars` 时截断；两个工具的 JSON Schema 通过 `ToolRegistry` 注册校验。
