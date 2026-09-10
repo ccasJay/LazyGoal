@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `benchmarks/test/isolated-environment.test.ts`（编排测试部分）；覆盖正常、取消、断线和 preflight 失败。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 4. 重构 SWE-bench 提供 `EnvironmentSpec` 并消费 `IsolatedEnvironment`
+- [x] //TODO 4. 重构 SWE-bench 提供 `EnvironmentSpec` 并消费 `IsolatedEnvironment`
 
   - 实现 `SwebenchEnvironmentSpec`，提供官方镜像（`custom` 模式）、`/testbed` 工作目录、base commit 校验和 patch 导出；`runSwebenchSupervisor` 改为创建 `SwebenchEnvironmentSpec` 后调用 `IsolatedEnvironment` 的薄封装。
   - 成功判据：所有现有 SWE-bench 测试通过；评测语义（CLI 参数、单次作答、退出码、官方 resolved 评分来源）保持不变。
