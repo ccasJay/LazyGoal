@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `benchmarks/gaia/test/grading.test.ts`；纯函数测试覆盖各归一化场景。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 实现 GAIA AttemptRecorder 集成和汇总报告
+- [x] //TODO 6. 实现 GAIA AttemptRecorder 集成和汇总报告
 
   - 实现目标：在 GAIA Supervisor 中集成共享 `AttemptRecorder`，`domainResult` 使用 `GaiaDomainResult` 类型。实现 `aggregateReport` 按 Level 和 split 分组统计正确率。
   - 成功判据：Attempt 记录包含 `submittedAnswer`、`correct`、`level`；中途退出后已完成记录可读取；汇总报告分 Level 统计正确率。

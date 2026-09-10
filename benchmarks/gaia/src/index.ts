@@ -52,3 +52,12 @@ export {
     type GaiaGradeOptions,
     type GaiaGradeResult,
 } from "./grading";
+export {
+    aggregateGaiaReport,
+    readGaiaAttempts,
+    writeGaiaReport,
+    type GaiaLevelStatistics,
+    type GaiaSplitStatistics,
+    type GaiaEvaluationSummary,
+    type GaiaEvaluationReport,
+} from "./report";
