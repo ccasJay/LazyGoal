@@ -73,6 +73,17 @@ export {
     DEFAULT_MANAGED_IMAGE,
     IsolatedEnvironment,
 } from "./isolated-environment.js";
+export {
+    AttemptRecorder,
+    parseBenchmarkAttemptRecord,
+    readBenchmarkAttempt,
+} from "./attempt-recorder.js";
+export type {
+    AttemptRecorderOptions,
+    BenchmarkAttemptError,
+    BenchmarkAttemptRecord,
+    BenchmarkAttemptStatus,
+} from "./attempt-recorder.js";
 export type {
     EnvironmentHandle,
     EnvironmentSpec,

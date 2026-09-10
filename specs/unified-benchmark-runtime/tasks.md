@@ -28,7 +28,7 @@
   - 验证方式：`npm test`；SWE-bench benchmark 测试全量通过；`npx tsc --noEmit`。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 5. 实现 `AttemptRecorder` 统一增量落盘
+- [x] //TODO 5. 实现 `AttemptRecorder` 统一增量落盘
 
   - 在 `benchmarks/src/` 实现 `AttemptRecorder` 和 `BenchmarkAttemptRecord<TDomain>` 泛型记录，每个 Attempt 阶段结束后通过 `writeFile` + `rename` 原子写入。SWE-bench 和 ALFWorld 各使用自己的 `TDomain` 类型。
   - 成功判据：中途退出后已完成 Attempt 的记录文件可读取且完整；重试创建新 Attempt 序号；SWE-bench 的 patch/resolved 和 ALFWorld 的 won/steps 保持各自字段。

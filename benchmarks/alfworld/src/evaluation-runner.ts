@@ -20,6 +20,7 @@ import {
     type HeadlessCompositionRootDependencies,
 } from "../../src/headless-composition-root.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
+import { AttemptRecorder, type BenchmarkAttemptRecord } from "../../src/attempt-recorder.js";
 import type {
     AlfworldManifest,
     AlfworldManifestTask,
@@ -92,6 +93,32 @@ export interface EvaluationRunnerDependencies {
     readonly maxInfrastructureRetries?: number;
     /** 测试可注入单调时钟；默认使用 `Date.now`。 */
     readonly now?: () => number;
+    /** 可选 Attempt 目录；提供后每个阶段完成的领域事实会原子落盘。 */
+    readonly attemptsDirectory?: string;
+    /** 自定义 Attempt 记录器工厂；未提供时按 `attemptsDirectory` 创建 JSON 文件。 */
+    readonly attemptRecorderFactory?: (
+        task: AlfworldManifestTask,
+        attempt: number,
+    ) => AttemptRecorder<AlfworldAttemptDomainResult>;
+}
+
+/**
+ * ALFWorld 写入共享 AttemptRecorder 的领域结果字段。
+ *
+ * @example
+ * ```ts
+ * const result: AlfworldAttemptDomainResult = {
+ *   won: true, steps: 8, goalConditionSuccessRate: 1,
+ *   failureCategory: null, errorCode: null,
+ * };
+ * ```
+ */
+export interface AlfworldAttemptDomainResult {
+    readonly won: boolean;
+    readonly steps: number;
+    readonly goalConditionSuccessRate: number;
+    readonly failureCategory: EpisodeFailureCategory | null;
+    readonly errorCode: string | null;
 }
 
 /**
@@ -112,6 +139,7 @@ export class EvaluationRunner {
     private readonly executeEpisode: EpisodeExecutor;
     private readonly maxInfrastructureRetries: number;
     private readonly now: () => number;
+    private readonly attemptRecorderFactory: EvaluationRunnerDependencies["attemptRecorderFactory"];
 
     /** @param dependencies - 报告元数据、Episode 执行边界和重试策略。 */
     constructor(dependencies: EvaluationRunnerDependencies) {
@@ -123,6 +151,12 @@ export class EvaluationRunner {
         this.executeEpisode = dependencies.executeEpisode;
         this.maxInfrastructureRetries = maxRetries;
         this.now = dependencies.now ?? Date.now;
+        this.attemptRecorderFactory = dependencies.attemptRecorderFactory
+            ?? (dependencies.attemptsDirectory === undefined
+                ? undefined
+                : (task, attempt) => new AttemptRecorder<AlfworldAttemptDomainResult>(
+                    join(dependencies.attemptsDirectory!, task.taskId, `attempt-${attempt}.json`),
+                ));
     }
 
     /**
@@ -165,6 +199,7 @@ export class EvaluationRunner {
                     this.now() - startedAt,
                 );
                 attempts.push(attempt);
+                await this.persistAttempt(task, attempt, execution);
 
                 if (
                     execution.failure !== undefined
@@ -180,6 +215,48 @@ export class EvaluationRunner {
         }
 
         return aggregateEvaluationReport(this.metadata, attempts);
+    }
+
+    private async persistAttempt(
+        task: AlfworldManifestTask,
+        attempt: EpisodeAttempt,
+        execution: EpisodeExecutionFacts,
+    ): Promise<void> {
+        if (this.attemptRecorderFactory === undefined) return;
+        const attemptNumber = attempt.retrySequence + 1;
+        const recorder = this.attemptRecorderFactory(task, attemptNumber);
+        const errors = execution.failure === undefined
+            ? []
+            : [{ stage: execution.failure.category, ...(execution.failure.code === undefined ? {} : { code: execution.failure.code }), message: execution.failure.code ?? execution.failure.category }];
+        const record: BenchmarkAttemptRecord<AlfworldAttemptDomainResult> = {
+            benchmarkId: "alfworld",
+            taskId: task.taskId,
+            goalId: attempt.goalId ?? `alfworld-${task.taskId}-${attemptNumber}`,
+            runId: attempt.runId ?? `alfworld-run-${task.taskId}-${attemptNumber}`,
+            attempt: attemptNumber,
+            status: attempt.won
+                ? "completed"
+                : execution.failure?.category === "aborted"
+                    ? "cancelled"
+                    : execution.failure?.category === "infrastructure" || execution.failure?.category === "protocol" || execution.failure?.category === "timeout"
+                        ? "infrastructure_error"
+                        : "failed",
+            durationMs: attempt.durationMs,
+            usage: attempt.usage ?? null,
+            errors,
+            artifactLocator: attempt.persistence ?? null,
+            domainResult: {
+                won: attempt.won,
+                steps: attempt.steps,
+                goalConditionSuccessRate: attempt.goalConditionSuccessRate,
+                failureCategory: attempt.failureCategory,
+                errorCode: attempt.errorCode,
+            },
+            ...(execution.environmentSummary === undefined ? {} : { environment: execution.environmentSummary }),
+            ...(execution.worker === undefined ? {} : { worker: execution.worker }),
+            lastStage: "episode",
+        };
+        await recorder.commit(record);
     }
 }
 
@@ -290,6 +367,9 @@ export function createAlfworldEpisodeExecutor(
         return {
             environment: result.outcome,
             model: result.model,
+            goalId: result.goal.id,
+            runId: result.goal.state.run.id,
+            persistence: result.persistence,
             ...(failure === undefined ? {} : { failure }),
         };
     };
