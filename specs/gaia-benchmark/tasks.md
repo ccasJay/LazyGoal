@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `benchmarks/gaia/test/environment-spec.test.ts`；伪 `EnvironmentHandle` 验证所有操作。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 4. 实现 GAIA Worker 入口和 `submit_answer` 工具
+- [x] //TODO 4. 实现 GAIA Worker 入口和 `submit_answer` 工具
 
   - 实现目标：创建 `benchmarks/gaia/src/worker-entry.ts`，装配 `HeadlessCompositionRoot` 并注册 `read_file`、`web_search`、`web_fetch`、`submit_answer` 工具。`submit_answer` 使用 `O_EXCL` 写入 `/workspace/answer.json`，保证单次提交。
   - 成功判据：`submit_answer` 首次调用写入答案文件并返回成功；第二次调用返回拒绝；Worker 工具注册表包含且仅包含四个工具。

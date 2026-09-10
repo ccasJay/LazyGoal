@@ -25,3 +25,22 @@ export {
     type GaiaCollectedArtifactError,
     type GaiaEnvironmentSpecOptions,
 } from "./environment-spec";
+export {
+    SUBMIT_ANSWER_TOOL_ID,
+    SUBMIT_ANSWER_INPUT_CONTRACT,
+    SubmitAnswerTool,
+    type SubmitAnswerToolOptions,
+} from "./submit-answer";
+export {
+    GAIA_PROFILE_TOOL_IDS,
+    GAIA_WORKER_PROFILE,
+    createGaiaWorkerToolRegistry,
+    GaiaBenchmarkAdapter,
+    runGaiaWorker,
+    runGaiaAcpTask,
+    parseGaiaAcpTaskMetadata,
+    type GaiaWorkerToolOptions,
+    type GaiaEpisodeOutcome,
+    type GaiaAcpTaskMetadata,
+    type GaiaAcpRuntimeOptions,
+} from "./worker-entry";
