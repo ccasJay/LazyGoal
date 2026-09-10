@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/tools/test/web-search.test.ts` 和 `web-fetch.test.ts`；不依赖外部网络。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 2. 实现 GAIA 数据集加载器和 Manifest 构建
+- [x] //TODO 2. 实现 GAIA 数据集加载器和 Manifest 构建
 
   - 实现目标：在 `benchmarks/gaia/src/` 实现 `GaiaDatasetLoader`，通过 HuggingFace Hub API 下载 GAIA Gated Dataset 元数据和附件文件，构建 `GaiaManifest`。实现 `GaiaManifestTask` 类型和 Manifest 序列化。
   - 成功判据：fixture JSONL 数据构建出包含 taskId、question、expectedAnswer、level、split 和 attachments 的 Manifest；validation split 包含 expectedAnswer，test split 的 expectedAnswer 为 null；附件路径与 dataRoot 正确关联。
