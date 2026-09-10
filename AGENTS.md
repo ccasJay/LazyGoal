@@ -40,7 +40,7 @@ project-memory/  Durable summaries of completed and verified feature specificati
 * Do not introduce abstractions, compatibility layers, fallback paths, or configuration options without a demonstrated current requirement.
 * All user-facing output must be in English, except for commit messages and Chinese TSDoc explicitly required by this document.
 * Commit messages must be concise and written in Chinese. Use the format:
-  `feat(scope): 精确的功能描述`
+  `feat(scope): 精确的功能描述`  , DO NOT use this `功能 ：精确的功能描述`
   Use the appropriate conventional commit type when `feat` is not suitable.
 
 ### Development-Phase Compatibility Policy
