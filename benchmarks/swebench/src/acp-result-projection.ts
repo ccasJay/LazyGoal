@@ -1,3 +1,5 @@
+import { AcpRequestError } from "../../../packages/acp/src/index.js";
+import { isRecord } from "./manifest.js";
 import type {
     SessionNotification,
     ToolKind,
@@ -176,12 +178,18 @@ export interface SwebenchAcpResultMeta extends Readonly<Record<string, unknown>>
     readonly persistence?: BenchmarkPersistenceLocator;
 }
 
-/** Runtime、协议、供应商或清理阶段无法形成成功 ACP 终态时的安全错误。 */
+/**
+ * Worker 内部的安全失败，已有结果随 meta 保留；跨进程必须经 toSwebenchAcpFailure 编码。
+ * @example
+ * ```ts
+ * throw new SwebenchAcpProjectionError("runtime", "INVALID_AGENT_DECISION", "Invalid model decision", meta);
+ * ```
+ */
 export class SwebenchAcpProjectionError extends Error {
     readonly stage: "protocol" | "runtime" | "provider" | "cleanup";
     readonly code: string;
 
-    constructor(stage: "protocol" | "runtime" | "provider" | "cleanup", code: string, message: string) {
+    constructor(stage: "protocol" | "runtime" | "provider" | "cleanup", code: string, message: string, readonly meta?: SwebenchAcpResultMeta) {
         super(message);
         this.name = "SwebenchAcpProjectionError";
         this.stage = stage;
@@ -208,20 +216,20 @@ export class SwebenchAcpProjectionError extends Error {
  * ```
  */
 export function mapSwebenchAcpResult(result: HeadlessEpisodeResult<null>): AcpPromptResult {
+    const meta = resultMeta(result);
     if (result.cleanupError !== undefined) {
-        throw new SwebenchAcpProjectionError("cleanup", "CLEANUP_ERROR", "Worker cleanup failed");
+        throw new SwebenchAcpProjectionError("cleanup", "CLEANUP_ERROR", "Worker cleanup failed", meta);
     }
     if (!result.progress.ok) {
-        throw new SwebenchAcpProjectionError("runtime", result.progress.error.code, "Headless Runtime did not reach a valid terminal state");
+        throw new SwebenchAcpProjectionError("runtime", result.progress.error.code, "Headless Runtime did not reach a valid terminal state", meta);
     }
     const run = result.goal.state.run;
     if (result.runner !== null && !result.runner.ok) {
-        throw new SwebenchAcpProjectionError("runtime", result.runner.error.code, "Headless Runner did not reach a valid terminal state");
+        throw new SwebenchAcpProjectionError("runtime", result.runner.error.code, "Headless Runner did not reach a valid terminal state", meta);
     }
     if (result.model.runStatus !== run.status) {
         throw new SwebenchAcpProjectionError("protocol", "RUN_STATUS_MISMATCH", "Headless model and Goal Run statuses differ");
     }
-    const meta = resultMeta(result);
     if (run.status === "completed" || run.status === "waiting") {
         return { stopReason: "end_turn", meta };
     }
@@ -235,6 +243,7 @@ export function mapSwebenchAcpResult(result: HeadlessEpisodeResult<null>): AcpPr
         "runtime",
         run.stopReason?.kind === "execution_error" ? run.stopReason.code : "RUN_NOT_TERMINAL",
         "Headless Runtime failed before a supported ACP terminal state",
+        meta,
     );
 }
 
@@ -256,13 +265,78 @@ export function cancelledAcpResult(
     };
 }
 
-/** 把未知 Session/模型异常转为不携带凭据的协议错误。 */
-export function toSwebenchAcpFailure(error: unknown): SwebenchAcpProjectionError {
-    if (isExecutionAbortedError(error)) {
-        return new SwebenchAcpProjectionError("runtime", "CANCELLED", "Worker execution was cancelled");
+/**
+ * 将 Worker 异常编码为标准 ACP 错误；未知异常只发送固定安全消息。
+ * @param error - 同进程失败；只有显式投影错误携带业务 metadata。
+ * @returns 可被 SDK 序列化的错误，不把失败转换为成功终态。
+ * @example
+ * ```ts
+ * throw toSwebenchAcpFailure(new Error("private detail"));
+ * ```
+ */
+export function toSwebenchAcpFailure(error: unknown): AcpRequestError {
+    const failure = error instanceof SwebenchAcpProjectionError ? error
+        : new SwebenchAcpProjectionError("runtime", isExecutionAbortedError(error) ? "CANCELLED" : "WORKER_RUNTIME_ERROR", "Worker Runtime failed");
+    return new AcpRequestError(-32603, failure.message, {
+        swebench: { stage: failure.stage, code: failure.code, message: failure.message,
+            ...(failure.meta === undefined ? {} : { meta: failure.meta }) },
+    });
+}
+
+/**
+ * 校验跨 ACP 传入的结果 metadata，只接受当前题目的身份和已知状态。
+ * @param value - 未可信的 JSON 值。
+ * @param identity - 当前 Supervisor 的 Goal/Run 身份。
+ * @returns 已筛选的报告事实。
+ * @throws TypeError 当身份、状态、停止原因或用量非法时。
+ * @example
+ * ```ts
+ * const meta = parseSwebenchAcpMeta(response.meta, { goalId, runId });
+ * ```
+ */
+export function parseSwebenchAcpMeta(value: unknown, identity: { goalId: string; runId: string }): SwebenchAcpResultMeta {
+    if (!isRecord(value) || value.goalId !== identity.goalId || value.runId !== identity.runId
+        || !["created", "running", "waiting", "completed", "failed", "cancelled"].includes(String(value.runStatus))
+        || typeof value.completed !== "boolean" || value.completed !== (value.runStatus === "completed")) throw new TypeError("Invalid Worker result identity or status");
+    let stopReason: SwebenchAcpResultMeta["stopReason"] = null;
+    if (value.stopReason !== null) {
+        const reason = value.stopReason;
+        if (!isRecord(reason) || !["execution_error", "max_steps_exceeded", "cancelled"].includes(String(reason.kind))
+            || (reason.kind === "execution_error" && (typeof reason.code !== "string" || typeof reason.message !== "string"))
+            || (reason.code !== undefined && typeof reason.code !== "string")
+            || (reason.message !== undefined && typeof reason.message !== "string")) throw new TypeError("Invalid Worker stop reason");
+        stopReason = { kind: reason.kind as string,
+            ...(reason.code === undefined ? {} : { code: boundedText(reason.code as string, 1024) }),
+            ...(reason.message === undefined ? {} : { message: boundedText(reason.message as string, 1024) }) };
     }
-    if (error instanceof SwebenchAcpProjectionError) return error;
-    return new SwebenchAcpProjectionError("runtime", "WORKER_RUNTIME_ERROR", "Worker Runtime failed");
+    let usage: HeadlessModelUsage | undefined;
+    if (value.usage !== undefined) {
+        const raw = value.usage;
+        if (!isRecord(raw) || ![raw.inputTokens, raw.outputTokens, raw.missingCalls].every(n =>
+            typeof n === "number" && Number.isSafeInteger(n) && n >= 0)) throw new TypeError("Invalid Worker usage");
+        usage = { inputTokens: raw.inputTokens as number, outputTokens: raw.outputTokens as number, missingCalls: raw.missingCalls as number };
+    }
+    return { goalId: identity.goalId, runId: identity.runId, runStatus: value.runStatus as SwebenchAcpResultMeta["runStatus"],
+        completed: value.completed, stopReason, ...(usage === undefined ? {} : { usage }) };
+}
+
+/**
+ * 解码 SDK 错误中的 benchmark 数据；不依赖远端自定义 Error 原型。
+ * @returns 非 benchmark 错误返回 undefined；合法数据返回本地错误及结果事实。
+ * @throws TypeError 当声明为 benchmark 的数据非法时。
+ * @example
+ * ```ts
+ * const failure = readSwebenchAcpFailure(error, { goalId, runId });
+ * ```
+ */
+export function readSwebenchAcpFailure(error: unknown, identity: { goalId: string; runId: string }): SwebenchAcpProjectionError | undefined {
+    if (!(error instanceof AcpRequestError) || !isRecord(error.data) || !("swebench" in error.data)) return undefined;
+    const data = error.data.swebench;
+    if (!isRecord(data) || !["protocol", "runtime", "provider", "cleanup"].includes(String(data.stage))
+        || typeof data.code !== "string" || !/^[A-Z][A-Z0-9_]{0,127}$/.test(data.code)
+        || typeof data.message !== "string" || data.message.length > 1024) throw new TypeError("Invalid Worker error data");
+    return new SwebenchAcpProjectionError(data.stage as SwebenchAcpProjectionError["stage"], data.code, data.message,
+        data.meta === undefined ? undefined : parseSwebenchAcpMeta(data.meta, identity));
 }
 
 function resultMeta(result: HeadlessEpisodeResult<null>): SwebenchAcpResultMeta {

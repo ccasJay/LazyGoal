@@ -24,3 +24,20 @@ export const SWE_ACP_WORKER_PROMPT_ASSET_IDS = Object.freeze([
     "agent-decision@1",
     "authorized-tools@1",
 ] as const);
+
+/** Worker 与预检共用的环境初始化；日志不得写入 ACP stdout。 */
+export const SWE_ACP_TESTBED_ENV = "{ source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed; } >&2";
+
+/**
+ * 构造容器 Worker 启动参数，激活 testbed 后用 exec 保持进程取消语义。
+ * @param containerName - 本题已经创建的容器名称。
+ * @returns docker 的参数；不含凭据或宿主环境注入。
+ * @example
+ * ```ts
+ * const args = swebenchWorkerArgs("lazygoal-task-1");
+ * ```
+ */
+export function swebenchWorkerArgs(containerName: string): string[] {
+    return ["exec", "-i", "--workdir", "/opt/lazygoal", containerName, "/bin/bash", "-c",
+        `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node /opt/lazygoal/worker.mjs`];
+}

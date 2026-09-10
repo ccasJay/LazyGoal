@@ -1,3 +1,4 @@
+import { swebenchWorkerArgs } from "./worker-config.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { isRecord } from "./manifest.js";
@@ -126,18 +127,25 @@ export class SwebenchContainer {
     /** 以 `docker exec -i` 启动 Worker；stdin/stdout 仍由宿主 ProcessRunner 持有。 */
     async runWorker(signal?: AbortSignal) {
         if (!this.created || this.closed) throw new Error("Cannot run Worker in a non-running container");
-        return this.run("docker", ["exec", "-i", "--workdir", "/opt/lazygoal", this.name, "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], {
+        return this.run("docker", swebenchWorkerArgs(this.name), {
             timeoutMs: 120_000,
             signal,
             maxBytes: 16 * 1024 * 1024,
         });
     }
 
-    /** 启动可接入 ACP/Mux 的 Worker 进程；不会等待 Worker 退出。 */
-    async openWorkerProcess(signal?: AbortSignal): Promise<InteractiveProcess> {
+    /**
+     * 启动可接入 ACP/Mux 的 Worker 进程；不会等待 Worker 退出。
+     *
+     * @param timeoutMs - Worker 进程的宿主超时，必须与当前题目的 Supervisor 总超时一致。
+     * @param signal - 取消尚未完成的 Worker 启动或运行。
+     * @returns 可接入 ACP/Mux 的交互式 Worker 进程句柄。
+     * @throws 容器未运行，或 Worker 进程启动、超时或取消时抛出异常。
+     */
+    async openWorkerProcess(timeoutMs: number, signal?: AbortSignal): Promise<InteractiveProcess> {
         if (!this.created || this.closed) throw new Error("Cannot run Worker in a non-running container");
-        return this.interactiveRun("docker", ["exec", "-i", "--workdir", "/opt/lazygoal", this.name, "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], {
-            timeoutMs: 120_000,
+        return this.interactiveRun("docker", swebenchWorkerArgs(this.name), {
+            timeoutMs,
             signal,
             maxBytes: 16 * 1024 * 1024,
         });

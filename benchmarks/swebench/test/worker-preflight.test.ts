@@ -48,6 +48,10 @@ test("preflight checks platform, injected files, base commit and conda before re
     };
     const result = await preflightWorker({ ...options(), run });
     assert.deepEqual(result, { platform: "linux/amd64", nodeVersion: "22.22.2", workerSha256, nodeSha256, baseCommit, condaPython: "Python 3.11.0" });
+    const condaCommand = calls.at(-1)!.at(-1)!;
+    assert.match(condaCommand, />&2/);
+    assert.match(condaCommand, /import sys, pytest/);
+    assert.match(condaCommand, /assert sys.prefix/);
     assert.ok(calls.every((args) => !args.some((arg) => /API_KEY|TOKEN|AUTH/i.test(arg))));
 });
 

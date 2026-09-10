@@ -1,3 +1,4 @@
+import { swebenchWorkerArgs } from "./worker-config.js";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
@@ -25,7 +26,8 @@ import {
 } from "./process.js";
 import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
 import type { SwebenchAcpTaskMetadata } from "./worker-runtime.js";
-import { SwebenchAcpProjectionError } from "./acp-result-projection.js";
+import { recoverSwebenchResult } from "./result-recovery.js";
+import { SwebenchAcpProjectionError, readSwebenchAcpFailure, parseSwebenchAcpMeta } from "./acp-result-projection.js";
 
 /** Supervisor 记录的可区分失败阶段。 */
 export type SwebenchSupervisorFailureStage =
@@ -44,6 +46,8 @@ export type SwebenchSupervisorFailureStage =
 /** 单题 Supervisor 的有界失败记录。 */
 export interface SwebenchSupervisorError {
     readonly stage: SwebenchSupervisorFailureStage;
+    /** 已知业务错误码；未知异常不猜测。 */
+    readonly code?: string;
     readonly message: string;
 }
 
@@ -145,7 +149,9 @@ export async function runSwebenchSupervisor(
     let mux: MultiplexedConnection | undefined;
     let rpc: LlmRpcServer | undefined;
     let modelFailed = false;
+    let providerStatus: number | undefined;
     let setupFailed = false;
+    let workerAttempted = false;
     const controller = new AbortController();
     const forwardAbort = () => controller.abort();
     options.signal?.addEventListener("abort", forwardAbort, { once: true });
@@ -186,7 +192,8 @@ export async function runSwebenchSupervisor(
 
         if (!setupFailed) try {
             const open = options.openWorkerProcess ?? runInteractiveProcess;
-            worker = await openWorker(open, options.container, controller.signal);
+            workerAttempted = true;
+            worker = await openWorker(open, options.container, options.taskTimeoutMs, controller.signal);
             void worker.closed.catch(() => undefined);
             void drain(worker.errorOutput);
             mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
@@ -197,6 +204,10 @@ export async function runSwebenchSupervisor(
                         return await options.llmAdapter.generate(request, control);
                     } catch (error) {
                         modelFailed = true;
+                        if (typeof error === "object" && error !== null && "status" in error
+                            && typeof error.status === "number" && Number.isInteger(error.status) && error.status >= 100 && error.status <= 599) {
+                            providerStatus = error.status;
+                        }
                         throw error;
                     }
                 },
@@ -220,17 +231,24 @@ export async function runSwebenchSupervisor(
                 ...(options.onUpdate === undefined ? {} : { onUpdate: options.onUpdate }),
             };
             const response = await runLazyGoalAcpClient(clientInput);
+            try { meta = parseSwebenchAcpMeta(response.meta, options.metadata); }
+            catch { throw new SwebenchAcpProjectionError("protocol", "INVALID_RESULT_META", "Invalid Worker result metadata"); }
             if (response.stopReason === "end_turn" || response.stopReason === "max_turn_requests" || response.stopReason === "cancelled") {
                 stopReason = response.stopReason;
             } else {
                 record(errors, "agent", new Error(`Unsupported ACP stop reason: ${response.stopReason}`));
             }
-            meta = response.meta;
         } catch (error) {
+            let failure: SwebenchAcpProjectionError | undefined;
+            try { failure = readSwebenchAcpFailure(error, options.metadata); }
+            catch { failure = new SwebenchAcpProjectionError("protocol", "INVALID_ERROR_DATA", "Invalid Worker error data"); }
+            if (failure?.meta !== undefined) meta = failure.meta;
             if (controller.signal.aborted || options.signal?.aborted) {
                 record(errors, "cancel", new Error("SWE-bench task was cancelled"));
             } else if (modelFailed) {
-                record(errors, "model", error);
+                errors.push({ stage: "model", code: "MODEL_PROVIDER_ERROR", message: `Model provider request failed${providerStatus === undefined ? "" : ` (HTTP ${providerStatus})`}` });
+            } else if (failure !== undefined) {
+                record(errors, projectionFailureStage(failure), failure);
             } else if (error instanceof SwebenchAcpProjectionError) {
                 record(errors, projectionFailureStage(error), error);
             } else if (mux?.failure !== undefined) {
@@ -259,8 +277,9 @@ export async function runSwebenchSupervisor(
         }
 
         try {
-            const artifactResult = await collectArtifacts(options, outputDirectory, errors);
+            const artifactResult = await collectArtifacts(options, outputDirectory, errors, meta === undefined || meta.usage === undefined);
             persistence = artifactResult.persistence;
+            if (artifactResult.meta !== undefined) meta = { ...artifactResult.meta, ...meta };
             patch = artifactResult.patch;
             if (patch !== null) {
                 patchPath = `${outputDirectory}/${options.task.instance_id}.patch`;
@@ -279,17 +298,20 @@ export async function runSwebenchSupervisor(
             catch (error) { record(errors, "cleanup", error); }
         }
     }
-    return { stopReason, ...(meta === undefined ? {} : { meta }), patch, patchPath, persistence, errors };
+    meta ??= { runStatus: workerAttempted ? "unknown" : "not_started",
+        ...(!workerAttempted ? { usage: { inputTokens: 0, outputTokens: 0, missingCalls: 0 } } : {}) };
+    return { stopReason, meta, patch, patchPath, persistence, errors };
 }
 
 async function openWorker(
     open: InteractiveProcessRunner,
     container: SwebenchContainer,
+    timeoutMs: number,
     signal: AbortSignal,
 ): Promise<InteractiveProcess> {
-    if (open === runInteractiveProcess) return container.openWorkerProcess(signal);
-    return open("docker", ["exec", "-i", "--workdir", "/opt/lazygoal", container.name, "/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"], {
-        timeoutMs: 120_000,
+    if (open === runInteractiveProcess) return container.openWorkerProcess(timeoutMs, signal);
+    return open("docker", swebenchWorkerArgs(container.name), {
+        timeoutMs,
         signal,
         maxBytes: 16 * 1024 * 1024,
     });
@@ -299,7 +321,8 @@ async function collectArtifacts(
     options: SwebenchSupervisorOptions,
     outputDirectory: string,
     errors: SwebenchSupervisorError[],
-): Promise<{ readonly persistence: BenchmarkPersistenceLocator | null; readonly patch: string | null }> {
+    recover: boolean,
+): Promise<{ readonly persistence: BenchmarkPersistenceLocator | null; readonly patch: string | null; readonly meta?: Readonly<Record<string, unknown>> }> {
     const graceMs = options.artifactGraceMs ?? 30_000;
     const graceController = new AbortController();
     const deadline = setTimeout(() => graceController.abort(), graceMs);
@@ -322,17 +345,23 @@ async function collectArtifacts(
     } catch (error) {
         record(errors, "patch_export", error);
     }
+    let recovered: Readonly<Record<string, unknown>> | undefined;
+    try {
+        if (recover) recovered = await withinGrace(() => recoverSwebenchResult(copied, options.metadata,
+            (message) => record(errors, "artifact_copy", new Error(message)), graceController.signal), graceController.signal);
+    } catch (error) { record(errors, "artifact_copy", error); }
     clearTimeout(deadline);
+    const recoveredMeta = recovered === undefined ? {} : { meta: recovered };
     if (copied.goals === undefined || !await validateGoalLocator(copied.goals, options.metadata.goalId, options.metadata.runId)) {
         if (copied.goals !== undefined) record(errors, "artifact_copy", new Error("Copied Goal snapshot identity mismatch"));
-        return { persistence: null, patch };
+        return { persistence: null, patch, ...recoveredMeta };
     }
     const persistence: BenchmarkPersistenceLocator = {
         goalSnapshot: relative(outputDirectory, copied.goals),
         trajectory: copied.trajectories === undefined ? relative(outputDirectory, copied.goals) : relative(outputDirectory, copied.trajectories),
         ...(copied.traces === undefined ? {} : { diagnosticTrace: relative(outputDirectory, copied.traces) }),
     };
-    return { persistence, patch };
+    return { persistence, patch, ...recoveredMeta };
 }
 
 async function withinGrace<T>(factory: () => Promise<T>, signal: AbortSignal): Promise<T> {
@@ -415,7 +444,8 @@ function projectionFailureStage(error: SwebenchAcpProjectionError): SwebenchSupe
 }
 
 function record(errors: SwebenchSupervisorError[], stage: SwebenchSupervisorFailureStage, error: unknown): void {
-    errors.push({ stage, message: boundMessage(error) });
+    errors.push({ stage, message: boundMessage(error),
+        ...(error instanceof SwebenchAcpProjectionError ? { code: error.code } : {}) });
 }
 
 function boundMessage(error: unknown): string {

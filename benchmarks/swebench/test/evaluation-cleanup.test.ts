@@ -1,3 +1,9 @@
+import { createGoal } from "../../../packages/runtime/src/index.js";
+import { currentProtocols } from "../../../packages/runtime/test/current-fixtures.js";
+import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";
+import { serveLazyGoalAcpAgent } from "../../../packages/acp/src/index.js";
+import { MultiplexedConnection, createAcpMuxStream } from "../src/multiplex.js";
+import { SwebenchAcpProjectionError, toSwebenchAcpFailure } from "../src/acp-result-projection.js";
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -103,8 +109,13 @@ class FakeContainer extends SwebenchContainer {
         const directory = join(outputDirectory, "runtime", kind);
         await mkdir(directory, { recursive: true });
         if (kind === "goals") {
-            await writeFile(join(directory, Buffer.from(metadata.goalId).toString("base64url") + ".json"),
-                JSON.stringify({ id: metadata.goalId, state: { run: { id: metadata.runId } } }));
+            await new JsonFileGoalStore(directory).save(createGoal({ ...currentProtocols,
+                id: metadata.goalId, runId: metadata.runId, intent: task.problem_statement, promptBundleVersion: 1,
+                profile: { id: "test", systemPrompt: "test", instructions: [], toolIds: [] } }));
+        } else if (kind === "traces") {
+            const goalDirectory = join(directory, Buffer.from(metadata.goalId).toString("base64url"));
+            await mkdir(goalDirectory, { recursive: true });
+            await writeFile(join(goalDirectory, Buffer.from(metadata.runId).toString("base64url") + ".jsonl"), "");
         }
         return directory;
     }
@@ -153,6 +164,20 @@ test("Supervisor records independent artifact failures and closes after the fina
     assert.equal(result.errors[0]?.stage, "transport");
 });
 
+test("Supervisor passes the task timeout to an injected Worker runner", async () => {
+    const output = await mkdtemp(join(tmpdir(), "swe-supervisor-"));
+    let timeoutMs: number | undefined;
+    const result = await runSwebenchSupervisor({
+        ...options(new FakeContainer([]), output),
+        openWorkerProcess: async (_command, _args, runnerOptions) => {
+            timeoutMs = runnerOptions.timeoutMs;
+            throw new Error("worker handshake failed");
+        },
+    });
+    assert.equal(timeoutMs, 5000);
+    assert.equal(result.errors[0]?.stage, "transport");
+});
+
 test("Supervisor still copies and removes the container when setup fails", async () => {
     const output = await mkdtemp(join(tmpdir(), "swe-supervisor-"));
     const events: string[] = [];
@@ -172,4 +197,34 @@ test("Supervisor does not wait forever for an artifact operation after the grace
     assert.deepEqual(events, ["start", "inject", "preflight", "open", "copy:goals", "close"]);
     assert.equal(result.patch, null);
     assert.ok(result.errors.some((error) => error.stage === "artifact_copy"));
+});
+
+
+test("Supervisor receives failure metadata through serialized ACP and preserves exported patch", async () => {
+    const output = await mkdtemp(join(tmpdir(), "swe-supervisor-wire-"));
+    const failureMeta = { goalId: metadata.goalId, runId: metadata.runId, runStatus: "failed" as const,
+        completed: false, stopReason: { kind: "execution_error", code: "INVALID_AGENT_DECISION", message: "Invalid model decision" },
+        usage: { inputTokens: 91, outputTokens: 17, missingCalls: 0 } };
+    let killed = false;
+    const result = await runSwebenchSupervisor({
+        ...options(new FakeContainer([]), output),
+        openWorkerProcess: async () => {
+            const toWorker = new TransformStream<Uint8Array, Uint8Array>();
+            const toHost = new TransformStream<Uint8Array, Uint8Array>();
+            const mux = new MultiplexedConnection({ input: toWorker.readable, output: toHost.writable });
+            serveLazyGoalAcpAgent({ stream: createAcpMuxStream(mux), sessions: { async create() { return {
+                async prompt() { throw toSwebenchAcpFailure(new SwebenchAcpProjectionError("runtime", "INVALID_AGENT_DECISION", "Invalid model decision", failureMeta)); },
+                async dispose() {},
+            }; } } });
+            return { input: toWorker.writable, output: toHost.readable,
+                errorOutput: new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } }),
+                closed: Promise.resolve({ code: 0, stdout: "", stderr: "" }),
+                kill() { killed = true; void mux.close(); } };
+        },
+    });
+    assert.equal(result.stopReason, null);
+    assert.deepEqual(result.meta, failureMeta);
+    assert.deepEqual(result.errors, [{ stage: "runtime", code: "INVALID_AGENT_DECISION", message: "Invalid model decision" }]);
+    assert.ok(result.patch?.startsWith("diff --git"));
+    assert.equal(killed, true);
 });

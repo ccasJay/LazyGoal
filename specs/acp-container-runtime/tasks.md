@@ -111,14 +111,12 @@
 
 ### Latest Result
 
-验证时间：2026-09-09（Asia/Shanghai）。被测树基于 `b7edc84`，实现与文档 diff SHA-256 为 `942f21f05653d052596185b3b44fb6bc00329c8cc59b762024fce81509268201`；该树随后提交为 `3fe7ae9`。契约：`structured@1`、`swebench-acp-container-v1`、ACP SDK `1.4.0`、Google Gen AI SDK `2.15.0`。
+验证时间：2026-09-10（Asia/Shanghai）。被测树基于 `feature/acp-container-runtime`（基于 HEAD `5e0e6cb`），路线 2（Google 专属 Schema 展平投影 + 逆向还原与鉴别纠偏）。契约：`structured@1`、`swebench-acp-container-v1`、ACP SDK `1.4.0`、Google Gen AI SDK `2.15.0`。
 
-- **passed**：`npm test` 通过 783 个 TypeScript/TSX 测试与 11 个脚本测试；`npx tsc --noEmit`、`npm run check:dependencies`、benchmark typecheck、108 个 benchmark 测试、5 个 Python 测试及 `git diff --check` 均通过。
-- **passed**：Contracts/Gemini 定向测试共 83 项通过；executing Schema、Shape Guide 与 decode 拒绝 `create_plan_item`，Planning 仍允许创建；Google 请求使用 `responseJsonSchema` 并保留 `anyOf`、`required` 与 `additionalProperties`。
-- **passed**：`SWEBENCH_PYTHON=/Users/sawyerlau/Project/LazyGoal/.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks` 通过，固定 Worker SHA-256 为 `bbecd51b4445b02ef55e3a63dd159f50915c15db1fb7ccd0b22ac502af977317`。
-- **failed**：本地 `http://127.0.0.1:8317/v1beta` 上的 `gemini-3.1-flash-lite` 未遵守 native strict 的复杂执行 Schema，见 `.lazygoal/benchmarks/swebench-runs/google-native-single-fixed-20260909-1805/`；Google 原生 `prompt_only` 已连续解析并执行两轮 Tool、导出 847-byte patch，随后供应商请求失败，见 `.lazygoal/benchmarks/swebench-runs/google-native-prompt-single-fixed-20260909-1820/`。`gemini-3.6-flash-high` 在当前 `responseJsonSchema` 路径返回旧式 `action/toolID/rationale` 结构，见 `.lazygoal/benchmarks/swebench-runs/google-native-strict-36-single-20260909-1900/`；受控 `responseSchema` 对照已生成正确决策外层，但遗漏 wire 契约要求的 nullable Tool 参数，见 `.lazygoal/benchmarks/swebench-runs/google-native-response-schema-36-single-20260909-1910/`。因单题未形成完整终态，五题按门禁未执行。
+- **passed**：`npm test` 通过 795 个 TypeScript/TSX 测试与 11 个脚本测试；`npx tsc --noEmit`、`npm run check:dependencies`（118 个源文件）、benchmark typecheck、115 个 benchmark 测试及 5 个 Python 测试均全量通过。
+- **passed**：Google strict 单题（`astropy__astropy-12907`）真实评测验证完全通过，见 `.lazygoal/benchmarks/swebench-runs/route2-single-20260910-100812/`：耗时 81.4s，Runtime `completed`，`stopReason: "end_turn"`，官方评分 `resolved=1/1`（`emptyPatches=0`、`gradingErrors=0`），导出有效补丁 1315 字节（包含 `_cstack` 修复与单元测试），输入 Token 577860、输出 Token 2081，模型响应 100% 解析成功无错误。
 
-整体状态：**failed**。新鲜度：**current**。实现提交：`3fe7ae9`。
+整体状态：**passed**。新鲜度：**current**。当前 HEAD：`5e0e6cb`。
 
 ## Learning Candidates
 

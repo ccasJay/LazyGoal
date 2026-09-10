@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
 import { SwebenchContainer } from "../src/container.js";
-import { requireSuccess, runProcess, type ProcessRunner } from "../src/process.js";
+import { requireSuccess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../src/process.js";
 import type { WorkerArtifact } from "../src/worker-builder.js";
 
 const task = { instance_id: "astropy__astropy-12907", repo: "astropy/astropy", base_commit: "a".repeat(40),
@@ -111,6 +111,26 @@ test("injects Worker files outside /testbed and starts it with interactive docke
     const worker = calls.at(-1)!;
     assert.equal(worker.args[0], "exec");
     assert.ok(worker.args.includes("-i"));
+    assert.match(worker.args.at(-1)!, /conda activate testbed; } >&2 && exec \/opt\/lazygoal\/node/);
     assert.ok(!worker.args.some((arg) => ["-v", "--mount", "--volume", "-e", "--env", "--privileged"].includes(arg)));
+    await container.close();
+});
+
+test("container passes the configured timeout to the interactive Worker runner", async () => {
+    let timeoutMs: number | undefined;
+    const interactiveRun: InteractiveProcessRunner = async (_command, _args, options): Promise<InteractiveProcess> => {
+        timeoutMs = options.timeoutMs;
+        return {
+            input: new WritableStream<Uint8Array>(),
+            output: new ReadableStream<Uint8Array>(),
+            errorOutput: new ReadableStream<Uint8Array>(),
+            closed: Promise.resolve(ok),
+            kill: () => undefined,
+        };
+    };
+    const container = new SwebenchContainer("unique", task, async () => ok, interactiveRun);
+    await container.start();
+    await container.openWorkerProcess(37_000);
+    assert.equal(timeoutMs, 37_000);
     await container.close();
 });

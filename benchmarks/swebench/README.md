@@ -51,8 +51,10 @@ export LLM_STRUCTURED_OUTPUT_MODE='strict'
 unset LLM_BASE_URL
 ```
 
-Use `prompt_only` if the provider does not support strict structured output. The
-Google strict path requires the endpoint to implement `responseJsonSchema`.
+Google strict requires an endpoint that supports the complete `responseJsonSchema`,
+including union branches and required fields. Responses pass unchanged to local
+contract validation. Unsupported schemas and invalid decisions fail explicitly;
+the adapter does not repair responses or automatically switch to `prompt_only`.
 The host keeps provider credentials; the Worker receives only model responses through
 the LLM RPC channel.
 This command reads process environment variables; it does not load ALFWorld's
@@ -116,9 +118,18 @@ patch, and the model claiming completion cannot override official test failures.
 or setup failures, and missing official grades. A grading error is not assumed to
 be an infrastructure error; inspect the official logs for patch or test failures.
 
-Usage sums only reported provider tokens; `missingUsageCalls` counts calls with
-missing usage, including failed calls. The complete per-call diagnostic data is
-available in the Trace. `durationMs` sums task preparation, inference and cleanup;
+Known execution failures retain their stage, business error code, Run state and usage
+through ACP error data. When terminal metadata is unavailable, recovered Snapshot
+and Trace files supply available facts. Unverifiable Run state is `unknown`;
+`not_started` is reserved for attempts that never launched a Worker.
+
+Usage sums only reported provider tokens. `missingUsageCalls` counts recorded
+responses without valid usage; failed requests do not supply token counts.
+An attempt's `usage: null` means usage could not be recovered, and
+`unknownUsageAttempts` counts these attempts separately from known totals.
+Worker and Bash tools inherit the activated Conda `testbed` environment; startup
+logs use stderr so ACP stdout remains a protocol stream.
+`durationMs` sums task preparation, inference and cleanup;
 it does not include dataset download or official grading.
 
 Exit code `0` means the evaluation completed, even if some patches were unresolved;

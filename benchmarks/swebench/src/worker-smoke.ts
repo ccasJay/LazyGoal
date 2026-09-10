@@ -59,6 +59,13 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
             generate: async (request) => {
                 modelCalls += 1;
                 if (modelCalls === 1) {
+                    return { content: JSON.stringify({ result: { kind: "tool_call", memoryPatch: null,
+                        action: { actionId: "worker-smoke-env", toolId: "bash", input: {
+                            command: "python -c 'import sys; assert sys.prefix == \"/opt/miniconda3/envs/testbed\"; print(sys.executable)' && python -m pytest --version && pytest --version",
+                            timeoutMs: null,
+                        } } } }) };
+                }
+                if (modelCalls === 2) {
                     return { content: JSON.stringify({ result: {
                         kind: "tool_call",
                         action: { actionId: "worker-smoke-write", toolId: "write_file", input: { path: "lazygoal-worker-smoke.txt", content: "worker smoke\n" } },
@@ -101,13 +108,19 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
                 void drainDiagnostic(diagnostic);
                 return { ...worker, errorOutput: control };
             },
-            onUpdate: () => { updateCount += 1; },
+            onUpdate: (notification) => {
+                updateCount += 1;
+                const update = notification.update;
+                if (update.sessionUpdate === "tool_call_update" && update.status !== "completed") {
+                    throw new Error("Worker smoke tool failed");
+                }
+            },
         });
         if (result.errors.length > 0) throw new Error(`Worker smoke failed: ${result.errors.map((error) => `${error.stage}: ${error.message}`).join("; ")}`);
         if (result.stopReason !== "end_turn" || result.patch === null || !result.patch.includes("lazygoal-worker-smoke.txt")) {
             throw new Error(`Worker smoke produced an unexpected result: ${result.stopReason}`);
         }
-        if (modelCalls !== 2 || updateCount < 2) throw new Error(`Worker smoke did not exercise both channels: modelCalls=${modelCalls}, updates=${updateCount}`);
+        if (modelCalls !== 3 || updateCount < 4) throw new Error(`Worker smoke did not exercise both channels: modelCalls=${modelCalls}, updates=${updateCount}`);
         const patchPath = join(artifactOutput, `${task.instance_id}.patch`);
         if (!(await readFile(patchPath, "utf8")).includes("lazygoal-worker-smoke.txt")) throw new Error("Worker smoke patch was not persisted");
         process.stdout.write(JSON.stringify({ status: "passed", instanceId: task.instance_id, modelCalls, updateCount, workerSha256: artifact.manifest.workerSha256 }) + "\n");

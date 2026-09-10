@@ -1,3 +1,6 @@
+import { runLazyGoalAcpClient, serveLazyGoalAcpAgent, AcpRequestError } from "../../../packages/acp/src/index.js";
+import type { AnyMessage } from "@agentclientprotocol/sdk";
+import { readSwebenchAcpFailure, parseSwebenchAcpMeta, toSwebenchAcpFailure } from "../src/acp-result-projection.js";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -228,3 +231,51 @@ function toolDecision(actionId: string): unknown {
         memoryPatch: null,
     };
 }
+
+
+test("real Headless protocol failure retains state and usage across ACP serialization", async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "lazygoal-acp-failure-wire-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const metadata: SwebenchAcpTaskMetadata = { instanceId: "astropy__astropy-12907", repo: "astropy/astropy",
+        baseCommit: "a".repeat(40), problemStatement: "Fix the issue", goalId: "wire-goal", runId: "wire-run",
+        maxSteps: 3, structuredOutputMode: "strict" };
+    const serialized = () => new TransformStream<AnyMessage, AnyMessage>({
+        transform(message, controller) { controller.enqueue(JSON.parse(JSON.stringify(message))); },
+    });
+    const toAgent = serialized(), toClient = serialized();
+    serveLazyGoalAcpAgent({ stream: { readable: toAgent.readable, writable: toClient.writable },
+        sessions: createSwebenchAcpSessionFactory({ metadata, problemStatement: metadata.problemStatement,
+            workspaceRoot: root, stateRoot: join(root, "state"), renderer: { render: () => "system" },
+            contextCompactor: { compact: async units => units },
+            llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
+                content: JSON.stringify({ result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: null } }),
+                providerMetadata: { usage: { inputTokens: 37, outputTokens: 11 } },
+            }) },
+        }),
+    });
+    await assert.rejects(runLazyGoalAcpClient({ stream: { readable: toClient.readable, writable: toAgent.writable }, cwd: root,
+        prompt: [{ type: "text", text: metadata.problemStatement }] }), error => {
+        assert.ok(error instanceof AcpRequestError);
+        const failure = readSwebenchAcpFailure(error, metadata);
+        assert.equal(failure?.stage, "runtime");
+        assert.equal(failure?.code, "INVALID_AGENT_DECISION");
+        assert.equal(failure?.meta?.runStatus, "failed");
+        assert.deepEqual(failure?.meta?.usage, { inputTokens: 37, outputTokens: 11, missingCalls: 0 });
+        return true;
+    });
+});
+
+test("ACP error boundary rejects foreign metadata and hides unknown exception details", () => {
+    const identity = { goalId: "goal-1", runId: "run-1" };
+    const error = toSwebenchAcpFailure(new Error("Authorization: secret-value"));
+    assert.ok(!JSON.stringify(error.toErrorResponse()).includes("secret-value"));
+    assert.equal(readSwebenchAcpFailure(error, identity)?.code, "WORKER_RUNTIME_ERROR");
+    const meta = { ...identity, runStatus: "failed", completed: false, stopReason: null, usage: { inputTokens: 2, outputTokens: 1, missingCalls: 0 } };
+    for (const value of [{ ...meta, goalId: "foreign" }, { ...meta, runStatus: "not_started" },
+        { ...meta, usage: { inputTokens: -1, outputTokens: 1, missingCalls: 0 } }]) {
+        assert.throws(() => parseSwebenchAcpMeta(value, identity));
+    }
+    assert.throws(() => readSwebenchAcpFailure(new AcpRequestError(-32603, "error", {
+        swebench: { stage: "runtime", code: "INVALID_AGENT_DECISION", message: "Invalid decision", meta: { ...meta, runId: "foreign" } },
+    }), identity));
+});

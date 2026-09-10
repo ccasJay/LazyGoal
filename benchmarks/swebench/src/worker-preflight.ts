@@ -1,3 +1,4 @@
+import { SWE_ACP_TESTBED_ENV } from "./worker-config.js";
 import type { WorkerManifest } from "./worker-builder.js";
 import { requireSuccess, runProcess, type ProcessRunner, type ProcessResult } from "./process.js";
 
@@ -88,7 +89,7 @@ export async function preflightWorker(options: WorkerPreflightOptions): Promise<
     const baseCommit = (await execOutput(run, options, ["git", "rev-parse", "HEAD"], "base_commit")).trim();
     if (baseCommit !== options.baseCommit) throw new WorkerPreflightError("base_commit", `expected ${options.baseCommit}, received ${baseCommit || "<empty>"}`);
 
-    const condaPython = (await execOutput(run, options, ["/bin/bash", "-c", "source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && python --version"], "conda")).trim();
+    const condaPython = (await execOutput(run, options, ["/bin/bash", "-c", `${SWE_ACP_TESTBED_ENV} && python -c 'import sys, pytest; assert sys.prefix == "/opt/miniconda3/envs/testbed"; print("Python " + sys.version.split()[0])'`], "conda")).trim();
     if (!/^Python\s+\d+(?:\.\d+){1,2}(?:\s|$)/u.test(condaPython)) throw new WorkerPreflightError("conda", `unexpected Python version output: ${truncateDiagnostic(condaPython)}`);
 
     return {

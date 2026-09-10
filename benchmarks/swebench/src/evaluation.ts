@@ -18,7 +18,14 @@ import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
 /** 当前 SWE-bench ACP 容器评测身份。 */
 export const SWE_ACP_CONFIG_ID = "swebench-acp-container-v1" as const;
 
-/** 单题作答与评分的独立记录；usage 对缺失供应商数据显式计数。 */
+/**
+ * 单题作答与评分的独立记录；未知状态与用量不会被表示为未启动或零消耗。
+ * @example
+ * ```ts
+ * const attempt: SwebenchAttempt = report.attempts[0]!;
+ * console.log(attempt.runStatus, attempt.errors, attempt.gradingStatus);
+ * ```
+ */
 export interface SwebenchAttempt {
     readonly instanceId: string;
     readonly goalId: string;
@@ -27,13 +34,14 @@ export interface SwebenchAttempt {
     readonly durationMs: number;
     readonly runStatus: string;
     readonly stopReason: unknown;
-    readonly usage: HeadlessModelUsage;
+    /** null 表示未能取得用量事实；计数为零只表示已知零用量。 */
+    readonly usage: HeadlessModelUsage | null;
     readonly imageId: string | null;
     readonly patchPath: string | null;
     readonly patchBytes: number;
     readonly patchSha256: string | null;
     readonly persistence: BenchmarkPersistenceLocator | null;
-    readonly errors: readonly { readonly stage: string; readonly message: string }[];
+    readonly errors: readonly { readonly stage: string; readonly code?: string; readonly message: string }[];
     gradingStatus: "pending" | "resolved" | "unresolved" | "empty_patch" | "grading_error" | "not_submitted";
     gradingLogDirectory?: string;
 }
@@ -245,7 +253,7 @@ async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask,
         runId: taskRunId,
         attempt: 1,
         durationMs: Date.now() - started,
-        runStatus: typeof meta?.runStatus === "string" ? meta.runStatus : "not_started",
+        runStatus: typeof meta?.runStatus === "string" ? meta.runStatus : "unknown",
         stopReason: meta?.stopReason ?? result.stopReason,
         usage: readUsage(meta?.usage),
         imageId: container.imageId ?? null,
@@ -290,9 +298,10 @@ function summarize(attempts: readonly SwebenchAttempt[], total: number) {
         emptyPatches: attempts.filter((a) => a.gradingStatus === "empty_patch").length,
         notSubmitted: attempts.filter((a) => a.gradingStatus === "not_submitted").length,
         pending: attempts.filter((a) => a.gradingStatus === "pending").length,
-        inputTokens: attempts.reduce((sum, a) => sum + a.usage.inputTokens, 0),
-        outputTokens: attempts.reduce((sum, a) => sum + a.usage.outputTokens, 0),
-        missingUsageCalls: attempts.reduce((sum, a) => sum + a.usage.missingCalls, 0),
+        unknownUsageAttempts: attempts.filter((a) => a.usage === null).length,
+        inputTokens: attempts.reduce((sum, a) => sum + (a.usage?.inputTokens ?? 0), 0),
+        outputTokens: attempts.reduce((sum, a) => sum + (a.usage?.outputTokens ?? 0), 0),
+        missingUsageCalls: attempts.reduce((sum, a) => sum + (a.usage?.missingCalls ?? 0), 0),
         durationMs: attempts.reduce((sum, a) => sum + a.durationMs, 0) };
 }
 
@@ -309,12 +318,12 @@ function validateWorkerArtifact(artifact: WorkerArtifact): void {
     }
 }
 
-function readUsage(value: unknown): HeadlessModelUsage {
+function readUsage(value: unknown): HeadlessModelUsage | null {
     if (!isRecord(value)
         || typeof value.inputTokens !== "number" || !Number.isSafeInteger(value.inputTokens) || value.inputTokens < 0
         || typeof value.outputTokens !== "number" || !Number.isSafeInteger(value.outputTokens) || value.outputTokens < 0
         || typeof value.missingCalls !== "number" || !Number.isSafeInteger(value.missingCalls) || value.missingCalls < 0) {
-        return { inputTokens: 0, outputTokens: 0, missingCalls: 0 };
+        return null;
     }
     return { inputTokens: value.inputTokens, outputTokens: value.outputTokens, missingCalls: value.missingCalls };
 }

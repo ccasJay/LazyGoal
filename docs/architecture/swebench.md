@@ -34,9 +34,9 @@ Node 22 ESM Worker。构建结果先写入摘要临时目录，再以原子 rena
 容器启动后，`SwebenchContainer.injectWorker` 通过 `docker cp` 将 Worker、Node 和
 manifest 写入 `/opt/lazygoal`，不向 `/testbed` 添加挂载或环境变量；
 `preflightWorker` 在任何模型请求和 Runtime 副作用前检查容器平台、Node 版本、动态库、
-两个文件摘要、base commit 和 `conda testbed`。题目 Tool 使用不继承 Worker 控制流的
-独立 stdio，Worker 进程通过 `docker exec -i` 启动；交互进程的 stdin/stdout 作为 ACP
-控制流，stderr 单独限长收集为诊断。
+两个文件摘要、base commit 以及 `testbed` 内的 Python/pytest。预检和 Worker 启动共用
+Conda 初始化；Worker 激活 `testbed` 后通过 `exec` 启动 Node，Tool 继承此环境并使用
+独立 stdio。初始化日志进入 stderr，stdin/stdout 专用于 ACP 控制流。
 
 Worker 侧的 [`runSwebenchAcpTask`](../../benchmarks/swebench/src/worker-runtime.ts) 在
 容器内装配真实 `HeadlessCompositionRoot`，固定 `swebench-acp-profile` 和
@@ -51,7 +51,9 @@ Worker ACP Session 通过 [`createSwebenchAcpSessionFactory`](../../benchmarks/s
 `tool_finished` 事实成功追加后发送对应 ACP Tool 更新，使用 Runtime `actionId` 作为
 稳定 Tool Call ID，并按固定字节上限标记截断输入和输出。Headless `completed`/`waiting`
 映射为 `end_turn`，步数上限映射为 `max_turn_requests`，取消映射为 `cancelled`；
-Runtime、通知或清理错误不会形成成功终态。
+Runtime、通知或清理错误不会形成成功终态。已知失败通过标准 JSON-RPC 错误 data
+传递阶段、业务错误码及已有结果 metadata；未知异常只发送固定安全消息。
+宿主校验错误数据和 Goal/Run 身份，不依赖远端 Error 原型。
 
 单题 [`runSwebenchSupervisor`](../../benchmarks/swebench/src/supervisor.ts) 负责把上述
 Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP/LLM 双通道、一次性 Client
@@ -75,8 +77,10 @@ Worker 接入宿主模型：它先启动、注入并预检容器，再创建 ACP
 评分 run ID 每次独立，避免覆盖已有产物或命中旧预测的评分缓存。
 
 Snapshot、Trajectory、Trace 位于本次输出目录的 `runtime/`；报告保存定位、模型
-配置、Manifest/Profile 哈希、镜像 ID、补丁哈希、任务耗时和 token 用量。Root 抛出
-时，评测级用量记录仍保留已发生的模型调用；缺失用量显式计数，不推算 token。
+配置、Manifest/Profile 哈希、镜像 ID、补丁哈希、任务耗时和 token 用量。终态 metadata
+缺失时，Supervisor 从回收 Snapshot 恢复状态、从 Trace 聚合已记录响应的用量；恢复失败
+独立记录诊断。状态无法确认时为 `unknown`，仅确定未启动 Worker 时为 `not_started`；
+用量无法取得时为 null，汇总通过 `unknownUsageAttempts` 显示此缺口，不推算 token。
 
 ## 当前限制
 
