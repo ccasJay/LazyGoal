@@ -22,7 +22,7 @@
     - 成功标准：合法调用得到对应 Observation；非法帧、重复执行 ID、工具契约不匹配、超时和断线均失败且不重发执行。
     - 验证方式：扩展 Mux 测试并新增 `benchmarks/test/tool-rpc.test.ts`（待实现），使用双向内存流和执行计数验证。
     - Requirements: [3.1](./requirements.md#req-3-1), [3.5](./requirements.md#req-3-5), [4.4](./requirements.md#req-4-4)
-  - [ ] //TODO 3.2 接入两个 Benchmark 的工具服务入口
+  - [x] //TODO 3.2 接入两个 Benchmark 的工具服务入口
     - 实现目标：在 GAIA/SWE-bench 各自目录抽取共用 manifest 并新增 tools-worker-entry，复用各自工具构造与环境预检；GAIA 网络工具接入受限宿主后端。
     - 成功标准：工具 Worker 不创建 Goal 或 LLM；文件与命令只影响指定容器工作目录，未配置后端在启动期失败，Worker 无宿主凭据；取消终止在途工具及子进程。
     - 验证方式：`benchmarks/gaia/test/tools-worker.test.ts`、`benchmarks/swebench/test/tools-worker.test.ts`（待实现），真实子进程加临时目录、脚本化后端，另跑依赖检查。

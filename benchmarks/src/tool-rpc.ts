@@ -625,12 +625,16 @@ export class ToolRpcServer {
                     type: "execute_result",
                     id: msg.id,
                     actionId: msg.actionId,
-                    observation: prepared.observation,
+                    observation: {
+                        kind: "failure",
+                        error: prepared.error.message,
+                        recoverable: false,
+                    },
                 });
                 return;
             }
 
-            const observation = await prepared.execute(control);
+            const observation = await prepared.execute(msg.actionId, control);
             validateToolObservation(observation);
             await this.send({
                 type: "execute_result",
