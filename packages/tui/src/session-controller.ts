@@ -19,6 +19,7 @@ import {
     type UiTerminalSummary,
     type UiViewModel,
 } from "./types";
+import { sliceTrajectorySteps } from "./inspector-step-slicer";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -49,7 +50,10 @@ export class SessionController {
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
     private executionMode: ExecutionMode;
-    private snapshot: UiViewModel;
+    private snapshot: UiViewModel = {
+        screen: "intent_input",
+        busy: false,
+    };
     private readonly subscribers = new Set<UiSubscriber>();
 
     /** @param dependencies - Launcher、Coordinator、Store、Catalog 与身份依赖。 */
@@ -243,6 +247,9 @@ export class SessionController {
             case "openSettings":
                 this.openSettings();
                 return;
+            case "openHistory":
+                await this.openHistory();
+                return;
             case "toggleExecutionMode":
                 await this.setMode(this.executionMode === "confirm" ? "yolo" : "confirm");
                 return;
@@ -332,7 +339,22 @@ export class SessionController {
         await this.listResumableIntoGoalSelect();
     }
 
-    private async listResumableIntoGoalSelect(): Promise<GoalCatalogEntry[] | undefined> {
+    private async openHistory(): Promise<void> {
+        const entries = await this.listResumableIntoGoalSelect("inspect");
+        if (entries === undefined) {
+            return;
+        }
+        this.setSnapshot({
+            screen: "goal_select",
+            busy: false,
+            goals: entries,
+            mode: "inspect",
+        });
+    }
+
+    private async listResumableIntoGoalSelect(
+        mode: "resume" | "inspect" = "resume",
+    ): Promise<GoalCatalogEntry[] | undefined> {
         if (this.snapshot.screen === "session") {
             this.setError({
                 code: "SESSION_ACTIVE",
@@ -354,6 +376,7 @@ export class SessionController {
             screen: "goal_select",
             busy: true,
             goals: entries,
+            ...(mode === "inspect" ? { mode: "inspect" } : {}),
         });
 
         if (entries.length === 0) {
@@ -382,6 +405,28 @@ export class SessionController {
                 code: "INVALID_GOAL_ID",
                 message: "Goal ID must not be empty",
             });
+            return;
+        }
+
+        if (this.snapshot.screen === "goal_select" && this.snapshot.mode === "inspect") {
+            let goal: Goal | undefined;
+            try {
+                goal = await this.dependencies.store.restore(normalizedGoalId);
+            } catch (error: unknown) {
+                this.setGoalSelectError(toUiError(error), this.snapshot.goals);
+                return;
+            }
+
+            if (goal === undefined) {
+                this.setGoalSelectError({
+                    code: "RUN_NOT_FOUND",
+                    message: `Goal "${normalizedGoalId}" was not found`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            const steps = sliceTrajectorySteps({ goalId: normalizedGoalId, goal });
+            this.openInspector(normalizedGoalId, steps);
             return;
         }
 
@@ -653,7 +698,7 @@ export class SessionController {
         const preparationStalled = isStalledPreparation(snapshot, waitingFor);
         const terminal = deriveTerminalSummary(snapshot);
 
-        const currentSession = this.snapshot.screen === "session" ? this.snapshot : undefined;
+        const currentSession = this.snapshot?.screen === "session" ? this.snapshot : undefined;
         const mode = this.dependencies.mode ?? currentSession?.mode;
         const taskTitle = this.dependencies.taskTitle ?? currentSession?.taskTitle;
 
@@ -822,6 +867,7 @@ export class SessionController {
                         screen: "goal_select",
                         busy,
                         goals: current.goals,
+                        ...(current.mode !== undefined ? { mode: current.mode } : {}),
                     }
                     : { ...current, busy });
                 return;
@@ -850,11 +896,13 @@ export class SessionController {
         goals: readonly GoalCatalogEntry[] =
             this.snapshot.screen === "goal_select" ? this.snapshot.goals : [],
     ): void {
+        const mode = this.snapshot.screen === "goal_select" ? this.snapshot.mode : undefined;
         this.setSnapshot({
             screen: "goal_select",
             busy: false,
             goals,
             error,
+            ...(mode !== undefined ? { mode } : {}),
         });
     }
 

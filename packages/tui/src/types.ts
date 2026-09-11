@@ -93,6 +93,7 @@ export type UiCommand =
     | { readonly kind: "openHome" }
     | { readonly kind: "openIntentInput" }
     | { readonly kind: "openSettings" }
+    | { readonly kind: "openHistory" }
     | { readonly kind: "toggleExecutionMode" }
     | { readonly kind: "setExecutionMode"; readonly mode: ExecutionMode }
     | {
@@ -187,6 +188,8 @@ export interface UiGoalSelectViewModel {
     readonly busy: boolean;
     readonly goals: readonly GoalCatalogEntry[];
     readonly error?: UiError;
+    /** 选择目标后的操作模式（默认为 resume，继续推进；inspect 为只读复盘审查）。 */
+    readonly mode?: "resume" | "inspect";
 }
 
 /**
@@ -463,7 +466,7 @@ export interface SessionControllerDependencies {
     /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
     readonly initialGoal?: import("../../runtime/src/index.js").Goal;
     /** 可选初始展示页面，未指定 initialGoal 时默认为 "intent_input"（若指定 initialScreen 为 "home" 则进入主页）。 */
-    readonly initialScreen?: "home" | "intent_input";
+    readonly initialScreen?: UiScreen;
     /** 可选初始人机协同模式，默认为 "confirm"。 */
     readonly initialExecutionMode?: ExecutionMode;
     /** 可选当前环境与配置信息，用于 Home 与 Settings 页面只读展示。 */

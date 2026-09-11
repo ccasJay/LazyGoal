@@ -71,9 +71,9 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../tools/src/index";
-import { SessionController, TuiApp } from "./index";
+import { SessionController, TuiApp, sliceTrajectorySteps } from "./index";
 import { StatusSpinner } from "./status-spinner";
-import type { SessionLauncher } from "./types";
+import type { SessionLauncher, UiScreen } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
 const DEFAULT_PROFILE_ID = "default";
@@ -219,18 +219,21 @@ export type CliCommand =
     | { readonly kind: "home" }
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
-    | { readonly kind: "resume" };
+    | { readonly kind: "resume" }
+    | { readonly kind: "inspect"; readonly goalId?: string };
 
 /**
  * 使用 Node `parseArgs` 解析 CLI 参数。
  *
  * @param argv - 不包含 Node 和 bin 路径的参数数组。
- * @returns 空参数、`-c` 或 `resume` 对应的入口意图。
+ * @returns 空参数、`-c`、`resume` 或 `inspect [goalId]` 对应的入口意图。
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
  * parseCliArgs([]); // { kind: "home" }
  * parseCliArgs(["-c"]); // { kind: "continueLatest" }
+ * parseCliArgs(["inspect"]); // { kind: "inspect" }
+ * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -261,11 +264,23 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         return { kind: "resume" };
     }
 
+    if (!hasContinue && parsed.positionals.length >= 1
+        && parsed.positionals[0] === "inspect") {
+        if (parsed.positionals.length === 1) {
+            return { kind: "inspect" };
+        }
+        const goalId = parsed.positionals[1];
+        if (parsed.positionals.length === 2 && goalId !== undefined) {
+            return { kind: "inspect", goalId };
+        }
+        throw new Error("Invalid command line arguments: Usage: lazygoal inspect [goalId]");
+    }
+
     if (!hasContinue && parsed.positionals.length === 0) {
         return { kind: "home" };
     }
 
-    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume]");
+    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [goalId]]");
 }
 
 /**
@@ -385,7 +400,7 @@ export interface CompositionRootOptions {
     /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
     /** 可选初始屏幕；省略时默认为 "home"。 */
-    readonly initialScreen?: "home" | "intent_input";
+    readonly initialScreen?: UiScreen;
 }
 
 /**
@@ -977,7 +992,15 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
-            initialScreen: options.initialScreen ?? (command.kind === "home" ? "home" : "intent_input"),
+            initialScreen: options.initialScreen ?? (
+                command.kind === "home"
+                    ? "home"
+                    : command.kind === "inspect" && command.goalId !== undefined
+                        ? "inspector"
+                        : command.kind === "inspect" || command.kind === "resume"
+                            ? "goal_select"
+                            : "intent_input"
+            ),
         });
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
@@ -1046,6 +1069,28 @@ export async function runCli(
             await root.controller.dispatch({ kind: "continueLatest" });
         } else if (command.kind === "create") {
             await root.controller.dispatch({ kind: "openIntentInput" });
+        } else if (command.kind === "inspect") {
+            if (command.goalId !== undefined) {
+                let goal;
+                try {
+                    goal = await root.store.restore(command.goalId);
+                } catch (error: unknown) {
+                    writeError(toErrorMessage(error));
+                    return 1;
+                }
+                if (goal === undefined) {
+                    writeError(`Goal not found: ${command.goalId}`);
+                    return 1;
+                }
+                const steps = sliceTrajectorySteps({ goalId: command.goalId, goal });
+                await root.controller.dispatch({
+                    kind: "openInspector",
+                    goalId: command.goalId,
+                    steps,
+                });
+            } else {
+                await root.controller.dispatch({ kind: "openHistory" });
+            }
         }
 
         await app.waitUntilExit();

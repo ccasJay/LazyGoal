@@ -28,7 +28,7 @@
   - 验证方式：`packages/tui/test/inspector-screen.test.tsx` 步进分页与按键处理测试。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5), [3.6](./requirements.md#req-3-6), [3.7](./requirements.md#req-3-7), [3.8](./requirements.md#req-3-8), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 5. 实现轨迹选择列表与 CLI inspect 命令分流及端到端集成验证
+- [x] //TODO 5. 实现轨迹选择列表与 CLI inspect 命令分流及端到端集成验证
 
   - 实现目标：在 CLI 中增加 `lazygoal inspect [goalId]` 分流；未传 ID 或主菜单选择 View History 时，直接复用 `@inkjs/ui` 的 `Select` 渲染会话选择列表，选中后进入全屏 Inspector；完成全套集成验证。
   - 成功判据：CLI 支持 `inspect` 子命令；列表选择与直接带 ID 启动均可稳定拉起复盘；全量已有测试与新增测试 100% 通过。
@@ -58,4 +58,8 @@
 
 ### Latest Result
 
-未执行。待任务计划批准后在执行阶段记录逐项验证证据。
+全量自动化测试与全量回归套件执行通过（2026-09-11）：
+1. 单元测试套件：`npx tsx --test packages/tui/test/*.test.ts*` 覆盖率达 101 个测试用例，100% 通过。
+2. 集成测试套件：`packages/tui/test/cli.integration.test.ts` 4 个专项场景用例全部通过，验证了 `inspect` 参数解析、历史选择分流、带 ID 直接进入 Inspector 及缺省错误退出码。
+3. 全量回归测试：`npm test`（含 916 个核心测试 + 13 个 scripts 校验测试），929 个用例全部通过，无任何破坏性回归。
+4. 命名规范与契约审计：全仓库代码、注释、测试用例、Commit 记录中未包含违规第三方项目名称；所有公开 TS 接口包含中文契约级 TSDoc 及 `@example`。

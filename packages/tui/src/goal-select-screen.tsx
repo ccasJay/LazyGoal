@@ -33,12 +33,14 @@ export interface GoalSelectScreenProps {
     readonly busy: boolean;
     /** Catalog 或恢复流程最近一次稳定错误。 */
     readonly error?: UiError;
+    /** 列表交互模式（默认为 resume；inspect 为轨迹复盘历史查看）。 */
+    readonly mode?: "resume" | "inspect";
     /** 用户确认后恢复指定 Goal 的回调。 */
     readonly onSelect: (goalId: string) => void | Promise<void>;
 }
 
 /**
- * 渲染可恢复 Goal 选择界面。
+ * 渲染可恢复 Goal 选择界面或轨迹历史选择界面。
  *
  * @param props - Catalog 条目、错误状态与选择回调。
  * @returns Ink 渲染树。
@@ -47,6 +49,7 @@ export function GoalSelectScreen({
     goals,
     busy,
     error,
+    mode = "resume",
     onSelect,
 }: GoalSelectScreenProps): React.JSX.Element {
     const selectGate = useSubmitGate(busy, goals);
@@ -71,20 +74,26 @@ export function GoalSelectScreen({
             ? undefined
             : { code: error.code, message: error.message };
 
+    const isInspect = mode === "inspect";
+
     return (
         <Box flexDirection="column" gap={1}>
-            <Text bold color="cyan">Resume a Goal</Text>
+            <Text bold color="cyan">
+                {isInspect ? "Inspect Goal Trajectory" : "Resume a Goal"}
+            </Text>
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
             {goals.length === 0 ? (
                 <Box flexDirection="column" gap={1}>
                     {errorView === undefined
-                        ? <Text>No resumable Goals found.</Text>
+                        ? <Text>{isInspect ? "No Goal history found." : "No resumable Goals found."}</Text>
                         : null}
                     <Text dimColor>Press Ctrl+C to exit.</Text>
                 </Box>
             ) : (
                 <Box flexDirection="column" gap={1}>
-                    <Text>Select a Goal to resume:</Text>
+                    <Text>
+                        {isInspect ? "Select a Goal to inspect:" : "Select a Goal to resume:"}
+                    </Text>
                     <Select
                         isDisabled={busy}
                         options={options}
@@ -93,7 +102,7 @@ export function GoalSelectScreen({
                     />
                 </Box>
             )}
-            {busy ? <StatusSpinner label="Resuming goal..." /> : null}
+            {busy ? <StatusSpinner label={isInspect ? "Loading trajectory..." : "Resuming goal..."} /> : null}
         </Box>
     );
 }

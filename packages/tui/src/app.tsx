@@ -81,7 +81,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         ? { environmentSummary: snapshot.environmentSummary }
                         : {})}
                     onSelectNewGoal={() => dispatch({ kind: "openIntentInput" })}
-                    onSelectViewHistory={() => dispatch({ kind: "resume" })}
+                    onSelectViewHistory={() => dispatch({ kind: "openHistory" })}
                     onSelectSettings={() => dispatch({ kind: "openSettings" })}
                     onExit={() => requestShutdown()}
                 />
@@ -138,6 +138,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                 <GoalSelectScreen
                     goals={snapshot.goals}
                     busy={snapshot.busy}
+                    {...(snapshot.mode !== undefined ? { mode: snapshot.mode } : {})}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
                     onSelect={(goalId) => dispatch({ kind: "selectGoal", goalId })}
                 />
