@@ -322,3 +322,131 @@ test("清理失败：环境容器删除失败时返回退出码 1，status 为 i
     assert.equal(result.status, "infrastructure_error");
     assert.ok(result.errors.length > 0);
 });
+
+test("确定性 Preparation：仅创建唯一 Goal，配置正确传递，跳过人工意图与计划确认直接执行", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-det-prep-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const savedGoals: string[] = [];
+    const customStore = {
+        async save(goal: any) {
+            savedGoals.push(goal.id);
+        },
+        async restore(goalId: string) {
+            return undefined;
+        },
+    };
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+
+    const spec: EnvironmentSpec<{ id: string }, null> = {
+        benchmarkId: "swebench",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return null;
+        },
+    };
+
+    const mockExecutor: StepExecutor = {
+        async execute(input: StepExecutionInput): Promise<AgentDecision> {
+            calls.push("executor:step");
+            // 验证执行时已经处于 executing 状态，且 task 已被自动批准设置
+            assert.equal(input.goal.state.workflow.phase, "executing");
+            assert.equal(input.goal.state.task?.objective, "Fix bug");
+            assert.equal(input.goal.state.task?.completionCriteria[0]?.text, "Criteria 1");
+            return {
+                kind: "complete",
+                summary: "Deterministic execution finished",
+                completionEvidence: [],
+            };
+        },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "swebench",
+        goalId: "unique-goal-123",
+        runId: "unique-run-456",
+        task: { id: "task-det-prep" },
+        descriptor: {
+            intent: "Fix specific bug",
+            objective: "Fix bug",
+            completionCriteria: ["Criteria 1"],
+            maxSteps: 10,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        stepExecutor: mockExecutor,
+        container,
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.status, "completed");
+    assert.ok(calls.includes("executor:step"));
+});
+
+test("auto 模式遇用户输入阻塞时以未完成结果退出且返回退出码 1", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-auto-block-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+
+    const spec: EnvironmentSpec<{ id: string }, null> = {
+        benchmarkId: "swebench",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return null;
+        },
+    };
+
+    const mockExecutor: StepExecutor = {
+        async execute(): Promise<AgentDecision> {
+            calls.push("executor:wait");
+            return {
+                kind: "wait",
+                reason: "Which file should I edit?",
+            };
+        },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "swebench",
+        task: { id: "task-auto-block" },
+        descriptor: {
+            intent: "Fix bug",
+            objective: "Fixed",
+            completionCriteria: [],
+            maxSteps: 5,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        stepExecutor: mockExecutor,
+        container,
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    // auto 模式下遇到输入阻塞以未完成结果退出，返回 1 且 status 为 failed
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.status, "failed");
+    assert.ok(calls.includes("executor:wait"));
+});

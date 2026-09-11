@@ -51,7 +51,7 @@
     - 验证方式：`benchmarks/test/tui-benchmark-runner.test.ts`（待实现），检查真实 Gate 的保存顺序、注入 ExitPort 和 raw-mode/SIGINT 的幂等接线。
     - Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [4.3](./requirements.md#req-4-3)
 
-- [ ] //TODO 6. 接通单任务 CLI 与确定性 Preparation
+- [x] //TODO 6. 接通单任务 CLI 与确定性 Preparation
   - 实现目标：修改两个 Benchmark CLI 的显式 --tui 分支，接入任务选择、模式、输出目录、Profile/模型/预算配置；抽取复用 descriptor PreparationExecutor，创建唯一 Goal 并通过 Coordinator 自动批准预定义任务。
   - 成功标准：有效命令进入目标任务；无效模式、缺失参数、非唯一任务和恢复参数在容器创建前返回 2；auto 无 intent/Planning 等待，遇到用户输入阻塞以未完成结果退出，未带 --tui 的入口保持原行为。
   - 验证方式：扩展两个基准的 CLI 测试和 `benchmarks/test/tui-benchmark-runner.test.ts`（新增场景待实现），检查零额外 Goal、任务字段与配置传递。
