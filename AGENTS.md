@@ -80,6 +80,8 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * Documentation work, including writing, moving, reviewing, and auditing → `lg-doc-standards`
 * Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and CLI/TUI copy → `lg-prose-standard`
 * Simplification audits, including dead code, duplicate state or lifecycle logic, over-design, and dependency replacement → `lg-find-simplifications`
+* Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
+* 在独立 worktree 执行 spec → `lg-spec-worktree-execution`
 
 When multiple skills apply, follow all relevant skills unless their instructions conflict with a higher-priority repository rule.
 
