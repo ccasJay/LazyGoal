@@ -88,3 +88,44 @@ test("SWE-bench EnvironmentSpec resets through the restricted handle and runs ge
     assert.ok(calls[0]?.startsWith("git reset --hard"));
     assert.ok(calls.some((command) => command.includes("conda activate testbed")));
 });
+
+test("SwebenchEnvironmentSpec 在 domainOnly 模式下只导出 patch 且不复制容器 state", async () => {
+    const calls: string[] = [];
+    const spec = new SwebenchEnvironmentSpec({
+        task,
+        artifact: {
+            digest: manifest.buildDigest,
+            directory: "/tmp/worker",
+            workerPath: "/tmp/worker/worker.mjs",
+            nodePath: "/tmp/worker/node",
+            manifestPath: "/tmp/worker/manifest.json",
+            manifest,
+            cacheHit: false,
+        },
+        manifest,
+        metadata,
+        domainOnly: true,
+    });
+
+    const env: EnvironmentHandle = {
+        workdir: "/testbed",
+        exec: async (command) => {
+            calls.push(command);
+            if (command.includes("git diff --cached")) {
+                return { code: 0, stdout: "diff --git a/test.py b/test.py\n+fixed\n", stderr: "" };
+            }
+            return { code: 0, stdout: "", stderr: "" };
+        },
+        copyInto: async () => undefined,
+        copyOut: async (_source, target) => {
+            assert.fail("domainOnly 模式不应调用 copyOut");
+            return target;
+        },
+    };
+
+    const artifacts = await spec.collectArtifacts(env, "/tmp/out", 1000);
+    assert.equal(artifacts.patch, "diff --git a/test.py b/test.py\n+fixed\n");
+    assert.equal(artifacts.persistence, null);
+    assert.equal(artifacts.errors.length, 0);
+    assert.ok(calls.some((cmd) => cmd.includes("git diff --cached")));
+});

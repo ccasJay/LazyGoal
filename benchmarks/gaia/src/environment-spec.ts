@@ -37,6 +37,62 @@ export interface GaiaCollectedArtifactError {
     readonly message: string;
 }
 
+/**
+ * 从 GAIA 容器环境中回收领域产物（/workspace/answer.json）。
+ *
+ * @remarks
+ * 只读取领域答案，不复制容器内 Runtime 状态。
+ *
+ * @param env - 容器环境执行句柄。
+ * @returns 包含提交的答案、关联 taskId 及错误列表的结果对象。
+ *
+ * @example
+ * ```ts
+ * const artifacts = await collectGaiaDomainArtifacts(env);
+ * console.log(artifacts.submittedAnswer);
+ * ```
+ */
+export async function collectGaiaDomainArtifacts(env: EnvironmentHandle): Promise<{
+    readonly submittedAnswer: string | null;
+    readonly answerTaskId: string | null;
+    readonly errors: readonly GaiaCollectedArtifactError[];
+}> {
+    const errors: GaiaCollectedArtifactError[] = [];
+    let submittedAnswer: string | null = null;
+    let answerTaskId: string | null = null;
+
+    try {
+        const catResult = await env.exec("cat /workspace/answer.json", {
+            timeoutMs: 15_000,
+            maxBytes: 128 * 1024,
+            truncate: true,
+        });
+        if (catResult.code === 0) {
+            const answerData = JSON.parse(catResult.stdout.trim());
+            if (typeof answerData === "object" && answerData !== null) {
+                submittedAnswer = typeof answerData.answer === "string" ? answerData.answer : null;
+                answerTaskId = typeof answerData.taskId === "string" ? answerData.taskId : null;
+            }
+        } else {
+            errors.push({
+                stage: "result_read",
+                message: catResult.stderr || "answer.json not found or not readable",
+            });
+        }
+    } catch (error) {
+        errors.push({
+            stage: "result_read",
+            message: error instanceof Error ? error.message : String(error),
+        });
+    }
+
+    return {
+        submittedAnswer,
+        answerTaskId,
+        errors: Object.freeze(errors),
+    };
+}
+
 /** GAIA EnvironmentSpec 构造配置。 */
 export interface GaiaEnvironmentSpecOptions {
     /** 当前执行的目标任务。 */
@@ -51,6 +107,8 @@ export interface GaiaEnvironmentSpecOptions {
     readonly installCommands?: readonly string[];
     /** 可选的评测 Run ID。 */
     readonly runId?: string;
+    /** 是否仅回收领域产物（TUI 模式下宿主控制持久化，不从容器复制 state）。 */
+    readonly domainOnly?: boolean;
 }
 
 function shellQuote(str: string): string {
@@ -79,6 +137,7 @@ export class GaiaEnvironmentSpec
     private readonly baseImage?: string | undefined;
     private readonly installCommands: readonly string[];
     private readonly runId?: string | undefined;
+    private readonly domainOnly: boolean;
 
     constructor(options: GaiaEnvironmentSpecOptions) {
         this.task = options.task;
@@ -87,6 +146,7 @@ export class GaiaEnvironmentSpec
         this.baseImage = options.baseImage;
         this.installCommands = options.installCommands ?? (options.baseImage !== undefined ? [] : GAIA_MANAGED_INSTALL_COMMANDS);
         this.runId = options.runId;
+        this.domainOnly = options.domainOnly ?? false;
 
         if (this.runId !== undefined && !/^[A-Za-z0-9_.-]+$/u.test(this.runId)) {
             throw new TypeError("GAIA runId contains unsupported characters");
@@ -196,36 +256,20 @@ export class GaiaEnvironmentSpec
         _graceMs: number,
     ): Promise<GaiaCollectedArtifacts> {
         const output = resolve(outputDirectory);
-        const errors: GaiaCollectedArtifactError[] = [];
-        let submittedAnswer: string | null = null;
-        let answerTaskId: string | null = null;
-        let persistence: BenchmarkPersistenceLocator | null = null;
+        const domain = await collectGaiaDomainArtifacts(env);
+        const errors: GaiaCollectedArtifactError[] = [...domain.errors];
 
-        // 回收 /workspace/answer.json
-        try {
-            const catResult = await env.exec("cat /workspace/answer.json", {
-                timeoutMs: 15_000,
-                maxBytes: 128 * 1024,
-                truncate: true,
-            });
-            if (catResult.code === 0) {
-                const answerData = JSON.parse(catResult.stdout.trim());
-                if (typeof answerData === "object" && answerData !== null) {
-                    submittedAnswer = typeof answerData.answer === "string" ? answerData.answer : null;
-                    answerTaskId = typeof answerData.taskId === "string" ? answerData.taskId : null;
-                }
-            } else {
-                errors.push({
-                    stage: "result_read",
-                    message: catResult.stderr || "answer.json not found or not readable",
-                });
-            }
-        } catch (error) {
-            errors.push({
-                stage: "result_read",
-                message: error instanceof Error ? error.message : String(error),
-            });
+        // 若开启 domainOnly（TUI 模式），宿主掌控持久化，跳过容器 state 复制
+        if (this.domainOnly) {
+            return {
+                submittedAnswer: domain.submittedAnswer,
+                answerTaskId: domain.answerTaskId,
+                persistence: null,
+                errors: Object.freeze(errors),
+            };
         }
+
+        let persistence: BenchmarkPersistenceLocator | null = null;
 
         // 回收持久化文件
         const benchmarkKey = encodeIdentifier("gaia");
@@ -263,8 +307,8 @@ export class GaiaEnvironmentSpec
         }
 
         return {
-            submittedAnswer,
-            answerTaskId,
+            submittedAnswer: domain.submittedAnswer,
+            answerTaskId: domain.answerTaskId,
             persistence,
             errors: Object.freeze(errors),
         };

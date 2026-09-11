@@ -326,6 +326,7 @@ export async function runSwebenchCli(
                     goalId,
                     runId,
                 },
+                domainOnly: true,
             });
 
             const runner = dependencies?.runner ?? runTuiWithSandbox;
@@ -343,6 +344,7 @@ export async function runSwebenchCli(
                 maxSteps: command.maxSteps ?? manifest.maxSteps,
                 goalId,
                 runId,
+                requireArtifact: true,
                 writeError: (msg) => process.stderr.write(`${msg}\n`),
                 writeOut: (msg) => process.stdout.write(`${msg}\n`),
                 ...(dependencies?.isolatedEnvironment !== undefined

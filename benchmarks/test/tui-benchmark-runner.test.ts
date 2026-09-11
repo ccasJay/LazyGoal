@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -449,4 +449,219 @@ test("auto 模式遇用户输入阻塞时以未完成结果退出且返回退出
     assert.equal(result.exitCode, 1);
     assert.equal(result.status, "failed");
     assert.ok(calls.includes("executor:wait"));
+});
+
+test("GAIA 错误答案：正常完成返回退出码 0，Attempt 与摘要显示 correct=false 且不覆盖宿主 Goal", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-gaia-wrong-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+    const printedLines: string[] = [];
+
+    const spec: EnvironmentSpec<{ taskId: string; expectedAnswer: string }, { submittedAnswer: string }> = {
+        benchmarkId: "gaia",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return { submittedAnswer: "London" }; // 错误答案
+        },
+    };
+
+    const mockExecutor: StepExecutor = {
+        async execute(): Promise<AgentDecision> {
+            calls.push("executor:step");
+            return {
+                kind: "complete",
+                summary: "Answer submitted",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+            };
+        },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "gaia",
+        task: { taskId: "gaia-q1", expectedAnswer: "Paris" },
+        descriptor: {
+            intent: "Capital of France",
+            objective: "Answer question",
+            completionCriteria: ["submit answer"],
+            maxSteps: 3,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        stepExecutor: mockExecutor,
+        container,
+        evaluateOutcome: (art) => ({
+            correct: art?.submittedAnswer === "Paris",
+            score: art?.submittedAnswer === "Paris" ? 1 : 0,
+            expectedAnswer: "Paris",
+            submittedAnswer: art?.submittedAnswer ?? null,
+        }),
+        writeOut: (msg) => printedLines.push(msg),
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    // 1. GAIA correct=false 不改变执行成功退出码（仍为 0）
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.status, "completed");
+    assert.equal((result.outcome as { correct: boolean })?.correct, false);
+    assert.equal((result.outcome as { score: number })?.score, 0);
+
+    // 2. 检查 Attempt 记录真实写入磁盘
+    const attemptFile = join(outputDir, "attempts", encodeURIComponent("gaia-q1"), "attempt-1.json");
+    const recordJson = JSON.parse(await readFile(attemptFile, "utf8"));
+    assert.equal(recordJson.benchmarkId, "gaia");
+    assert.equal(recordJson.taskId, "gaia-q1");
+    assert.equal(recordJson.status, "completed");
+    assert.equal(recordJson.domainResult.correct, false);
+    assert.equal(recordJson.domainResult.score, 0);
+    assert.ok(recordJson.artifactLocator?.goalSnapshot !== undefined);
+
+    // 3. 检查结束摘要输出真实评分，没有被 completed 掩盖
+    const joinedOutput = printedLines.join("\n");
+    assert.match(joinedOutput, /GAIA Evaluation: correct=false, score=0\/1/);
+    assert.match(joinedOutput, /Expected: "Paris"/);
+    assert.match(joinedOutput, /Submitted: "London"/);
+    assert.match(joinedOutput, /Cleanup: SUCCESS/);
+});
+
+test("SWE-bench 补丁导出：Attempt 与摘要显示 gradingStatus=pending 且 resolved 为 null", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-swebench-patch-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+    const printedLines: string[] = [];
+
+    const patchContent = "diff --git a/fix.py b/fix.py\n+resolved bug\n";
+    const spec: EnvironmentSpec<{ instance_id: string }, { patch: string }> = {
+        benchmarkId: "swebench",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return { patch: patchContent };
+        },
+    };
+
+    const mockExecutor: StepExecutor = {
+        async execute(): Promise<AgentDecision> {
+            calls.push("executor:step");
+            return {
+                kind: "complete",
+                summary: "Bug fixed",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+            };
+        },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "swebench",
+        task: { instance_id: "astropy__astropy-1234" },
+        descriptor: {
+            intent: "Fix astropy",
+            objective: "Fix bug",
+            completionCriteria: ["resolve issue"],
+            maxSteps: 3,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        stepExecutor: mockExecutor,
+        container,
+        createAttemptDomainResult: ({ artifact }) => ({
+            patch: (artifact as { patch: string })?.patch ?? null,
+            gradingStatus: "pending",
+            resolved: null,
+        }),
+        writeOut: (msg) => printedLines.push(msg),
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.status, "completed");
+
+    // 检查 Attempt 记录
+    const attemptFile = join(outputDir, "attempts", encodeURIComponent("astropy__astropy-1234"), "attempt-1.json");
+    const recordJson = JSON.parse(await readFile(attemptFile, "utf8"));
+    assert.equal(recordJson.benchmarkId, "swebench");
+    assert.equal(recordJson.taskId, "astropy__astropy-1234");
+    assert.equal(recordJson.domainResult.gradingStatus, "pending");
+    assert.equal(recordJson.domainResult.resolved, null);
+
+    // 检查结束摘要
+    const joinedOutput = printedLines.join("\n");
+    assert.match(joinedOutput, /SWE-bench Patch: Exported/);
+    assert.match(joinedOutput, /Grading Status: pending/);
+});
+
+test("必要产物缺失：requireArtifact 开启且未产生必要产物时返回退出码 1", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-missing-artifact-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+
+    const spec: EnvironmentSpec<{ taskId: string }, { submittedAnswer: null }> = {
+        benchmarkId: "gaia",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return { submittedAnswer: null }; // 未提交
+        },
+    };
+
+    const mockExecutor: StepExecutor = {
+        async execute(): Promise<AgentDecision> {
+            return {
+                kind: "complete",
+                summary: "Done without submitting",
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+            };
+        },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "gaia",
+        task: { taskId: "gaia-no-ans" },
+        descriptor: {
+            intent: "Question",
+            objective: "Answer",
+            completionCriteria: ["submit"],
+            maxSteps: 3,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        requireArtifact: true,
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        stepExecutor: mockExecutor,
+        container,
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    // 缺少必要产物，返回退出码 1 且错误诊断保留
+    assert.equal(result.exitCode, 1);
+    assert.ok(result.errors.some((err) => err.includes("Required GAIA answer was not submitted")));
 });

@@ -63,7 +63,7 @@
   - 验证方式：`packages/tui/test/session-progress.test.tsx`（待实现），结合真实 Store 和受控 Promise，用 Ink 渲染断言中间帧、去重及输入门控。
   - Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)
 
-- [ ] //TODO 8. 接通领域产物、Attempt 与结束摘要
+- [x] //TODO 8. 接通领域产物、Attempt 与结束摘要
   - 实现目标：抽取两个基准现有答案/补丁导出逻辑，TUI 路径只回收领域产物，组合宿主 persistence locator 写入 Attempt，渲染执行、评分和清理结果。
   - 成功标准：回收不覆盖宿主 Goal；GAIA 错误答案明确显示 correct=false，SWE-bench 补丁不被标记为 resolved；必要产物缺失或清理失败返回 1，错误诊断保留。
   - 验证方式：在两个基准的 environment-spec/report 测试中增加 TUI 场景（待实现），检查真实输出文件、统一身份及原 Headless 导出行为。

@@ -21,6 +21,7 @@ export {
 export {
     GAIA_MANAGED_INSTALL_COMMANDS,
     GaiaEnvironmentSpec,
+    collectGaiaDomainArtifacts,
     type GaiaCollectedArtifacts,
     type GaiaCollectedArtifactError,
     type GaiaEnvironmentSpecOptions,

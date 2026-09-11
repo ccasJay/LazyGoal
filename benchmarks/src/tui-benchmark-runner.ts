@@ -28,17 +28,24 @@ import {
     type ToolRegistry,
     type TrajectoryStore,
 } from "../../packages/runtime/src/index.js";
-import { InMemoryGoalStore, JsonFileTrajectoryStore } from "../../packages/storage/src/index.js";
+import {
+    InMemoryGoalStore,
+    JsonFileGoalStore,
+    JsonFileTrajectoryStore,
+} from "../../packages/storage/src/index.js";
 import {
     mountTuiApp,
     SessionController,
     type MountedTuiApp,
     type MountTuiOptions,
 } from "../../packages/tui/src/index.js";
-import type {
-    BenchmarkAttemptStatus,
+import {
+    AttemptRecorder,
+    type BenchmarkAttemptRecord,
+    type BenchmarkAttemptStatus,
 } from "./attempt-recorder.js";
 import type {
+    BenchmarkPersistenceLocator,
     BenchmarkTaskDescriptor,
 } from "./headless-composition-root.js";
 import {
@@ -177,6 +184,18 @@ export interface TuiSandboxRunOptions<TTask, TArtifact, TOutcome = unknown> {
     readonly evaluateOutcome?: (artifact: TArtifact | null) => Promise<TOutcome> | TOutcome;
     /** 宿主反向代理端口处理；如 GAIA web_search/web_fetch。 */
     readonly backendHandler?: (call: { toolId: string; input: unknown }) => Promise<unknown>;
+    /** 可选任务标识，若未指定则从 task 对象中推导。 */
+    readonly taskId?: string;
+    /** 是否写入 Attempt 记录，默认为 true。 */
+    readonly recordAttempt?: boolean;
+    /** 是否要求必须产生必要领域产物，默认 false。 */
+    readonly requireArtifact?: boolean;
+    /** Attempt 领域结果构建回调。 */
+    readonly createAttemptDomainResult?: (context: {
+        readonly status: BenchmarkAttemptStatus;
+        readonly artifact: TArtifact | null;
+        readonly outcome: TOutcome | undefined;
+    }) => unknown;
 }
 
 /**
@@ -199,6 +218,10 @@ export interface TuiSandboxRunResult<TArtifact, TOutcome = unknown> {
     readonly outcome?: TOutcome;
     /** 发生的异常信息列表。 */
     readonly errors: readonly string[];
+    /** 写入的 Attempt 记录（如果有）。 */
+    readonly attemptRecord?: BenchmarkAttemptRecord;
+    /** 持久化定位信息。 */
+    readonly persistenceLocator?: BenchmarkPersistenceLocator;
 }
 
 /**
@@ -276,12 +299,38 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     const forceController = new AbortController();
     const resources = new ManagedResourceRegistry();
     const gracePeriodMs = options.gracePeriodMs ?? 30_000;
+    const startTime = Date.now();
 
-    const baseStore = options.store ?? new InMemoryGoalStore();
+    const taskId = options.taskId
+        ?? (options.task as { taskId?: string; instance_id?: string })?.taskId
+        ?? (options.task as { taskId?: string; instance_id?: string })?.instance_id
+        ?? "benchmark-task";
+
+    const goalId = options.goalId ?? `${options.benchmarkId}-${taskId}-${randomUUID().slice(0, 8)}`;
+    const runId = options.runId ?? `run-${randomUUID().slice(0, 8)}`;
+
+    const benchmarkKey = Buffer.from(options.benchmarkId, "utf8").toString("base64url");
+    const taskKey = Buffer.from(taskId, "utf8").toString("base64url");
+    const attemptKey = Buffer.from(runId, "utf8").toString("base64url");
+
+    const runtimeSubdir = join("runtime", benchmarkKey, taskKey, attemptKey);
+    const hostRuntimeDir = join(options.outputDirectory, runtimeSubdir);
+
+    const goalDir = join(hostRuntimeDir, "goals");
+    const trajectoryDir = join(hostRuntimeDir, "trajectories");
+    const traceDir = join(hostRuntimeDir, "traces");
+
+    const baseStore = options.store ?? new JsonFileGoalStore(goalDir);
     const gate = new CheckpointGateGoalStore(baseStore);
     const trajectoryStore = options.trajectoryStore
-        ?? new JsonFileTrajectoryStore(join(options.outputDirectory, "trajectories"));
+        ?? new JsonFileTrajectoryStore(trajectoryDir);
     const traceSink = options.traceSink ?? createNoopDiagnosticTraceSink();
+
+    const persistenceLocator: BenchmarkPersistenceLocator = {
+        goalSnapshot: join(runtimeSubdir, "goals"),
+        trajectory: join(runtimeSubdir, "trajectories"),
+        ...(options.traceSink !== undefined ? { diagnosticTrace: join(runtimeSubdir, "traces") } : {}),
+    };
 
     const exitPort = options.exitPort ?? new ProcessExitPort();
     const shutdownCoordinator = new ShutdownCoordinator({
@@ -406,8 +455,6 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                     preparationExecutor,
                 });
 
-                const goalId = options.goalId ?? `goal-${randomUUID()}`;
-                const runId = options.runId ?? `run-${randomUUID()}`;
                 const goal = createGoal({
                     ...DEFAULT_PROTOCOLS,
                     id: goalId,
@@ -507,16 +554,44 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
 
         const envResult = await environmentRunPromise;
 
-        // 3. 结果汇总与退出码决策（req-1-2, req-1-3, req-4-3）
+        // 3. 结果汇总与退出码决策（req-1-2, req-1-3, req-4-3, req-5-4）
+        const durationMs = Date.now() - startTime;
+
         if (shutdownRequested) {
             if (shutdownPromise !== undefined) {
                 await shutdownPromise;
+            }
+            if (options.recordAttempt !== false) {
+                try {
+                    const attemptsDir = join(
+                        options.outputDirectory,
+                        "attempts",
+                        encodeURIComponent(taskId),
+                    );
+                    const recorder = new AttemptRecorder({ rootDirectory: attemptsDir, fileName: "attempt-1.json" });
+                    await recorder.commit({
+                        benchmarkId: options.benchmarkId,
+                        taskId,
+                        goalId,
+                        runId,
+                        attempt: 1,
+                        status: "cancelled",
+                        durationMs,
+                        usage: null,
+                        errors: envResult.errors.map((e) => ({ stage: e.stage, message: e.message })),
+                        artifactLocator: persistenceLocator,
+                        domainResult: null,
+                    });
+                } catch {
+                    // Attempt 记录失败不阻碍退出码返回
+                }
             }
             return {
                 exitCode: 130,
                 status: "cancelled",
                 artifact: envResult.artifact,
                 errors: envResult.errors.map((e) => `[${e.stage}] ${e.message}`),
+                persistenceLocator,
             };
         }
 
@@ -548,12 +623,120 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
             status = "cancelled";
         }
 
-        const exitCode = status === "completed" ? 0 : 1;
+        // 检查必要领域产物（req-4-3, req-5-4）
+        let missingRequiredArtifact = false;
+        if (options.requireArtifact === true) {
+            if (options.benchmarkId === "gaia") {
+                const submitted = (envResult.artifact as { submittedAnswer?: string | null } | null)?.submittedAnswer;
+                if (submitted === null || submitted === undefined) {
+                    missingRequiredArtifact = true;
+                    allErrors.push("Required GAIA answer was not submitted");
+                }
+            } else if (options.benchmarkId === "swebench") {
+                const patch = (envResult.artifact as { patch?: string | null } | null)?.patch;
+                if (patch === null || patch === undefined) {
+                    missingRequiredArtifact = true;
+                    allErrors.push("Required SWE-bench patch was not generated");
+                }
+            }
+        }
+
+        // 成功标准：GAIA 错误答案明确显示 correct=false 不改变执行成功退出码（0）；必要产物缺失或清理失败返回 1
+        const exitCode = (status === "completed" && !isCleanupError && !missingRequiredArtifact) ? 0 : 1;
+
+        // 持久化写入 Attempt 记录（req-2-2, req-2-4）
+        let attemptRecord: BenchmarkAttemptRecord | undefined;
+        if (options.recordAttempt !== false) {
+            try {
+                const attemptsDir = join(
+                    options.outputDirectory,
+                    "attempts",
+                    encodeURIComponent(taskId),
+                );
+                const recorder = new AttemptRecorder({ rootDirectory: attemptsDir, fileName: "attempt-1.json" });
+
+                let domainResult: unknown = null;
+                if (options.createAttemptDomainResult !== undefined) {
+                    domainResult = options.createAttemptDomainResult({
+                        status,
+                        artifact: envResult.artifact,
+                        outcome,
+                    });
+                } else if (outcome !== undefined) {
+                    domainResult = outcome;
+                } else if (envResult.artifact !== null) {
+                    domainResult = envResult.artifact;
+                }
+
+                attemptRecord = {
+                    benchmarkId: options.benchmarkId,
+                    taskId,
+                    goalId,
+                    runId,
+                    attempt: 1,
+                    status,
+                    durationMs,
+                    usage: null,
+                    errors: allErrors.map((msg) => ({ stage: "execution", message: msg })),
+                    artifactLocator: persistenceLocator,
+                    domainResult,
+                };
+
+                await recorder.commit(attemptRecord);
+            } catch (error) {
+                const msg = `Failed to record attempt: ${error instanceof Error ? error.message : String(error)}`;
+                writeError(msg);
+                allErrors.push(msg);
+            }
+        }
+
         if (allErrors.length > 0) {
             for (const err of allErrors) {
                 writeError(err);
             }
         }
+
+        // 渲染结束摘要（req-5-4）
+        const writeOut = options.writeOut ?? ((message: string) => {
+            process.stdout.write(`${message}\n`);
+        });
+
+        writeOut("\n========================================");
+        writeOut(`Benchmark: ${options.benchmarkId}`);
+        writeOut(`Task: ${taskId}`);
+        writeOut(`Goal ID: ${goalId}`);
+        writeOut(`Execution Status: ${status}`);
+        writeOut(`Exit Code: ${exitCode}`);
+
+        if (outcome !== undefined && typeof outcome === "object" && outcome !== null) {
+            const gaiaOutcome = outcome as { correct?: boolean; score?: number; expectedAnswer?: string; submittedAnswer?: string | null };
+            if (typeof gaiaOutcome.correct === "boolean") {
+                writeOut(`GAIA Evaluation: correct=${gaiaOutcome.correct}, score=${gaiaOutcome.score ?? (gaiaOutcome.correct ? 1 : 0)}/1`);
+                if (gaiaOutcome.expectedAnswer !== undefined) {
+                    writeOut(`Expected: "${gaiaOutcome.expectedAnswer}"`);
+                }
+                writeOut(`Submitted: "${gaiaOutcome.submittedAnswer ?? "<none>"}"`);
+            }
+        }
+
+        if (envResult.artifact !== null && typeof envResult.artifact === "object") {
+            const sweArtifact = envResult.artifact as { patch?: string | null };
+            if ("patch" in sweArtifact) {
+                if (sweArtifact.patch !== null && sweArtifact.patch.trim().length > 0) {
+                    writeOut(`SWE-bench Patch: Exported (${sweArtifact.patch.length} bytes)`);
+                } else {
+                    writeOut(`SWE-bench Patch: None`);
+                }
+                writeOut(`Grading Status: pending (official grading is not performed automatically; resolved: null)`);
+            }
+        }
+
+        if (isCleanupError) {
+            writeOut(`Cleanup: FAILED`);
+        } else {
+            writeOut(`Cleanup: SUCCESS`);
+        }
+        writeOut("========================================\n");
 
         return {
             exitCode,
@@ -561,6 +744,8 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
             artifact: envResult.artifact,
             ...(outcome !== undefined ? { outcome } : {}),
             errors: allErrors,
+            ...(attemptRecord !== undefined ? { attemptRecord } : {}),
+            persistenceLocator,
         };
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);

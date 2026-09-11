@@ -196,6 +196,7 @@ export async function runGaiaEvalCli(
             workerArtifact,
             ...(values["base-image"] ? { baseImage: values["base-image"] as string } : {}),
             runId,
+            domainOnly: true,
         });
 
         const descriptor: BenchmarkTaskDescriptor = {
@@ -224,6 +225,7 @@ export async function runGaiaEvalCli(
             goalId,
             runId,
             maxSteps: maxSteps ?? GAIA_DEFAULT_MAX_STEPS,
+            requireArtifact: true,
             writeError: (msg) => process.stderr.write(`${msg}\n`),
             writeOut: (msg) => process.stdout.write(`${msg}\n`),
             ...(dependencies?.isolatedEnvironment !== undefined
