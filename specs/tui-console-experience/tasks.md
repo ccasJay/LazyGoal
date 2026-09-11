@@ -21,7 +21,7 @@
   - 验证方式：`packages/tui/test/session-screen.test.tsx` 交互测试与快捷键切换测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5), [2.6](./requirements.md#req-2-6), [2.7](./requirements.md#req-2-7), [2.8](./requirements.md#req-2-8), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 4. 实现事后全屏只读轨迹检查器 InspectorScreen 与步骤切片服务
+- [x] //TODO 4. 实现事后全屏只读轨迹检查器 InspectorScreen 与步骤切片服务
 
   - 实现目标：编写 `src/inspector-screen.tsx` 与步骤切片辅助函数，在全屏终端模式（`alternateScreen: true`）下按步骤展示消息与 Action；通过 `useInput` 支持 `h`/`l`/`0`/`$` 翻页、`j`/`k` 滚动、`r` 折叠 CoT、`e` 外部查看与 `q` 退出。
   - 成功判据：能正确将原始 Trajectory 事件分组为 Step 并支持全屏快捷键无缝浏览，折叠/展开思维链顺畅，退出时干净还原终端。

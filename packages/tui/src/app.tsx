@@ -8,6 +8,7 @@ import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
+import { InspectorScreen } from "./inspector-screen";
 import { UiDispatchRejectedError, type UiCommand } from "./types";
 
 /**
@@ -139,6 +140,15 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     busy={snapshot.busy}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
                     onSelect={(goalId) => dispatch({ kind: "selectGoal", goalId })}
+                />
+            );
+        case "inspector":
+            return (
+                <InspectorScreen
+                    inspector={snapshot}
+                    onInspectStep={(stepIndex) => dispatch({ kind: "inspectStep", stepIndex })}
+                    onToggleReasoning={() => dispatch({ kind: "toggleReasoning" })}
+                    onExit={() => dispatch({ kind: "openHome" })}
                 />
             );
         case "shutting_down":
