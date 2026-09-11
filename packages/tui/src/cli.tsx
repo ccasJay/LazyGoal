@@ -214,8 +214,9 @@ export function readModelCapabilities(
     });
 }
 
-/** CLI 只支持的三个入口意图。 */
+/** CLI 支持的入口意图。 */
 export type CliCommand =
+    | { readonly kind: "home" }
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "resume" };
@@ -228,7 +229,7 @@ export type CliCommand =
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
- * parseCliArgs([]); // { kind: "create" }
+ * parseCliArgs([]); // { kind: "home" }
  * parseCliArgs(["-c"]); // { kind: "continueLatest" }
  * ```
  */
@@ -261,7 +262,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
     }
 
     if (!hasContinue && parsed.positionals.length === 0) {
-        return { kind: "create" };
+        return { kind: "home" };
     }
 
     throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume]");
@@ -383,6 +384,8 @@ export interface CompositionRootOptions {
     readonly modelInputEstimator?: ModelInputEstimator;
     /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
+    /** 可选初始屏幕；省略时默认为 "home"。 */
+    readonly initialScreen?: "home" | "intent_input";
 }
 
 /**
@@ -726,6 +729,13 @@ export async function createCompositionRoot(
         profileId: profile.id,
         goalIdGenerator,
         control: { signal: abortController.signal },
+        initialScreen: options.initialScreen ?? "home",
+        environmentSummary: {
+            workspaceRoot,
+            profileId: profile.id,
+            ...(llmConfig?.model === undefined ? {} : { modelName: llmConfig.model }),
+            dataDirectory,
+        },
     });
     const shutdownCoordinator = new ShutdownCoordinator({
         checkpointStore,
@@ -812,6 +822,8 @@ export interface CliRunOptions {
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
     readonly gracePeriodMs?: number;
+    /** 可选初始屏幕；测试或特定调用场景可覆盖默认首页。 */
+    readonly initialScreen?: "home" | "intent_input";
 }
 
 /**
@@ -965,6 +977,7 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
+            initialScreen: options.initialScreen ?? (command.kind === "home" ? "home" : "intent_input"),
         });
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
@@ -1031,6 +1044,8 @@ export async function runCli(
             await root.controller.dispatch({ kind: "resume" });
         } else if (command.kind === "continueLatest") {
             await root.controller.dispatch({ kind: "continueLatest" });
+        } else if (command.kind === "create") {
+            await root.controller.dispatch({ kind: "openIntentInput" });
         }
 
         await app.waitUntilExit();

@@ -2,6 +2,8 @@ import React, { useCallback, useRef, useSyncExternalStore } from "react";
 import { Box, Text, useInput } from "ink";
 
 import { SessionController } from "./session-controller";
+import { HomeScreen } from "./home-screen";
+import { SettingsScreen } from "./settings-screen";
 import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
@@ -69,6 +71,29 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
     }, [controller]);
 
     switch (snapshot.screen) {
+        case "home":
+            return (
+                <HomeScreen
+                    busy={snapshot.busy}
+                    {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    {...(snapshot.environmentSummary !== undefined
+                        ? { environmentSummary: snapshot.environmentSummary }
+                        : {})}
+                    onSelectNewGoal={() => dispatch({ kind: "openIntentInput" })}
+                    onSelectViewHistory={() => dispatch({ kind: "resume" })}
+                    onSelectSettings={() => dispatch({ kind: "openSettings" })}
+                    onExit={() => requestShutdown()}
+                />
+            );
+        case "settings":
+            return (
+                <SettingsScreen
+                    settings={snapshot.settings}
+                    busy={snapshot.busy}
+                    {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    onBack={() => dispatch({ kind: "openHome" })}
+                />
+            );
         case "intent_input":
             return (
                 <IntentScreen

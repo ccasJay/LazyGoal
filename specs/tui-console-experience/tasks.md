@@ -7,7 +7,7 @@
   - 验证方式：`packages/tui/test/session-controller.test.ts` 新增状态机与模式切换测试。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [2.7](./requirements.md#req-2-7), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 2. 实现 HomeScreen 与 SettingsScreen 组件并接入主流程
+- [x] //TODO 2. 实现 HomeScreen 与 SettingsScreen 组件并接入主流程
 
   - 实现目标：编写 `src/home-screen.tsx` 和 `src/settings-screen.tsx`，渲染纯字符 ASCII Art `LazyGoal` 标头，直接使用 `@inkjs/ui` 的 `Select` 组件渲染四项主菜单；无参数启动默认挂载主页。
   - 成功判据：用户执行 `lazygoal` 默认看到 ASCII Art 与菜单，选中各菜单项正确触发意图输入、历史复盘、设置查看或干净退出。

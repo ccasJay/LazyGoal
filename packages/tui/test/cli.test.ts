@@ -39,8 +39,8 @@ function environment(): NodeJS.ProcessEnv {
     };
 }
 
-test("parseCliArgs routes the three supported entry intents", () => {
-    assert.deepEqual(parseCliArgs([]), { kind: "create" });
+test("parseCliArgs routes the supported entry intents", () => {
+    assert.deepEqual(parseCliArgs([]), { kind: "home" });
     assert.deepEqual(parseCliArgs(["-c"]), { kind: "continueLatest" });
     assert.deepEqual(parseCliArgs(["resume"]), { kind: "resume" });
     assert.throws(

@@ -262,10 +262,10 @@ export class SessionController {
     }
 
     private async createGoal(intent: string): Promise<void> {
-        if (this.snapshot.screen !== "intent_input") {
+        if (this.snapshot.screen !== "intent_input" && this.snapshot.screen !== "home") {
             this.setError({
                 code: "CREATE_NOT_ALLOWED",
-                message: "A Goal can only be created from the intent screen",
+                message: "A Goal can only be created from the intent or home screen",
             });
             return;
         }
