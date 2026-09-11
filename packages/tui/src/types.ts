@@ -315,6 +315,7 @@ export interface UiStepResultBlock {
  * 轨迹复盘中单步（Step）的只读展示数据。
  *
  * @remarks
+ * 包含当前步在整个轨迹中的索引、当步包含的消息与可选模型思考内容，以及对应的原始 JSON 序列化字符串。
  * 包含当前步在整个轨迹中的索引、标题、所属阶段、结构化执行区块（Decision/Action/Observation/Result）、
  * 未提交尾部警示，以及对应的原始 JSON 序列化字符串。
  *
@@ -323,6 +324,7 @@ export interface UiStepResultBlock {
  * const step: UiInspectorStep = {
  *     index: 0,
  *     totalSteps: 1,
+ *     messages: [],
  *     title: "Step 1: Preparation & Planning",
  *     phase: "planning",
  *     rawJson: "{}",

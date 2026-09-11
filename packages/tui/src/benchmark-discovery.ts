@@ -20,6 +20,7 @@ import { JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/in
  *
  * @remarks
  * 扩展标准 {@link GoalCatalogEntry}，附加 `benchmarkId`、`taskId` 与物理所在目录
+ * `goalDirectory`，以便在用户选中或执行 inspect 时无需遍历即可快速恢复。
  * `goalDirectory` 和 `trajectoryDirectory`，以便在用户选中或执行 inspect 时无需遍历即可快速恢复。
  *
  * @example

@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { Goal, GoalCatalog, GoalCatalogEntry, GoalStore } from "../../runtime/src/index.js";
+import type { Goal, GoalCatalog, GoalCatalogEntry, GoalStore } from "../../runtime/src/index";
 import { JsonFileTrajectoryStore } from "../../storage/src/index.js";
 import {
     AggregatedGoalStore,
     AggregatedTrajectoryStore,
     discoverBenchmarkGoals,
     formatBenchmarkTag,
-} from "../src/index.js";
+} from "../src/index";
 
 function createValidSnapshotJson(id: string, intent: string, profileId = "test-profile", status = "completed"): string {
     const snapshot = {

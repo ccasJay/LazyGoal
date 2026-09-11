@@ -20,7 +20,6 @@ import {
     type UiTerminalSummary,
     type UiViewModel,
 } from "./types";
-import { sliceTrajectorySteps } from "./inspector-step-slicer";
 import { projectTrajectoryEvents } from "./trajectory-projector";
 
 type ProgressResult = GoalProgressResult | LaunchResult;

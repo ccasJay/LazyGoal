@@ -76,7 +76,6 @@ import {
 import {
     SessionController,
     TuiApp,
-    sliceTrajectorySteps,
     projectTrajectoryEvents,
     AggregatedGoalStore,
     AggregatedTrajectoryStore,
@@ -793,7 +792,6 @@ export async function createCompositionRoot(
             ? {}
             : { gracePeriodMs: options.gracePeriodMs }),
     });
-
 
     return {
         workspaceRoot,
