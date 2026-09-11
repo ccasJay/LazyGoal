@@ -69,14 +69,60 @@ class RecordingExitPort implements ExitPort {
 }
 
 const mockAdapter: LLMAdapter = {
-    async execute() {
+    structuredOutputMode: "strict",
+    async generate() {
         return {
-            content: "Done",
-            model: "mock-model",
-            raw: {},
+            content: JSON.stringify({
+                result: {
+                    kind: "complete",
+                    summary: "Done",
+                    completionEvidence: [],
+                    memoryPatch: null,
+                },
+            }),
         };
     },
 };
+
+test("默认 LLMStepExecutor 装配完整模型上下文依赖并完成单步执行", async (t) => {
+    const outputDir = await mkdtemp(join(tmpdir(), "runner-default-executor-"));
+    t.after(() => rm(outputDir, { recursive: true, force: true }));
+
+    const calls: string[] = [];
+    const container = customContainer(calls);
+    const spec: EnvironmentSpec<{ id: string }, null> = {
+        benchmarkId: "swebench",
+        resolveImage: () => ({ mode: "custom", image: "test:latest" }),
+        getWorkerEntryConfig: () => ({}),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() { return null; },
+    };
+
+    const result = await runTuiWithSandbox({
+        benchmarkId: "swebench",
+        task: { id: "task-default-executor" },
+        descriptor: {
+            intent: "Fix bug",
+            objective: "Fixed",
+            completionCriteria: [],
+            maxSteps: 5,
+        },
+        spec,
+        outputDirectory: outputDir,
+        mode: "auto",
+        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+        adapter: mockAdapter,
+        container,
+        render: () => ({
+            waitUntilExit: async () => {},
+            unmount: () => {},
+        }),
+    });
+
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.status, "completed");
+});
 
 test("参数校验：非法 mode 或空 outputDirectory 在容器创建前快速返回退出码 2", async () => {
     const calls: string[] = [];

@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type React from "react";
-import type { LLMAdapter, PromptBundleRenderer } from "../../packages/agent/src/index.js";
-import { LLMStepExecutor } from "../../packages/agent/src/index.js";
+import {
+    createDefaultModelContextBudgetPolicy,
+    createDefaultPromptBundleRenderer,
+    DropOldestContextCompactor,
+    LLMStepExecutor,
+    TrajectoryModelContextAssembler,
+    type LLMAdapter,
+    type PromptBundleRenderer,
+} from "../../packages/agent/src/index.js";
 import {
     createGoal,
     CheckpointGateGoalStore,
@@ -442,10 +449,12 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
 
                 const stepExecutor = options.stepExecutor ?? new LLMStepExecutor({
                     adapter: options.adapter,
-                    profile: options.profile,
-                    ...(options.promptBundleRenderer !== undefined
-                        ? { promptBundleRenderer: options.promptBundleRenderer }
-                        : {}),
+                    renderer: options.promptBundleRenderer ?? await createDefaultPromptBundleRenderer(),
+                    contextCompactor: new DropOldestContextCompactor(),
+                    trajectoryContextAssembler: new TrajectoryModelContextAssembler({
+                        trajectoryStore,
+                        policy: createDefaultModelContextBudgetPolicy(),
+                    }),
                 });
 
                 const runner = new Runner({
