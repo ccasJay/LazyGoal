@@ -23,6 +23,7 @@ import {
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
+    type GoalStore,
     type ExitPort,
     type GoalProtocolValidator,
     type PreparationExecutor,
@@ -71,7 +72,7 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../tools/src/index";
-import { SessionController, TuiApp, sliceTrajectorySteps } from "./index";
+import { SessionController, TuiApp, sliceTrajectorySteps, AggregatedGoalStore } from "./index";
 import { StatusSpinner } from "./status-spinner";
 import type { SessionLauncher, UiScreen } from "./types";
 
@@ -220,13 +221,13 @@ export type CliCommand =
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "resume" }
-    | { readonly kind: "inspect"; readonly goalId?: string };
+    | { readonly kind: "inspect"; readonly goalId?: string; readonly dir?: string };
 
 /**
  * 使用 Node `parseArgs` 解析 CLI 参数。
  *
  * @param argv - 不包含 Node 和 bin 路径的参数数组。
- * @returns 空参数、`-c`、`resume` 或 `inspect [goalId]` 对应的入口意图。
+ * @returns 空参数、`-c`、`resume` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
@@ -234,6 +235,7 @@ export type CliCommand =
  * parseCliArgs(["-c"]); // { kind: "continueLatest" }
  * parseCliArgs(["inspect"]); // { kind: "inspect" }
  * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
+ * parseCliArgs(["inspect", "--dir", ".lazygoal/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: ".lazygoal/benchmarks/run" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -244,6 +246,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
             args: [...argv],
             options: {
                 continue: { type: "boolean", short: "c" },
+                dir: { type: "string" },
             },
             allowPositionals: true,
             strict: true,
@@ -254,33 +257,36 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
     }
 
     const hasContinue = parsed.values.continue === true;
+    const customDir = typeof parsed.values.dir === "string" && parsed.values.dir.trim().length > 0
+        ? parsed.values.dir.trim()
+        : undefined;
 
-    if (hasContinue && parsed.positionals.length === 0) {
+    if (hasContinue && parsed.positionals.length === 0 && customDir === undefined) {
         return { kind: "continueLatest" };
     }
 
     if (!hasContinue && parsed.positionals.length === 1
-        && parsed.positionals[0] === "resume") {
+        && parsed.positionals[0] === "resume" && customDir === undefined) {
         return { kind: "resume" };
     }
 
     if (!hasContinue && parsed.positionals.length >= 1
         && parsed.positionals[0] === "inspect") {
         if (parsed.positionals.length === 1) {
-            return { kind: "inspect" };
+            return { kind: "inspect", ...(customDir ? { dir: customDir } : {}) };
         }
         const goalId = parsed.positionals[1];
         if (parsed.positionals.length === 2 && goalId !== undefined) {
-            return { kind: "inspect", goalId };
+            return { kind: "inspect", goalId, ...(customDir ? { dir: customDir } : {}) };
         }
-        throw new Error("Invalid command line arguments: Usage: lazygoal inspect [goalId]");
+        throw new Error("Invalid command line arguments: Usage: lazygoal inspect [--dir <dir>] [goalId]");
     }
 
-    if (!hasContinue && parsed.positionals.length === 0) {
+    if (!hasContinue && parsed.positionals.length === 0 && customDir === undefined) {
         return { kind: "home" };
     }
 
-    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [goalId]]");
+    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [--dir <dir>] [goalId]]");
 }
 
 /**
@@ -401,6 +407,8 @@ export interface CompositionRootOptions {
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
     /** 可选初始屏幕；省略时默认为 "home"。 */
     readonly initialScreen?: UiScreen;
+    /** 可选的 Benchmark 评测输出根目录，默认自动发现 <workspaceRoot>/.lazygoal/benchmarks。 */
+    readonly benchmarksDirectory?: string;
 }
 
 /**
@@ -460,7 +468,7 @@ export interface CompositionRoot {
     /** 当前生效的 Preparation 执行器。 */
     readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
-    readonly store: JsonFileGoalStore;
+    readonly store: GoalStore & GoalCatalog;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
@@ -654,7 +662,11 @@ export async function createCompositionRoot(
             options.modelContextBudget,
             modelInputEstimator,
         );
-    const store = new JsonFileGoalStore(goalsDirectory);
+    const benchmarksDirectory = options.benchmarksDirectory !== undefined
+        ? resolve(options.benchmarksDirectory)
+        : join(workspaceRoot, ".lazygoal", "benchmarks");
+    const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
+    const store = new AggregatedGoalStore(primaryGoalStore, benchmarksDirectory);
     const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -992,6 +1004,9 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
+            ...(command.kind === "inspect" && command.dir !== undefined
+                ? { benchmarksDirectory: command.dir }
+                : {}),
             initialScreen: options.initialScreen ?? (
                 command.kind === "home"
                     ? "home"

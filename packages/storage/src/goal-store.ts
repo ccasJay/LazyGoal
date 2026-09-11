@@ -100,7 +100,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     /**
-     * 扫描目录中的正式快照并生成稳定的可恢复候选项。
+     * 扫描并按最近更新时间倒序返回非终态 Goal。
      *
      * @returns 过滤 `completed`、`failed`、`cancelled` 后按最近快照时间倒序
      * 排列的摘要；同一时间按 `goalId` 升序。`.tmp` 和非普通文件会被忽略。
@@ -108,6 +108,27 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      * `GoalSnapshotProtocolError`；目录或文件读取失败时传播文件系统错误。
      */
     async listResumable(): Promise<readonly GoalCatalogEntry[]> {
+        return this.scanEntries(false);
+    }
+
+    /**
+     * 扫描并按最近更新时间倒序返回所有 Goal（包含终态）。
+     *
+     * @returns 包含 `completed`、`failed`、`cancelled` 在内按最近快照时间倒序
+     * 排列的摘要；同一时间按 `goalId` 升序。`.tmp` 和非普通文件会被忽略。
+     * @throws JSON、Goal Schema 或跨字段不变量损坏时抛出
+     * `GoalSnapshotProtocolError`；目录或文件读取失败时传播文件系统错误。
+     * @example
+     * ```ts
+     * const store = new JsonFileGoalStore("/path/to/goals");
+     * const history = await store.listHistory();
+     * ```
+     */
+    async listHistory(): Promise<readonly GoalCatalogEntry[]> {
+        return this.scanEntries(true);
+    }
+
+    private async scanEntries(includeTerminal: boolean): Promise<readonly GoalCatalogEntry[]> {
         let files;
 
         try {
@@ -151,9 +172,12 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             const runStatus = goal.state.run.status;
 
             if (
-                runStatus === "completed"
-                || runStatus === "failed"
-                || runStatus === "cancelled"
+                !includeTerminal
+                && (
+                    runStatus === "completed"
+                    || runStatus === "failed"
+                    || runStatus === "cancelled"
+                )
             ) {
                 continue;
             }

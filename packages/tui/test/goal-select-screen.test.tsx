@@ -140,3 +140,38 @@ test("GoalSelectScreen displays Catalog errors and disables selection while busy
     assert.match(instance.lastFrame() ?? "", /Goal snapshot is invalid/);
     assert.match(instance.lastFrame() ?? "", /Resuming goal/);
 });
+
+test("GoalSelectScreen renders benchmark and goal labels in inspect mode", () => {
+    const goals: GoalCatalogEntry[] = [
+        {
+            goalId: "gaia-1",
+            runId: "run-gaia-1",
+            intent: "[GAIA] gaia-smoke-001",
+            workflowPhase: "executing",
+            runStatus: "completed",
+            updatedAt: "2026-09-11T17:53:00.000Z",
+        },
+        {
+            goalId: "user-1",
+            runId: "run-user-1",
+            intent: "User defined intent",
+            workflowPhase: "executing",
+            runStatus: "waiting",
+            updatedAt: "2026-09-11T14:05:00.000Z",
+        },
+    ];
+
+    const instance = render(
+        <GoalSelectScreen
+            goals={goals}
+            busy={false}
+            mode="inspect"
+            onSelect={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /\[GAIA\] gaia-smoke-001 \(completed\)/);
+    assert.match(frame, /\[Goal\] User defined intent \(waiting\)/);
+    assert.match(frame, /Select a Goal to inspect/);
+});

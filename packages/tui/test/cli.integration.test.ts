@@ -80,16 +80,21 @@ function createTestGoal(id: string, intent: string): Goal {
     });
 }
 
-test("parseCliArgs parses inspect and inspect [goalId] commands", () => {
+test("parseCliArgs parses inspect, --dir, and inspect [goalId] commands", () => {
     assert.deepEqual(parseCliArgs(["inspect"]), { kind: "inspect" });
     assert.deepEqual(parseCliArgs(["inspect", "goal-42"]), {
         kind: "inspect",
         goalId: "goal-42",
     });
+    assert.deepEqual(parseCliArgs(["inspect", "--dir", ".lazygoal/benchmarks/run", "goal-42"]), {
+        kind: "inspect",
+        goalId: "goal-42",
+        dir: ".lazygoal/benchmarks/run",
+    });
 
     assert.throws(
         () => parseCliArgs(["inspect", "goal-1", "unexpected"]),
-        /Invalid command line arguments: Usage: lazygoal inspect \[goalId\]/,
+        /Invalid command line arguments: Usage: lazygoal inspect/,
     );
 });
 

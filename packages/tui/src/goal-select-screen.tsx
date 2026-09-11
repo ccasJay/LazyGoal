@@ -56,10 +56,10 @@ export function GoalSelectScreen({
 
     const options = useMemo(
         () => goals.map((entry) => ({
-            label: formatGoalEntry(entry),
+            label: formatGoalEntry(entry, mode),
             value: entry.goalId,
         })),
-        [goals],
+        [goals, mode],
     );
 
     const handleSelect = useCallback((goalId: string) => {
@@ -107,7 +107,18 @@ export function GoalSelectScreen({
     );
 }
 
-function formatGoalEntry(entry: GoalCatalogEntry): string {
+function formatGoalEntry(
+    entry: GoalCatalogEntry,
+    mode: "resume" | "inspect" = "resume",
+): string {
+    if (mode === "inspect") {
+        const label = entry.intent.startsWith("[")
+            ? entry.intent
+            : `[Goal] ${entry.intent}`;
+        const shortIntent = summarizeIntent(label, 60);
+        return `${shortIntent} (${entry.runStatus}) | ${truncateId(entry.goalId)} | ${entry.updatedAt}`;
+    }
+
     return [
         truncateId(entry.goalId),
         summarizeIntent(entry.intent),

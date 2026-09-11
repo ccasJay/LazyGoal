@@ -386,7 +386,11 @@ export class SessionController {
 
         let goals: readonly GoalCatalogEntry[];
         try {
-            goals = await this.dependencies.catalog.listResumable();
+            if (mode === "inspect" && typeof this.dependencies.catalog.listHistory === "function") {
+                goals = await this.dependencies.catalog.listHistory();
+            } else {
+                goals = await this.dependencies.catalog.listResumable();
+            }
         } catch (error: unknown) {
             this.setGoalSelectError(toUiError(error));
             return undefined;
@@ -403,7 +407,9 @@ export class SessionController {
         if (entries.length === 0) {
             this.setError({
                 code: "NO_RESUMABLE_GOAL",
-                message: "No resumable Goal was found",
+                message: mode === "inspect"
+                    ? "No historical Goal was found"
+                    : "No resumable Goal was found",
             });
             return undefined;
         }

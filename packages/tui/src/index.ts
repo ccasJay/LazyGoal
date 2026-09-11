@@ -9,6 +9,12 @@ export { GoalSelectScreen } from "./goal-select-screen";
 export { SessionScreen } from "./session-screen";
 export { InspectorScreen } from "./inspector-screen";
 export { sliceTrajectorySteps } from "./inspector-step-slicer";
+export {
+    AggregatedGoalStore,
+    discoverBenchmarkGoals,
+    formatBenchmarkTag,
+    type BenchmarkGoalCatalogEntry,
+} from "./benchmark-discovery";
 export { StatusSpinner } from "./status-spinner";
 export { ErrorLine } from "./error-line";
 export type { HomeScreenProps } from "./home-screen";

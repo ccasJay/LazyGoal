@@ -88,4 +88,21 @@ export interface GoalCatalog {
      * @throws 正式 JSON 快照损坏或目录读取失败时抛出异常；目录不存在时返回空列表。
      */
     listResumable(): Promise<readonly GoalCatalogEntry[]>;
+
+    /**
+     * 扫描并按最近更新时间倒序返回所有已持久化的 Goal 摘要（包含终态）。
+     *
+     * @remarks
+     * 供历史复盘与轨迹检查器查看完整历史，不以是否可恢复作为过滤条件。
+     * 未实现该方法的实现方，调用方可回退至 {@link listResumable}。
+     *
+     * @returns 按 `mtime` 降序排列的摘要；相同时间使用 `goalId` 升序。
+     * @throws 正式 JSON 快照损坏或目录读取失败时抛出异常；目录不存在时返回空列表。
+     * @example
+     * ```ts
+     * const catalog: GoalCatalog = store;
+     * const history = await catalog.listHistory?.();
+     * ```
+     */
+    listHistory?(): Promise<readonly GoalCatalogEntry[]>;
 }
