@@ -7,7 +7,7 @@
   - 验证方式：`npx tsc --noEmit`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [3.1](./requirements.md#req-3-1), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 2. 实现 Trajectory Event Projector 核心投影逻辑与单元测试
+- [x] //TODO 2. 实现 Trajectory Event Projector 核心投影逻辑与单元测试
 
   - 实现目标：新建 `packages/tui/src/trajectory-projector.ts`，实现 `projectTrajectoryEvents`；完成生命周期事件聚合成 Preparation 步、按 `executionUnitId` 划分执行步、提取 Decision/Action/Tool/Observation/Result 区块、以及标注 `uncommittedTail` 警示。
   - 成功判据：通过完备的单测覆盖生命周期步、普通工具调用步、拒绝操作步、失败/取消事件以及未提交尾部警示等各种场景。

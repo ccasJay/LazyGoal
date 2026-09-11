@@ -10,6 +10,10 @@ export { SessionScreen } from "./session-screen";
 export { InspectorScreen } from "./inspector-screen";
 export { sliceTrajectorySteps } from "./inspector-step-slicer";
 export {
+    projectTrajectoryEvents,
+    type ProjectTrajectoryOptions,
+} from "./trajectory-projector";
+export {
     AggregatedGoalStore,
     discoverBenchmarkGoals,
     formatBenchmarkTag,
@@ -44,6 +48,10 @@ export type {
     UiHomeViewModel,
     UiInspectorStep,
     UiInspectorViewModel,
+    UiStepDecisionBlock,
+    UiStepActionBlock,
+    UiStepObservationBlock,
+    UiStepResultBlock,
     UiIntentInputViewModel,
     UiScreen,
     UiSessionViewModel,
