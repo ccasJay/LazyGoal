@@ -10,7 +10,7 @@
   - 验证方式：扩展 `packages/tui/test/cli.test.ts`（新增场景待实现），覆盖显式注入、Profile 未注册工具和默认接线。
   - Requirements: [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [4.4](./requirements.md#req-4-4)
 
-- [ ] //TODO 2. 实现虚拟工作区 (Virtual Workspace) 持久化重定向
+- [x] //TODO 2. 实现虚拟工作区 (Virtual Workspace) 持久化重定向
   - 实现目标：为 TUI 装配增加独立 dataDirectory，将 Store、Trace 和 Sidecar 接入同一尝试目录；Catalog 继续使用现有 GoalStore 查询。
   - 成功标准：空输出目录无需默认 Profile 即可启动；不同尝试不覆盖，所有本次状态均在 output-dir 内，原工作区文件及 Catalog 查询结果不变，且没有独立 catalog.json。
   - 验证方式：`packages/tui/test/sandbox-persistence.test.ts`（待实现），检查真实临时目录、查询结果及文件内容指纹。

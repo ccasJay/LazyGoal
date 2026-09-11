@@ -282,6 +282,19 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
 export interface CompositionRootOptions {
     /** 用于解析 workspaceRoot 的当前工作目录。 */
     readonly cwd?: string;
+    /**
+     * 独立持久化根目录。
+     *
+     * @remarks
+     * 传入时，goals, trajectories, traces, context-sidecars 将被重定向到该目录下；
+     * 省略时使用默认的 `<workspaceRoot>/.lazygoal`。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ dataDirectory: "/tmp/sandbox/attempt-1" });
+     * ```
+     */
+    readonly dataDirectory?: string;
     /** 模型配置来源；默认读取 `process.env`。若传入显式 `adapter`，则不需要提供。 */
     readonly env?: NodeJS.ProcessEnv;
     /**
@@ -389,6 +402,8 @@ export interface CompositionRootOptions {
 export interface CompositionRoot {
     /** `realpath(process.cwd())` 得到的工作区根。 */
     readonly workspaceRoot: string;
+    /** 当前使用的持久化根目录（默认为 `<workspaceRoot>/.lazygoal`）。 */
+    readonly dataDirectory: string;
     /** 项目级 Goal 快照目录。 */
     readonly goalsDirectory: string;
     /** 项目级 Domain Event JSONL 目录。 */
@@ -521,16 +536,17 @@ export async function createCompositionRoot(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
-    const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
+    const dataDirectory = options.dataDirectory !== undefined
+        ? resolve(options.dataDirectory)
+        : join(workspaceRoot, ".lazygoal");
+    const goalsDirectory = join(dataDirectory, "goals");
     const trajectoriesDirectory = join(
-        workspaceRoot,
-        ".lazygoal",
+        dataDirectory,
         "trajectories",
     );
-    const tracesDirectory = join(workspaceRoot, ".lazygoal", "traces");
+    const tracesDirectory = join(dataDirectory, "traces");
     const contextSidecarsDirectory = join(
-        workspaceRoot,
-        ".lazygoal",
+        dataDirectory,
         "context-sidecars",
     );
     const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
@@ -727,6 +743,7 @@ export async function createCompositionRoot(
 
     return {
         workspaceRoot,
+        dataDirectory,
         goalsDirectory,
         trajectoriesDirectory,
         tracesDirectory,
