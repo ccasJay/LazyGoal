@@ -14,7 +14,7 @@
   - 验证方式：编写 `packages/tui/test/trajectory-projector.test.ts` 并执行通过。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 3. 扩展 Benchmark 轨迹目录路由与 AggregatedTrajectoryStore
+- [x] //TODO 3. 扩展 Benchmark 轨迹目录路由与 AggregatedTrajectoryStore
 
   - 实现目标：在 `benchmark-discovery.ts` 中支持解析 `trajectoryDirectory`；在 `createCompositionRoot` 中装配能够透明代理本地与 Benchmark 轨迹的 `readTrajectory` 闭包。
   - 成功判据：针对 Benchmark 会话执行轨迹读取时，能够正确定位并解码评测目录下的 `.ndjson` 轨迹事件文件。

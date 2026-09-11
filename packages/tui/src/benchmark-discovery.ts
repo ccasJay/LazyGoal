@@ -7,15 +7,20 @@ import type {
     GoalCatalogEntry,
     GoalStore,
     RunStatus,
+    TrajectoryEvent,
+    TrajectoryEventDraft,
+    TrajectoryReadQuery,
+    TrajectoryReadResult,
+    TrajectoryStore,
 } from "../../runtime/src/index";
-import { JsonFileGoalStore } from "../../storage/src/index";
+import { JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/index";
 
 /**
  * 携带物理存储目录定位的 Benchmark Goal 摘要条目。
  *
  * @remarks
  * 扩展标准 {@link GoalCatalogEntry}，附加 `benchmarkId`、`taskId` 与物理所在目录
- * `goalDirectory`，以便在用户选中或执行 inspect 时无需遍历即可快速恢复。
+ * `goalDirectory` 和 `trajectoryDirectory`，以便在用户选中或执行 inspect 时无需遍历即可快速恢复。
  *
  * @example
  * ```ts
@@ -27,6 +32,7 @@ import { JsonFileGoalStore } from "../../storage/src/index";
  *     runStatus: "completed",
  *     updatedAt: "2026-09-11T17:53:00.000Z",
  *     goalDirectory: "/path/to/runtime/.../goals",
+ *     trajectoryDirectory: "/path/to/runtime/.../trajectories",
  * };
  * ```
  */
@@ -37,6 +43,8 @@ export interface BenchmarkGoalCatalogEntry extends GoalCatalogEntry {
     readonly taskId?: string;
     /** 包含该 Goal 快照的真实底层 goals 目录绝对路径。 */
     readonly goalDirectory: string;
+    /** 包含该 Goal 轨迹事件的底层 trajectories 目录绝对路径。 */
+    readonly trajectoryDirectory?: string;
 }
 
 /**
@@ -161,6 +169,10 @@ export async function discoverBenchmarkGoals(
                     const goalDirectory = goalSnapshotSubdir
                         ? join(rootDir, goalSnapshotSubdir)
                         : join(rootDir, "runtime", "goals");
+                    const trajectorySubdir = data.artifactLocator?.trajectory;
+                    const trajectoryDirectory = trajectorySubdir
+                        ? join(rootDir, trajectorySubdir)
+                        : join(rootDir, "runtime", "trajectories");
 
                     const fileStat = await stat(attemptPath);
                     const tag = formatBenchmarkTag(data.benchmarkId);
@@ -178,6 +190,7 @@ export async function discoverBenchmarkGoals(
                         ...(data.benchmarkId ? { benchmarkId: data.benchmarkId } : {}),
                         ...(taskId ? { taskId } : {}),
                         goalDirectory,
+                        ...(trajectoryDirectory ? { trajectoryDirectory } : {}),
                     });
                 } catch {
                     // 忽略损坏的单个 attempt 记录
@@ -239,6 +252,8 @@ export async function discoverBenchmarkGoals(
                 const runStatus = (data.state?.run?.status ?? "completed") as RunStatus;
                 const workflowPhase = data.state?.workflow?.phase ?? "executing";
 
+                const trajectoryDirectory = join(dirname(goalsDir), "trajectories");
+
                 discoveredGoalIds.add(goalId);
                 results.push({
                     goalId,
@@ -250,6 +265,7 @@ export async function discoverBenchmarkGoals(
                     ...(benchmarkName.length > 0 ? { benchmarkId: benchmarkName } : {}),
                     ...(taskId ? { taskId } : {}),
                     goalDirectory: goalsDir,
+                    ...(trajectoryDirectory ? { trajectoryDirectory } : {}),
                 });
             } catch {
                 // 忽略非标准或损坏快照
@@ -362,5 +378,74 @@ export class AggregatedGoalStore implements GoalStore, GoalCatalog {
         }
 
         return undefined;
+    }
+}
+
+/**
+ * 聚合主持久化与 Benchmark 目录的聚合 TrajectoryStore。
+ *
+ * @remarks
+ * 实现 {@link TrajectoryStore}，在读取轨迹时根据 goalId 透明路由至真实的评测轨迹目录。
+ *
+ * @example
+ * ```ts
+ * const trajectoryStore = new AggregatedTrajectoryStore(primaryStore, ".lazygoal/benchmarks");
+ * const result = await trajectoryStore.readWithBoundary({ goalId, runId }, 10);
+ * ```
+ */
+export class AggregatedTrajectoryStore implements TrajectoryStore {
+    private readonly trajectoryDirectoryMap = new Map<string, string>();
+    private hasScanned = false;
+
+    /**
+     * @param primaryStore - 主工作区的轨迹存储实例。
+     * @param benchmarksRoot - 可选的 Benchmark 评测输出根目录；未指定时仅代理主存储。
+     */
+    constructor(
+        private readonly primaryStore: TrajectoryStore,
+        private readonly benchmarksRoot?: string,
+    ) {}
+
+    /** @inheritdoc */
+    async append(draft: TrajectoryEventDraft): Promise<TrajectoryEvent> {
+        return this.primaryStore.append(draft);
+    }
+
+    /** @inheritdoc */
+    async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
+        const store = await this.resolveStore(query.goalId);
+        return store.read(query);
+    }
+
+    /** @inheritdoc */
+    async readWithBoundary(
+        query: TrajectoryReadQuery,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const store = await this.resolveStore(query.goalId);
+        return store.readWithBoundary(query, committedThroughSequence);
+    }
+
+    private async resolveStore(goalId: string): Promise<TrajectoryStore> {
+        if (!this.benchmarksRoot) {
+            return this.primaryStore;
+        }
+
+        if (!this.trajectoryDirectoryMap.has(goalId) && !this.hasScanned) {
+            const benchmarkEntries = await discoverBenchmarkGoals(this.benchmarksRoot);
+            for (const b of benchmarkEntries) {
+                if (b.trajectoryDirectory !== undefined) {
+                    this.trajectoryDirectoryMap.set(b.goalId, b.trajectoryDirectory);
+                }
+            }
+            this.hasScanned = true;
+        }
+
+        const dir = this.trajectoryDirectoryMap.get(goalId);
+        if (dir !== undefined) {
+            return new JsonFileTrajectoryStore(dir);
+        }
+
+        return this.primaryStore;
     }
 }

@@ -15,6 +15,7 @@ export {
 } from "./trajectory-projector";
 export {
     AggregatedGoalStore,
+    AggregatedTrajectoryStore,
     discoverBenchmarkGoals,
     formatBenchmarkTag,
     type BenchmarkGoalCatalogEntry,

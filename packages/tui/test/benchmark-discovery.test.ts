@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { Goal, GoalCatalog, GoalCatalogEntry, GoalStore } from "../../runtime/src/index";
+import type { Goal, GoalCatalog, GoalCatalogEntry, GoalStore } from "../../runtime/src/index.js";
+import { JsonFileTrajectoryStore } from "../../storage/src/index.js";
 import {
     AggregatedGoalStore,
+    AggregatedTrajectoryStore,
     discoverBenchmarkGoals,
     formatBenchmarkTag,
-} from "../src/index";
+} from "../src/index.js";
 
 function createValidSnapshotJson(id: string, intent: string, profileId = "test-profile", status = "completed"): string {
     const snapshot = {
@@ -222,6 +224,115 @@ test("AggregatedGoalStore transparently merges primary and benchmark goals and r
         // 5. 不存在的 goal 返回 undefined
         const missing = await aggStore.restore("non-existent-goal");
         assert.equal(missing, undefined);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("AggregatedTrajectoryStore routes read queries to primary or benchmark trajectory directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bench-agg-traj-"));
+    try {
+        const primaryTrajDir = join(root, "primary-trajectories");
+        const benchRunDir = join(root, "my-eval");
+        const benchGoalsDir = join(benchRunDir, "runtime", "gaia", "goals");
+        const benchTrajDir = join(benchRunDir, "runtime", "gaia", "trajectories");
+
+        await mkdir(primaryTrajDir, { recursive: true });
+        await mkdir(benchGoalsDir, { recursive: true });
+        await mkdir(benchTrajDir, { recursive: true });
+
+        // 1. 在 primary store 写入一条事件
+        const primaryStore = new JsonFileTrajectoryStore(primaryTrajDir);
+        await primaryStore.append({
+            goalId: "primary-goal-1",
+            runId: "run-primary-1",
+            phase: "executing",
+            eventType: "run_completed",
+            payload: {
+                type: "run_completed",
+                summary: "done",
+            },
+        });
+
+        // 2. 在 benchmark 写入 goal snapshot 和 trajectory 事件
+        const benchGoalId = "bench-goal-99";
+        const benchJson = createValidSnapshotJson(benchGoalId, "Solve benchmark task", "test-profile");
+        const benchFileName = `${Buffer.from(benchGoalId).toString("base64url")}.json`;
+        await writeFile(join(benchGoalsDir, benchFileName), benchJson, "utf8");
+
+        const benchTrajStore = new JsonFileTrajectoryStore(benchTrajDir);
+        await benchTrajStore.append({
+            goalId: benchGoalId,
+            runId: "run-bench-1",
+            phase: "executing",
+            eventType: "decision_received",
+            executionUnitId: "unit-1",
+            stepIndex: 1,
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "complete",
+                    summary: "Benchmark completed",
+                    completionEvidence: [],
+                },
+            },
+        });
+        await benchTrajStore.append({
+            goalId: benchGoalId,
+            runId: "run-bench-1",
+            phase: "executing",
+            eventType: "run_completed",
+            executionUnitId: "unit-1",
+            stepIndex: 1,
+            payload: {
+                type: "run_completed",
+                summary: "all done",
+            },
+        });
+
+        const aggregatedStore = new AggregatedTrajectoryStore(primaryStore, root);
+
+        // 3. 读取 primary 轨迹
+        const primaryEvents = await aggregatedStore.read({
+            goalId: "primary-goal-1",
+            runId: "run-primary-1",
+        });
+        assert.equal(primaryEvents.length, 1);
+        assert.equal(primaryEvents[0]?.eventType, "run_completed");
+
+        // 4. 读取 benchmark 轨迹
+        const benchEvents = await aggregatedStore.read({
+            goalId: benchGoalId,
+            runId: "run-bench-1",
+        });
+        assert.equal(benchEvents.length, 2);
+        assert.equal(benchEvents[0]?.eventType, "decision_received");
+        assert.equal(benchEvents[1]?.eventType, "run_completed");
+
+        // 5. 使用 readWithBoundary 验证序列切分
+        const boundaryResult = await aggregatedStore.readWithBoundary(
+            { goalId: benchGoalId, runId: "run-bench-1" },
+            1,
+        );
+        assert.equal(boundaryResult.committed.length, 1);
+        assert.equal(boundaryResult.uncommittedTail?.length, 1);
+
+        // 6. append 总是作用在 primaryStore 上
+        await aggregatedStore.append({
+            goalId: "appended-goal",
+            runId: "run-appended",
+            phase: "executing",
+            eventType: "run_completed",
+            payload: {
+                type: "run_completed",
+                summary: "appended done",
+            },
+        });
+        const appendedRead = await primaryStore.read({
+            goalId: "appended-goal",
+            runId: "run-appended",
+        });
+        assert.equal(appendedRead.length, 1);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

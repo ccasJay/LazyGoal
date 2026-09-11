@@ -29,6 +29,7 @@ import {
     type PreparationExecutor,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
+    type TrajectoryStore,
     type ToolPolicy,
     type WorkingMemoryLimits,
     IndexedContextLookupService,
@@ -72,7 +73,13 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../tools/src/index";
-import { SessionController, TuiApp, sliceTrajectorySteps, AggregatedGoalStore } from "./index";
+import {
+    SessionController,
+    TuiApp,
+    sliceTrajectorySteps,
+    AggregatedGoalStore,
+    AggregatedTrajectoryStore,
+} from "./index";
 import { StatusSpinner } from "./status-spinner";
 import type { SessionLauncher, UiScreen } from "./types";
 
@@ -472,7 +479,7 @@ export interface CompositionRoot {
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: GoalStore & GoalCatalog;
     /** 共享的事实事件追加与读取 Store。 */
-    readonly trajectoryStore: JsonFileTrajectoryStore;
+    readonly trajectoryStore: TrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
     /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
@@ -669,7 +676,8 @@ export async function createCompositionRoot(
         : join(workspaceRoot, ".lazygoal", "benchmarks");
     const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
     const store = new AggregatedGoalStore(primaryGoalStore, benchmarksDirectory);
-    const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
         trajectoryStore,
@@ -750,6 +758,11 @@ export async function createCompositionRoot(
             );
         },
     };
+    const readTrajectory = (
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>> =>
+        readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
+
     const controller = new SessionController({
         launcher,
         coordinator,
@@ -762,6 +775,7 @@ export async function createCompositionRoot(
         ...(options.initialGoalSelectMode !== undefined
             ? { initialGoalSelectMode: options.initialGoalSelectMode }
             : {}),
+        readTrajectory,
         environmentSummary: {
             workspaceRoot,
             profileId: profile.id,
@@ -779,10 +793,6 @@ export async function createCompositionRoot(
             : { gracePeriodMs: options.gracePeriodMs }),
     });
 
-    const readTrajectory = (
-        query: TrajectoryReadQuery,
-    ): Promise<Readonly<TrajectoryReadResult>> =>
-        readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
 
     return {
         workspaceRoot,
