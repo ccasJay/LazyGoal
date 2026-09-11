@@ -21,7 +21,7 @@
   - 验证方式：在 `packages/tui/test/benchmark-discovery.test.ts` 中补充轨迹目录解析与读取测试。
   - _Requirements: [1.4](./requirements.md#req-1-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 4. 在 SessionController 中内聚轨迹读取与状态流转
+- [x] //TODO 4. 在 SessionController 中内聚轨迹读取与状态流转
 
   - 实现目标：重构 `session-controller.ts` 中的 `selectGoal` 与 `openHistory` 流程；通过注入的 `readTrajectory` 异步加载事件并调用 `projectTrajectoryEvents`；在轨迹缺失或空事件时设置规范的 `TRAJECTORY_NOT_FOUND` 稳定错误码。
   - 成功判据：Controller 完整驱动轨迹加载，异步期间保持 `busy: true`，读取成功后派发结构化步骤；缺失轨迹时给出明确错误提示，不回退到 message slicer。

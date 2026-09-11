@@ -4,6 +4,7 @@ import type {
     GoalProgressResult,
     GoalTask,
     LaunchResult,
+    TrajectoryReadResult,
 } from "../../runtime/src/index";
 import {
     UI_BUSY_CODE,
@@ -20,6 +21,7 @@ import {
     type UiViewModel,
 } from "./types";
 import { sliceTrajectorySteps } from "./inspector-step-slicer";
+import { projectTrajectoryEvents } from "./trajectory-projector";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -218,6 +220,11 @@ export class SessionController {
             return Promise.resolve();
         }
 
+        if (command.kind === "toggleObservation") {
+            this.toggleObservation();
+            return Promise.resolve();
+        }
+
         if (this.snapshot.busy) {
             return Promise.reject(
                 new UiDispatchRejectedError(
@@ -307,6 +314,9 @@ export class SessionController {
                 return;
             case "toggleReasoning":
                 this.toggleReasoning();
+                return;
+            case "toggleObservation":
+                this.toggleObservation();
                 return;
         }
     }
@@ -478,7 +488,55 @@ export class SessionController {
                 return;
             }
 
-            const steps = sliceTrajectorySteps({ goalId: normalizedGoalId, goal });
+            if (!this.dependencies.readTrajectory) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory reading is not configured for Goal "${normalizedGoalId}"`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            let trajectoryResult: Readonly<TrajectoryReadResult>;
+            try {
+                trajectoryResult = await this.dependencies.readTrajectory({
+                    goalId: normalizedGoalId,
+                    runId: goal.state.run.id,
+                });
+            } catch (error: unknown) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Failed to read trajectory for Goal "${normalizedGoalId}": ${error instanceof Error ? error.message : String(error)}`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            const hasCommitted = trajectoryResult.committed.length > 0;
+            const hasUncommitted = (trajectoryResult.uncommittedTail?.length ?? 0) > 0;
+            if (!hasCommitted && !hasUncommitted) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory for Goal "${normalizedGoalId}" contains no events`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            const steps = projectTrajectoryEvents({
+                goalId: normalizedGoalId,
+                goal,
+                committedEvents: trajectoryResult.committed,
+                ...(trajectoryResult.uncommittedTail !== undefined
+                    ? { uncommittedTail: trajectoryResult.uncommittedTail }
+                    : {}),
+            });
+
+            if (steps.length === 0) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory for Goal "${normalizedGoalId}" yielded no inspectable steps`,
+                }, this.snapshot.goals);
+                return;
+            }
+
             this.openInspector(normalizedGoalId, steps);
             return;
         }
@@ -694,6 +752,7 @@ export class SessionController {
             totalSteps: steps.length,
             steps,
             showReasoning: false,
+            expandObservation: false,
         });
     }
 
@@ -716,6 +775,16 @@ export class SessionController {
         this.setSnapshot({
             ...this.snapshot,
             showReasoning: !this.snapshot.showReasoning,
+        });
+    }
+
+    private toggleObservation(): void {
+        if (this.snapshot.screen !== "inspector") {
+            return;
+        }
+        this.setSnapshot({
+            ...this.snapshot,
+            expandObservation: !this.snapshot.expandObservation,
         });
     }
 

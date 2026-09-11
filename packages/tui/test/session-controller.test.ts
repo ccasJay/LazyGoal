@@ -11,6 +11,7 @@ import {
     type LaunchRequest,
     type LaunchResult,
     type ResumeGoalRequest,
+    type TrajectoryEvent,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
@@ -1030,4 +1031,137 @@ test("openInspector, inspectStep, and toggleReasoning manage inspector state", a
     if (view.screen === "inspector") {
         assert.equal(view.showReasoning, false);
     }
+
+    // 翻转 observation
+    await controller.dispatch({ kind: "toggleObservation" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.expandObservation, true);
+    }
+    await controller.dispatch({ kind: "toggleObservation" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.expandObservation, false);
+    }
 });
+
+test("inspect mode selectGoal orchestrates trajectory loading and event projection", async () => {
+    const goal = createWaitingGoal("goal-inspect-ok");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const events: TrajectoryEvent[] = [
+        {
+            eventSchemaVersion: 1,
+            eventId: "evt-1",
+            sequence: 1,
+            occurredAt: "2026-09-11T12:00:00.000Z",
+            goalId: "goal-inspect-ok",
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "decision_received",
+            executionUnitId: "unit-1",
+            stepIndex: 1,
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "complete",
+                    summary: "Inspection done",
+                    completionEvidence: [],
+                },
+            },
+        },
+    ];
+
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async (query) => {
+            assert.equal(query.goalId, "goal-inspect-ok");
+            assert.equal(query.runId, goal.state.run.id);
+            return {
+                committed: events,
+                uncommittedTail: [],
+            };
+        },
+    });
+
+    await controller.dispatch({ kind: "selectGoal", goalId: "goal-inspect-ok" });
+    const view = controller.getSnapshot();
+    assert.equal(view.screen, "inspector");
+    if (view.screen === "inspector") {
+        assert.equal(view.goalId, "goal-inspect-ok");
+        assert.equal(view.totalSteps, 2);
+        assert.equal(view.steps[0]?.title, "Step 1: Preparation & Planning");
+        assert.equal(view.steps[1]?.title, "Step 2: Execution (unit-1)");
+        assert.equal(view.steps[1]?.decision?.summary, "Inspection done");
+    }
+});
+
+test("inspect mode selectGoal reports TRAJECTORY_NOT_FOUND when readTrajectory is missing or returns empty", async () => {
+    const goal = createWaitingGoal("goal-no-traj");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+
+    // 1. 未配置 readTrajectory
+    const controllerNoReader = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+    });
+
+    await controllerNoReader.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    let view = controllerNoReader.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
+
+    // 2. 返回空事件
+    const controllerEmpty = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async () => ({
+            committed: [],
+            uncommittedTail: [],
+        }),
+    });
+
+    await controllerEmpty.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    view = controllerEmpty.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
+
+    // 3. 读取抛错
+    const controllerError = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async () => {
+            throw new Error("File corrupted or missing");
+        },
+    });
+
+    await controllerError.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    view = controllerError.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
+});
+
