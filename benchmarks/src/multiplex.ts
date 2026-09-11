@@ -7,7 +7,7 @@ export const MAX_MUX_FRAME_BYTES = 16 * 1024 * 1024;
 /** 每个通道默认允许排队的最大 UTF-8 字节数。 */
 export const DEFAULT_MUX_QUEUE_BYTES = 16 * 1024 * 1024;
 
-export type MuxChannel = "acp" | "llm";
+export type MuxChannel = "acp" | "llm" | "tools";
 
 /** 复用传输上的版本化对象帧。 */
 export interface MuxFrame {
@@ -194,10 +194,10 @@ export class MultiplexedConnection {
     private readonly maxFrameBytes: number;
     private readonly maxQueueBytes: number;
     private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
-    private readonly queues: Record<MuxChannel, PendingWrite[]> = { acp: [], llm: [] };
-    private readonly queueBytes: Record<MuxChannel, number> = { acp: 0, llm: 0 };
+    private readonly queues: Record<MuxChannel, PendingWrite[]> = { acp: [], llm: [], tools: [] };
+    private readonly queueBytes: Record<MuxChannel, number> = { acp: 0, llm: 0, tools: 0 };
     private readonly controllers = new Map<MuxChannel, Set<ReadableStreamDefaultController<Record<string, unknown>>>>();
-    private readonly channelClosed: Record<MuxChannel, boolean> = { acp: false, llm: false };
+    private readonly channelClosed: Record<MuxChannel, boolean> = { acp: false, llm: false, tools: false };
     private outputSequence = 1;
     private roundRobin: MuxChannel = "acp";
     private writing = false;
@@ -292,19 +292,27 @@ export class MultiplexedConnection {
         this.writing = true;
         void this.drainWrites().finally(() => {
             this.writing = false;
-            if (!this.closedState && (this.queues.acp.length > 0 || this.queues.llm.length > 0)) this.scheduleWrite();
+            if (!this.closedState && (this.queues.acp.length > 0 || this.queues.llm.length > 0 || this.queues.tools.length > 0)) this.scheduleWrite();
         });
     }
 
     private async drainWrites(): Promise<void> {
-        while (!this.closedState && (this.queues.acp.length > 0 || this.queues.llm.length > 0)) {
-            const channel = this.queues[this.roundRobin].length > 0
-                ? this.roundRobin
-                : this.roundRobin === "acp" ? "llm" : "acp";
-            this.roundRobin = channel === "acp" ? "llm" : "acp";
-            const item = this.queues[channel].shift();
+        const channels: readonly MuxChannel[] = ["acp", "llm", "tools"];
+        while (!this.closedState && (this.queues.acp.length > 0 || this.queues.llm.length > 0 || this.queues.tools.length > 0)) {
+            let selected: MuxChannel | undefined;
+            const startIdx = channels.indexOf(this.roundRobin);
+            for (let i = 0; i < channels.length; i++) {
+                const ch = channels[(startIdx + i) % channels.length]!;
+                if (this.queues[ch].length > 0) {
+                    selected = ch;
+                    break;
+                }
+            }
+            if (selected === undefined) continue;
+            this.roundRobin = channels[(channels.indexOf(selected) + 1) % channels.length]!;
+            const item = this.queues[selected].shift();
             if (item === undefined) continue;
-            this.queueBytes[channel] -= item.bytes.byteLength;
+            this.queueBytes[selected] -= item.bytes.byteLength;
             try {
                 await this.writer.ready;
                 await this.writer.write(item.bytes);
@@ -322,7 +330,7 @@ export class MultiplexedConnection {
         this.closedState = true;
         this.failure = protocol;
         const error = reason ?? protocol;
-        for (const channel of ["acp", "llm"] as const) {
+        for (const channel of ["acp", "llm", "tools"] as const) {
             for (const item of this.queues[channel]) item.reject(error ?? new MuxProtocolError("transport_closed", "Mux connection closed"));
             this.queues[channel].length = 0;
             this.queueBytes[channel] = 0;
@@ -349,7 +357,7 @@ export function createAcpMuxStream(connection: MultiplexedConnection): AcpStream
 
 function validateFrame(frame: Partial<MuxFrame>): void {
     if (frame.version !== MUX_PROTOCOL_VERSION) throw new MuxProtocolError("invalid_frame", "Unknown Mux protocol version");
-    if (frame.channel !== "acp" && frame.channel !== "llm") throw new MuxProtocolError("invalid_frame", "Unknown Mux channel");
+    if (frame.channel !== "acp" && frame.channel !== "llm" && frame.channel !== "tools") throw new MuxProtocolError("invalid_frame", "Unknown Mux channel");
     const sequence = frame.sequence;
     if (!Number.isSafeInteger(sequence) || sequence === undefined || sequence <= 0) throw new MuxProtocolError("invalid_frame", "Mux sequence must be a positive safe integer");
     if (!isRecord(frame.payload)) throw new MuxProtocolError("invalid_frame", "Mux payload must be an object");

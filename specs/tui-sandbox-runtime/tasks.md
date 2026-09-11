@@ -17,7 +17,7 @@
   - Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)
 
 - [ ] //TODO 3. 拦截沙箱工具并双向代理至 ToolRegistry
-  - [ ] //TODO 3.1 实现工具 RPC 与 Mux 通道
+  - [x] //TODO 3.1 实现工具 RPC 与 Mux 通道
     - 实现目标：扩展 `benchmarks/src/multiplex.ts` 并新增 `tool-rpc.ts`，实现 describe/execute/cancel/backend 消息、关联校验、顺序控制和有界等待；保持 ACP/LLM 原行为。
     - 成功标准：合法调用得到对应 Observation；非法帧、重复执行 ID、工具契约不匹配、超时和断线均失败且不重发执行。
     - 验证方式：扩展 Mux 测试并新增 `benchmarks/test/tool-rpc.test.ts`（待实现），使用双向内存流和执行计数验证。

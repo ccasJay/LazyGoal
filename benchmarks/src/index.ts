@@ -102,3 +102,18 @@ export type {
 export type {
     FilePersistenceAdapterOptions,
 } from "./file-persistence-adapter.js";
+export {
+    ToolRpcClient,
+    ToolRpcServer,
+    ToolRpcError,
+} from "./tool-rpc.js";
+export type {
+    ToolManifestEntry,
+    ToolRpcMessage,
+    ToolRpcErrorCode,
+    ToolBackendHandler,
+    ToolRpcBackendPort,
+    ToolRpcClientOptions,
+    ToolRpcServerOptions,
+} from "./tool-rpc.js";
+
