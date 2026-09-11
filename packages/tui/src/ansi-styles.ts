@@ -63,11 +63,11 @@ export function formatSectionDivider(
     const colorFn = options?.color ?? ((text: string) => text);
     const badgeColorFn = options?.badgeColor ?? colorFn;
 
-    // 计算纯文本可见字符宽度（避免包含 ANSI 转义序列）
-    const rawPrefix = `─── ${icon}${label} `;
+    // 计算纯文本可见字符宽度（考虑终端中 Emoji/宽字符占用 2 列宽度，并预留安全边距）
+    const iconWidth = options?.icon ? 2 : 0;
     const rawBadge = options?.badge ? ` ${options.badge} ──` : "";
-    const visibleLength = rawPrefix.length + rawBadge.length;
-    const fillerLength = Math.max(2, contentWidth - visibleLength);
+    const visibleLength = 4 + iconWidth + label.length + 1 + rawBadge.length;
+    const fillerLength = Math.max(2, contentWidth - visibleLength - 2);
     const filler = "─".repeat(fillerLength);
 
     const styledPrefix = ansi.dim("─── ") + colorFn(ansi.bold(`${icon}${label}`)) + " ";
