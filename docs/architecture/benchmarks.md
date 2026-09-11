@@ -10,8 +10,8 @@ Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器�
 
 ## Entry point
 
-`bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld` 或 `eval swebench` 时分别转发到
-对应 benchmark CLI，其它参数仍
+`bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld`、`eval swebench` 或 `eval gaia` 时分别转发到
+对应 benchmark CLI（`grade` 和 `load` 亦按相同前缀分发），其它参数仍
 进入 [`packages/tui/src/cli.tsx`](../../packages/tui/src/cli.tsx)。评测入口要求固定
 Manifest：
 
@@ -19,24 +19,26 @@ Manifest：
 lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
   [--report <path>] [--min-success-rate <0..1>]
   [--max-infrastructure-retries <n>]
+lazygoal eval gaia --manifest <path> [--output <dir>]
 ```
 
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
-官方 harness 预检仍在宿主评分边界完成。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
+官方 harness 预检仍在宿主评分边界完成。GAIA 使用 managed 镜像安装 Python 文件处理库，
+通过 `preflight` 验证依赖，任务通过宿主代理 `web_search`/`web_fetch` 工具及容器内
+`submit_answer` 工具作答。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
 不支持的 provider/mode、未知目录模型及容量错误均在 Episode 与 Goal 创建前失败。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
 SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命周期、产物与限制见
-[SWE-bench Evaluation](./swebench.md)。以下章节描述 ALFWorld 接线。
-数据准备使用 `npm --prefix benchmarks run alfworld:download`；该入口复用同一个
-`.env.alfworld` 解析器，把 `ALFWORLD_DATA` 作为 `--data-dir` 传给
-`alfworld-download`，并让进程环境覆盖文件值。
+[SWE-bench Evaluation](./swebench.md)。GAIA 评分使用归一化精确匹配算法，支持独立
+`grade gaia` 入口离线评分且不消耗模型调用。以下章节描述 ALFWorld 接线。
+数据准备使用 `npm --prefix benchmarks run alfworld:download`；GAIA 数据集下载使用 `lazygoal load gaia`。
 评测 CLI 与独立 preflight 脚本共用同一个有界 Python 探针执行器，测试入口仍可注入
 替身探针，不会改变预检顺序或错误语义。
 ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.json` 加载，
 不会从 `benchmarks` 源码目录或单数 `profile` 目录读取。
 显式入口同时自动读取 `benchmarks/alfworld/.env.alfworld`，命令行环境变量覆盖文件值。
-`grade alfworld` 和 `grade swebench` 只读取已有报告、Attempt 和产物，不构造模型。
+`grade alfworld`、`grade swebench` 和 `grade gaia` 只读取已有报告、Attempt 和产物，不构造模型。
 
 ## Episode lifecycle
 

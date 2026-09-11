@@ -58,3 +58,17 @@ test("rejects cross benchmark imports", async () => {
         "禁止 benchmark 交叉依赖：benchmarks/alfworld 不得导入 benchmarks/swebench（benchmarks/alfworld/src/index.ts 引用 ../../swebench/src/worker-runtime）",
     ]);
 });
+
+test("rejects gaia cross benchmark imports with swebench and alfworld", async () => {
+    const root = await fixtureProject({
+        "benchmarks/gaia/src/index.ts":
+            'export { run } from "../../swebench/src/worker-runtime";\nexport { alf } from "../../alfworld/src/index";\n',
+        "benchmarks/swebench/src/worker-runtime.ts": "export const run = true;\n",
+        "benchmarks/alfworld/src/index.ts": "export const alf = true;\n",
+    });
+
+    assert.deepEqual(await analyzeDependencies(root), [
+        "禁止 benchmark 交叉依赖：benchmarks/gaia 不得导入 benchmarks/alfworld（benchmarks/gaia/src/index.ts 引用 ../../alfworld/src/index）",
+        "禁止 benchmark 交叉依赖：benchmarks/gaia 不得导入 benchmarks/swebench（benchmarks/gaia/src/index.ts 引用 ../../swebench/src/worker-runtime）",
+    ]);
+});
