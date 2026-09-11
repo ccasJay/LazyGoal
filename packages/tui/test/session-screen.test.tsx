@@ -201,7 +201,7 @@ test("SessionScreen validates and submits blocked messages", async () => {
     assert.match(instance.lastFrame() ?? "", /Type a message to continue/);
 });
 
-test("SessionScreen displays an Action and approves the exact actionId once", async () => {
+test("SessionScreen displays an Action and approves on Enter", async () => {
     const goal = executingGoal("goal-action-approval");
     const currentGoal: Goal = {
         ...goal,
@@ -234,9 +234,10 @@ test("SessionScreen displays an Action and approves the exact actionId once", as
     assert.match(frame, /Action ID: action-1/);
     assert.match(frame, /Tool: read_file/);
     assert.match(frame, /README\.md/);
-    instance.stdin.write("y");
-    await nextFrame();
-    instance.stdin.write("y");
+    assert.match(frame, /\[Enter\] 放行 \| \[Shift\+Tab\] 模式切换 \| 输入意见拒绝/);
+    
+    // 直接按回车批准放行
+    instance.stdin.write("\r");
     await nextFrame();
 
     assert.deepEqual(approved, ["action-1"]);
@@ -273,9 +274,8 @@ test("SessionScreen keeps Action approval mounted but disabled while busy", asyn
 
     const frame = instance.lastFrame() ?? "";
     assert.match(frame, /Advancing/);
-    assert.match(frame, /Press Y to approve or N to reject with a reason/);
-    assert.doesNotMatch(frame, /Working/);
-    instance.stdin.write("y");
+    assert.match(frame, /\[Enter\] 放行 \| \[Shift\+Tab\] 模式切换 \| 输入意见拒绝/);
+    instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(approved, []);
 });
@@ -320,7 +320,7 @@ test("SessionScreen folds oversized Action input and preserves short input", () 
     assert.doesNotMatch(frame, /x{700}/);
 });
 
-test("SessionScreen requires a reason when rejecting an Action", async () => {
+test("SessionScreen submits non-empty text as rejection reason", async () => {
     const goal = executingGoal("goal-action-reject");
     const currentGoal: Goal = {
         ...goal,
@@ -348,10 +348,6 @@ test("SessionScreen requires a reason when rejecting an Action", async () => {
         />,
     );
 
-    instance.stdin.write("n");
-    await waitForFrame(instance, /Why should this Action be rejected/);
-    instance.stdin.write("\r");
-    await waitForFrame(instance, /Rejection reason must not be empty/);
     instance.stdin.write("The path is outside the approved scope");
     await waitForFrame(instance, /The path is outside the approved scope/);
     instance.stdin.write("\r");
@@ -394,10 +390,54 @@ test("SessionScreen marks outcome_unknown as risky and preserves the Action iden
     assert.match(instance.lastFrame() ?? "", /Action outcome unknown/);
     assert.match(instance.lastFrame() ?? "", /replay the same action/);
     assert.match(instance.lastFrame() ?? "", /Action ID: action-1/);
-    instance.stdin.write("y");
+    instance.stdin.write("\r");
     await nextFrame();
 
     assert.deepEqual(approved, ["action-1"]);
+});
+
+test("SessionScreen displays executionMode tag in status bar", () => {
+    const goal = executingGoal("goal-mode-tag");
+    const confirmInstance = render(
+        <SessionScreen
+            session={session(goal, { executionMode: "confirm" })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    assert.match(confirmInstance.lastFrame() ?? "", /\[CONFIRM\]/);
+
+    const yoloInstance = render(
+        <SessionScreen
+            session={session(goal, { executionMode: "yolo" })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    assert.match(yoloInstance.lastFrame() ?? "", /\[YOLO\]/);
+});
+
+test("SessionScreen listens for Shift+Tab and triggers onToggleExecutionMode", async () => {
+    const goal = executingGoal("goal-shift-tab");
+    let toggleCalled = 0;
+    const instance = render(
+        <SessionScreen
+            session={session(goal, { executionMode: "confirm" })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+            onToggleExecutionMode={() => {
+                toggleCalled += 1;
+            }}
+        />,
+    );
+
+    // Shift + Tab ANSI escape sequence
+    instance.stdin.write("\u001B[Z");
+    await nextFrame();
+    assert.equal(toggleCalled, 1);
 });
 
 test("SessionScreen renders terminal summary and accepts no further input", async () => {

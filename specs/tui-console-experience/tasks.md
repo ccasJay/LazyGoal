@@ -14,7 +14,7 @@
   - 验证方式：`packages/tui/test/home-screen.test.tsx` 组件交互测试与 CLI 入口测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [1.6](./requirements.md#req-1-6), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 3. 重构执行期待批准交互为流式一体化输入条并支持 Shift+Tab 模式热切换
+- [x] //TODO 3. 重构执行期待批准交互为流式一体化输入条并支持 Shift+Tab 模式热切换
 
   - 实现目标：在 `session-screen.tsx` 中使用 `@inkjs/ui` 的单个 `TextInput` 重构 `ActionPanel`；接入 `useSubmitGate` 实现空回车批准、非空文本拒绝与自然语言反馈；使用 `useInput` 监听 `Shift + Tab` 快捷键循环切换 Confirm 与 YOLO 模式；状态栏显示模式标识。
   - 成功判据：待批准 Action 时直接按 Enter 立即放行；输入文本按 Enter 立即转为带理由的拒绝；按 `Shift + Tab` 切换为 YOLO 后后续 Action 自动放行；终端继续保持 `<Static>` 流式沉淀。

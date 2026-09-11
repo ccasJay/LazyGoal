@@ -119,6 +119,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         actionId,
                         reason,
                     })}
+                    onToggleExecutionMode={() => dispatch({ kind: "toggleExecutionMode" })}
                 />
             ) : (
                 <PreparationScreen
