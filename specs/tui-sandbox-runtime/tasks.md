@@ -40,7 +40,7 @@
   - Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)
 
 - [ ] //TODO 5. 绑定沙箱回收接口至 ShutdownCoordinator
-  - [ ] //TODO 5.1 为环境运行增加有界强制清理
+  - [x] //TODO 5.1 为环境运行增加有界强制清理
     - 实现目标：扩展 `benchmarks/src/isolated-environment.ts` 的 forceSignal 和共享清理预算，仍由 run() 统一停止 Worker、收集产物、删除容器，处理取消期间的迟到启动。
     - 成功标准：正常、启动失败和取消都不跳过已取得资源的回收；30 秒总宽限期耗尽后停止收集，再以最多 5 秒尝试强制清理；删除失败可定位且不宣告成功。
     - 验证方式：扩展 `benchmarks/test/isolated-environment.test.ts`（新增场景待实现），注入时钟和进程边界，覆盖慢回收、失败删除、重复取消及原 Headless 行为。

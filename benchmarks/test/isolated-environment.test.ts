@@ -223,3 +223,122 @@ test("IsolatedEnvironment removes a named container when Docker create fails", a
     assert.equal(result.status, "infrastructure_error");
     assert.ok(calls.some((call) => call.args[0] === "rm"));
 });
+
+test("IsolatedEnvironment forceSignal 触发时提前终止产物回收并执行有界容器删除", async () => {
+    const calls: string[] = [];
+    const forceController = new AbortController();
+    let collectAborted = false;
+
+    const spec: EnvironmentSpec<{ id: string }, null> = {
+        benchmarkId: "force-signal",
+        resolveImage: () => ({ mode: "custom", image: "fixture:latest" }),
+        getWorkerEntryConfig: () => ({ cwd: "/work" }),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            calls.push("collect_start");
+            // 模拟慢产物收集：永不 resolve，等待外部 force 信号打断
+            await new Promise<never>(() => {});
+            return null;
+        },
+    };
+
+    const container = customContainer(calls);
+    const envPromise = new IsolatedEnvironment().run({
+        task: { id: "force-signal-task" },
+        spec,
+        outputDirectory: join(tmpdir(), "lazygoal-force-signal"),
+        container,
+        forceSignal: forceController.signal,
+        runAgent: async () => {
+            // Agent 正常结束，进入 finally
+        },
+    });
+
+    // 延迟 20ms 后发出 force 信号打断产物收集
+    setTimeout(() => {
+        forceController.abort();
+    }, 20);
+
+    const result = await envPromise;
+    assert.equal(result.status, "infrastructure_error");
+    const collectError = result.errors.find((e) => e.stage === "artifact_collect");
+    assert.ok(collectError);
+    assert.match(collectError.message, /force signal/);
+    assert.ok(calls.includes("collect_start"));
+    assert.ok(calls.includes("close")); // 容器最终依然被 close 删除
+});
+
+test("IsolatedEnvironment forceSignal 下共享清理预算耗尽时跳过产物回收但保证容器删除", async () => {
+    const calls: string[] = [];
+    const forceController = new AbortController();
+    let collectCalled = false;
+
+    const spec: EnvironmentSpec<{ id: string }, null> = {
+        benchmarkId: "grace-exhausted",
+        resolveImage: () => ({ mode: "custom", image: "fixture:latest" }),
+        getWorkerEntryConfig: () => ({ cwd: "/work" }),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            collectCalled = true;
+            return null;
+        },
+    };
+
+    // 假 Worker 不退出，耗尽 30ms 的总预算
+    const slowWorker: InteractiveProcess = {
+        ...fakeInteractive(),
+        closed: new Promise<never>(() => {}), // 永不退出
+    };
+
+    const container: IsolatedContainer = {
+        ...customContainer(calls),
+        async openWorkerProcess() {
+            return slowWorker;
+        },
+    };
+
+    const result = await new IsolatedEnvironment().run({
+        task: { id: "grace-task" },
+        spec,
+        outputDirectory: join(tmpdir(), "lazygoal-grace-exhausted"),
+        container,
+        artifactGraceMs: 30, // 预算 30ms
+        forceSignal: forceController.signal,
+        runAgent: async () => {
+            // Agent 正常完成
+        },
+    });
+
+    // 由于预算在 worker settle 时已耗尽，产物回收被跳过
+    assert.equal(collectCalled, false);
+    assert.ok(result.errors.some((e) => e.stage === "transport" || e.stage === "artifact_collect"));
+    assert.ok(calls.includes("close")); // 容器仍然被删除
+});
+
+test("IsolatedEnvironment 容器删除失败时错误记录包含容器标识且结果为 infrastructure_error", async () => {
+    const calls: { command: string; args: readonly string[] }[] = [];
+    const run: ProcessRunner = async (command, args) => {
+        calls.push({ command, args });
+        if (args[0] === "image") return { code: 0, stdout: `sha256:${"a".repeat(64)}\tlinux/amd64\n`, stderr: "" };
+        if (args[0] === "create") return { code: 0, stdout: "cid123", stderr: "" };
+        if (args[0] === "start") return { code: 0, stdout: "", stderr: "" };
+        if (args[0] === "rm") return { code: 1, stdout: "", stderr: "Docker daemon error: container busy" };
+        return { code: 0, stdout: "", stderr: "" };
+    };
+
+    const result = await new IsolatedEnvironment({ run }).run({
+        task: { id: "delete-fail-task" },
+        spec: fixtureSpec([]),
+        outputDirectory: join(tmpdir(), "lazygoal-delete-fail"),
+        forceSignal: new AbortController().signal,
+    });
+
+    assert.equal(result.status, "infrastructure_error");
+    const cleanupError = result.errors.find((e) => e.stage === "cleanup");
+    assert.ok(cleanupError);
+    // 报错信息中必须包含本次容器标识（名称匹配 lazygoal-fixture-）
+    assert.match(cleanupError.message, /lazygoal-fixture-/);
+});
+
