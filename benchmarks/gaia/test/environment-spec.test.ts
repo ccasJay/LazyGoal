@@ -189,3 +189,39 @@ test("GaiaEnvironmentSpec collectArtifacts 正确回收 answer.json", async () =
     }
 });
 
+test("GaiaEnvironmentSpec 在 domainOnly 模式下只回收领域答案且不访问容器持久化目录", async () => {
+    const tmpOutputDir = await mkdtemp(join(tmpdir(), "gaia-domain-only-"));
+    try {
+        const spec = new GaiaEnvironmentSpec({
+            task: sampleTask,
+            dataRoot: "/tmp/fake-gaia",
+            domainOnly: true,
+        });
+
+        const handle = new MockEnvironmentHandle();
+        handle.mockExecHandler = (cmd) => {
+            if (cmd === "cat /workspace/answer.json") {
+                return {
+                    code: 0,
+                    stdout: JSON.stringify({
+                        taskId: "gaia-test-1",
+                        answer: "Paris",
+                    }),
+                    stderr: "",
+                };
+            }
+            return { code: 0, stdout: "", stderr: "" };
+        };
+
+        const artifacts = await spec.collectArtifacts(handle, tmpOutputDir, 1000);
+        assert.equal(artifacts.submittedAnswer, "Paris");
+        assert.equal(artifacts.answerTaskId, "gaia-test-1");
+        assert.equal(artifacts.persistence, null);
+        assert.equal(artifacts.errors.length, 0);
+        // 断言未调用 copyOut 从容器复制持久化
+        assert.equal(handle.copiedOut.length, 0);
+    } finally {
+        await rm(tmpOutputDir, { recursive: true, force: true });
+    }
+});
+

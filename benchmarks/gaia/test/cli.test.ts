@@ -96,7 +96,7 @@ test("runGaiaSupervisor 正确构造 GaiaEnvironmentSpec 并传递给伪 Isolate
         assert.equal(capturedOptions.spec.benchmarkId, "gaia");
 
         // 验证 sessionMeta 正确传递
-        assert.ok(capturedOptions.acp !== undefined && capturedOptions.acp.sessionMeta !== undefined);
+        assert.ok(capturedOptions !== undefined && capturedOptions.acp !== undefined && capturedOptions.acp.sessionMeta !== undefined);
         const meta = capturedOptions.acp.sessionMeta as Record<string, unknown>;
         assert.equal(meta.taskId, dummyTask.taskId);
         assert.equal(meta.structuredOutputMode, "strict");
@@ -105,3 +105,95 @@ test("runGaiaSupervisor 正确构造 GaiaEnvironmentSpec 并传递给伪 Isolate
     }
 });
 
+test("CLI eval gaia --tui 参数校验：缺失参数、非法模式、包含 resume 快速返回 2", async () => {
+    // 缺失 --manifest 返回 2
+    const code1 = await runGaiaEvalCli(["eval", "gaia", "--tui", "--task", "t-1", "--output-dir", "out"]);
+    assert.equal(code1, 2);
+
+    // 缺失 --task 返回 2
+    const code2 = await runGaiaEvalCli(["eval", "gaia", "--tui", "--manifest", "m.json", "--output-dir", "out"]);
+    assert.equal(code2, 2);
+
+    // 缺失 --output-dir 返回 2
+    const code3 = await runGaiaEvalCli(["eval", "gaia", "--tui", "--manifest", "m.json", "--task", "t-1"]);
+    assert.equal(code3, 2);
+
+    // 包含 --resume 返回 2
+    const code4 = await runGaiaEvalCli(["eval", "gaia", "--tui", "--manifest", "m.json", "--task", "t-1", "--output-dir", "out", "--resume", "123"]);
+    assert.equal(code4, 2);
+
+    // 非法 mode 返回 2
+    const code5 = await runGaiaEvalCli(["eval", "gaia", "--tui", "--manifest", "m.json", "--task", "t-1", "--output-dir", "out", "--mode", "bad"]);
+    assert.equal(code5, 2);
+});
+
+test("CLI eval gaia --tui 正常命令成功进入 runner 并传递正确配置", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "gaia-tui-cli-"));
+    const manifestFile = join(tmpDir, "manifest.json");
+    const outDir = join(tmpDir, "out");
+
+    const manifestData = {
+        source: "huggingface",
+        loadedAt: new Date().toISOString(),
+        split: "validation",
+        dataRoot: "/tmp/data",
+        tasks: [
+            {
+                taskId: "gaia-tui-task-1",
+                question: "What is 3+3?",
+                expectedAnswer: "6",
+                level: 1,
+                split: "validation",
+                attachments: [],
+            },
+        ],
+    };
+
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(manifestFile, JSON.stringify(manifestData, null, 2));
+
+    try {
+        let capturedOptions: any;
+        const exitCode = await runGaiaEvalCli(
+            [
+                "eval", "gaia",
+                "--tui",
+                "--manifest", manifestFile,
+                "--task", "gaia-tui-task-1",
+                "--output-dir", outDir,
+                "--mode", "auto",
+                "--max-steps", "20",
+            ],
+            {
+                adapter: dummyAdapter,
+                workerArtifact: {
+                    tarballPath: "/tmp/fake.tar",
+                    manifest: {
+                        entrypoint: "fake",
+                        nodeRuntime: { version: "20.0.0", platform: "linux", arch: "x64", downloadUrl: "fake", checksumSha256: "fake" },
+                    },
+                },
+                runner: async (opts) => {
+                    capturedOptions = opts;
+                    return {
+                        exitCode: 0,
+                        status: "completed",
+                        artifact: { submittedAnswer: "6" },
+                        errors: [],
+                    };
+                },
+            },
+        );
+
+        assert.equal(exitCode, 0);
+        assert.ok(capturedOptions !== undefined);
+        assert.equal(capturedOptions.benchmarkId, "gaia");
+        assert.equal(capturedOptions.mode, "auto");
+        assert.equal(capturedOptions.maxSteps, 20);
+        assert.equal(capturedOptions.task.taskId, "gaia-tui-task-1");
+        assert.equal(capturedOptions.descriptor.intent, "What is 3+3?");
+        assert.equal(capturedOptions.descriptor.maxSteps, 20);
+    } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+    }
+});

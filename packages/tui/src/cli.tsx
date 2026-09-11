@@ -25,6 +25,7 @@ import {
     type GoalCatalog,
     type ExitPort,
     type GoalProtocolValidator,
+    type PreparationExecutor,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type ToolPolicy,
@@ -281,8 +282,94 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
 export interface CompositionRootOptions {
     /** 用于解析 workspaceRoot 的当前工作目录。 */
     readonly cwd?: string;
-    /** 模型配置来源；默认读取 `process.env`。 */
+    /**
+     * 独立持久化根目录。
+     *
+     * @remarks
+     * 传入时，goals, trajectories, traces, context-sidecars 将被重定向到该目录下；
+     * 省略时使用默认的 `<workspaceRoot>/.lazygoal`。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ dataDirectory: "/tmp/sandbox/attempt-1" });
+     * ```
+     */
+    readonly dataDirectory?: string;
+    /** 模型配置来源；默认读取 `process.env`。若传入显式 `adapter`，则不需要提供。 */
     readonly env?: NodeJS.ProcessEnv;
+    /**
+     * 显式注入的 LLMAdapter。
+     *
+     * @remarks
+     * 传入时优先使用，跳过从环境变量中读取 LLM 配置。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ adapter: mockAdapter });
+     * ```
+     */
+    readonly adapter?: LLMAdapter;
+    /**
+     * 显式注入的生效 Agent Profile。
+     *
+     * @remarks
+     * 传入时优先使用，不再从磁盘加载默认 Profile 文件。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ profile: customProfile });
+     * ```
+     */
+    readonly profile?: AgentProfile;
+    /**
+     * 显式注入的单进程 Tool Registry。
+     *
+     * @remarks
+     * 传入时整体替代默认的五工具注册表，不与宿主工具合并。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ toolRegistry: customRegistry });
+     * ```
+     */
+    readonly toolRegistry?: InMemoryToolRegistry;
+    /**
+     * 显式注入的 Tool 授权策略。
+     *
+     * @remarks
+     * 省略时使用默认的 `createDefaultToolPolicy()`。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ toolPolicy: customPolicy });
+     * ```
+     */
+    readonly toolPolicy?: ToolPolicy;
+    /**
+     * 显式注入的 Preparation 执行器。
+     *
+     * @remarks
+     * 省略时使用默认的 `LLMPreparationExecutor`。
+     *
+     * @example
+     * ```ts
+     * const root = await createCompositionRoot({ preparationExecutor: customExecutor });
+     * ```
+     */
+    readonly preparationExecutor?: PreparationExecutor;
+    /**
+     * 显式注入的根中止控制器。
+     *
+     * @remarks
+     * 省略时内部新建一个 `AbortController`。
+     *
+     * @example
+     * ```ts
+     * const abortController = new AbortController();
+     * const root = await createCompositionRoot({ abortController });
+     * ```
+     */
+    readonly abortController?: AbortController;
     /** 新 Goal 的 ID 生成器；默认使用 `randomUUID`。 */
     readonly goalIdGenerator?: () => string;
     /** 新 Run 的 ID 生成器；默认使用 `randomUUID`。 */
@@ -315,6 +402,8 @@ export interface CompositionRootOptions {
 export interface CompositionRoot {
     /** `realpath(process.cwd())` 得到的工作区根。 */
     readonly workspaceRoot: string;
+    /** 当前使用的持久化根目录（默认为 `<workspaceRoot>/.lazygoal`）。 */
+    readonly dataDirectory: string;
     /** 项目级 Goal 快照目录。 */
     readonly goalsDirectory: string;
     /** 项目级 Domain Event JSONL 目录。 */
@@ -323,8 +412,8 @@ export interface CompositionRoot {
     readonly tracesDirectory: string;
     /** 项目级可删除 Warm Context Sidecar 目录。 */
     readonly contextSidecarsDirectory: string;
-    /** 已校验的供应商、模型、显式凭据及固定输出模式。 */
-    readonly llmConfig: LlmConfig;
+    /** 已校验的供应商、模型、显式凭据及固定输出模式；若显式注入 adapter 且未配置环境变量则可能为 undefined。 */
+    readonly llmConfig?: LlmConfig;
     /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
     readonly conversationCharBudget: number;
     /** Preparation 与 Step Executor 共享的无状态上下文裁剪实例。 */
@@ -339,14 +428,18 @@ export interface CompositionRoot {
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     /** Preparation 与执行阶段共享的供应商无关 Adapter；构造时固定输出模式。 */
     readonly adapter: LLMAdapter;
-    /** 从当前 workspace Profile 文件加载的生效 Agent Profile。 */
+    /** 从当前 workspace Profile 文件或显式注入加载的生效 Agent Profile。 */
     readonly profile: AgentProfile;
     /** 只承载当前生效 Profile 的内存 Registry。 */
     readonly profiles: AgentProfileRegistry;
-    /** 当前 workspaceRoot 下的只读文件 Tool。 */
-    readonly readFileTool: ReadFileTool;
-    /** 包含 `read_file`、`write_file`、`edit_file`、`grep` 与 `bash` 的单进程 Tool Registry。 */
+    /** 当前 workspaceRoot 下的只读文件 Tool；显式注入 registry 且未注册时为 undefined。 */
+    readonly readFileTool?: ReadFileTool;
+    /** 包含已注册 Tool 的单进程 Tool Registry。 */
     readonly toolRegistry: InMemoryToolRegistry;
+    /** 当前生效的 Tool 授权策略。 */
+    readonly toolPolicy: ToolPolicy;
+    /** 当前生效的 Preparation 执行器。 */
+    readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
@@ -425,61 +518,94 @@ export async function createCompositionRoot(
     options: CompositionRootOptions = {},
 ): Promise<CompositionRoot> {
     const env = options.env ?? process.env;
-    const llmConfig = readLlmConfig(env);
-    const adapter = createLlmAdapter(llmConfig);
+    let llmConfig: LlmConfig | undefined;
+    let adapter: LLMAdapter;
+    if (options.adapter !== undefined) {
+        adapter = options.adapter;
+        try {
+            llmConfig = readLlmConfig(env);
+        } catch {
+            llmConfig = undefined;
+        }
+    } else {
+        llmConfig = readLlmConfig(env);
+        adapter = createLlmAdapter(llmConfig);
+    }
     const conversationCharBudget = readConversationCharBudget(env);
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
-    const goalsDirectory = join(workspaceRoot, ".lazygoal", "goals");
+    const dataDirectory = options.dataDirectory !== undefined
+        ? resolve(options.dataDirectory)
+        : join(workspaceRoot, ".lazygoal");
+    const goalsDirectory = join(dataDirectory, "goals");
     const trajectoriesDirectory = join(
-        workspaceRoot,
-        ".lazygoal",
+        dataDirectory,
         "trajectories",
     );
-    const tracesDirectory = join(workspaceRoot, ".lazygoal", "traces");
+    const tracesDirectory = join(dataDirectory, "traces");
     const contextSidecarsDirectory = join(
-        workspaceRoot,
-        ".lazygoal",
+        dataDirectory,
         "context-sidecars",
     );
     const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
-    const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
     const profilePath = join(
         profilesDirectory,
         `${DEFAULT_PROFILE_ID}.json`,
     );
-    const loadedProfile = await profileStore.load(DEFAULT_PROFILE_ID);
 
-    if (loadedProfile === undefined) {
-        throw new AgentProfileConfigurationError(
-            DEFAULT_PROFILE_ID,
-            profilePath,
-            "Profile 文件不存在",
-        );
+    let profile: AgentProfile;
+    let profiles: AgentProfileRegistry;
+    if (options.profile !== undefined) {
+        profile = options.profile;
+        profiles = {
+            get(profileId: string): AgentProfile | undefined {
+                return profileId === profile.id ? profile : undefined;
+            },
+        };
+    } else {
+        const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
+        const loadedProfile = await profileStore.load(DEFAULT_PROFILE_ID);
+
+        if (loadedProfile === undefined) {
+            throw new AgentProfileConfigurationError(
+                DEFAULT_PROFILE_ID,
+                profilePath,
+                "Profile 文件不存在",
+            );
+        }
+
+        profile = loadedProfile;
+        profiles = {
+            get(profileId: string): AgentProfile | undefined {
+                return profileId === profile.id
+                    ? profile
+                    : undefined;
+            },
+        };
     }
 
-    const profile: AgentProfile = loadedProfile;
-    const profiles: AgentProfileRegistry = {
-        get(profileId: string): AgentProfile | undefined {
-            return profileId === profile.id
-                ? profile
-                : undefined;
-        },
-    };
-    const readFileTool = new ReadFileTool(workspaceRoot);
-    const writeFileTool = new WriteFileTool(workspaceRoot);
-    const editFileTool = new EditFileTool(workspaceRoot);
-    const grepTool = new GrepTool(workspaceRoot);
-    const bashTool = new BashTool(workspaceRoot);
-    const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(readFileTool),
-        createToolRegistration(writeFileTool),
-        createToolRegistration(editFileTool),
-        createToolRegistration(grepTool),
-        createToolRegistration(bashTool),
-    ]);
+    let toolRegistry: InMemoryToolRegistry;
+    let readFileTool: ReadFileTool | undefined;
+    if (options.toolRegistry !== undefined) {
+        toolRegistry = options.toolRegistry;
+        readFileTool = undefined;
+    } else {
+        readFileTool = new ReadFileTool(workspaceRoot);
+        const writeFileTool = new WriteFileTool(workspaceRoot);
+        const editFileTool = new EditFileTool(workspaceRoot);
+        const grepTool = new GrepTool(workspaceRoot);
+        const bashTool = new BashTool(workspaceRoot);
+        toolRegistry = new InMemoryToolRegistry([
+            createToolRegistration(readFileTool),
+            createToolRegistration(writeFileTool),
+            createToolRegistration(editFileTool),
+            createToolRegistration(grepTool),
+            createToolRegistration(bashTool),
+        ]);
+    }
+
     const missingToolId = profile.toolIds.find(
         (toolId) => toolRegistry.get(toolId) === undefined,
     );
@@ -487,7 +613,7 @@ export async function createCompositionRoot(
     if (missingToolId !== undefined) {
         throw new AgentProfileConfigurationError(
             profile.id,
-            profilePath,
+            options.profile !== undefined ? `<explicit-profile:${profile.id}>` : profilePath,
             `toolIds 引用了未注册的 Tool "${missingToolId}"`,
         );
     }
@@ -524,12 +650,21 @@ export async function createCompositionRoot(
     const checkpointStore = new CheckpointGateGoalStore(store);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
-    const abortController = new AbortController();
+    const abortController = options.abortController ?? new AbortController();
     const resources = new ManagedResourceRegistry();
     const checkpointCommitter = new TrajectoryCheckpointCommitter({
         store: checkpointStore,
         trajectoryStore,
         traceSink,
+    });
+    const toolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
+    const preparationExecutor = options.preparationExecutor ?? new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        traceSink,
+        trajectoryContextAssembler,
+        ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
     });
     const runner = new Runner({
         store: checkpointStore,
@@ -542,7 +677,7 @@ export async function createCompositionRoot(
             ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         }),
         toolRegistry,
-        toolPolicy: createDefaultToolPolicy(),
+        toolPolicy,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -553,14 +688,7 @@ export async function createCompositionRoot(
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
         store: checkpointStore,
-        preparationExecutor: new LLMPreparationExecutor({
-            adapter,
-            renderer,
-            contextCompactor,
-            traceSink,
-            trajectoryContextAssembler,
-            ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
-        }),
+        preparationExecutor,
         scheduler,
         toolRegistry,
         traceSink,
@@ -615,11 +743,12 @@ export async function createCompositionRoot(
 
     return {
         workspaceRoot,
+        dataDirectory,
         goalsDirectory,
         trajectoriesDirectory,
         tracesDirectory,
         contextSidecarsDirectory,
-        llmConfig,
+        ...(llmConfig === undefined ? {} : { llmConfig }),
         conversationCharBudget,
         contextCompactor,
         modelInputEstimator,
@@ -629,8 +758,10 @@ export async function createCompositionRoot(
         adapter,
         profile,
         profiles,
-        readFileTool,
+        ...(readFileTool === undefined ? {} : { readFileTool }),
         toolRegistry,
+        toolPolicy,
+        preparationExecutor,
         store,
         trajectoryStore,
         contextLookupService,
@@ -680,6 +811,58 @@ export interface CliRunOptions {
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
     readonly gracePeriodMs?: number;
+}
+
+/**
+ * 挂载并运行已有 SessionController 的 TUI 实例。
+ *
+ * @remarks
+ * 允许外部编排器拥有生命周期控制、信号监听与 Controller 装配，TUI 仅负责渲染
+ * 与用户交互。
+ *
+ * @param options - 挂载选项，包含 controller、关闭回调及可选渲染器。
+ * @returns 包含实例卸载和等待退出的可控制句柄。
+ * @example
+ * ```ts
+ * const app = mountTuiApp({
+ *     controller: root.controller,
+ *     onShutdown: () => root.shutdownCoordinator.shutdown(),
+ * });
+ * await app.waitUntilExit();
+ * ```
+ */
+export interface MountTuiOptions {
+    /** 要挂载的单 Goal 会话控制器。 */
+    readonly controller: SessionController;
+    /** 用户触发或界面请求关闭时的回调。 */
+    readonly onShutdown: () => Promise<void>;
+    /** 可选的 Ink 渲染器，测试可注入替身。 */
+    readonly render?: typeof inkRender;
+}
+
+/** 挂载的 TUI 运行句柄。 */
+export interface MountedTuiApp {
+    /** 等待 TUI 退出。 */
+    waitUntilExit(): Promise<void>;
+    /** 卸载 TUI 组件树。 */
+    unmount(): void;
+}
+
+export function mountTuiApp(options: MountTuiOptions): MountedTuiApp {
+    const renderer = options.render ?? inkRender;
+    const instance = renderer(
+        <TuiApp
+            controller={options.controller}
+            onShutdown={options.onShutdown}
+        />,
+        { exitOnCtrlC: false },
+    );
+    return {
+        waitUntilExit: async () => {
+            await instance.waitUntilExit();
+        },
+        unmount: () => instance.unmount(),
+    };
 }
 
 /**
@@ -749,7 +932,7 @@ export async function runCli(
     }
 
     const renderer = options.render ?? inkRender;
-    let instance: ReturnType<typeof inkRender> | undefined;
+    let app: MountedTuiApp | undefined;
     let shutdownRequested = false;
     let shutdownPromise: Promise<void> | undefined;
     let unregisterSigint: (() => void) | undefined;
@@ -763,9 +946,9 @@ export async function runCli(
         root.checkpointStore.freeze();
         root.abortController.abort();
         shutdownPromise = (async () => {
-            instance?.unmount();
-            if (instance !== undefined) {
-                await instance.waitUntilExit();
+            app?.unmount();
+            if (app !== undefined) {
+                await app.waitUntilExit();
             }
             await root.shutdownCoordinator.shutdown();
         })();
@@ -782,13 +965,11 @@ export async function runCli(
                 process.off("SIGINT", onSigint);
             },
         });
-        instance = renderer(
-            <TuiApp
-                controller={root.controller}
-                onShutdown={requestShutdown}
-            />,
-            { exitOnCtrlC: false },
-        );
+        app = mountTuiApp({
+            controller: root.controller,
+            onShutdown: requestShutdown,
+            render: renderer,
+        });
 
         if (command.kind === "resume") {
             await root.controller.dispatch({ kind: "resume" });
@@ -796,7 +977,7 @@ export async function runCli(
             await root.controller.dispatch({ kind: "continueLatest" });
         }
 
-        await instance.waitUntilExit();
+        await app.waitUntilExit();
         if (shutdownPromise !== undefined) {
             await shutdownPromise;
         }

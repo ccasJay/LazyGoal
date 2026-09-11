@@ -21,6 +21,7 @@ export {
 export {
     GAIA_MANAGED_INSTALL_COMMANDS,
     GaiaEnvironmentSpec,
+    collectGaiaDomainArtifacts,
     type GaiaCollectedArtifacts,
     type GaiaCollectedArtifactError,
     type GaiaEnvironmentSpecOptions,
@@ -31,6 +32,17 @@ export {
     SubmitAnswerTool,
     type SubmitAnswerToolOptions,
 } from "./submit-answer";
+export {
+    GAIA_TOOL_IDS,
+    GAIA_READONLY_TOOL_IDS,
+    getGaiaToolManifest,
+    createGaiaToolRegistrations,
+    type GaiaToolRegistrationsOptions,
+} from "./tool-manifest";
+export {
+    runGaiaToolsWorker,
+    type GaiaToolsWorkerOptions,
+} from "./tools-worker-entry";
 export {
     GAIA_PROFILE_TOOL_IDS,
     GAIA_WORKER_PROFILE,

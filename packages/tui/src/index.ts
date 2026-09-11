@@ -1,4 +1,5 @@
 export { SessionController } from "./session-controller";
+export { NotifyingGoalStore } from "./notifying-goal-store";
 export { TuiApp } from "./app";
 export { IntentScreen } from "./intent-screen";
 export { PreparationScreen } from "./preparation-screen";
@@ -34,3 +35,14 @@ export type {
     UiViewModel,
     UiWaitingFor,
 } from "./types";
+export {
+    createCompositionRoot,
+    mountTuiApp,
+    runCli,
+    type CompositionRoot,
+    type CompositionRootOptions,
+    type MountTuiOptions,
+    type MountedTuiApp,
+    type CliRunOptions,
+} from "./cli";
+

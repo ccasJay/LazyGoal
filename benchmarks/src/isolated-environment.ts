@@ -222,6 +222,14 @@ export interface IsolatedEnvironmentRunOptions<TTask, TArtifact> {
     readonly artifactGraceMs?: number;
     /** 外部取消信号。 */
     readonly signal?: AbortSignal;
+    /**
+     * TUI 模式下超过正常关闭宽限期后触发的强制清理信号。
+     *
+     * @remarks
+     * 未传入时保持原有无头行为不变；传入并触发时，立即停止产物回收、终止 Worker，
+     * 并以最多 5 秒尝试强制删除容器。
+     */
+    readonly forceSignal?: AbortSignal;
     /** 提供 ACP 时由共享层建立 Mux、LLM RPC 和一次性 Client。 */
     readonly acp?: IsolatedEnvironmentAcpOptions;
     /** 无需标准 ACP Client 的确定性测试或自定义 Agent 回调。 */
@@ -373,7 +381,8 @@ export class IsolatedEnvironment {
         const controller = new AbortController();
         const forwardAbort = () => controller.abort();
         options.signal?.addEventListener("abort", forwardAbort, { once: true });
-        if (options.signal?.aborted) controller.abort();
+        options.forceSignal?.addEventListener("abort", forwardAbort, { once: true });
+        if (options.signal?.aborted || options.forceSignal?.aborted) controller.abort();
         const timeout = setTimeout(() => controller.abort(), options.taskTimeoutMs ?? 300_000);
         let imageId: string | null = options.container?.imageId ?? null;
         let created = false;
@@ -485,42 +494,94 @@ export class IsolatedEnvironment {
         } finally {
             clearTimeout(timeout);
             options.signal?.removeEventListener("abort", forwardAbort);
+            options.forceSignal?.removeEventListener("abort", forwardAbort);
+            const cleanupStart = Date.now();
+            const totalGraceMs = options.artifactGraceMs ?? 30_000;
+            const hasForceSignal = options.forceSignal !== undefined;
+
             if (rpc !== undefined) await rpc.close().catch((error) => pushError(errors, "transport", error));
             if (mux !== undefined) await mux.close().catch((error) => pushError(errors, "transport", error));
             if (worker !== undefined) {
                 try { worker.kill(); } catch (error) { pushError(errors, "transport", error); }
-                await settleWorker(worker, options.artifactGraceMs ?? 30_000, errors);
+                const workerTimeoutMs = hasForceSignal
+                    ? Math.max(0, totalGraceMs - (Date.now() - cleanupStart))
+                    : totalGraceMs;
+                await settleWorker(worker, workerTimeoutMs, errors, options.forceSignal);
             }
             if (created) {
-                const artifactGraceMs = options.artifactGraceMs ?? 30_000;
-                const artifactController = new AbortController();
-                const artifactTimeout = setTimeout(() => artifactController.abort(), artifactGraceMs);
-                try {
-                    artifact = await withinGrace(
-                        () => options.spec.collectArtifacts(
-                            options.container?.createHandle(workdir, artifactController.signal)
-                                ?? this.createHandle(containerName, workdir, artifactController.signal),
-                            outputDirectory,
-                            artifactGraceMs,
-                        ),
-                        artifactGraceMs,
-                    );
-                } catch (error) {
-                    pushError(errors, "artifact_collect", error);
-                } finally {
-                    clearTimeout(artifactTimeout);
+                const remainingForArtifacts = hasForceSignal
+                    ? Math.max(0, totalGraceMs - (Date.now() - cleanupStart))
+                    : totalGraceMs;
+                const isForceAborted = options.forceSignal?.aborted || (hasForceSignal && remainingForArtifacts <= 0);
+
+                if (!isForceAborted) {
+                    const artifactController = new AbortController();
+                    const forwardForce = () => artifactController.abort();
+                    if (options.forceSignal !== undefined) {
+                        options.forceSignal.addEventListener("abort", forwardForce, { once: true });
+                    }
+                    const artifactTimeout = setTimeout(() => artifactController.abort(), remainingForArtifacts);
+                    try {
+                        artifact = await withinGrace(
+                            () => options.spec.collectArtifacts(
+                                options.container?.createHandle(workdir, artifactController.signal)
+                                    ?? this.createHandle(containerName, workdir, artifactController.signal),
+                                outputDirectory,
+                                remainingForArtifacts,
+                            ),
+                            remainingForArtifacts,
+                            options.forceSignal,
+                        );
+                    } catch (error) {
+                        pushError(errors, "artifact_collect", error);
+                    } finally {
+                        clearTimeout(artifactTimeout);
+                        if (options.forceSignal !== undefined) {
+                            options.forceSignal.removeEventListener("abort", forwardForce);
+                        }
+                    }
+                } else {
+                    pushError(errors, "artifact_collect", "Artifact collection skipped due to force cleanup timeout");
                 }
+
+                const deleteTimeoutMs = hasForceSignal ? 5_000 : 30_000;
                 try {
-                    if (options.container !== undefined) await options.container.close();
-                    else await this.remove(containerName);
+                    let deleteTimer: ReturnType<typeof setTimeout> | undefined;
+                    try {
+                        await Promise.race([
+                            (async () => {
+                                if (options.container !== undefined) {
+                                    await options.container.close();
+                                } else {
+                                    await this.remove(containerName, deleteTimeoutMs);
+                                }
+                            })(),
+                            new Promise<never>((_, reject) => {
+                                deleteTimer = setTimeout(
+                                    () => reject(new Error(`Timed out after ${deleteTimeoutMs}ms attempting to remove container ${containerName}`)),
+                                    deleteTimeoutMs,
+                                );
+                            }),
+                        ]);
+                    } finally {
+                        if (deleteTimer !== undefined) clearTimeout(deleteTimer);
+                    }
                 } catch (error) {
-                    pushError(errors, "cleanup", error);
+                    const msg = error instanceof Error ? error.message : String(error);
+                    const enriched = msg.includes(containerName)
+                        ? error
+                        : new Error(`Failed to remove container ${containerName}: ${msg}`);
+                    pushError(errors, "cleanup", enriched);
                 }
             }
         }
         if (controller.signal.aborted && status !== "cancelled") status = "cancelled";
-        if (errors.length > 0 && status !== "cancelled") {
-            status = errors.some((error) => error.stage !== "agent") ? "infrastructure_error" : "failed";
+        if (errors.length > 0) {
+            if (errors.some((error) => error.stage === "cleanup")) {
+                status = "infrastructure_error";
+            } else if (status !== "cancelled") {
+                status = errors.some((error) => error.stage !== "agent") ? "infrastructure_error" : "failed";
+            }
         }
         return { status, artifact, imageId, acp, errors };
     }
@@ -642,9 +703,9 @@ export class IsolatedEnvironment {
         return runner("docker", args, { timeoutMs, signal, maxBytes: 16 * 1024 * 1024 });
     }
 
-    private async remove(name: string): Promise<void> {
-        const result = await this.runProcess("docker", ["rm", "--force", name], { timeoutMs: 30_000, maxBytes: 16 * 1024, truncate: true });
-        if (result.code !== 0 && !result.stderr.includes("No such container")) requireSuccess(result, "Remove isolated container");
+    private async remove(name: string, timeoutMs = 30_000): Promise<void> {
+        const result = await this.runProcess("docker", ["rm", "--force", name], { timeoutMs, maxBytes: 16 * 1024, truncate: true });
+        if (result.code !== 0 && !result.stderr.includes("No such container")) requireSuccess(result, `Remove isolated container ${name}`);
     }
 }
 
@@ -721,30 +782,65 @@ async function drainDiagnostics(stream: ReadableStream<Uint8Array>): Promise<voi
     }
 }
 
-async function settleWorker(worker: InteractiveProcess, timeoutMs: number, errors: IsolatedEnvironmentError[]): Promise<void> {
+async function settleWorker(
+    worker: InteractiveProcess,
+    timeoutMs: number,
+    errors: IsolatedEnvironmentError[],
+    forceSignal?: AbortSignal,
+): Promise<void> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let forceHandler: (() => void) | undefined;
     try {
         await Promise.race([
             worker.closed,
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Worker did not exit within cleanup grace period")), timeoutMs); }),
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(new Error("Worker did not exit within cleanup grace period")), timeoutMs);
+                if (forceSignal !== undefined) {
+                    if (forceSignal.aborted) {
+                        reject(new Error("Worker cleanup wait aborted by force signal"));
+                        return;
+                    }
+                    forceHandler = () => reject(new Error("Worker cleanup wait aborted by force signal"));
+                    forceSignal.addEventListener("abort", forceHandler, { once: true });
+                }
+            }),
         ]);
     } catch (error) {
         pushError(errors, "transport", error);
     } finally {
         if (timer !== undefined) clearTimeout(timer);
+        if (forceSignal !== undefined && forceHandler !== undefined) {
+            forceSignal.removeEventListener("abort", forceHandler);
+        }
     }
 }
 
-async function withinGrace<T>(factory: () => Promise<T>, timeoutMs: number): Promise<T> {
+async function withinGrace<T>(
+    factory: () => Promise<T>,
+    timeoutMs: number,
+    forceSignal?: AbortSignal,
+): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let forceHandler: (() => void) | undefined;
     try {
         return await Promise.race([
             factory(),
             new Promise<never>((_, reject) => {
                 timer = setTimeout(() => reject(new Error("Environment artifact grace period exceeded")), timeoutMs);
+                if (forceSignal !== undefined) {
+                    if (forceSignal.aborted) {
+                        reject(new Error("Artifact collection aborted by force signal"));
+                        return;
+                    }
+                    forceHandler = () => reject(new Error("Artifact collection aborted by force signal"));
+                    forceSignal.addEventListener("abort", forceHandler, { once: true });
+                }
             }),
         ]);
     } finally {
         if (timer !== undefined) clearTimeout(timer);
+        if (forceSignal !== undefined && forceHandler !== undefined) {
+            forceSignal.removeEventListener("abort", forceHandler);
+        }
     }
 }

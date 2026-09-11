@@ -44,6 +44,8 @@ type WaitingProgress = Extract<
 export class SessionController {
     private readonly dependencies: SessionControllerDependencies;
     private shuttingDown = false;
+    private lastCommittedStepCount = -1;
+    private storeUnsubscribe: (() => void) | undefined;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -53,6 +55,11 @@ export class SessionController {
     /** @param dependencies - Launcher、Coordinator、Store、Catalog 与身份依赖。 */
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
+        if (dependencies.notifyingStore !== undefined) {
+            this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
+                this.onGoalCommitted(goal);
+            });
+        }
     }
 
     /**
@@ -99,6 +106,8 @@ export class SessionController {
         }
 
         this.shuttingDown = true;
+        this.storeUnsubscribe?.();
+        this.storeUnsubscribe = undefined;
         const goal = this.snapshot.screen === "session"
             ? structuredClone(this.snapshot.goal)
             : undefined;
@@ -108,6 +117,23 @@ export class SessionController {
             busy: true,
             ...(goal === undefined ? {} : { goal }),
         });
+    }
+
+    /**
+     * 释放 Controller 持有的外部订阅资源。
+     *
+     * @remarks
+     * 注销对底层 GoalStore 的提交监听，并清空所有 UI 订阅者。
+     *
+     * @example
+     * ```ts
+     * controller.dispose();
+     * ```
+     */
+    dispose(): void {
+        this.storeUnsubscribe?.();
+        this.storeUnsubscribe = undefined;
+        this.subscribers.clear();
     }
 
     /**
@@ -442,6 +468,7 @@ export class SessionController {
         progress: ProgressResult | undefined,
         busy: boolean,
     ): UiSessionViewModel {
+        this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
         const snapshot = structuredClone(goal);
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
             ? progress.waitingFor
@@ -458,6 +485,10 @@ export class SessionController {
         const preparationStalled = isStalledPreparation(snapshot, waitingFor);
         const terminal = deriveTerminalSummary(snapshot);
 
+        const currentSession = this.snapshot.screen === "session" ? this.snapshot : undefined;
+        const mode = this.dependencies.mode ?? currentSession?.mode;
+        const taskTitle = this.dependencies.taskTitle ?? currentSession?.taskTitle;
+
         return {
             screen: "session",
             busy,
@@ -466,6 +497,15 @@ export class SessionController {
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
+            ...(mode !== undefined ? { mode } : {}),
+            ...(taskTitle !== undefined ? { taskTitle } : {}),
+            ...(currentSession?.lastCommittedAction !== undefined
+                ? { lastCommittedAction: currentSession.lastCommittedAction }
+                : {}),
+            ...(currentSession?.lastCommittedObservation !== undefined
+                ? { lastCommittedObservation: currentSession.lastCommittedObservation }
+                : {}),
+            ...(currentSession?.cleaning !== undefined ? { cleaning: currentSession.cleaning } : {}),
             ...(waitingFor === undefined ? {} : { waitingFor }),
             ...(preparationStalled ? { preparationStalled } : {}),
             ...(question === undefined ? {} : { question }),
@@ -476,6 +516,102 @@ export class SessionController {
                 : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
         };
+    }
+
+    /**
+     * 处理外部原子提交的 Goal 快照更新。
+     *
+     * @remarks
+     * 对应 req-5-2、req-5-3：
+     * 1. 过滤已关闭（shuttingDown）与非当前 Goal/Run 的迟到事件；
+     * 2. 按 stepCount 单调递增去重，拒绝迟到的旧读取结果；
+     * 3. 提取已提交的 Action/Observation 事实；
+     * 4. 严守契约：绝不修改当前的 busy 状态（保证在途 dispatch 的锁不受污染）；
+     * 5. 立即通知 UI 订阅者渲染增量帧。
+     *
+     * @param savedGoal - 成功保存到持久化存储的不可变 Goal 快照。
+     *
+     * @example
+     * ```ts
+     * controller.onGoalCommitted(committedGoal);
+     * ```
+     */
+    onGoalCommitted(savedGoal: Goal): void {
+        if (this.shuttingDown) {
+            return;
+        }
+
+        if (this.snapshot.screen !== "session") {
+            return;
+        }
+
+        const currentGoal = this.snapshot.goal;
+        if (savedGoal.id !== currentGoal.id || savedGoal.state.run.id !== currentGoal.state.run.id) {
+            return;
+        }
+
+        const committedStep = savedGoal.state.run.stepCount;
+        if (committedStep < this.lastCommittedStepCount) {
+            return;
+        }
+        this.lastCommittedStepCount = committedStep;
+
+        let lastAction = this.snapshot.lastCommittedAction;
+        let lastObservation = this.snapshot.lastCommittedObservation;
+        const lastStep = savedGoal.state.run.lastStep;
+        if (lastStep !== undefined && lastStep.kind === "action") {
+            lastAction = {
+                toolId: lastStep.action.toolId,
+                actionId: lastStep.action.actionId,
+            };
+            lastObservation = {
+                toolId: lastStep.action.toolId,
+                status: lastStep.observation.kind,
+            };
+        } else {
+            const pendingAction = savedGoal.state.run.pendingAction;
+            if (pendingAction !== undefined && pendingAction.action !== undefined) {
+                lastAction = {
+                    toolId: pendingAction.action.toolId,
+                    actionId: pendingAction.action.actionId,
+                };
+            }
+        }
+
+        const mode = this.dependencies.mode ?? this.snapshot.mode;
+        const taskTitle = this.dependencies.taskTitle ?? this.snapshot.taskTitle;
+
+        this.setSnapshot({
+            ...this.snapshot,
+            goal: structuredClone(savedGoal),
+            phase: savedGoal.state.workflow.phase,
+            runStatus: savedGoal.state.run.status,
+            stepCount: committedStep,
+            messages: savedGoal.state.messages.slice(),
+            ...(mode !== undefined ? { mode } : {}),
+            ...(taskTitle !== undefined ? { taskTitle } : {}),
+            ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
+            ...(lastObservation !== undefined ? { lastCommittedObservation: lastObservation } : {}),
+        });
+    }
+
+    /**
+     * 设置当前会话的沙箱资源清理状态。
+     *
+     * @param cleaning - 是否处于清理阶段。
+     *
+     * @example
+     * ```ts
+     * controller.setCleaning(true);
+     * ```
+     */
+    setCleaning(cleaning: boolean): void {
+        if (this.snapshot.screen === "session") {
+            this.setSnapshot({
+                ...this.snapshot,
+                cleaning,
+            });
+        }
     }
 
     private setBusy(busy: boolean, clearError = false): void {

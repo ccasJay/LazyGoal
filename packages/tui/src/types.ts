@@ -189,6 +189,24 @@ export interface UiSessionViewModel {
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
     readonly error?: UiError;
+    /** 可选执行模式（"auto" 或 "review"）。 */
+    readonly mode?: "auto" | "review";
+    /** 可选任务标识或描述。 */
+    readonly taskTitle?: string;
+    /** 最近一次成功提交的 Action 摘要。 */
+    readonly lastCommittedAction?: {
+        readonly toolId: string;
+        readonly actionId: string;
+        readonly inputSummary?: string;
+    };
+    /** 最近一次成功提交的 Observation 摘要。 */
+    readonly lastCommittedObservation?: {
+        readonly toolId: string;
+        readonly status: string;
+        readonly summary?: string;
+    };
+    /** 是否处于沙箱资源清理阶段。 */
+    readonly cleaning?: boolean;
 }
 
 /**
@@ -309,6 +327,12 @@ export interface SessionControllerDependencies {
     readonly maxSteps?: number;
     /** 贯穿本次 Controller 调用链的可选中止控制。 */
     readonly control?: ExecutionControl;
+    /** 可选已提交快照保存通知源。 */
+    readonly notifyingStore?: { onSave(listener: (goal: Goal) => void): () => void };
+    /** 可选执行模式（"auto" 或 "review"）。 */
+    readonly mode?: "auto" | "review";
+    /** 可选任务标识或标题。 */
+    readonly taskTitle?: string;
 }
 
 /**

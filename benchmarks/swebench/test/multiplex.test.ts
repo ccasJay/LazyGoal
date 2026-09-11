@@ -90,3 +90,34 @@ test("frame and queue byte limits reject oversized or backpressured writes", asy
     });
     await mux.close();
 });
+
+test("MultiplexedConnection routes tools channel alongside acp and llm in round robin", async () => {
+    const input = new TransformStream<Uint8Array, Uint8Array>();
+    const outputLines: string[] = [];
+    const output = new WritableStream<Uint8Array>({
+        write(chunk) { outputLines.push(new TextDecoder().decode(chunk)); },
+    });
+    const mux = new MultiplexedConnection({ input: input.readable, output, maxQueueBytes: 2048 });
+    const acp = mux.channel<{ readonly id: number }>("acp");
+    const llm = mux.channel<{ readonly id: number }>("llm");
+    const tools = mux.channel<{ readonly id: number }>("tools");
+
+    const acpWriter = acp.writable.getWriter();
+    const llmWriter = llm.writable.getWriter();
+    const toolsWriter = tools.writable.getWriter();
+
+    await Promise.all([
+        acpWriter.write({ id: 10 }),
+        llmWriter.write({ id: 20 }),
+        toolsWriter.write({ id: 30 }),
+    ]);
+
+    const frames = outputLines.join("").trim().split("\n").map((line) => JSON.parse(line) as { channel: string; sequence: number; payload: { id: number } });
+    assert.deepEqual(frames.map((f) => [f.channel, f.sequence, f.payload.id]), [
+        ["acp", 1, 10],
+        ["llm", 2, 20],
+        ["tools", 3, 30],
+    ]);
+    await mux.close();
+});
+

@@ -50,6 +50,44 @@ export interface SwebenchCollectedArtifactError {
 }
 
 /**
+ * 从 SWE-bench 容器中提取临时 git diff 补丁。
+ *
+ * @remarks
+ * 纯领域操作，不读取或修改任何 Runtime 持久化。
+ *
+ * @param env - 容器环境执行句柄。
+ * @param baseCommit - 基础 commit SHA。
+ * @returns 提取的 git patch 字符串或失败信息。
+ *
+ * @example
+ * ```ts
+ * const { patch } = await exportSwebenchPatch(env, "abc1234");
+ * ```
+ */
+export async function exportSwebenchPatch(
+    env: EnvironmentHandle,
+    baseCommit: string,
+): Promise<{ readonly patch: string | null; readonly error?: string }> {
+    try {
+        const result = await env.exec([
+            "set -eu",
+            "index=/opt/lazygoal/git-index",
+            "rm -f \"$index\"",
+            "trap 'rm -f \"$index\"' EXIT",
+            `GIT_INDEX_FILE=\"$index\" git read-tree ${baseCommit}`,
+            "GIT_INDEX_FILE=\"$index\" git add -A",
+            `GIT_INDEX_FILE=\"$index\" git diff --cached --binary --no-ext-diff ${baseCommit}`,
+        ].join("; "), { timeoutMs: 30_000, maxBytes: 16 * 1024 * 1024 });
+        if (result.code !== 0) {
+            return { patch: null, error: result.stderr || result.stdout || `exit ${result.code}` };
+        }
+        return { patch: result.stdout };
+    } catch (error) {
+        return { patch: null, error: boundedMessage(error) };
+    }
+}
+
+/**
  * SWE-bench 的声明式隔离环境适配。
  *
  * @remarks
@@ -70,6 +108,7 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
     private readonly manifest: WorkerManifest;
     private readonly metadata: SwebenchAcpTaskMetadata;
     private readonly preflightWorker: (() => Promise<WorkerPreflightResult>) | undefined;
+    private readonly domainOnly: boolean;
 
     /**
      * @param options - 已校验的任务、Worker 清单、Runtime 身份和可选预检回调。
@@ -80,6 +119,7 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
         this.manifest = options.manifest;
         this.metadata = options.metadata;
         this.preflightWorker = options.preflight;
+        this.domainOnly = options.domainOnly ?? false;
     }
 
     /** 返回固定官方 SWE-bench 镜像，不接受任务字段中的任意镜像。 */
@@ -137,6 +177,20 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
         _graceMs: number,
     ): Promise<SwebenchCollectedArtifacts> {
         const output = resolve(outputDirectory);
+
+        if (this.domainOnly) {
+            const { patch, error } = await exportSwebenchPatch(env, this.task.base_commit);
+            const errors: SwebenchCollectedArtifactError[] = [];
+            if (error !== undefined) {
+                errors.push({ stage: "patch_export", message: error });
+            }
+            return {
+                patch,
+                persistence: null,
+                errors: Object.freeze(errors),
+            };
+        }
+
         const benchmarkKey = encode("swebench-acp");
         const instanceKey = encode(this.metadata.instanceId);
         const runtimeRoot = join(output, "runtime", benchmarkKey, instanceKey, encode(this.metadata.runId));
@@ -154,21 +208,9 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
             }
         }
 
-        let patch: string | null = null;
-        try {
-            const result = await env.exec([
-                "set -eu",
-                "index=/opt/lazygoal/git-index",
-                "rm -f \"$index\"",
-                "trap 'rm -f \"$index\"' EXIT",
-                `GIT_INDEX_FILE=\"$index\" git read-tree ${this.task.base_commit}`,
-                "GIT_INDEX_FILE=\"$index\" git add -A",
-                `GIT_INDEX_FILE=\"$index\" git diff --cached --binary --no-ext-diff ${this.task.base_commit}`,
-            ].join("; "), { timeoutMs: 30_000, maxBytes: 16 * 1024 * 1024 });
-            if (result.code !== 0) throw new Error(result.stderr || result.stdout || `exit ${result.code}`);
-            patch = result.stdout;
-        } catch (error) {
-            errors.push({ stage: "patch_export", message: boundedMessage(error) });
+        const { patch, error: patchError } = await exportSwebenchPatch(env, this.task.base_commit);
+        if (patchError !== undefined) {
+            errors.push({ stage: "patch_export", message: patchError });
         }
 
         let meta: Readonly<Record<string, unknown>> | undefined;
@@ -211,6 +253,8 @@ export interface SwebenchEnvironmentSpecOptions {
     readonly metadata: SwebenchAcpTaskMetadata;
     /** 仅供旧容器测试替身覆盖；生产路径使用受限 EnvironmentHandle 预检。 */
     readonly preflight?: () => Promise<WorkerPreflightResult>;
+    /** 是否仅回收领域产物（TUI 模式下宿主拥有持久化，不从容器复制 state）。 */
+    readonly domainOnly?: boolean;
 }
 
 function encode(value: string): string {

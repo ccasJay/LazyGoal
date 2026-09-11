@@ -10,8 +10,27 @@ import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worke
 import { gradeSwebenchEvaluation, preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
 
+import {
+    runTuiWithSandbox,
+    createSwebenchRemoteToolRegistry,
+    type BenchmarkTaskDescriptor,
+    type TuiExecutionMode,
+    type IsolatedEnvironment,
+} from "../../src/index.js";
+import { SWEBENCH_TOOL_IDS, SWEBENCH_READONLY_TOOL_IDS } from "./tool-manifest.js";
+import { SwebenchEnvironmentSpec } from "./environment-spec.js";
+import { parseSwebenchTasks, type SwebenchTask } from "./container.js";
+import { SWE_ACP_PROFILE } from "./worker-runtime.js";
+import { BRIDGE_PATH } from "./evaluation.js";
+import { isRecord, SWEBENCH_VERSION, type SwebenchManifest } from "./manifest.js";
+import { requireSuccess, runProcess } from "../../src/process.js";
+
 /**
  * 严格评测命令；output 必须是新目录以避免覆盖已有预测和评分缓存。
+ *
+ * @remarks
+ * 支持单任务 TUI 交互模式 (`tui: true`) 与批量 Headless 评测模式。
+ *
  * @example
  * ```ts
  * const command = parseSwebenchArgs(["eval", "swebench", "--manifest", "smoke.json"]);
@@ -21,6 +40,14 @@ export interface SwebenchCommand {
     readonly manifest: string;
     readonly output: string;
     readonly python: string;
+    /** 是否启用 TUI 交互式沙箱运行时。 */
+    readonly tui?: boolean;
+    /** 单任务评测的目标 instance_id。 */
+    readonly task?: string;
+    /** TUI 执行模式（"auto" 或 "review"），默认 "review"。 */
+    readonly mode?: TuiExecutionMode;
+    /** 可选单任务最大步数限制。 */
+    readonly maxSteps?: number;
 }
 
 /**
@@ -38,19 +65,94 @@ export interface SwebenchGradeCommand {
     readonly python: string;
 }
 
-/** 解析显式 eval swebench 参数；不加载 Python、Docker 或模型配置。 */
+/**
+ * 解析显式 eval swebench 参数；不加载 Python、Docker 或模型配置。
+ *
+ * @param argv - 命令行参数数组。
+ * @param cwd - 工作目录基准，默认 process.cwd()。
+ * @returns 解析并校验后的 SwebenchCommand。
+ * @throws 当参数非法、缺失必要参数、模式不支持或包含不支持的 resume 时抛出异常。
+ *
+ * @example
+ * ```ts
+ * const cmd = parseSwebenchArgs(["eval", "swebench", "--tui", "--manifest", "m.json", "--task", "t-1", "--output-dir", "out"]);
+ * ```
+ */
 export function parseSwebenchArgs(argv: readonly string[], cwd = process.cwd()): SwebenchCommand {
-    const parsed = parseArgs({ args: [...argv], strict: true, allowPositionals: true,
-        options: { manifest: { type: "string" }, output: { type: "string" }, python: { type: "string" } } });
+    const parsed = parseArgs({
+        args: [...argv],
+        strict: true,
+        allowPositionals: true,
+        options: {
+            manifest: { type: "string" },
+            output: { type: "string" },
+            "output-dir": { type: "string" },
+            python: { type: "string" },
+            tui: { type: "boolean" },
+            task: { type: "string" },
+            mode: { type: "string" },
+            resume: { type: "string" },
+            "max-steps": { type: "string" },
+        },
+    });
+
+    if (parsed.values.resume !== undefined) {
+        throw new Error("SWE-bench TUI benchmark does not support resuming ended sessions");
+    }
+
+    const isTui = Boolean(parsed.values.tui);
+    const outputRaw = parsed.values["output-dir"] ?? parsed.values.output;
+
+    if (isTui) {
+        if (parsed.positionals.length !== 2 || parsed.positionals[0] !== "eval" || parsed.positionals[1] !== "swebench") {
+            throw new Error("Usage: lazygoal eval swebench --tui --manifest <path> --task <instance-id> --output-dir <dir> [--mode <auto|review>]");
+        }
+        if (!parsed.values.manifest?.trim()) {
+            throw new Error("SWE-bench TUI requires explicit --manifest <path>");
+        }
+        if (!parsed.values.task?.trim()) {
+            throw new Error("SWE-bench TUI requires explicit --task <instance-id>");
+        }
+        if (!outputRaw?.trim()) {
+            throw new Error("SWE-bench TUI requires explicit --output-dir <directory>");
+        }
+        let mode: TuiExecutionMode = "review";
+        if (parsed.values.mode !== undefined) {
+            if (parsed.values.mode !== "auto" && parsed.values.mode !== "review") {
+                throw new Error(`Invalid mode: ${parsed.values.mode}. Must be "auto" or "review"`);
+            }
+            mode = parsed.values.mode;
+        }
+        let maxSteps: number | undefined;
+        if (parsed.values["max-steps"] !== undefined) {
+            const parsedSteps = Number.parseInt(parsed.values["max-steps"], 10);
+            if (!Number.isInteger(parsedSteps) || parsedSteps <= 0) {
+                throw new Error("--max-steps must be a positive integer");
+            }
+            maxSteps = parsedSteps;
+        }
+        if (parsed.values.python !== undefined && !parsed.values.python.trim()) throw new Error("--python must be non-empty");
+
+        return {
+            manifest: resolve(cwd, parsed.values.manifest),
+            output: resolve(cwd, outputRaw),
+            python: parsed.values.python ?? "python3",
+            tui: true,
+            task: parsed.values.task.trim(),
+            mode,
+            ...(maxSteps !== undefined ? { maxSteps } : {}),
+        };
+    }
+
     if (parsed.positionals.length !== 2 || parsed.positionals[0] !== "eval" || parsed.positionals[1] !== "swebench"
         || !parsed.values.manifest?.trim()) {
         throw new Error("Usage: lazygoal eval swebench --manifest <path> [--output <new-directory>] [--python <executable>]");
     }
-    if (parsed.values.output !== undefined && !parsed.values.output.trim()) throw new Error("--output must be non-empty");
+    if (outputRaw !== undefined && !outputRaw.trim()) throw new Error("--output must be non-empty");
     if (parsed.values.python !== undefined && !parsed.values.python.trim()) throw new Error("--python must be non-empty");
     return {
         manifest: resolve(cwd, parsed.values.manifest),
-        output: resolve(cwd, parsed.values.output ?? `.lazygoal/benchmarks/swebench-runs/${randomUUID()}`),
+        output: resolve(cwd, outputRaw ?? `.lazygoal/benchmarks/swebench-runs/${randomUUID()}`),
         python: parsed.values.python ?? "python3",
     };
 }
@@ -99,12 +201,45 @@ export async function runSwebenchGradeCli(argv: readonly string[] = process.argv
 }
 
 /**
+ * SWE-bench CLI 运行时依赖注入接口，供单元测试模拟容器与环境。
+ *
+ * @example
+ * ```ts
+ * const deps: SwebenchCliDependencies = {
+ *     runner: async () => ({ exitCode: 0, status: "completed", artifact: null, errors: [] }),
+ * };
+ * ```
+ */
+export interface SwebenchCliDependencies {
+    /** 自定义 TUI 运行器，默认使用 runTuiWithSandbox。 */
+    readonly runner?: typeof runTuiWithSandbox;
+    /** 自定义隔离环境。 */
+    readonly isolatedEnvironment?: IsolatedEnvironment;
+    /** 自定义 LLM 适配器。 */
+    readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
+    /** 自定义 Worker 产物。 */
+    readonly workerArtifact?: import("../../src/worker-builder.js").WorkerArtifact;
+    /** 是否跳过 preflight 检测。 */
+    readonly skipPreflight?: boolean;
+    /** 自定义单任务加载器。 */
+    readonly loadTask?: (options: {
+        readonly manifest: SwebenchManifest;
+        readonly taskId: string;
+        readonly python: string;
+        readonly output: string;
+    }) => Promise<SwebenchTask>;
+}
+
+/**
  * 运行显式评测；配置失败返回 1，参数错误返回 2，中止返回 130。
  * @remarks
  * 未解决题目属于正常评分结果；基础设施或评分缺失返回 1。完整报告写入 output，
  * stdout 只打印机器可读摘要，进度与诊断写 stderr。SIGINT/SIGTERM 触发资源清理。
  */
-export async function runSwebenchCli(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
+export async function runSwebenchCli(
+    argv: readonly string[] = process.argv.slice(2),
+    dependencies?: SwebenchCliDependencies,
+): Promise<number> {
     if (argv[0] === "grade" && argv[1] === "swebench") return runSwebenchGradeCli(argv);
     let command: SwebenchCommand;
     try { command = parseSwebenchArgs(argv); }
@@ -115,6 +250,111 @@ export async function runSwebenchCli(argv: readonly string[] = process.argv.slic
     process.on("SIGTERM", abort);
     try {
         const manifest = await loadSwebenchManifest(command.manifest);
+
+        if (command.tui) {
+            const matches = manifest.instanceIds.filter((id) => id === command.task);
+            if (matches.length === 0) {
+                process.stderr.write(`Task ${command.task} not found in manifest\n`);
+                return 2;
+            }
+            if (matches.length > 1) {
+                process.stderr.write(`Task ${command.task} is not unique in manifest\n`);
+                return 2;
+            }
+
+            const adapter = dependencies?.adapter ?? (() => {
+                const config = readLlmConfig(process.env);
+                return createLlmAdapter(config);
+            })();
+
+            if (!dependencies?.skipPreflight) {
+                await preflightSwebench(command.python, undefined, controller.signal);
+            }
+            const workerArtifact = dependencies?.workerArtifact ?? await buildSwebenchWorker({
+                projectRoot: process.cwd(),
+                entryPoint: SWE_ACP_WORKER_ENTRYPOINT,
+                cacheDirectory: ".lazygoal/benchmarks/swebench-worker-cache",
+                promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
+            });
+            await mkdir(command.output, { recursive: true });
+
+            let task: SwebenchTask;
+            if (dependencies?.loadTask !== undefined) {
+                task = await dependencies.loadTask({
+                    manifest,
+                    taskId: command.task!,
+                    python: command.python,
+                    output: command.output,
+                });
+            } else {
+                const response: unknown = JSON.parse(requireSuccess(
+                    await runProcess(command.python, [BRIDGE_PATH, "prepare", command.manifest, command.output], {
+                        timeoutMs: 300000,
+                        signal: controller.signal,
+                        maxBytes: 16 * 1024 * 1024,
+                    }),
+                    "Load SWE-bench dataset",
+                ));
+                if (!isRecord(response) || response.harnessVersion !== SWEBENCH_VERSION) {
+                    throw new Error("SWE-bench harness version mismatch");
+                }
+                const tasks = parseSwebenchTasks(response);
+                const found = tasks.find((t) => t.instance_id === command.task);
+                if (!found) throw new Error(`Task ${command.task} not found after prepare`);
+                task = found;
+            }
+
+            const goalId = `swebench-${command.task}-${randomUUID().slice(0, 8)}`;
+            const runId = `run-${randomUUID().slice(0, 8)}`;
+
+            const descriptor: BenchmarkTaskDescriptor = {
+                intent: task.problem_statement,
+                objective: `Resolve SWE-bench instance ${task.instance_id}: ${task.problem_statement.slice(0, 100)}`,
+                completionCriteria: [`Resolve issue for ${task.instance_id}`],
+                maxSteps: command.maxSteps ?? manifest.maxSteps,
+            };
+
+            const spec = new SwebenchEnvironmentSpec({
+                task,
+                artifact: workerArtifact,
+                manifest,
+                metadata: {
+                    instanceId: task.instance_id,
+                    repo: task.repo,
+                    baseCommit: task.base_commit,
+                    problemStatement: task.problem_statement,
+                    goalId,
+                    runId,
+                },
+                domainOnly: true,
+            });
+
+            const runner = dependencies?.runner ?? runTuiWithSandbox;
+            const result = await runner({
+                benchmarkId: "swebench",
+                task,
+                descriptor,
+                spec,
+                outputDirectory: command.output,
+                mode: command.mode ?? "review",
+                profile: SWE_ACP_PROFILE,
+                adapter,
+                readonlyToolIds: SWEBENCH_READONLY_TOOL_IDS,
+                createToolRegistry: (client) => createSwebenchRemoteToolRegistry(client),
+                maxSteps: command.maxSteps ?? manifest.maxSteps,
+                goalId,
+                runId,
+                requireArtifact: true,
+                writeError: (msg) => process.stderr.write(`${msg}\n`),
+                writeOut: (msg) => process.stdout.write(`${msg}\n`),
+                ...(dependencies?.isolatedEnvironment !== undefined
+                    ? { environment: dependencies.isolatedEnvironment }
+                    : {}),
+            });
+
+            return result.exitCode;
+        }
+
         const config = readLlmConfig(process.env);
         const adapter = createLlmAdapter(config);
         await preflightSwebench(command.python, undefined, controller.signal);
