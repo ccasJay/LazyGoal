@@ -71,6 +71,21 @@ test("GaiaEnvironmentSpec resolveImage 返回 managed 模式与标准安装命�
     assert.deepEqual(workerEntry.command, ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"]);
 });
 
+test("GaiaEnvironmentSpec tools 模式启动 Tool RPC Worker 并传入任务身份", () => {
+    const spec = new GaiaEnvironmentSpec({
+        task: sampleTask,
+        dataRoot: "/tmp/fake-gaia",
+        workerMode: "tools",
+    });
+
+    assert.deepEqual(spec.getWorkerEntryConfig(sampleTask).command, [
+        "/opt/lazygoal/node",
+        "/opt/lazygoal/worker.mjs",
+        "--task-id",
+        sampleTask.taskId,
+    ]);
+});
+
 test("GaiaEnvironmentSpec prepareEnvironment 正确注入 question.txt 和附件", async () => {
     const tmpDataRoot = await mkdtemp(join(tmpdir(), "gaia-env-test-"));
     try {
@@ -224,4 +239,3 @@ test("GaiaEnvironmentSpec 在 domainOnly 模式下只回收领域答案且不访
         await rm(tmpOutputDir, { recursive: true, force: true });
     }
 });
-

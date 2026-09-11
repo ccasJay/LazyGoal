@@ -3,6 +3,9 @@
  */
 export const SWE_ACP_WORKER_ENTRYPOINT = "benchmarks/swebench/src/worker.ts" as const;
 
+/** TUI 透明代理使用的 Tool RPC Worker bundle 入口。 */
+export const SWE_TOOLS_WORKER_ENTRYPOINT = "benchmarks/swebench/src/tools-worker-entry.ts" as const;
+
 /**
  * Worker 内置 Prompt 模板的仓库相对路径；这些文件会被 WorkerBuilder 嵌入产物。
  */

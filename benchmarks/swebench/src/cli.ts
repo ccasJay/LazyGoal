@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildSwebenchWorker } from "../../src/worker-builder.js";
-import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
+import { SWE_TOOLS_WORKER_ENTRYPOINT, SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
 import { gradeSwebenchEvaluation, preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
 
@@ -276,9 +276,8 @@ export async function runSwebenchCli(
             }
             const workerArtifact = dependencies?.workerArtifact ?? await buildSwebenchWorker({
                 projectRoot: process.cwd(),
-                entryPoint: SWE_ACP_WORKER_ENTRYPOINT,
-                cacheDirectory: ".lazygoal/benchmarks/swebench-worker-cache",
-                promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
+                entryPoint: SWE_TOOLS_WORKER_ENTRYPOINT,
+                cacheDirectory: ".lazygoal/benchmarks/swebench-tools-worker-cache",
             });
             await mkdir(command.output, { recursive: true });
 

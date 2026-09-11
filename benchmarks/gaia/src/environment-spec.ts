@@ -109,6 +109,8 @@ export interface GaiaEnvironmentSpecOptions {
     readonly runId?: string;
     /** 是否仅回收领域产物（TUI 模式下宿主控制持久化，不从容器复制 state）。 */
     readonly domainOnly?: boolean;
+    /** Worker 类型；TUI 透明代理使用 Tool RPC Worker，Headless 使用 ACP Worker。 */
+    readonly workerMode?: "acp" | "tools";
 }
 
 function shellQuote(str: string): string {
@@ -138,6 +140,7 @@ export class GaiaEnvironmentSpec
     private readonly installCommands: readonly string[];
     private readonly runId?: string | undefined;
     private readonly domainOnly: boolean;
+    private readonly workerMode: "acp" | "tools";
 
     constructor(options: GaiaEnvironmentSpecOptions) {
         this.task = options.task;
@@ -147,6 +150,7 @@ export class GaiaEnvironmentSpec
         this.installCommands = options.installCommands ?? (options.baseImage !== undefined ? [] : GAIA_MANAGED_INSTALL_COMMANDS);
         this.runId = options.runId;
         this.domainOnly = options.domainOnly ?? false;
+        this.workerMode = options.workerMode ?? "acp";
 
         if (this.runId !== undefined && !/^[A-Za-z0-9_.-]+$/u.test(this.runId)) {
             throw new TypeError("GAIA runId contains unsupported characters");
@@ -170,7 +174,9 @@ export class GaiaEnvironmentSpec
         return {
             ...(this.workerArtifact === undefined ? {} : { artifact: this.workerArtifact }),
             cwd: "/workspace",
-            command: ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"],
+            command: this.workerMode === "tools"
+                ? ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs", "--task-id", task.taskId]
+                : ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"],
         };
     }
 
@@ -324,4 +330,3 @@ export class GaiaEnvironmentSpec
 function encodeIdentifier(value: string): string {
     return Buffer.from(value, "utf8").toString("base64url");
 }
-

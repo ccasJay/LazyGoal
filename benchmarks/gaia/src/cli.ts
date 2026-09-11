@@ -184,9 +184,8 @@ export async function runGaiaEvalCli(
 
         const workerArtifact = dependencies?.workerArtifact ?? await buildBenchmarkWorker({
             projectRoot: resolve("."),
-            entryPoint: resolve("benchmarks/gaia/src/worker-entry.ts"),
-            cacheDirectory: resolve(".lazygoal/benchmarks/gaia-worker-cache"),
-            promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
+            entryPoint: resolve("benchmarks/gaia/src/tools-worker-entry.ts"),
+            cacheDirectory: resolve(".lazygoal/benchmarks/gaia-tools-worker-cache"),
         });
         const outputDirectory = resolve(outputVal);
         await mkdir(outputDirectory, { recursive: true });
@@ -201,6 +200,7 @@ export async function runGaiaEvalCli(
             ...(values["base-image"] ? { baseImage: values["base-image"] as string } : {}),
             runId,
             domainOnly: true,
+            workerMode: "tools",
         });
 
         const descriptor: BenchmarkTaskDescriptor = {
@@ -374,4 +374,3 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("cli.ts")) {
         process.exitCode = 1;
     });
 }
-

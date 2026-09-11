@@ -26,7 +26,9 @@ lazygoal eval gaia --manifest <path> [--output <dir>]
 `--tui --task <id> --output-dir <path> [--mode auto|review]`。它先挂载 Ink
 初始化页，再由 [`runTuiWithSandbox`](../../benchmarks/src/tui-benchmark-runner.ts)
 准备镜像、容器、Worker 和 preflight；沙箱就绪后把同一个挂载切换为带初始 Goal
-的 SessionController，会话结束或清理失败后统一卸载。
+的 SessionController，会话结束或清理失败后统一卸载。该路径构建
+`tools-worker-entry` 提供 Tool RPC；ACP Worker 仅用于 Headless 评测，不能作为
+透明代理的工具服务。
 
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
