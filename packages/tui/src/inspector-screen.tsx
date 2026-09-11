@@ -34,6 +34,18 @@ export interface InspectorScreenProps {
     readonly onInspectStep: (stepIndex: number) => void;
     /** 切换模型思考内容的展开状态。 */
     readonly onToggleReasoning: () => void;
+    /**
+     * 切换工具观察结果（Observation）的完整展开/收起状态。
+     *
+     * @remarks
+     * 触发后由上层 Controller 翻转 `inspector.expandObservation`。
+     *
+     * @example
+     * ```tsx
+     * <InspectorScreen onToggleObservation={toggleObservation} ... />
+     * ```
+     */
+    readonly onToggleObservation?: () => void;
     /** Esc 返回历史列表；未提供时不显示返回入口。 */
     readonly onBack?: () => void;
     /** q 退出进程；未提供时直接卸载 Ink。 */
@@ -52,6 +64,7 @@ export function InspectorScreen({
     inspector,
     onInspectStep,
     onToggleReasoning,
+    onToggleObservation,
     onBack,
     onExit,
     onExternalView,
@@ -76,35 +89,156 @@ export function InspectorScreen({
     useEffect(() => {
         setScrollOffset(0);
         setExternalError(undefined);
-    }, [inspector.goalId, inspector.currentStepIndex, inspector.showReasoning]);
+    }, [
+        inspector.goalId,
+        inspector.currentStepIndex,
+        inspector.showReasoning,
+        inspector.expandObservation,
+    ]);
 
     const bodyLines = useMemo(() => {
         const lines: string[] = [];
-        const messages = currentStep?.messages ?? [];
-        if (currentStep === undefined || (
-            messages.length === 0 && currentStep.reasoning === undefined
-        )) {
-            lines.push("No messages recorded for this step.", "Press e to view the raw step data.");
-        } else {
-            if (currentStep.reasoning !== undefined) {
-                lines.push(inspector.showReasoning
-                    ? "Reasoning / CoT"
-                    : "Reasoning folded - press r to expand");
-                if (inspector.showReasoning) lines.push(currentStep.reasoning);
-                lines.push("");
+        if (currentStep === undefined) {
+            lines.push("No step data available.");
+            return lines;
+        }
+
+        // 1. 未提交尾部警示
+        if (currentStep.uncommittedWarning !== undefined) {
+            lines.push("⚠️  [WARNING: UNCOMMITTED TAIL]");
+            lines.push(currentStep.uncommittedWarning);
+            lines.push("");
+        }
+
+        // 2. 步骤标题
+        if (currentStep.title) {
+            lines.push(`=== ${currentStep.title} ===`);
+            lines.push("");
+        }
+
+        // 2.1 准备阶段详情（Step 1: Preparation & Planning）
+        if (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0) {
+            lines.push("[Preparation & Context]");
+            for (const detail of currentStep.preparationDetails) {
+                lines.push(`• ${detail}`);
             }
+            lines.push("");
+        }
+
+        // 3. 思维链 (Reasoning / CoT)
+        if (currentStep.reasoning !== undefined) {
+            lines.push(inspector.showReasoning
+                ? "Reasoning / CoT"
+                : "Reasoning folded - press r to expand");
+            if (inspector.showReasoning) {
+                lines.push(currentStep.reasoning);
+            }
+            lines.push("");
+        }
+
+        // 4. 决策区块 (Decision)
+        if (currentStep.decision !== undefined) {
+            lines.push(`[Decision: ${currentStep.decision.kind}]`);
+            if (currentStep.decision.summary) {
+                lines.push(`Summary: ${currentStep.decision.summary}`);
+            }
+            if (currentStep.decision.toolCall !== undefined) {
+                lines.push(`Target Tool: ${currentStep.decision.toolCall.toolId} (Action: ${currentStep.decision.toolCall.actionId})`);
+            }
+            lines.push("");
+        }
+
+        // 5. 行动与审批区块 (Action & Approval)
+        if (currentStep.action !== undefined) {
+            const statusLabel = currentStep.action.approvalStatus === "auto_approved"
+                ? "Auto-Approved"
+                : currentStep.action.approvalStatus === "approved"
+                    ? "Approved"
+                    : currentStep.action.approvalStatus === "rejected"
+                        ? "Rejected"
+                        : "Awaiting Approval";
+            lines.push(`[Action: ${currentStep.action.toolId}] (${statusLabel})`);
+            if (currentStep.action.inputJson) {
+                lines.push("Input:");
+                lines.push(currentStep.action.inputJson);
+            }
+            if (currentStep.action.rejectionReason !== undefined) {
+                lines.push(`Rejection Reason: ${currentStep.action.rejectionReason}`);
+            }
+            lines.push("");
+        }
+
+        // 6. 工具观察结果区块 (Tool & Observation)
+        if (currentStep.observation !== undefined) {
+            const durationLabel = currentStep.observation.durationMs !== undefined
+                ? ` (${currentStep.observation.durationMs}ms)`
+                : "";
+            lines.push(`[Observation: ${currentStep.observation.toolId}] ${currentStep.observation.status.toUpperCase()}${durationLabel}`);
+            const isExpanded = inspector.expandObservation ?? false;
+            if (isExpanded) {
+                const fullText = typeof currentStep.observation.rawObservation === "string"
+                    ? currentStep.observation.rawObservation
+                    : JSON.stringify(currentStep.observation.rawObservation, null, 2);
+                lines.push(fullText);
+                if (currentStep.observation.isTruncated) {
+                    lines.push("(Full output displayed - press o to collapse)");
+                }
+            } else {
+                lines.push(currentStep.observation.observationPreview);
+                if (currentStep.observation.isTruncated) {
+                    lines.push("... [Observation truncated - press o to expand]");
+                }
+            }
+            lines.push("");
+        }
+
+        // 7. 步骤结果区块 (Result)
+        if (currentStep.result !== undefined) {
+            lines.push(`[Result: ${currentStep.result.outcome.toUpperCase()}]`);
+            if (currentStep.result.summary) {
+                lines.push(`Summary: ${currentStep.result.summary}`);
+            }
+            if (currentStep.result.errorMessage !== undefined) {
+                const codeStr = currentStep.result.errorCode ? `[${currentStep.result.errorCode}] ` : "";
+                lines.push(`Error: ${codeStr}${currentStep.result.errorMessage}`);
+            }
+            lines.push("");
+        }
+
+        // 8. 传统 Messages 兜底兼容
+        const hasStructuredBlocks = currentStep.decision !== undefined
+            || currentStep.action !== undefined
+            || currentStep.observation !== undefined
+            || currentStep.result !== undefined
+            || (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0);
+
+        const messages = currentStep.messages ?? [];
+        if (!hasStructuredBlocks && messages.length > 0) {
             for (const message of messages) {
                 lines.push(message.role === "user"
                     ? "[User]"
                     : "[Assistant (" + message.assistant.profileId + ")]");
                 lines.push(message.content, "");
             }
+        } else if (
+            !hasStructuredBlocks
+            && messages.length === 0
+            && currentStep.reasoning === undefined
+            && currentStep.uncommittedWarning === undefined
+        ) {
+            lines.push("No messages recorded for this step.", "Press e to view the raw step data.");
         }
+
         return wrapAnsi(lines.join("\n").replace(/\t/g, "    "), contentWidth, {
             hard: true,
             trim: false,
         }).split("\n");
-    }, [currentStep, inspector.showReasoning, contentWidth]);
+    }, [
+        currentStep,
+        inspector.showReasoning,
+        inspector.expandObservation,
+        contentWidth,
+    ]);
 
     const maxScroll = Math.max(0, bodyLines.length - viewportHeight);
     const visibleOffset = Math.min(scrollOffset, maxScroll);
@@ -208,6 +342,10 @@ export function InspectorScreen({
                     setScrollOffset(0);
                     onToggleReasoning();
                     break;
+                case "o":
+                    setScrollOffset(0);
+                    onToggleObservation?.();
+                    break;
                 case "e":
                     handleExternalView();
                     return;
@@ -241,12 +379,12 @@ export function InspectorScreen({
             </Text>
             <Text dimColor wrap="truncate-end">
                 {compact
-                    ? "[h/l] Step  [j/k] Scroll  [r] CoT"
+                    ? "[h/l] Step  [j/k] Scroll  [r] CoT  [o] Obs"
                     : "[h/l] Prev/Next  [0/$] First/Last  [j/k] Scroll  [PgUp/PgDn] Page"}
             </Text>
             {compact ? <Text dimColor wrap="truncate-end">[PgUp/PgDn] Page  [g/G] Top/Bottom</Text> : null}
             <Text dimColor wrap="truncate-end">
-                {compact ? "" : "[Home/End] Top/Bottom  [r] CoT  "}
+                {compact ? "" : "[Home/End] Top/Bottom  [r] CoT  [o] Obs  "}
                 [e] Raw  {onBack === undefined ? "" : "[Esc] History  "}[q] Exit
             </Text>
         </Box>

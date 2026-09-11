@@ -28,7 +28,7 @@
   - 验证方式：更新 `packages/tui/test/session-controller.test.ts` 补充控制器层面的轨迹异步加载与错误流转测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 5. 升级 InspectorScreen 结构化渲染与快捷键交互
+- [x] //TODO 5. 升级 InspectorScreen 结构化渲染与快捷键交互
 
   - 实现目标：重构 `src/inspector-screen.tsx`，按 Decision、Action & Approval、Tool & Observation、Result 四个区块清晰排版；默认对 Observation 适度截断；支持按 `o` 快捷键展开/收起完整 Observation 输出；保持 `r`（思维链）、`e`（外部编辑器）、`Esc`（返回列表）与 `q`（退出）。
   - 成功判据：全屏展示高可视性结构化区块，截断与展开流畅切换，快捷键交互 100% 正常工作。

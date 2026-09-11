@@ -158,6 +158,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     inspector={snapshot}
                     onInspectStep={(stepIndex) => dispatch({ kind: "inspectStep", stepIndex })}
                     onToggleReasoning={() => dispatch({ kind: "toggleReasoning" })}
+                    onToggleObservation={() => dispatch({ kind: "toggleObservation" })}
                     onBack={() => dispatch({ kind: "openHistory" })}
                     onExit={() => requestShutdown()}
                 />

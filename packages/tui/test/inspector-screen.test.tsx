@@ -464,3 +464,118 @@ test("InspectorScreen separates back, exit and external-view errors", async () =
     await nextFrame();
     assert.deepEqual(actions, ["back", "exit"]);
 });
+
+test("InspectorScreen renders structured Decision, Action, Observation, Result blocks and handles 'o' key toggle", async () => {
+    const steps: UiInspectorStep[] = [
+        {
+            index: 0,
+            totalSteps: 1,
+            title: "Step 2: Execution (unit-42)",
+            executionUnitId: "unit-42",
+            uncommittedWarning: "Trailing uncommitted events detected",
+            decision: {
+                kind: "tool_call",
+                summary: "Decided to read file",
+                toolCall: { toolId: "read_file", actionId: "act-1" },
+            },
+            action: {
+                toolId: "read_file",
+                actionId: "act-1",
+                inputJson: JSON.stringify({ path: "README.md" }),
+                approvalStatus: "approved",
+            },
+            observation: {
+                toolId: "read_file",
+                actionId: "act-1",
+                status: "success",
+                durationMs: 45,
+                observationPreview: "Short preview...",
+                rawObservation: "Very long full content of README.md that was truncated",
+                isTruncated: true,
+            },
+            result: {
+                outcome: "next_step",
+                summary: "File content retrieved successfully",
+            },
+            rawJson: "{}",
+        },
+    ];
+
+    let toggleObsCount = 0;
+
+    const foldedModel: UiInspectorViewModel = {
+        screen: "inspector",
+        busy: false,
+        goalId: "goal-struct-1",
+        currentStepIndex: 0,
+        totalSteps: 1,
+        steps,
+        showReasoning: false,
+        expandObservation: false,
+    };
+
+    const instance = render(
+        <InspectorScreen
+            inspector={foldedModel}
+            onInspectStep={() => undefined}
+            onToggleReasoning={() => undefined}
+            onToggleObservation={() => {
+                toggleObsCount += 1;
+            }}
+        />,
+    );
+
+    let frame = instance.lastFrame() ?? "";
+    // 验证未提交警告
+    assert.match(frame, /WARNING: UNCOMMITTED TAIL/);
+    assert.match(frame, /Trailing uncommitted events detected/);
+    // 验证标题
+    assert.match(frame, /=== Step 2: Execution \(unit-42\) ===/);
+    // 验证 Decision 区块
+    assert.match(frame, /\[Decision: tool_call\]/);
+    assert.match(frame, /Decided to read file/);
+    assert.match(frame, /Target Tool: read_file/);
+    // 验证 Action 区块
+    assert.match(frame, /\[Action: read_file\] \(Approved\)/);
+    assert.match(frame, /README\.md/);
+    // 验证 Observation 区块（折叠/截断状态）
+    assert.match(frame, /\[Observation: read_file\] SUCCESS \(45ms\)/);
+    assert.match(frame, /Short preview\.\.\./);
+    assert.match(frame, /\[Observation truncated - press o to expand\]/);
+    // 验证快捷键提示包含 [o] Obs
+    assert.match(frame, /\[o\] Obs/);
+
+    // 按 G 键滚动到底部验证 Result 区块
+    instance.stdin.write("G");
+    await nextFrame();
+    frame = instance.lastFrame() ?? "";
+    assert.match(frame, /\[Result: NEXT_STEP\]/);
+    assert.match(frame, /File content retrieved successfully/);
+
+    // 触发 'o' 键
+    instance.stdin.write("o");
+    await nextFrame();
+    assert.equal(toggleObsCount, 1);
+
+    // 重新渲染展开状态
+    const expandedModel: UiInspectorViewModel = {
+        ...foldedModel,
+        expandObservation: true,
+    };
+    instance.rerender(
+        <InspectorScreen
+            inspector={expandedModel}
+            onInspectStep={() => undefined}
+            onToggleReasoning={() => undefined}
+            onToggleObservation={() => {
+                toggleObsCount += 1;
+            }}
+        />,
+    );
+    await nextFrame();
+    frame = instance.lastFrame() ?? "";
+    // 展开状态下展示完整内容与收起提示
+    assert.match(frame, /Very long full content of README\.md that was truncated/);
+    assert.match(frame, /Full output displayed - press o to collapse/);
+});
+
