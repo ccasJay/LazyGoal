@@ -69,7 +69,7 @@ function parseArgs(args: readonly string[]): { readonly workspaceRoot?: string }
 
 if (
     process.argv[1] !== undefined
-    && (process.argv[1].endsWith("tools-worker-entry.ts") || process.argv[1].endsWith("tools-worker.mjs"))
+    && (process.argv[1].endsWith("tools-worker-entry.ts") || process.argv[1].endsWith("tools-worker.mjs") || process.argv[1].endsWith("worker.mjs"))
 ) {
     void runSwebenchToolsWorker().catch((error: unknown) => {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
