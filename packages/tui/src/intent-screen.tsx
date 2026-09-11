@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import { TextInput } from "@inkjs/ui";
 
 import type { UiError } from "./types";
@@ -29,6 +29,8 @@ export interface IntentScreenProps {
     readonly error?: UiError;
     /** 合法 intent 提交回调；Screen 不等待或解释其返回值。 */
     readonly onSubmit: (intent: string) => void | Promise<void>;
+    /** Esc 放弃当前未提交文本并返回主页；busy 时禁用。 */
+    readonly onBack?: () => void;
 }
 
 /**
@@ -41,7 +43,11 @@ export function IntentScreen({
     busy,
     error,
     onSubmit,
+    onBack,
 }: IntentScreenProps): React.JSX.Element {
+    useInput((_input, key) => {
+        if (!busy && key.escape) onBack?.();
+    });
     const submitGate = useSubmitGate(busy, true);
 
     const handleSubmit = useCallback((value: string) => {
@@ -69,6 +75,7 @@ export function IntentScreen({
                 placeholder="Describe your goal..."
                 onSubmit={handleSubmit}
             />
+            <Text dimColor>Enter Create Goal{onBack === undefined ? "" : "  Esc Main Menu"}</Text>
             {busy ? <StatusSpinner label="Creating goal..." /> : null}
         </Box>
     );

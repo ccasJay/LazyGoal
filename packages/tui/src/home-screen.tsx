@@ -1,11 +1,12 @@
 import React, { useCallback } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useInput } from "ink";
 import { Select } from "@inkjs/ui";
 
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { useTerminalSize } from "./use-terminal-size";
 
 /** LazyGoal 品牌静态 ASCII Art 标头。 */
 export const LAZYGOAL_ASCII_BANNER = `
@@ -80,12 +81,11 @@ export function HomeScreen({
     onSelectSettings,
     onExit,
 }: HomeScreenProps): React.JSX.Element {
-    const { exit } = useApp();
+    const { columns, rows } = useTerminalSize();
 
     const handleExit = useCallback(() => {
         onExit();
-        exit();
-    }, [onExit, exit]);
+    }, [onExit]);
 
     useInput((input) => {
         if (!busy && (input === "q" || input === "Q")) {
@@ -115,14 +115,15 @@ export function HomeScreen({
     }, [selectGate, onSelectNewGoal, onSelectViewHistory, onSelectSettings, handleExit]);
 
     return (
-        <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column" gap={1} width={columns}>
             <Text bold color="cyan">
-                {LAZYGOAL_ASCII_BANNER}
+                {columns < 52 || rows < 24 ? "LazyGoal" : LAZYGOAL_ASCII_BANNER}
             </Text>
             {environmentSummary === undefined ? null : (
-                <Text dimColor>
-                    Workspace: {environmentSummary.workspaceRoot} | Profile: {environmentSummary.profileId}
-                </Text>
+                <Box flexDirection="column">
+                    <Text dimColor wrap="truncate-middle">Workspace: {environmentSummary.workspaceRoot}</Text>
+                    <Text dimColor>Profile: {environmentSummary.profileId}</Text>
+                </Box>
             )}
             {error === undefined ? null : <ErrorLine error={error} />}
             <Box flexDirection="column" gap={1}>

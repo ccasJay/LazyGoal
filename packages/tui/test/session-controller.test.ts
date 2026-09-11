@@ -788,7 +788,7 @@ test("initialScreen: home initializes snapshot with home screen and environment 
     }
 });
 
-test("initialScreen: goal_select with initialGoalSelectMode inspect initializes snapshot with mode inspect", () => {
+test("initial inspect selection allows its first history load without a busy deadlock", async () => {
     const goal = createWaitingGoal();
     const coordinator = new FakeCoordinator(waitingResult(goal));
     const controller = new SessionController({
@@ -804,10 +804,16 @@ test("initialScreen: goal_select with initialGoalSelectMode inspect initializes 
 
     const snapshot = controller.getSnapshot();
     assert.equal(snapshot.screen, "goal_select");
-    assert.equal(snapshot.busy, true);
+    assert.equal(snapshot.busy, false);
     if (snapshot.screen === "goal_select") {
         assert.equal(snapshot.mode, "inspect");
     }
+    await controller.dispatch({ kind: "openHistory" });
+    const loaded = controller.getSnapshot();
+    assert.equal(loaded.screen, "goal_select");
+    assert.equal(loaded.busy, false);
+    assert.equal(loaded.error, undefined);
+    if (loaded.screen === "goal_select") assert.equal(loaded.mode, "inspect");
 });
 
 test("openHome, openIntentInput, and openSettings switch views predictably", async () => {
@@ -982,6 +988,16 @@ test("openInspector, inspectStep, and toggleReasoning manage inspector state", a
         assert.equal(view.currentStepIndex, 0);
         assert.equal(view.totalSteps, 3);
         assert.equal(view.showReasoning, false);
+    }
+
+    await Promise.all([
+        controller.dispatch({ kind: "inspectStep", stepIndex: 1 }),
+        controller.dispatch({ kind: "inspectStep", stepIndex: 2 }),
+    ]);
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.currentStepIndex, 2);
+        assert.equal(view.busy, false);
     }
 
     await controller.dispatch({ kind: "inspectStep", stepIndex: 1 });

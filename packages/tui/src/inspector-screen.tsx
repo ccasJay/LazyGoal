@@ -1,254 +1,253 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "ink";
+import wrapAnsi from "wrap-ansi";
+
 import type { UiInspectorViewModel } from "./types.js";
+import { useTerminalSize } from "./use-terminal-size.js";
 
 /**
- * 轨迹检查器复盘全屏组件的只读属性。
+ * 轨迹检查器的只读视图与导航回调。
+ *
+ * @remarks
+ * 正文按终端列宽换行并限制在可见高度内。滚动位置归组件所有，切步或折叠
+ * 思考内容时回到顶部。返回历史与退出进程是两个独立操作。
  *
  * @example
  * ```tsx
  * <InspectorScreen
- *     inspector={inspectorViewModel}
- *     onInspectStep={(stepIndex) => controller.dispatch({ kind: "inspectStep", stepIndex })}
- *     onToggleReasoning={() => controller.dispatch({ kind: "toggleReasoning" })}
- *     onExit={() => controller.dispatch({ kind: "openHome" })}
+ *   inspector={inspectorViewModel}
+ *   onInspectStep={selectStep}
+ *   onToggleReasoning={toggleReasoning}
+ *   onBack={openHistory}
+ *   onExit={shutdown}
  * />
  * ```
  */
 export interface InspectorScreenProps {
     /** 检查器视图模型快照。 */
     readonly inspector: UiInspectorViewModel;
-    /** 切换目标步骤索引的回调函数。 */
+    /** 切换目标步骤索引；同一输入批次可连续调用。 */
     readonly onInspectStep: (stepIndex: number) => void;
-    /** 切换模型思考过程展开/折叠状态的回调函数。 */
+    /** 切换模型思考内容的展开状态。 */
     readonly onToggleReasoning: () => void;
-    /** 退出检查器并返回上级或退出的回调函数。 */
+    /** Esc 返回历史列表；未提供时不显示返回入口。 */
+    readonly onBack?: () => void;
+    /** q 退出进程；未提供时直接卸载 Ink。 */
     readonly onExit?: () => void;
-    /** 自定义外部编辑器查看回调函数（用于测试或扩展）。 */
+    /** 替换外部查看操作，接收当前步原始 JSON；异常显示在检查器中。 */
     readonly onExternalView?: (rawJson: string) => void;
 }
 
 /**
- * 轨迹事后全屏复盘检查器页面组件。
+ * 按终端尺寸展示轨迹切片，并在外部查看结束后恢复 Ink 画面。
  *
- * @remarks
- * 在全屏模式（备用屏幕缓冲区）下展示会话步骤切片与消息流：
- * - 顶部 Header 展示当前步序号与总步数；
- * - 快捷键 `h`/`l`/`0`/`$` 控制上一步、下一步、第一步与最后一步；
- * - 快捷键 `j`/`k` 控制主体内容垂直滚动查看；
- * - 快捷键 `r` 切换思维链展开/折叠状态；
- * - 快捷键 `e` 临时挂起终端并调用外部编辑器（如 `$EDITOR` 或 `$PAGER`）查看当前步原始 JSON；
- * - 快捷键 `q` 干净退出并恢复终端原本屏幕缓冲区。
- *
- * @param props - 组件属性。
- * @returns 检查器全屏 React 元素。
- *
- * @example
- * ```tsx
- * <InspectorScreen
- *     inspector={inspectorModel}
- *     onInspectStep={handleInspectStep}
- *     onToggleReasoning={handleToggleReasoning}
- * />
- * ```
+ * @param props - 只读轨迹与导航回调。
+ * @returns 固定标题、可滚动正文和快捷键栏。
  */
 export function InspectorScreen({
     inspector,
     onInspectStep,
     onToggleReasoning,
+    onBack,
     onExit,
     onExternalView,
 }: InspectorScreenProps): React.JSX.Element {
     const { exit } = useApp();
-    const [scrollOffset, setScrollOffset] = useState<number>(0);
-
+    const { stdout, write } = useStdout();
+    const { columns, rows } = useTerminalSize();
+    const [scrollOffset, setScrollOffset] = useState(0);
+    const [externalError, setExternalError] = useState<string>();
     const currentStep = inspector.steps[inspector.currentStepIndex];
+    const contentWidth = Math.max(1, columns - 2);
+    const compact = columns < 60;
+    const viewportHeight = Math.max(1, rows - (compact ? 8 : 7));
 
-    // 全屏备用缓冲区生命周期挂载与清理
     useEffect(() => {
-        const isTty = Boolean(process.stdout.isTTY);
-        if (isTty) {
-            process.stdout.write("\x1b[?1049h\x1b[H");
-        }
-        return () => {
-            if (isTty) {
-                process.stdout.write("\x1b[?1049l");
+        if (!stdout.isTTY) return;
+        // 经 Ink 写入以同步其帧缓存与实际终端缓冲区。
+        write("\x1b[?1049h\x1b[2J\x1b[H");
+        return () => { write("\x1b[?1049l"); };
+    }, [stdout, write]);
+
+    useEffect(() => {
+        setScrollOffset(0);
+        setExternalError(undefined);
+    }, [inspector.goalId, inspector.currentStepIndex, inspector.showReasoning]);
+
+    const bodyLines = useMemo(() => {
+        const lines: string[] = [];
+        if (currentStep === undefined || (
+            currentStep.messages.length === 0 && currentStep.reasoning === undefined
+        )) {
+            lines.push("No messages recorded for this step.", "Press e to view the raw step data.");
+        } else {
+            if (currentStep.reasoning !== undefined) {
+                lines.push(inspector.showReasoning
+                    ? "Reasoning / CoT"
+                    : "Reasoning folded - press r to expand");
+                if (inspector.showReasoning) lines.push(currentStep.reasoning);
+                lines.push("");
             }
-        };
-    }, []);
+            for (const message of currentStep.messages) {
+                lines.push(message.role === "user"
+                    ? "[User]"
+                    : "[Assistant (" + message.assistant.profileId + ")]");
+                lines.push(message.content, "");
+            }
+        }
+        return wrapAnsi(lines.join("\n").replace(/\t/g, "    "), contentWidth, {
+            hard: true,
+            trim: false,
+        }).split("\n");
+    }, [currentStep, inspector.showReasoning, contentWidth]);
+
+    const maxScroll = Math.max(0, bodyLines.length - viewportHeight);
+    const visibleOffset = Math.min(scrollOffset, maxScroll);
+    useEffect(() => {
+        setScrollOffset((offset) => Math.min(offset, maxScroll));
+    }, [maxScroll]);
 
     const handleExternalView = useCallback(() => {
-        if (currentStep === undefined) {
-            return;
-        }
-
-        if (onExternalView !== undefined) {
-            onExternalView(currentStep.rawJson);
-            return;
-        }
-
-        const editor = process.env["EDITOR"] || process.env["PAGER"] || "less";
-        const tmpDir = os.tmpdir();
-        const tmpFile = path.join(
-            tmpDir,
-            `lazygoal-step-${currentStep.index + 1}-${Date.now()}.json`,
-        );
-
+        if (currentStep === undefined) return;
+        setExternalError(undefined);
+        let tmpDirectory: string | undefined;
         try {
-            fs.writeFileSync(tmpFile, currentStep.rawJson, "utf-8");
-            if (process.stdout.isTTY) {
-                process.stdout.write("\x1b[?1049l");
+            if (onExternalView !== undefined) {
+                onExternalView(currentStep.rawJson);
+                return;
             }
-            spawnSync(editor, [tmpFile], { stdio: "inherit" });
-        } catch {
-            // 忽略外部进程启动异常
+            const editor = process.env["EDITOR"] || process.env["PAGER"] || "less";
+            tmpDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "lazygoal-step-"));
+            const tmpFile = path.join(tmpDirectory, "step.json");
+            fs.writeFileSync(tmpFile, currentStep.rawJson, { encoding: "utf-8", mode: 0o600 });
+            if (stdout.isTTY) stdout.write("\x1b[?1049l");
+            const result = spawnSync(editor, [tmpFile], { stdio: "inherit" });
+            if (result.error !== undefined) throw result.error;
+            if (result.status !== 0) {
+                throw new Error("Editor exited with " + (result.signal ?? result.status));
+            }
+        } catch (error) {
+            setExternalError("Could not open raw step: "
+                + (error instanceof Error ? error.message : String(error)));
         } finally {
-            if (process.stdout.isTTY) {
-                process.stdout.write("\x1b[?1049h\x1b[H");
-            }
-            try {
-                if (fs.existsSync(tmpFile)) {
-                    fs.unlinkSync(tmpFile);
+            if (tmpDirectory !== undefined) {
+                try {
+                    fs.rmSync(tmpDirectory, { recursive: true, force: true });
+                } catch (error) {
+                    setExternalError("Could not remove temporary step: "
+                        + (error instanceof Error ? error.message : String(error)));
+                } finally {
+                    if (stdout.isTTY) {
+                        // write 会清除 Ink 的旧帧并恢复完整输出，无需不可见字符。
+                        write("\x1b[?1049h\x1b[2J\x1b[H");
+                    }
                 }
-            } catch {
-                // 忽略临时文件清理异常
             }
         }
-    }, [currentStep, onExternalView]);
+    }, [currentStep, onExternalView, stdout, write]);
 
     useInput((input, key) => {
-        if (input === "q") {
-            if (onExit !== undefined) {
-                onExit();
-            } else {
-                exit();
-            }
+        if (key.escape) {
+            onBack?.();
             return;
         }
-
-        if (input === "l" || key.rightArrow) {
-            if (inspector.currentStepIndex < inspector.totalSteps - 1) {
-                setScrollOffset(0);
-                onInspectStep(inspector.currentStepIndex + 1);
-            }
-            return;
-        }
-
-        if (input === "h" || key.leftArrow) {
-            if (inspector.currentStepIndex > 0) {
-                setScrollOffset(0);
-                onInspectStep(inspector.currentStepIndex - 1);
-            }
-            return;
-        }
-
-        if (input === "0") {
+        if (key.ctrl || key.meta) return;
+        const maxStepIndex = Math.max(0, inspector.totalSteps - 1);
+        let currentStepIndex = inspector.currentStepIndex;
+        const moveToStep = (index: number) => {
+            currentStepIndex = Math.max(0, Math.min(index, maxStepIndex));
             setScrollOffset(0);
-            onInspectStep(0);
+            onInspectStep(currentStepIndex);
+        };
+        const scrollBy = (delta: number) => {
+            setScrollOffset((offset) => Math.max(0, Math.min(offset + delta, maxScroll)));
+        };
+        if (key.rightArrow) {
+            if (currentStepIndex < maxStepIndex) moveToStep(currentStepIndex + 1);
             return;
         }
-
-        if (input === "$") {
-            setScrollOffset(0);
-            onInspectStep(Math.max(0, inspector.totalSteps - 1));
+        if (key.leftArrow) {
+            if (currentStepIndex > 0) moveToStep(currentStepIndex - 1);
             return;
         }
-
-        if (input === "j" || key.downArrow) {
-            setScrollOffset((prev) => prev + 1);
+        if (key.downArrow || key.upArrow) {
+            scrollBy(key.downArrow ? 1 : -1);
             return;
         }
-
-        if (input === "k" || key.upArrow) {
-            setScrollOffset((prev) => Math.max(0, prev - 1));
+        if (key.pageDown || key.pageUp) {
+            scrollBy((key.pageDown ? 1 : -1) * viewportHeight);
             return;
         }
-
-        if (input === "r") {
-            onToggleReasoning();
+        if (key.home || key.end) {
+            setScrollOffset(key.home ? 0 : maxScroll);
             return;
         }
-
-        if (input === "e") {
-            handleExternalView();
-            return;
+        for (const action of input) {
+            switch (action) {
+                case "q":
+                    if (onExit !== undefined) onExit(); else exit();
+                    return;
+                case "l":
+                    if (currentStepIndex < maxStepIndex) moveToStep(currentStepIndex + 1);
+                    break;
+                case "h":
+                    if (currentStepIndex > 0) moveToStep(currentStepIndex - 1);
+                    break;
+                case "0": moveToStep(0); break;
+                case "$": moveToStep(maxStepIndex); break;
+                case "j": scrollBy(1); break;
+                case "k": scrollBy(-1); break;
+                case "g": setScrollOffset(0); break;
+                case "G": setScrollOffset(maxScroll); break;
+                case "r":
+                    setScrollOffset(0);
+                    onToggleReasoning();
+                    break;
+                case "e":
+                    handleExternalView();
+                    return;
+            }
         }
     });
 
-    const displayStepNum = inspector.totalSteps > 0
-        ? inspector.currentStepIndex + 1
-        : 0;
-
-    // 格式化当前步骤的内容行
-    const bodyLines: string[] = [];
-
-    if (currentStep === undefined) {
-        bodyLines.push("No step data recorded for this Goal.");
-    } else {
-        if (currentStep.reasoning !== undefined) {
-            if (inspector.showReasoning) {
-                bodyLines.push("┌── 💭 Reasoning / CoT ────────────────────────────");
-                for (const line of currentStep.reasoning.split("\n")) {
-                    bodyLines.push(`│ ${line}`);
-                }
-                bodyLines.push("└──────────────────────────────────────────────────");
-            } else {
-                bodyLines.push("💭 [Reasoning folded - press 'r' to expand]");
-            }
-            bodyLines.push("");
-        }
-
-        for (const msg of currentStep.messages) {
-            if (msg.role === "user") {
-                bodyLines.push(`[User]`);
-                for (const line of msg.content.split("\n")) {
-                    bodyLines.push(`  ${line}`);
-                }
-            } else {
-                bodyLines.push(`[Assistant (${msg.assistant.profileId})]`);
-                for (const line of msg.content.split("\n")) {
-                    bodyLines.push(`  ${line}`);
-                }
-            }
-            bodyLines.push("");
-        }
-    }
-
-    const visibleLines = bodyLines.slice(scrollOffset);
+    const displayStep = inspector.totalSteps > 0 ? inspector.currentStepIndex + 1 : 0;
+    const visibleLines = bodyLines.slice(visibleOffset, visibleOffset + viewportHeight);
+    const range = "Lines " + (visibleOffset + 1) + "-"
+        + Math.min(visibleOffset + viewportHeight, bodyLines.length) + " / " + bodyLines.length;
+    const position = maxScroll === 0 ? "All" : visibleOffset === 0 ? "Top"
+        : visibleOffset === maxScroll ? "Bottom" : Math.round(visibleOffset / maxScroll * 100) + "%";
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1}>
-            <Box flexDirection="row" justifyContent="space-between">
-                <Text bold color="cyan">
-                    Goal Inspector: <Text color="white">{inspector.goalId}</Text>
-                </Text>
-                <Text bold color="yellow">
-                    Step {displayStepNum} / {inspector.totalSteps}
-                </Text>
+        <Box flexDirection="column" width={columns} height={Math.max(8, rows - 1)}
+            paddingX={1} overflow="hidden">
+            <Box flexShrink={0} justifyContent="space-between">
+                <Text bold color="cyan">Goal Inspector</Text>
+                <Text bold color="yellow">Step {displayStep} / {inspector.totalSteps}</Text>
             </Box>
-
-            <Text dimColor>
-                [h/l] Prev/Next | [0/$] First/Last | [j/k] Scroll | [r] CoT | [e] Raw/Editor | [q] Exit
+            <Text dimColor wrap="truncate-end">{inspector.goalId}</Text>
+            <Text dimColor>{"─".repeat(contentWidth)}</Text>
+            <Box flexDirection="column" height={viewportHeight} flexShrink={0} overflow="hidden">
+                {visibleLines.map((line, index) => (
+                    <Text key={visibleOffset + index} wrap="truncate-end">{line || " "}</Text>
+                ))}
+            </Box>
+            <Text color={externalError === undefined ? "gray" : "red"} wrap="truncate-end">
+                {externalError ?? range + "  " + position}
             </Text>
-            <Text dimColor>{"─".repeat(68)}</Text>
-
-            {scrollOffset > 0 && (
-                <Text color="yellow">▲ Scrolled down {scrollOffset} lines (press 'k' to scroll up)</Text>
-            )}
-
-            <Box flexDirection="column" marginTop={1}>
-                {visibleLines.length === 0 && bodyLines.length > 0 ? (
-                    <Text dimColor>(Reached bottom of step content)</Text>
-                ) : (
-                    visibleLines.map((line, idx) => (
-                        <Text key={`${scrollOffset + idx}-${line.slice(0, 10)}`}>{line}</Text>
-                    ))
-                )}
-            </Box>
+            <Text dimColor wrap="truncate-end">
+                {compact
+                    ? "[h/l] Step  [j/k] Scroll  [r] CoT"
+                    : "[h/l] Prev/Next  [0/$] First/Last  [j/k] Scroll  [PgUp/PgDn] Page"}
+            </Text>
+            {compact ? <Text dimColor wrap="truncate-end">[PgUp/PgDn] Page  [g/G] Top/Bottom</Text> : null}
+            <Text dimColor wrap="truncate-end">
+                {compact ? "" : "[Home/End] Top/Bottom  [r] CoT  "}
+                [e] Raw  {onBack === undefined ? "" : "[Esc] History  "}[q] Exit
+            </Text>
         </Box>
     );
 }

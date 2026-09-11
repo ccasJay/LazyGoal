@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo } from "react";
-import { Box, Text } from "ink";
-import { Select } from "@inkjs/ui";
+import React, { useCallback, useMemo, useState } from "react";
+import { Box, Text, useInput } from "ink";
+import { TextInput } from "@inkjs/ui";
+import wrapAnsi from "wrap-ansi";
 
 import type { GoalCatalogEntry } from "../../runtime/src/index";
 import type { UiError } from "./types";
@@ -8,6 +9,8 @@ import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
+import { useTerminalSize } from "./use-terminal-size";
+import { GoalList } from "./goal-list";
 
 /**
  * GoalSelectScreen 的渲染与恢复命令回调边界。
@@ -16,6 +19,7 @@ import { truncateId } from "./format";
  * Screen 保留 Catalog 返回的顺序，不自行按时间或状态排序；每个选项只携带
  * `goalId`，完整 Goal 快照由 SessionController 在确认后恢复。busy 时选择器
  * 停用，避免同一个键盘确认产生多个恢复命令。
+ * 搜索仅过滤内存摘要，不改变 Catalog 顺序或读取完整快照。
  *
  * @example
  * ```tsx
@@ -37,6 +41,12 @@ export interface GoalSelectScreenProps {
     readonly mode?: "resume" | "inspect";
     /** 用户确认后恢复指定 Goal 的回调。 */
     readonly onSelect: (goalId: string) => void | Promise<void>;
+    /** Esc 返回主页；忙碌期间禁用。未提供时隐藏该提示。 */
+    readonly onBack?: () => void;
+    /** q 退出进程；编辑搜索词时 q 作为普通字符。 */
+    readonly onExit?: () => void;
+    /** 返回列表时优先聚焦的 Goal；当前过滤结果不包含该项时聚焦首项。 */
+    readonly initialGoalId?: string;
 }
 
 /**
@@ -51,16 +61,42 @@ export function GoalSelectScreen({
     error,
     mode = "resume",
     onSelect,
+    onBack,
+    onExit,
+    initialGoalId,
 }: GoalSelectScreenProps): React.JSX.Element {
     const selectGate = useSubmitGate(busy, goals);
+    const { columns, rows } = useTerminalSize();
+    const [query, setQuery] = useState("");
+    const [searching, setSearching] = useState(false);
+    const contentWidth = Math.max(1, columns - 4);
+
+    useInput((input, key) => {
+        if (busy) return;
+        if (key.escape) {
+            if (searching || query.length > 0) {
+                setQuery("");
+                setSearching(false);
+            } else {
+                onBack?.();
+            }
+        } else if (!searching && input === "/") {
+            setSearching(true);
+        } else if (!searching && input === "q") {
+            onExit?.();
+        }
+    });
 
     const options = useMemo(
-        () => goals.map((entry) => ({
-            label: formatGoalEntry(entry, mode),
+        () => goals.filter((entry) => [entry.intent, entry.goalId, entry.runStatus, entry.workflowPhase]
+            .join(" ").toLowerCase().includes(query.trim().toLowerCase())).map((entry) => ({
+            label: wrapAnsi(formatGoalEntry(entry, mode), contentWidth, { hard: true, trim: false }),
             value: entry.goalId,
         })),
-        [goals, mode],
+        [goals, mode, query, contentWidth],
     );
+    const optionHeight = options.reduce((height, option) => Math.max(height, option.label.split("\n").length), 1);
+    const visibleOptionCount = Math.max(1, Math.min(8, Math.floor((rows - 12) / optionHeight)));
 
     const handleSelect = useCallback((goalId: string) => {
         selectGate.attempt(() => {
@@ -77,32 +113,50 @@ export function GoalSelectScreen({
     const isInspect = mode === "inspect";
 
     return (
-        <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column" gap={1} width={columns}>
             <Text bold color="cyan">
                 {isInspect ? "Inspect Goal Trajectory" : "Resume a Goal"}
             </Text>
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
-            {goals.length === 0 ? (
+            {searching ? (
+                <Box>
+                    <Text color="cyan">/ </Text>
+                    <TextInput defaultValue={query} isDisabled={busy}
+                        placeholder="Search title, ID or status..." onChange={setQuery}
+                        onSubmit={() => setSearching(false)} />
+                </Box>
+            ) : <Text dimColor>{options.length} / {goals.length} Goals{query ? " matching: " + query : ""}</Text>}
+            {busy && goals.length === 0 ? null : goals.length === 0 ? (
                 <Box flexDirection="column" gap={1}>
                     {errorView === undefined
                         ? <Text>{isInspect ? "No Goal history found." : "No resumable Goals found."}</Text>
                         : null}
-                    <Text dimColor>Press Ctrl+C to exit.</Text>
+                    <Text dimColor>{isInspect ? "Run a Goal or benchmark to record a trajectory." : "Start a new Goal from the Main Menu."}</Text>
                 </Box>
+            ) : options.length === 0 ? (
+                <Text>No matching Goals. Press Esc to clear the search.</Text>
             ) : (
                 <Box flexDirection="column" gap={1}>
                     <Text>
                         {isInspect ? "Select a Goal to inspect:" : "Select a Goal to resume:"}
                     </Text>
-                    <Select
-                        isDisabled={busy}
+                    <GoalList
+                        key={query}
+                        isDisabled={busy || searching}
                         options={options}
-                        visibleOptionCount={Math.min(8, options.length)}
+                        {...(initialGoalId !== undefined && options.some((option) => option.value === initialGoalId)
+                            ? { initialGoalId } : {})}
+                        visibleOptionCount={visibleOptionCount}
                         onChange={handleSelect}
                     />
                 </Box>
             )}
             {busy ? <StatusSpinner label={isInspect ? "Loading trajectory..." : "Resuming goal..."} /> : null}
+            <Text dimColor>{searching
+                ? "Type to filter. Enter to browse. Esc to clear."
+                : "↑/↓ Select  Enter Open  / Search"}</Text>
+            <Text dimColor>{searching || query.length > 0 ? "Esc Clear search  " : onBack === undefined ? "" : "Esc Main Menu  "}
+                {onExit === undefined ? "Press Ctrl+C to exit." : "q Exit"}</Text>
         </Box>
     );
 }

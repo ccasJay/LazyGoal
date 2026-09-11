@@ -33,8 +33,10 @@ type WaitingProgress = Extract<
  * @remarks
  * Controller 是唯一的 UI 命令串行化入口。它不复制 Runtime 状态机：创建、
  * 恢复、消息和批准命令分别委托给 Launcher、Store 与 Coordinator，然后把
- * 最新 Goal 转换成不可变 ViewModel。一次调用未完成前，后续 dispatch 会以
- * `UI_BUSY` 拒绝；业务错误会保留当前 Goal/最近快照并显示稳定错误。
+ * 最新 Goal 转换成不可变 ViewModel。异步业务命令一次调用未完成前，后续
+ * dispatch 会以 `UI_BUSY` 拒绝；Inspector 的本地步进与思考展开命令只替换
+ * 内存 ViewModel，不等待异步操作，也不被该锁阻塞。业务错误会保留当前
+ * Goal/最近快照并显示稳定错误。
  *
  * @example
  * ```ts
@@ -74,7 +76,7 @@ export class SessionController {
         } else if (dependencies.initialScreen === "goal_select") {
             this.snapshot = {
                 screen: "goal_select",
-                busy: true,
+                busy: false,
                 goals: [],
                 ...(dependencies.initialGoalSelectMode !== undefined
                     ? { mode: dependencies.initialGoalSelectMode }
@@ -183,11 +185,18 @@ export class SessionController {
     }
 
     /**
-     * 串行处理一个 UI 命令。
+     * 处理一个 UI 命令。
+     *
+     * @remarks
+     * 创建、恢复、消息、批准和页面数据加载等异步业务命令保持串行处理，
+     * 同时进行时以 `UI_BUSY` 拒绝。Inspector 的 `inspectStep` 与
+     * `toggleReasoning` 是同步的本地 ViewModel 操作，可以连续处理，避免
+     * 快速按键在渲染帧之间被丢弃。
      *
      * @param command - 不携带运行时状态的用户意图。
      * @returns 命令处理完成；业务失败会体现在 ViewModel.error 中。
-     * @throws `UiDispatchRejectedError` 表示已有命令执行中或 Controller 正在关闭。
+     * @throws `UiDispatchRejectedError` 表示异步业务命令已有命令执行中，或
+     * Controller 正在关闭。
      */
     dispatch(command: UiCommand): Promise<void> {
         if (this.snapshot.screen === "shutting_down") {
@@ -197,6 +206,16 @@ export class SessionController {
                     "The session controller is shutting down",
                 ),
             );
+        }
+
+        if (command.kind === "inspectStep") {
+            this.inspectStep(command.stepIndex);
+            return Promise.resolve();
+        }
+
+        if (command.kind === "toggleReasoning") {
+            this.toggleReasoning();
+            return Promise.resolve();
         }
 
         if (this.snapshot.busy) {
@@ -387,6 +406,12 @@ export class SessionController {
             return undefined;
         }
 
+        this.setSnapshot({
+            screen: "goal_select",
+            busy: true,
+            goals: [],
+            ...(mode === "inspect" ? { mode: "inspect" as const } : {}),
+        });
         let goals: readonly GoalCatalogEntry[];
         try {
             if (mode === "inspect" && typeof this.dependencies.catalog.listHistory === "function") {
@@ -407,12 +432,10 @@ export class SessionController {
             ...(mode === "inspect" ? { mode: "inspect" } : {}),
         });
 
-        if (entries.length === 0) {
+        if (entries.length === 0 && mode === "resume") {
             this.setError({
                 code: "NO_RESUMABLE_GOAL",
-                message: mode === "inspect"
-                    ? "No historical Goal was found"
-                    : "No resumable Goal was found",
+                message: "No resumable Goal was found",
             });
             return undefined;
         }
@@ -952,9 +975,8 @@ export class SessionController {
                 return;
             case "goal_select":
                 this.setSnapshot({
-                    screen: "goal_select",
+                    ...this.snapshot,
                     busy: false,
-                    goals: this.snapshot.goals,
                     error,
                 });
                 return;

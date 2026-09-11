@@ -3,7 +3,7 @@
 ## 摘要
 
 `packages/tui` 当前提供项目级 `lazygoal` CLI、Composition Root、SessionController
-与 React Ink 的 intent、Goal 选择、Preparation 和 executing Session 界面，并把
+与 React Ink 的首页、intent、Goal 选择、轨迹 Inspector、Preparation 和 executing Session 界面，并把
 Ctrl+C/SIGINT 接入受管关闭流程。Benchmark 沙箱可先挂载无 Controller 的初始化页，
 待容器和 Worker 准备完成后再切换到真实 SessionController。
 Controller 把一次进程内的用户交互限制为单 Goal 会话，组合
@@ -18,7 +18,8 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root（共享 Goal、Trajectory、Trace Store）并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
 | [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口为 `resume`，另有针对中断 Preparation 的 `retryPreparation` | 自行推断 Runtime 可用操作 |
-| [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面并将 Ctrl+C 回调交给 CLI | Runtime 编排和快照写入 |
+| [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面、记住最近检查的 Goal 以恢复列表焦点，并将退出回调交给 CLI | Runtime 编排和快照写入 |
+| [InspectorScreen](../../packages/tui/src/inspector-screen.tsx) | 只读切步、按终端尺寸换行和滚动、思考内容展开、外部 JSON 查看及终端画面恢复 | 推进 Goal、写入轨迹或快照 |
 | [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
@@ -90,7 +91,8 @@ Launcher 创建的新 Goal 自动冻结上述唯一协议组合；恢复已有 G
 `coordinator.advance()`，无需重启 CLI 或删除快照。该派生只看快照事实，
 是否展示入口由屏幕结合活字段 `busy` 判断，避免推进进行中误报。
 
-`dispatch` 在操作开始同步置 `busy`；已有操作或关闭页面会拒绝新命令。第一次
+异步 `dispatch` 在操作开始同步置 `busy`；已有异步操作会拒绝新的业务命令。
+Inspector 的切步和思考展开同步替换内存 ViewModel，不占用异步命令锁；关闭页面拒绝所有命令。第一次
 Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近内存副本并
 拒绝后续命令，不写入 `cancelled`。Controller
 不启动后台 Worker、不创建第二个 Goal，也不在 UI 层写入快照。`TuiApp` 使用
@@ -100,6 +102,17 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 时发出一次语义化命令，busy 时停用输入控件。`GoalSelectScreen` 只展示 Catalog
 摘要，不在选择前恢复完整 Goal；`SessionScreen` 用 `Static` 保存真实消息，并在
 动态区域展示状态栏、Spinner、Action 输入和终态摘要。
+
+`GoalSelectScreen` 在 Catalog 摘要中按标题、ID、状态和阶段本地过滤，保持原始
+顺序；搜索与列表选择互斥，Enter 先结束搜索编辑，再确认目标。Esc 清除搜索，
+无搜索时返回主页。Inspector 的 Esc 重新打开历史目录，并聚焦最近选择的 Goal；
+q 使用与 Ctrl+C 相同的关闭流程。新目标输入页可用 Esc 放弃未提交文本返回主页。
+这些返回入口不应用于正在执行的 Goal 会话。
+
+Inspector 根据当前 Ink 输出流的 resize 事件调整正文宽高，按终端显示列换行后
+分页，固定显示标题、行号范围和快捷键。滚动限制在正文首尾，切步或折叠思考内容
+回到顶部。外部查看只生成临时 JSON 文件，返回后清理该文件，并通过 Ink 的
+输出恢复接口同步画面与帧缓存；编辑器启动失败显示在当前页。
 
 ## 关闭流程
 
@@ -118,5 +131,6 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 - TUI 把 Trajectory/Trace、Warm Sidecar、Working Memory 限制、Model Context Assembler、
   Protocol Validator 和共享提交器作为 Composition Root 依赖装配；
   `CompositionRoot.readTrajectory` 提供按 Goal/Run 和序列范围的只读入口，并以最新 Snapshot
-  边界返回 committed/tail 分类。当前界面和最终报告仍不自动展示轨迹或 Memory，展示由上层
-  消费者决定；Sidecar 删除后下一轮由 committed Trajectory 重新派生。
+  边界返回 committed/tail 分类。Inspector 当前复盘的是 Snapshot 中的消息步骤切片，
+  不等同于完整的 committed/tail 事实事件或 Memory 视图；Sidecar 删除后下一轮由
+  committed Trajectory 重新派生。

@@ -544,6 +544,30 @@ test("TuiApp routes the first raw-mode Ctrl+C to the shutdown callback once", as
     assert.equal(shutdownRequests, 1);
 });
 
+test("TuiApp exits the Inspector through the shutdown callback", async () => {
+    const { controller } = controllerForApp(questionGoal("goal-inspector-exit"));
+    await controller.dispatch({
+        kind: "openInspector",
+        goalId: "goal-inspector-exit",
+        steps: [{ index: 0, totalSteps: 1, messages: [], rawJson: "{}" }],
+    });
+
+    let shutdownRequests = 0;
+    const instance = render(
+        <TuiApp
+            controller={controller}
+            onShutdown={() => {
+                shutdownRequests += 1;
+            }}
+        />,
+    );
+
+    instance.stdin.write("q");
+    await nextFrame();
+
+    assert.equal(shutdownRequests, 1);
+});
+
 test("TuiApp reports unexpected dispatch failures instead of swallowing them", async () => {
     const warnings: unknown[][] = [];
     const originalWarn = console.warn;
@@ -571,4 +595,24 @@ test("TuiApp reports unexpected dispatch failures instead of swallowing them", a
     } finally {
         console.warn = originalWarn;
     }
+});
+
+test("TuiApp returns from Inspector to history and from history to the main menu", async () => {
+    const { controller } = controllerForApp(questionGoal("goal-history-back"));
+    await controller.dispatch({ kind: "openInspector", goalId: "goal-history-back",
+        steps: [{ index: 0, totalSteps: 1, messages: [], rawJson: "{}" }] });
+    const instance = render(<TuiApp controller={controller} />);
+    instance.stdin.write("\u001b");
+    await nextFrame();
+    assert.equal(controller.getSnapshot().screen, "goal_select");
+    assert.match(instance.lastFrame() ?? "", /Inspect Goal Trajectory/);
+    instance.stdin.write("\u001b");
+    await nextFrame();
+    assert.equal(controller.getSnapshot().screen, "home");
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.equal(controller.getSnapshot().screen, "intent_input");
+    instance.stdin.write("\u001b");
+    await nextFrame();
+    assert.equal(controller.getSnapshot().screen, "home");
 });

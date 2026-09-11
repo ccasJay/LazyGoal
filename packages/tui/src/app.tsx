@@ -38,6 +38,7 @@ export interface TuiAppProps {
  */
 export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Element | null {
     const shutdownRequested = useRef(false);
+    const lastInspectedGoalId = useRef<string | undefined>(undefined);
     const requestShutdown = useCallback(() => {
         if (shutdownRequested.current) {
             return;
@@ -101,6 +102,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     busy={snapshot.busy}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
                     onSubmit={(intent) => dispatch({ kind: "create", intent })}
+                    onBack={() => dispatch({ kind: "openHome" })}
                 />
             );
         case "session":
@@ -140,7 +142,14 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     busy={snapshot.busy}
                     {...(snapshot.mode !== undefined ? { mode: snapshot.mode } : {})}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
-                    onSelect={(goalId) => dispatch({ kind: "selectGoal", goalId })}
+                    onSelect={(goalId) => {
+                        if (snapshot.mode === "inspect") lastInspectedGoalId.current = goalId;
+                        dispatch({ kind: "selectGoal", goalId });
+                    }}
+                    {...(snapshot.mode === "inspect" && lastInspectedGoalId.current !== undefined
+                        ? { initialGoalId: lastInspectedGoalId.current } : {})}
+                    onBack={() => dispatch({ kind: "openHome" })}
+                    onExit={requestShutdown}
                 />
             );
         case "inspector":
@@ -149,7 +158,8 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     inspector={snapshot}
                     onInspectStep={(stepIndex) => dispatch({ kind: "inspectStep", stepIndex })}
                     onToggleReasoning={() => dispatch({ kind: "toggleReasoning" })}
-                    onExit={() => dispatch({ kind: "openHome" })}
+                    onBack={() => dispatch({ kind: "openHistory" })}
+                    onExit={() => requestShutdown()}
                 />
             );
         case "shutting_down":

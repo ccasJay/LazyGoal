@@ -1084,14 +1084,20 @@ export async function runCli(
                 process.off("SIGINT", onSigint);
             },
         });
+        // 首帧 loading 来自真实查询，不能在构造时占用 dispatch 的 busy 锁。
+        const initialListing = command.kind === "resume"
+            ? root.controller.dispatch({ kind: "resume" })
+            : command.kind === "inspect" && command.goalId === undefined
+                ? root.controller.dispatch({ kind: "openHistory" })
+                : undefined;
         app = mountTuiApp({
             controller: root.controller,
             onShutdown: requestShutdown,
             render: renderer,
         });
 
-        if (command.kind === "resume") {
-            await root.controller.dispatch({ kind: "resume" });
+        if (initialListing !== undefined) {
+            await initialListing;
         } else if (command.kind === "continueLatest") {
             await root.controller.dispatch({ kind: "continueLatest" });
         } else if (command.kind === "create") {
@@ -1115,8 +1121,6 @@ export async function runCli(
                     goalId: command.goalId,
                     steps,
                 });
-            } else {
-                await root.controller.dispatch({ kind: "openHistory" });
             }
         }
 

@@ -6,7 +6,7 @@ source_spec: specs/acp-container-runtime/
 distilled_at: 2026-09-10
 reviewed_at: 2026-09-10
 tags: [swebench, acp, container, isolation, multiplex, supervisor, preflight, recovery]
-authorities: [docs/architecture/swebench.md, benchmarks/swebench/src/container.ts, benchmarks/swebench/src/supervisor.ts, benchmarks/swebench/src/multiplex.ts, benchmarks/swebench/src/worker-preflight.ts, benchmarks/swebench/src/result-recovery.ts, packages/acp/src/index.ts]
+authorities: [docs/architecture/swebench.md, benchmarks/swebench/src/container.ts, benchmarks/swebench/src/supervisor.ts, benchmarks/swebench/src/worker-preflight.ts, benchmarks/swebench/src/result-recovery.ts]
 ---
 
 # ACP Container Runtime
@@ -40,7 +40,7 @@ authorities: [docs/architecture/swebench.md, benchmarks/swebench/src/container.t
 - S1: `specs/acp-container-runtime/requirements.md`
 - S2: `specs/acp-container-runtime/design.md`
 - S3: `benchmarks/swebench/src/container.ts`
-- S4: `benchmarks/swebench/src/multiplex.ts`
+- S4: `benchmarks/swebench/src/supervisor.ts`
 - S5: `benchmarks/swebench/src/worker-preflight.ts`
 - S6: `benchmarks/swebench/src/acp-result-projection.ts`
 - S7: `benchmarks/swebench/src/result-recovery.ts`

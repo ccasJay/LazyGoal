@@ -175,3 +175,58 @@ test("GoalSelectScreen renders benchmark and goal labels in inspect mode", () =>
     assert.match(frame, /\[Goal\] User defined intent \(waiting\)/);
     assert.match(frame, /Select a Goal to inspect/);
 });
+
+test("GoalSelectScreen searches summaries without submitting text and supports clearing and back", async () => {
+    const selected: string[] = [];
+    let backs = 0;
+    const instance = render(<GoalSelectScreen
+        goals={[
+            entry("goal-first", "Review the logs", "2026-09-11T02:00:00.000Z"),
+            entry("goal-query", "Inspect query performance", "2026-09-11T01:00:00.000Z"),
+        ]} busy={false} mode="inspect" onSelect={(id) => { selected.push(id); }}
+        onBack={() => { backs += 1; }} />);
+    instance.stdin.write("/");
+    await waitForFrame(instance, /Type to filter/);
+    instance.stdin.write("query");
+    await waitForFrame(instance, /1 \/ 2 Goals|Inspect query performance/);
+    await nextFrame();
+    assert.doesNotMatch(instance.lastFrame() ?? "", /Review the logs/);
+    instance.stdin.write("\r");
+    await waitForFrame(instance, /1 \/ 2 Goals matching: query/);
+    assert.deepEqual(selected, []);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(selected, ["goal-query"]);
+    instance.stdin.write("\u001b");
+    await waitForFrame(instance, /2 \/ 2 Goals/);
+    assert.equal(backs, 0);
+    instance.stdin.write("\u001b");
+    await nextFrame();
+    assert.equal(backs, 1);
+});
+
+test("GoalSelectScreen displays no matches and preserves the last inspected selection", async () => {
+    const selected: string[] = [];
+    const instance = render(<GoalSelectScreen
+        goals={[
+            entry("goal-first", "First workflow", "2026-09-11T02:00:00.000Z"),
+            entry("goal-second", "Second workflow", "2026-09-11T01:00:00.000Z"),
+        ]} busy={false} initialGoalId="goal-second" onSelect={(id) => { selected.push(id); }} />);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(selected, ["goal-second"]);
+    instance.stdin.write("/");
+    await waitForFrame(instance, /Type to filter/);
+    instance.stdin.write("missing-title");
+    await waitForFrame(instance, /No matching Goals/);
+    instance.stdin.write("\u001b");
+    await waitForFrame(instance, /2 \/ 2 Goals/);
+    assert.match(instance.lastFrame() ?? "", /❯ goal-sec/);
+});
+
+test("GoalSelectScreen shows loading without an empty-history flash", () => {
+    const instance = render(<GoalSelectScreen goals={[]} busy mode="inspect"
+        onSelect={() => undefined} />);
+    assert.match(instance.lastFrame() ?? "", /Loading trajectory/);
+    assert.doesNotMatch(instance.lastFrame() ?? "", /No Goal history found/);
+});
