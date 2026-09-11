@@ -333,6 +333,8 @@ export interface SessionControllerDependencies {
     readonly mode?: "auto" | "review";
     /** 可选任务标识或标题。 */
     readonly taskTitle?: string;
+    /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
+    readonly initialGoal?: import("../../runtime/src/index.js").Goal;
 }
 
 /**

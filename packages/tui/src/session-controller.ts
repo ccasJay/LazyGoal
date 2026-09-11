@@ -55,6 +55,10 @@ export class SessionController {
     /** @param dependencies - Launcher、Coordinator、Store、Catalog 与身份依赖。 */
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
+        if (dependencies.initialGoal !== undefined) {
+            this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
+            this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
+        }
         if (dependencies.notifyingStore !== undefined) {
             this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
                 this.onGoalCommitted(goal);

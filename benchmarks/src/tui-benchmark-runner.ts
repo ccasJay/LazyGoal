@@ -35,6 +35,7 @@ import {
 } from "../../packages/storage/src/index.js";
 import {
     mountTuiApp,
+    NotifyingGoalStore,
     SessionController,
     type MountedTuiApp,
     type MountTuiOptions,
@@ -148,7 +149,7 @@ export interface TuiSandboxRunOptions<TTask, TArtifact, TOutcome = unknown> {
     readonly gracePeriodMs?: number;
     /** 外部进程退出端口，省略时使用 ProcessExitPort。 */
     readonly exitPort?: ExitPort;
-    /** 渲染器，测试可注入自定义渲染器。 */
+    /** 渲染器；省略时使用 Ink 默认渲染器，测试可注入自定义渲染器。 */
     readonly render?: MountTuiOptions["render"];
     /** 错误信息输出回调。 */
     readonly writeError?: (message: string) => void;
@@ -229,6 +230,7 @@ export interface TuiSandboxRunResult<TArtifact, TOutcome = unknown> {
  *
  * @remarks
  * - 在启动异步环境工作前建立 AbortController、force AbortController、受管资源和 SIGINT 入口；
+ * - 运行任务时默认挂载 Ink TUI；`render` 仅用于替换渲染器，审批和输入由 SessionController 驱动；
  * - 将沙箱生命周期作为单一受管资源接入 ShutdownCoordinator，共享 30 秒宽限期；
  * - 正常完成时只收集一次产物并销毁容器，返回退出码 0（若运行失败或清理异常返回 1）；
  * - SIGINT/Ctrl+C 中断时冻结 CheckpointGate，中止执行并安全清理，返回退出码 130；
@@ -302,8 +304,9 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     const startTime = Date.now();
 
     const taskId = options.taskId
-        ?? (options.task as { taskId?: string; instance_id?: string })?.taskId
-        ?? (options.task as { taskId?: string; instance_id?: string })?.instance_id
+        ?? (options.task as { taskId?: string; instance_id?: string; id?: string })?.taskId
+        ?? (options.task as { taskId?: string; instance_id?: string; id?: string })?.instance_id
+        ?? (options.task as { taskId?: string; instance_id?: string; id?: string })?.id
         ?? "benchmark-task";
 
     const goalId = options.goalId ?? `${options.benchmarkId}-${taskId}-${randomUUID().slice(0, 8)}`;
@@ -321,7 +324,8 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     const traceDir = join(hostRuntimeDir, "traces");
 
     const baseStore = options.store ?? new JsonFileGoalStore(goalDir);
-    const gate = new CheckpointGateGoalStore(baseStore);
+    const notifyingStore = new NotifyingGoalStore(baseStore);
+    const gate = new CheckpointGateGoalStore(notifyingStore);
     const trajectoryStore = options.trajectoryStore
         ?? new JsonFileTrajectoryStore(trajectoryDir);
     const traceSink = options.traceSink ?? createNoopDiagnosticTraceSink();
@@ -344,6 +348,7 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     let shutdownRequested = false;
     let shutdownPromise: Promise<void> | undefined;
     let app: MountedTuiApp | undefined;
+    let unsubscribeController: (() => void) | undefined;
     let unregisterSigint: (() => void) | undefined;
     let environmentRunPromise: Promise<IsolatedEnvironmentResult<TArtifact>> | undefined;
 
@@ -387,7 +392,10 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     };
 
     process.on("SIGINT", onSigint);
-    unregisterSigint = resources.register({
+    unregisterSigint = () => {
+        process.off("SIGINT", onSigint);
+    };
+    resources.register({
         close: () => {
             process.off("SIGINT", onSigint);
         },
@@ -466,6 +474,38 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
 
                 await gate.save(goal);
 
+                // 挂载 TUI（在任务开始执行前挂载，以捕获全程状态变化和提交通知）
+                const sessionController = new SessionController({
+                    launcher: {
+                        async launch() {
+                            return { ok: true, goalId, runId };
+                        },
+                    },
+                    coordinator,
+                    store: gate,
+                    catalog: gate,
+                    notifyingStore,
+                    initialGoal: goal,
+                    profileId: options.profile.id,
+                    goalIdGenerator: () => randomUUID(),
+                    control: { signal },
+                    mode: options.mode ?? "review",
+                    taskTitle: `${options.benchmarkId} ${taskId}`,
+                });
+
+                unsubscribeController = sessionController.subscribe(() => {
+                    const snapshot = sessionController.getSnapshot();
+                    if (snapshot.screen === "session" && snapshot.terminal !== undefined) {
+                        terminalGoal = snapshot.goal;
+                        app?.unmount();
+                    }
+                });
+                app = mountTuiApp({
+                    controller: sessionController,
+                    onShutdown: requestShutdown,
+                    ...(options.render === undefined ? {} : { render: options.render }),
+                });
+
                 // 确定性 Preparation：推进并自动批准预定义任务（req-4-1, req-4-2）
                 let progress = await coordinator.advance({ goalId, runId }, { signal });
                 if (
@@ -490,29 +530,6 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                     return;
                 }
 
-                // 挂载 TUI
-                const sessionController = new SessionController({
-                    launcher: {
-                        async launch() {
-                            return { ok: true, goalId, runId };
-                        },
-                    },
-                    coordinator,
-                    store: gate,
-                    catalog: gate,
-                    profileId: options.profile.id,
-                    goalIdGenerator: () => randomUUID(),
-                    control: { signal },
-                });
-
-                if (options.render !== undefined) {
-                    app = mountTuiApp({
-                        controller: sessionController,
-                        onShutdown: requestShutdown,
-                        render: options.render,
-                    });
-                }
-
                 // 执行循环
                 while (!signal.aborted) {
                     if (progress.kind === "terminal") {
@@ -529,13 +546,26 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                                 break;
                             }
                             // review 模式下由 TUI 用户审批（或等待 UI 操作）
-                            // 在非交互测试中等待 signal 或由 UI 驱动
+                            if (app !== undefined) {
+                                await app.waitUntilExit().catch(() => undefined);
+                                const latest = await gate.restore(goalId);
+                                if (latest?.state.workflow.phase === "terminal") {
+                                    terminalGoal = latest;
+                                }
+                            }
                             break;
                         } else if (progress.waitingFor === "blocked" || progress.waitingFor === "question") {
                             if (mode === "auto") {
                                 // auto 模式遇到用户输入阻塞以未完成结果退出（req-1-7/req-4-2）
                                 autoBlocked = true;
                                 break;
+                            }
+                            if (app !== undefined) {
+                                await app.waitUntilExit().catch(() => undefined);
+                                const latest = await gate.restore(goalId);
+                                if (latest?.state.workflow.phase === "terminal") {
+                                    terminalGoal = latest;
+                                }
                             }
                             break;
                         }
@@ -757,6 +787,9 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
             errors: [message],
         };
     } finally {
+        unsubscribeController?.();
+        unsubscribeController = undefined;
+        app?.unmount();
         unregisterSigint?.();
     }
 }
