@@ -116,4 +116,12 @@ export type {
     ToolRpcClientOptions,
     ToolRpcServerOptions,
 } from "./tool-rpc.js";
+export {
+    createRemoteToolRegistration,
+    createSwebenchRemoteToolRegistry,
+    createGaiaRemoteToolRegistry,
+} from "./remote-tool-registry.js";
+export type {
+    RemoteToolRegistrationOptions,
+} from "./remote-tool-registry.js";
 

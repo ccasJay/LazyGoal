@@ -16,7 +16,7 @@
   - 验证方式：`packages/tui/test/sandbox-persistence.test.ts`（待实现），检查真实临时目录、查询结果及文件内容指纹。
   - Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)
 
-- [ ] //TODO 3. 拦截沙箱工具并双向代理至 ToolRegistry
+- [x] //TODO 3. 拦截沙箱工具并双向代理至 ToolRegistry
   - [x] //TODO 3.1 实现工具 RPC 与 Mux 通道
     - 实现目标：扩展 `benchmarks/src/multiplex.ts` 并新增 `tool-rpc.ts`，实现 describe/execute/cancel/backend 消息、关联校验、顺序控制和有界等待；保持 ACP/LLM 原行为。
     - 成功标准：合法调用得到对应 Observation；非法帧、重复执行 ID、工具契约不匹配、超时和断线均失败且不重发执行。
@@ -27,7 +27,7 @@
     - 成功标准：工具 Worker 不创建 Goal 或 LLM；文件与命令只影响指定容器工作目录，未配置后端在启动期失败，Worker 无宿主凭据；取消终止在途工具及子进程。
     - 验证方式：`benchmarks/gaia/test/tools-worker.test.ts`、`benchmarks/swebench/test/tools-worker.test.ts`（待实现），真实子进程加临时目录、脚本化后端，另跑依赖检查。
     - Requirements: [1.1](./requirements.md#req-1-1), [3.1](./requirements.md#req-3-1), [3.5](./requirements.md#req-3-5)
-  - [ ] //TODO 3.3 将远程工具代理接入宿主 Runtime
+  - [x] //TODO 3.3 将远程工具代理接入宿主 Runtime
     - 实现目标：在 `benchmarks/src/` 实现以共享 manifest 构造的远程 ToolRegistration，经 runAgent 的 Mux 接入 TUI Registry；prepare 不发送 execute。
     - 成功标准：宿主模型看到目标工具；实际执行来自唯一 Worker，宿主同名工具不会被调用；响应身份不符或连接失败时中止执行并保留检查点。
     - 验证方式：`benchmarks/test/remote-tool-registry.test.ts`（待实现），让真实 Runner 驱动代理，检查出站消息与提交事实。
