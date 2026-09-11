@@ -408,6 +408,13 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
     try {
         const environment = options.environment ?? new IsolatedEnvironment();
 
+        // 在镜像、容器和 Worker 准备期间先显示初始化页，避免环境启动阶段终端无任何反馈。
+        app = mountTuiApp({
+            onShutdown: requestShutdown,
+            initialStatus: `Preparing ${options.benchmarkId} ${taskId} sandbox...`,
+            ...(options.render === undefined ? {} : { render: options.render }),
+        });
+
         environmentRunPromise = environment.run<TTask, TArtifact>({
             task: options.task,
             spec: options.spec,
@@ -500,11 +507,7 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                         app?.unmount();
                     }
                 });
-                app = mountTuiApp({
-                    controller: sessionController,
-                    onShutdown: requestShutdown,
-                    ...(options.render === undefined ? {} : { render: options.render }),
-                });
+                app?.setController?.(sessionController);
 
                 // 确定性 Preparation：推进并自动批准预定义任务（req-4-1, req-4-2）
                 let progress = await coordinator.advance({ goalId, runId }, { signal });

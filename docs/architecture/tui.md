@@ -4,7 +4,8 @@
 
 `packages/tui` 当前提供项目级 `lazygoal` CLI、Composition Root、SessionController
 与 React Ink 的 intent、Goal 选择、Preparation 和 executing Session 界面，并把
-Ctrl+C/SIGINT 接入受管关闭流程。
+Ctrl+C/SIGINT 接入受管关闭流程。Benchmark 沙箱可先挂载无 Controller 的初始化页，
+待容器和 Worker 准备完成后再切换到真实 SessionController。
 Controller 把一次进程内的用户交互限制为单 Goal 会话，组合
 Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量校验通过后
 创建这一整组共享依赖，`TuiApp` 通过

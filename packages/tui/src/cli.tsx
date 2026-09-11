@@ -3,8 +3,8 @@ import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { join, resolve } from "node:path";
-import React from "react";
-import { render as inkRender } from "ink";
+import React, { useRef, useSyncExternalStore } from "react";
+import { useInput, render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
@@ -72,6 +72,7 @@ import {
     WriteFileTool,
 } from "../../tools/src/index";
 import { SessionController, TuiApp } from "./index";
+import { StatusSpinner } from "./status-spinner";
 import type { SessionLauncher } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
@@ -832,12 +833,14 @@ export interface CliRunOptions {
  * ```
  */
 export interface MountTuiOptions {
-    /** 要挂载的单 Goal 会话控制器。 */
-    readonly controller: SessionController;
+    /** 要挂载的单 Goal 会话控制器；沙箱准备期间可以暂不提供。 */
+    readonly controller?: SessionController;
     /** 用户触发或界面请求关闭时的回调。 */
     readonly onShutdown: () => Promise<void>;
     /** 可选的 Ink 渲染器，测试可注入替身。 */
     readonly render?: typeof inkRender;
+    /** 控制器尚未可用时显示的初始化状态。 */
+    readonly initialStatus?: string;
 }
 
 /** 挂载的 TUI 运行句柄。 */
@@ -846,15 +849,63 @@ export interface MountedTuiApp {
     waitUntilExit(): Promise<void>;
     /** 卸载 TUI 组件树。 */
     unmount(): void;
+    /**
+     * 将初始化页切换为真实会话页；自定义测试渲染器可以省略该能力。
+     *
+     * @param controller - 已完成沙箱准备并绑定运行时依赖的会话控制器。
+     */
+    setController?: (controller: SessionController) => void;
+}
+
+interface TuiMountState {
+    controller: SessionController | undefined;
+    status: string;
+    revision: number;
+    listeners: Set<() => void>;
+}
+
+function TuiMountHost({
+    state,
+    onShutdown,
+}: {
+    readonly state: TuiMountState;
+    readonly onShutdown: () => Promise<void>;
+}): React.JSX.Element {
+    const revision = useSyncExternalStore(
+        (listener) => {
+            state.listeners.add(listener);
+            return () => state.listeners.delete(listener);
+        },
+        () => state.revision,
+        () => state.revision,
+    );
+    void revision;
+    const shutdownRequested = useRef(false);
+    useInput((input, key) => {
+        if (state.controller === undefined && key.ctrl && input === "c") {
+            if (shutdownRequested.current) return;
+            shutdownRequested.current = true;
+            void onShutdown().catch(() => undefined);
+        }
+    });
+
+    if (state.controller === undefined) {
+        return <StatusSpinner label={state.status} />;
+    }
+
+    return <TuiApp controller={state.controller} onShutdown={onShutdown} />;
 }
 
 export function mountTuiApp(options: MountTuiOptions): MountedTuiApp {
     const renderer = options.render ?? inkRender;
+    const state: TuiMountState = {
+        controller: options.controller,
+        status: options.initialStatus ?? "Preparing TUI sandbox...",
+        revision: 0,
+        listeners: new Set(),
+    };
     const instance = renderer(
-        <TuiApp
-            controller={options.controller}
-            onShutdown={options.onShutdown}
-        />,
+        <TuiMountHost state={state} onShutdown={options.onShutdown} />,
         { exitOnCtrlC: false },
     );
     return {
@@ -862,6 +913,11 @@ export function mountTuiApp(options: MountTuiOptions): MountedTuiApp {
             await instance.waitUntilExit();
         },
         unmount: () => instance.unmount(),
+        setController: (controller) => {
+            state.controller = controller;
+            state.revision += 1;
+            for (const listener of state.listeners) listener();
+        },
     };
 }
 
