@@ -8,6 +8,7 @@ import wrapAnsi from "wrap-ansi";
 
 import type { UiInspectorViewModel } from "./types.js";
 import { useTerminalSize } from "./use-terminal-size.js";
+import { ansi, formatGutter, formatSectionDivider } from "./ansi-styles.js";
 
 /**
  * 轨迹检查器的只读视图与导航回调。
@@ -105,45 +106,56 @@ export function InspectorScreen({
 
         // 1. 未提交尾部警示
         if (currentStep.uncommittedWarning !== undefined) {
-            lines.push("⚠️  [WARNING: UNCOMMITTED TAIL]");
-            lines.push(currentStep.uncommittedWarning);
+            lines.push(ansi.bold(ansi.red("⚠️  [WARNING: UNCOMMITTED TAIL]")));
+            lines.push(ansi.yellow(currentStep.uncommittedWarning));
             lines.push("");
         }
 
         // 2. 步骤标题
         if (currentStep.title) {
-            lines.push(`=== ${currentStep.title} ===`);
+            lines.push(ansi.bold(ansi.cyan(`=== ${currentStep.title} ===`)));
             lines.push("");
         }
 
         // 2.1 准备阶段详情（Step 1: Preparation & Planning）
         if (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0) {
-            lines.push("[Preparation & Context]");
+            lines.push(formatSectionDivider("[Preparation & Context]", contentWidth, {
+                icon: "◈",
+                color: ansi.cyan,
+            }));
             for (const detail of currentStep.preparationDetails) {
-                lines.push(`• ${detail}`);
+                lines.push(ansi.gray("  • ") + detail);
             }
             lines.push("");
         }
 
         // 3. 思维链 (Reasoning / CoT)
         if (currentStep.reasoning !== undefined) {
-            lines.push(inspector.showReasoning
-                ? "Reasoning / CoT"
-                : "Reasoning folded - press r to expand");
+            lines.push(formatSectionDivider("[Reasoning / CoT]", contentWidth, {
+                icon: "💭",
+                color: ansi.magenta,
+                badge: inspector.showReasoning ? "[Expanded]" : "[Folded - press r]",
+                badgeColor: ansi.gray,
+            }));
             if (inspector.showReasoning) {
-                lines.push(currentStep.reasoning);
+                lines.push(formatGutter(currentStep.reasoning, ansi.magenta("  │ ")));
+            } else {
+                lines.push(ansi.dim("  Reasoning folded - press r to expand"));
             }
             lines.push("");
         }
 
         // 4. 决策区块 (Decision)
         if (currentStep.decision !== undefined) {
-            lines.push(`[Decision: ${currentStep.decision.kind}]`);
+            lines.push(formatSectionDivider(`[Decision: ${currentStep.decision.kind}]`, contentWidth, {
+                icon: "◈",
+                color: ansi.cyan,
+            }));
             if (currentStep.decision.summary) {
-                lines.push(`Summary: ${currentStep.decision.summary}`);
+                lines.push(`  ${ansi.gray("Summary:")}     ${currentStep.decision.summary}`);
             }
             if (currentStep.decision.toolCall !== undefined) {
-                lines.push(`Target Tool: ${currentStep.decision.toolCall.toolId} (Action: ${currentStep.decision.toolCall.actionId})`);
+                lines.push(`  ${ansi.green(`Target Tool: ${currentStep.decision.toolCall.toolId}`)} ${ansi.dim(`(Action: ${currentStep.decision.toolCall.actionId})`)}`);
             }
             lines.push("");
         }
@@ -157,36 +169,52 @@ export function InspectorScreen({
                     : currentStep.action.approvalStatus === "rejected"
                         ? "Rejected"
                         : "Awaiting Approval";
-            lines.push(`[Action: ${currentStep.action.toolId}] (${statusLabel})`);
+            const badgeColor = currentStep.action.approvalStatus === "rejected"
+                ? ansi.red
+                : currentStep.action.approvalStatus === "awaiting_approval"
+                    ? ansi.yellow
+                    : ansi.green;
+            lines.push(formatSectionDivider(`[Action: ${currentStep.action.toolId}] (${statusLabel})`, contentWidth, {
+                icon: "⚡",
+                color: ansi.yellow,
+                badgeColor,
+            }));
             if (currentStep.action.inputJson) {
-                lines.push("Input:");
-                lines.push(currentStep.action.inputJson);
+                lines.push(`  ${ansi.gray("Input:")}`);
+                lines.push(formatGutter(currentStep.action.inputJson, ansi.yellow("  │ ")));
             }
             if (currentStep.action.rejectionReason !== undefined) {
-                lines.push(`Rejection Reason: ${currentStep.action.rejectionReason}`);
+                lines.push(`  ${ansi.red("Rejection Reason:")} ${currentStep.action.rejectionReason}`);
             }
             lines.push("");
         }
 
         // 6. 工具观察结果区块 (Tool & Observation)
         if (currentStep.observation !== undefined) {
+            const isSuccess = currentStep.observation.status === "success";
+            const statusColor = isSuccess ? ansi.green : ansi.red;
             const durationLabel = currentStep.observation.durationMs !== undefined
                 ? ` (${currentStep.observation.durationMs}ms)`
                 : "";
-            lines.push(`[Observation: ${currentStep.observation.toolId}] ${currentStep.observation.status.toUpperCase()}${durationLabel}`);
+            const obsHeader = `[Observation: ${currentStep.observation.toolId}] ${currentStep.observation.status.toUpperCase()}${durationLabel}`;
+            lines.push(formatSectionDivider(obsHeader, contentWidth, {
+                icon: "❯",
+                color: statusColor,
+            }));
             const isExpanded = inspector.expandObservation ?? false;
+            const gutter = isSuccess ? ansi.green("  │ ") : ansi.red("  │ ");
             if (isExpanded) {
                 const fullText = typeof currentStep.observation.rawObservation === "string"
                     ? currentStep.observation.rawObservation
                     : JSON.stringify(currentStep.observation.rawObservation, null, 2);
-                lines.push(fullText);
+                lines.push(formatGutter(fullText, gutter));
                 if (currentStep.observation.isTruncated) {
-                    lines.push("(Full output displayed - press o to collapse)");
+                    lines.push(ansi.dim("  (Full output displayed - press o to collapse)"));
                 }
             } else {
-                lines.push(currentStep.observation.observationPreview);
+                lines.push(formatGutter(currentStep.observation.observationPreview, gutter));
                 if (currentStep.observation.isTruncated) {
-                    lines.push("... [Observation truncated - press o to expand]");
+                    lines.push(ansi.yellow("  ... [Observation truncated - press o to expand]"));
                 }
             }
             lines.push("");
@@ -194,13 +222,18 @@ export function InspectorScreen({
 
         // 7. 步骤结果区块 (Result)
         if (currentStep.result !== undefined) {
-            lines.push(`[Result: ${currentStep.result.outcome.toUpperCase()}]`);
+            const isCompleted = currentStep.result.outcome === "completed" || currentStep.result.outcome === "next_step";
+            const resColor = isCompleted ? ansi.green : ansi.red;
+            lines.push(formatSectionDivider(`[Result: ${currentStep.result.outcome.toUpperCase()}]`, contentWidth, {
+                icon: "★",
+                color: resColor,
+            }));
             if (currentStep.result.summary) {
-                lines.push(`Summary: ${currentStep.result.summary}`);
+                lines.push(`  ${ansi.gray("Summary:")} ${currentStep.result.summary}`);
             }
             if (currentStep.result.errorMessage !== undefined) {
                 const codeStr = currentStep.result.errorCode ? `[${currentStep.result.errorCode}] ` : "";
-                lines.push(`Error: ${codeStr}${currentStep.result.errorMessage}`);
+                lines.push(`  ${ansi.red(`Error: ${codeStr}${currentStep.result.errorMessage}`)}`);
             }
             lines.push("");
         }

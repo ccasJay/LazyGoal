@@ -73,4 +73,11 @@ export {
     type MountedTuiApp,
     type CliRunOptions,
 } from "./cli";
+export {
+    ansi,
+    formatSectionDivider,
+    formatGutter,
+    type SectionDividerOptions,
+} from "./ansi-styles";
+
 
