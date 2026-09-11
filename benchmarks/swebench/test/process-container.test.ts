@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { isExecutionAbortedError } from "../../../packages/runtime/src/index.js";
 import { SwebenchContainer } from "../src/container.js";
-import { requireSuccess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../src/process.js";
-import type { WorkerArtifact } from "../src/worker-builder.js";
+import { requireSuccess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../../src/process.js";
+import type { WorkerArtifact } from "../../src/worker-builder.js";
 
 const task = { instance_id: "astropy__astropy-12907", repo: "astropy/astropy", base_commit: "a".repeat(40),
     problem_statement: "Issue", image: "swebench/sweb.eval.x86_64.astropy_1776_astropy-12907:latest" };

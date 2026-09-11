@@ -1,19 +1,20 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import type { HeadlessModelUsage, BenchmarkPersistenceLocator } from "../../src/headless-composition-root.js";
+import { AttemptRecorder, type BenchmarkAttemptRecord } from "../../src/attempt-recorder.js";
 import { SwebenchContainer, parseSwebenchTasks, type SwebenchTask } from "./container.js";
-import { isRecord, SWEBENCH_VERSION, type SwebenchManifest } from "./manifest.js";
-import { requireSuccess, runProcess, type ProcessRunner } from "./process.js";
+import { isRecord, parseSwebenchManifest, SWEBENCH_VERSION, type SwebenchManifest } from "./manifest.js";
+import { requireSuccess, runProcess, type ProcessRunner } from "../../src/process.js";
 import {
     runSwebenchSupervisor,
     type SwebenchSupervisorOptions,
     type SwebenchSupervisorResult,
 } from "./supervisor.js";
 import { SWE_ACP_PROFILE } from "./worker-runtime.js";
-import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
 
 /** 当前 SWE-bench ACP 容器评测身份。 */
 export const SWE_ACP_CONFIG_ID = "swebench-acp-container-v1" as const;
@@ -44,6 +45,23 @@ export interface SwebenchAttempt {
     readonly errors: readonly { readonly stage: string; readonly code?: string; readonly message: string }[];
     gradingStatus: "pending" | "resolved" | "unresolved" | "empty_patch" | "grading_error" | "not_submitted";
     gradingLogDirectory?: string;
+}
+
+/**
+ * SWE-bench 写入共享 AttemptRecorder 的领域字段。
+ *
+ * @example
+ * ```ts
+ * const result: SwebenchAttemptDomainResult = {
+ *   patch: "diff --git ...", patchSha256: "abc", gradingStatus: "resolved", resolved: true,
+ * };
+ * ```
+ */
+export interface SwebenchAttemptDomainResult {
+    readonly patch: string | null;
+    readonly patchSha256: string | null;
+    readonly gradingStatus: SwebenchAttempt["gradingStatus"];
+    readonly resolved: boolean | null;
 }
 
 /** 报告中固定 Worker、Node 和 ACP 协议身份；不包含容器内路径或模型凭据。 */
@@ -144,6 +162,7 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
         summary: summarize([], options.manifest.instanceIds.length),
     };
     const predictions: { instance_id: string; model_name_or_path: string; model_patch: string }[] = [];
+    let gradingStarted = false;
     const save = async () => {
         report.summary = summarize(report.attempts, options.manifest.instanceIds.length);
         await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
@@ -164,6 +183,7 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
             options.onProgress?.(`Solving ${index + 1}/${tasks.length}: ${task.instance_id}`);
             const { attempt, patch } = await solveTask({ ...options, outputDirectory: output }, task, `${runId}-${index}`, run);
             report.attempts.push(attempt);
+            await persistSwebenchAttempt(output, attempt, options.workerArtifact.manifest);
             if (patch !== null) predictions.push({ instance_id: task.instance_id, model_name_or_path: "lazygoal", model_patch: patch });
             await writeArtifact(join(output, "predictions.jsonl"), predictions.map((p) => JSON.stringify(p) + "\n").join(""));
             await save();
@@ -175,11 +195,13 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
             report.gradingError = "No patches could be exported";
         } else {
             options.onProgress?.("Grading saved predictions with the official harness");
+            gradingStarted = true;
             const grading: unknown = JSON.parse(requireSuccess(await run(options.python,
                 [BRIDGE_PATH, "grade", output, runId, String(options.manifest.testTimeoutSeconds)],
                 { timeoutMs: (options.manifest.testTimeoutSeconds + 300) * 1000 * predictions.length,
                     signal: options.signal, maxBytes: 4 * 1024 * 1024 }), "SWE-bench grading"));
             applyGrades(report.attempts, grading);
+            await persistSwebenchGrades(output, report.attempts);
             if (!isRecord(grading) || grading.exitCode !== 0) throw new Error("Official harness exited unsuccessfully; inspect harness.log");
             report.status = report.attempts.some((a) => a.gradingStatus === "grading_error" || a.errors.length > 0 || a.gradingStatus === "not_submitted")
                 ? "failed" : "completed";
@@ -191,6 +213,14 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
         if (report.status === "failed") {
             for (const attempt of report.attempts) {
                 if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
+            }
+        }
+        if (gradingStarted) {
+            try {
+                await persistSwebenchGrades(output, report.attempts);
+            } catch (error) {
+                report.gradingError = [report.gradingError, `Attempt persistence: ${errorMessage(error)}`].filter(Boolean).join("; ");
+                if (report.status !== "aborted") report.status = "failed";
             }
         }
         try {
@@ -205,6 +235,102 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
         await save();
     }
     return report;
+}
+
+/**
+ * 独立评分命令的依赖边界；不包含 LLM 或 Worker 构建输入。
+ *
+ * @example
+ * ```ts
+ * const options: SwebenchGradeOptions = { outputDirectory: "/tmp/swebench-run" };
+ * ```
+ */
+export interface SwebenchGradeOptions {
+    readonly outputDirectory: string;
+    readonly python?: string;
+    readonly runProcess?: ProcessRunner;
+}
+
+/**
+ * 读取已有 predictions/dataset 和报告，调用官方 harness 并更新 Attempt 评分字段。
+ *
+ * @param options - 已有输出目录与 Python 进程边界。
+ * @returns 更新后的 SWE-bench 报告。
+ * @throws 产物缺失、JSON 损坏或官方评分响应非法时抛出异常；不会构造模型。
+ * @example
+ * ```ts
+ * const report = await gradeSwebenchEvaluation({ outputDirectory: ".lazygoal/run" });
+ * console.log(report.summary.resolved);
+ * ```
+ */
+export async function gradeSwebenchEvaluation(options: SwebenchGradeOptions): Promise<SwebenchReport> {
+    const output = resolve(options.outputDirectory);
+    const run = options.runProcess ?? runProcess;
+    const report = JSON.parse(await readFile(join(output, "report.json"), "utf8")) as SwebenchReport;
+    validateSwebenchReportForGrade(report, output);
+    const savedAttempts = await readSwebenchAttemptRecords(output, report);
+    const predictionsText = await readFile(join(output, "predictions.jsonl"), "utf8");
+    const predictions = parsePredictions(predictionsText, report.manifest.instanceIds);
+    for (const prediction of predictions) {
+        const saved = savedAttempts.get(prediction.instance_id);
+        if (saved === undefined) continue;
+        const patch = saved.domainResult.patch;
+        if (patch !== prediction.model_patch) {
+            throw new TypeError(`Prediction patch does not match saved Attempt: ${prediction.instance_id}`);
+        }
+    }
+    if (predictions.length === 0) {
+        report.status = "failed";
+        report.gradingError = "No saved predictions are available for grading";
+        for (const attempt of report.attempts) {
+            if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
+        }
+        await persistSwebenchGrades(output, report.attempts);
+        report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
+        await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+        return report;
+    }
+    const predictionIds = new Set(predictions.map((prediction) => prediction.instance_id));
+    for (const attempt of report.attempts) {
+        if (predictionIds.has(attempt.instanceId)) attempt.gradingStatus = "pending";
+    }
+    const gradingRunId = `lg-grade-${randomUUID()}`;
+    let grading: unknown;
+    try {
+        grading = JSON.parse(requireSuccess(await run(options.python ?? "python3", [
+            BRIDGE_PATH,
+            "grade",
+            output,
+            gradingRunId,
+            String(report.manifest.testTimeoutSeconds),
+        ], {
+            timeoutMs: (report.manifest.testTimeoutSeconds + 300) * 1000 * Math.max(1, predictions.length),
+            maxBytes: 4 * 1024 * 1024,
+        }), "SWE-bench grading"));
+        applyGrades(report.attempts, grading);
+    } catch (error) {
+        markPendingGradesAsErrors(report.attempts);
+        report.status = "failed";
+        report.gradingError = errorMessage(error);
+        await persistSwebenchGrades(output, report.attempts);
+        report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
+        await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+        return report;
+    }
+    await persistSwebenchGrades(output, report.attempts);
+    const harnessExitCode = isRecord(grading) && typeof grading.exitCode === "number" ? grading.exitCode : 0;
+    report.status = harnessExitCode !== 0 || report.attempts.some((attempt) => attempt.gradingStatus === "grading_error" || attempt.gradingStatus === "pending" || attempt.gradingStatus === "not_submitted")
+        ? "failed" : "completed";
+    if (harnessExitCode !== 0) report.gradingError = `Official harness exited with code ${harnessExitCode}`;
+    report.summary = summarize(report.attempts, report.manifest.instanceIds.length);
+    await writeArtifact(join(output, "report.json"), JSON.stringify(report, null, 2) + "\n");
+    return report;
+}
+
+function markPendingGradesAsErrors(attempts: readonly SwebenchAttempt[]): void {
+    for (const attempt of attempts) {
+        if (attempt.gradingStatus === "pending") attempt.gradingStatus = "grading_error";
+    }
 }
 
 async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask, name: string, run: ProcessRunner): Promise<{ readonly attempt: SwebenchAttempt; readonly patch: string | null }> {
@@ -256,7 +382,7 @@ async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask,
         runStatus: typeof meta?.runStatus === "string" ? meta.runStatus : "unknown",
         stopReason: meta?.stopReason ?? result.stopReason,
         usage: readUsage(meta?.usage),
-        imageId: container.imageId ?? null,
+        imageId: result.imageId ?? container.imageId ?? null,
         patchPath,
         patchBytes: patch === null ? 0 : Buffer.byteLength(patch),
         patchSha256: patch === null ? null : hash(patch),
@@ -341,4 +467,201 @@ async function writeArtifact(path: string, content: string): Promise<void> {
     const temporary = `${path}.tmp`;
     await writeFile(temporary, content);
     await rename(temporary, path);
+}
+
+async function persistSwebenchAttempt(
+    outputDirectory: string,
+    attempt: SwebenchAttempt,
+    worker: WorkerManifest,
+): Promise<void> {
+    const recorder = new AttemptRecorder<SwebenchAttemptDomainResult>(attemptPath(outputDirectory, attempt.instanceId, attempt.attempt));
+    const record: BenchmarkAttemptRecord<SwebenchAttemptDomainResult> = {
+        benchmarkId: "swebench",
+        taskId: attempt.instanceId,
+        goalId: attempt.goalId,
+        runId: attempt.runId,
+        attempt: attempt.attempt,
+        status: attemptStatus(attempt),
+        durationMs: attempt.durationMs,
+        usage: attempt.usage,
+        errors: attempt.errors,
+        artifactLocator: attempt.persistence,
+        domainResult: {
+            patch: attempt.patchPath === null ? null : await readPatch(resolveArtifactPath(outputDirectory, attempt.patchPath)),
+            patchSha256: attempt.patchSha256,
+            gradingStatus: attempt.gradingStatus,
+            resolved: attempt.gradingStatus === "resolved" ? true : attempt.gradingStatus === "unresolved" ? false : null,
+        },
+        environment: { imageId: attempt.imageId },
+        worker: {
+            workerSha256: worker.workerSha256,
+            nodeSha256: worker.nodeSha256,
+            nodeVersion: worker.nodeVersion,
+            platform: worker.platform,
+        },
+        lastStage: "execution",
+    };
+    await recorder.commit(record);
+}
+
+async function persistSwebenchGrades(outputDirectory: string, attempts: readonly SwebenchAttempt[]): Promise<void> {
+    for (const attempt of attempts) {
+        const recorder = new AttemptRecorder<SwebenchAttemptDomainResult>(attemptPath(outputDirectory, attempt.instanceId, attempt.attempt));
+        const current = await recorder.read();
+        if (current === undefined) {
+            const patch = attempt.patchPath === null ? null : await readPatch(resolveArtifactPath(outputDirectory, attempt.patchPath));
+            await recorder.commit({
+                benchmarkId: "swebench",
+                taskId: attempt.instanceId,
+                goalId: attempt.goalId,
+                runId: attempt.runId,
+                attempt: attempt.attempt,
+                status: attemptStatus(attempt),
+                durationMs: attempt.durationMs,
+                usage: attempt.usage,
+                errors: attempt.errors,
+                artifactLocator: attempt.persistence,
+                domainResult: {
+                    patch,
+                    patchSha256: attempt.patchSha256,
+                    gradingStatus: attempt.gradingStatus,
+                    resolved: attempt.gradingStatus === "resolved" ? true : attempt.gradingStatus === "unresolved" ? false : null,
+                },
+                environment: { imageId: attempt.imageId },
+                lastStage: "grading",
+            });
+            continue;
+        }
+        await recorder.update({
+            status: attemptStatus(attempt),
+            lastStage: "grading",
+            domainResult: {
+                ...current.domainResult,
+                patchSha256: attempt.patchSha256,
+                gradingStatus: attempt.gradingStatus,
+                resolved: attempt.gradingStatus === "resolved" ? true : attempt.gradingStatus === "unresolved" ? false : null,
+            },
+        });
+    }
+}
+
+function attemptPath(outputDirectory: string, taskId: string, attempt: number): string {
+    return join(outputDirectory, "attempts", taskId, `attempt-${attempt}.json`);
+}
+
+function attemptStatus(attempt: SwebenchAttempt): BenchmarkAttemptRecord["status"] {
+    if (attempt.errors.length > 0) {
+        return attempt.errors.some((error) => error.stage !== "model") ? "infrastructure_error" : "failed";
+    }
+    if (attempt.gradingStatus === "not_submitted") return "failed";
+    if (attempt.gradingStatus === "grading_error") return "infrastructure_error";
+    return "completed";
+}
+
+function parsePredictions(
+    text: string,
+    manifestIds: readonly string[],
+): { instance_id: string; model_name_or_path: string; model_patch: string }[] {
+    const manifest = new Set(manifestIds);
+    const seen = new Set<string>();
+    const predictions: { instance_id: string; model_name_or_path: string; model_patch: string }[] = [];
+    for (const line of text.split(/\r?\n/u)) {
+        if (line.trim() === "") continue;
+        let value: unknown;
+        try { value = JSON.parse(line); }
+        catch { throw new TypeError("Invalid SWE-bench prediction JSON"); }
+        if (!isRecord(value)
+            || typeof value.instance_id !== "string"
+            || !manifest.has(value.instance_id)
+            || seen.has(value.instance_id)
+            || typeof value.model_name_or_path !== "string"
+            || value.model_name_or_path.trim() === ""
+            || typeof value.model_patch !== "string") {
+            throw new TypeError("Invalid SWE-bench prediction record");
+        }
+        seen.add(value.instance_id);
+        predictions.push({
+            instance_id: value.instance_id,
+            model_name_or_path: value.model_name_or_path,
+            model_patch: value.model_patch,
+        });
+    }
+    return predictions;
+}
+
+async function readPatch(path: string): Promise<string | null> {
+    try { return await readFile(path, "utf8"); }
+    catch { return null; }
+}
+
+function validateSwebenchReportForGrade(report: SwebenchReport, outputDirectory: string): void {
+    if (!isRecord(report) || report.schemaVersion !== 1
+        || report.configId !== SWE_ACP_CONFIG_ID
+        || report.harnessVersion !== SWEBENCH_VERSION
+        || typeof report.runId !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(report.runId)
+        || !isRecord(report.manifest) || !Array.isArray(report.attempts)) {
+        throw new TypeError("Invalid SWE-bench report for grading");
+    }
+    const manifest = parseSwebenchManifest(report.manifest);
+    const seen = new Set<string>();
+    for (const value of report.attempts) {
+        if (!isRecord(value)
+            || typeof value.instanceId !== "string"
+            || !manifest.instanceIds.includes(value.instanceId)
+            || seen.has(value.instanceId)
+            || typeof value.goalId !== "string" || typeof value.runId !== "string"
+            || value.attempt !== 1
+            || typeof value.patchPath !== "string" && value.patchPath !== null
+            || (typeof value.patchPath === "string" && !isPathInside(outputDirectory, value.patchPath))
+            || typeof value.patchBytes !== "number" || !Number.isSafeInteger(value.patchBytes) || value.patchBytes < 0
+            || (value.patchSha256 !== null && (typeof value.patchSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.patchSha256)))
+            || !["pending", "resolved", "unresolved", "empty_patch", "grading_error", "not_submitted"].includes(String(value.gradingStatus))) {
+            throw new TypeError("Invalid SWE-bench attempt for grading");
+        }
+        seen.add(value.instanceId);
+    }
+}
+
+async function readSwebenchAttemptRecords(
+    outputDirectory: string,
+    report: SwebenchReport,
+): Promise<Map<string, BenchmarkAttemptRecord<SwebenchAttemptDomainResult>>> {
+    const records = new Map<string, BenchmarkAttemptRecord<SwebenchAttemptDomainResult>>();
+    for (const attempt of report.attempts) {
+        const recorder = new AttemptRecorder<SwebenchAttemptDomainResult>(attemptPath(outputDirectory, attempt.instanceId, attempt.attempt));
+        const record = await recorder.read();
+        if (record === undefined) continue;
+        if (record.benchmarkId !== "swebench"
+            || record.taskId !== attempt.instanceId
+            || record.goalId !== attempt.goalId
+            || record.runId !== attempt.runId
+            || record.attempt !== attempt.attempt
+            || !isSwebenchAttemptDomainResult(record.domainResult)
+            || record.domainResult.patchSha256 !== attempt.patchSha256
+            || (record.domainResult.patch === null ? 0 : Buffer.byteLength(record.domainResult.patch)) !== attempt.patchBytes
+            || (record.domainResult.patch === null ? null : hash(record.domainResult.patch)) !== attempt.patchSha256) {
+            throw new TypeError(`SWE-bench Attempt record does not match report: ${attempt.instanceId}`);
+        }
+        records.set(attempt.instanceId, record);
+    }
+    return records;
+}
+
+function isSwebenchAttemptDomainResult(value: unknown): value is SwebenchAttemptDomainResult {
+    return isRecord(value)
+        && (typeof value.patch === "string" || value.patch === null)
+        && (value.patchSha256 === null || (typeof value.patchSha256 === "string" && /^[a-f0-9]{64}$/u.test(value.patchSha256)))
+        && ["pending", "resolved", "unresolved", "empty_patch", "grading_error", "not_submitted"].includes(String(value.gradingStatus))
+        && (value.resolved === null || typeof value.resolved === "boolean");
+}
+
+function isPathInside(rootDirectory: string, candidate: string): boolean {
+    const root = resolve(rootDirectory);
+    const resolved = resolveArtifactPath(root, candidate);
+    const remainder = relative(root, resolved);
+    return remainder === "" || (!remainder.startsWith("..") && !isAbsolute(remainder));
+}
+
+function resolveArtifactPath(rootDirectory: string, candidate: string): string {
+    return isAbsolute(candidate) ? resolve(candidate) : resolve(rootDirectory, candidate);
 }

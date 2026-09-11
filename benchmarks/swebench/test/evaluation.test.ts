@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
-import { applyGrades, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
+import { applyGrades, gradeSwebenchEvaluation, runSwebenchEvaluation, preflightSwebench, type SwebenchEvaluationOptions } from "../src/evaluation.js";
 import { SWEBENCH_VERSION, type SwebenchManifest } from "../src/manifest.js";
-import type { ProcessRunner } from "../src/process.js";
-import type { WorkerArtifact, WorkerManifest } from "../src/worker-builder.js";
+import type { ProcessRunner } from "../../src/process.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
+import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
 import { SWE_ACP_PROFILE } from "../src/worker-runtime.js";
 
 const ids = ["astropy__astropy-12907", "astropy__astropy-13033"];
@@ -149,6 +150,10 @@ test("one attempt per task persists Runtime facts and patches; max-step failure 
         assert.ok((await readdir(join(f.outputDirectory, attempt.persistence!.trajectory))).length >= 0);
         assert.ok((await readdir(join(f.outputDirectory, attempt.persistence!.diagnosticTrace!))).length >= 0);
     }
+    const persisted = await readBenchmarkAttempt(join(f.outputDirectory, "attempts", ids[0]!, "attempt-1.json"));
+    assert.equal(persisted.status, "completed");
+    assert.equal((persisted.domainResult as { resolved: boolean | null }).resolved, true);
+    assert.match((persisted.domainResult as { patch: string }).patch, /diff --git/);
     const predictions = (await readFile(join(f.outputDirectory, "predictions.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
     assert.deepEqual(predictions.map((p) => p.instance_id), ids);
     assert.equal(predictions[0].model_patch, patch);
@@ -166,6 +171,29 @@ test("grading failure preserves predictions without rerunning the agent", async 
     assert.equal(report.summary.resolved, 0);
     assert.equal(f.modelCalls(), 2);
     assert.match(await readFile(join(f.outputDirectory, "predictions.jsonl"), "utf8"), /model_patch/);
+    const persisted = await readBenchmarkAttempt(join(f.outputDirectory, "attempts", ids[0]!, "attempt-1.json"));
+    assert.equal(persisted.status, "infrastructure_error");
+    assert.equal((persisted.domainResult as { gradingStatus: string }).gradingStatus, "grading_error");
+});
+
+test("independent grade reuses saved predictions without invoking the model", async (t) => {
+    const f = await fixture(t);
+    const first = await runSwebenchEvaluation(f.options);
+    const modelCalls = f.modelCalls();
+    const graded = await gradeSwebenchEvaluation({
+        outputDirectory: f.outputDirectory,
+        python: "python",
+        runProcess: f.options.runProcess,
+    });
+    assert.equal(f.modelCalls(), modelCalls);
+    assert.equal(graded.status, "completed");
+    assert.equal(graded.summary.resolved, first.summary.resolved);
+    const gradeCall = f.calls.filter((call) => call.command === "python" && call.args[1] === "grade").at(-1);
+    assert.ok(gradeCall);
+    assert.match(gradeCall.args[3]!, /^lg-grade-/u);
+    assert.notEqual(gradeCall.args[3], first.runId);
+    const persisted = await readBenchmarkAttempt(join(f.outputDirectory, "attempts", ids[0]!, "attempt-1.json"));
+    assert.equal((persisted.domainResult as { gradingStatus: string }).gradingStatus, "resolved");
 });
 
 test("model completion cannot override the official unresolved outcome", async (t) => {

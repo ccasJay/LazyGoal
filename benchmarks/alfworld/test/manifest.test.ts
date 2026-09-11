@@ -64,6 +64,13 @@ test("validateManifest rejects duplicate IDs, implicit empty sampling and unstab
     );
 });
 
+test("validateManifest rejects names that could escape the run output directory", () => {
+    assert.throws(
+        () => validateManifest({ ...manifest([task(0, "safe")]), name: "../outside" }, "/data/alfworld"),
+        (error: unknown) => error instanceof ManifestValidationError && error.code === "INVALID_NAME",
+    );
+});
+
 test("validateManifest rejects absolute and escaping gamefile paths", () => {
     for (const gameFile of [
         "/tmp/secret/game.tw-pddl",

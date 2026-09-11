@@ -335,6 +335,29 @@ export async function buildSwebenchWorker(options: WorkerBuilderOptions): Promis
 }
 
 /**
+ * 为任意 benchmark 构建共享 ACP Worker。
+ *
+ * @remarks
+ * Worker 构建器不包含 benchmark 领域逻辑；入口文件由调用方提供，构建缓存身份
+ * 同时包含入口依赖、锁文件、Prompt 资产和固定 Node 运行时。保留
+ * `buildSwebenchWorker` 作为现有 SWE-bench 调用方的兼容名称。
+ *
+ * @param options - Worker 入口、缓存和固定运行时输入。
+ * @returns 已校验且原子发布的 Worker 产物。
+ * @example
+ * ```ts
+ * const artifact = await buildBenchmarkWorker({
+ *   projectRoot: process.cwd(),
+ *   entryPoint: "benchmarks/alfworld/src/worker.ts",
+ *   cacheDirectory: ".lazygoal/alfworld-worker-cache",
+ * });
+ * ```
+ */
+export async function buildBenchmarkWorker(options: WorkerBuilderOptions): Promise<WorkerArtifact> {
+    return buildSwebenchWorker(options);
+}
+
+/**
  * 校验并读取已发布的 Worker manifest；不完整或篡改的缓存视为 miss。
  *
  * @param directory - 仅包含一个已发布摘要目录的绝对或相对路径。

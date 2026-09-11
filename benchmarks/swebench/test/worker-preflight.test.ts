@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { WORKER_ACP_SDK_VERSION, WORKER_NODE_IMAGE, WORKER_NODE_VERSION, WORKER_PLATFORM, type WorkerManifest } from "../src/worker-builder.js";
+import { WORKER_ACP_SDK_VERSION, WORKER_NODE_IMAGE, WORKER_NODE_VERSION, WORKER_PLATFORM, type WorkerManifest } from "../../src/worker-builder.js";
 import { preflightWorker, WorkerPreflightError, type WorkerPreflightOptions } from "../src/worker-preflight.js";
 
 const baseCommit = "a".repeat(40);

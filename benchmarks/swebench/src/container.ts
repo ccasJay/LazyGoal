@@ -1,9 +1,11 @@
 import { swebenchWorkerArgs } from "./worker-config.js";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { isRecord } from "./manifest.js";
-import { requireSuccess, runInteractiveProcess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "./process.js";
-import type { WorkerArtifact, WorkerManifest } from "./worker-builder.js";
+import { requireSuccess, runInteractiveProcess, runProcess, type InteractiveProcess, type InteractiveProcessRunner, type ProcessRunner } from "../../src/process.js";
+import type { WorkerArtifact, WorkerManifest } from "../../src/worker-builder.js";
+import type { EnvironmentHandle } from "../../src/isolated-environment.js";
+import type { ProcessOptions } from "../../src/process.js";
 import { preflightWorker, type WorkerPreflightResult } from "./worker-preflight.js";
 
 /**
@@ -102,8 +104,9 @@ export class SwebenchContainer {
      * @param signal - 取消时中止尚未完成的注入命令。
      * @throws 任一目录创建或复制失败时抛出；调用方应记录 `worker_inject` 阶段。
      */
-    async injectWorker(artifact: WorkerArtifact, signal?: AbortSignal): Promise<void> {
+    async injectWorker(artifact: WorkerArtifact | undefined, signal?: AbortSignal): Promise<void> {
         if (!this.created || this.closed) throw new Error("Cannot inject Worker into a non-running container");
+        if (artifact === undefined) throw new TypeError("SWE-bench Worker artifact is required");
         const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
         requireSuccess(await this.run("docker", ["exec", this.name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker injection directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
@@ -148,6 +151,54 @@ export class SwebenchContainer {
             timeoutMs,
             signal,
             maxBytes: 16 * 1024 * 1024,
+        });
+    }
+
+    /**
+     * 为共享 `IsolatedEnvironment` 提供受限的容器句柄。
+     *
+     * @param workdir - 领域工具使用的容器工作目录。
+     * @param signal - 当前 Attempt 的合并取消信号。
+     * @returns 不包含容器名或 Docker API 的环境句柄。
+     * @example
+     * ```ts
+     * const handle = container.createHandle("/testbed", signal);
+     * await handle.exec("git status --short");
+     * ```
+     */
+    createHandle(workdir: string, signal: AbortSignal): EnvironmentHandle {
+        return Object.freeze({
+            workdir,
+            exec: async (command: string, options: Partial<ProcessOptions> = {}) => {
+                const timeoutSeconds = Math.max(1, Math.ceil((options.timeoutMs ?? 60_000) / 1000));
+                return this.run("docker", ["exec", "--workdir", workdir, this.name,
+                    "timeout", "--signal=TERM", "--kill-after=5", String(timeoutSeconds),
+                    "/bin/bash", "-c", `source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed && ${command}`], {
+                    timeoutMs: options.timeoutMs ?? 60_000,
+                    maxBytes: options.maxBytes ?? 1024 * 1024,
+                    ...(options.truncate === undefined ? {} : { truncate: options.truncate }),
+                    signal: options.signal ?? signal,
+                });
+            },
+            copyInto: async (source: string, target: string) => {
+                requireSuccess(await this.run("docker", ["cp", source, `${this.name}:${target}`], {
+                    timeoutMs: 60_000,
+                    signal,
+                    maxBytes: 16 * 1024,
+                    truncate: true,
+                }), "Copy environment input");
+            },
+            copyOut: async (source: string, target: string) => {
+                const destination = resolve(target);
+                await mkdir(dirname(destination), { recursive: true });
+                requireSuccess(await this.run("docker", ["cp", `${this.name}:${source}`, destination], {
+                    timeoutMs: 60_000,
+                    signal,
+                    maxBytes: 16 * 1024,
+                    truncate: true,
+                }), "Copy environment artifact");
+                return destination;
+            },
         });
     }
 

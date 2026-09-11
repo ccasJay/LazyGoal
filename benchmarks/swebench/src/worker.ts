@@ -13,8 +13,8 @@ import {
 import {
     createAcpMuxStream,
     MultiplexedConnection,
-} from "./multiplex.js";
-import { RpcLlmAdapter } from "./llm-rpc.js";
+} from "../../src/multiplex.js";
+import { RpcLlmAdapter } from "../../src/llm-rpc.js";
 import {
     createSwebenchAcpSessionFactory,
     parseSwebenchAcpTaskMetadata,

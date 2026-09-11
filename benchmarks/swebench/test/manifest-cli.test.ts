@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { loadSwebenchManifest, parseSwebenchManifest } from "../src/manifest.js";
-import { parseSwebenchArgs } from "../src/cli.js";
+import { parseSwebenchArgs, parseSwebenchGradeArgs } from "../src/cli.js";
 import { parseSwebenchTasks } from "../src/container.js";
 
 test("checked-in manifest pins revision, instances and finite budgets", async () => {
@@ -32,6 +32,13 @@ test("CLI requires explicit routing and never accepts retry options", () => {
         ["eval", "swebench", "--manifest", "a", "--output", ""]]) {
         assert.throws(() => parseSwebenchArgs(args));
     }
+});
+
+test("grade CLI parser requires an existing output directory and no model settings", () => {
+    const command = parseSwebenchGradeArgs(["grade", "swebench", "--output", "run"], "/workspace");
+    assert.equal(command.output, "/workspace/run");
+    assert.equal(command.python, "python3");
+    assert.throws(() => parseSwebenchGradeArgs(["grade", "swebench"], "/workspace"), /requires --output/);
 });
 
 test("real bin routes SWE-bench argument errors without starting TUI or Python", () => {

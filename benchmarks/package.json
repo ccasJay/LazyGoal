@@ -18,6 +18,7 @@
     "alfworld:init": "tsx alfworld/scripts/init-alfworld.ts",
     "alfworld:download": "tsx alfworld/scripts/download-alfworld.ts",
     "alfworld:preflight": "tsx alfworld/scripts/preflight-alfworld.ts",
+    "alfworld:worker-smoke": "cd .. && tsx benchmarks/alfworld/src/worker-smoke.ts",
     "alfworld:eval": "cd .. && tsx benchmarks/alfworld/src/cli.ts",
     "alfworld:smoke": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 0",
     "alfworld:regression": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/regression.json --min-success-rate 0"

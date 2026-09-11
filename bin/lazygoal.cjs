@@ -7,10 +7,16 @@ const { resolve } = require("node:path");
 const argv = process.argv.slice(2);
 const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
 const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
+const isAlfworldGrade = argv[0] === "grade" && argv[1] === "alfworld";
+const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const source = isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
     : isSwebenchEval
         ? resolve(__dirname, "../benchmarks/swebench/src/cli.ts")
+        : isAlfworldGrade
+            ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
+            : isSwebenchGrade
+                ? resolve(__dirname, "../benchmarks/swebench/src/cli.ts")
         : resolve(__dirname, "../packages/tui/src/cli.tsx");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 

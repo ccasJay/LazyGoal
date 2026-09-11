@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 import type { HeadlessModelUsage } from "../../src/headless-composition-root.js";
+import type { BenchmarkPersistenceLocator } from "../../src/headless-composition-root.js";
 import type { AlfworldManifest, AlfworldManifestTask } from "./manifest.js";
 
 /** 评测尝试可以归入的稳定失败类别。 */
@@ -96,6 +97,11 @@ export interface EpisodeAttempt {
     readonly usage?: HeadlessModelUsage;
     readonly failureCategory: EpisodeFailureCategory | null;
     readonly errorCode: string | null;
+    /** Root 分配的 Goal/Run 身份；旧的注入执行器可能省略。 */
+    readonly goalId?: string;
+    readonly runId?: string;
+    /** Root 返回的稳定持久化定位；不包含轨迹正文。 */
+    readonly persistence?: BenchmarkPersistenceLocator | null;
 }
 
 /**
@@ -256,6 +262,9 @@ export function createEpisodeAttempt(
         errorCode: execution.environment.won
             ? null
             : execution.failure?.code ?? null,
+        ...(execution.goalId === undefined ? {} : { goalId: execution.goalId }),
+        ...(execution.runId === undefined ? {} : { runId: execution.runId }),
+        ...(execution.persistence === undefined ? {} : { persistence: execution.persistence }),
     };
 }
 
@@ -273,6 +282,14 @@ export function createEpisodeAttempt(
 export interface EpisodeExecutionFacts {
     readonly environment: EpisodeEnvironmentFacts;
     readonly model: EpisodeModelFacts;
+    /** 共享 Attempt 记录使用的环境身份摘要，例如镜像和依赖版本。 */
+    readonly environmentSummary?: Readonly<Record<string, unknown>>;
+    /** 共享 Attempt 记录使用的 Worker 身份摘要。 */
+    readonly worker?: Readonly<Record<string, unknown>>;
+    /** Root 生成的当前 Goal/Run 身份和持久化定位。 */
+    readonly goalId?: string;
+    readonly runId?: string;
+    readonly persistence?: BenchmarkPersistenceLocator | null;
     readonly failure?: {
         readonly category: EpisodeFailureCategory;
         readonly code?: string;
@@ -338,6 +355,45 @@ export function aggregateEvaluationReport(
 }
 
 /**
+ * 从已落盘的 ALFWorld 报告重新计算汇总，不创建模型、sidecar 或 ACP 会话。
+ *
+ * @param report - 已通过 JSON 读取边界的历史评测报告。
+ * @returns 保留原始 attempts、身份和领域事实的新报告。
+ * @throws 报告或 Attempt 持久化形状非法时抛出异常。
+ * @example
+ * ```ts
+ * const graded = regradeEvaluationReport(savedReport);
+ * console.log(graded.summary.successRate);
+ * ```
+ */
+export function regradeEvaluationReport(report: EvaluationReport): EvaluationReport {
+    validateEvaluationReport(report);
+    const attempts = report.attempts;
+    const latestByTask = new Map<string, EpisodeAttempt>();
+    for (const attempt of attempts) latestByTask.set(attempt.taskId, attempt);
+    const latestAttempts = [...latestByTask.values()];
+    const successfulTasks = latestAttempts.filter((attempt) => attempt.won).length;
+    const failureCounts = createFailureCounts();
+    for (const attempt of latestAttempts) {
+        if (attempt.failureCategory !== null && !attempt.won) failureCounts[attempt.failureCategory] += 1;
+    }
+    return {
+        ...report,
+        attempts: [...attempts],
+        summary: {
+            totalTasks: report.summary.totalTasks,
+            successfulTasks,
+            successRate: report.summary.totalTasks === 0 ? 0 : successfulTasks / report.summary.totalTasks,
+            averageSteps: latestAttempts.length === 0
+                ? 0
+                : latestAttempts.reduce((sum, attempt) => sum + attempt.steps, 0) / latestAttempts.length,
+            failureCounts,
+            usage: summarizeUsage(attempts),
+        },
+    };
+}
+
+/**
  * 汇总全部尝试的用量;只对携带用量的尝试求和,无用量数据的尝试只计入
  * `attemptsMissingUsage`,不向 token 总数贡献任何值。
  */
@@ -390,6 +446,116 @@ function createFailureCounts(): Record<EpisodeFailureCategory, number> {
         timeout: 0,
         unknown: 0,
     };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateEvaluationReport(value: unknown): asserts value is EvaluationReport {
+    if (!isRecord(value)
+        || value.schemaVersion !== 1
+        || typeof value.manifestId !== "string" || value.manifestId.trim() === ""
+        || typeof value.manifestName !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(value.manifestName)
+        || typeof value.profileId !== "string" || value.profileId.trim() === ""
+        || typeof value.profileHash !== "string" || value.profileHash.trim() === ""
+        || value.promptBundleVersion !== 1
+        || typeof value.configId !== "string" || value.configId.trim() === ""
+        || (value.modelId !== null && typeof value.modelId !== "string")
+        || !Array.isArray(value.attempts)
+        || !isRecord(value.summary)) {
+        throw new TypeError("Invalid ALFWorld evaluation report");
+    }
+    if (!isSummary(value.summary)) throw new TypeError("Invalid ALFWorld evaluation summary");
+    for (const attempt of value.attempts) {
+        if (!isEpisodeAttempt(attempt)) throw new TypeError("Invalid ALFWorld evaluation attempt");
+    }
+}
+
+function isEpisodeAttempt(value: unknown): value is EpisodeAttempt {
+    if (!isRecord(value)
+        || typeof value.taskId !== "string" || value.taskId.trim() === ""
+        || typeof value.gameFile !== "string" || value.gameFile.trim() === "" || value.gameFile.startsWith("/")
+        || !isSplit(value.split)
+        || !isSafeNonNegativeInteger(value.seed)
+        || !isSafePositiveInteger(value.maxSteps)
+        || typeof value.profileId !== "string" || value.profileId.trim() === ""
+        || typeof value.profileHash !== "string" || value.profileHash.trim() === ""
+        || value.promptBundleVersion !== 1
+        || typeof value.manifestId !== "string" || value.manifestId.trim() === ""
+        || typeof value.configId !== "string" || value.configId.trim() === ""
+        || (value.modelId !== null && typeof value.modelId !== "string")
+        || !isSafeNonNegativeInteger(value.retrySequence)
+        || typeof value.done !== "boolean" || typeof value.won !== "boolean"
+        || !isSafeNonNegativeInteger(value.steps)
+        || typeof value.goalConditionSuccessRate !== "number" || !Number.isFinite(value.goalConditionSuccessRate)
+        || value.goalConditionSuccessRate < 0 || value.goalConditionSuccessRate > 1
+        || typeof value.durationMs !== "number" || !Number.isFinite(value.durationMs) || value.durationMs < 0
+        || (value.modelRunStatus !== null && typeof value.modelRunStatus !== "string")
+        || typeof value.modelCompleted !== "boolean"
+        || (value.usage !== undefined && !isUsage(value.usage))
+        || (value.failureCategory !== null && !isFailureCategory(value.failureCategory))
+        || (value.errorCode !== null && typeof value.errorCode !== "string")
+        || (value.goalId !== undefined && (typeof value.goalId !== "string" || value.goalId.trim() === ""))
+        || (value.runId !== undefined && (typeof value.runId !== "string" || value.runId.trim() === ""))
+        || (value.persistence !== undefined && value.persistence !== null && !isPersistence(value.persistence))) {
+        return false;
+    }
+    return true;
+}
+
+function isSummary(value: Record<string, unknown>): boolean {
+    if (!isSafeNonNegativeInteger(value.totalTasks)
+        || !isSafeNonNegativeInteger(value.successfulTasks)
+        || typeof value.successRate !== "number" || !Number.isFinite(value.successRate)
+        || value.successRate < 0 || value.successRate > 1
+        || typeof value.averageSteps !== "number" || !Number.isFinite(value.averageSteps) || value.averageSteps < 0
+        || !isRecord(value.failureCounts)
+        || !isRecord(value.usage)) return false;
+    const categories: readonly EpisodeFailureCategory[] = [
+        "aborted", "domain_command_rejected", "infrastructure", "model_complete_without_win",
+        "protocol", "task_not_won", "timeout", "unknown",
+    ];
+    const failureCounts = value.failureCounts as Record<string, unknown>;
+    if (categories.some((category) => !isSafeNonNegativeInteger(failureCounts[category]))) return false;
+    const usage = value.usage;
+    return isSafeNonNegativeInteger(usage.inputTokens)
+        && isSafeNonNegativeInteger(usage.outputTokens)
+        && isSafeNonNegativeInteger(usage.missingCalls)
+        && isSafeNonNegativeInteger(usage.attemptsMissingUsage);
+}
+
+function isUsage(value: unknown): value is HeadlessModelUsage {
+    return isRecord(value)
+        && isSafeNonNegativeInteger(value.inputTokens)
+        && isSafeNonNegativeInteger(value.outputTokens)
+        && isSafeNonNegativeInteger(value.missingCalls);
+}
+
+function isPersistence(value: unknown): value is BenchmarkPersistenceLocator {
+    return isRecord(value)
+        && typeof value.goalSnapshot === "string"
+        && typeof value.trajectory === "string"
+        && (value.diagnosticTrace === undefined || typeof value.diagnosticTrace === "string");
+}
+
+function isFailureCategory(value: unknown): value is EpisodeFailureCategory {
+    return value === "aborted" || value === "domain_command_rejected" || value === "infrastructure"
+        || value === "model_complete_without_win" || value === "protocol" || value === "task_not_won"
+        || value === "timeout" || value === "unknown";
+}
+
+function isSplit(value: unknown): value is AlfworldManifestTask["split"] {
+    return value === "train" || value === "valid_seen" || value === "valid_unseen"
+        || value === "test_seen" || value === "test_unseen";
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isSafePositiveInteger(value: unknown): value is number {
+    return isSafeNonNegativeInteger(value) && value > 0;
 }
 
 function inferFailureCategory(

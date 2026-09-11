@@ -6,6 +6,8 @@ import { test } from "node:test";
 
 import {
     parseAlfworldEvalArgs,
+    parseAlfworldGradeArgs,
+    runAlfworldGradeCli,
     runAlfworldCli,
 } from "../src/cli.js";
 import {
@@ -55,6 +57,38 @@ test("parseAlfworldEvalArgs requires fixed eval alfworld command and manifest", 
         () => parseAlfworldEvalArgs(["eval", "other", "--manifest", "x"]),
         /Usage:/,
     );
+});
+
+test("grade alfworld re-aggregates a saved report without environment or model settings", async (t) => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-grade-"));
+    t.after(() => rm(workspace, { recursive: true, force: true }));
+    const reportPath = join(workspace, "report.json");
+    const metadata = {
+        manifest: {
+            version: ALFWORLD_MANIFEST_VERSION,
+            name: "grade",
+            tasks: [{ order: 0, taskId: "task-1", split: "valid_seen", gameFile: "game.tw-pddl", seed: 1, maxSteps: 10 }],
+        },
+        profile: { id: "alfworld-profile" },
+        profileHash: "profile",
+        promptBundleVersion: 1 as const,
+        configId: "alfworld-textworld-v1",
+    } as unknown as Parameters<typeof aggregateEvaluationReport>[0];
+    const attempt = createEpisodeAttempt(metadata.manifest.tasks[0]!, metadata, {
+        environment: { done: true, won: true, steps: 3, goalConditionSuccessRate: 1 },
+        model: { runStatus: "completed", completed: true },
+    }, 0, 12);
+    await writeFile(reportPath, JSON.stringify(aggregateEvaluationReport(metadata, [attempt])));
+    const command = parseAlfworldGradeArgs(["grade", "alfworld", "--report", "report.json"], workspace);
+    assert.equal(command.reportPath, reportPath);
+    const output: string[] = [];
+    const code = await runAlfworldGradeCli(["grade", "alfworld", "--report", "report.json"], {
+        cwd: workspace,
+        writeOutput: (text) => output.push(text),
+        writeError: (text) => { throw new Error(text); },
+    });
+    assert.equal(code, 0);
+    assert.equal(JSON.parse(output.join("")).summary.successRate, 1);
 });
 
 test("runAlfworldCli rejects a missing Profile before reading Conda or LLM settings", async () => {

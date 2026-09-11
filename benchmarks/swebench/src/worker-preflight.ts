@@ -1,6 +1,7 @@
 import { SWE_ACP_TESTBED_ENV } from "./worker-config.js";
-import type { WorkerManifest } from "./worker-builder.js";
-import { requireSuccess, runProcess, type ProcessRunner, type ProcessResult } from "./process.js";
+import { WORKER_PLATFORM, type WorkerManifest } from "../../src/worker-builder.js";
+import type { EnvironmentHandle } from "../../src/isolated-environment.js";
+import { requireSuccess, runProcess, type ProcessRunner, type ProcessResult } from "../../src/process.js";
 
 /** Worker 启动前必须通过的检查阶段。 */
 export type WorkerPreflightCheck = "platform" | "node" | "dynamic_libraries" | "worker_digest" | "node_digest" | "base_commit" | "conda";
@@ -37,6 +38,26 @@ export interface WorkerPreflightOptions {
     readonly run?: ProcessRunner;
     /** 传播任务取消或宿主终止。 */
     readonly signal?: AbortSignal;
+}
+
+/**
+ * 已由共享 IsolatedEnvironment 建立的容器句柄预检输入。
+ *
+ * @remarks
+ * 该形态不接触容器名或 Docker API；镜像平台和隔离参数由
+ * `IsolatedEnvironment` 负责，领域预检只读取注入 Worker、Git 工作区和 Conda。
+ *
+ * @example
+ * ```ts
+ * const facts = await preflightWorkerInEnvironment({
+ *   environment: handle, baseCommit, manifest,
+ * });
+ * ```
+ */
+export interface WorkerEnvironmentPreflightOptions {
+    readonly environment: EnvironmentHandle;
+    readonly baseCommit: string;
+    readonly manifest: WorkerManifest;
 }
 
 /** 预检通过后可用于报告的有界运行时事实。 */
@@ -102,10 +123,77 @@ export async function preflightWorker(options: WorkerPreflightOptions): Promise<
     };
 }
 
+/**
+ * 在共享 `EnvironmentHandle` 上执行 SWE-bench Worker 领域预检。
+ *
+ * @remarks
+ * 该函数与旧的 Docker 适配器预检保持相同的检查顺序，但不再读取容器名或
+ * 直接执行 Docker。调用方必须先由隔离环境完成固定 linux/amd64 镜像检查。
+ *
+ * @param options - 受限容器句柄、base commit 和 Worker 清单。
+ * @returns 通过 Worker 文件、Node、动态库、base commit 和 Conda 检查的事实。
+ * @throws 首个检查失败时抛出 `WorkerPreflightError`。
+ * @example
+ * ```ts
+ * const result = await preflightWorkerInEnvironment({ environment, baseCommit, manifest });
+ * ```
+ */
+export async function preflightWorkerInEnvironment(
+    options: WorkerEnvironmentPreflightOptions,
+): Promise<WorkerPreflightResult> {
+    if (options.manifest.platform !== WORKER_PLATFORM) {
+        throw new WorkerPreflightError("platform", `expected ${WORKER_PLATFORM}, received ${options.manifest.platform}`);
+    }
+    const nodeVersion = await environmentOutput(options.environment, "/opt/lazygoal/node --version", "node");
+    if (nodeVersion.trim() !== `v${options.manifest.nodeVersion}`) {
+        throw new WorkerPreflightError("node", `expected v${options.manifest.nodeVersion}, received ${nodeVersion.trim() || "<empty>"}`);
+    }
+
+    const dynamicLibraries = await environmentOutput(options.environment, "ldd /opt/lazygoal/node", "dynamic_libraries");
+    if (/not found|cannot open shared object file/iu.test(dynamicLibraries)) {
+        throw new WorkerPreflightError("dynamic_libraries", truncateDiagnostic(dynamicLibraries));
+    }
+
+    const workerSha256 = parseSha256(await environmentOutput(options.environment, "sha256sum /opt/lazygoal/worker.mjs", "worker_digest"), "worker_digest");
+    if (workerSha256 !== options.manifest.workerSha256) throw new WorkerPreflightError("worker_digest", `expected ${options.manifest.workerSha256}, received ${workerSha256}`);
+
+    const nodeSha256 = parseSha256(await environmentOutput(options.environment, "sha256sum /opt/lazygoal/node", "node_digest"), "node_digest");
+    if (nodeSha256 !== options.manifest.nodeSha256) throw new WorkerPreflightError("node_digest", `expected ${options.manifest.nodeSha256}, received ${nodeSha256}`);
+
+    const baseCommit = (await environmentOutput(options.environment, "git rev-parse HEAD", "base_commit")).trim();
+    if (baseCommit !== options.baseCommit) throw new WorkerPreflightError("base_commit", `expected ${options.baseCommit}, received ${baseCommit || "<empty>"}`);
+
+    const condaPython = (await environmentOutput(options.environment,
+        `${SWE_ACP_TESTBED_ENV} && python -c 'import sys, pytest; assert sys.prefix == "/opt/miniconda3/envs/testbed"; print("Python " + sys.version.split()[0])'`,
+        "conda")).trim();
+    if (!/^Python\s+\d+(?:\.\d+){1,2}(?:\s|$)/u.test(condaPython)) {
+        throw new WorkerPreflightError("conda", `unexpected Python version output: ${truncateDiagnostic(condaPython)}`);
+    }
+
+    return {
+        platform: WORKER_PLATFORM,
+        nodeVersion: options.manifest.nodeVersion,
+        workerSha256,
+        nodeSha256,
+        baseCommit,
+        condaPython,
+    };
+}
+
 async function execOutput(run: ProcessRunner, options: WorkerPreflightOptions, command: readonly string[], check: WorkerPreflightCheck): Promise<string> {
     const result = await run("docker", ["exec", "--workdir", "/testbed", options.containerName, ...command], {
         ...processOptions(options),
     });
+    if (result.code !== 0) throw new WorkerPreflightError(check, processDiagnostic(result));
+    return result.stdout;
+}
+
+async function environmentOutput(
+    environment: EnvironmentHandle,
+    command: string,
+    check: WorkerPreflightCheck,
+): Promise<string> {
+    const result = await environment.exec(command, { timeoutMs: 30_000, maxBytes: 64 * 1024 });
     if (result.code !== 0) throw new WorkerPreflightError(check, processDiagnostic(result));
     return result.stdout;
 }

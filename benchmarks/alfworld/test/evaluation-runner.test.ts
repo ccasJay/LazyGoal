@@ -27,6 +27,7 @@ import type {
     SidecarResetResult,
     SidecarStepResult,
 } from "../src/sidecar-client.js";
+import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
 
 const profile: AgentProfile = {
     id: "alfworld-profile",
@@ -117,6 +118,53 @@ test("infrastructure retry appends a new attempt without replacing the original"
     assert.equal(report.attempts[0]?.errorCode, "PROCESS_EXITED");
     assert.equal(report.summary.successfulTasks, 1);
     assert.equal(report.summary.averageSteps, 3);
+});
+
+test("EvaluationRunner atomically records each ALFWorld attempt and keeps retry domain fields separate", async () => {
+    const attemptsDirectory = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-attempts-"));
+    try {
+        let calls = 0;
+        const evaluator = new EvaluationRunner({
+            metadata,
+            attemptsDirectory,
+            maxInfrastructureRetries: 1,
+            executeEpisode: async () => {
+                calls += 1;
+                return calls === 1
+                    ? execution(
+                        { done: false, won: false, steps: 2, goalConditionSuccessRate: 0 },
+                        { runStatus: null, completed: false },
+                        { category: "infrastructure", code: "PROCESS_EXITED" },
+                    )
+                    : execution(
+                        { done: true, won: true, steps: 4, goalConditionSuccessRate: 1 },
+                        { runStatus: "completed", completed: true },
+                    );
+            },
+        });
+
+        await evaluator.run();
+        const first = await readBenchmarkAttempt(join(attemptsDirectory, "task-1", "attempt-1.json"));
+        const second = await readBenchmarkAttempt(join(attemptsDirectory, "task-1", "attempt-2.json"));
+        assert.equal(first.status, "infrastructure_error");
+        assert.deepEqual(first.domainResult, {
+            won: false,
+            steps: 2,
+            goalConditionSuccessRate: 0,
+            failureCategory: "infrastructure",
+            errorCode: "PROCESS_EXITED",
+        });
+        assert.equal(second.status, "completed");
+        assert.deepEqual(second.domainResult, {
+            won: true,
+            steps: 4,
+            goalConditionSuccessRate: 1,
+            failureCategory: null,
+            errorCode: null,
+        });
+    } finally {
+        await rm(attemptsDirectory, { recursive: true, force: true });
+    }
 });
 
 test("report serialization remains machine-readable and contains only bounded facts", async () => {

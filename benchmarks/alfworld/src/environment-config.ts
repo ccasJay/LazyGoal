@@ -44,6 +44,32 @@ export interface AlfworldEnvironmentConfig {
 }
 
 /**
+ * 容器化 ALFWorld 评测的领域配置。
+ *
+ * @remarks
+ * 容器内的 Python 和依赖由 `AlfworldEnvironmentSpec` 准备，因此宿主只需要提供
+ * 可复制到容器的数据根目录。`pythonExecutable` 仅作为 Worker 启动命令的提示，
+ * 不会在解析阶段启动或探测宿主 Python。
+ *
+ * @example
+ * ```ts
+ * const config = resolveAlfworldContainerEnvironment({
+ *   env: { ALFWORLD_DATA: "/datasets/alfworld" },
+ * });
+ * console.log(config.dataRoot, config.pythonExecutable);
+ * ```
+ */
+export interface AlfworldContainerEnvironmentConfig {
+    readonly environmentName: string;
+    readonly pythonExecutable: string;
+    readonly dataRoot: string;
+    readonly alfworldVersion: string;
+    readonly textworldVersion: string;
+    readonly condaSubdir: CondaSubdir | undefined;
+    readonly textworldOnly: true;
+}
+
+/**
  * 环境配置解析时的可测试覆盖项。
  *
  * @example
@@ -250,6 +276,55 @@ export function resolveAlfworldEnvironment(
         alfworldVersion: ALFWORLD_VERSION,
         textworldVersion: TEXTWORLD_VERSION,
         condaSubdir,
+        textworldOnly: true,
+    };
+}
+
+/**
+ * 解析不依赖宿主 Python 的容器化 ALFWorld 配置。
+ *
+ * @param input - 环境变量与路径解析覆盖项。
+ * @returns 可交给容器 EnvironmentSpec 的数据和版本声明。
+ * @throws 缺少或不是绝对路径的 `ALFWORLD_DATA`、平台配置无效时抛出错误。
+ * @example
+ * ```ts
+ * const config = resolveAlfworldContainerEnvironment({
+ *   env: { ALFWORLD_DATA: "/datasets/alfworld" },
+ * });
+ * ```
+ */
+export function resolveAlfworldContainerEnvironment(
+    input: EnvironmentConfigInput = {},
+): AlfworldContainerEnvironmentConfig {
+    const env = input.env ?? process.env;
+    const dataValue = env[ALFWORLD_DATA_ENV]?.trim();
+    if (dataValue === undefined || dataValue.length === 0) {
+        throw new AlfworldConfigurationError(
+            "MISSING_DATA",
+            `Missing required environment variable: ${ALFWORLD_DATA_ENV}`,
+        );
+    }
+    if (!isAbsolute(dataValue)) {
+        throw new AlfworldConfigurationError(
+            "INVALID_DATA_PATH",
+            `${ALFWORLD_DATA_ENV} must be an absolute directory: ${dataValue}`,
+        );
+    }
+    return {
+        environmentName: env.ALFWORLD_CONDA_ENV?.trim() || ALFWORLD_ENVIRONMENT_NAME,
+        // `ALFWORLD_PYTHON` is the host-only setting used by the legacy
+        // preflight/download path. A host absolute path is not meaningful
+        // inside the managed image, whose interpreter is installed by the
+        // EnvironmentSpec. Keep the container entrypoint deterministic.
+        pythonExecutable: "python3",
+        dataRoot: resolve(input.cwd ?? process.cwd(), dataValue),
+        alfworldVersion: ALFWORLD_VERSION,
+        textworldVersion: TEXTWORLD_VERSION,
+        condaSubdir: getCondaSubdir(
+            input.platform ?? process.platform,
+            input.arch ?? process.arch,
+            env.CONDA_SUBDIR,
+        ),
         textworldOnly: true,
     };
 }
