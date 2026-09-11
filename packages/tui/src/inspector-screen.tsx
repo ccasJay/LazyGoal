@@ -82,9 +82,8 @@ export function InspectorScreen({
 
     useEffect(() => {
         if (!stdout.isTTY) return;
-        // 经 Ink 写入以同步其帧缓存与实际终端缓冲区。
-        write("\x1b[?1049h\x1b[2J\x1b[H");
-        return () => { write("\x1b[?1049l"); };
+        // 清屏并保持纯黑底色（BCE），同步 Ink 帧缓存与终端缓冲区。
+        write("\x1b[40m\x1b[2J\x1b[H");
     }, [stdout, write]);
 
     useEffect(() => {
@@ -292,7 +291,7 @@ export function InspectorScreen({
             tmpDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "lazygoal-step-"));
             const tmpFile = path.join(tmpDirectory, "step.json");
             fs.writeFileSync(tmpFile, currentStep.rawJson, { encoding: "utf-8", mode: 0o600 });
-            if (stdout.isTTY) stdout.write("\x1b[?1049l");
+            if (stdout.isTTY) stdout.write("\x1b[0m\x1b[?1049l");
             const result = spawnSync(editor, [tmpFile], { stdio: "inherit" });
             if (result.error !== undefined) throw result.error;
             if (result.status !== 0) {
@@ -310,8 +309,8 @@ export function InspectorScreen({
                         + (error instanceof Error ? error.message : String(error)));
                 } finally {
                     if (stdout.isTTY) {
-                        // write 会清除 Ink 的旧帧并恢复完整输出，无需不可见字符。
-                        write("\x1b[?1049h\x1b[2J\x1b[H");
+                        // write 会清除 Ink 的旧帧并恢复全屏纯黑输出。
+                        write("\x1b[?1049h\x1b[40m\x1b[2J\x1b[H");
                     }
                 }
             }

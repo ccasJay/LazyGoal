@@ -50,8 +50,6 @@ export interface GutterOptions {
     readonly char?: string;
     /** 槽线颜色函数，默认为半透明柔和色。 */
     readonly color?: (text: string) => string;
-    /** 是否对内容行应用深色透明感卡片背景，默认为 true。 */
-    readonly darkBackground?: boolean;
 }
 
 /**
@@ -100,16 +98,17 @@ export function formatSectionDivider(
 }
 
 /**
- * 为多行输出的每一行添加前缀粗槽线与可选的深色透明感卡片背景。
+ * 为多行输出的每一行添加前缀粗槽线。
  *
  * @remarks
- * 将传入文本按换行符拆分，逐行附加粗竖线（默认 `▎`）并在内容两端辅以
- * 深色透明黑底色（`\x1b[48;5;234m`），产生如同现代 Web 代码卡片的层次视觉效果。
+ * 将传入文本按换行符拆分，逐行附加粗竖线（默认 `▎`）与柔和色彩，
+ * 在整屏深色终端底色下形成现代代码卡片的高级层次视觉效果，避免局部
+ * 行级背景色导致的文字边缘参差色块。
  * 同时保留对历史字符串前缀参数的向后兼容。
  *
  * @param text - 待添加槽线的多行文本。
- * @param options - 槽线粗细、彩色与深色背景配置，或直接传入传统槽线前缀字符串。
- * @returns 附加槽线与深色背景后的文本字符串。
+ * @param options - 槽线粗细与彩色配置，或直接传入传统槽线前缀字符串。
+ * @returns 附加槽线后的文本字符串。
  *
  * @example
  * ```ts
@@ -132,17 +131,9 @@ export function formatGutter(
 
     const char = options?.char ?? "▎";
     const colorFn = options?.color ?? ansi.gray;
-    const darkBg = options?.darkBackground ?? true;
 
     return text
         .split("\n")
-        .map((line) => {
-            const coloredChar = colorFn(char);
-            if (darkBg) {
-                // 槽线 + 深色透明卡片背景包裹内容
-                return `  ${coloredChar} ${ansi.darkBg(` ${line} `)}`;
-            }
-            return `  ${coloredChar} ${line}`;
-        })
+        .map((line) => `  ${colorFn(char)}  ${line}`)
         .join("\n");
 }
