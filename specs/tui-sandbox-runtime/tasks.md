@@ -39,13 +39,13 @@
   - 验证方式：`benchmarks/test/tui-tool-policy.test.ts`（待实现），使用 Runner、Coordinator、代理及 Worker 计数的组合测试，不能仅断言 Policy 返回值。
   - Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)
 
-- [ ] //TODO 5. 绑定沙箱回收接口至 ShutdownCoordinator
+- [x] //TODO 5. 绑定沙箱回收接口至 ShutdownCoordinator
   - [x] //TODO 5.1 为环境运行增加有界强制清理
     - 实现目标：扩展 `benchmarks/src/isolated-environment.ts` 的 forceSignal 和共享清理预算，仍由 run() 统一停止 Worker、收集产物、删除容器，处理取消期间的迟到启动。
     - 成功标准：正常、启动失败和取消都不跳过已取得资源的回收；30 秒总宽限期耗尽后停止收集，再以最多 5 秒尝试强制清理；删除失败可定位且不宣告成功。
     - 验证方式：扩展 `benchmarks/test/isolated-environment.test.ts`（新增场景待实现），注入时钟和进程边界，覆盖慢回收、失败删除、重复取消及原 Headless 行为。
     - Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5)
-  - [ ] //TODO 5.2 接入 TUI 全阶段清理与退出
+  - [x] //TODO 5.2 接入 TUI 全阶段清理与退出
     - 实现目标：新增 `benchmarks/src/tui-benchmark-runner.ts`，在环境启动前注册生命周期资源与信号入口，复用取消/强制路径；正常完成与 SIGINT 分别接入退出处理。
     - 成功标准：初始化、执行、审批和清理阶段的 Ctrl-C 都保留最后成功快照并返回 130；正常终态返回 0，运行/清理失败返回 1；每次只收集一次产物，无并发删除。
     - 验证方式：`benchmarks/test/tui-benchmark-runner.test.ts`（待实现），检查真实 Gate 的保存顺序、注入 ExitPort 和 raw-mode/SIGINT 的幂等接线。

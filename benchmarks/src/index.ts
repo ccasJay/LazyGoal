@@ -133,4 +133,12 @@ export type {
     TuiExecutionMode,
     TuiToolPolicyOptions,
 } from "./tui-tool-policy.js";
+export {
+    runTuiWithSandbox,
+} from "./tui-benchmark-runner.js";
+export type {
+    TuiSandboxRunOptions,
+    TuiSandboxRunResult,
+} from "./tui-benchmark-runner.js";
+
 
