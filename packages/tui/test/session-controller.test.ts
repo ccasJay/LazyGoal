@@ -788,6 +788,28 @@ test("initialScreen: home initializes snapshot with home screen and environment 
     }
 });
 
+test("initialScreen: goal_select with initialGoalSelectMode inspect initializes snapshot with mode inspect", () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+    });
+
+    const snapshot = controller.getSnapshot();
+    assert.equal(snapshot.screen, "goal_select");
+    assert.equal(snapshot.busy, true);
+    if (snapshot.screen === "goal_select") {
+        assert.equal(snapshot.mode, "inspect");
+    }
+});
+
 test("openHome, openIntentInput, and openSettings switch views predictably", async () => {
     const goal = createWaitingGoal();
     const coordinator = new FakeCoordinator(waitingResult(goal));

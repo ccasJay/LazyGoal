@@ -407,6 +407,8 @@ export interface CompositionRootOptions {
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
     /** 可选初始屏幕；省略时默认为 "home"。 */
     readonly initialScreen?: UiScreen;
+    /** 可选初始目标选择模式（"resume" 或 "inspect"），在 initialScreen 为 "goal_select" 时生效。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
     /** 可选的 Benchmark 评测输出根目录，默认自动发现 <workspaceRoot>/.lazygoal/benchmarks。 */
     readonly benchmarksDirectory?: string;
 }
@@ -757,6 +759,9 @@ export async function createCompositionRoot(
         goalIdGenerator,
         control: { signal: abortController.signal },
         initialScreen: options.initialScreen ?? "home",
+        ...(options.initialGoalSelectMode !== undefined
+            ? { initialGoalSelectMode: options.initialGoalSelectMode }
+            : {}),
         environmentSummary: {
             workspaceRoot,
             profileId: profile.id,
@@ -851,6 +856,8 @@ export interface CliRunOptions {
     readonly gracePeriodMs?: number;
     /** 可选初始屏幕；测试或特定调用场景可覆盖默认首页。 */
     readonly initialScreen?: "home" | "intent_input";
+    /** 可选初始目标选择模式（"resume" 或 "inspect"）。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
 }
 
 /**
@@ -1016,6 +1023,11 @@ export async function runCli(
                             ? "goal_select"
                             : "intent_input"
             ),
+            ...(options.initialGoalSelectMode !== undefined
+                ? { initialGoalSelectMode: options.initialGoalSelectMode }
+                : command.kind === "inspect" && command.goalId === undefined
+                    ? { initialGoalSelectMode: "inspect" as const }
+                    : {}),
         });
     } catch (error: unknown) {
         writeError(toErrorMessage(error));

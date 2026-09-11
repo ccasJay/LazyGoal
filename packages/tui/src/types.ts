@@ -467,6 +467,8 @@ export interface SessionControllerDependencies {
     readonly initialGoal?: import("../../runtime/src/index.js").Goal;
     /** 可选初始展示页面，未指定 initialGoal 时默认为 "intent_input"（若指定 initialScreen 为 "home" 则进入主页）。 */
     readonly initialScreen?: UiScreen;
+    /** 可选初始目标选择模式（"resume" 或 "inspect"），在 initialScreen 为 "goal_select" 时生效。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
     /** 可选初始人机协同模式，默认为 "confirm"。 */
     readonly initialExecutionMode?: ExecutionMode;
     /** 可选当前环境与配置信息，用于 Home 与 Settings 页面只读展示。 */

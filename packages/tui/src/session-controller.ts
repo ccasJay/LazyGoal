@@ -76,6 +76,9 @@ export class SessionController {
                 screen: "goal_select",
                 busy: true,
                 goals: [],
+                ...(dependencies.initialGoalSelectMode !== undefined
+                    ? { mode: dependencies.initialGoalSelectMode }
+                    : {}),
             };
         } else if (dependencies.initialScreen === "settings") {
             this.snapshot = {
