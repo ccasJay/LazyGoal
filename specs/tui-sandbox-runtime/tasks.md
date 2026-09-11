@@ -57,7 +57,7 @@
   - 验证方式：扩展两个基准的 CLI 测试和 `benchmarks/test/tui-benchmark-runner.test.ts`（新增场景待实现），检查零额外 Goal、任务字段与配置传递。
   - Requirements: [2.5](./requirements.md#req-2-5), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4)
 
-- [ ] //TODO 7. 实现已提交执行进展的实时投影
+- [x] //TODO 7. 实现已提交执行进展的实时投影
   - 实现目标：在 TUI 装配层发布成功保存通知，扩展 SessionController、ViewModel 和 SessionScreen，显示初始化、模式、任务、执行事实及清理状态，并注销订阅。
   - 成功标准：阻塞下一次模型响应时，上一已提交 Action/Observation 和 Step 数已经可见；tail、旧读取结果和关闭后的事件不污染界面，busy 期间不能重复审批。
   - 验证方式：`packages/tui/test/session-progress.test.tsx`（待实现），结合真实 Store 和受控 Promise，用 Ink 渲染断言中间帧、去重及输入门控。

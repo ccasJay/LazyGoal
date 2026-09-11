@@ -108,10 +108,27 @@ interface SessionStatusProps {
 function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
     return (
         <Box flexDirection="column">
-            <Text bold color="cyan">Goal {truncateId(session.goal.id)}</Text>
+            <Text bold color="cyan">
+                Goal {truncateId(session.goal.id)}
+                {session.mode !== undefined ? ` [${session.mode.toUpperCase()}]` : ""}
+                {session.taskTitle !== undefined ? ` - ${session.taskTitle}` : ""}
+            </Text>
             <Text>
                 Phase: {session.phase} | Run: {session.runStatus} | Steps: {session.stepCount}
             </Text>
+            {session.lastCommittedAction !== undefined ? (
+                <Text color="gray">
+                    Last Action: [{session.lastCommittedAction.toolId}] ({session.lastCommittedAction.actionId})
+                </Text>
+            ) : null}
+            {session.lastCommittedObservation !== undefined ? (
+                <Text color="gray">
+                    Last Observation: [{session.lastCommittedObservation.toolId}] {session.lastCommittedObservation.status}
+                </Text>
+            ) : null}
+            {session.cleaning ? (
+                <Text color="magenta">Cleaning up sandbox resources...</Text>
+            ) : null}
             {session.error === undefined
                 ? null
                 : <Text color="red">Error [{session.error.code}]: {session.error.message}</Text>}
