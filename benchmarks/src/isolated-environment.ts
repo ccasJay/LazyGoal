@@ -549,8 +549,12 @@ export class IsolatedEnvironment {
     }
 
     private async pullAndInspect(image: string, platform: string, signal: AbortSignal, receive: (imageId: string) => void): Promise<void> {
-        requireSuccess(await this.runProcess("docker", ["pull", "--platform", platform, image], { timeoutMs: 1_200_000, signal, maxBytes: 16 * 1024, truncate: true }), "Pull isolated image");
-        const inspected = requireSuccess(await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 }), "Inspect isolated image").trim();
+        let inspectResult = await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 });
+        if (inspectResult.code !== 0) {
+            requireSuccess(await this.runProcess("docker", ["pull", "--platform", platform, image], { timeoutMs: 1_200_000, signal, maxBytes: 16 * 1024, truncate: true }), "Pull isolated image");
+            inspectResult = requireSuccess(await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 }), "Inspect isolated image");
+        }
+        const inspected = inspectResult.stdout.trim();
         const [imageId, actualPlatform] = inspected.split("\t");
         if (!/^sha256:[a-f0-9]{64}$/u.test(imageId ?? "")) throw new Error("Docker returned an invalid image identity");
         if (actualPlatform !== undefined && actualPlatform !== platform) throw new Error(`Isolated image platform mismatch: expected ${platform}, received ${actualPlatform}`);

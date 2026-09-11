@@ -11,6 +11,7 @@ import { GaiaDatasetLoader } from "./dataset-loader.js";
 import { runGaiaSupervisor } from "./supervisor.js";
 import { runGaiaGradeCli } from "./grading.js";
 import { aggregateGaiaReport, readGaiaAttempts, writeGaiaReport } from "./report.js";
+import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "./worker-entry.js";
 import type { GaiaSplit } from "./types.js";
 
 /**
@@ -98,6 +99,7 @@ export async function runGaiaEvalCli(argv: readonly string[]): Promise<number> {
         projectRoot: resolve("."),
         entryPoint: resolve("benchmarks/gaia/src/worker-entry.ts"),
         cacheDirectory: resolve(".lazygoal/benchmarks/gaia-worker-cache"),
+        promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
     });
 
     let targetTasks = manifest.tasks;

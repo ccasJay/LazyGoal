@@ -6,6 +6,7 @@ import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { loadGaiaManifest } from "./manifest.js";
 import { runGaiaSupervisor } from "./supervisor.js";
+import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "./worker-entry.js";
 
 /**
  * 使用真实 Docker 验证 GAIA Worker、环境适配、预检、ACP 双通道与答案回收。
@@ -32,6 +33,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
         projectRoot,
         entryPoint: join(projectRoot, "benchmarks/gaia/src/worker-entry.ts"),
         cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/gaia-worker-cache"),
+        promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
     });
 
     const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-worker-smoke-"));
@@ -42,15 +44,27 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
             structuredOutputMode: "strict",
             generate: async () => {
                 calls += 1;
+                if (calls === 1) {
+                    return {
+                        content: JSON.stringify({
+                            result: {
+                                kind: "tool_call",
+                                action: {
+                                    actionId: "container-smoke-submit",
+                                    toolId: "submit_answer",
+                                    input: { answer: "2" },
+                                },
+                                memoryPatch: null,
+                            },
+                        }),
+                    };
+                }
                 return {
                     content: JSON.stringify({
                         result: {
-                            kind: "tool_call",
-                            action: {
-                                actionId: "container-smoke-submit",
-                                toolId: "submit_answer",
-                                input: { answer: "2" },
-                            },
+                            kind: "complete",
+                            summary: "Submitted answer 2",
+                            completionEvidence: [],
                             memoryPatch: null,
                         },
                     }),
@@ -64,6 +78,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
             workerArtifact: artifact,
             llmAdapter: adapter,
             outputDirectory,
+            baseImage: "lazygoal-gaia:latest",
             taskTimeoutMs: 900_000,
         });
 

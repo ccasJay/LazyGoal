@@ -85,7 +85,7 @@ export class GaiaEnvironmentSpec
         this.dataRoot = resolve(options.dataRoot);
         this.workerArtifact = options.workerArtifact;
         this.baseImage = options.baseImage;
-        this.installCommands = options.installCommands ?? GAIA_MANAGED_INSTALL_COMMANDS;
+        this.installCommands = options.installCommands ?? (options.baseImage !== undefined ? [] : GAIA_MANAGED_INSTALL_COMMANDS);
         this.runId = options.runId;
 
         if (this.runId !== undefined && !/^[A-Za-z0-9_.-]+$/u.test(this.runId)) {
@@ -117,7 +117,7 @@ export class GaiaEnvironmentSpec
     /** 在容器中创建工作区、写入 question.txt 并复制附件。 */
     async prepareEnvironment(env: EnvironmentHandle): Promise<void> {
         requireSuccess(
-            await env.exec("mkdir -p /workspace /workspace/attachments /opt/lazygoal"),
+            await env.exec("mkdir -p /workspace /workspace/attachments /opt/lazygoal /opt/lazygoal/state"),
             "Prepare GAIA container directories",
         );
 
@@ -228,14 +228,14 @@ export class GaiaEnvironmentSpec
         }
 
         // 回收持久化文件
-        const benchmarkKey = encodeURIComponent("gaia");
-        const taskKey = encodeURIComponent(this.task.taskId);
+        const benchmarkKey = encodeIdentifier("gaia");
+        const taskKey = encodeIdentifier(this.task.taskId);
         const runtimeRoot = join(
             output,
             "runtime",
             benchmarkKey,
             taskKey,
-            ...(this.runId === undefined ? [] : [encodeURIComponent(this.runId)]),
+            ...(this.runId === undefined ? [] : [encodeIdentifier(this.runId)]),
         );
 
         const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
@@ -275,5 +275,9 @@ export class GaiaEnvironmentSpec
             throw new TypeError("GAIA EnvironmentSpec task identity mismatch");
         }
     }
+}
+
+function encodeIdentifier(value: string): string {
+    return Buffer.from(value, "utf8").toString("base64url");
 }
 

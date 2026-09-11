@@ -1,6 +1,7 @@
 import { Readable, Writable } from "node:stream";
 import {
-    createDefaultPromptBundleRenderer,
+    createPromptBundleRenderer,
+    DEFAULT_PROMPT_BUNDLE_MANIFEST,
     DropOldestContextCompactor,
     type ContextCompactor,
     type LLMAdapter,
@@ -265,6 +266,42 @@ export async function runGaiaAcpTask(
 }
 
 /**
+ * GAIA Worker 内置 Prompt 模板相对路径。
+ */
+export const GAIA_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
+    "packages/agent/src/global-system-prompt/global-overview@1.njk",
+    "packages/agent/src/prompting/profile@1.njk",
+    "packages/agent/src/preparation-prompt/gathering-context@1.njk",
+    "packages/agent/src/preparation-prompt/planning@1.njk",
+    "packages/agent/src/step-prompt/agent-decision@1.njk",
+    "packages/agent/src/prompting/authorized-tools@1.njk",
+] as const);
+
+/** GAIA Worker Prompt 资产 ID 映射。 */
+export const GAIA_ACP_WORKER_PROMPT_ASSET_IDS = Object.freeze([
+    "global-overview@1",
+    "profile@1",
+    "gathering-context@1",
+    "planning@1",
+    "agent-decision@1",
+    "authorized-tools@1",
+] as const);
+
+type EmbeddedPromptAssets = Readonly<Record<string, string>>;
+
+function createEmbeddedPromptRenderer(): PromptBundleRenderer {
+    const assets = (globalThis as typeof globalThis & { __lazygoalPromptAssets?: EmbeddedPromptAssets }).__lazygoalPromptAssets;
+    if (assets === undefined) throw new Error("Embedded Worker Prompt assets are missing");
+    const templates = GAIA_ACP_WORKER_PROMPT_ASSETS.map((path, index) => {
+        const source = assets[path];
+        const id = GAIA_ACP_WORKER_PROMPT_ASSET_IDS[index];
+        if (source === undefined || id === undefined) throw new Error(`Embedded Prompt asset is missing: ${path}`);
+        return { id, source };
+    });
+    return createPromptBundleRenderer({ templates, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST] });
+}
+
+/**
  * GAIA Worker 入口函数。
  *
  * @remarks
@@ -277,7 +314,7 @@ export async function runGaiaWorker(): Promise<void> {
     });
 
     let adapter: RpcLlmAdapter | undefined;
-    const renderer = await createDefaultPromptBundleRenderer();
+    const renderer = createEmbeddedPromptRenderer();
 
     const sessions: AcpSessionFactory = {
         async create(input: AcpSessionInput): Promise<AcpSession> {
@@ -326,7 +363,7 @@ export async function runGaiaWorker(): Promise<void> {
     }
 }
 
-if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-entry.ts")) {
+if (process.argv[1] !== undefined && (process.argv[1].endsWith("worker.mjs") || process.argv[1].endsWith("worker-entry.ts"))) {
     void runGaiaWorker().catch((error: unknown) => {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         process.exitCode = 1;
