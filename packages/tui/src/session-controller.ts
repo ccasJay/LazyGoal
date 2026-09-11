@@ -9,9 +9,11 @@ import {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,
     UiDispatchRejectedError,
+    type ExecutionMode,
     type SessionControllerDependencies,
     type UiCommand,
     type UiError,
+    type UiInspectorStep,
     type UiSessionViewModel,
     type UiSubscriber,
     type UiTerminalSummary,
@@ -46,18 +48,30 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
-    private snapshot: UiViewModel = {
-        screen: "intent_input",
-        busy: false,
-    };
+    private executionMode: ExecutionMode;
+    private snapshot: UiViewModel;
     private readonly subscribers = new Set<UiSubscriber>();
 
     /** @param dependencies - Launcher、Coordinator、Store、Catalog 与身份依赖。 */
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
+        this.executionMode = dependencies.initialExecutionMode ?? "confirm";
         if (dependencies.initialGoal !== undefined) {
             this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
             this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
+        } else if (dependencies.initialScreen === "home") {
+            this.snapshot = {
+                screen: "home",
+                busy: false,
+                ...(dependencies.environmentSummary !== undefined
+                    ? { environmentSummary: dependencies.environmentSummary }
+                    : {}),
+            };
+        } else {
+            this.snapshot = {
+                screen: "intent_input",
+                busy: false,
+            };
         }
         if (dependencies.notifyingStore !== undefined) {
             this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
@@ -220,6 +234,30 @@ export class SessionController {
                     reason: command.reason,
                 });
                 return;
+            case "openHome":
+                this.openHome();
+                return;
+            case "openIntentInput":
+                this.openIntentInput();
+                return;
+            case "openSettings":
+                this.openSettings();
+                return;
+            case "toggleExecutionMode":
+                await this.setMode(this.executionMode === "confirm" ? "yolo" : "confirm");
+                return;
+            case "setExecutionMode":
+                await this.setMode(command.mode);
+                return;
+            case "openInspector":
+                this.openInspector(command.goalId, command.steps);
+                return;
+            case "inspectStep":
+                this.inspectStep(command.stepIndex);
+                return;
+            case "toggleReasoning":
+                this.toggleReasoning();
+                return;
         }
     }
 
@@ -273,7 +311,7 @@ export class SessionController {
             }
         }
 
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     private async continueLatest(): Promise<void> {
@@ -378,7 +416,7 @@ export class SessionController {
             { goalId: goal.id, runId: goal.state.run.id },
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     private async resumeSession(
@@ -411,7 +449,7 @@ export class SessionController {
             request,
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     /**
@@ -445,16 +483,142 @@ export class SessionController {
             { goalId: goal.id, runId: goal.state.run.id },
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
-    private applyProgress(result: ProgressResult): void {
+    private async applyProgress(result: ProgressResult): Promise<void> {
         if (!result.ok) {
             this.setError(result.error);
             return;
         }
 
         this.setSnapshot(this.toSessionView(result.goal, result, false));
+
+        if (
+            this.executionMode === "yolo"
+            && !this.shuttingDown
+            && result.kind === "waiting"
+            && result.waitingFor === "action_approval"
+            && result.goal.state.run.pendingAction?.action !== undefined
+        ) {
+            const actionId = result.goal.state.run.pendingAction.action.actionId;
+            const request = {
+                ref: {
+                    goalId: result.goal.id,
+                    runId: result.goal.state.run.id,
+                },
+                action: {
+                    kind: "approve_action" as const,
+                    actionId,
+                },
+            };
+            const nextResult = await this.dependencies.coordinator.resume(
+                request,
+                this.dependencies.control,
+            );
+            await this.applyProgress(nextResult);
+        }
+    }
+
+    private openHome(): void {
+        this.setSnapshot({
+            screen: "home",
+            busy: false,
+            ...(this.dependencies.environmentSummary !== undefined
+                ? { environmentSummary: this.dependencies.environmentSummary }
+                : {}),
+        });
+    }
+
+    private openIntentInput(): void {
+        this.setSnapshot({
+            screen: "intent_input",
+            busy: false,
+        });
+    }
+
+    private openSettings(): void {
+        this.setSnapshot({
+            screen: "settings",
+            busy: false,
+            settings: {
+                workspaceRoot: this.dependencies.environmentSummary?.workspaceRoot ?? process.cwd(),
+                profileId: this.dependencies.profileId,
+                ...(this.dependencies.environmentSummary?.modelName !== undefined
+                    ? { modelName: this.dependencies.environmentSummary.modelName }
+                    : {}),
+                ...(this.dependencies.environmentSummary?.dataDirectory !== undefined
+                    ? { dataDirectory: this.dependencies.environmentSummary.dataDirectory }
+                    : {}),
+            },
+        });
+    }
+
+    private async setMode(mode: ExecutionMode): Promise<void> {
+        this.executionMode = mode;
+        if (this.snapshot.screen === "session") {
+            this.setSnapshot({
+                ...this.snapshot,
+                executionMode: mode,
+            });
+            if (
+                mode === "yolo"
+                && !this.shuttingDown
+                && this.snapshot.waitingFor === "action_approval"
+                && this.snapshot.pendingAction?.action !== undefined
+            ) {
+                const actionId = this.snapshot.pendingAction.action.actionId;
+                const request = {
+                    ref: {
+                        goalId: this.snapshot.goal.id,
+                        runId: this.snapshot.goal.state.run.id,
+                    },
+                    action: {
+                        kind: "approve_action" as const,
+                        actionId,
+                    },
+                };
+                const result = await this.dependencies.coordinator.resume(
+                    request,
+                    this.dependencies.control,
+                );
+                await this.applyProgress(result);
+            }
+        }
+    }
+
+    private openInspector(goalId: string, steps: readonly UiInspectorStep[]): void {
+        this.setSnapshot({
+            screen: "inspector",
+            busy: false,
+            goalId,
+            currentStepIndex: 0,
+            totalSteps: steps.length,
+            steps,
+            showReasoning: false,
+        });
+    }
+
+    private inspectStep(stepIndex: number): void {
+        if (this.snapshot.screen !== "inspector") {
+            return;
+        }
+        const maxIndex = Math.max(0, this.snapshot.totalSteps - 1);
+        const boundedIndex = Math.max(0, Math.min(stepIndex, maxIndex));
+        this.setSnapshot({
+            ...this.snapshot,
+            currentStepIndex: boundedIndex,
+        });
+    }
+
+    private toggleReasoning(): void {
+        if (this.snapshot.screen !== "inspector") {
+            return;
+        }
+        this.setSnapshot({
+            ...this.snapshot,
+            showReasoning: !this.snapshot.showReasoning,
+        });
     }
 
     private async restoreAfterLaunchFailure(
@@ -501,6 +665,7 @@ export class SessionController {
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
+            executionMode: this.executionMode,
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -592,6 +757,7 @@ export class SessionController {
             runStatus: savedGoal.state.run.status,
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
+            executionMode: this.executionMode,
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
@@ -622,6 +788,29 @@ export class SessionController {
         const current = this.snapshot;
 
         switch (current.screen) {
+            case "home":
+                this.setSnapshot(clearError
+                    ? { screen: "home", busy, ...(current.environmentSummary !== undefined ? { environmentSummary: current.environmentSummary } : {}) }
+                    : { ...current, busy });
+                return;
+            case "settings":
+                this.setSnapshot(clearError
+                    ? { screen: "settings", busy, settings: current.settings }
+                    : { ...current, busy });
+                return;
+            case "inspector":
+                this.setSnapshot(clearError
+                    ? {
+                        screen: "inspector",
+                        busy,
+                        goalId: current.goalId,
+                        currentStepIndex: current.currentStepIndex,
+                        totalSteps: current.totalSteps,
+                        steps: current.steps,
+                        showReasoning: current.showReasoning,
+                    }
+                    : { ...current, busy });
+                return;
             case "intent_input":
                 this.setSnapshot(clearError
                     ? { screen: "intent_input", busy }
@@ -671,6 +860,15 @@ export class SessionController {
 
     private setError(error: UiError): void {
         switch (this.snapshot.screen) {
+            case "home":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "settings":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "inspector":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
             case "intent_input":
                 this.setSnapshot({ screen: "intent_input", busy: false, error });
                 return;

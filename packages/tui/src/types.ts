@@ -23,9 +23,12 @@ export const UI_SHUTTING_DOWN_CODE = "UI_SHUTTING_DOWN" as const;
 
 /** Controller 支持的顶层 TUI 页面。 */
 export type UiScreen =
+    | "home"
     | "intent_input"
     | "goal_select"
     | "session"
+    | "settings"
+    | "inspector"
     | "shutting_down";
 
 /**
@@ -86,7 +89,33 @@ export type UiCommand =
         readonly kind: "rejectAction";
         readonly actionId: string;
         readonly reason: string;
-    };
+    }
+    | { readonly kind: "openHome" }
+    | { readonly kind: "openIntentInput" }
+    | { readonly kind: "openSettings" }
+    | { readonly kind: "toggleExecutionMode" }
+    | { readonly kind: "setExecutionMode"; readonly mode: ExecutionMode }
+    | {
+        readonly kind: "openInspector";
+        readonly goalId: string;
+        readonly steps: readonly UiInspectorStep[];
+    }
+    | { readonly kind: "inspectStep"; readonly stepIndex: number }
+    | { readonly kind: "toggleReasoning" };
+
+/**
+ * 执行期人机协同模式。
+ *
+ * @remarks
+ * - `"confirm"`：逐项人工确认待批准动作（按 Enter 批准，输入意见拒绝）；
+ * - `"yolo"`：自动放行待批准动作，全速推进直至任务完成或进入 blocked 等待。
+ *
+ * @example
+ * ```ts
+ * const mode: ExecutionMode = "confirm";
+ * ```
+ */
+export type ExecutionMode = "confirm" | "yolo";
 
 /** Session 等待用户输入的细分类型。 */
 export type UiWaitingFor =
@@ -111,6 +140,24 @@ export interface UiTerminalSummary {
     readonly summary?: string;
     /** Runtime 或取消流程提供的终止原因（如果有）。 */
     readonly reason?: string;
+}
+
+/**
+ * 导航主页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiHomeViewModel = { screen: "home", busy: false };
+ * ```
+ */
+export interface UiHomeViewModel {
+    readonly screen: "home";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly environmentSummary?: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+    };
 }
 
 /**
@@ -143,6 +190,81 @@ export interface UiGoalSelectViewModel {
 }
 
 /**
+ * 环境与配置页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiSettingsViewModel = {
+ *     screen: "settings",
+ *     busy: false,
+ *     settings: { workspaceRoot: "/workspace", profileId: "default" },
+ * };
+ * ```
+ */
+export interface UiSettingsViewModel {
+    readonly screen: "settings";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly settings: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+        readonly modelName?: string;
+        readonly dataDirectory?: string;
+    };
+}
+
+/**
+ * 轨迹复盘中单步（Step）的只读展示数据。
+ *
+ * @remarks
+ * 包含当前步在整个轨迹中的索引、当步包含的消息与可选模型思考内容，以及对应的原始 JSON 序列化字符串。
+ *
+ * @example
+ * ```ts
+ * const step: UiInspectorStep = {
+ *     index: 0,
+ *     totalSteps: 1,
+ *     messages: [],
+ *     rawJson: "{}",
+ * };
+ * ```
+ */
+export interface UiInspectorStep {
+    readonly index: number;
+    readonly totalSteps: number;
+    readonly messages: readonly GoalMessage[];
+    readonly reasoning?: string;
+    readonly rawJson: string;
+}
+
+/**
+ * 轨迹检查器全屏复盘页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiInspectorViewModel = {
+ *     screen: "inspector",
+ *     busy: false,
+ *     goalId: "goal-1",
+ *     currentStepIndex: 0,
+ *     totalSteps: 1,
+ *     steps: [],
+ *     showReasoning: false,
+ * };
+ * ```
+ */
+export interface UiInspectorViewModel {
+    readonly screen: "inspector";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly goalId: string;
+    readonly currentStepIndex: number;
+    readonly totalSteps: number;
+    readonly steps: readonly UiInspectorStep[];
+    readonly showReasoning: boolean;
+}
+
+/**
  * 当前单 Goal 会话的不可变投影。
  *
  * @remarks
@@ -165,6 +287,8 @@ export interface UiSessionViewModel {
     readonly stepCount: number;
     readonly messages: readonly GoalMessage[];
     readonly waitingFor?: UiWaitingFor;
+    /** 执行期人机协同模式（"confirm" 逐项确认 / "yolo" 自动放行）。 */
+    readonly executionMode?: ExecutionMode;
     /**
      * 当前 Goal 的 Preparation 阶段是否已停滞在无法自行推进的中间态。
      *
@@ -226,9 +350,12 @@ export interface UiShuttingDownViewModel {
 
 /** React 外部 Store 所需的统一快照类型。 */
 export type UiViewModel =
+    | UiHomeViewModel
     | UiIntentInputViewModel
     | UiGoalSelectViewModel
     | UiSessionViewModel
+    | UiSettingsViewModel
+    | UiInspectorViewModel
     | UiShuttingDownViewModel;
 
 /** SessionController 快照订阅回调。 */
@@ -335,6 +462,17 @@ export interface SessionControllerDependencies {
     readonly taskTitle?: string;
     /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
     readonly initialGoal?: import("../../runtime/src/index.js").Goal;
+    /** 可选初始展示页面，未指定 initialGoal 时默认为 "intent_input"（若指定 initialScreen 为 "home" 则进入主页）。 */
+    readonly initialScreen?: "home" | "intent_input";
+    /** 可选初始人机协同模式，默认为 "confirm"。 */
+    readonly initialExecutionMode?: ExecutionMode;
+    /** 可选当前环境与配置信息，用于 Home 与 Settings 页面只读展示。 */
+    readonly environmentSummary?: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+        readonly modelName?: string;
+        readonly dataDirectory?: string;
+    };
 }
 
 /**

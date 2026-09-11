@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 扩展 TUI 视图状态机与 ViewModel 定义
+- [x] //TODO 1. 扩展 TUI 视图状态机与 ViewModel 定义
 
   - 实现目标：在 `packages/tui/src/types.ts` 和 `session-controller.ts` 中引入 `home`、`settings` 与 `inspector` 屏幕类型，并在 Session 快照中扩展 `executionMode: "confirm" | "yolo"` 及 `toggleExecutionMode` 命令。
   - 成功判据：Controller 能够派发 `openHome`、`openSettings`、`toggleExecutionMode` 等命令并派生对应不可变 ViewModel；单元测试验证状态转换与 busy 互斥正确。
