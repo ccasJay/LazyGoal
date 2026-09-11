@@ -35,7 +35,7 @@
   - 验证方式：更新 `packages/tui/test/inspector-screen.test.tsx` 交互渲染测试。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5)_
 
-- [ ] //TODO 6. CLI inspect 子命令端到端对齐与全量回归验证
+- [x] //TODO 6. CLI inspect 子命令端到端对齐与全量回归验证
 
   - 实现目标：更新 `cli.tsx` 中的 `lazygoal inspect [goalId]` 流程直接对接 Controller 异步轨迹流；运行全量测试套件并保证全库通过。
   - 成功判据：`npm test`（930+ 用例及 scripts 规则）全部 100% 通过。

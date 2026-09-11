@@ -167,6 +167,31 @@ test("SessionController selectGoal in inspect mode restores Goal and opens inspe
         catalog,
         profileId: "default",
         goalIdGenerator: () => "gen-1",
+        readTrajectory: async () => ({
+            committed: [
+                {
+                    eventSchemaVersion: 1,
+                    eventId: "evt-1",
+                    sequence: 1,
+                    occurredAt: "2026-09-11T12:00:00.000Z",
+                    goalId: "goal-inspect-select",
+                    runId: "run-goal-inspect-select",
+                    phase: "executing",
+                    eventType: "decision_received",
+                    executionUnitId: "unit-1",
+                    stepIndex: 1,
+                    payload: {
+                        type: "decision_received",
+                        decision: {
+                            kind: "complete",
+                            summary: "Inspection done",
+                            completionEvidence: [],
+                        },
+                    },
+                },
+            ],
+            uncommittedTail: [],
+        }),
     });
 
     await controller.dispatch({ kind: "openHistory" });
@@ -176,8 +201,9 @@ test("SessionController selectGoal in inspect mode restores Goal and opens inspe
     assert.equal(snapshot.screen, "inspector");
     if (snapshot.screen === "inspector") {
         assert.equal(snapshot.goalId, "goal-inspect-select");
-        assert.equal(snapshot.totalSteps, 1);
-        assert.equal(snapshot.steps[0]?.reasoning, "Checking log files");
+        assert.equal(snapshot.totalSteps, 2);
+        assert.equal(snapshot.steps[1]?.title, "Step 2: Execution (unit-1)");
+        assert.equal(snapshot.steps[1]?.decision?.summary, "Inspection done");
     }
 });
 

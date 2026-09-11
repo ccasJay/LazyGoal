@@ -77,6 +77,7 @@ import {
     SessionController,
     TuiApp,
     sliceTrajectorySteps,
+    projectTrajectoryEvents,
     AggregatedGoalStore,
     AggregatedTrajectoryStore,
 } from "./index";
@@ -1125,7 +1126,34 @@ export async function runCli(
                     writeError(`Goal not found: ${command.goalId}`);
                     return 1;
                 }
-                const steps = sliceTrajectorySteps({ goalId: command.goalId, goal });
+                let trajectoryResult;
+                try {
+                    trajectoryResult = await root.readTrajectory({
+                        goalId: command.goalId,
+                        runId: goal.state.run.id,
+                    });
+                } catch (error: unknown) {
+                    writeError(`Failed to read trajectory: ${toErrorMessage(error)}`);
+                    return 1;
+                }
+                const hasCommitted = trajectoryResult.committed.length > 0;
+                const hasUncommitted = (trajectoryResult.uncommittedTail?.length ?? 0) > 0;
+                if (!hasCommitted && !hasUncommitted) {
+                    writeError(`Trajectory for Goal "${command.goalId}" contains no events`);
+                    return 1;
+                }
+                const steps = projectTrajectoryEvents({
+                    goalId: command.goalId,
+                    goal,
+                    committedEvents: trajectoryResult.committed,
+                    ...(trajectoryResult.uncommittedTail !== undefined
+                        ? { uncommittedTail: trajectoryResult.uncommittedTail }
+                        : {}),
+                });
+                if (steps.length === 0) {
+                    writeError(`Trajectory for Goal "${command.goalId}" yielded no inspectable steps`);
+                    return 1;
+                }
                 await root.controller.dispatch({
                     kind: "openInspector",
                     goalId: command.goalId,
