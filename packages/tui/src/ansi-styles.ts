@@ -18,6 +18,14 @@ export const ansi = {
     red: (text: string): string => `\x1b[31m${text}\x1b[39m`,
     magenta: (text: string): string => `\x1b[35m${text}\x1b[39m`,
     gray: (text: string): string => `\x1b[90m${text}\x1b[39m`,
+    // 柔和半透明质感前景色（低饱和度，营造半透明发光感）
+    softCyan: (text: string): string => `\x1b[38;5;73m${text}\x1b[39m`,
+    softYellow: (text: string): string => `\x1b[38;5;179m${text}\x1b[39m`,
+    softGreen: (text: string): string => `\x1b[38;5;71m${text}\x1b[39m`,
+    softRed: (text: string): string => `\x1b[38;5;167m${text}\x1b[39m`,
+    softMagenta: (text: string): string => `\x1b[38;5;139m${text}\x1b[39m`,
+    // 深色透明感背景（终端 256 色 234 暗黑底色）
+    darkBg: (text: string): string => `\x1b[48;5;234m${text}\x1b[49m`,
 };
 
 /**
@@ -32,6 +40,18 @@ export interface SectionDividerOptions {
     readonly badge?: string;
     /** 徽章色彩渲染函数。 */
     readonly badgeColor?: (text: string) => string;
+}
+
+/**
+ * 槽线格式化可选配置。
+ */
+export interface GutterOptions {
+    /** 槽线符号，默认为粗实心竖条 "▎"（Unicode U+258E）。 */
+    readonly char?: string;
+    /** 槽线颜色函数，默认为半透明柔和色。 */
+    readonly color?: (text: string) => string;
+    /** 是否对内容行应用深色透明感卡片背景，默认为 true。 */
+    readonly darkBackground?: boolean;
 }
 
 /**
@@ -80,25 +100,49 @@ export function formatSectionDivider(
 }
 
 /**
- * 为多行输出的每一行添加前缀缩进槽线。
+ * 为多行输出的每一行添加前缀粗槽线与可选的深色透明感卡片背景。
  *
  * @remarks
- * 将传入文本按换行符拆分，逐行附加垂直槽线（如 `  │ `），
- * 形成类似代码块或引用块的视觉边界，同时保留原行内容。
+ * 将传入文本按换行符拆分，逐行附加粗竖线（默认 `▎`）并在内容两端辅以
+ * 深色透明黑底色（`\x1b[48;5;234m`），产生如同现代 Web 代码卡片的层次视觉效果。
+ * 同时保留对历史字符串前缀参数的向后兼容。
  *
  * @param text - 待添加槽线的多行文本。
- * @param gutter - 槽线前缀字符，默认为深灰色 `  │ `。
- * @returns 附加槽线后的文本字符串。
+ * @param options - 槽线粗细、彩色与深色背景配置，或直接传入传统槽线前缀字符串。
+ * @returns 附加槽线与深色背景后的文本字符串。
  *
  * @example
  * ```ts
- * const quoted = formatGutter('{"command": "ls"}');
+ * const quoted = formatGutter('{"command": "ls"}', {
+ *     color: ansi.softYellow,
+ * });
  * ```
  */
-export function formatGutter(text: string, gutter = ansi.gray("  │ ")): string {
+export function formatGutter(
+    text: string,
+    options?: GutterOptions | string,
+): string {
     if (text.length === 0) return "";
+    if (typeof options === "string") {
+        return text
+            .split("\n")
+            .map((line) => `${options}${line}`)
+            .join("\n");
+    }
+
+    const char = options?.char ?? "▎";
+    const colorFn = options?.color ?? ansi.gray;
+    const darkBg = options?.darkBackground ?? true;
+
     return text
         .split("\n")
-        .map((line) => `${gutter}${line}`)
+        .map((line) => {
+            const coloredChar = colorFn(char);
+            if (darkBg) {
+                // 槽线 + 深色透明卡片背景包裹内容
+                return `  ${coloredChar} ${ansi.darkBg(` ${line} `)}`;
+            }
+            return `  ${coloredChar} ${line}`;
+        })
         .join("\n");
 }

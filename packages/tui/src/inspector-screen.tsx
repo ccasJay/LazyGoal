@@ -138,7 +138,7 @@ export function InspectorScreen({
                 badgeColor: ansi.gray,
             }));
             if (inspector.showReasoning) {
-                lines.push(formatGutter(currentStep.reasoning, ansi.magenta("  │ ")));
+                lines.push(formatGutter(currentStep.reasoning, { color: ansi.softMagenta }));
             } else {
                 lines.push(ansi.dim("  Reasoning folded - press r to expand"));
             }
@@ -181,7 +181,7 @@ export function InspectorScreen({
             }));
             if (currentStep.action.inputJson) {
                 lines.push(`  ${ansi.gray("Input:")}`);
-                lines.push(formatGutter(currentStep.action.inputJson, ansi.yellow("  │ ")));
+                lines.push(formatGutter(currentStep.action.inputJson, { color: ansi.softYellow }));
             }
             if (currentStep.action.rejectionReason !== undefined) {
                 lines.push(`  ${ansi.red("Rejection Reason:")} ${currentStep.action.rejectionReason}`);
@@ -202,17 +202,17 @@ export function InspectorScreen({
                 color: statusColor,
             }));
             const isExpanded = inspector.expandObservation ?? false;
-            const gutter = isSuccess ? ansi.green("  │ ") : ansi.red("  │ ");
+            const gutterColor = isSuccess ? ansi.softGreen : ansi.softRed;
             if (isExpanded) {
                 const fullText = typeof currentStep.observation.rawObservation === "string"
                     ? currentStep.observation.rawObservation
                     : JSON.stringify(currentStep.observation.rawObservation, null, 2);
-                lines.push(formatGutter(fullText, gutter));
+                lines.push(formatGutter(fullText, { color: gutterColor }));
                 if (currentStep.observation.isTruncated) {
                     lines.push(ansi.dim("  (Full output displayed - press o to collapse)"));
                 }
             } else {
-                lines.push(formatGutter(currentStep.observation.observationPreview, gutter));
+                lines.push(formatGutter(currentStep.observation.observationPreview, { color: gutterColor }));
                 if (currentStep.observation.isTruncated) {
                     lines.push(ansi.yellow("  ... [Observation truncated - press o to expand]"));
                 }
