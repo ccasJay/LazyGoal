@@ -4,7 +4,7 @@
 
 依次完成下列任务及其子任务；当前均未实施，新增测试入口均标为“待实现”。涉及公共契约和架构的实现同步遵守 [设计中的文档要求](./design.md#components-and-interfaces)。
 
-- [ ] //TODO 1. 实现 TUI 主运行时的外部沙箱扩展配置接口
+- [x] //TODO 1. 实现 TUI 主运行时的外部沙箱扩展配置接口
   - 实现目标：扩展 `packages/tui/src/cli.tsx` 的通用依赖注入并拆出可挂载已有 Controller 的入口，支持显式 Profile、Registry、Policy、PreparationExecutor、LLMAdapter 和执行控制；不导入 EnvironmentSpec。
   - 成功标准：注入一个外部工具集时只装配该工具集；默认启动仍使用当前配置，并且不加载 Benchmark 模块。
   - 验证方式：扩展 `packages/tui/test/cli.test.ts`（新增场景待实现），覆盖显式注入、Profile 未注册工具和默认接线。

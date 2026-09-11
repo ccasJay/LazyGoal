@@ -34,3 +34,14 @@ export type {
     UiViewModel,
     UiWaitingFor,
 } from "./types";
+export {
+    createCompositionRoot,
+    mountTuiApp,
+    runCli,
+    type CompositionRoot,
+    type CompositionRootOptions,
+    type MountTuiOptions,
+    type MountedTuiApp,
+    type CliRunOptions,
+} from "./cli";
+

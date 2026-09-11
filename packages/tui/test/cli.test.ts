@@ -8,10 +8,21 @@ import { test } from "node:test";
 import {
     ConversationBudgetConfigurationError,
     createCompositionRoot,
+    mountTuiApp,
     parseCliArgs,
     readConversationCharBudget,
     runCli,
 } from "../src/cli";
+import { SessionController } from "../src/index";
+import {
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type AgentProfile,
+    type ToolPolicy,
+    type PreparationExecutor,
+} from "../../runtime/src/index";
+import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
+import type { LLMAdapter } from "../../llm/src/core/adapter";
 import { AgentProfileConfigurationError } from "../../storage/src/index";
 import {
     DEFAULT_PROFILE_FILE,
@@ -392,3 +403,110 @@ test("provider and catalog failures precede workspace access and Goal creation",
         }), LlmConfigurationError);
     }
 });
+
+test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profile 与 LLM 环境变量", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-explicit-"));
+    const customTool = new ReadFileTool(workspace);
+    const customRegistry = new InMemoryToolRegistry([createToolRegistration(customTool)]);
+    const customProfile: AgentProfile = {
+        id: "custom-sandbox",
+        name: "Custom Sandbox Profile",
+        description: "Sandbox profile for testing",
+        systemPrompt: "You are in sandbox",
+        instructions: ["Follow rules"],
+        toolIds: [READ_FILE_TOOL_ID],
+    };
+    const customPolicy: ToolPolicy = {
+        evaluate: () => "allow",
+    };
+    const customAdapter: LLMAdapter = {
+        chat: async () => ({
+            content: "ok",
+            usage: { inputTokens: 0, outputTokens: 0 },
+        }),
+    } as unknown as LLMAdapter;
+    const customExecutor: PreparationExecutor = {
+        prepare: async () => ({
+            ok: true,
+            proposal: {
+                intent: "test",
+                objective: "test",
+                completionCriteria: ["done"],
+            },
+        }),
+    } as unknown as PreparationExecutor;
+
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        env: {}, // 空环境变量，不含 LLM 配置
+        adapter: customAdapter,
+        profile: customProfile,
+        toolRegistry: customRegistry,
+        toolPolicy: customPolicy,
+        preparationExecutor: customExecutor,
+    });
+
+    assert.equal(root.profile.id, "custom-sandbox");
+    assert.deepEqual(root.profile.toolIds, [READ_FILE_TOOL_ID]);
+    assert.equal(root.toolRegistry.get(READ_FILE_TOOL_ID)?.definition.id, READ_FILE_TOOL_ID);
+    assert.equal(root.toolRegistry.get("write_file"), undefined); // 宿主工具未混入
+    assert.equal(root.toolPolicy, customPolicy);
+    assert.equal(root.preparationExecutor, customExecutor);
+    assert.equal(root.adapter, customAdapter);
+    // 验证未创建默认 profile
+    await assert.rejects(access(join(workspace, ".lazygoal", "profiles", "default.json")));
+});
+
+test("显式注入的 Profile 引用了未注册的 Tool 时快速失败", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-explicit-fail-"));
+    const customTool = new ReadFileTool(workspace);
+    const customRegistry = new InMemoryToolRegistry([createToolRegistration(customTool)]);
+    const customProfile: AgentProfile = {
+        id: "custom-sandbox-invalid",
+        name: "Invalid Profile",
+        description: "Invalid",
+        systemPrompt: "Invalid",
+        instructions: ["Invalid"],
+        toolIds: [READ_FILE_TOOL_ID, "unregistered_tool"],
+    };
+
+    await assert.rejects(
+        createCompositionRoot({
+            cwd: workspace,
+            env: {},
+            adapter: {} as LLMAdapter,
+            profile: customProfile,
+            toolRegistry: customRegistry,
+        }),
+        (error: unknown) => error instanceof AgentProfileConfigurationError
+            && /toolIds 引用了未注册的 Tool "unregistered_tool"/.test(error.message),
+    );
+    await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
+});
+
+test("mountTuiApp 挂载控制器并支持正常退出与 unmount", async () => {
+    let unmounted = false;
+    let exitWaitCalls = 0;
+    const mockController = {
+        getSnapshot: () => ({ screen: "session", busy: false }),
+        subscribe: () => () => {},
+    } as unknown as SessionController;
+
+    const mockRender = (() => ({
+        unmount: () => { unmounted = true; },
+        waitUntilExit: async () => { exitWaitCalls += 1; },
+    })) as never;
+
+    const handle = mountTuiApp({
+        controller: mockController,
+        onShutdown: async () => {},
+        render: mockRender,
+    });
+
+    assert.equal(unmounted, false);
+    handle.unmount();
+    assert.equal(unmounted, true);
+    await handle.waitUntilExit();
+    assert.equal(exitWaitCalls, 1);
+});
+
