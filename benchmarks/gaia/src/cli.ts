@@ -78,6 +78,10 @@ export interface GaiaCliDependencies {
     readonly runner?: typeof runTuiWithSandbox;
     /** 自定义隔离环境。 */
     readonly isolatedEnvironment?: IsolatedEnvironment;
+    /** 自定义隔离容器驱动。 */
+    readonly container?: import("../../src/isolated-environment.js").IsolatedContainer;
+    /** 自定义 TUI 渲染器。 */
+    readonly render?: import("../../../packages/tui/src/index.js").MountTuiOptions["render"];
     /** 自定义 LLM 适配器。 */
     readonly adapter?: import("../../../packages/agent/src/index.js").LLMAdapter;
     /** 自定义 Worker 产物。 */
@@ -230,6 +234,12 @@ export async function runGaiaEvalCli(
             writeOut: (msg) => process.stdout.write(`${msg}\n`),
             ...(dependencies?.isolatedEnvironment !== undefined
                 ? { environment: dependencies.isolatedEnvironment }
+                : {}),
+            ...(dependencies?.container !== undefined
+                ? { container: dependencies.container }
+                : {}),
+            ...(dependencies?.render !== undefined
+                ? { render: dependencies.render }
                 : {}),
         });
         return result.exitCode;
