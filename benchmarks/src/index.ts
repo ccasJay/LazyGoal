@@ -124,4 +124,13 @@ export {
 export type {
     RemoteToolRegistrationOptions,
 } from "./remote-tool-registry.js";
+export {
+    createTuiToolPolicy,
+    createSwebenchTuiToolPolicy,
+    createGaiaTuiToolPolicy,
+} from "./tui-tool-policy.js";
+export type {
+    TuiExecutionMode,
+    TuiToolPolicyOptions,
+} from "./tui-tool-policy.js";
 

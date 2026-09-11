@@ -33,7 +33,7 @@
     - 验证方式：`benchmarks/test/remote-tool-registry.test.ts`（待实现），让真实 Runner 驱动代理，检查出站消息与提交事实。
     - Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.5](./requirements.md#req-3-5)
 
-- [ ] //TODO 4. 实现自动 (Auto) 与人工审批 (Review) 的双模 ToolPolicy
+- [x] //TODO 4. 实现自动 (Auto) 与人工审批 (Review) 的双模 ToolPolicy
   - 实现目标：在 Benchmark 组合层构造 allow/require_approval 策略，注入现有 Runner；接通 SessionScreen 的单次批准和带理由拒绝。
   - 成功标准：auto 自动执行合法授权动作；review 中 bash、写入、submit_answer 及未知名单工具均暂停，批准后只执行一次，拒绝产生 rejected Observation 且 Worker 执行次数为零。
   - 验证方式：`benchmarks/test/tui-tool-policy.test.ts`（待实现），使用 Runner、Coordinator、代理及 Worker 计数的组合测试，不能仅断言 Policy 返回值。
