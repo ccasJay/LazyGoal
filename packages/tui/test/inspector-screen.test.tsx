@@ -61,13 +61,13 @@ test("sliceTrajectorySteps slices messages by assistant turn and extracts though
     assert.equal(steps[0]?.index, 0);
     assert.equal(steps[0]?.totalSteps, 2);
     assert.equal(steps[0]?.reasoning, "Inspecting directory");
-    assert.equal(steps[0]?.messages.length, 3);
+    assert.equal(steps[0]?.messages?.length, 3);
 
     // Step 1: Second assistant turn
     assert.equal(steps[1]?.index, 1);
     assert.equal(steps[1]?.totalSteps, 2);
     assert.equal(steps[1]?.reasoning, "Task is finished");
-    assert.equal(steps[1]?.messages.length, 1);
+    assert.equal(steps[1]?.messages?.length, 1);
 });
 
 test("InspectorScreen renders step header, navigation controls, and message content", () => {

@@ -1,6 +1,6 @@
 # Implementation Plan: TUI Trajectory Event Projection
 
-- [ ] //TODO 1. 定义结构化单步视图模型与事件投影器契约
+- [x] //TODO 1. 定义结构化单步视图模型与事件投影器契约
 
   - 实现目标：在 `packages/tui/src/types.ts` 中定义 `UiStepDecisionBlock`、`UiStepActionBlock`、`UiStepObservationBlock`、`UiStepResultBlock` 与新版 `UiInspectorStep` 结构；在 `SessionControllerDependencies` 中扩充 `readTrajectory` 依赖字段。
   - 成功判据：类型定义完整，配齐中文契约级 TSDoc 与 `@example`，类型检查 0 报错。

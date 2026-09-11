@@ -80,8 +80,9 @@ export function InspectorScreen({
 
     const bodyLines = useMemo(() => {
         const lines: string[] = [];
+        const messages = currentStep?.messages ?? [];
         if (currentStep === undefined || (
-            currentStep.messages.length === 0 && currentStep.reasoning === undefined
+            messages.length === 0 && currentStep.reasoning === undefined
         )) {
             lines.push("No messages recorded for this step.", "Press e to view the raw step data.");
         } else {
@@ -92,7 +93,7 @@ export function InspectorScreen({
                 if (inspector.showReasoning) lines.push(currentStep.reasoning);
                 lines.push("");
             }
-            for (const message of currentStep.messages) {
+            for (const message of messages) {
                 lines.push(message.role === "user"
                     ? "[User]"
                     : "[Assistant (" + message.assistant.profileId + ")]");
