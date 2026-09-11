@@ -71,6 +71,27 @@ export class SessionController {
                     ? { environmentSummary: dependencies.environmentSummary }
                     : {}),
             };
+        } else if (dependencies.initialScreen === "goal_select") {
+            this.snapshot = {
+                screen: "goal_select",
+                busy: true,
+                goals: [],
+            };
+        } else if (dependencies.initialScreen === "settings") {
+            this.snapshot = {
+                screen: "settings",
+                busy: false,
+                settings: {
+                    workspaceRoot: dependencies.environmentSummary?.workspaceRoot ?? process.cwd(),
+                    profileId: dependencies.profileId,
+                    ...(dependencies.environmentSummary?.modelName !== undefined
+                        ? { modelName: dependencies.environmentSummary.modelName }
+                        : {}),
+                    ...(dependencies.environmentSummary?.dataDirectory !== undefined
+                        ? { dataDirectory: dependencies.environmentSummary.dataDirectory }
+                        : {}),
+                },
+            };
         } else {
             this.snapshot = {
                 screen: "intent_input",
