@@ -7,6 +7,7 @@ export { GoalSelectScreen } from "./goal-select-screen";
 export { SessionScreen } from "./session-screen";
 export { StatusSpinner } from "./status-spinner";
 export { ErrorLine } from "./error-line";
+export { StepWaterfallItem, truncateSummary, MAX_STEP_SUMMARY_CHARS } from "./step-waterfall-item";
 export type { TuiAppProps } from "./app";
 export type { IntentScreenProps } from "./intent-screen";
 export type { PreparationScreenProps } from "./preparation-screen";
@@ -14,6 +15,7 @@ export type { GoalSelectScreenProps } from "./goal-select-screen";
 export type { SessionScreenProps } from "./session-screen";
 export type { StatusSpinnerProps } from "./status-spinner";
 export type { ErrorLineProps } from "./error-line";
+export type { StepWaterfallItemProps } from "./step-waterfall-item";
 export {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,

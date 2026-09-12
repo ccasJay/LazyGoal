@@ -18,7 +18,7 @@
   - 验证方式：在 `packages/tui/test/session-controller.test.ts` 中增加多步提交通知与恢复投影的单元测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 4. 实现 StepWaterfallItem 紧凑单行与安全截断组件
+- [x] //TODO 4. 实现 StepWaterfallItem 紧凑单行与安全截断组件
   - 实现目标：创建 `packages/tui/src/step-waterfall-item.tsx`，将单个已完成步骤渲染为单行紧凑视图，超长输入/输出文本自动截断并显示省略号。
   - 成功判据：成功状态显示绿色勾号，失败显示红色叉号；单行展示控制在安全宽度内，超长字符串安全截断。
   - 验证方式：新增 `packages/tui/test/step-waterfall-item.test.tsx` 单元测试覆盖正常与截断场景。
