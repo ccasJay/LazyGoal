@@ -83,8 +83,10 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
         inputContract: WRITE_FILE_INPUT_CONTRACT,
+        isReadOnly: false,
     };
 
+    readonly isReadOnly = false as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;

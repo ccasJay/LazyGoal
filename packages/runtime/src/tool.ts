@@ -37,6 +37,14 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
     readonly description: string;
     /** Tool 输入结构唯一事实源；模型 Schema 由该 AST 编译得到。 */
     readonly inputContract: C;
+    /**
+     * 是否为只读工具。
+     *
+     * @remarks
+     * 声明为 `true` 的工具在准备阶段（`gathering_context` 与 `planning`）可被模型
+     * 自主发起探查调用，且对工作区与外部环境无任何副作用。未指定时默认为 `false`。
+     */
+    readonly isReadOnly?: boolean;
 }
 
 /** Tool 实际返回的成功或领域失败 Observation；拒绝由 Runtime 状态机生成。 */
@@ -106,6 +114,13 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
     /**
+     * 是否为只读工具。
+     *
+     * @remarks
+     * 便捷只读声明，未显式声明时回退至 `definition.isReadOnly`。
+     */
+    readonly isReadOnly?: boolean;
+    /**
      * 校验已通过 Input Contract 的结构化输入，不执行外部作用。
      *
      * @param input - Input Contract 返回的隔离输入。
@@ -125,6 +140,41 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
         request: ToolExecutionRequest<InferContract<C>>,
         control?: ExecutionControl,
     ): Promise<ToolObservation>;
+}
+
+/**
+ * 判定 Tool 或 ToolDefinition 是否声明为只读工具。
+ *
+ * @param tool - Tool 或 ToolDefinition 实例。
+ * @returns 当且仅当工具或定义显式标记为 `isReadOnly: true` 时返回 `true`。
+ *
+ * @example
+ * ```ts
+ * const readOnly = isReadOnlyTool(readFileTool);
+ * ```
+ */
+export function isReadOnlyTool(
+    tool:
+        | { readonly isReadOnly?: boolean }
+        | { readonly definition?: { readonly isReadOnly?: boolean } }
+        | Record<string, unknown>,
+): boolean {
+    if (typeof tool !== "object" || tool === null) {
+        return false;
+    }
+    if ("isReadOnly" in tool && typeof tool.isReadOnly === "boolean") {
+        return tool.isReadOnly;
+    }
+    if (
+        "definition" in tool &&
+        typeof tool.definition === "object" &&
+        tool.definition !== null &&
+        "isReadOnly" in tool.definition &&
+        typeof (tool.definition as { isReadOnly?: unknown }).isReadOnly === "boolean"
+    ) {
+        return (tool.definition as { isReadOnly: boolean }).isReadOnly;
+    }
+    return false;
 }
 
 /** Tool Contract 与语义校验完成后的单次准备结果。 */

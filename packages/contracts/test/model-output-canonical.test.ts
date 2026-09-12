@@ -13,8 +13,11 @@ import {
     StructuredAgentDecisionContract,
     ToolCallActionContract,
     WorkingMemoryPatchContract,
+    contract,
+    isReadOnlyToolContract,
     safeParse,
     validateModelOutputSemantics,
+    type AuthorizedToolContract,
 } from "../src/index";
 
 test("GoalTaskContract 校验并深复制合法任务结构", () => {
@@ -335,4 +338,25 @@ test("validateModelOutputSemantics 拦截反转 sequenceRange 和无变更 updat
         ],
     };
     assert.deepEqual(validateModelOutputSemantics(validUpdate), []);
+});
+
+test("AuthorizedToolContract 支持 isReadOnly 属性并通过 isReadOnlyToolContract 反射", () => {
+    const readOnlyTool: AuthorizedToolContract = {
+        id: "read_file",
+        inputContract: contract.object({ path: contract.string() }),
+        isReadOnly: true,
+    };
+    const modifyingTool: AuthorizedToolContract = {
+        id: "write_file",
+        inputContract: contract.object({ path: contract.string(), content: contract.string() }),
+        isReadOnly: false,
+    };
+    const defaultTool: AuthorizedToolContract = {
+        id: "bash",
+        inputContract: contract.object({ command: contract.string() }),
+    };
+
+    assert.equal(isReadOnlyToolContract(readOnlyTool), true);
+    assert.equal(isReadOnlyToolContract(modifyingTool), false);
+    assert.equal(isReadOnlyToolContract(defaultTool), false);
 });

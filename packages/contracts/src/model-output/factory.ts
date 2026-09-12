@@ -43,6 +43,32 @@ export interface AuthorizedToolContract {
     readonly id: string;
     /** 工具入参契约。 */
     readonly inputContract: Contract<unknown>;
+    /**
+     * 是否为只读工具。
+     *
+     * @remarks
+     * 声明为 `true` 的工具在准备阶段可被模型自主调用，且对工作区无任何副作用。默认为 `false`。
+     */
+    readonly isReadOnly?: boolean;
+}
+
+/**
+ * 判定指定的授权工具契约是否显式声明为只读。
+ *
+ * @param tool - 授权工具契约描述。
+ * @returns 声明为 `isReadOnly: true` 时返回 `true`，否则返回 `false`。
+ *
+ * @example
+ * ```ts
+ * const readOnly = isReadOnlyToolContract({
+ *     id: "read_file",
+ *     inputContract: READ_FILE_INPUT_CONTRACT,
+ *     isReadOnly: true,
+ * });
+ * ```
+ */
+export function isReadOnlyToolContract(tool: AuthorizedToolContract): boolean {
+    return tool.isReadOnly === true;
 }
 
 /**

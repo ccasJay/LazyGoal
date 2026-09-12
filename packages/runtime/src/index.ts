@@ -357,6 +357,7 @@ export type {
 export {
     createToolRegistration,
     InMemoryToolRegistry,
+    isReadOnlyTool,
     resolveAuthorizedToolDefinitions,
 } from "./tool";
 export type {

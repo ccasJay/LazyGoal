@@ -123,8 +123,10 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
         id: WEB_FETCH_TOOL_ID,
         description: "获取指定 URL 的网页纯文本内容，支持字符数截断",
         inputContract: WEB_FETCH_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 
+    readonly isReadOnly = true as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly fetcher: WebFetchHandler;

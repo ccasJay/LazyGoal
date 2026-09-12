@@ -136,6 +136,7 @@ export {
 } from "./model-output/provider-schema";
 export {
     createModelOutputContractBundle,
+    isReadOnlyToolContract,
 } from "./model-output/factory";
 export type {
     AuthorizedToolContract,

@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 在 Contracts 与 Tools 中建立声明式 isReadOnly 契约与工具元数据定义
+- [x] //TODO 1. 在 Contracts 与 Tools 中建立声明式 isReadOnly 契约与工具元数据定义
   - 实现目标：在 `@lazygoal/contracts` 与 `@lazygoal/tools` 中为工具定义增加 `readonly isReadOnly: boolean` 契约属性，并显式标注现有工具（`read_file`、`grep` 为 `true`，`write_file`、`edit_file`、`bash` 为 `false`）。
   - 成功判据：TypeScript 类型编译通过，所有注册工具具备明确的只读语义，且为后续新增工具提供标准接口。
   - 验证方式：新增单元测试验证工具只读属性的反射与校验。

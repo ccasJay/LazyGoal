@@ -16,10 +16,15 @@ import {
     GrepTool,
     READ_FILE_INPUT_CONTRACT,
     ReadFileTool,
+    WebFetchTool,
+    WebSearchTool,
     WRITE_FILE_INPUT_CONTRACT,
     WriteFileTool,
 } from "../src/index";
-import { createToolRegistration } from "../../../packages/runtime/src/index";
+import {
+    createToolRegistration,
+    isReadOnlyTool,
+} from "../../../packages/runtime/src/index";
 
 type Equal<Left, Right> =
     (<Value>() => Value extends Left ? 1 : 2) extends
@@ -343,4 +348,41 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
             assert.notStrictEqual(result.input, toolCase.input);
         }
     }
+});
+
+test("工具声明式 isReadOnly 元数据准确区分只读探查与写操作工具", () => {
+    const readOnlyTools = [
+        new ReadFileTool("/workspace"),
+        new GrepTool("/workspace"),
+        new WebSearchTool(),
+        new WebFetchTool(),
+    ];
+
+    for (const tool of readOnlyTools) {
+        assert.equal(tool.isReadOnly, true, `${tool.definition.id} 应当声明 isReadOnly: true`);
+        assert.equal(tool.definition.isReadOnly, true, `${tool.definition.id}.definition 应当声明 isReadOnly: true`);
+        assert.equal(isReadOnlyTool(tool), true, `isReadOnlyTool(${tool.definition.id}) 应当返回 true`);
+    }
+
+    const modifyingTools = [
+        new WriteFileTool("/workspace"),
+        new EditFileTool("/workspace"),
+        new BashTool("/workspace"),
+    ];
+
+    for (const tool of modifyingTools) {
+        assert.equal(tool.isReadOnly, false, `${tool.definition.id} 应当显式声明 isReadOnly: false`);
+        assert.equal(tool.definition.isReadOnly, false, `${tool.definition.id}.definition 应当显式声明 isReadOnly: false`);
+        assert.equal(isReadOnlyTool(tool), false, `isReadOnlyTool(${tool.definition.id}) 应当返回 false`);
+    }
+
+    // 验证未显式声明只读的工具默认判为 false（fail-closed 安全策略）
+    const legacyOrCustomTool = {
+        definition: {
+            id: "custom_tool",
+            description: "未声明只读性的扩展工具",
+            inputContract: READ_FILE_INPUT_CONTRACT,
+        },
+    };
+    assert.equal(isReadOnlyTool(legacyOrCustomTool), false, "未声明 isReadOnly 的工具必须安全默认判定为 false");
 });
