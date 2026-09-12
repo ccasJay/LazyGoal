@@ -110,6 +110,7 @@ export function projectTrajectoryEvents(
     // 1. 构建 Step 1: Preparation & Planning
     const prepDetails: string[] = [];
     let initialIntent = options.goal?.definition.intent;
+    let preparationReasoning: string | undefined;
 
     for (const event of preparationEvents) {
         if (event.payload.type === "goal_created") {
@@ -121,6 +122,9 @@ export function projectTrajectoryEvents(
             prepDetails.push("Run resumed");
         } else if (event.payload.type === "preparation_result") {
             prepDetails.push("Preparation result: " + event.payload.result);
+            if (event.payload.thought !== undefined) {
+                preparationReasoning = event.payload.thought;
+            }
         } else if (event.payload.type === "context_lookup_requested") {
             prepDetails.push("Context lookup requested: " + event.payload.lookupId);
         } else if (event.payload.type === "context_lookup_completed") {
@@ -140,6 +144,7 @@ export function projectTrajectoryEvents(
         title: "Step 1: Preparation & Planning",
         phase: "planning",
         preparationDetails: prepDetails.length > 0 ? prepDetails : ["Initialized"],
+        ...(preparationReasoning !== undefined ? { reasoning: preparationReasoning } : {}),
         rawJson: JSON.stringify(
             {
                 step: "Preparation",
@@ -162,11 +167,15 @@ export function projectTrajectoryEvents(
         let observationBlock: UiStepObservationBlock | undefined;
         let resultBlock: UiStepResultBlock | undefined;
         let toolStartTime: number | undefined;
+        let reasoning: string | undefined;
 
         for (const event of unitEvents) {
             const payload = event.payload;
 
             if (payload.type === "decision_received") {
+                if (payload.thought !== undefined) {
+                    reasoning = payload.thought;
+                }
                 const decision = payload.decision;
                 if (decision.kind === "tool_call") {
                     decisionBlock = {
@@ -260,6 +269,7 @@ export function projectTrajectoryEvents(
             executionUnitId: unitId,
             phase: "executing",
             ...(decisionBlock !== undefined ? { decision: decisionBlock } : {}),
+            ...(reasoning !== undefined ? { reasoning } : {}),
             ...(actionBlock !== undefined ? { action: actionBlock } : {}),
             ...(observationBlock !== undefined ? { observation: observationBlock } : {}),
             ...(resultBlock !== undefined ? { result: resultBlock } : {}),

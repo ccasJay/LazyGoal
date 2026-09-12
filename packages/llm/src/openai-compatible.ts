@@ -105,7 +105,7 @@ export class OpenAICompatible implements LLMAdapter {
                 ...(maxOutputTokens !== undefined
                     ? { max_tokens: maxOutputTokens }
                     : {}),
-                ...(this.structuredOutputMode === "strict" && _request.structuredOutput !== undefined
+                ...((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && _request.structuredOutput !== undefined
                     ? {
                         response_format: {
                             type: "json_schema" as const,

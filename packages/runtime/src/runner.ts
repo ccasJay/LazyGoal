@@ -98,7 +98,10 @@ class RunnerExecutionError extends Error {
     }
 }
 
-type NormalizedExecution = { readonly decision: AgentDecision };
+type NormalizedExecution = {
+    readonly decision: AgentDecision;
+    readonly thought?: string;
+};
 
 let executionUnitCounter = 0;
 
@@ -1590,10 +1593,16 @@ export class Runner {
                             : { contextLookupResult }),
                     });
                     throwIfAborted(control);
+                    const isResultObject = typeof execution === "object"
+                        && execution !== null
+                        && "decision" in execution;
+                    const extractedDecision = isResultObject ? (execution as any).decision : execution;
+                    const extractedThought = isResultObject && typeof (execution as any).thought === "string"
+                        ? (execution as any).thought
+                        : undefined;
                     normalized = {
-                        decision: validateAgentDecision(
-                            execution,
-                        ),
+                        decision: validateAgentDecision(extractedDecision),
+                        thought: extractedThought,
                     };
                     this.validateCompletionEvidence(goal, normalized.decision, session);
                 } catch (error) {
@@ -1840,6 +1849,7 @@ export class Runner {
                                 ...normalized.decision,
                                 action: validated.action,
                             },
+                            ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                         },
                     }, control);
 
@@ -1924,7 +1934,11 @@ export class Runner {
                     phase: "executing",
                     executionUnitId,
                     eventType: "decision_received",
-                    payload: { type: "decision_received", decision: normalized.decision },
+                    payload: {
+                        type: "decision_received",
+                        decision: normalized.decision,
+                        ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                    },
                 }, control);
 
                 throwIfAborted(control);

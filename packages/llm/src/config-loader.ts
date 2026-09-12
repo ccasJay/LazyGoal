@@ -131,17 +131,17 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
     const provider = mergedLlm.provider as LlmProvider;
     const mode = mergedLlm.structured_output_mode as StructuredOutputMode;
 
-    if (mode !== "strict" && mode !== "prompt_only") {
+    if (mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") {
         throw new LlmConfigurationError(
             [],
-            `无效的 structured_output_mode "${mode}": 必须为 "strict" 或 "prompt_only"`,
+            `无效的 structured_output_mode "${mode}": 必须为 "strict"、"prompt_only" 或 "two_stage"`,
         );
     }
 
-    if (mode === "strict" && !["openai", "google", "openai-compatible"].includes(provider)) {
+    if ((mode === "strict" || mode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
         throw new LlmConfigurationError(
             [],
-            `供应商 "${provider}" 不支持 strict 模式，请配置 prompt_only`,
+            `供应商 "${provider}" 不支持 ${mode} 模式，请配置 prompt_only`,
         );
     }
 
