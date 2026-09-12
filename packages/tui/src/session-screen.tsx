@@ -75,6 +75,11 @@ export function SessionScreen({
                 )}
             </Static>
             <SessionStatus session={session} />
+            {session.notice !== undefined ? (
+                <Text color={session.notice.kind === "error" ? "red" : session.notice.kind === "warning" ? "yellow" : "green"}>
+                    Notice: {session.notice.message}
+                </Text>
+            ) : null}
             {terminal !== undefined
                 ? <TerminalPanel terminal={terminal} />
                 : <SessionInteraction

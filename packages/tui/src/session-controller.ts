@@ -5,6 +5,7 @@ import type {
     GoalTask,
     LaunchResult,
 } from "../../runtime/src/index";
+import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
 import {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,
@@ -12,6 +13,9 @@ import {
     type SessionControllerDependencies,
     type UiCommand,
     type UiError,
+    type UiModelSelectOrigin,
+    type UiModelSelectViewModel,
+    type UiNotice,
     type UiSessionViewModel,
     type UiSubscriber,
     type UiTerminalSummary,
@@ -46,6 +50,10 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
+    private modelCatalogGeneration = 0;
+    private modelCatalogAbortController: AbortController | undefined;
+    private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
+    private selectedModelId?: string | undefined;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -182,6 +190,14 @@ export class SessionController {
     }
 
     private async execute(command: UiCommand): Promise<void> {
+        if (
+            command.kind !== "openModelSelector"
+            && command.kind !== "cancelModelSelect"
+            && command.kind !== "selectModel"
+        ) {
+            this.clearNotice();
+        }
+
         switch (command.kind) {
             case "create":
                 await this.createGoal(command.intent);
@@ -219,6 +235,15 @@ export class SessionController {
                     actionId: command.actionId,
                     reason: command.reason,
                 });
+                return;
+            case "openModelSelector":
+                this.openModelSelector();
+                return;
+            case "cancelModelSelect":
+                this.cancelModelSelect();
+                return;
+            case "selectModel":
+                await this.selectModel(command.model);
                 return;
         }
     }
@@ -645,6 +670,15 @@ export class SessionController {
                 }
                 return;
             }
+            case "model_select": {
+                if (clearError) {
+                    const { error: _error, ...withoutError } = current;
+                    this.setSnapshot({ ...withoutError, busy });
+                } else {
+                    this.setSnapshot({ ...current, busy });
+                }
+                return;
+            }
             case "shutting_down":
                 if (clearError) {
                     const { error: _error, ...withoutError } = current;
@@ -685,9 +719,257 @@ export class SessionController {
             case "session":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
+            case "model_select":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
             case "shutting_down":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
+        }
+    }
+
+    private clearNotice(): void {
+        if (this.snapshot.screen === "intent_input" && this.snapshot.notice !== undefined) {
+            const { notice: _notice, ...withoutNotice } = this.snapshot;
+            this.setSnapshot(withoutNotice);
+        } else if (this.snapshot.screen === "session" && this.snapshot.notice !== undefined) {
+            const { notice: _notice, ...withoutNotice } = this.snapshot;
+            this.setSnapshot(withoutNotice);
+        }
+    }
+
+    /**
+     * 打开模型选择界面。
+     *
+     * @remarks
+     * 仅允许在 intent_input 或安全文本等待点（question、approval、blocked）打开。
+     * 同步切换到 loading 状态，并启动受独立 AbortController 与 generation 控制的异步 Fetch。
+     */
+    openModelSelector(): void {
+        let origin: UiModelSelectOrigin;
+        let currentModelId: string;
+        let goal: Goal | undefined;
+
+        if (this.snapshot.screen === "intent_input") {
+            origin = "intent";
+            currentModelId = this.selectedModelId ?? this.dependencies.defaultModelId ?? this.dependencies.llmConfig?.model ?? "unknown";
+            goal = undefined;
+        } else if (this.snapshot.screen === "session") {
+            const currentGoal = this.snapshot.goal;
+            const waitingFor = this.snapshot.waitingFor;
+
+            if (waitingFor === "question") {
+                origin = "question";
+            } else if (waitingFor === "approval") {
+                origin = "proposal_feedback";
+            } else if (waitingFor === "blocked") {
+                origin = "blocked";
+            } else {
+                this.setError({
+                    code: "MODEL_SWITCH_NOT_ALLOWED",
+                    message: "Model switching is only allowed at waiting input points (question, proposal feedback, blocked)",
+                });
+                return;
+            }
+
+            currentModelId = currentGoal.state.modelSelection?.modelId ?? this.dependencies.defaultModelId ?? "unknown";
+            goal = currentGoal;
+        } else {
+            this.setError({
+                code: "MODEL_SWITCH_NOT_ALLOWED",
+                message: "Model switching is not allowed on the current screen",
+            });
+            return;
+        }
+
+        this.previousSnapshotBeforeModelSelect = this.snapshot;
+        this.modelCatalogGeneration++;
+        const currentGen = this.modelCatalogGeneration;
+
+        this.modelCatalogAbortController?.abort();
+        const abortController = new AbortController();
+        this.modelCatalogAbortController = abortController;
+
+        const loadingView: UiModelSelectViewModel = {
+            screen: "model_select",
+            busy: false,
+            origin,
+            goal,
+            currentModelId,
+            state: { status: "loading", generation: currentGen },
+        };
+        this.setSnapshot(loadingView);
+
+        void this.fetchModelCatalog(currentGen, abortController.signal);
+    }
+
+    private async fetchModelCatalog(generation: number, signal: AbortSignal): Promise<void> {
+        if (this.dependencies.modelCatalog === undefined) {
+            if (this.modelCatalogGeneration !== generation || signal.aborted) {
+                return;
+            }
+            if (this.snapshot.screen !== "model_select" || this.snapshot.state.generation !== generation) {
+                return;
+            }
+            const fallbackModel: LlmModelDescriptor = {
+                provider: this.dependencies.llmConfig?.provider ?? "openai",
+                id: this.snapshot.currentModelId,
+                displayName: this.snapshot.currentModelId,
+                contextWindowTokens: 128_000,
+                maxOutputTokens: 4096,
+                availabilitySource: "configured",
+                metadataSource: "configured",
+                selectable: true,
+            };
+            this.setSnapshot({
+                ...this.snapshot,
+                state: {
+                    status: "list",
+                    generation,
+                    models: [fallbackModel],
+                },
+            });
+            return;
+        }
+
+        try {
+            const config: LlmConfig = this.dependencies.llmConfig ?? {
+                provider: "openai",
+                model: this.snapshot.currentModelId,
+            };
+            const listResult = await this.dependencies.modelCatalog.list(
+                config,
+                { signal },
+            );
+
+            if (this.modelCatalogGeneration !== generation || signal.aborted) {
+                return;
+            }
+            if (this.snapshot.screen !== "model_select" || this.snapshot.state.generation !== generation) {
+                return;
+            }
+
+            this.setSnapshot({
+                ...this.snapshot,
+                state: {
+                    status: "list",
+                    generation,
+                    models: listResult,
+                },
+            });
+        } catch (error: unknown) {
+            if (signal.aborted || this.modelCatalogGeneration !== generation) {
+                return;
+            }
+            if (this.snapshot.screen !== "model_select" || this.snapshot.state.generation !== generation) {
+                return;
+            }
+
+            this.setSnapshot({
+                ...this.snapshot,
+                state: {
+                    status: "error",
+                    generation,
+                    error: toUiError(error),
+                },
+            });
+        }
+    }
+
+    /**
+     * 取消模型选择并返回原页面。
+     */
+    cancelModelSelect(): void {
+        if (this.snapshot.screen !== "model_select") {
+            return;
+        }
+
+        this.modelCatalogAbortController?.abort();
+        this.modelCatalogAbortController = undefined;
+        this.modelCatalogGeneration++;
+
+        this.restoreOriginView({
+            kind: "info",
+            message: "Model selection cancelled.",
+        });
+    }
+
+    private async selectModel(model: LlmModelDescriptor): Promise<void> {
+        if (this.snapshot.screen !== "model_select") {
+            return;
+        }
+
+        if (model.id === this.snapshot.currentModelId) {
+            this.restoreOriginView({
+                kind: "info",
+                message: `Current model kept: ${model.displayName || model.id}.`,
+            });
+            return;
+        }
+
+        if (!model.selectable) {
+            this.setSnapshot({
+                ...this.snapshot,
+                error: {
+                    code: "MODEL_NOT_SELECTABLE",
+                    message: model.unavailableReason ?? "This model is not selectable.",
+                },
+            });
+            return;
+        }
+
+        const currentGoal = this.snapshot.goal;
+
+        if (this.dependencies.modelSwitcher !== undefined) {
+            const result = await this.dependencies.modelSwitcher.switchModel({
+                goal: currentGoal,
+                targetModel: model,
+            });
+
+            if (!result.ok) {
+                this.setSnapshot({
+                    ...this.snapshot,
+                    error: result.error,
+                });
+                return;
+            }
+
+            if (result.goal !== undefined && this.previousSnapshotBeforeModelSelect?.screen === "session") {
+                this.previousSnapshotBeforeModelSelect = this.toSessionView(
+                    result.goal,
+                    undefined,
+                    false,
+                );
+            }
+        }
+
+        if (currentGoal === undefined) {
+            this.selectedModelId = model.id;
+        }
+
+        this.restoreOriginView({
+            kind: "info",
+            message: `Model switched to ${model.displayName || model.id}.`,
+        });
+    }
+
+    private restoreOriginView(notice?: UiNotice): void {
+        const prev = this.previousSnapshotBeforeModelSelect;
+        this.previousSnapshotBeforeModelSelect = undefined;
+
+        if (prev !== undefined) {
+            this.setSnapshot({
+                ...prev,
+                busy: false,
+                error: undefined,
+                ...(notice !== undefined ? { notice } : {}),
+            });
+        } else {
+            this.setSnapshot({
+                screen: "intent_input",
+                busy: false,
+                ...(notice !== undefined ? { notice } : {}),
+            });
         }
     }
 

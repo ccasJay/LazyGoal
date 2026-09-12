@@ -127,6 +127,11 @@ export function PreparationScreen({
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">Goal {session.goal.id}</Text>
+            {session.notice !== undefined ? (
+                <Text color={session.notice.kind === "error" ? "red" : session.notice.kind === "warning" ? "yellow" : "green"}>
+                    Notice: {session.notice.message}
+                </Text>
+            ) : null}
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
             {session.waitingFor === "question"
                 ? <QuestionPanel

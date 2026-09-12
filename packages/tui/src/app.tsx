@@ -6,6 +6,8 @@ import { IntentScreen } from "./intent-screen";
 import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
+import { ModelSelector } from "./model-selector";
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import { UiDispatchRejectedError, type UiCommand } from "./types";
 
 /**
@@ -68,13 +70,21 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
         });
     }, [controller]);
 
+    const handleCommandEffect = useCallback((effect: ModelCommandEffect) => {
+        if (effect.kind === "open_model_selector") {
+            dispatch({ kind: "openModelSelector" });
+        }
+    }, [dispatch]);
+
     switch (snapshot.screen) {
         case "intent_input":
             return (
                 <IntentScreen
                     busy={snapshot.busy}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    {...(snapshot.notice === undefined ? {} : { notice: snapshot.notice })}
                     onSubmit={(intent) => dispatch({ kind: "create", intent })}
+                    onCommandEffect={handleCommandEffect}
                 />
             );
         case "session":
@@ -94,6 +104,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         actionId,
                         reason,
                     })}
+                    onCommandEffect={handleCommandEffect}
                 />
             ) : (
                 <PreparationScreen
@@ -104,6 +115,18 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     })}
                     onApproveTask={() => dispatch({ kind: "approveTask" })}
                     onRetry={() => dispatch({ kind: "retryPreparation" })}
+                    onCommandEffect={handleCommandEffect}
+                />
+            );
+        case "model_select":
+            return (
+                <ModelSelector
+                    currentModelId={snapshot.currentModelId}
+                    state={snapshot.state}
+                    busy={snapshot.busy}
+                    {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    onSelect={(model) => dispatch({ kind: "selectModel", model })}
+                    onCancel={() => dispatch({ kind: "cancelModelSelect" })}
                 />
             );
         case "goal_select":

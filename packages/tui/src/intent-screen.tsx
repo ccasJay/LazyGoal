@@ -1,7 +1,7 @@
 import React, { useCallback } from "react";
 import { Box, Text } from "ink";
 import type { ModelCommandEffect } from "../../slash-command/src/index.js";
-import type { UiError } from "./types";
+import type { UiError, UiNotice } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
@@ -27,6 +27,8 @@ export interface IntentScreenProps {
     readonly busy: boolean;
     /** Controller 最近一次业务错误。 */
     readonly error?: UiError;
+    /** 临时提示信息（如模型切换或取消提示）。 */
+    readonly notice?: UiNotice;
     /** 合法 intent 提交回调；Screen 不等待或解释其返回值。 */
     readonly onSubmit: (intent: string) => void | Promise<void>;
     /** Slash 命令派发产生的领域副作用回调。 */
@@ -42,6 +44,7 @@ export interface IntentScreenProps {
 export function IntentScreen({
     busy,
     error,
+    notice,
     onSubmit,
     onCommandEffect,
 }: IntentScreenProps): React.JSX.Element {
@@ -66,6 +69,11 @@ export function IntentScreen({
         <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">LazyGoal</Text>
             <Text>What would you like to accomplish?</Text>
+            {notice !== undefined ? (
+                <Text color={notice.kind === "error" ? "red" : notice.kind === "warning" ? "yellow" : "green"}>
+                    Notice: {notice.message}
+                </Text>
+            ) : null}
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
             <CommandAwareTextInput
                 isDisabled={busy}

@@ -14,6 +14,8 @@ import type {
     RunRef,
     RunStatus,
 } from "../../runtime/src/index";
+import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
+import type { LlmConfig } from "../../llm/src/config";
 
 /** Controller 在已有异步操作期间拒绝新命令时使用的稳定错误码。 */
 export const UI_BUSY_CODE = "UI_BUSY" as const;
@@ -26,6 +28,7 @@ export type UiScreen =
     | "intent_input"
     | "goal_select"
     | "session"
+    | "model_select"
     | "shutting_down";
 
 /**
@@ -86,7 +89,26 @@ export type UiCommand =
         readonly kind: "rejectAction";
         readonly actionId: string;
         readonly reason: string;
-    };
+    }
+    | { readonly kind: "openModelSelector" }
+    | { readonly kind: "cancelModelSelect" }
+    | { readonly kind: "selectModel"; readonly model: LlmModelDescriptor };
+
+/**
+ * 面向用户的临时通知提示。
+ *
+ * @remarks
+ * 在下一次用户输入或页面切换时清除，不进入 Message、Trace 或 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const notice: UiNotice = { kind: "info", message: "Model switched to gpt-4o." };
+ * ```
+ */
+export interface UiNotice {
+    readonly kind: "info" | "warning" | "error";
+    readonly message: string;
+}
 
 /** Session 等待用户输入的细分类型。 */
 export type UiWaitingFor =
@@ -125,6 +147,7 @@ export interface UiIntentInputViewModel {
     readonly screen: "intent_input";
     readonly busy: boolean;
     readonly error?: UiError;
+    readonly notice?: UiNotice;
 }
 
 /**
@@ -189,6 +212,7 @@ export interface UiSessionViewModel {
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
     readonly error?: UiError;
+    readonly notice?: UiNotice;
     /** 可选执行模式（"auto" 或 "review"）。 */
     readonly mode?: "auto" | "review";
     /** 可选任务标识或描述。 */
@@ -207,6 +231,56 @@ export interface UiSessionViewModel {
     };
     /** 是否处于沙箱资源清理阶段。 */
     readonly cleaning?: boolean;
+}
+
+/** 触发打开模型选择界面的原始页面语义位置。 */
+export type UiModelSelectOrigin =
+    | "intent"
+    | "question"
+    | "proposal_feedback"
+    | "blocked";
+
+/** 模型选择界面的三态异步状态。 */
+export type UiModelSelectState =
+    | { readonly status: "loading"; readonly generation: number }
+    | {
+        readonly status: "list";
+        readonly generation: number;
+        readonly models: readonly LlmModelDescriptor[];
+        readonly warning?: string | undefined;
+    }
+    | {
+        readonly status: "error";
+        readonly generation: number;
+        readonly error: UiError;
+    };
+
+/**
+ * 模型选择界面的不可变投影。
+ *
+ * @remarks
+ * 仅在进程内流转，不进入 Runtime 或持久化快照。
+ *
+ * @example
+ * ```ts
+ * const view: UiModelSelectViewModel = {
+ *   screen: "model_select",
+ *   busy: false,
+ *   origin: "question",
+ *   currentModelId: "claude-3-5-sonnet",
+ *   state: { status: "loading", generation: 1 },
+ * };
+ * ```
+ */
+export interface UiModelSelectViewModel {
+    readonly screen: "model_select";
+    readonly busy: boolean;
+    readonly origin: UiModelSelectOrigin;
+    readonly goal?: Goal | undefined;
+    readonly currentModelId: string;
+    readonly state: UiModelSelectState;
+    readonly error?: UiError | undefined;
+    readonly notice?: UiNotice | undefined;
 }
 
 /**
@@ -229,6 +303,7 @@ export type UiViewModel =
     | UiIntentInputViewModel
     | UiGoalSelectViewModel
     | UiSessionViewModel
+    | UiModelSelectViewModel
     | UiShuttingDownViewModel;
 
 /** SessionController 快照订阅回调。 */
@@ -335,6 +410,19 @@ export interface SessionControllerDependencies {
     readonly taskTitle?: string;
     /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
     readonly initialGoal?: import("../../runtime/src/index.js").Goal;
+    /** 可选的模型目录服务，用于支持 /model 命令查询。 */
+    readonly modelCatalog?: LlmModelCatalog;
+    /** 可选的模型配置，用于目录查询与上下文校验。 */
+    readonly llmConfig?: LlmConfig;
+    /** 可选的模型切换处理句柄，供 selectModel 命令执行原子切换。 */
+    readonly modelSwitcher?: {
+        switchModel(options: {
+            readonly goal?: Goal | undefined;
+            readonly targetModel: LlmModelDescriptor;
+        }): Promise<{ readonly ok: true; readonly goal?: Goal } | { readonly ok: false; readonly error: UiError }>;
+    };
+    /** 当前默认模型 ID。 */
+    readonly defaultModelId?: string;
 }
 
 /**

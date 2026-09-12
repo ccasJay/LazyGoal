@@ -49,7 +49,7 @@
   - 验证方式：待实现的 Binding 单元测试及更新的 `packages/agent/test/llm-*-executor.test.ts`；保留取消、协议错误和 Adapter 错误传播断言。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 8. 实现 ModelSelector 与可取消目录状态
+- [x] //TODO 8. 实现 ModelSelector 与可取消目录状态
 
   - 实现目标：扩展 UiCommand/UiViewModel/SessionController，并新增 ModelSelector，支持来源返回点、异步 generation、loading/list/error、方向键、Enter、ESC 和英文 notice。
   - 成功判据：打开后立即显示可取消加载；迟到 Fetch 不覆盖新页面；不可选项说明原因且 Enter 无效；ESC 保持模型和 Goal 不变；成功、失败和取消返回正确输入位置且不改变消息或 Action 状态。
