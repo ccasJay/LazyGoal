@@ -432,6 +432,9 @@ export function resolveAuthorizedToolDefinitions(
                 id: registration.definition.id,
                 description: registration.definition.description,
                 inputContract: registration.definition.inputContract,
+                ...(registration.definition.isReadOnly !== undefined
+                    ? { isReadOnly: registration.definition.isReadOnly }
+                    : {}),
             }));
         }
     }

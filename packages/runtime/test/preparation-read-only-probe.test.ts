@@ -6,6 +6,8 @@ import {
     createToolRegistration,
     GoalCoordinator,
     InlineScheduler,
+    InMemoryToolRegistry,
+    resolveAuthorizedToolDefinitions,
     type AgentProfile,
     type Goal,
     type GoalStore,
@@ -431,3 +433,73 @@ test("探查工具未授权或未注册时被严格拦截", async () => {
         assert.equal(result.error.code, "TOOL_NOT_AUTHORIZED");
     }
 });
+
+test("resolveAuthorizedToolDefinitions 完整保留工具定义的 isReadOnly 属性", () => {
+    const readOnlyTool: Tool = {
+        definition: {
+            id: "read_file",
+            description: "Read file content",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => ({ kind: "success", output: "ok", summary: "ok" }),
+    };
+
+    const modifyingTool: Tool = {
+        definition: {
+            id: "write_file",
+            description: "Write file content",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => ({ kind: "success", output: "ok", summary: "ok" }),
+    };
+
+    const defaultTool: Tool = {
+        definition: {
+            id: "bash",
+            description: "Execute bash command",
+            inputContract: TEST_INPUT_CONTRACT,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => ({ kind: "success", output: "ok", summary: "ok" }),
+    };
+
+    const registry = new InMemoryToolRegistry([
+        createToolRegistration(readOnlyTool),
+        createToolRegistration(modifyingTool),
+        createToolRegistration(defaultTool),
+    ]);
+    const goal = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-resolve-tools",
+        intent: "测试工具解析",
+        profile: {
+            id: "profile-test",
+            name: "Test Profile",
+            description: "Test",
+            systemPrompt: "Test",
+            instructions: [],
+            toolIds: ["read_file", "write_file", "bash"],
+        },
+        runId: "run-resolve-tools",
+    });
+
+    const resolved = resolveAuthorizedToolDefinitions(goal, registry);
+    assert.equal(resolved.length, 3);
+    assert.equal(resolved[0]?.id, "read_file");
+    assert.equal(resolved[0]?.isReadOnly, true);
+
+    assert.equal(resolved[1]?.id, "write_file");
+    assert.equal(resolved[1]?.isReadOnly, false);
+
+    assert.equal(resolved[2]?.id, "bash");
+    assert.equal(resolved[2]?.isReadOnly, undefined);
+});
+
