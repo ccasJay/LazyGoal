@@ -205,8 +205,49 @@ export interface UiSessionViewModel {
         readonly status: string;
         readonly summary?: string;
     };
+    /**
+     * 已按单调顺序成功提交到持久化存储的步骤历史时间线。
+     *
+     * @remarks
+     * 瀑布式流式展示的数据源。未执行任何步骤时为空数组或未定义。
+     */
+    readonly committedSteps?: readonly UiStepSummary[];
     /** 是否处于沙箱资源清理阶段。 */
     readonly cleaning?: boolean;
+}
+
+/**
+ * 已提交执行步骤在 UI 瀑布流时间线中的轻量摘要投影。
+ *
+ * @remarks
+ * 仅包含 TUI 渲染瀑布流时间线所需的最小字段，不持有底层 AST 或完整 payload。
+ * 由 SessionController 随每次持久化提交事件按单调递增 stepCount 构造并追加。
+ *
+ * @example
+ * ```ts
+ * const step: UiStepSummary = {
+ *   stepNumber: 1,
+ *   toolId: "read_file",
+ *   actionId: "act-1",
+ *   status: "success",
+ *   inputSummary: "src/types.ts",
+ *   outputSummary: "Read 215 lines",
+ * };
+ * ```
+ */
+export interface UiStepSummary {
+    /** 步骤序号，从 1 开始单调递增。 */
+    readonly stepNumber: number;
+    /** 调用的工具标识。 */
+    readonly toolId: string;
+    /** 该步骤关联的 Action 唯一标识。 */
+    readonly actionId: string;
+    /** 步骤执行结果状态。 */
+    readonly status: "success" | "failure";
+    /** 输入参数的单行紧凑摘要（如果有）。 */
+    readonly inputSummary?: string;
+    /** 观察结果的单行紧凑摘要（如果有）。 */
+    readonly outputSummary?: string;
 }
 
 /**

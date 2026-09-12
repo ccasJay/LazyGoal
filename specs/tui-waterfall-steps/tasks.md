@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 扩充 ViewModel 步骤流类型契约
+- [x] //TODO 1. 扩充 ViewModel 步骤流类型契约
   - 实现目标：在 `packages/tui/src/types.ts` 中新增 `UiStepSummary` 接口，并在 `UiSessionViewModel` 中加入 `committedSteps: readonly UiStepSummary[]`。
   - 成功判据：编译通过，`UiStepSummary` 包含序号、工具标识、动作标识、执行状态、输入摘要与输出摘要，且向后兼容既有代码。
   - 验证方式：执行 `npx tsx --test packages/tui/test/session-progress.test.tsx`。

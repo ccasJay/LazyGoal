@@ -30,6 +30,7 @@ export type {
     UiScreen,
     UiSessionViewModel,
     UiShuttingDownViewModel,
+    UiStepSummary,
     UiSubscriber,
     UiTerminalSummary,
     UiViewModel,
