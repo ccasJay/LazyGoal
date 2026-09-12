@@ -5,6 +5,7 @@ import type {
     GoalTask,
     GoalPhase,
     GoalProtocolValidator,
+    JsonValue,
     MemoryPatch,
     RunRef,
     WorkingMemory,
@@ -213,6 +214,41 @@ export type GoalProgressResult =
     };
 
 /**
+ * 准备阶段只读探查生命周期事件。
+ *
+ * @remarks
+ * 用于通知上层控制器或 TUI 实时呈现准备阶段的只读调查进度。
+ * 当探查发起前触发 `started` 事件；执行并提交事实后触发 `finished` 事件。
+ *
+ * @example
+ * ```ts
+ * const event: PreparationProbeProgressEvent = {
+ *   kind: "started",
+ *   goalId: "goal-1",
+ *   toolId: "read_file",
+ *   input: { path: "package.json" },
+ *   probeNumber: 1,
+ * };
+ * ```
+ */
+export type PreparationProbeProgressEvent =
+    | {
+        readonly kind: "started";
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly probeNumber: number;
+    }
+    | {
+        readonly kind: "finished";
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly observation: ToolObservation;
+        readonly probeNumber: number;
+    };
+
+/**
  * 创建 {@link GoalCoordinator} 所需的执行与持久化依赖。
  *
  * @remarks
@@ -251,6 +287,8 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的准备阶段只读探查生命周期事件回调。 */
+    readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
 }
 
 /**
@@ -282,6 +320,8 @@ export class GoalCoordinator {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly probeListeners = new Set<(event: PreparationProbeProgressEvent) => void>();
+    private readonly onProbeProgressCallback: ((event: PreparationProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -293,6 +333,7 @@ export class GoalCoordinator {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
+        this.onProbeProgressCallback = dependencies.onProbeProgress;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -303,6 +344,41 @@ export class GoalCoordinator {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
+    }
+
+    /**
+     * 注册准备阶段只读探查生命周期事件监听器。
+     *
+     * @param listener - 接收只读探查生命周期事件的监听回调。
+     * @returns 幂等注销该监听器的清理函数。
+     *
+     * @example
+     * ```ts
+     * const unsubscribe = coordinator.onProbeProgress((event) => {
+     *   console.log(event.kind, event.toolId);
+     * });
+     * ```
+     */
+    onProbeProgress(listener: (event: PreparationProbeProgressEvent) => void): () => void {
+        this.probeListeners.add(listener);
+        return () => {
+            this.probeListeners.delete(listener);
+        };
+    }
+
+    private notifyProbeProgress(event: PreparationProbeProgressEvent): void {
+        try {
+            this.onProbeProgressCallback?.(event);
+        } catch {
+            // 忽略外部回调异常，不影响领域执行
+        }
+        for (const listener of this.probeListeners) {
+            try {
+                listener(event);
+            } catch {
+                // 隔离监听器异常
+            }
+        }
     }
 
     /**
@@ -386,6 +462,14 @@ export class GoalCoordinator {
                             };
                         }
 
+                        this.notifyProbeProgress({
+                            kind: "started",
+                            goalId: goal.id,
+                            toolId: result.action.toolId,
+                            input: result.action.input,
+                            probeNumber: preparationProbeCount + 1,
+                        });
+
                         const probeOutcome = await this.prepareProbeAction(
                             goal,
                             result,
@@ -399,6 +483,16 @@ export class GoalCoordinator {
                         lastProbeResult = probeOutcome.result;
                         contextLookupResult = undefined;
                         preparationProbeCount += 1;
+
+                        this.notifyProbeProgress({
+                            kind: "finished",
+                            goalId: goal.id,
+                            toolId: result.action.toolId,
+                            input: result.action.input,
+                            observation: probeOutcome.result.observation,
+                            probeNumber: preparationProbeCount,
+                        });
+
                         continue;
                     }
 
@@ -565,6 +659,14 @@ export class GoalCoordinator {
                         };
                     }
 
+                    this.notifyProbeProgress({
+                        kind: "started",
+                        goalId: goal.id,
+                        toolId: result.action.toolId,
+                        input: result.action.input,
+                        probeNumber: preparationProbeCount + 1,
+                    });
+
                     const probeOutcome = await this.prepareProbeAction(
                         goal,
                         result,
@@ -578,6 +680,16 @@ export class GoalCoordinator {
                     lastProbeResult = probeOutcome.result;
                     contextLookupResult = undefined;
                     preparationProbeCount += 1;
+
+                    this.notifyProbeProgress({
+                        kind: "finished",
+                        goalId: goal.id,
+                        toolId: result.action.toolId,
+                        input: result.action.input,
+                        observation: probeOutcome.result.observation,
+                        probeNumber: preparationProbeCount,
+                    });
+
                     continue;
                 }
 
@@ -1146,7 +1258,7 @@ export class GoalCoordinator {
         goal: Goal,
         result: Extract<PreparationResult, { readonly kind: "probe_action" }>,
         phase: "gathering_context" | "planning",
-        session: WorkingMemorySession | undefined,
+        session: WorkingMemorySession,
         probeCount: number,
         control?: ExecutionControl,
     ): Promise<

@@ -10,6 +10,7 @@ import {
     type GoalStore,
     type LaunchRequest,
     type LaunchResult,
+    type PreparationProbeProgressEvent,
     type ResumeGoalRequest,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
@@ -105,11 +106,25 @@ class FakeLauncher implements SessionLauncher {
 class FakeCoordinator implements SessionCoordinator {
     readonly advanceRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
     readonly resumeRequests: ResumeGoalRequest[] = [];
+    private probeListener: ((event: PreparationProbeProgressEvent) => void) | undefined;
 
     constructor(
         private readonly advanceResult: GoalProgressResult,
         private readonly resumeResult: GoalProgressResult = advanceResult,
     ) {}
+
+    onProbeProgress(listener: (event: PreparationProbeProgressEvent) => void): () => void {
+        this.probeListener = listener;
+        return () => {
+            if (this.probeListener === listener) {
+                this.probeListener = undefined;
+            }
+        };
+    }
+
+    emitProbeProgress(event: PreparationProbeProgressEvent): void {
+        this.probeListener?.(event);
+    }
 
     async advance(
         ref: { readonly goalId: string; readonly runId: string },
@@ -874,6 +889,83 @@ test("committedSteps 时间线：通过 initialGoal 初始化恢复时正确还�
     assert.equal(view.committedSteps[0]?.toolId, "grep");
     assert.equal(view.committedSteps[0]?.inputSummary, "export");
     assert.equal(view.committedSteps[0]?.outputSummary, "found 5 matches");
+
+    controller.dispose();
+});
+
+test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命周期事件更新", async () => {
+    const goal = createWaitingGoal("goal-probe-tracking");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+    });
+
+    await controller.dispatch({ kind: "create", intent: "Investigate problem" });
+    let view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, undefined);
+    assert.deepEqual(view.preparationSteps, undefined);
+
+    // 触发 probe 1 开始 (read_file)
+    coordinator.emitProbeProgress({
+        kind: "started",
+        goalId: "goal-probe-tracking",
+        toolId: "read_file",
+        input: { path: "src/types.ts" },
+        probeNumber: 1,
+    });
+    view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, "Reading file src/types.ts...");
+
+    // 触发 probe 1 完成
+    coordinator.emitProbeProgress({
+        kind: "finished",
+        goalId: "goal-probe-tracking",
+        toolId: "read_file",
+        input: { path: "src/types.ts" },
+        observation: { kind: "success", output: {}, summary: "Read 120 lines" },
+        probeNumber: 1,
+    });
+    view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, undefined);
+    assert.equal(view.preparationSteps?.length, 1);
+    assert.equal(view.preparationSteps[0]?.toolId, "read_file");
+    assert.equal(view.preparationSteps[0]?.inputSummary, "src/types.ts");
+    assert.equal(view.preparationSteps[0]?.outputSummary, "Read 120 lines");
+    assert.equal(view.preparationSteps[0]?.status, "success");
+
+    // 触发 probe 2 开始 (grep)
+    coordinator.emitProbeProgress({
+        kind: "started",
+        goalId: "goal-probe-tracking",
+        toolId: "grep",
+        input: { query: "export interface" },
+        probeNumber: 2,
+    });
+    view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, "Searching for \"export interface\"...");
+
+    // 触发 probe 2 完成 (grep)
+    coordinator.emitProbeProgress({
+        kind: "finished",
+        goalId: "goal-probe-tracking",
+        toolId: "grep",
+        input: { query: "export interface" },
+        observation: { kind: "success", output: {}, summary: "3 matches found" },
+        probeNumber: 2,
+    });
+    view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, undefined);
+    assert.equal(view.preparationSteps?.length, 2);
+    assert.equal(view.preparationSteps[1]?.toolId, "grep");
+    assert.equal(view.preparationSteps[1]?.inputSummary, "export interface");
+    assert.equal(view.preparationSteps[1]?.outputSummary, "3 matches found");
+    assert.equal(view.preparationSteps[1]?.status, "success");
 
     controller.dispose();
 });

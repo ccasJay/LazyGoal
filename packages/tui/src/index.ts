@@ -1,8 +1,13 @@
-export { SessionController } from "./session-controller";
+export { SessionController, formatProbeDescription } from "./session-controller";
 export { NotifyingGoalStore } from "./notifying-goal-store";
 export { TuiApp } from "./app";
 export { IntentScreen } from "./intent-screen";
-export { PreparationScreen } from "./preparation-screen";
+export {
+    PreparationScreen,
+    preparationSpinnerLabel,
+    usePreparationTimelineItems,
+    type PreparationTimelineItem,
+} from "./preparation-screen";
 export { GoalSelectScreen } from "./goal-select-screen";
 export { SessionScreen, ActiveDrawer } from "./session-screen";
 export { StatusSpinner } from "./status-spinner";

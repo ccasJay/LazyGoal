@@ -25,10 +25,8 @@ const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
 function createUnusedScheduler(): RunScheduler {
     return new InlineScheduler({
-        runner: {
-            run: async () => {
-                throw new Error("Unexpected Scheduler call");
-            },
+        runUntilBlocked: async () => {
+            throw new Error("Unexpected Scheduler call");
         },
     });
 }

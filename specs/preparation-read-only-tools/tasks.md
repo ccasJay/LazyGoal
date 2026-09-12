@@ -24,7 +24,7 @@
   - 验证方式：编写 `packages/runtime/test/` 集成测试覆盖多轮探查、步数超限熔断与非只读工具拦截场景。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 5. 重构 PreparationScreen 支持只读步骤流式瀑布展示与活动抽屉
+- [x] //TODO 5. 重构 PreparationScreen 支持只读步骤流式瀑布展示与活动抽屉
   - 实现目标：重构 `packages/tui/src/preparation-screen.tsx`，引入 Ink `<Static>` 瀑布流输出准备阶段的只读探查步骤，先前步骤完全保留不被擦除，下方活动抽屉展示 Spinner、提问或提案审批面板。
   - 成功判据：准备阶段的每一步探查在终端中形成连贯的向上瀑布流，底部整洁切换为输入或确认状态。
   - 验证方式：在 `packages/tui/test/` 中使用 `ink-testing-library` 断言准备阶段多步探查在终端帧中累积留存。

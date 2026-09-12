@@ -257,39 +257,31 @@ export function createModelOutputContractBundle(
             const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
                 .filter(isReadOnlyToolContract);
 
-            const baseCanonical = [
-                QuestionPreparationResultContract,
-                ContextReadyPreparationResultContract,
-                ContextLookupRequestContract,
-            ];
-            const baseWire = [
-                deriveWireContract(QuestionPreparationResultContract),
-                deriveWireContract(ContextReadyPreparationResultContract),
-                deriveWireContract(ContextLookupRequestContract),
-            ];
-
             if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = contract.discriminatedUnion(
-                    "kind",
-                    baseCanonical as readonly [ObjectContract<ObjectShape>, ...ObjectContract<ObjectShape>[]],
-                ) as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = contract.object({
-                    result: contract.union(
-                        baseWire as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                    ),
-                });
+                canonicalContract = GatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(GatheringPreparationResultContract);
             } else {
                 const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
                 const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                const baseCanonical = [
+                    QuestionPreparationResultContract,
+                    ContextReadyPreparationResultContract,
+                    ContextLookupRequestContract,
+                ];
+                const baseWire = [
+                    deriveWireContract(QuestionPreparationResultContract),
+                    deriveWireContract(ContextReadyPreparationResultContract),
+                    deriveWireContract(ContextLookupRequestContract),
+                ];
                 canonicalContract = contract.union([
                     ...probeCanonical,
                     ...baseCanonical,
-                ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]) as unknown as Contract<PreparationResult | AgentDecision>;
+                ] as any) as Contract<PreparationResult | AgentDecision>;
                 wireContract = contract.object({
                     result: contract.union([
                         ...probeWire,
                         ...baseWire,
-                    ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]),
+                    ] as any),
                 });
             }
             break;
@@ -299,37 +291,29 @@ export function createModelOutputContractBundle(
             const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
                 .filter(isReadOnlyToolContract);
 
-            const baseCanonical = [
-                TaskProposalPreparationResultContract,
-                ContextLookupRequestContract,
-            ];
-            const baseWire = [
-                deriveWireContract(TaskProposalPreparationResultContract),
-                deriveWireContract(ContextLookupRequestContract),
-            ];
-
             if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = contract.discriminatedUnion(
-                    "kind",
-                    baseCanonical as readonly [ObjectContract<ObjectShape>, ...ObjectContract<ObjectShape>[]],
-                ) as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = contract.object({
-                    result: contract.union(
-                        baseWire as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                    ),
-                });
+                canonicalContract = PlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(PlanningPreparationResultContract);
             } else {
                 const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
                 const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                const baseCanonical = [
+                    TaskProposalPreparationResultContract,
+                    ContextLookupRequestContract,
+                ];
+                const baseWire = [
+                    deriveWireContract(TaskProposalPreparationResultContract),
+                    deriveWireContract(ContextLookupRequestContract),
+                ];
                 canonicalContract = contract.union([
                     ...probeCanonical,
                     ...baseCanonical,
-                ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]) as unknown as Contract<PreparationResult | AgentDecision>;
+                ] as any) as Contract<PreparationResult | AgentDecision>;
                 wireContract = contract.object({
                     result: contract.union([
                         ...probeWire,
                         ...baseWire,
-                    ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]),
+                    ] as any),
                 });
             }
             break;

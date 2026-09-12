@@ -98,7 +98,7 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 通知 CLI；CLI 同时监听进程级 `SIGINT`。`IntentScreen`、`GoalSelectScreen` 与
 `PreparationScreen` 与 `SessionScreen` 只在提交非空文本、确认选择、批准或拒绝
 时发出一次语义化命令，busy 时停用输入控件。`GoalSelectScreen` 只展示 Catalog
-摘要，不在选择前恢复完整 Goal；`SessionScreen` 使用 Ink `Static` 瀑布流同时累积保存真实对话消息与已提交步骤（`StepWaterfallItem`），并在底部动态活动抽屉（`ActiveDrawer`）展示执行状态头部、Spinner、待审批面板和终态摘要，避免步骤在终端 scrollback 中发生原地擦除覆盖。
+摘要，不在选择前恢复完整 Goal；`PreparationScreen` 与 `SessionScreen` 均使用 Ink `Static` 瀑布流累积固化真实对话消息与已完成步骤（`StepWaterfallItem`），并在底部动态活动抽屉展示状态头部、Spinner、输入/提问/待审批面板和终态摘要，避免步骤在终端 scrollback 中发生原地擦除覆盖。探查进行中时活动抽屉展示当前工具操作说明。
 
 ## 关闭流程
 

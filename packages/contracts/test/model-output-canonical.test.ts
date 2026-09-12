@@ -21,6 +21,7 @@ import {
     safeParse,
     validateModelOutputSemantics,
     type AuthorizedToolContract,
+    type ProbeActionPreparationResult,
 } from "../src/index";
 
 test("GoalTaskContract 校验并深复制合法任务结构", () => {

@@ -1,19 +1,84 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Static, Text, useInput } from "ink";
 import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
 
-import type { UiSessionViewModel } from "./types";
+import type { GoalMessage } from "../../runtime/src/index";
+import type { UiSessionViewModel, UiStepSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { StepWaterfallItem } from "./step-waterfall-item";
+
+/** PreparationScreen timeline 中展示的项目类型联合。 */
+export type PreparationTimelineItem =
+    | { readonly kind: "message"; readonly id: string; readonly message: GoalMessage }
+    | { readonly kind: "step"; readonly id: string; readonly step: UiStepSummary };
+
+/**
+ * 累积并返回准备阶段的时间线项目（消息与只读探查步骤）。
+ *
+ * @param session - 当前单 Goal 会话的不可变 ViewModel。
+ * @returns 供 `<Static>` 固化渲染的时间线项目数组。
+ */
+export function usePreparationTimelineItems(session: UiSessionViewModel): PreparationTimelineItem[] {
+    const goalIdRef = useRef(session.goal.id);
+    const seenMessageCountRef = useRef(0);
+    const seenStepIdsRef = useRef<Set<string>>(new Set());
+    const itemsRef = useRef<PreparationTimelineItem[]>([]);
+
+    if (goalIdRef.current !== session.goal.id) {
+        goalIdRef.current = session.goal.id;
+        seenMessageCountRef.current = 0;
+        seenStepIdsRef.current = new Set();
+        itemsRef.current = [];
+    }
+
+    let hasNewItems = false;
+    const currentItems = itemsRef.current;
+
+    if (session.messages.length > seenMessageCountRef.current) {
+        for (let i = seenMessageCountRef.current; i < session.messages.length; i++) {
+            const message = session.messages[i]!;
+            currentItems.push({
+                kind: "message",
+                id: `msg-${session.goal.id}-${i}`,
+                message,
+            });
+        }
+        seenMessageCountRef.current = session.messages.length;
+        hasNewItems = true;
+    }
+
+    const steps = session.preparationSteps ?? session.committedSteps;
+    if (steps !== undefined) {
+        for (const step of steps) {
+            const stepKey = step.actionId || String(step.stepNumber);
+            if (!seenStepIdsRef.current.has(stepKey)) {
+                seenStepIdsRef.current.add(stepKey);
+                currentItems.push({
+                    kind: "step",
+                    id: `step-${session.goal.id}-${stepKey}`,
+                    step,
+                });
+                hasNewItems = true;
+            }
+        }
+    }
+
+    const snapshotRef = useRef<PreparationTimelineItem[]>(currentItems.slice());
+    if (hasNewItems) {
+        snapshotRef.current = currentItems.slice();
+    }
+
+    return snapshotRef.current;
+}
 
 /**
  * PreparationScreen 的渲染与用户操作回调边界。
  *
  * @remarks
- * Screen 只渲染 Controller 提供的 question/proposal 等等待状态。文本提交
- * 会先做空白校验，再把原文交给 `submitMessage`；批准不会伪造消息，直接
- * 调用 `approveTask`。业务状态转换仍由 SessionController 完成。
+ * Screen 引入 Ink `<Static>` 输出准备阶段的历史消息与只读探查步骤，
+ * 下方活动抽屉整洁切换展示 Spinner、Question 或 Proposal 交互面板。
  *
  * @example
  * ```tsx
@@ -21,6 +86,7 @@ import { StatusSpinner } from "./status-spinner";
  *   session={session}
  *   onSubmitMessage={content => controller.dispatch({ kind: "submitMessage", content })}
  *   onApproveTask={() => controller.dispatch({ kind: "approveTask" })}
+ *   onRetry={() => controller.dispatch({ kind: "retryPreparation" })}
  * />
  * ```
  */
@@ -43,7 +109,7 @@ export interface PreparationScreenProps {
 }
 
 /**
- * 渲染 gathering_context 问题和 planning 任务批准界面。
+ * 渲染 gathering_context 问题和 planning 任务批准界面，上方包含只读探查瀑布流。
  *
  * @param props - Session ViewModel 与语义化命令回调。
  * @returns Ink 渲染树。
@@ -54,6 +120,7 @@ export function PreparationScreen({
     onApproveTask,
     onRetry,
 }: PreparationScreenProps): React.JSX.Element {
+    const timelineItems = usePreparationTimelineItems(session);
     const [feedbackMode, setFeedbackMode] = useState(false);
     const [messageValue, setMessageValue] = useState("");
     const [messageInputKey, setMessageInputKey] = useState(0);
@@ -121,6 +188,64 @@ export function PreparationScreen({
 
     return (
         <Box flexDirection="column" gap={1}>
+            <Static items={timelineItems}>
+                {(item) =>
+                    item.kind === "message" ? (
+                        <MessageLine key={item.id} message={item.message} />
+                    ) : (
+                        <StepWaterfallItem key={item.id} step={item.step} />
+                    )
+                }
+            </Static>
+            <PreparationActiveDrawer
+                session={session}
+                errorView={errorView}
+                messageValue={messageValue}
+                messageInputKey={messageInputKey}
+                feedbackMode={feedbackMode}
+                showStalledPanel={showStalledPanel}
+                onMessageChange={setMessageValue}
+                onMessageSubmit={handleMessageSubmit}
+                onApprove={handleApprove}
+                onFeedback={() => {
+                    submitGate.clearError();
+                    setFeedbackMode(true);
+                }}
+                onRetry={handleRetry}
+            />
+        </Box>
+    );
+}
+
+interface PreparationActiveDrawerProps {
+    readonly session: UiSessionViewModel;
+    readonly errorView?: { readonly code?: string; readonly message: string } | undefined;
+    readonly messageValue: string;
+    readonly messageInputKey: number;
+    readonly feedbackMode: boolean;
+    readonly showStalledPanel: boolean;
+    readonly onMessageChange: (value: string) => void;
+    readonly onMessageSubmit: (value: string) => void;
+    readonly onApprove: () => void;
+    readonly onFeedback: () => void;
+    readonly onRetry: () => void;
+}
+
+function PreparationActiveDrawer({
+    session,
+    errorView,
+    messageValue,
+    messageInputKey,
+    feedbackMode,
+    showStalledPanel,
+    onMessageChange,
+    onMessageSubmit,
+    onApprove,
+    onFeedback,
+    onRetry,
+}: PreparationActiveDrawerProps): React.JSX.Element {
+    return (
+        <Box flexDirection="column" gap={1}>
             <Text bold color="cyan">Goal {session.goal.id}</Text>
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
             {session.waitingFor === "question"
@@ -131,8 +256,8 @@ export function PreparationScreen({
                         : { question: session.question })}
                     value={messageValue}
                     inputKey={messageInputKey}
-                    onChange={setMessageValue}
-                    onSubmit={handleMessageSubmit}
+                    onChange={onMessageChange}
+                    onSubmit={onMessageSubmit}
                 />
                 : null}
             {session.waitingFor === "approval"
@@ -140,26 +265,42 @@ export function PreparationScreen({
                     busy={session.busy}
                     feedbackMode={feedbackMode}
                     proposal={session.proposal}
-                    onApprove={handleApprove}
-                    onFeedback={() => {
-                        submitGate.clearError();
-                        setFeedbackMode(true);
-                    }}
+                    onApprove={onApprove}
+                    onFeedback={onFeedback}
                     value={messageValue}
                     inputKey={messageInputKey}
-                    onChange={setMessageValue}
-                    onSubmitFeedback={handleMessageSubmit}
+                    onChange={onMessageChange}
+                    onSubmitFeedback={onMessageSubmit}
                 />
                 : null}
             {showStalledPanel
-                ? <StalledPanel onRetry={handleRetry} />
+                ? <StalledPanel onRetry={onRetry} />
                 : null}
             {!showStalledPanel
                 && session.waitingFor !== "question"
                 && session.waitingFor !== "approval"
                 ? <Text color="yellow">Waiting for the next Runtime state.</Text>
                 : null}
-            {session.busy ? <StatusSpinner label={preparationSpinnerLabel(session.phase)} /> : null}
+            {session.busy ? (
+                <StatusSpinner
+                    label={preparationSpinnerLabel(session.phase, session.activeProbeDescription)}
+                />
+            ) : null}
+        </Box>
+    );
+}
+
+interface MessageLineProps {
+    readonly message: GoalMessage;
+}
+
+function MessageLine({ message }: MessageLineProps): React.JSX.Element {
+    return (
+        <Box flexDirection="column">
+            <Text bold color={message.role === "user" ? "green" : "cyan"}>
+                {message.role === "user" ? "User" : "Agent"}
+            </Text>
+            <Text>{message.content}</Text>
         </Box>
     );
 }
@@ -212,7 +353,20 @@ function StalledPanel({ onRetry }: StalledPanelProps): React.JSX.Element {
     );
 }
 
-function preparationSpinnerLabel(phase: UiSessionViewModel["phase"]): string {
+/**
+ * 依据当前阶段与可选探查说明生成 Preparation 状态 Spinner 文案。
+ *
+ * @param phase - 当前生命周期阶段。
+ * @param activeProbeDescription - 可选的正在执行探查操作说明。
+ * @returns 面向终端用户的进行中文案。
+ */
+export function preparationSpinnerLabel(
+    phase: UiSessionViewModel["phase"],
+    activeProbeDescription?: string,
+): string {
+    if (activeProbeDescription !== undefined) {
+        return activeProbeDescription;
+    }
     switch (phase) {
         case "gathering_context":
             return "Gathering context...";

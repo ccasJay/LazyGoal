@@ -388,6 +388,7 @@ export type {
     GoalProgressErrorCode,
     GoalProgressResult,
     GoalUserAction,
+    PreparationProbeProgressEvent,
     ResumeGoalRequest,
 } from "./goal-coordinator";
 export {
