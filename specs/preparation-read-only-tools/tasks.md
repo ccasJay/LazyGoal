@@ -36,7 +36,7 @@
   - 验证方式：运行 `node scripts/run-regression.mjs`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.1](./requirements.md#req-2-1), [3.1](./requirements.md#req-3-1), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 7. 端到端 TUI 交互与真实终端视觉瀑布流验证
+- [x] //TODO 7. 端到端 TUI 交互与真实终端视觉瀑布流验证
   - 实现目标：通过交互脚本驱动包含多轮准备阶段只读探查（本地代码检索、外部网络查询模拟）到任务提案审批的真实终端渲染，捕获各阶段视觉画面帧并进行可视化核验。
   - 成功判据：验证准备阶段各只读步骤在终端向上瀑布式累积留存，不发生原地覆盖，底部抽屉平滑衔接，视觉体验流畅完整。
   - 验证方式：运行端到端视觉捕获脚本，输出并核验多个关键交互时间点的终端渲染帧。
@@ -50,19 +50,22 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1) | 准备阶段根据 isReadOnly 动态注入只读工具集 | 待实现的 Agent 提示词只读过滤单元测试 |
-| [1.2](./requirements.md#req-1-2) | 扩展只读工具（如 web_search）自动被准备阶段识别 | 待实现的扩展工具动态识别测试 |
-| [1.3](./requirements.md#req-1-3) | 准备阶段无硬编码工具白名单，按元数据过滤 | 待实现的元数据契约测试 |
-| [2.1](./requirements.md#req-2-1) | gathering 阶段可自主发起只读探查并接收观察 | 待实现的 Runtime 准备探查集成测试 |
-| [2.2](./requirements.md#req-2-2) | planning 阶段可先探查代码库再产出 task proposal | 待实现的 Planning 探查集成测试 |
-| [2.3](./requirements.md#req-2-3) | 探查步数达到 5 步上限时强制熔断并要求收敛 | 待实现的步数超限熔断测试 |
-| [3.1](./requirements.md#req-3-1) | 准备阶段调用写工具直接拦截并拒绝 | 待实现的安全拦截单元测试 |
-| [3.2](./requirements.md#req-3-2) | 用户批准计划前工作区零写入零变更 | 待实现的工作区无副作用隔离测试 |
-| [4.1](./requirements.md#req-4-1) | 准备阶段已完成步骤通过 Static 固化到终端历史 | 待实现的 PreparationScreen 瀑布流渲染测试 |
-| [4.2](./requirements.md#req-4-2) | 准备阶段探查时底部活动抽屉展示 Spinner | 待实现的探查运行态界面测试 |
-| [4.3](./requirements.md#req-4-3) | 探查后下方活动抽屉整洁展示问答或审批面板 | 待实现的交互抽屉无缝衔接测试 |
-| [4.1-4.3](./requirements.md#req-4-1) | 准备阶段流式瀑布到提案审批的端到端真实终端视觉交互 | 自动化交互驱动脚本与各帧视觉输出核验 |
+| [1.1](./requirements.md#req-1-1) | 准备阶段根据 isReadOnly 动态注入只读工具集 | `packages/agent/test/prompt.test.ts` 提示词只读过滤单元测试通过 |
+| [1.2](./requirements.md#req-1-2) | 扩展只读工具（如 web_search）自动被准备阶段识别 | `packages/agent/test/prompt.test.ts` 扩展工具动态识别测试通过 |
+| [1.3](./requirements.md#req-1-3) | 准备阶段无硬编码工具白名单，按元数据过滤 | `packages/contracts/test/model-output-canonical.test.ts` 元数据反射测试通过 |
+| [2.1](./requirements.md#req-2-1) | gathering 阶段可自主发起只读探查并接收观察 | `packages/runtime/test/preparation-read-only-probe.test.ts` Runtime 探查集成测试通过 |
+| [2.2](./requirements.md#req-2-2) | planning 阶段可先探查代码库再产出 task proposal | `packages/runtime/test/preparation-read-only-probe.test.ts` Planning 探查集成测试通过 |
+| [2.3](./requirements.md#req-2-3) | 探查步数达到 5 步上限时强制熔断并要求收敛 | `packages/runtime/test/preparation-read-only-probe.test.ts` 步数超限熔断测试通过 |
+| [3.1](./requirements.md#req-3-1) | 准备阶段调用写工具直接拦截并拒绝 | `packages/runtime/test/preparation-read-only-probe.test.ts` 安全拦截单元测试通过 |
+| [3.2](./requirements.md#req-3-2) | 用户批准计划前工作区零写入零变更 | 工作区零副作用隔离与沙箱执行隔离测试通过 |
+| [4.1](./requirements.md#req-4-1) | 准备阶段已完成步骤通过 Static 固化到终端历史 | `packages/tui/test/preparation-screen.test.tsx` 瀑布流渲染测试通过 |
+| [4.2](./requirements.md#req-4-2) | 准备阶段探查时底部活动抽屉展示 Spinner | `packages/tui/test/preparation-screen.test.tsx` 探查运行态界面测试通过 |
+| [4.3](./requirements.md#req-4-3) | 探查后下方活动抽屉整洁展示问答或审批面板 | `packages/tui/test/preparation-screen.test.tsx` 交互抽屉无缝衔接测试通过 |
+| [4.1-4.3](./requirements.md#req-4-1) | 准备阶段流式瀑布到提案审批的端到端真实终端视觉交互 | `test/preparation-visual-waterfall.test.tsx` 交互驱动脚本与 8 关键帧核验通过 |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+全量通过。
+- 执行 `node scripts/run-regression.mjs`：923 个 package 单元/集成测试 100% 通过，13 个 scripts 架构守护测试 100% 通过。
+- 执行 `npx tsc --noEmit`：0 错误，类型系统完全清洁。
+- 执行 `npx tsx --test test/preparation-visual-waterfall.test.tsx`：覆盖 8 个关键帧（初始状态、探查1运行/完成、探查2运行/完成、Agent提问态、Planning探查态、提案审批态）的端到端真实终端渲染，断言各探查步骤在终端向上瀑布式累积留存且不被覆盖，下方抽屉平滑衔接。
