@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `packages/llm/test/toml-config.test.ts` 单元测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 3. 实现四层配置合并引擎与 CLI 临时单向覆盖
+- [x] //TODO 3. 实现四层配置合并引擎与 CLI 临时单向覆盖
 
   - 实现目标：实现 `loadRuntimeConfig()`，将“内置默认值 → `config.toml` → Profile → CLI 参数”严格按顺序合并，保证 CLI 参数仅临时生效且不写回磁盘。
   - 成功判据：各层级覆盖顺序验证正确；CLI 传入的临时参数（如 `--model`）成功覆盖且未触碰磁盘文件；必填项缺失时清晰报错退出。
