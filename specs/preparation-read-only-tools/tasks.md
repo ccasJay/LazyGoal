@@ -12,7 +12,7 @@
   - 验证方式：编写 `packages/agent/test/` 单元测试，验证模拟只读工具自动识别而写工具被严格排除。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 3. 扩展 PreparationResult 契约引入只读 probe_action 决策类型
+- [x] //TODO 3. 扩展 PreparationResult 契约引入只读 probe_action 决策类型
   - 实现目标：在 `@lazygoal/contracts` 中扩展 `GatheringPreparationResultContract` 与 `PlanningPreparationResultContract`，加入 `probe_action` 分支以承载只读探查意图。
   - 成功判据：契约解析器能够合法解析并验证只读探查动作，且与写操作决策严格隔离。
   - 验证方式：在 `packages/contracts/test/` 中编写契约结构与边界用例测试。

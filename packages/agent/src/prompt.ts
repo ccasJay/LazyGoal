@@ -278,6 +278,11 @@ export async function buildPreparationRequest(
         ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<PreparationResult>)
         : (createModelOutputContractBundle({
             kind: goal.state.workflow.phase === "gathering_context" ? "gathering" : "planning",
+            authorizedTools: readOnlyTools.map((tool) => ({
+                id: tool.id,
+                inputContract: tool.inputContract,
+                isReadOnly: true,
+            })),
         }) as unknown as ModelOutputContractBundle<PreparationResult>);
 
     return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode);

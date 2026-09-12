@@ -2,10 +2,11 @@ import { contract } from "../contract";
 import { safeParse } from "../parser";
 import { ContractValidationError } from "../errors";
 import type { JsonSchema202012 } from "../json-schema";
-import type { Contract } from "../types";
+import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
     ContextLookupRequestContract,
+    ContextReadyPreparationResultContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
@@ -15,6 +16,9 @@ import {
     NonToolExecutingDecisionContract,
     PlanningPreparationResultContract,
     type PreparationResult,
+    QuestionPreparationResultContract,
+    TaskProposalPreparationResultContract,
+    WorkingMemoryPatchContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
@@ -78,8 +82,14 @@ export function isReadOnlyToolContract(tool: AuthorizedToolContract): boolean {
  * 分别对应上下文收集、规划、执行与检查点阶段。
  */
 export type ModelOutputRequest =
-    | { readonly kind: "gathering" }
-    | { readonly kind: "planning" }
+    | {
+        readonly kind: "gathering";
+        readonly authorizedTools?: readonly AuthorizedToolContract[];
+      }
+    | {
+        readonly kind: "planning";
+        readonly authorizedTools?: readonly AuthorizedToolContract[];
+      }
     | {
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
@@ -151,6 +161,34 @@ function buildWireToolBranch(tool: AuthorizedToolContract): Contract<unknown> {
 }
 
 /**
+ * 为单个只读 Tool 构造 canonical 的 probe_action 决策分支契约。
+ */
+function buildCanonicalProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
+    return contract.object({
+        kind: contract.literal("probe_action"),
+        action: contract.object({
+            toolId: contract.literal(tool.id),
+            input: tool.inputContract,
+        }),
+        memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    });
+}
+
+/**
+ * 为单个只读 Tool 派生 wire 的 probe_action 决策分支契约。
+ */
+function buildWireProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
+    return contract.object({
+        kind: contract.enum(["probe_action"]),
+        action: contract.object({
+            toolId: contract.enum([tool.id]),
+            input: deriveWireContract(tool.inputContract),
+        }),
+        memoryPatch: contract.nullable(deriveWireContract(WorkingMemoryPatchContract)),
+    });
+}
+
+/**
  * 校验授权工具列表，按 code-point 排序，并确保工具 ID 非空且无重复。
  */
 function validateAndSortAuthorizedTools(
@@ -185,7 +223,9 @@ function validateAndSortAuthorizedTools(
  * 创建请求级模型输出契约包。
  *
  * @remarks
- * 1. Gathering、Planning、Checkpoint 阶段派生固定的 Wire 与 Canonical 契约；
+ * 1. Gathering、Planning 阶段依据授权只读 Tool 集合动态组合：
+ *    - 声明为 `isReadOnly: true` 的只读工具按稳定 Tool ID 码点序派生专属 `probe_action` 分支；
+ *    - 未提供只读工具时仅保留各阶段的基础决策分支；
  * 2. Executing 阶段依据授权 Tool 集合动态组合：
  *    - 授权工具按稳定 Tool ID 码点序派生，每个 tool 绑定专属 `tool_call` 分支；
  *    - 空集合或未配置 Tool 时直接省略 `tool_call` 分支；
@@ -199,8 +239,8 @@ function validateAndSortAuthorizedTools(
  * @example
  * ```ts
  * const bundle = createModelOutputContractBundle({
- *     kind: "executing",
- *     authorizedTools: [{ id: "read_file", inputContract: ReadFileInputContract }],
+ *     kind: "gathering",
+ *     authorizedTools: [{ id: "read_file", inputContract: ReadFileInputContract, isReadOnly: true }],
  * });
  * ```
  */
@@ -212,16 +252,88 @@ export function createModelOutputContractBundle(
     let wireContract: Contract<unknown>;
 
     switch (request.kind) {
-        case "gathering":
+        case "gathering": {
             name = "gathering_preparation_result";
-            canonicalContract = GatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-            wireContract = deriveWireEnvelopeContract(GatheringPreparationResultContract);
+            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
+                .filter(isReadOnlyToolContract);
+
+            const baseCanonical = [
+                QuestionPreparationResultContract,
+                ContextReadyPreparationResultContract,
+                ContextLookupRequestContract,
+            ];
+            const baseWire = [
+                deriveWireContract(QuestionPreparationResultContract),
+                deriveWireContract(ContextReadyPreparationResultContract),
+                deriveWireContract(ContextLookupRequestContract),
+            ];
+
+            if (sortedReadOnlyTools.length === 0) {
+                canonicalContract = contract.discriminatedUnion(
+                    "kind",
+                    baseCanonical as readonly [ObjectContract<ObjectShape>, ...ObjectContract<ObjectShape>[]],
+                ) as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union(
+                        baseWire as readonly [Contract<unknown>, ...Contract<unknown>[]],
+                    ),
+                });
+            } else {
+                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
+                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                canonicalContract = contract.union([
+                    ...probeCanonical,
+                    ...baseCanonical,
+                ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]) as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union([
+                        ...probeWire,
+                        ...baseWire,
+                    ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]),
+                });
+            }
             break;
-        case "planning":
+        }
+        case "planning": {
             name = "planning_preparation_result";
-            canonicalContract = PlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-            wireContract = deriveWireEnvelopeContract(PlanningPreparationResultContract);
+            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
+                .filter(isReadOnlyToolContract);
+
+            const baseCanonical = [
+                TaskProposalPreparationResultContract,
+                ContextLookupRequestContract,
+            ];
+            const baseWire = [
+                deriveWireContract(TaskProposalPreparationResultContract),
+                deriveWireContract(ContextLookupRequestContract),
+            ];
+
+            if (sortedReadOnlyTools.length === 0) {
+                canonicalContract = contract.discriminatedUnion(
+                    "kind",
+                    baseCanonical as readonly [ObjectContract<ObjectShape>, ...ObjectContract<ObjectShape>[]],
+                ) as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union(
+                        baseWire as readonly [Contract<unknown>, ...Contract<unknown>[]],
+                    ),
+                });
+            } else {
+                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
+                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                canonicalContract = contract.union([
+                    ...probeCanonical,
+                    ...baseCanonical,
+                ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]) as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union([
+                        ...probeWire,
+                        ...baseWire,
+                    ] as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]]),
+                });
+            }
             break;
+        }
         case "executing": {
             name = "executing_agent_decision";
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);

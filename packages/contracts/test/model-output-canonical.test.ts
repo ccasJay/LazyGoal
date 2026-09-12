@@ -10,10 +10,13 @@ import {
     GoalTaskContract,
     PlanningPreparationResultContract,
     PreparationResultContract,
+    ProbeActionContract,
+    ProbeActionPreparationResultContract,
     StructuredAgentDecisionContract,
     ToolCallActionContract,
     WorkingMemoryPatchContract,
     contract,
+    createModelOutputContractBundle,
     isReadOnlyToolContract,
     safeParse,
     validateModelOutputSemantics,
@@ -359,4 +362,155 @@ test("AuthorizedToolContract 支持 isReadOnly 属性并通过 isReadOnlyToolCon
     assert.equal(isReadOnlyToolContract(readOnlyTool), true);
     assert.equal(isReadOnlyToolContract(modifyingTool), false);
     assert.equal(isReadOnlyToolContract(defaultTool), false);
+});
+
+test("ProbeActionPreparationResultContract 校验并深复制只读探查决策", () => {
+    const validProbe = {
+        kind: "probe_action",
+        action: {
+            toolId: "read_file",
+            input: { path: "package.json" },
+        },
+    };
+    const parsed = safeParse(ProbeActionPreparationResultContract, validProbe);
+    assert.equal(parsed.success, true);
+    if (parsed.success) {
+        assert.deepEqual(parsed.data, validProbe);
+        assert.notStrictEqual(parsed.data, validProbe);
+    }
+
+    // 支持携带 memoryPatch
+    const probeWithExtras = {
+        kind: "probe_action",
+        action: {
+            toolId: "grep",
+            input: { pattern: "TODO" },
+        },
+        memoryPatch: {
+            protocolVersion: 1,
+            operations: [
+                {
+                    type: "upsert_fact",
+                    fact: {
+                        subject: "workspace",
+                        predicate: "has_todo",
+                        value: true,
+                        stability: "stable" as const,
+                        evidenceSequences: [1],
+                    },
+                },
+            ],
+        },
+    };
+    const parsedWithExtras = safeParse(ProbeActionPreparationResultContract, probeWithExtras);
+    assert.equal(parsedWithExtras.success, true);
+    if (parsedWithExtras.success) {
+        assert.deepEqual(parsedWithExtras.data, probeWithExtras);
+    }
+});
+
+test("Gathering 与 Planning 准备阶段契约合法接受 probe_action 并严格隔离写操作决策", () => {
+    const probe = {
+        kind: "probe_action",
+        action: { toolId: "read_file", input: { path: "README.md" } },
+    };
+
+    // 1. gathering 阶段接受 probe_action
+    assert.equal(safeParse(GatheringPreparationResultContract, probe).success, true);
+
+    // 2. planning 阶段接受 probe_action
+    assert.equal(safeParse(PlanningPreparationResultContract, probe).success, true);
+
+    // 3. 完整 PreparationResultContract 接受 probe_action
+    assert.equal(safeParse(PreparationResultContract, probe).success, true);
+
+    // 4. 准备阶段严格隔离执行阶段专用决策
+    const toolCall = {
+        kind: "tool_call",
+        action: { actionId: "a1", toolId: "read_file", input: { path: "README.md" } },
+    };
+    assert.equal(safeParse(GatheringPreparationResultContract, toolCall).success, false);
+    assert.equal(safeParse(PlanningPreparationResultContract, toolCall).success, false);
+    assert.equal(safeParse(PreparationResultContract, toolCall).success, false);
+
+    const completeDecision = {
+        kind: "complete",
+        summary: "已完成",
+        completionEvidence: [],
+    };
+    assert.equal(safeParse(GatheringPreparationResultContract, completeDecision).success, false);
+    assert.equal(safeParse(PlanningPreparationResultContract, completeDecision).success, false);
+});
+
+test("createModelOutputContractBundle 在准备阶段为只读工具动态派生 probe_action 并精确解码", () => {
+    const readFileInputContract = contract.object({ path: contract.string() });
+    const grepInputContract = contract.object({ pattern: contract.string() });
+    const writeFileInputContract = contract.object({ path: contract.string(), content: contract.string() });
+
+    const tools: readonly AuthorizedToolContract[] = [
+        { id: "read_file", inputContract: readFileInputContract, isReadOnly: true },
+        { id: "grep", inputContract: grepInputContract, isReadOnly: true },
+        // 写工具应被准备阶段 Bundle 自动排除
+        { id: "write_file", inputContract: writeFileInputContract, isReadOnly: false },
+    ];
+
+    // 1. Gathering 阶段 Bundle
+    const gatheringBundle = createModelOutputContractBundle({
+        kind: "gathering",
+        authorizedTools: tools,
+    });
+    assert.equal(gatheringBundle.name, "gathering_preparation_result");
+
+    // 模拟来自 wire 的 probe_action 输出
+    const wireJson = {
+        result: {
+            kind: "probe_action",
+            action: {
+                toolId: "read_file",
+                input: { path: "package.json" },
+            },
+            memoryPatch: null,
+        },
+    };
+    const decoded = gatheringBundle.decode(wireJson) as ProbeActionPreparationResult;
+    assert.equal(decoded.kind, "probe_action");
+    assert.equal(decoded.action.toolId, "read_file");
+    assert.deepEqual(decoded.action.input, { path: "package.json" });
+
+    // 验证多工具根据 toolId 精确路由并验证输入 Schema
+    const wireGrepJson = {
+        result: {
+            kind: "probe_action",
+            action: {
+                toolId: "grep",
+                input: { pattern: "test" },
+            },
+            memoryPatch: null,
+        },
+    };
+    const decodedGrep = gatheringBundle.decode(wireGrepJson) as ProbeActionPreparationResult;
+    assert.equal(decodedGrep.action.toolId, "grep");
+
+    // 验证写工具（write_file）由于被排除，无法作为合法的 probe_action 通过校验
+    const illegalWriteWireJson = {
+        result: {
+            kind: "probe_action",
+            action: {
+                toolId: "write_file",
+                input: { path: "test.txt", content: "data" },
+            },
+            memoryPatch: null,
+        },
+    };
+    assert.throws(() => gatheringBundle.decode(illegalWriteWireJson));
+
+    // 2. Planning 阶段 Bundle
+    const planningBundle = createModelOutputContractBundle({
+        kind: "planning",
+        authorizedTools: tools,
+    });
+    assert.equal(planningBundle.name, "planning_preparation_result");
+    const decodedPlanning = planningBundle.decode(wireJson) as ProbeActionPreparationResult;
+    assert.equal(decodedPlanning.kind, "probe_action");
+    assert.equal(decodedPlanning.action.toolId, "read_file");
 });
