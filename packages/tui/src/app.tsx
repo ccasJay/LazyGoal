@@ -9,6 +9,7 @@ import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
 import { InspectorScreen } from "./inspector-screen";
+import { TerminalScreen } from "./terminal-screen";
 import { UiDispatchRejectedError, type UiCommand } from "./types";
 
 /**
@@ -72,6 +73,9 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
         });
     }, [controller]);
 
+    return <TerminalScreen alternate={snapshot.screen === "inspector"}>{renderScreen()}</TerminalScreen>;
+
+    function renderScreen(): React.JSX.Element | null {
     switch (snapshot.screen) {
         case "home":
             return (
@@ -171,5 +175,6 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
             );
         default:
             return null;
+    }
     }
 }

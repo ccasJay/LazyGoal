@@ -35,8 +35,9 @@ type WaitingProgress = Extract<
  * Controller 是唯一的 UI 命令串行化入口。它不复制 Runtime 状态机：创建、
  * 恢复、消息和批准命令分别委托给 Launcher、Store 与 Coordinator，然后把
  * 最新 Goal 转换成不可变 ViewModel。异步业务命令一次调用未完成前，后续
- * dispatch 会以 `UI_BUSY` 拒绝；Inspector 的本地步进与思考展开命令只替换
- * 内存 ViewModel，不等待异步操作，也不被该锁阻塞。业务错误会保留当前
+ * dispatch 会以 `UI_BUSY` 拒绝；Inspector 的本地浏览和执行模式切换只替换
+ * 内存 ViewModel，不被该锁阻塞。模式切换不取消已经发出的操作，下一等待点
+ * 使用最新模式决定是否自动批准。业务错误会保留当前
  * Goal/最近快照并显示稳定错误。
  *
  * @example
@@ -190,9 +191,9 @@ export class SessionController {
      *
      * @remarks
      * 创建、恢复、消息、批准和页面数据加载等异步业务命令保持串行处理，
-     * 同时进行时以 `UI_BUSY` 拒绝。Inspector 的 `inspectStep` 与
-     * `toggleReasoning` 是同步的本地 ViewModel 操作，可以连续处理，避免
-     * 快速按键在渲染帧之间被丢弃。
+     * 同时进行时以 `UI_BUSY` 拒绝。Inspector 浏览和执行模式切换可在 busy
+     * 期间更新本地状态；切换模式不会并发调用 Coordinator，也不撤销已批准的
+     * Action。YOLO 自动推进期间保持 busy，直到最终等待点或终态。
      *
      * @param command - 不携带运行时状态的用户意图。
      * @returns 命令处理完成；业务失败会体现在 ViewModel.error 中。
@@ -225,6 +226,10 @@ export class SessionController {
         }
 
         if (this.snapshot.busy) {
+            if (command.kind === "toggleExecutionMode" || command.kind === "setExecutionMode") {
+                return this.setMode(command.kind === "setExecutionMode"
+                    ? command.mode : this.executionMode === "confirm" ? "yolo" : "confirm", false);
+            }
             return Promise.reject(
                 new UiDispatchRejectedError(
                     UI_BUSY_CODE,
@@ -642,36 +647,27 @@ export class SessionController {
     }
 
     private async applyProgress(result: ProgressResult): Promise<void> {
-        if (!result.ok) {
-            this.setError(result.error);
-            return;
-        }
+        while (!this.shuttingDown) {
+            if (!result.ok) {
+                this.setError(result.error);
+                return;
+            }
+            this.setSnapshot(this.toSessionView(result.goal, result, true));
+            if (this.executionMode !== "yolo"
+                || result.kind !== "waiting"
+                || result.waitingFor !== "action_approval"
+                || result.goal.state.run.pendingAction?.action === undefined) return;
 
-        this.setSnapshot(this.toSessionView(result.goal, result, false));
-
-        if (
-            this.executionMode === "yolo"
-            && !this.shuttingDown
-            && result.kind === "waiting"
-            && result.waitingFor === "action_approval"
-            && result.goal.state.run.pendingAction?.action !== undefined
-        ) {
-            const actionId = result.goal.state.run.pendingAction.action.actionId;
-            const request = {
+            result = await this.dependencies.coordinator.resume({
                 ref: {
                     goalId: result.goal.id,
                     runId: result.goal.state.run.id,
                 },
                 action: {
-                    kind: "approve_action" as const,
-                    actionId,
+                    kind: "approve_action",
+                    actionId: result.goal.state.run.pendingAction.action.actionId,
                 },
-            };
-            const nextResult = await this.dependencies.coordinator.resume(
-                request,
-                this.dependencies.control,
-            );
-            await this.applyProgress(nextResult);
+            }, this.dependencies.control);
         }
     }
 
@@ -709,7 +705,7 @@ export class SessionController {
         });
     }
 
-    private async setMode(mode: ExecutionMode): Promise<void> {
+    private async setMode(mode: ExecutionMode, advance = true): Promise<void> {
         this.executionMode = mode;
         if (this.snapshot.screen === "session") {
             this.setSnapshot({
@@ -717,7 +713,7 @@ export class SessionController {
                 executionMode: mode,
             });
             if (
-                mode === "yolo"
+                advance && mode === "yolo"
                 && !this.shuttingDown
                 && this.snapshot.waitingFor === "action_approval"
                 && this.snapshot.pendingAction?.action !== undefined

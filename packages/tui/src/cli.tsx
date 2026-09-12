@@ -4,8 +4,8 @@ import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { join, resolve } from "node:path";
-import React, { useEffect, useRef, useSyncExternalStore } from "react";
-import { useInput, useStdout, render as inkRender } from "ink";
+import React, { useRef, useSyncExternalStore } from "react";
+import { useInput, render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
@@ -964,15 +964,6 @@ function TuiMountHost({
     readonly state: TuiMountState;
     readonly onShutdown: () => Promise<void>;
 }): React.JSX.Element {
-    const { stdout, write } = useStdout();
-    useEffect(() => {
-        if (!stdout?.isTTY) return;
-        write("\x1b[?1049h\x1b[2J\x1b[H");
-        return () => {
-            write("\x1b[0m\x1b[?1049l");
-        };
-    }, [stdout, write]);
-
     const revision = useSyncExternalStore(
         (listener) => {
             state.listeners.add(listener);

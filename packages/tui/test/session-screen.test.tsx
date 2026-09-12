@@ -234,7 +234,8 @@ test("SessionScreen displays an Action and approves on Enter", async () => {
     assert.match(frame, /Action ID: action-1/);
     assert.match(frame, /Tool: read_file/);
     assert.match(frame, /README\.md/);
-    assert.match(frame, /\[Enter\] 放行 \| \[Shift\+Tab\] 模式切换 \| 输入意见拒绝/);
+    assert.match(frame, /\[Enter\] Approve  Type feedback to reject/);
+    assert.match(frame, /\[Shift\+Tab\] Enable YOLO/);
     
     // 直接按回车批准放行
     instance.stdin.write("\r");
@@ -274,7 +275,7 @@ test("SessionScreen keeps Action approval mounted but disabled while busy", asyn
 
     const frame = instance.lastFrame() ?? "";
     assert.match(frame, /Advancing/);
-    assert.match(frame, /\[Enter\] 放行 \| \[Shift\+Tab\] 模式切换 \| 输入意见拒绝/);
+    assert.match(frame, /\[Enter\] Approve  Type feedback to reject/);
     instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(approved, []);
