@@ -111,6 +111,15 @@ export type {
     ModelCapabilities,
 } from "./model-context-budget";
 export {
+    createModelExecutionBinding,
+    MutableModelBinding,
+} from "./model-execution-binding";
+export type {
+    ModelExecutionBinding,
+    ModelExecutionBindingProvider,
+    CreateModelExecutionBindingInput,
+} from "./model-execution-binding";
+export {
     ContextSelector,
     MODEL_CONTEXT_HARD_OVERFLOW,
     ModelContextHardOverflowError,

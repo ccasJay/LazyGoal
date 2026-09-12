@@ -17,9 +17,12 @@ import {
     LLMPreparationExecutor,
     LLMResponseProtocolError,
     UnsupportedPromptBundleVersionError,
+    createModelExecutionBinding,
+    MutableModelBinding,
 } from "../src/index";
 import {
     createCurrentContextAssembler,
+    createInMemoryTrajectoryStore,
     currentProtocols,
     currentWorkingMemory,
 } from "./current-fixtures";
@@ -446,4 +449,135 @@ test("Context Assembler 错误原样传播且不会调用业务 Adapter", async 
         (error: unknown) => error === failure,
     );
     assert.equal(adapter.requests.length, 0);
+});
+
+test("LLMPreparationExecutor: 连续调用能感知 bindingProvider 发布的新 generation 和新 Adapter", async () => {
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const adapter1 = new FakeAdapter(JSON.stringify({ result: { kind: "question", question: "第一代问题", memoryPatch: null } }));
+    const adapter2 = new FakeAdapter(JSON.stringify({ result: { kind: "question", question: "第二代问题", memoryPatch: null } }));
+
+    const initialBinding = createModelExecutionBinding({
+        generation: 1,
+        selection: {
+            provider: "openai",
+            modelId: "model-v1",
+            structuredOutputMode: "strict",
+            contextWindowTokens: 100_000,
+            maxOutputTokens: 4000,
+            inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
+        },
+        adapter: adapter1,
+        trajectoryStore,
+    });
+    const bindingManager = new MutableModelBinding(initialBinding);
+
+    const executor = new LLMPreparationExecutor({
+        bindingProvider: bindingManager,
+        renderer,
+        contextCompactor,
+    });
+
+    // 第一次调用，读取 initialBinding (generation 1, adapter1)
+    const result1 = await executor.execute({
+        goal: createPreparationGoal(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
+    assert.equal(result1.kind, "question");
+    assert.equal((result1 as any).question, "第一代问题");
+    assert.equal(adapter1.requests.length, 1);
+    assert.equal(adapter2.requests.length, 0);
+
+    // 外部同步切换模型
+    const candidateBinding = bindingManager.createCandidate({
+        selection: {
+            provider: "openai",
+            modelId: "model-v2",
+            structuredOutputMode: "strict",
+            contextWindowTokens: 120_000,
+            maxOutputTokens: 8000,
+            inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
+        },
+        adapter: adapter2,
+        trajectoryStore,
+    });
+    bindingManager.publish(candidateBinding);
+
+    // 第二次调用，应读取 candidateBinding (generation 2, adapter2)
+    const result2 = await executor.execute({
+        goal: createPreparationGoal(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
+    assert.equal(result2.kind, "question");
+    assert.equal((result2 as any).question, "第二代问题");
+    assert.equal(adapter1.requests.length, 1);
+    assert.equal(adapter2.requests.length, 1);
+});
+
+test("LLMPreparationExecutor: 进行中的 execute 调用保持旧 generation，外部发布不会中途换模", async () => {
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    let resolveAdapter1!: (val: { content: string }) => void;
+    const adapter1Promise = new Promise<{ content: string }>((resolve) => {
+        resolveAdapter1 = resolve;
+    });
+
+    const adapter1: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate() {
+            return adapter1Promise;
+        },
+    };
+    const adapter2 = new FakeAdapter(JSON.stringify({ result: { kind: "question", question: "第二代", memoryPatch: null } }));
+
+    const initialBinding = createModelExecutionBinding({
+        generation: 1,
+        selection: {
+            provider: "openai",
+            modelId: "model-v1",
+            structuredOutputMode: "strict",
+            contextWindowTokens: 100_000,
+            maxOutputTokens: 4000,
+            inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
+        },
+        adapter: adapter1,
+        trajectoryStore,
+    });
+    const bindingManager = new MutableModelBinding(initialBinding);
+
+    const executor = new LLMPreparationExecutor({
+        bindingProvider: bindingManager,
+        renderer,
+        contextCompactor,
+    });
+
+    // 发起 execute 调用，此时卡在 adapter1 generate
+    const executePromise = executor.execute({
+        goal: createPreparationGoal(),
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+    });
+
+    // 外部在中途发布新 Binding
+    const candidateBinding = bindingManager.createCandidate({
+        selection: {
+            provider: "openai",
+            modelId: "model-v2",
+            structuredOutputMode: "strict",
+            contextWindowTokens: 100_000,
+            maxOutputTokens: 4000,
+            inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
+        },
+        adapter: adapter2,
+        trajectoryStore,
+    });
+    bindingManager.publish(candidateBinding);
+
+    // 释放 adapter1
+    resolveAdapter1({ content: JSON.stringify({ result: { kind: "question", question: "第一代挂起完成", memoryPatch: null } }) });
+
+    const result = await executePromise;
+    assert.equal(result.kind, "question");
+    assert.equal((result as any).question, "第一代挂起完成");
+    assert.equal(adapter2.requests.length, 0); // adapter2 绝未被调用
 });

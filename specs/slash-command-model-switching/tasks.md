@@ -42,7 +42,7 @@
   - 验证方式：待实现的 Runtime coordinator 测试；覆盖所有允许/拒绝状态和失败 Store。
   - _Requirements: [5.2](./requirements.md#req-5-2), [5.4](./requirements.md#req-5-4), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 7. 实现可替换 Model Binding 并改造两个 Executor
+- [x] //TODO 7. 实现可替换 Model Binding 并改造两个 Executor
 
   - 实现目标：实现候选 Binding 构造、同步 generation 发布和 `ModelExecutionBindingProvider`，让 Preparation/Step Executor 在每次 execute 开始时固定读取一次 Adapter、Capabilities、Policy 与 Assembler。
   - 成功判据：有效目标使用新模型容量、输出上限和 estimator 构造完整 Binding；构造失败不改变当前 generation；连续调用可观察到切换，单次进行中的调用保持旧 generation 且仍只调用一个 Adapter。
