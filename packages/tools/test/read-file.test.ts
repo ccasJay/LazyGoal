@@ -40,6 +40,7 @@ function createEchoTool(id = "echo"): Tool<typeof ECHO_INPUT_CONTRACT> {
             id,
             description: "返回输入",
             inputContract: ECHO_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

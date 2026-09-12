@@ -193,6 +193,7 @@ async function main(): Promise<void> {
                 id: "manual_tool",
                 description: "需要人工确认的 Tool",
                 inputContract: MANUAL_INPUT_CONTRACT,
+                isReadOnly: false,
             },
             replayPolicy: "manual",
             validate: () => ({ ok: true }),

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
     AssistantMessage,
     CanonicalMemoryOperation,
@@ -82,6 +84,10 @@ import {
 type PreparationLookupOutcome =
     | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
     | Extract<GoalProgressResult, { readonly ok: false }>;
+
+function createPreparationProbeActionId(goalId: string): string {
+    return `probe-${goalId}-${randomUUID()}`;
+}
 
 function preparationInputRecorded(
     goal: Pick<Goal, "id" | "state">,
@@ -218,12 +224,14 @@ export type GoalProgressResult =
  *
  * @remarks
  * 用于通知上层控制器或 TUI 实时呈现准备阶段的只读调查进度。
- * 当探查发起前触发 `started` 事件；执行并提交事实后触发 `finished` 事件。
+ * 输入完成授权与语义校验、即将执行时触发 `started`；提交成功后触发
+ * `finished`，执行或提交失败时触发 `failed`。三个分支共享同一 `actionId`。
  *
  * @example
  * ```ts
  * const event: PreparationProbeProgressEvent = {
  *   kind: "started",
+ *   actionId: "probe-goal-1-m1-1",
  *   goalId: "goal-1",
  *   toolId: "read_file",
  *   input: { path: "package.json" },
@@ -234,6 +242,7 @@ export type GoalProgressResult =
 export type PreparationProbeProgressEvent =
     | {
         readonly kind: "started";
+        readonly actionId: string;
         readonly goalId: string;
         readonly toolId: string;
         readonly input: JsonValue;
@@ -241,10 +250,20 @@ export type PreparationProbeProgressEvent =
     }
     | {
         readonly kind: "finished";
+        readonly actionId: string;
         readonly goalId: string;
         readonly toolId: string;
         readonly input: JsonValue;
         readonly observation: ToolObservation;
+        readonly probeNumber: number;
+    }
+    | {
+        readonly kind: "failed";
+        readonly actionId: string;
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly message: string;
         readonly probeNumber: number;
     };
 
@@ -268,7 +287,7 @@ export interface GoalCoordinatorDependencies {
     /** 运行 executing Goal，直到 blocked 或终态。 */
     readonly scheduler: RunScheduler;
     /**
-     * 解析 planning 可见 ToolDefinition 的 Registry；省略时按空 Registry
+     * 解析 Preparation 可见 ToolDefinition 的 Registry；省略时按空 Registry
      * 处理，因此不会向 Preparation Executor 提供任何 Tool。
      */
     readonly toolRegistry?: ToolRegistry;
@@ -428,9 +447,10 @@ export class GoalCoordinator {
                 throwIfAborted(control);
                 const session = await this.openWorkingMemorySession(goal, control);
                 try {
+                    const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
                     const rawResult = await this.preparationExecutor.execute({
                         goal,
-                        authorizedTools: tools,
+                        authorizedTools: probeLimitReached ? [] : tools,
                         ...(session === undefined
                             ? {}
                             : {
@@ -444,6 +464,7 @@ export class GoalCoordinator {
                         ...(lastProbeResult === undefined
                             ? {}
                             : { lastProbeResult }),
+                        ...(probeLimitReached ? { probeLimitReached: true } : {}),
                     });
                     throwIfAborted(control);
 
@@ -462,14 +483,6 @@ export class GoalCoordinator {
                             };
                         }
 
-                        this.notifyProbeProgress({
-                            kind: "started",
-                            goalId: goal.id,
-                            toolId: result.action.toolId,
-                            input: result.action.input,
-                            probeNumber: preparationProbeCount + 1,
-                        });
-
                         const probeOutcome = await this.prepareProbeAction(
                             goal,
                             result,
@@ -483,15 +496,6 @@ export class GoalCoordinator {
                         lastProbeResult = probeOutcome.result;
                         contextLookupResult = undefined;
                         preparationProbeCount += 1;
-
-                        this.notifyProbeProgress({
-                            kind: "finished",
-                            goalId: goal.id,
-                            toolId: result.action.toolId,
-                            input: result.action.input,
-                            observation: probeOutcome.result.observation,
-                            probeNumber: preparationProbeCount,
-                        });
 
                         continue;
                     }
@@ -625,9 +629,10 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const session = await this.openWorkingMemorySession(goal, control);
             try {
+                const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
                 const rawResult = await this.preparationExecutor.execute({
                     goal,
-                    authorizedTools: tools,
+                    authorizedTools: probeLimitReached ? [] : tools,
                     ...(session === undefined
                         ? {}
                         : {
@@ -641,6 +646,7 @@ export class GoalCoordinator {
                     ...(lastProbeResult === undefined
                         ? {}
                         : { lastProbeResult }),
+                    ...(probeLimitReached ? { probeLimitReached: true } : {}),
                 });
                 throwIfAborted(control);
 
@@ -659,14 +665,6 @@ export class GoalCoordinator {
                         };
                     }
 
-                    this.notifyProbeProgress({
-                        kind: "started",
-                        goalId: goal.id,
-                        toolId: result.action.toolId,
-                        input: result.action.input,
-                        probeNumber: preparationProbeCount + 1,
-                    });
-
                     const probeOutcome = await this.prepareProbeAction(
                         goal,
                         result,
@@ -680,15 +678,6 @@ export class GoalCoordinator {
                     lastProbeResult = probeOutcome.result;
                     contextLookupResult = undefined;
                     preparationProbeCount += 1;
-
-                    this.notifyProbeProgress({
-                        kind: "finished",
-                        goalId: goal.id,
-                        toolId: result.action.toolId,
-                        input: result.action.input,
-                        observation: probeOutcome.result.observation,
-                        probeNumber: preparationProbeCount,
-                    });
 
                     continue;
                 }
@@ -1354,18 +1343,37 @@ export class GoalCoordinator {
         }
 
         // 5. 执行只读工具
-        const actionId = `probe-${goal.id}-${probeCount + 1}`;
+        const actionId = createPreparationProbeActionId(goal.id);
+        const probeNumber = probeCount + 1;
+        this.notifyProbeProgress({
+            kind: "started",
+            actionId,
+            goalId: goal.id,
+            toolId,
+            input: prepared.input,
+            probeNumber,
+        });
         let observation: ToolObservation;
         try {
             observation = await prepared.execute(actionId, control);
             throwIfAborted(control);
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            this.notifyProbeProgress({
+                kind: "failed",
+                actionId,
+                goalId: goal.id,
+                toolId,
+                input: prepared.input,
+                message,
+                probeNumber,
+            });
             return {
                 ok: false,
                 error: {
                     code: "TOOL_EXECUTION_ERROR",
-                    message: error instanceof Error ? error.message : String(error),
+                    message,
                 },
             };
         }
@@ -1415,22 +1423,53 @@ export class GoalCoordinator {
         );
 
         // 8. 提交探查事实事件并持久化至 Trajectory 与快照
-        const committedGoal = await this.commitPreparation(
-            goal,
-            [preparationFact, toolStartedFact, toolFinishedFact],
-            acceptedPatch,
-            control,
-        );
+        let commitResult: Awaited<ReturnType<TrajectoryCheckpointCommitterPort["commit"]>>;
+        try {
+            commitResult = await this.checkpointCommitter.commit(goal, {
+                facts: [preparationFact, toolStartedFact, toolFinishedFact],
+                ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+                ...(control === undefined ? {} : { control }),
+            });
+        } catch (error) {
+            if (!isExecutionAbortedError(error)) {
+                this.notifyProbeProgress({
+                    kind: "failed",
+                    actionId,
+                    goalId: goal.id,
+                    toolId,
+                    input: prepared.input,
+                    message: error instanceof Error ? error.message : String(error),
+                    probeNumber,
+                });
+            }
+            throw error;
+        }
+        const committedGoal = commitResult.goal;
+        const observationSequence = commitResult.events.find((event) =>
+            event.eventType === "tool_finished" && event.actionId === actionId
+        )?.sequence;
+
+        this.notifyProbeProgress({
+            kind: "finished",
+            actionId,
+            goalId: goal.id,
+            toolId,
+            input: prepared.input,
+            observation,
+            probeNumber,
+        });
 
         return {
             ok: true,
             goal: committedGoal,
             result: {
+                actionId,
                 action: {
                     toolId,
                     input: prepared.input,
                 },
                 observation,
+                ...(observationSequence === undefined ? {} : { observationSequence }),
             },
         };
     }

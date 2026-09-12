@@ -126,7 +126,6 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
         isReadOnly: true,
     };
 
-    readonly isReadOnly = true as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly fetcher: WebFetchHandler;

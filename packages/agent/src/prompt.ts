@@ -1,6 +1,7 @@
 import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
+import type { PreparationProbeResult } from "../../runtime/src/preparation-executor";
 import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
@@ -66,6 +67,8 @@ function project(
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
     preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
+    lastProbeResult?: PreparationProbeResult,
+    probeLimitReached?: true,
 ): ModelInferenceView {
     return new ModelInferenceProjector().project(
         goal,
@@ -74,6 +77,8 @@ function project(
         undefined,
         contextLookupResult,
         preparationInputEvidence,
+        lastProbeResult,
+        probeLimitReached,
     );
 }
 
@@ -125,6 +130,9 @@ async function assembleTrajectoryContext(
                 undefined,
                 view.contextLookupResult,
                 view.contextEpoch,
+                undefined,
+                view.lastProbeResult,
+                view.probeLimitReached,
             ),
         ],
     };
@@ -232,6 +240,8 @@ export async function buildStepRequest(
  * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only provenance；
  *   只在 Preparation 请求中传递。
  * @param structuredOutputMode - 结构化输出模式。
+ * @param lastProbeResult - 紧邻上一轮已提交只读探查的结果。
+ * @param probeLimitReached - 当前连续探查是否已达到上限。
  * @returns 保持真实消息顺序并附带当前阶段控制消息的请求计划。
  * @throws Goal 不处于 active Preparation 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -247,14 +257,20 @@ export async function buildPreparationRequest(
     modelCapabilities?: ModelCapabilities,
     preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
     structuredOutputMode: StructuredOutputMode = "strict",
+    lastProbeResult?: PreparationProbeResult,
+    probeLimitReached?: true,
 ): Promise<ModelOutputRequestPlan<PreparationResult>> {
-    const readOnlyTools = tools.filter((tool) => isReadOnlyTool(tool));
+    const readOnlyTools = probeLimitReached === true
+        ? []
+        : tools.filter((tool) => isReadOnlyTool(tool));
     const projected = project(
         goal,
         readOnlyTools,
         workingMemory,
         contextLookupResult,
         preparationInputEvidence,
+        lastProbeResult,
+        probeLimitReached,
     );
 
     if (projected.workingContext.phase === "executing") {

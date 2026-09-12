@@ -87,7 +87,6 @@ export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
         isReadOnly: false,
     };
 
-    readonly isReadOnly = false as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;

@@ -310,6 +310,7 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
         id: "read_file",
         description: "读取工作区文件",
         inputContract: contract.object({ path: contract.string() }),
+        isReadOnly: true,
     };
 
     assert.deepEqual(

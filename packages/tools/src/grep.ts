@@ -134,7 +134,6 @@ export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
         isReadOnly: true,
     };
 
-    readonly isReadOnly = true as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;

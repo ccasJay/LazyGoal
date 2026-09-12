@@ -146,7 +146,6 @@ export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
         isReadOnly: true,
     };
 
-    readonly isReadOnly = true as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly backend: WebSearchBackend;

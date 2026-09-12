@@ -11,7 +11,7 @@
 |---|---|---|
 | **只读工具声明机制** | 在 Tool 定义与 Registration 契约中引入 `isReadOnly: boolean` 属性；通过属性动态过滤而非硬编码工具名 | 新增只读工具（如 `web_search`）无需修改核心代码即可自动对准备阶段生效 |
 | **准备协议契约扩展** | 在 `GatheringPreparationResultContract` 与 `PlanningPreparationResultContract` 中扩展 `probe_action` 决策分支 | 保持阶段协议类型安全，明确区分准备阶段只读探查与执行阶段正式动作 |
-| **准备循环与步数熔断** | Runtime Coordinator 内部驱动多轮只读探查循环，设置单次准备最大 5 步硬上限；超限强制收敛 | 防止模型无休止探查消耗 Token，保障会话确定性收敛 |
+| **准备循环与步数熔断** | Runtime Coordinator 内部驱动多轮只读探查循环，设置单次准备最大 5 步硬上限；达到上限后的下一轮移除 `probe_action` 契约并强制收敛 | 防止模型无休止探查消耗 Token，同时保留合法的阶段终态 |
 | **TUI 准备瀑布流复用** | 准备阶段步骤统一推入 Ink `<Static>` 瀑布流渲染，下方收敛为紧凑的提问/提案活动抽屉 | 终端用户全流程清晰可见 Agent 的调研步骤，彻底告别准备阶段视觉黑盒 |
 
 ### 风险与待确认
@@ -25,7 +25,7 @@
 ## Key Design Decisions
 
 ### 只读工具声明机制
-- 在 `@lazygoal/contracts` 的 Tool 契约中，所有工具显式声明其是否具备只读性质（如 `read_file` 为 `true`，`grep` 为 `true`，`web_search` 为 `true`，`write_file` 为 `false`，`edit_file` 为 `false`）；
+- 在 `@lazygoal/runtime` 的 `ToolDefinition` 契约中，所有工具显式声明其是否具备只读性质（如 `read_file` 为 `true`，`grep` 为 `true`，`web_search` 为 `true`，`write_file` 为 `false`，`edit_file` 为 `false`）；
 - `buildPreparationRequest` 在组装模型提示词时，仅传入 `authorizedTools.filter(tool => tool.isReadOnly === true)`；
 - 彻底移除任何基于工具字符串名称（如 `if (name === "read_file")`）的硬编码过滤，实现高度可扩展的插件式工具体系。
 
@@ -40,7 +40,7 @@
       };
   }
   ```
-- 模型在准备阶段可返回 `probe_action`，Runtime 执行工具并将观察结果作为下一轮准备上下文继续提供给模型。
+- 模型在准备阶段可返回 `probe_action`；Runtime 提交工具事实后，将带稳定 `actionId` 与 Observation 事实序号的 `lastProbeResult` 作为下一轮瞬时上下文继续提供给模型。
 
 ### 准备循环与步数熔断
 - `Runtime Coordinator` 在调用 `PreparationExecutor` 时支持内部多轮推进：
@@ -49,7 +49,9 @@
                          -> probe_action (Step 2) -> Tool Execution -> Observation
                          -> question / task_proposal (Final Result)
   ```
-- 设置最大连续探查步数 `MAX_PREPARATION_PROBES = 5`，超过后 Prompt 强制要求模型输出最终提问或任务方案。
+- 设置最大连续探查步数 `MAX_PREPARATION_PROBES = 5`；达到上限后，下一轮请求不再暴露只读工具与 `probe_action` Schema，并通过 `probeLimitReached` 要求模型输出最终提问、`context_ready` 或任务方案。若自定义 Executor 仍越权返回探查动作，Runtime 继续 fail-closed。
+- `isReadOnly` 只存在于 `ToolDefinition`，Registration 与模型投影都从该唯一事实源复制，避免 Tool 实例与定义产生冲突声明。
+- 探查进度事件使用跨恢复不复用的稳定 `actionId`，并具有 `started → finished|failed` 终态；TUI 只消费当前 Goal 的事件。
 
 ### TUI 准备瀑布流复用
 - `PreparationScreen` 引入与 `SessionScreen` 相同的 `useTimelineItems` 与 `StepWaterfallItem`；
@@ -88,9 +90,10 @@
    - 验证 `isReadOnly` 属性正确标注在现有工具中；
    - 验证 `buildPreparationRequest` 能够根据当前工具列表动态筛选，新增模拟只读工具能被自动识别，写工具被严格排除。
 2. **安全拦截单元测试**：
-   - 模拟模型在准备阶段尝试调用非只读工具（如 `write_file`），断言被 Runtime 立即拒绝并抛出安全违规，工作区零写入。
+   - 模拟模型在准备阶段尝试调用非只读工具（如 `write_file`），断言被 Runtime 立即拒绝并抛出安全违规，不修改工作区、配置或外部可变状态；Runtime 自身的恢复与审计持久化不属于工具副作用。
 3. **准备阶段探查循环与熔断测试**：
    - 测试模型发起连续 2 轮探查后收敛为 proposal 的正常执行流；
-   - 测试达到 5 步上限时强制熔断并要求输出结果的保护机制。
+   - 测试达到 5 步上限时，下一轮移除探查契约并要求输出合法阶段结果。
+   - 测试已提交 Observation 与其事实序号进入下一轮模型上下文，恢复后再次探查不会复用 `actionId`。
 4. **TUI 准备界面瀑布流渲染测试**：
-   - 使用 `ink-testing-library` 测试多步只读探查在 `PreparationScreen` 中通过 `<Static>` 累积留存，先前步骤不被覆盖。
+   - 使用 `ink-testing-library` 测试多步只读探查在 `PreparationScreen` 中通过 `<Static>` 累积留存，先前步骤不被覆盖；Controller 测试验证失败终态清除 Spinner、跨 Goal 事件被忽略且恢复后的步骤不被去重。

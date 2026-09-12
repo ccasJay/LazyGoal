@@ -86,7 +86,6 @@ export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
         isReadOnly: false,
     };
 
-    readonly isReadOnly = false as const;
     readonly replayPolicy = "safe" as const;
 
     private readonly sandbox: WorkspaceSandbox;

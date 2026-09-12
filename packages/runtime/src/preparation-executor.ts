@@ -22,12 +22,16 @@ export type {
  * @example
  * ```ts
  * const probeResult: PreparationProbeResult = {
+ *     actionId: "probe-goal-1-4",
  *     action: { toolId: "read_file", input: { path: "package.json" } },
  *     observation: { kind: "success", output: "{}", summary: "读取成功" },
+ *     observationSequence: 4,
  * };
  * ```
  */
 export interface PreparationProbeResult {
+    /** 本次探查在 Trajectory 与实时进度中的稳定关联标识。 */
+    readonly actionId: string;
     /** 模型发起的探查动作。 */
     readonly action: {
         readonly toolId: string;
@@ -35,6 +39,8 @@ export interface PreparationProbeResult {
     };
     /** 只读工具执行后的结构化观测结果。 */
     readonly observation: ToolObservation;
+    /** `tool_finished` 的 committed sequence；Trajectory 未启用时省略。 */
+    readonly observationSequence?: number;
 }
 
 /**
@@ -72,6 +78,8 @@ export interface PreparationExecutionInput {
     readonly contextLookupResult?: ContextLookupResult;
     /** 上一轮只读探查的瞬时结果；只在本次模型调用中可见，不写入 Goal。 */
     readonly lastProbeResult?: PreparationProbeResult;
+    /** 已达到本轮连续探查上限；Executor 必须禁止继续返回 `probe_action`。 */
+    readonly probeLimitReached?: true;
 }
 
 /**

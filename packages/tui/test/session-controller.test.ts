@@ -914,6 +914,7 @@ test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命
     // 触发 probe 1 开始 (read_file)
     coordinator.emitProbeProgress({
         kind: "started",
+        actionId: "probe-goal-probe-tracking-1",
         goalId: "goal-probe-tracking",
         toolId: "read_file",
         input: { path: "src/types.ts" },
@@ -925,6 +926,7 @@ test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命
     // 触发 probe 1 完成
     coordinator.emitProbeProgress({
         kind: "finished",
+        actionId: "probe-goal-probe-tracking-1",
         goalId: "goal-probe-tracking",
         toolId: "read_file",
         input: { path: "src/types.ts" },
@@ -942,6 +944,7 @@ test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命
     // 触发 probe 2 开始 (grep)
     coordinator.emitProbeProgress({
         kind: "started",
+        actionId: "probe-goal-probe-tracking-2",
         goalId: "goal-probe-tracking",
         toolId: "grep",
         input: { query: "export interface" },
@@ -953,6 +956,7 @@ test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命
     // 触发 probe 2 完成 (grep)
     coordinator.emitProbeProgress({
         kind: "finished",
+        actionId: "probe-goal-probe-tracking-2",
         goalId: "goal-probe-tracking",
         toolId: "grep",
         input: { query: "export interface" },
@@ -966,6 +970,50 @@ test("preparationSteps 时间线与 activeProbeDescription 状态随探查生命
     assert.equal(view.preparationSteps[1]?.inputSummary, "export interface");
     assert.equal(view.preparationSteps[1]?.outputSummary, "3 matches found");
     assert.equal(view.preparationSteps[1]?.status, "success");
+
+    coordinator.emitProbeProgress({
+        kind: "started",
+        actionId: "probe-goal-probe-tracking-failed",
+        goalId: "goal-probe-tracking",
+        toolId: "read_file",
+        input: { path: "missing.ts" },
+        probeNumber: 1,
+    });
+    coordinator.emitProbeProgress({
+        kind: "failed",
+        actionId: "probe-goal-probe-tracking-failed",
+        goalId: "goal-probe-tracking",
+        toolId: "read_file",
+        input: { path: "missing.ts" },
+        message: "not found",
+        probeNumber: 1,
+    });
+    view = sessionView(controller);
+    assert.equal(view.activeProbeDescription, undefined);
+    assert.equal(view.preparationSteps?.length, 2);
+
+    coordinator.emitProbeProgress({
+        kind: "finished",
+        actionId: "probe-goal-probe-tracking-after-resume",
+        goalId: "goal-probe-tracking",
+        toolId: "read_file",
+        input: { path: "after-resume.ts" },
+        observation: { kind: "success", output: {}, summary: "Read after resume" },
+        probeNumber: 1,
+    });
+    view = sessionView(controller);
+    assert.equal(view.preparationSteps?.length, 3);
+    assert.equal(view.preparationSteps[2]?.stepNumber, 3);
+
+    coordinator.emitProbeProgress({
+        kind: "started",
+        actionId: "probe-other-goal-1",
+        goalId: "other-goal",
+        toolId: "grep",
+        input: { query: "ignored" },
+        probeNumber: 1,
+    });
+    assert.equal(sessionView(controller).activeProbeDescription, undefined);
 
     controller.dispose();
 });

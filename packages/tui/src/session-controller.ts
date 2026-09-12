@@ -643,7 +643,11 @@ export class SessionController {
     }
 
     private handleProbeProgress(event: PreparationProbeProgressEvent): void {
-        if (this.shuttingDown || this.snapshot.screen !== "session") {
+        if (
+            this.shuttingDown
+            || this.snapshot.screen !== "session"
+            || this.snapshot.goal.id !== event.goalId
+        ) {
             return;
         }
 
@@ -653,6 +657,12 @@ export class SessionController {
                 ...this.snapshot,
                 activeProbeDescription: description,
             });
+            return;
+        }
+
+        if (event.kind === "failed") {
+            const { activeProbeDescription: _unused, ...rest } = this.snapshot;
+            this.setSnapshot(rest);
             return;
         }
 
@@ -666,9 +676,9 @@ export class SessionController {
             }
 
             const step: UiStepSummary = {
-                stepNumber: event.probeNumber,
+                stepNumber: this.preparationSteps.length + 1,
                 toolId: event.toolId,
-                actionId: `probe-${event.goalId}-${event.probeNumber}`,
+                actionId: event.actionId,
                 status: event.observation.kind === "success" ? "success" : "failure",
                 ...(inputSummary !== undefined ? { inputSummary } : {}),
                 ...(outputSummary !== undefined ? { outputSummary } : {}),

@@ -57,7 +57,7 @@ function createSessionView(
     } as UiSessionViewModel;
 }
 
-test("端到端终端视觉交互：准备阶段只读探查流式瀑布累积留存与活动抽屉无缝衔接 (Req 4.1, 4.2, 4.3)", async () => {
+test("Ink 渲染帧视觉交互：准备阶段只读探查流式瀑布累积留存与活动抽屉无缝衔接 (Req 4.1, 4.2, 4.3)", async () => {
     const goal = createInitialGatheringGoal();
     const frames: string[] = [];
 

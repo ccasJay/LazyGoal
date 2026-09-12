@@ -14,6 +14,7 @@ import {
     type PreparationExecutionInput,
     type PreparationExecutor,
     type PreparationProbeResult,
+    type PreparationProbeProgressEvent,
     type PreparationResult,
     type RunScheduler,
     type Tool,
@@ -138,6 +139,8 @@ test("gathering 阶段自主发起只读探查并接收观察，最后产出 que
     assert.notEqual(executor.receivedInputs[1]?.lastProbeResult, undefined);
     assert.equal(executor.receivedInputs[1]?.lastProbeResult?.action.toolId, "read_file");
     assert.equal(executor.receivedInputs[1]?.lastProbeResult?.observation.kind, "success");
+    assert.match(executor.receivedInputs[1]?.lastProbeResult?.actionId ?? "", /^probe-goal-probe-gathering-/);
+    assert.equal(typeof executor.receivedInputs[1]?.lastProbeResult?.observationSequence, "number");
 
     // 4. Trajectory 完整记录了 probe_action 的事实事件
     const events = await trajectoryStore.read({ goalId: initial.id, runId: initial.state.run.id });
@@ -318,7 +321,7 @@ test("安全拦截：准备阶段尝试调用非只读工具（如 write_file）
     assert.equal(writeExecuted, false);
 });
 
-test("熔断保护：准备阶段探查达到 5 步硬上限时强制熔断 (Req 2.3)", async () => {
+test("熔断保护：准备阶段达到 5 步后要求 Executor 收敛为阶段结果 (Req 2.3)", async () => {
     const profile: AgentProfile = {
         id: "profile-probe-limit",
         systemPrompt: "You are a focused agent.",
@@ -359,11 +362,11 @@ test("熔断保护：准备阶段探查达到 5 步硬上限时强制熔断 (Req
         },
     };
 
-    // 模拟模型连续发起 6 步探查（超过 5 步上限）
-    const decisions: PreparationResult[] = Array.from({ length: 6 }, (_, i) => ({
+    const decisions: PreparationResult[] = Array.from({ length: 5 }, (_, i) => ({
         kind: "probe_action" as const,
         action: { toolId: "read_file", input: { step: String(i + 1) } },
     }));
+    decisions.push({ kind: "question", question: "请确认调查范围" });
 
     const executor = new RecordingPreparationExecutor(decisions);
 
@@ -382,11 +385,13 @@ test("熔断保护：准备阶段探查达到 5 步硬上限时强制熔断 (Req
     // 1. 探查刚好执行了 5 次
     assert.equal(probeCount, 5);
 
-    // 2. 第 6 次探查被熔断，返回 PREPARATION_PROBE_LIMIT_EXCEEDED 错误
-    assert.equal(result.ok, false);
-    if (!result.ok) {
-        assert.equal(result.error.code, "PREPARATION_PROBE_LIMIT_EXCEEDED");
+    assert.equal(result.ok, true);
+    if (result.ok) {
+        assert.equal(result.kind, "waiting");
     }
+    assert.equal(executor.receivedInputs.length, 6);
+    assert.equal(executor.receivedInputs[5]?.probeLimitReached, true);
+    assert.deepEqual(executor.receivedInputs[5]?.authorizedTools, []);
 });
 
 test("探查工具未授权或未注册时被严格拦截", async () => {
@@ -434,6 +439,113 @@ test("探查工具未授权或未注册时被严格拦截", async () => {
     }
 });
 
+test("用户回答后再次探查会生成新的稳定 actionId", async () => {
+    const profile: AgentProfile = {
+        id: "profile-probe-resume",
+        systemPrompt: "You are a focused agent.",
+        instructions: ["Prepare before execution."],
+        toolIds: ["read_file"],
+    };
+    const initial = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-probe-resume",
+        intent: "分两轮调查",
+        profile,
+        runId: "run-probe-resume",
+    });
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const trajectoryStore = trajectoryStoreFor(store);
+    const readTool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => ({ kind: "success", output: "ok", summary: "读取成功" }),
+    };
+    const executor = new RecordingPreparationExecutor([
+        { kind: "probe_action", action: { toolId: "read_file", input: { path: "a" } } },
+        { kind: "question", question: "继续吗？" },
+        { kind: "probe_action", action: { toolId: "read_file", input: { path: "b" } } },
+        { kind: "question", question: "还继续吗？" },
+    ]);
+    const coordinator = new GoalCoordinator({
+        store,
+        trajectoryStore,
+        preparationExecutor: executor,
+        scheduler: createUnusedScheduler(),
+        toolRegistry: { get: () => createToolRegistration(readTool) },
+    });
+
+    const first = await coordinator.advance({ goalId: initial.id, runId: initial.state.run.id });
+    assert.equal(first.ok && first.kind, "waiting");
+    const second = await coordinator.resume({
+        ref: { goalId: initial.id, runId: initial.state.run.id },
+        action: { kind: "message", content: "继续" },
+    });
+    assert.equal(second.ok && second.kind, "waiting");
+
+    const events = await trajectoryStore.read({ goalId: initial.id, runId: initial.state.run.id });
+    const actionIds = events
+        .filter((event) => event.eventType === "tool_finished")
+        .map((event) => event.actionId);
+    assert.equal(actionIds.length, 2);
+    assert.notEqual(actionIds[0], actionIds[1]);
+});
+
+test("探查执行失败会发送与 started 配对的 failed 进度事件", async () => {
+    const profile: AgentProfile = {
+        id: "profile-probe-failure",
+        systemPrompt: "You are a focused agent.",
+        instructions: ["Prepare before execution."],
+        toolIds: ["read_file"],
+    };
+    const initial = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-probe-failure",
+        intent: "读取失败",
+        profile,
+        runId: "run-probe-failure",
+    });
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const progress: PreparationProbeProgressEvent[] = [];
+    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        execute: async () => {
+            throw new Error("read failed");
+        },
+    };
+    const coordinator = new GoalCoordinator({
+        store,
+        trajectoryStore: trajectoryStoreFor(store),
+        preparationExecutor: new RecordingPreparationExecutor([
+            { kind: "probe_action", action: { toolId: "read_file", input: { path: "missing" } } },
+        ]),
+        scheduler: createUnusedScheduler(),
+        toolRegistry: { get: () => createToolRegistration(tool) },
+        onProbeProgress: (event) => progress.push(event),
+    });
+
+    const result = await coordinator.advance({ goalId: initial.id, runId: initial.state.run.id });
+    assert.equal(result.ok, false);
+    assert.deepEqual(progress.map((event) => event.kind), ["started", "failed"]);
+    assert.equal(progress[0]?.actionId, progress[1]?.actionId);
+});
+
 test("resolveAuthorizedToolDefinitions 完整保留工具定义的 isReadOnly 属性", () => {
     const readOnlyTool: Tool = {
         definition: {
@@ -464,6 +576,7 @@ test("resolveAuthorizedToolDefinitions 完整保留工具定义的 isReadOnly �
             id: "bash",
             description: "Execute bash command",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -500,6 +613,5 @@ test("resolveAuthorizedToolDefinitions 完整保留工具定义的 isReadOnly �
     assert.equal(resolved[1]?.isReadOnly, false);
 
     assert.equal(resolved[2]?.id, "bash");
-    assert.equal(resolved[2]?.isReadOnly, undefined);
+    assert.equal(resolved[2]?.isReadOnly, false);
 });
-

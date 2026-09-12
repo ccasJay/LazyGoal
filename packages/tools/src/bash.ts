@@ -263,7 +263,6 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         isReadOnly: false,
     };
 
-    readonly isReadOnly = false as const;
     readonly replayPolicy = "manual" as const;
 
     private readonly workspaceRoot: string;

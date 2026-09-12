@@ -179,6 +179,7 @@ export class AlfworldResetTool implements Tool<typeof ALFWORLD_RESET_INPUT_CONTR
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
         inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+        isReadOnly: false,
     };
     readonly replayPolicy = "manual" as const;
 
@@ -246,6 +247,7 @@ export class AlfworldStepTool implements Tool<typeof ALFWORLD_STEP_INPUT_CONTRAC
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
         inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+        isReadOnly: false,
     };
     readonly replayPolicy = "manual" as const;
 

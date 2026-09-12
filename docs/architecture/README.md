@@ -41,7 +41,7 @@ flowchart LR
 ## 主流程
 
 1. Launcher 校验原始 intent 与 Prompt/Memory 协议，创建并保存 `gathering_context/active` Goal，再调用 Coordinator。
-2. Coordinator 推进 Preparation，并在每次继续前保存阶段或交互等待点。
+2. Coordinator 推进 Preparation：按 Profile 与 Registry 解析工具，执行模型请求的只读探查并提交 Observation；每次推进最多执行 5 次探查，随后移除探查契约要求模型收敛，并在每次继续前保存阶段或交互等待点。
 3. 进入 executing 后，Scheduler 使用 `{ goalId, runId }` 调用 Runner。
 4. Runner 恢复 Goal、校验 `runId`，进入 `running`。
 5. Agent Executor 按 Goal 冻结的 Prompt Bundle 版本渲染唯一 system 消息（Global Overview → Profile → Phase Protocol → 授权 ToolDefinition），结构化 Goal 同时接收从 Trajectory 重建的 Working Memory；Runner 做严格协议、Profile、Registry、输入、Policy 和 Evidence 校验。
@@ -52,6 +52,7 @@ flowchart LR
 
 - `goalId` 定位 Session，`runId` 标识执行实例，二者不能互换。
 - Preparation workflow 不消费 Step；executing workflow 必须拥有已确定 task。
+- Preparation 工具能力只信任 `ToolDefinition.isReadOnly`；Agent 负责模型可见过滤，Runtime 在执行前再次授权，探查事实提交后才进入下一轮模型上下文。
 - Coordinator 独占 Preparation 转换，Runner 独占 Run 转换；Executor 不保存 Goal。
 - 下一 Step 只能在上一份完整快照保存成功后开始。
 - Runtime 不依赖 Agent 或具体 LLM；依赖通过接口注入。

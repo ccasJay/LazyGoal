@@ -106,9 +106,9 @@ function assertPreparationSystemContent(
     assert.ok(content.includes("Active Phase Protocol:"));
 
     if (phase === "gathering_context") {
-        assert.ok(content.includes("return exactly one question, context_ready, or context_lookup result in the result envelope"));
+        assert.ok(content.includes("return exactly one question, context_ready, context_lookup, or allowed probe_action result"));
     } else {
-        assert.ok(content.includes("return exactly one task_proposal or context_lookup result in the result envelope"));
+        assert.ok(content.includes("return exactly one task_proposal, context_lookup, or allowed probe_action result"));
     }
 
     assert.ok(content.includes("Authorized Tool definitions (only these Tool IDs may be requested):"));
@@ -181,6 +181,7 @@ test("planning 只解析 task_proposal 协议", async () => {
         id: "read_file",
         description: "v1 不应看见",
         inputContract: EMPTY_INPUT_CONTRACT,
+        isReadOnly: false,
     };
     const result = await executor.execute({
         goal,
@@ -284,6 +285,88 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
     );
     assert.equal(workingContext.phase, "planning");
     assert.equal(workingContext.intent, "生成发布包，并由外部审核人确认签字");
+});
+
+test("Preparation Executor 将上一轮只读 Observation 与证据序号投影到下一轮请求", async () => {
+    const adapter = new FakeAdapter(JSON.stringify({
+        result: {
+            kind: "question",
+            question: "还需要检查哪个目录？",
+            memoryPatch: null,
+        },
+    }));
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
+    const tool: ToolDefinition = {
+        id: "read_file",
+        description: "读取文件",
+        inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: true,
+    };
+    const lastProbeResult = {
+        actionId: "probe-goal-1-m1-1",
+        action: { toolId: "read_file", input: { path: "package.json" } },
+        observation: {
+            kind: "success" as const,
+            output: { content: "{}" },
+            summary: "读取成功",
+        },
+        observationSequence: 12,
+    };
+
+    await executor.execute({
+        goal: createPreparationGoal(),
+        authorizedTools: [tool],
+        workingMemory: currentWorkingMemory,
+        lastProbeResult,
+    });
+
+    const workingContext = JSON.parse(
+        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+    ) as Record<string, unknown>;
+    assert.deepEqual(workingContext.lastProbeResult, lastProbeResult);
+    assert.match(adapter.requests[0]?.messages[0]?.content ?? "", /allowed probe_action/);
+});
+
+test("Preparation 探查达到上限时移除 probe_action 契约并注入收敛标记", async () => {
+    const adapter = new FakeAdapter(JSON.stringify({
+        result: {
+            kind: "question",
+            question: "请确认最终范围",
+            memoryPatch: null,
+        },
+    }));
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
+    const tool: ToolDefinition = {
+        id: "read_file",
+        description: "读取文件",
+        inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: true,
+    };
+
+    await executor.execute({
+        goal: createPreparationGoal(),
+        authorizedTools: [tool],
+        workingMemory: currentWorkingMemory,
+        probeLimitReached: true,
+    });
+
+    const request = adapter.requests[0]!;
+    const workingContext = JSON.parse(
+        request.messages.at(-1)?.content ?? "",
+    ) as Record<string, unknown>;
+    assert.equal(workingContext.probeLimitReached, true);
+    assert.doesNotMatch(JSON.stringify(request.structuredOutput?.schema), /probe_action/);
+    assert.match(request.messages[0]?.content ?? "", /Authorized Tool definitions[\s\S]*\[\]/);
 });
 
 test("模型返回其他 phase 的 PreparationResult 时不重试", async () => {

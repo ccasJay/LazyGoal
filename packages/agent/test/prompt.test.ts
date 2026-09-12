@@ -257,6 +257,7 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
         id: "read_file",
         description: "读取工作区内文本文件",
         inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: true,
     };
     const request = await stepRequest(goal, [tool]);
     const systemContent = request.messages[0]?.content ?? "";
@@ -961,6 +962,7 @@ test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排�
             id: "unknown_side_effect_tool",
             description: "未知工具",
             inputContract: contract.object({}),
+            isReadOnly: false,
         },
     ];
 
@@ -1005,4 +1007,3 @@ test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排�
     assert.ok(!planningSystemMsg.includes("bash"), "planning 阶段必须严格排除副作用工具 bash");
     assert.ok(!planningSystemMsg.includes("unknown_side_effect_tool"), "planning 阶段必须排除未声明只读性的工具");
 });
-

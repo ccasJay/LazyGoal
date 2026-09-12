@@ -25,7 +25,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: READ_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: READ_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: true },
         }),
         "allow",
     );
@@ -33,7 +33,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: GREP_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: GREP_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: true },
         }),
         "allow",
     );
@@ -41,7 +41,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: WRITE_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: WRITE_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: false },
         }),
         "require_approval",
     );
@@ -49,7 +49,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: EDIT_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: EDIT_FILE_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: false },
         }),
         "require_approval",
     );
@@ -57,7 +57,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: BASH_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: BASH_TOOL_ID, description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: false },
         }),
         "require_approval",
     );
@@ -65,7 +65,7 @@ test("createDefaultToolPolicy 只自动放行只读 Tool 并对未知 Tool 关�
         policy.evaluate({
             goal,
             action,
-            tool: { id: "unknown_tool", description: "", inputContract: EMPTY_INPUT_CONTRACT },
+            tool: { id: "unknown_tool", description: "", inputContract: EMPTY_INPUT_CONTRACT, isReadOnly: false },
         }),
         "require_approval",
     );
