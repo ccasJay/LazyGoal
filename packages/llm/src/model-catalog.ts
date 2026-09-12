@@ -6,6 +6,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 
 import type { LlmConfig, LlmProvider } from "./config.js";
+import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
 
 /**
  * 结构化模型描述契约。
@@ -486,5 +487,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
  * ```
  */
 export function createLlmModelCatalog(fetcher?: ProviderModelFetcher | undefined): LlmModelCatalog {
-    return new DefaultLlmModelCatalog(fetcher);
+    return new DefaultLlmModelCatalog(fetcher ?? new DefaultProviderModelFetcher());
 }
+
+export { DefaultProviderModelFetcher } from "./provider-fetchers.js";

@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `packages/llm/test/model-catalog.test.ts`；覆盖去重、来源、当前项、不可选原因和六类失败结果。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5)_
 
-- [ ] //TODO 4. 接入六类 Provider 在线模型 Fetch
+- [x] //TODO 4. 接入六类 Provider 在线模型 Fetch
 
   - 实现目标：按 OpenAI、Google、Anthropic、OpenRouter、DeepSeek 与 `openai-compatible` wire 契约实现可注入 fetch 的列表适配器、分页、共享超时和取消。
   - 成功判据：每个 Fetcher 只访问当前 Provider 的模型端点并发送对应认证；Google/Anthropic 完整分页且拒绝不前进的 cursor；401/403、404/405/501、5xx、网络、超时、取消和非法响应均映射到约定分类，错误不包含凭据或任意响应正文。
