@@ -9,6 +9,7 @@ import {
 } from "../../runtime/src/execution-control";
 import type {
     StepExecutionInput,
+    StepExecutionResult,
     StepExecutor,
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "./context-compactor";
@@ -27,6 +28,7 @@ import {
     recordLlmRequest,
     recordLlmResponse,
 } from "./llm-diagnostic-trace";
+import { TwoStageStepExecutor } from "./two-stage-step-executor";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -63,6 +65,8 @@ export interface LLMStepExecutorDependencies {
  * Context 和模型协议 JSON 都不是面向用户的真实消息；状态推进与 Tool 执行由
  * Runtime Runner 负责。执行器不会修改传入 Goal。
  *
+ * 当 Adapter 配置为 `two_stage` 结构化输出模式时，自动启用两阶段流水线并返回带有思考链的 {@link StepExecutionResult}。
+ *
  * ToolDefinition 由 Runtime 在调用时传入；执行器不根据 Profile 自行解析 Tool，
  * 也不把未授权 Tool 暴露给模型。
  */
@@ -73,6 +77,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
+    private readonly twoStageExecutor?: TwoStageStepExecutor;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
@@ -82,18 +87,34 @@ export class LLMStepExecutor implements StepExecutor {
         this.traceSink = dependencies.traceSink;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
+        if (this.adapter.structuredOutputMode === "two_stage") {
+            this.twoStageExecutor = new TwoStageStepExecutor({
+                adapter: this.adapter,
+                renderer: this.renderer,
+                contextCompactor: this.contextCompactor,
+                ...(this.traceSink !== undefined ? { traceSink: this.traceSink } : {}),
+                ...(this.trajectoryContextAssembler !== undefined
+                    ? { trajectoryContextAssembler: this.trajectoryContextAssembler }
+                    : {}),
+                ...(this.modelCapabilities !== undefined
+                    ? { modelCapabilities: this.modelCapabilities }
+                    : {}),
+            });
+        }
     }
 
     /**
-     * @param goal - 当前完整 Goal 快照。
-     * @param tools - 当前已授权的 Tool 描述；为空时模型只能产生结束决策。
-     * @param control - 当前 Run 推进调用共享的中止控制。
-     * @returns 严格解析后的 AgentDecision。
+     * @param input - 执行入参，包含目标快照、已授权工具、工作记忆与中止控制。
+     * @returns 严格解析后的 AgentDecision 或两阶段生成的 StepExecutionResult。
      * @throws LLMResponseProtocolError 模型响应不符合严格协议时抛出。
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
-    async execute(input: StepExecutionInput): Promise<AgentDecision> {
+    async execute(input: StepExecutionInput): Promise<AgentDecision | StepExecutionResult> {
+        if (this.twoStageExecutor !== undefined) {
+            return this.twoStageExecutor.execute(input);
+        }
+
         const { goal, authorizedTools: tools, control } = input;
 
         const mode = this.adapter.structuredOutputMode;

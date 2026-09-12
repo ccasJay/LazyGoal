@@ -14,7 +14,7 @@
   - 验证方式：待实现的配置单元测试与提示词预算裁剪单测。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 3. 实现 Agent 执行阶段同模型两阶段调度流水线
+- [x] //TODO 3. 实现 Agent 执行阶段同模型两阶段调度流水线
 
   - 实现目标：在 `packages/agent` 中实现两阶段决策执行器，在单个决策步内串行执行无约束自由思考请求（捕获 CoT）与挂载 strict Schema 的强结构化决策提取，并严密传递取消信号与错误。
   - 成功判据：模拟 LLM 成功完成 Stage 1 思考捕获与 Stage 2 结构化提取；返回类型安全的 `AgentDecision`；取消信号在任一阶段触发均能立即抛出 `ExecutionAbortedError`。
