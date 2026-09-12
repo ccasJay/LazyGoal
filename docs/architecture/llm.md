@@ -31,9 +31,20 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 
 ## 配置
 
-运行要求 Node ≥22.19.0。凭据仅取入口提供的环境并显式传入，不登录、不读取其它 API Key
-变量或持久化凭据。必填 `LLM_PROVIDER`、`LLM_MODEL`、`LLM_API_KEY`、
-`LLM_STRUCTURED_OUTPUT_MODE`；现有环境需手工补充 provider，不推断旧配置。
+运行要求 Node ≥22.19.0。系统支持 XDG 基础目录规范（优先读取 `$XDG_CONFIG_HOME/lazygoal`，默认回退至 `$HOME/.config/lazygoal`），按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`、`structured_output_mode`；现有环境需补充 provider，不推断旧配置。
+
+```toml
+# ~/.config/lazygoal/config.toml
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-..."
+structured_output_mode = "prompt_only"
+
+[profile]
+active = "default"
+```
+
 
 ```dotenv
 LLM_PROVIDER=anthropic

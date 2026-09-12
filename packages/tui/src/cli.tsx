@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -62,6 +63,9 @@ import {
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
 import { readLlmConfig, type LlmConfig } from "../../llm/src/config";
+import { loadRuntimeConfig } from "../../llm/src/config-loader";
+import { resolveXdgPaths } from "../../llm/src/xdg";
+import { loadProfileToml } from "../../llm/src/toml-config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
@@ -564,7 +568,17 @@ export async function createCompositionRoot(
             llmConfig = undefined;
         }
     } else {
-        llmConfig = readLlmConfig(env);
+        try {
+            llmConfig = readLlmConfig(env);
+        } catch (error) {
+            const xdgPaths = resolveXdgPaths(env);
+            if (existsSync(xdgPaths.configFile)) {
+                const runtimeConfig = await loadRuntimeConfig({ env, xdgPaths });
+                llmConfig = runtimeConfig.llm;
+            } else {
+                throw error;
+            }
+        }
         adapter = createLlmAdapter(llmConfig);
     }
     const conversationCharBudget = readConversationCharBudget(env);
@@ -604,15 +618,39 @@ export async function createCompositionRoot(
         const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
         const loadedProfile = await profileStore.load(DEFAULT_PROFILE_ID);
 
-        if (loadedProfile === undefined) {
-            throw new AgentProfileConfigurationError(
-                DEFAULT_PROFILE_ID,
-                profilePath,
-                "Profile 文件不存在",
-            );
+        if (loadedProfile !== undefined) {
+            profile = loadedProfile;
+        } else {
+            const xdgPaths = resolveXdgPaths(env);
+            const xdgConfigFile = join(xdgPaths.lazygoalConfigDir, "config.toml");
+            const xdgDefaultProfile = join(xdgPaths.profilesDir, `${DEFAULT_PROFILE_ID}.toml`);
+            const hasXdgConfig = existsSync(xdgConfigFile);
+            const hasXdgProfile = existsSync(xdgDefaultProfile);
+
+            if (!hasXdgConfig && !hasXdgProfile) {
+                throw new AgentProfileConfigurationError(
+                    DEFAULT_PROFILE_ID,
+                    profilePath,
+                    "Profile 文件不存在",
+                );
+            }
+
+            profile = {
+                id: DEFAULT_PROFILE_ID,
+                name: "Default Agent",
+                description: "LazyGoal 默认用户 Profile",
+                systemPrompt: "You are LazyGoal, a goal-driven, resumable agent runtime.",
+                instructions: ["Advance the goal through safe, verified actions."],
+                toolIds: [
+                    READ_FILE_TOOL_ID,
+                    "write_file",
+                    "edit_file",
+                    GREP_TOOL_ID,
+                    "bash",
+                ],
+            };
         }
 
-        profile = loadedProfile;
         profiles = {
             get(profileId: string): AgentProfile | undefined {
                 return profileId === profile.id
