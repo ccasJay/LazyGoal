@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useSyncExternalStore } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useApp, useInput } from "ink";
 
 import { SessionController } from "./session-controller";
 import { HomeScreen } from "./home-screen";
@@ -27,7 +27,7 @@ import { UiDispatchRejectedError, type UiCommand } from "./types";
 export interface TuiAppProps {
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
-    /** 第一次 Ctrl+C 时启动幂等关闭流程的回调。 */
+    /** 第一次 Ctrl+C 时启动幂等关闭流程；菜单退出使用 Ink 正常卸载。 */
     readonly onShutdown?: () => void | Promise<void>;
 }
 
@@ -38,6 +38,7 @@ export interface TuiAppProps {
  * @returns Ink 渲染树。
  */
 export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Element | null {
+    const { exit } = useApp();
     const shutdownRequested = useRef(false);
     const lastInspectedGoalId = useRef<string | undefined>(undefined);
     const requestShutdown = useCallback(() => {
@@ -88,7 +89,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     onSelectNewGoal={() => dispatch({ kind: "openIntentInput" })}
                     onSelectViewHistory={() => dispatch({ kind: "openHistory" })}
                     onSelectSettings={() => dispatch({ kind: "openSettings" })}
-                    onExit={() => requestShutdown()}
+                    onExit={() => exit()}
                 />
             );
         case "settings":
@@ -153,7 +154,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     {...(snapshot.mode === "inspect" && lastInspectedGoalId.current !== undefined
                         ? { initialGoalId: lastInspectedGoalId.current } : {})}
                     onBack={() => dispatch({ kind: "openHome" })}
-                    onExit={requestShutdown}
+                    onExit={() => exit()}
                 />
             );
         case "inspector":
@@ -164,7 +165,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     onToggleReasoning={() => dispatch({ kind: "toggleReasoning" })}
                     onToggleObservation={() => dispatch({ kind: "toggleObservation" })}
                     onBack={() => dispatch({ kind: "openHistory" })}
-                    onExit={() => requestShutdown()}
+                    onExit={() => exit()}
                 />
             );
         case "shutting_down":

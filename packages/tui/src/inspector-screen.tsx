@@ -345,8 +345,9 @@ export function InspectorScreen({
                     if (stdin.isTTY) stdin.setRawMode(wasRaw);
                     if (wasFlowing === true) stdin.resume();
                     if (stdout.isTTY) {
-                        // 通过 Ink 清除旧帧并恢复备用屏幕。
-                        write("\x1b[?1049h\x1b[2J\x1b[H");
+                        // 先切回备用屏幕，避免 Ink 清除旧帧时擦掉主屏幕中的历史。
+                        stdout.write("\x1b[?1049h\x1b[?25l");
+                        write("\x1b[2J\x1b[H");
                     }
                 }
             }
