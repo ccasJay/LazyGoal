@@ -425,3 +425,13 @@ export type {
     TrajectorySink,
     TrajectoryStore,
 } from "./trajectory";
+export {
+    DefaultGoalModelSelectionCoordinator,
+    isSafeWaitingPointForModelSwitching,
+} from "./goal-model-selection-coordinator";
+export type {
+    GoalModelSelectionCoordinator,
+    GoalModelSelectionErrorCode,
+    GoalModelSelectionRequest,
+    GoalModelSelectionResult,
+} from "./goal-model-selection-coordinator";

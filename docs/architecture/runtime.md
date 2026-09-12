@@ -11,6 +11,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、Action/Observation 数据契约 | I/O 和模型调用 |
 | [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界，并接收当前 committed Preparation provenance | 阶段推进、消息追加与持久化 |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 推进 Preparation、按阶段校验并规范化 Memory Patch、恢复输入、持久化等待点、委派 executing Goal | Step 执行 |
+| [GoalModelSelectionCoordinator](../../packages/runtime/src/goal-model-selection-coordinator.ts) | 在安全等待点（question、planning approval feedback、executing blocked）将新模型选择持久化到 Goal 快照 | 创建 Adapter、调用模型、追加 Trajectory 事件或改写 Run 状态 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入、冻结 Profile、创建并保存 Goal、调用 Coordinator | 恢复已有 Goal |
 | [AgentProfile 契约](../../packages/runtime/src/agent-profile.ts) | `AgentProfile`、`AgentProfileRegistry` 与 `AgentProfileStore` Port | 文件读取、Schema 校验、Tool 实例与 Prompt |
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |

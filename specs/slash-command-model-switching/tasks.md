@@ -35,7 +35,7 @@
   - 验证方式：待实现及更新的 Runtime domain、Launcher、Storage codec/store 测试；`npx tsx --test packages/runtime/test/*.test.ts packages/storage/test/*.test.ts`。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 6. 实现 Goal 模型选择的安全提交边界
+- [x] //TODO 6. 实现 Goal 模型选择的安全提交边界
 
   - 实现目标：在 Runtime 增加 `GoalModelSelectionCoordinator`，只在匹配 Goal/Run 的文本等待点复制并保存新选择，且不创建 Adapter 或追加 Trajectory 事件。
   - 成功判据：question、planning approval feedback 与 executing blocked 可保存模型选择；其它状态、Run 不匹配和终态无副作用地失败；保存失败返回旧 Goal，messages、Run、pendingAction、Context Epoch 和 Trajectory boundary 不变。
