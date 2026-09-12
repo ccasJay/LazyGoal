@@ -20,14 +20,15 @@ export type LLMMessage =
  *
  * @remarks
  * - `strict`: 要求 Provider 原生通过严格 JSON Schema 参数约束输出结构；
- * - `prompt_only`: 不发送原生结构参数，由 Prompt 注入 Shape Guide 进行结构指引并依赖本地统一校验。
+ * - `prompt_only`: 不发送原生结构参数，由 Prompt 注入 Shape Guide 进行结构指引并依赖本地统一校验；
+ * - `two_stage`: 同模型双阶段模式，单步决策先自由思考后挂载 strict Schema 提取动作。
  *
  * @example
  * ```ts
- * const mode: StructuredOutputMode = "strict";
+ * const mode: StructuredOutputMode = "two_stage";
  * ```
  */
-export type StructuredOutputMode = "strict" | "prompt_only";
+export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 
 /**
  * 请求携带的模型输出结构化契约定义。

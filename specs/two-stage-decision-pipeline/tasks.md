@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/runtime/test/trajectory-thought.test.ts` 单元测试与 TUI Inspector 渲染测试。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 2. 扩展输出模式配置与思考文本 Token 预算防护
+- [x] //TODO 2. 扩展输出模式配置与思考文本 Token 预算防护
 
   - 实现目标：在 `packages/llm/src/config.ts` 中增加 `two_stage` 结构化输出模式，并在 Agent 提示词装配层实现思考文本的 Token 预算计算与安全截断。
   - 成功判据：`LLM_STRUCTURED_OUTPUT_MODE=two_stage` 正常解析；超长思考文本在注入第二阶段前被有界截断并保留截断标记；既有 `strict` 和 `prompt_only` 模式解析行为保持不变。

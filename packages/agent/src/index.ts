@@ -15,6 +15,17 @@ export type {
 } from "./prompt";
 
 export {
+    THOUGHT_TRUNCATION_MARKER,
+    DEFAULT_MAX_THOUGHT_CHARS,
+    truncateThought,
+    formatThinkingContext,
+} from "./thought-budget";
+export type {
+    TruncateThoughtOptions,
+    TruncateThoughtResult,
+} from "./thought-budget";
+
+export {
     ModelInferenceProjector,
 } from "./model-inference-projector";
 export {

@@ -121,7 +121,7 @@ export class Gemini implements LLMAdapter {
 
         const input = toGeminiInput(request.messages, request.maxOutputTokens ?? this.maxOutputTokens);
 
-        if (this.structuredOutputMode === "strict" && request.structuredOutput !== undefined) {
+        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined) {
             input.config = {
                 ...input.config,
                 responseMimeType: "application/json",
