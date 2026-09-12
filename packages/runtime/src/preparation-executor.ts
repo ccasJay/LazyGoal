@@ -1,10 +1,11 @@
 import type {
     Goal,
+    JsonValue,
     WorkingMemory,
 } from "./domain";
 import type { ContextLookupResult } from "./context-retrieval";
 import type { ExecutionControl } from "./execution-control";
-import type { ToolDefinition } from "./tool";
+import type { ToolDefinition, ToolObservation } from "./tool";
 import type { PreparationInputEvidence } from "./trajectory";
 import type { PreparationResult } from "../../contracts/src/index";
 
@@ -12,6 +13,29 @@ export type {
     PreparationResult,
 };
 
+/**
+ * 准备阶段只读探查的单次执行结果。
+ *
+ * @remarks
+ * 包含模型请求的动作与只读工具产生的 Observation，用于反馈给下一轮模型推理。
+ *
+ * @example
+ * ```ts
+ * const probeResult: PreparationProbeResult = {
+ *     action: { toolId: "read_file", input: { path: "package.json" } },
+ *     observation: { kind: "success", output: "{}", summary: "读取成功" },
+ * };
+ * ```
+ */
+export interface PreparationProbeResult {
+    /** 模型发起的探查动作。 */
+    readonly action: {
+        readonly toolId: string;
+        readonly input: JsonValue;
+    };
+    /** 只读工具执行后的结构化观测结果。 */
+    readonly observation: ToolObservation;
+}
 
 /**
  * Preparation Executor 的单轮对象式输入。
@@ -22,7 +46,7 @@ export type {
  * `preparationInputEvidence` 是 committed Preparation 用户输入的 hash-only 投影，
  * 只在 Preparation 调用中可见，不包含消息正文，也不属于 Goal State；
  * `control` 只属于当前调用，不得写入 Goal。Executor 不得通过本对象修改 Runtime
- * 状态或自行持久化。
+ * 状态或自行持久化。`lastProbeResult` 为上一轮只读探查结果，仅在本次调用可见。
  *
  * @example
  * ```ts
@@ -46,6 +70,8 @@ export interface PreparationExecutionInput {
     readonly control?: ExecutionControl;
     /** 上一轮 lookup 的瞬时结果；只在本次模型调用中可见，不写入 Goal。 */
     readonly contextLookupResult?: ContextLookupResult;
+    /** 上一轮只读探查的瞬时结果；只在本次模型调用中可见，不写入 Goal。 */
+    readonly lastProbeResult?: PreparationProbeResult;
 }
 
 /**

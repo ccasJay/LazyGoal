@@ -120,6 +120,7 @@ export type { StepExecutionInput } from "./step-executor";
 export type {
     PreparationExecutor,
     PreparationExecutionInput,
+    PreparationProbeResult,
     PreparationResult,
 } from "./preparation-executor";
 export {

@@ -250,6 +250,11 @@ export function createToolRegistration<C extends ToolInputContract>(
         id: tool.definition.id,
         description: tool.definition.description,
         inputContract: tool.definition.inputContract,
+        ...(tool.isReadOnly !== undefined
+            ? { isReadOnly: tool.isReadOnly }
+            : tool.definition.isReadOnly !== undefined
+                ? { isReadOnly: tool.definition.isReadOnly }
+                : {}),
     });
 
     return {

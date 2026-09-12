@@ -18,7 +18,7 @@
   - 验证方式：在 `packages/contracts/test/` 中编写契约结构与边界用例测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2)_
 
-- [ ] //TODO 4. 在 Runtime 中实现受控的准备阶段只读探查循环与熔断保护
+- [x] //TODO 4. 在 Runtime 中实现受控的准备阶段只读探查循环与熔断保护
   - 实现目标：在 `packages/runtime` 的 Coordinator 与 Preparation 流程中驱动多轮只读探查，执行前强制校验只读性，并将工具输出反馈给下一轮推理；引入最大 5 步硬上限熔断保护。
   - 成功判据：模型可连续发起多轮只读探查并最终收敛为 proposal；任何在准备阶段尝试调用非只读工具的动作均被立即拦截，工作区零写入。
   - 验证方式：编写 `packages/runtime/test/` 集成测试覆盖多轮探查、步数超限熔断与非只读工具拦截场景。

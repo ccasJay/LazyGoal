@@ -37,7 +37,7 @@ export type TrajectoryEventPayload =
     }
     | {
         readonly type: "preparation_result";
-        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint";
+        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint" | "probe_action";
     }
     | {
         readonly type: "decision_received";
