@@ -1,7 +1,7 @@
 import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
     ConversationContextUnitAdapter,
@@ -248,11 +248,10 @@ export async function buildPreparationRequest(
     preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
     structuredOutputMode: StructuredOutputMode = "strict",
 ): Promise<ModelOutputRequestPlan<PreparationResult>> {
+    const readOnlyTools = tools.filter((tool) => isReadOnlyTool(tool));
     const projected = project(
         goal,
-        goal.state.workflow.phase === "planning"
-            ? tools
-            : [],
+        readOnlyTools,
         workingMemory,
         contextLookupResult,
         preparationInputEvidence,

@@ -12,6 +12,7 @@ import {
     GREP_TOOL_ID,
     READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
+    WebSearchTool,
     WRITE_FILE_INPUT_CONTRACT,
     WRITE_FILE_TOOL_ID,
 } from "../../tools/src/index";
@@ -270,36 +271,43 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
         inputContract: BASH_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: READ_FILE_TOOL_ID,
         description: "读取 workspaceRoot 内的 UTF-8 文本文件",
         inputContract: READ_FILE_INPUT_CONTRACT,
+        isReadOnly: true,
     },
     {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
         inputContract: WRITE_FILE_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
         inputContract: EDIT_FILE_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: GREP_TOOL_ID,
         description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
         inputContract: GREP_INPUT_CONTRACT,
+        isReadOnly: true,
     },
     {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
         inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
         inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+        isReadOnly: false,
     },
 ];
 
@@ -430,9 +438,12 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     const planningToolsOffset = planningSystemContent.lastIndexOf(toolsMarker);
 
     assert.notEqual(planningToolsOffset, -1);
-    assert.equal(
-        planningSystemContent.slice(planningToolsOffset),
-        serializedToolsSection,
+    const planningProjectedTools = JSON.parse(
+        planningSystemContent.slice(planningToolsOffset + toolsMarker.length),
+    );
+    assert.deepEqual(
+        planningProjectedTools.map((t: { id: string }) => t.id),
+        [GREP_TOOL_ID, READ_FILE_TOOL_ID],
     );
 
     const gatheringRequest = await preparationRequest(
@@ -443,9 +454,12 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     const gatheringToolsOffset = gatheringSystemContent.lastIndexOf(toolsMarker);
 
     assert.notEqual(gatheringToolsOffset, -1);
+    const gatheringProjectedTools = JSON.parse(
+        gatheringSystemContent.slice(gatheringToolsOffset + toolsMarker.length),
+    );
     assert.deepEqual(
-        JSON.parse(gatheringSystemContent.slice(gatheringToolsOffset + toolsMarker.length)),
-        [],
+        gatheringProjectedTools.map((t: { id: string }) => t.id),
+        [GREP_TOOL_ID, READ_FILE_TOOL_ID],
     );
 });
 
@@ -585,12 +599,20 @@ test("裁剪后的 Preparation 请求保留原始索引并过滤不可见 proven
     }]);
 });
 
-test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition", async () => {
-    const tools: readonly ToolDefinition[] = [{
+test("Preparation 在 gathering 与 planning 阶段根据 isReadOnly 动态投影只读 ToolDefinition 并排除写工具", async () => {
+    const readOnlyTool: ToolDefinition = {
         id: "read_file",
         description: "读取文件",
         inputContract: PATH_INPUT_CONTRACT,
-    }];
+        isReadOnly: true,
+    };
+    const writeTool: ToolDefinition = {
+        id: "write_file",
+        description: "写入文件",
+        inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: false,
+    };
+    const tools: readonly ToolDefinition[] = [readOnlyTool, writeTool];
     const contexts: PromptContext[] = [];
     const capturingRenderer: PromptBundleRenderer = {
         render(context) {
@@ -604,10 +626,10 @@ test("Preparation 只在 planning 阶段投影调用方提供的 ToolDefinition"
     await preparationRequest(createPreparationGoal("planning"), tools, capturingRenderer);
 
     assert.ok(gatheringContexts.length > 0);
-    assert.ok(gatheringContexts.every((context) => context.authorizedTools.length === 0));
+    assert.ok(gatheringContexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
     assert.ok(contexts.length > 0);
-    assert.ok(contexts.every((context) => context.authorizedTools.length === 1));
-    assert.notStrictEqual(contexts[0]?.authorizedTools[0], tools[0]);
+    assert.ok(contexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
+    assert.notStrictEqual(contexts[0]?.authorizedTools[0], readOnlyTool);
     assert.notStrictEqual(contexts[0]?.authorizedTools[0]?.inputSchema, PATH_INPUT_CONTRACT);
     assert.equal(Object.isFrozen(contexts[0]?.authorizedTools[0]?.inputSchema), true);
 });
@@ -902,5 +924,85 @@ test("buildStepRequest and buildPreparationRequest populate structuredOutput in 
         "prompt_only",
     );
     assert.equal(promptOnlyPrepPlan.request.structuredOutput, undefined);
+});
+
+test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排除写操作与未知工具（gathering 与 planning 阶段）", async () => {
+    const mixedTools: readonly ToolDefinition[] = [
+        // 1. 内置只读工具
+        {
+            id: READ_FILE_TOOL_ID,
+            description: "读取文件",
+            inputContract: READ_FILE_INPUT_CONTRACT,
+            isReadOnly: true,
+        },
+        new WebSearchTool().definition,
+        // 2. 自定义扩展只读工具（模拟未来新增工具）
+        {
+            id: "custom_doc_search",
+            description: "检索技术文档",
+            inputContract: contract.object({ keyword: contract.string() }),
+            isReadOnly: true,
+        },
+        // 3. 写操作与副作用工具
+        {
+            id: WRITE_FILE_TOOL_ID,
+            description: "写入文件",
+            inputContract: WRITE_FILE_INPUT_CONTRACT,
+            isReadOnly: false,
+        },
+        {
+            id: BASH_TOOL_ID,
+            description: "执行 shell 命令",
+            inputContract: BASH_INPUT_CONTRACT,
+            isReadOnly: false,
+        },
+        // 4. 未声明只读性的未知扩展工具（应默认被安全排除）
+        {
+            id: "unknown_side_effect_tool",
+            description: "未知工具",
+            inputContract: contract.object({}),
+        },
+    ];
+
+    // 测试 gathering_context 阶段
+    const gatheringGoal = createPreparationGoal("gathering_context");
+    const gatheringPlan = await buildPreparationRequest(
+        gatheringGoal,
+        mixedTools,
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+    );
+
+    // 检查提示词消息中注入的工具信息
+    const gatheringSystemMsg = gatheringPlan.request.messages.find(m => m.role === "system")?.content ?? "";
+    assert.ok(gatheringSystemMsg.includes("read_file"), "gathering 阶段应包含只读工具 read_file");
+    assert.ok(gatheringSystemMsg.includes("web_search"), "gathering 阶段应包含只读工具 web_search");
+    assert.ok(gatheringSystemMsg.includes("custom_doc_search"), "gathering 阶段应自动识别并包含扩展只读工具 custom_doc_search");
+    assert.ok(!gatheringSystemMsg.includes("write_file"), "gathering 阶段必须严格排除写操作工具 write_file");
+    assert.ok(!gatheringSystemMsg.includes("bash"), "gathering 阶段必须严格排除副作用工具 bash");
+    assert.ok(!gatheringSystemMsg.includes("unknown_side_effect_tool"), "gathering 阶段必须排除未声明只读性的工具");
+
+    // 测试 planning 阶段
+    const planningGoal = createPreparationGoal("planning");
+    const planningPlan = await buildPreparationRequest(
+        planningGoal,
+        mixedTools,
+        renderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+    );
+
+    const planningSystemMsg = planningPlan.request.messages.find(m => m.role === "system")?.content ?? "";
+    assert.ok(planningSystemMsg.includes("read_file"), "planning 阶段应包含只读工具 read_file");
+    assert.ok(planningSystemMsg.includes("web_search"), "planning 阶段应包含只读工具 web_search");
+    assert.ok(planningSystemMsg.includes("custom_doc_search"), "planning 阶段应自动识别并包含扩展只读工具 custom_doc_search");
+    assert.ok(!planningSystemMsg.includes("write_file"), "planning 阶段必须严格排除写操作工具 write_file");
+    assert.ok(!planningSystemMsg.includes("bash"), "planning 阶段必须严格排除副作用工具 bash");
+    assert.ok(!planningSystemMsg.includes("unknown_side_effect_tool"), "planning 阶段必须排除未声明只读性的工具");
 });
 

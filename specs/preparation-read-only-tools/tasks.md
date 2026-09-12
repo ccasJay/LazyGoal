@@ -6,7 +6,7 @@
   - 验证方式：新增单元测试验证工具只读属性的反射与校验。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 2. 在 Agent 中实现基于只读元数据的动态工具过滤与扩展接入
+- [x] //TODO 2. 在 Agent 中实现基于只读元数据的动态工具过滤与扩展接入
   - 实现目标：重构 `packages/agent/src/prompt.ts` 的 `buildPreparationRequest`，废除硬编码逻辑，改为依据工具的 `isReadOnly` 属性动态构建准备阶段可用工具集。
   - 成功判据：模型在 `gathering_context` 与 `planning` 阶段接收到且仅接收到声明为 `isReadOnly: true` 的工具，新增只读工具无需修改 Prompt 引擎即可自动注入。
   - 验证方式：编写 `packages/agent/test/` 单元测试，验证模拟只读工具自动识别而写工具被严格排除。

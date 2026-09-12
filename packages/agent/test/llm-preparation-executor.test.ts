@@ -246,6 +246,7 @@ test("当前 planning 请求以实际 Tool Observation 能力约束证据并保�
         id: "inspect_release",
         description: "检查发布包并返回文件清单 Observation",
         inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 
     await executor.execute({
