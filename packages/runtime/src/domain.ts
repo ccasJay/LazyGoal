@@ -805,10 +805,55 @@ export interface ModelContextEpochState {
  * };
  * ```
  */
+/**
+ * 结构化模型选择与执行参数恢复契约。
+ *
+ * @remarks
+ * 记录 Goal 当前绑定的语言模型标识、供应商、结构化输出模式、容量上限与 Token 估算器。
+ * 持久化到 Goal 快照中，用于进程重启后重建完全一致的模型绑定，严禁包含 API Key、baseURL 或凭据。
+ *
+ * @example
+ * ```ts
+ * const selection: GoalModelSelection = {
+ *   provider: "anthropic",
+ *   modelId: "claude-sonnet-4-5",
+ *   structuredOutputMode: "prompt_only",
+ *   contextWindowTokens: 200000,
+ *   maxOutputTokens: 8192,
+ *   inputEstimator: { kind: "character-v1" },
+ * };
+ * ```
+ */
+export interface GoalModelSelection {
+    /** 语言模型供应商标识（如 "openai", "google", "anthropic" 等）。 */
+    readonly provider: string;
+    /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
+    readonly modelId: string;
+    /** 结构化输出模式：原生 strict 约束或 prompt_only 提示词约束。 */
+    readonly structuredOutputMode: "strict" | "prompt_only";
+    /** 模型上下文窗口 Token 容量上限。 */
+    readonly contextWindowTokens?: number | undefined;
+    /** 单次补全最大输出 Token 限制。 */
+    readonly maxOutputTokens?: number | undefined;
+    /** 输入估算器契约：字符估算或精确 Tokenizer 编码。 */
+    readonly inputEstimator:
+        | { readonly kind: "character-v1" }
+        | { readonly kind: "token-encoding"; readonly encoding: "cl100k_base" | "o200k_base" };
+}
+
+/** 缺省模型选择基准，供未显式指定模型选择的场景使用。 */
+export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
+    provider: "default",
+    modelId: "default-model",
+    structuredOutputMode: "prompt_only",
+    inputEstimator: Object.freeze({ kind: "character-v1" as const }),
+});
+
 export interface GoalState {
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;
+    readonly modelSelection: GoalModelSelection;
 }
 
 /**
@@ -978,6 +1023,21 @@ export interface GoalCreationInput {
     readonly runId: string;
     readonly maxSteps?: number;
     readonly messages?: readonly GoalMessage[];
+    /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
+    readonly modelSelection?: GoalModelSelection | undefined;
+}
+
+function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection {
+    return {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        structuredOutputMode: selection.structuredOutputMode,
+        ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
+        ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
+        inputEstimator: selection.inputEstimator.kind === "character-v1"
+            ? { kind: "character-v1" }
+            : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },
+    };
 }
 
 function cloneProfile(profile: AgentProfile): AgentProfile {
@@ -1044,6 +1104,7 @@ export function createGoal(input: GoalCreationInput): Goal {
                 ...(input.messages ?? []),
             ]),
             run: createRun(input.runId),
+            modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
         },
     };
 }

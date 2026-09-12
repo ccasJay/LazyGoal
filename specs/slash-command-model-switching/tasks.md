@@ -28,7 +28,7 @@
   - 验证方式：待实现的 fake-fetch Provider 矩阵测试；不得运行真实端点或付费模型请求。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 5. 将模型选择纳入 Goal Domain 与当前 Snapshot Schema
+- [x] //TODO 5. 将模型选择纳入 Goal Domain 与当前 Snapshot Schema
 
   - 实现目标：新增 `GoalModelSelection` 和 `GoalState.modelSelection`，扩展 Launch/Create、clone/transition、Snapshot DTO/Schema/Codec 与全部当前 fixture，保持 schemaVersion 1。
   - 成功判据：新 Goal 必须持有可重建的非敏感选择；编码再解码保持 Provider、模型、模式、容量与 estimator 描述；缺失新字段的旧开发快照明确失败；序列化结果不含 API Key、baseURL 或认证头。

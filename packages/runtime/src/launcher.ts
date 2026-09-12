@@ -1,6 +1,7 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import {
     createGoal,
+    type GoalModelSelection,
     type GoalProtocolValidator,
 } from "./domain";
 import {
@@ -48,6 +49,8 @@ export interface LaunchRequest {
     readonly profileId: string;
     /** 非负 executing Step 上限；`0` 或省略表示无限。 */
     readonly maxSteps?: number;
+    /** 可选的初始模型选择状态；未提供时由 createGoal 赋予默认基准。 */
+    readonly modelSelection?: GoalModelSelection | undefined;
 }
 
 /** 由调用方注入；生产环境可生成 UUID，测试可返回固定值。 */
@@ -174,6 +177,7 @@ export async function launch(
         profile,
         runId,
         maxSteps,
+        ...(request.modelSelection !== undefined ? { modelSelection: request.modelSelection } : {}),
     });
     const ref = { goalId: goal.id, runId };
 

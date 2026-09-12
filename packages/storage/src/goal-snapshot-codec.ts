@@ -4,6 +4,7 @@ import type {
     CompletionCriterion,
     Goal,
     GoalMessage,
+    GoalModelSelection,
     GoalTask,
     GoalWorkflowState,
     Observation,
@@ -19,6 +20,7 @@ import {
     type GoalSnapshotCompletionCriterionV1,
     type GoalSnapshotDecisionResultV1,
     type GoalSnapshotMessageV1,
+    type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
     type GoalSnapshotPendingActionV1,
     type GoalSnapshotProfileV1,
@@ -229,6 +231,19 @@ function encodeMessage(message: GoalMessage): GoalSnapshotMessageV1 {
         };
 }
 
+function encodeModelSelection(selection: GoalModelSelection): GoalSnapshotModelSelectionV1 {
+    return {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        structuredOutputMode: selection.structuredOutputMode,
+        ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
+        ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
+        inputEstimator: selection.inputEstimator.kind === "character-v1"
+            ? { kind: "character-v1" }
+            : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },
+    };
+}
+
 function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
     if (
         goal.definition.promptBundleVersion !== 1
@@ -293,6 +308,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
+            modelSelection: encodeModelSelection(goal.state.modelSelection),
         },
     };
 
@@ -455,6 +471,19 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
     };
 }
 
+function decodeModelSelection(selection: GoalSnapshotModelSelectionV1): GoalModelSelection {
+    return {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        structuredOutputMode: selection.structuredOutputMode,
+        ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
+        ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
+        inputEstimator: selection.inputEstimator.kind === "character-v1"
+            ? { kind: "character-v1" }
+            : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },
+    };
+}
+
 function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     const run = snapshot.state.run;
     return {
@@ -499,6 +528,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
+            modelSelection: decodeModelSelection(snapshot.state.modelSelection),
         },
     };
 }

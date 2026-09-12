@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    DEFAULT_GOAL_MODEL_SELECTION,
     isContextRetrievalProtocol,
 } from "../src/index";
 import type { AgentProfile, GoalMessage } from "../src/index";
@@ -71,6 +72,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
                     openedAtSequence: 0,
                 },
             },
+            modelSelection: DEFAULT_GOAL_MODEL_SELECTION,
         },
     });
     assert.notEqual(goal.id, goal.state.run.id);
@@ -217,4 +219,28 @@ test("Goal 只接受唯一当前协议组合", () => {
         profile,
         runId: "run-old-memory",
     }), /protocols/);
+});
+
+test("createGoal incorporates and isolates explicit modelSelection", () => {
+    const customSelection = {
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        structuredOutputMode: "prompt_only" as const,
+        contextWindowTokens: 200000,
+        maxOutputTokens: 8192,
+        inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },
+    };
+
+    const goal = createGoal({
+        ...currentProtocols,
+        id: "goal-custom-model",
+        intent: "自定义模型选择测试",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-custom-model",
+        modelSelection: customSelection,
+    });
+
+    assert.deepEqual(goal.state.modelSelection, customSelection);
+    assert.notEqual(goal.state.modelSelection, customSelection);
 });
