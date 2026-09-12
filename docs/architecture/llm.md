@@ -29,6 +29,8 @@ Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
 strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../packages/llm/src/core/adapter.ts)。
 
+[LlmModelCatalog](../../packages/llm/src/model-catalog.ts) 负责当前 Provider 的模型发现与能力补全：优先在线查询，并以 pi-ai 静态目录补充上下文容量、展示名与视觉能力；在网络故障、超时或端点不支持时允许目录或当前配置兜底，但遇到鉴权、权限与协议错误时坚决拒绝，且错误脱敏不包含凭据。
+
 ## 配置
 
 运行要求 Node ≥22.19.0。凭据仅取入口提供的环境并显式传入，不登录、不读取其它 API Key

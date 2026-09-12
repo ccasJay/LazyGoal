@@ -14,7 +14,7 @@
   - 验证方式：待实现的 command-aware 输入组件测试及现有 `packages/tui/test/*screen*.test.tsx` 定向回归。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [2.5](./requirements.md#req-2-5)_
 
-- [ ] //TODO 3. 实现统一模型目录、Catalog 补全与选择资格判定
+- [x] //TODO 3. 实现统一模型目录、Catalog 补全与选择资格判定
 
   - 实现目标：在 `packages/llm` 增加模型描述、pi-ai Catalog 投影、在线/Catalog 合并、稳定排序、兼容性过滤和脱敏错误分类。
   - 成功判据：在线 ID 决定在线成功时的可用集合；元数据来源独立标记；非文本、模式不兼容或缺少安全 Binding 能力的条目不可确认；允许的故障显示带 warning 的兜底，鉴权、权限和协议错误阻止选择。
