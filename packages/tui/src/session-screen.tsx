@@ -7,6 +7,7 @@ import type { UiSessionViewModel, UiTerminalSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
+import { ErrorLine } from "./error-line";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -64,7 +65,7 @@ export function SessionScreen({
         if (key.shift && key.tab) {
             void onToggleExecutionMode?.();
         }
-    });
+    }, { isActive: session.terminal === undefined && onToggleExecutionMode !== undefined });
     const staticMessages = useMemo(
         () => session.messages.slice(),
         [session.messages],
@@ -142,10 +143,15 @@ function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
             ) : null}
             {session.error === undefined
                 ? null
-                : <Text color="red">Error [{session.error.code}]: {session.error.message}</Text>}
+                : <ErrorLine error={session.error} />}
             {isActiveRun(session)
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}
+            {session.terminal === undefined ? <Text dimColor>
+                {executionMode === "yolo"
+                    ? "[Shift+Tab] Confirm at next approval  [Ctrl+C] Stop"
+                    : "[Shift+Tab] Enable YOLO  [Ctrl+C] Stop"}
+            </Text> : null}
         </Box>
     );
 }
@@ -261,7 +267,7 @@ function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.
     );
 }
 
-const ACTION_INPUT_PLACEHOLDER = "[Enter] 放行 | [Shift+Tab] 模式切换 | 输入意见拒绝";
+const ACTION_INPUT_HINT = "[Enter] Approve  Type feedback to reject";
 
 interface ActionPanelProps {
     readonly busy: boolean;
@@ -332,11 +338,11 @@ function ActionPanel({
                         key={inputKey}
                         isDisabled={busy}
                         defaultValue={inputValue}
-                        placeholder={ACTION_INPUT_PLACEHOLDER}
+                        placeholder="Feedback, or Enter to approve..."
                         onChange={setInputValue}
                         onSubmit={handleSubmit}
                     />
-                    <Text dimColor>{ACTION_INPUT_PLACEHOLDER}</Text>
+                    <Text dimColor>{ACTION_INPUT_HINT}</Text>
                 </Box>
             )}
         </Box>

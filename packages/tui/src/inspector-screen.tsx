@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdin, useStdout } from "ink";
 import wrapAnsi from "wrap-ansi";
 
 import type { UiInspectorViewModel } from "./types.js";
@@ -72,6 +72,7 @@ export function InspectorScreen({
 }: InspectorScreenProps): React.JSX.Element {
     const { exit } = useApp();
     const { stdout, write } = useStdout();
+    const { stdin } = useStdin();
     const { columns, rows } = useTerminalSize();
     const [scrollOffset, setScrollOffset] = useState(0);
     const [externalError, setExternalError] = useState<string>();
@@ -306,17 +307,26 @@ export function InspectorScreen({
         if (currentStep === undefined) return;
         setExternalError(undefined);
         let tmpDirectory: string | undefined;
+        const wasRaw = stdin.isRaw;
+        const wasFlowing = stdin.readableFlowing;
         try {
             if (onExternalView !== undefined) {
                 onExternalView(currentStep.rawJson);
                 return;
             }
-            const editor = process.env["EDITOR"] || process.env["PAGER"] || "less";
+            const editor = process.env["VISUAL"] || process.env["EDITOR"] || process.env["PAGER"] || "less";
             tmpDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "lazygoal-step-"));
             const tmpFile = path.join(tmpDirectory, "step.json");
             fs.writeFileSync(tmpFile, currentStep.rawJson, { encoding: "utf-8", mode: 0o600 });
-            if (stdout.isTTY) stdout.write("\x1b[0m\x1b[?1049l");
-            const result = spawnSync(editor, [tmpFile], { stdio: "inherit" });
+            stdin.pause();
+            if (stdin.isTTY) stdin.setRawMode(false);
+            if (stdout.isTTY) stdout.write("\x1b[0m\x1b[?1049l\x1b[?25h");
+            // 编辑器配置允许参数；临时路径通过独立参数传递，避免作为 shell 代码执行。
+            const result = process.platform === "win32"
+                ? spawnSync(process.env["ComSpec"] || "cmd.exe",
+                    ["/d", "/s", "/c", `${editor} "${tmpFile}"`], { stdio: "inherit" })
+                : spawnSync("/bin/sh", ["-c", `${editor} "$1"`, "lazygoal-editor", tmpFile],
+                    { stdio: "inherit" });
             if (result.error !== undefined) throw result.error;
             if (result.status !== 0) {
                 throw new Error("Editor exited with " + (result.signal ?? result.status));
@@ -332,14 +342,17 @@ export function InspectorScreen({
                     setExternalError("Could not remove temporary step: "
                         + (error instanceof Error ? error.message : String(error)));
                 } finally {
+                    if (stdin.isTTY) stdin.setRawMode(wasRaw);
+                    if (wasFlowing === true) stdin.resume();
                     if (stdout.isTTY) {
-                        // 通过 Ink 清除旧帧并恢复备用屏幕。
-                        write("\x1b[?1049h\x1b[2J\x1b[H");
+                        // 先切回备用屏幕，避免 Ink 清除旧帧时擦掉主屏幕中的历史。
+                        stdout.write("\x1b[?1049h\x1b[?25l");
+                        write("\x1b[2J\x1b[H");
                     }
                 }
             }
         }
-    }, [currentStep, onExternalView, stdout, write]);
+    }, [currentStep, onExternalView, stdin, stdout, write]);
 
     useInput((input, key) => {
         if (key.escape) {

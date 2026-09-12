@@ -958,6 +958,91 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
     assert.equal(sessionView(controller).runStatus, "completed");
 });
 
+test("YOLO keeps advancement serialized and switches to Confirm during an in-flight action", async () => {
+    const base = createWaitingGoal("goal-live-mode");
+    const goal: Goal = { ...base, state: { ...base.state,
+        workflow: { phase: "executing", preparation: { status: "completed" },
+            task: { objective: "Review files", completionCriteria: [] } },
+        run: { ...base.state.run, status: "waiting", pendingAction: {
+            status: "awaiting_approval",
+            action: { actionId: "act-1", toolId: "bash", input: {} },
+        } },
+    } };
+    const result: GoalProgressResult = { ok: true, kind: "waiting", phase: "executing",
+        waitingFor: "action_approval", goal };
+    let resolvePending!: (val: GoalProgressResult) => void;
+    const pendingPromise = new Promise<GoalProgressResult>((resolve) => {
+        resolvePending = resolve;
+    });
+    const pending = {
+        promise: pendingPromise,
+        resolve: resolvePending,
+    };
+    const requests: ResumeGoalRequest[] = [];
+    const coordinator: SessionCoordinator = {
+        advance: async () => result,
+        resume: async request => { requests.push(request); return pending.promise; },
+    };
+    const controller = new SessionController({
+        ...dependencies(new FakeLauncher(result), coordinator, new FakeStore([]), new FakeCatalog([])),
+        initialGoal: goal,
+    });
+    const running = controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+    assert.equal(sessionView(controller).busy, true);
+    assert.equal(requests.length, 1);
+    await controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+    assert.equal(requests.length, 1, "setting the mode while busy must not approve twice");
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(sessionView(controller).executionMode, "confirm");
+    assert.equal(sessionView(controller).busy, true);
+    await assert.rejects(controller.dispatch({ kind: "approveAction", actionId: "act-1" }),
+        error => error instanceof UiDispatchRejectedError && error.code === "UI_BUSY");
+    resolvePending({ ...result, goal: { ...goal, state: { ...goal.state,
+        run: { ...goal.state.run, pendingAction: { status: "awaiting_approval",
+            action: { actionId: "act-2", toolId: "bash", input: {} } } },
+    } } });
+    await running;
+    assert.equal(requests.length, 1, "Confirm must leave the next action for the user");
+    assert.equal(sessionView(controller).pendingAction?.action.actionId, "act-2");
+    assert.equal(sessionView(controller).busy, false);
+});
+
+test("YOLO publishes busy snapshots throughout consecutive approvals", async () => {
+    const base = createWaitingGoal("goal-auto-chain");
+    const resultAt = (index: number): GoalProgressResult => ({
+        ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
+        goal: { ...base, state: { ...base.state,
+            workflow: { phase: "executing", preparation: { status: "completed" },
+                task: { objective: "Review files", completionCriteria: [] } },
+            run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
+                status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
+            } },
+        } },
+    });
+    let count = 0;
+    const coordinator: SessionCoordinator = {
+        advance: async () => resultAt(0),
+        resume: async () => resultAt(++count),
+    };
+    const controller = new SessionController({
+        ...dependencies(new FakeLauncher(resultAt(0)), coordinator, new FakeStore([]), new FakeCatalog([])),
+        initialExecutionMode: "yolo",
+    });
+    const states: boolean[] = [];
+    controller.subscribe(() => {
+        const view = controller.getSnapshot();
+        if (view.screen !== "session") return;
+        states.push(view.busy);
+        if (view.stepCount === 100 && view.executionMode === "yolo") {
+            void controller.dispatch({ kind: "setExecutionMode", mode: "confirm" });
+        }
+    });
+    await controller.dispatch({ kind: "create", intent: "Review files" });
+    assert.equal(count, 100);
+    assert.equal(states.at(-1), false);
+    assert.ok(states.slice(0, -1).every(Boolean), "the lock is released only after the chain ends");
+});
+
 test("openInspector, inspectStep, and toggleReasoning manage inspector state", async () => {
     const goal = createWaitingGoal();
     const coordinator = new FakeCoordinator(waitingResult(goal));
@@ -1164,4 +1249,3 @@ test("inspect mode selectGoal reports TRAJECTORY_NOT_FOUND when readTrajectory i
     assert.equal(view.screen, "goal_select");
     assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
 });
-

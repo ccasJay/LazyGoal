@@ -4,8 +4,8 @@ import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { join, resolve } from "node:path";
-import React, { useEffect, useRef, useSyncExternalStore } from "react";
-import { useInput, useStdout, render as inkRender } from "ink";
+import React, { useRef, useSyncExternalStore } from "react";
+import { useInput, render as inkRender } from "ink";
 
 import {
     CheckpointGateGoalStore,
@@ -964,15 +964,6 @@ function TuiMountHost({
     readonly state: TuiMountState;
     readonly onShutdown: () => Promise<void>;
 }): React.JSX.Element {
-    const { stdout, write } = useStdout();
-    useEffect(() => {
-        if (!stdout?.isTTY) return;
-        write("\x1b[?1049h\x1b[2J\x1b[H");
-        return () => {
-            write("\x1b[0m\x1b[?1049l");
-        };
-    }, [stdout, write]);
-
     const revision = useSyncExternalStore(
         (listener) => {
             state.listeners.add(listener);
@@ -1027,10 +1018,11 @@ export function mountTuiApp(options: MountTuiOptions): MountedTuiApp {
  * 执行一次 lazygoal CLI 命令。
  *
  * @remarks
- * 环境变量和工作区在创建 TUI 前校验。空参数渲染 intent 页面；`resume` 先
+ * 环境变量和工作区在创建 TUI 前校验。空参数渲染主页；`resume` 先
  * 打开 Catalog 选择页；`-c` 先确认有候选项，再委托 Controller 选择排序首项。
  * 该函数不调用 `process.exit`，调用方通过返回码决定进程退出；Ctrl+C 会进入
- * `ShutdownCoordinator` 管理的幂等关闭流程。
+ * `ShutdownCoordinator` 管理的幂等关闭流程。菜单退出返回 0；初始化失败也会
+ * 卸载已挂载的 Ink、恢复终端并释放 Controller 订阅。
  *
  * @param argv - 不包含 Node/bin 路径的 CLI 参数。
  * @param options - 测试可注入的环境、工作区、渲染器和错误输出。
@@ -1147,7 +1139,9 @@ export async function runCli(
                 ? root.controller.dispatch({ kind: "openHistory" })
                 : undefined;
         app = mountTuiApp({
-            controller: root.controller,
+            ...(command.kind === "inspect" && command.goalId !== undefined
+                ? { initialStatus: "Loading trajectory..." }
+                : { controller: root.controller }),
             onShutdown: requestShutdown,
             render: renderer,
         });
@@ -1204,6 +1198,7 @@ export async function runCli(
                     goalId: command.goalId,
                     steps,
                 });
+                app.setController?.(root.controller);
             }
         }
 
@@ -1217,6 +1212,14 @@ export async function runCli(
         return 1;
     } finally {
         unregisterSigint?.();
+        root.controller.dispose();
+        if (shutdownPromise === undefined) {
+            root.checkpointStore.freeze();
+            root.abortController.abort();
+            app?.unmount();
+            if (app !== undefined) await app.waitUntilExit();
+            await root.resources.closeAll();
+        }
     }
 }
 
