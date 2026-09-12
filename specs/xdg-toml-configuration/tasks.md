@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 实现 XDG 基础目录解析与权限安全管理
+- [x] //TODO 1. 实现 XDG 基础目录解析与权限安全管理
 
   - 实现目标：在 `packages/llm` 中实现 `resolveXdgPaths()`，准确识别 `$XDG_CONFIG_HOME` 并缺省回退至 `$HOME/.config/lazygoal`，支持目录与敏感文件的 POSIX 安全权限管理（0700/0600）。
   - 成功判据：自定义环境变量与缺省路径均能正确解析；目录与新建配置文件权限符合 POSIX 安全预期。
