@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/llm/test/xdg.test.ts` 单元测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 2. 引入轻量 TOML 解析与模式强校验器
+- [x] //TODO 2. 引入轻量 TOML 解析与模式强校验器
 
   - 实现目标：引入轻量纯 TS TOML 解析库，实现 `config.toml` 与用户级 `profiles/<profile>.toml` 的结构化小节解析与语义校验，精准报告语法错误行号。
   - 成功判据：合法的 TOML 成功解析为对应配置对象；语法错误或未知字段精准输出包含行号、文件名的结构化异常；Profile 切换与不存在校验准确报错。
