@@ -164,7 +164,7 @@ export function ModelSelector({
                                     <Box key={model.id}>
                                         <Text
                                             bold={isFocused}
-                                            color={!model.selectable ? "gray" : isFocused ? "green" : undefined}
+                                            {...(!model.selectable ? { color: "gray" as const } : isFocused ? { color: "green" as const } : {})}
                                         >
                                             {prefix}
                                             {model.displayName}

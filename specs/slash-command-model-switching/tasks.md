@@ -63,7 +63,7 @@
   - 验证方式：待实现及更新的 CLI/Controller 集成测试；通过 fake Adapter metadata 断言 Preparation 与 executing 的下一次请求实际采用新模型。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 10. 补齐跨组件回归与敏感信息隔离测试
+- [x] //TODO 10. 补齐跨组件回归与敏感信息隔离测试
 
   - 实现目标：补齐从命令输入到选择、切换、后续调用和进程恢复的自动化组合流，并更新依赖检查对新 Package 的覆盖。
   - 成功判据：普通输入、Action 审批、关闭与单 Controller 串行化保持原行为；命令文本不进入 Conversation；测试用 canary secret 不出现在 Snapshot、Trajectory、Trace、ViewModel、错误或捕获输出中；所有验收分支都有可归属断言。
@@ -91,5 +91,10 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- 验证状态：通过 (PASS)
+- 测试套件总计：980 个测试用例全部通过（单元测试 + 集成测试 967/967 通过，scripts 依赖/文档/索引测试 13/13 通过）。
+- 依赖边界：132 个源文件通过 `scripts/check-dependencies.mjs` 校验，无非法跨包依赖。
+- 敏感隔离：金丝雀凭证（canary secret）经扫描未泄漏至任何快照、轨迹、Trace 日志与 ViewModel 树中。
+- 类型安全：TypeScript 严苛类型检查（含 `exactOptionalPropertyTypes`）零错误。
+- 差异检查：`git diff --check` 零违规。
 

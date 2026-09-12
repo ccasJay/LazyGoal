@@ -6,6 +6,7 @@ import type {
     LaunchResult,
 } from "../../runtime/src/index";
 import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
+import type { LlmConfig } from "../../llm/src/config";
 import {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,
@@ -871,9 +872,15 @@ export class SessionController {
         }
 
         try {
+            const currentModelId = this.snapshot.screen === "model_select"
+                ? this.snapshot.currentModelId
+                : (this.dependencies.defaultModelSelection?.modelId ?? "default");
+            const defaultSelection = this.dependencies.defaultModelSelection;
             const config: LlmConfig = this.dependencies.llmConfig ?? {
-                provider: "openai",
-                model: this.snapshot.currentModelId,
+                provider: (defaultSelection?.provider as any) ?? "openai",
+                model: currentModelId,
+                apiKey: "",
+                structuredOutputMode: defaultSelection?.structuredOutputMode ?? "strict",
             };
             const listResult = await this.dependencies.modelCatalog.list(
                 config,
@@ -996,12 +1003,12 @@ export class SessionController {
         this.previousSnapshotBeforeModelSelect = undefined;
 
         if (prev !== undefined) {
+            const { error: _, ...rest } = prev as unknown as Record<string, unknown>;
             this.setSnapshot({
-                ...prev,
+                ...rest,
                 busy: false,
-                error: undefined,
                 ...(notice !== undefined ? { notice } : {}),
-            });
+            } as UiViewModel);
         } else {
             this.setSnapshot({
                 screen: "intent_input",

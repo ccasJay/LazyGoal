@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LlmConfig, LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/index";
+import type { LlmConfig } from "../../llm/src/config";
+import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import {
     createGoal,
     type Goal,
@@ -93,14 +94,14 @@ function createRunningGoal(id = "goal-running"): Goal {
             ...goal.state,
             run: {
                 ...goal.state.run,
-                status: "running",
+                status: "created",
             },
             workflow: {
                 phase: "executing",
                 preparation: { status: "completed" },
                 task: {
-                    title: "Test task",
-                    description: "Test task description",
+                    objective: "Test task",
+                    completionCriteria: [],
                 },
             },
         },
@@ -108,20 +109,20 @@ function createRunningGoal(id = "goal-running"): Goal {
 }
 
 function waitingResult(goal: Goal, waitingFor: "question" | "approval" = "question"): GoalProgressResult {
+    if (waitingFor === "approval") {
+        return {
+            ok: true,
+            kind: "waiting",
+            phase: "planning",
+            waitingFor: "approval",
+            goal,
+        };
+    }
     return {
         ok: true,
         kind: "waiting",
         phase: "gathering_context",
-        waitingFor,
-        goal,
-    };
-}
-
-function runningResult(goal: Goal): GoalProgressResult {
-    return {
-        ok: true,
-        kind: "running",
-        phase: "executing",
+        waitingFor: "question",
         goal,
     };
 }
@@ -346,7 +347,7 @@ test("selectModel successfully switches model and calls modelSwitcher callback",
                 switchModel: async ({ goal, targetModel }) => {
                     if (goal) switchedGoals.push(goal.id);
                     switchedModels.push(targetModel.id);
-                    return { ok: true, goal };
+                    return goal !== undefined ? { ok: true, goal } : { ok: true };
                 },
             },
         }),

@@ -3,7 +3,7 @@ import { afterEach, test } from "node:test";
 import React from "react";
 import { cleanup, render } from "ink-testing-library";
 
-import type { LlmModelDescriptor } from "../../llm/src/index";
+import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
 import { ModelSelector } from "../src/index";
 
 afterEach(() => {
@@ -49,13 +49,12 @@ function createModel(
     return {
         id,
         displayName,
-        providerType: "anthropic",
+        provider: "anthropic",
         selectable,
         unavailableReason,
-        availabilitySource: "live_fetch",
+        availabilitySource: "live",
         metadataSource: "catalog",
         contextWindowTokens: contextTokens,
-        structuredOutputs: true,
     };
 }
 

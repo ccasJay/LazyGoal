@@ -163,7 +163,8 @@ export interface UiGoalSelectViewModel {
     readonly screen: "goal_select";
     readonly busy: boolean;
     readonly goals: readonly GoalCatalogEntry[];
-    readonly error?: UiError;
+    readonly error?: UiError | undefined;
+    readonly notice?: UiNotice | undefined;
 }
 
 /**
@@ -400,30 +401,30 @@ export interface SessionControllerDependencies {
     /** 每次合法 create 命令生成一次稳定 Goal ID。 */
     readonly goalIdGenerator: () => string;
     /** 可选的 executing Step 上限。 */
-    readonly maxSteps?: number;
+    readonly maxSteps?: number | undefined;
     /** 贯穿本次 Controller 调用链的可选中止控制。 */
-    readonly control?: ExecutionControl;
+    readonly control?: ExecutionControl | undefined;
     /** 可选已提交快照保存通知源。 */
-    readonly notifyingStore?: { onSave(listener: (goal: Goal) => void): () => void };
+    readonly notifyingStore?: { onSave(listener: (goal: Goal) => void): () => void } | undefined;
     /** 可选执行模式（"auto" 或 "review"）。 */
-    readonly mode?: "auto" | "review";
+    readonly mode?: "auto" | "review" | undefined;
     /** 可选任务标识或标题。 */
-    readonly taskTitle?: string;
+    readonly taskTitle?: string | undefined;
     /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
-    readonly initialGoal?: import("../../runtime/src/index.js").Goal;
+    readonly initialGoal?: import("../../runtime/src/index.js").Goal | undefined;
     /** 可选的模型目录服务，用于支持 /model 命令查询。 */
-    readonly modelCatalog?: LlmModelCatalog;
+    readonly modelCatalog?: LlmModelCatalog | undefined;
     /** 可选的模型配置，用于目录查询与上下文校验。 */
-    readonly llmConfig?: LlmConfig;
+    readonly llmConfig?: LlmConfig | undefined;
     /** 可选的模型切换处理句柄，供 selectModel 命令执行原子切换。 */
     readonly modelSwitcher?: {
         switchModel(options: {
             readonly goal?: Goal | undefined;
             readonly targetModel: LlmModelDescriptor;
         }): Promise<{ readonly ok: true; readonly goal?: Goal } | { readonly ok: false; readonly error: UiError }>;
-    };
+    } | undefined;
     /** 当前默认模型 ID。 */
-    readonly defaultModelId?: string;
+    readonly defaultModelId?: string | undefined;
     /** 可选的初始模型选择，用于新建 Goal。 */
     readonly defaultModelSelection?: GoalModelSelection | undefined;
     /** 可选的模型恢复校验器，供恢复 Goal 时校验与重建 Binding。 */
@@ -431,7 +432,7 @@ export interface SessionControllerDependencies {
         restoreModel(options: {
             readonly goal: Goal;
         }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: UiError }>;
-    };
+    } | undefined;
 }
 
 /**

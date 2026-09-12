@@ -693,10 +693,10 @@ export async function createCompositionRoot(
         structuredOutputMode: adapter.structuredOutputMode ?? "prompt_only",
         contextWindowTokens: modelCapabilities?.contextWindowTokens,
         maxOutputTokens: modelCapabilities?.maxOutputTokens,
-        inputEstimator: modelCapabilities !== undefined
+        inputEstimator: (modelCapabilities !== undefined && "encoding" in modelCapabilities.tokenEstimator)
             ? {
                 kind: "token-encoding",
-                encoding: modelCapabilities.tokenEstimator.encoding === "o200k_base" ? "o200k_base" : "cl100k_base",
+                encoding: (modelCapabilities.tokenEstimator as { encoding?: unknown }).encoding === "o200k_base" ? "o200k_base" : "cl100k_base",
             }
             : { kind: "character-v1" },
     };

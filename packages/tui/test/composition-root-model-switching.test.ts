@@ -34,7 +34,6 @@ class FakeAdapter implements LLMAdapter {
                     memoryPatch: null,
                 },
             }),
-            raw: {},
         };
     }
 }
@@ -228,7 +227,7 @@ test("活动 Goal 保存失败时维持旧选择与旧 Binding", async () => {
                     return {
                         ok: false,
                         error: {
-                            code: "SNAPSHOT_PERSISTENCE_FAILED",
+                            code: "SAVE_FAILED",
                             message: "Disk write error",
                         },
                     };
@@ -257,7 +256,7 @@ test("活动 Goal 保存失败时维持旧选择与旧 Binding", async () => {
         // 界面停留在 model_select 并显示错误
         const view = root.controller.getSnapshot();
         assert.equal(view.screen, "model_select");
-        assert.equal(view.error?.code, "SNAPSHOT_PERSISTENCE_FAILED");
+        assert.equal(view.error?.code, "SAVE_FAILED");
 
         // Binding 保持原样，未被发布新代号
         assert.equal(root.modelBinding.current().generation, preBinding.generation);
