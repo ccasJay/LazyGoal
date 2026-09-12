@@ -24,7 +24,7 @@
   - 验证方式：新增 `packages/tui/test/step-waterfall-item.test.tsx` 单元测试覆盖正常与截断场景。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 5. 重构 SessionScreen 瀑布流布局与底部活动抽屉
+- [x] //TODO 5. 重构 SessionScreen 瀑布流布局与底部活动抽屉
   - 实现目标：重构 `packages/tui/src/session-screen.tsx`，将已完成步骤推入 Ink `<Static>` 区域以提交至终端历史，底部收敛为活动抽屉渲染运行中 Spinner、审批面板或终态摘要。
   - 成功判据：多步执行时，旧步骤行完全保留在终端 scrollback 中，不发生原地擦除覆盖；底部动态区域清晰切换交互态。
   - 验证方式：在 `packages/tui/test/session-screen.test.tsx` 中使用 `ink-testing-library` 断言多步提交时终端帧保留所有历史步骤。

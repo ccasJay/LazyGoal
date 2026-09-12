@@ -1,14 +1,70 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text } from "ink";
 import { ConfirmInput, TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
-import type { UiSessionViewModel, UiTerminalSummary } from "./types";
+import type { UiSessionViewModel, UiStepSummary, UiTerminalSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
+import { StepWaterfallItem } from "./step-waterfall-item";
 
 const MAX_ACTION_JSON_CHARS = 500;
+
+type TimelineItem =
+    | { readonly kind: "message"; readonly id: string; readonly message: GoalMessage }
+    | { readonly kind: "step"; readonly id: string; readonly step: UiStepSummary };
+
+function useTimelineItems(session: UiSessionViewModel): TimelineItem[] {
+    const goalIdRef = useRef(session.goal.id);
+    const seenMessageCountRef = useRef(0);
+    const seenStepNumbersRef = useRef<Set<number>>(new Set());
+    const itemsRef = useRef<TimelineItem[]>([]);
+
+    if (goalIdRef.current !== session.goal.id) {
+        goalIdRef.current = session.goal.id;
+        seenMessageCountRef.current = 0;
+        seenStepNumbersRef.current = new Set();
+        itemsRef.current = [];
+    }
+
+    let hasNewItems = false;
+    const currentItems = itemsRef.current;
+
+    if (session.messages.length > seenMessageCountRef.current) {
+        for (let i = seenMessageCountRef.current; i < session.messages.length; i++) {
+            const message = session.messages[i]!;
+            currentItems.push({
+                kind: "message",
+                id: `msg-${session.goal.id}-${i}`,
+                message,
+            });
+        }
+        seenMessageCountRef.current = session.messages.length;
+        hasNewItems = true;
+    }
+
+    if (session.committedSteps !== undefined) {
+        for (const step of session.committedSteps) {
+            if (!seenStepNumbersRef.current.has(step.stepNumber)) {
+                seenStepNumbersRef.current.add(step.stepNumber);
+                currentItems.push({
+                    kind: "step",
+                    id: `step-${session.goal.id}-${step.stepNumber}`,
+                    step,
+                });
+                hasNewItems = true;
+            }
+        }
+    }
+
+    const snapshotRef = useRef<TimelineItem[]>(currentItems.slice());
+    if (hasNewItems) {
+        snapshotRef.current = currentItems.slice();
+    }
+
+    return snapshotRef.current;
+}
 
 /**
  * SessionScreen 的执行交互回调边界。
@@ -16,8 +72,8 @@ const MAX_ACTION_JSON_CHARS = 500;
  * @remarks
  * Screen 只消费 Controller 提供的不可变 Session 快照。它不会修改 Goal、推断
  * Action 状态或自行生成 actionId；批准和拒绝始终沿用快照中的同一个 Action。
- * `busy` 或终态时所有推进控件均停用，消息历史通过 Ink `Static` 保留终端
- * scrollback。
+ * `busy` 或终态时所有推进控件均停用，消息历史与已完成步骤通过 Ink `Static`
+ * 保留终端 scrollback。
  *
  * @example
  * ```tsx
@@ -45,7 +101,7 @@ export interface SessionScreenProps {
 }
 
 /**
- * 渲染 executing 阶段的消息、状态、Action 等待点和终态摘要。
+ * 渲染 executing 阶段的瀑布流历史（消息与步骤）以及底部的动态活动抽屉。
  *
  * @param props - Session 快照与语义化恢复回调。
  * @returns Ink 渲染树。
@@ -56,28 +112,84 @@ export function SessionScreen({
     onApproveAction,
     onRejectAction,
 }: SessionScreenProps): React.JSX.Element {
-    const staticMessages = useMemo(
-        () => session.messages.slice(),
-        [session.messages],
+    const timelineItems = useTimelineItems(session);
+
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Static items={timelineItems}>
+                {(item) =>
+                    item.kind === "message" ? (
+                        <MessageLine key={item.id} message={item.message} />
+                    ) : (
+                        <StepWaterfallItem key={item.id} step={item.step} />
+                    )
+                }
+            </Static>
+            <ActiveDrawer
+                session={session}
+                onSubmitMessage={onSubmitMessage}
+                onApproveAction={onApproveAction}
+                onRejectAction={onRejectAction}
+            />
+        </Box>
     );
+}
+
+/**
+ * 底部动态活动抽屉的展示与交互契约。
+ *
+ * @remarks
+ * ActiveDrawer 负责渲染执行状态头部、正在运行的 Spinner、以及当前交互或终态面板。
+ * 它不包含历史消息与已提交步骤（由上层 Static 瀑布流管理），避免了终端原地擦除。
+ *
+ * @example
+ * ```tsx
+ * <ActiveDrawer
+ *   session={session}
+ *   onSubmitMessage={handleSubmit}
+ *   onApproveAction={handleApprove}
+ *   onRejectAction={handleReject}
+ * />
+ * ```
+ */
+export interface ActiveDrawerProps {
+    /** 当前单 Goal 会话的不可变 ViewModel。 */
+    readonly session: UiSessionViewModel;
+    /** blocked 等待点提交非空文本的恢复回调。 */
+    readonly onSubmitMessage: (content: string) => void | Promise<void>;
+    /** 批准当前 pending Action 的回调；参数必须来自快照中的 actionId。 */
+    readonly onApproveAction: (actionId: string) => void | Promise<void>;
+    /** 带理由拒绝当前 pending Action 的回调。 */
+    readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
+}
+
+/**
+ * 渲染底部的动态活动抽屉。
+ *
+ * @param props - Session 快照与语义化恢复回调。
+ * @returns Ink 渲染树。
+ */
+export function ActiveDrawer({
+    session,
+    onSubmitMessage,
+    onApproveAction,
+    onRejectAction,
+}: ActiveDrawerProps): React.JSX.Element {
     const terminal = terminalFor(session);
 
     return (
         <Box flexDirection="column" gap={1}>
-            <Static items={staticMessages}>
-                {(message, index) => (
-                    <MessageLine key={`${message.role}-${index}`} message={message} />
-                )}
-            </Static>
             <SessionStatus session={session} />
-            {terminal !== undefined
-                ? <TerminalPanel terminal={terminal} />
-                : <SessionInteraction
+            {terminal !== undefined ? (
+                <TerminalPanel terminal={terminal} />
+            ) : (
+                <SessionInteraction
                     session={session}
                     onSubmitMessage={onSubmitMessage}
                     onApproveAction={onApproveAction}
                     onRejectAction={onRejectAction}
-                />}
+                />
+            )}
         </Box>
     );
 }
@@ -116,16 +228,6 @@ function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
             <Text>
                 Phase: {session.phase} | Run: {session.runStatus} | Steps: {session.stepCount}
             </Text>
-            {session.lastCommittedAction !== undefined ? (
-                <Text color="gray">
-                    Last Action: [{session.lastCommittedAction.toolId}] ({session.lastCommittedAction.actionId})
-                </Text>
-            ) : null}
-            {session.lastCommittedObservation !== undefined ? (
-                <Text color="gray">
-                    Last Observation: [{session.lastCommittedObservation.toolId}] {session.lastCommittedObservation.status}
-                </Text>
-            ) : null}
             {session.cleaning ? (
                 <Text color="magenta">Cleaning up sandbox resources...</Text>
             ) : null}

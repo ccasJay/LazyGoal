@@ -12,6 +12,7 @@ import {
 import {
     SessionScreen,
     type UiSessionViewModel,
+    type UiStepSummary,
 } from "../src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 
@@ -453,3 +454,152 @@ test("SessionScreen renders terminal summary and accepts no further input", asyn
 
     assert.deepEqual(events, []);
 });
+
+const step1: UiStepSummary = {
+    stepNumber: 1,
+    toolId: "read_file",
+    actionId: "act-1",
+    status: "success",
+    inputSummary: "path: README.md",
+    outputSummary: "file content 20 lines",
+};
+
+const step2: UiStepSummary = {
+    stepNumber: 2,
+    toolId: "bash",
+    actionId: "act-2",
+    status: "success",
+    inputSummary: "pytest tests/",
+    outputSummary: "14 tests passed",
+};
+
+const step3: UiStepSummary = {
+    stepNumber: 3,
+    toolId: "patch_file",
+    actionId: "act-3",
+    status: "failure",
+    inputSummary: "src/main.py",
+    outputSummary: "patch rejected: hunk failed",
+};
+
+test("SessionScreen renders committed steps in waterfall Static and preserves history across rerenders", () => {
+    const goal = executingGoal("goal-waterfall");
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 0,
+                committedSteps: [],
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    // 初始状态：包含 messages，尚无 steps
+    let frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Inspect the repository/);
+    assert.doesNotMatch(frame, /Step 1:/);
+
+    // 推进到 Step 1
+    instance.rerender(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 1,
+                committedSteps: [step1],
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    frame = instance.lastFrame() ?? "";
+    assert.match(frame, /✔\s+Step 1:\s*\[read_file\]\s*path: README\.md\s*\(file content 20 lines\)/);
+
+    // 推进到 Step 2
+    instance.rerender(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 2,
+                committedSteps: [step1, step2],
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    frame = instance.lastFrame() ?? "";
+    // 断言 Step 1 和 Step 2 都在终端中，且 Step 1 在 Step 2 之前（不发生原地覆盖擦除）
+    const idxStep1 = frame.indexOf("Step 1: [read_file]");
+    const idxStep2 = frame.indexOf("Step 2: [bash]");
+    assert.ok(idxStep1 !== -1, "Step 1 must be present in output");
+    assert.ok(idxStep2 !== -1, "Step 2 must be present in output");
+    assert.ok(idxStep1 < idxStep2, "Step 1 must appear before Step 2");
+
+    // 推进到 Step 3 (失败)
+    instance.rerender(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 3,
+                committedSteps: [step1, step2, step3],
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    frame = instance.lastFrame() ?? "";
+    const idxStep3 = frame.indexOf("Step 3: [patch_file]");
+    assert.ok(idxStep3 !== -1, "Step 3 must be present in output");
+    assert.ok(idxStep2 < idxStep3, "Step 2 must appear before Step 3");
+    assert.match(frame, /✖\s+Step 3:\s*\[patch_file\]/);
+});
+
+test("SessionScreen retains waterfall steps above Action approval drawer", () => {
+    const goal = executingGoal("goal-waterfall-action");
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 1,
+                committedSteps: [step1],
+                waitingFor: "action_approval",
+                pendingAction: action(),
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Step 1:\s*\[read_file\]/);
+    assert.match(frame, /Action approval required/);
+    assert.match(frame, /Action ID: action-1/);
+});
+
+test("SessionScreen retains full waterfall steps when reaching terminal state", () => {
+    const goal = executingGoal("goal-waterfall-terminal");
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                stepCount: 2,
+                committedSteps: [step1, step2],
+                runStatus: "completed",
+                terminal: {
+                    status: "completed",
+                    summary: "Inspection fully completed.",
+                },
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Step 1:\s*\[read_file\]/);
+    assert.match(frame, /Step 2:\s*\[bash\]/);
+    assert.match(frame, /Run completed/);
+    assert.match(frame, /Summary: Inspection fully completed\./);
+});
+
