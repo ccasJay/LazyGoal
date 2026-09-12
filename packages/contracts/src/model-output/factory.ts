@@ -13,6 +13,8 @@ import {
     ExecutingWorkingMemoryPatchContract,
     GatheringPreparationResultContract,
     ModelContextCheckpointResultContract,
+    NonProbeGatheringPreparationResultContract,
+    NonProbePlanningPreparationResultContract,
     NonToolExecutingDecisionContract,
     PlanningPreparationResultContract,
     type PreparationResult,
@@ -258,8 +260,8 @@ export function createModelOutputContractBundle(
                 .filter(isReadOnlyToolContract);
 
             if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = GatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = deriveWireEnvelopeContract(GatheringPreparationResultContract);
+                canonicalContract = NonProbeGatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(NonProbeGatheringPreparationResultContract);
             } else {
                 const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
                 const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
@@ -292,8 +294,8 @@ export function createModelOutputContractBundle(
                 .filter(isReadOnlyToolContract);
 
             if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = PlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = deriveWireEnvelopeContract(PlanningPreparationResultContract);
+                canonicalContract = NonProbePlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(NonProbePlanningPreparationResultContract);
             } else {
                 const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
                 const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);

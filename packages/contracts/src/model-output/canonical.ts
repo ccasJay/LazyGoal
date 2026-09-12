@@ -738,6 +738,26 @@ export const GatheringPreparationResultContract = contract.discriminatedUnion("k
 export type GatheringPreparationResult = InferContract<typeof GatheringPreparationResultContract>;
 
 /**
+ * 未授权任何只读 Tool 时的 Gathering 阶段结果契约。
+ *
+ * @remarks
+ * 省略 probe_action 分支，仅允许 question、context_ready 与 context_lookup。
+ *
+ * @example
+ * ```ts
+ * const parsed = safeParse(NonProbeGatheringPreparationResultContract, result);
+ * ```
+ */
+export const NonProbeGatheringPreparationResultContract = contract.discriminatedUnion("kind", [
+    QuestionPreparationResultContract,
+    ContextReadyPreparationResultContract,
+    ContextLookupRequestContract,
+]);
+
+/** 未授权任何只读 Tool 时的 Gathering 阶段结果公开类型。 */
+export type NonProbeGatheringPreparationResult = InferContract<typeof NonProbeGatheringPreparationResultContract>;
+
+/**
  * Planning 阶段专属 Preparation 结果契约。
  *
  * @remarks
@@ -751,6 +771,25 @@ export const PlanningPreparationResultContract = contract.discriminatedUnion("ki
 
 /** Planning 阶段结果公开类型。 */
 export type PlanningPreparationResult = InferContract<typeof PlanningPreparationResultContract>;
+
+/**
+ * 未授权任何只读 Tool 时的 Planning 阶段结果契约。
+ *
+ * @remarks
+ * 省略 probe_action 分支，仅允许 task_proposal 与 context_lookup。
+ *
+ * @example
+ * ```ts
+ * const parsed = safeParse(NonProbePlanningPreparationResultContract, result);
+ * ```
+ */
+export const NonProbePlanningPreparationResultContract = contract.discriminatedUnion("kind", [
+    TaskProposalPreparationResultContract,
+    ContextLookupRequestContract,
+]);
+
+/** 未授权任何只读 Tool 时的 Planning 阶段结果公开类型。 */
+export type NonProbePlanningPreparationResult = InferContract<typeof NonProbePlanningPreparationResultContract>;
 
 /**
  * 完整 Preparation 结果契约。

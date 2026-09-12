@@ -30,7 +30,7 @@
   - 验证方式：在 `packages/tui/test/` 中使用 `ink-testing-library` 断言准备阶段多步探查在终端帧中累积留存。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 6. 全量集成验证与端到端回归
+- [x] //TODO 6. 全量集成验证与端到端回归
   - 实现目标：执行全量回归套件，验证新特性在端到端 CLI 与评测管线中运行平稳。
   - 成功判据：全量测试套件 100% 通过，无类型错误，架构规范测试全部通过。
   - 验证方式：运行 `node scripts/run-regression.mjs`。
