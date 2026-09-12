@@ -114,7 +114,9 @@ export function createModelExecutionBinding(
         throw new RangeError("Generation must be a positive safe integer");
     }
 
-    if (input.adapter.structuredOutputMode !== input.selection.structuredOutputMode) {
+    const adapterMode = input.adapter.structuredOutputMode ?? "prompt_only";
+    const selectionMode = input.selection.structuredOutputMode ?? "prompt_only";
+    if (adapterMode !== selectionMode) {
         throw new ModelCapabilitiesError(
             `Adapter structuredOutputMode "${input.adapter.structuredOutputMode}" does not match selection structuredOutputMode "${input.selection.structuredOutputMode}"`,
         );

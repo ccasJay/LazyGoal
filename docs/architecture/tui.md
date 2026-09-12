@@ -110,6 +110,14 @@ Controller 仅允许在 `intent_input` 或安全文本等待点（question、app
 用户按 ESC 取消时中止请求并无缝恢复原页面；选择合法模型时调用协调器或原子更新会话，
 并展示瞬时 notice 提示，下一次交互命令自动清除。
 
+Composition Root 组装单一 `MutableModelBinding` 并注入给 `LLMPreparationExecutor` 与
+`LLMStepExecutor`，使两个 Executor 无需直接感知切换时机即可透明读取最新不可变 Binding；
+组装的 `modelSwitcher` 遵循三阶段原子切换：先离线通过 `createCandidate` 校验能力与预算并构建候选 Binding，
+再对活动 Goal 委托 `GoalModelSelectionCoordinator` 保存快照，快照写入成功后同步且无异常地 `publish` 候选 Binding，
+若保存失败则维持旧 Binding 不变；组装的 `modelRestorer` 在 Goal 恢复时校验快照内的模型选择与当前进程 Provider 的兼容性，
+若兼容则重建 Binding，若显式锁定不兼容 Provider 则拒绝推进并转入 `model_select` 错误态，防止模型错配。
+
+
 ## 关闭流程
 
 - CLI bin shim 通过绝对解析的 `tsx/esm` loader 启动 TSX 源码，因此从其他

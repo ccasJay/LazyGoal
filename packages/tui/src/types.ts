@@ -13,6 +13,7 @@ import type {
     ResumeGoalRequest,
     RunRef,
     RunStatus,
+    GoalModelSelection,
 } from "../../runtime/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
@@ -423,6 +424,14 @@ export interface SessionControllerDependencies {
     };
     /** 当前默认模型 ID。 */
     readonly defaultModelId?: string;
+    /** 可选的初始模型选择，用于新建 Goal。 */
+    readonly defaultModelSelection?: GoalModelSelection | undefined;
+    /** 可选的模型恢复校验器，供恢复 Goal 时校验与重建 Binding。 */
+    readonly modelRestorer?: {
+        restoreModel(options: {
+            readonly goal: Goal;
+        }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: UiError }>;
+    };
 }
 
 /**

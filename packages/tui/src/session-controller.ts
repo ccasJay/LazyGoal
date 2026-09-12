@@ -272,6 +272,20 @@ export class SessionController {
             ...(this.dependencies.maxSteps === undefined
                 ? {}
                 : { maxSteps: this.dependencies.maxSteps }),
+            ...(this.selectedModelId !== undefined
+                ? {
+                    modelSelection: {
+                        ...(this.dependencies.defaultModelSelection ?? {
+                            structuredOutputMode: "strict" as const,
+                            inputEstimator: { kind: "character-v1" as const },
+                        }),
+                        provider: (this.dependencies.llmConfig?.provider ?? this.dependencies.defaultModelSelection?.provider ?? "openai") as any,
+                        modelId: this.selectedModelId,
+                    },
+                }
+                : this.dependencies.defaultModelSelection !== undefined
+                    ? { modelSelection: this.dependencies.defaultModelSelection }
+                    : {}),
         };
         let result: LaunchResult;
         try {
@@ -396,6 +410,30 @@ export class SessionController {
                 message: `Goal "${goalId}" was not found`,
             }, goals);
             return;
+        }
+
+        if (this.dependencies.modelRestorer !== undefined) {
+            const restoreResult = await this.dependencies.modelRestorer.restoreModel({ goal });
+            if (!restoreResult.ok) {
+                this.previousSnapshotBeforeModelSelect = this.snapshot;
+                this.modelCatalogGeneration++;
+                const currentGen = this.modelCatalogGeneration;
+
+                this.setSnapshot({
+                    screen: "model_select",
+                    busy: false,
+                    origin: "blocked",
+                    goal,
+                    currentModelId: goal.state.modelSelection?.modelId ?? "unknown",
+                    state: {
+                        status: "error",
+                        generation: currentGen,
+                        error: restoreResult.error,
+                    },
+                    error: restoreResult.error,
+                });
+                return;
+            }
         }
 
         this.setSnapshot(this.toSessionView(goal, undefined, true));

@@ -56,7 +56,7 @@
   - 验证方式：待实现的 `model-selector.test.tsx` 与 SessionController 异步状态测试；使用可控 Promise 和 fake catalog 覆盖竞态。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 9. 在 Composition Root 接通选择、切换与恢复
+- [x] //TODO 9. 在 Composition Root 接通选择、切换与恢复
 
   - 实现目标：把 Slash effect、Model Catalog、Binding manager、GoalModelSelectionCoordinator 和 Launcher/restore 流程接入单一 Composition Root，按“构造候选 → 保存 Goal → 同步发布”执行切换。
   - 成功判据：Intent 选择成为新 Goal 默认模型；活动 Goal 保存成功后才发布 Binding；保存失败维持旧选择；恢复严格使用 Snapshot，Provider/模式/权限/能力不兼容时进入选择错误态且不调用 Coordinator 或模型。
