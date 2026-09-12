@@ -16,12 +16,17 @@ import {
     type UiCommand,
     type UiError,
     type UiInspectorStep,
+    type UiModelSelectOrigin,
+    type UiModelSelectViewModel,
+    type UiNotice,
     type UiSessionViewModel,
     type UiStepSummary,
     type UiSubscriber,
     type UiTerminalSummary,
     type UiViewModel,
 } from "./types";
+import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
+import type { LlmConfig } from "../../llm/src/config";
 import { projectTrajectoryEvents } from "./trajectory-projector";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
@@ -59,6 +64,10 @@ export class SessionController {
     private committedSteps: UiStepSummary[] = [];
     private preparationSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
+    private modelCatalogGeneration = 0;
+    private modelCatalogAbortController: AbortController | undefined;
+    private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
+    private selectedModelId: string | undefined;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -241,10 +250,20 @@ export class SessionController {
             return Promise.resolve();
         }
 
+        if (command.kind === "openModelSelector" || command.kind === "cancelModelSelect" || command.kind === "selectModel") {
+            if (this.snapshot.busy && command.kind !== "cancelModelSelect") {
+                return Promise.reject(new UiDispatchRejectedError(UI_BUSY_CODE, "Another UI command is already in progress"));
+            }
+        }
+
         if (this.snapshot.busy) {
             if (command.kind === "toggleExecutionMode" || command.kind === "setExecutionMode") {
                 return this.setMode(command.kind === "setExecutionMode"
                     ? command.mode : this.executionMode === "confirm" ? "yolo" : "confirm", false);
+            }
+            if (command.kind === "cancelModelSelect" && this.snapshot.screen === "model_select") {
+                this.cancelModelSelect();
+                return Promise.resolve();
             }
             return Promise.reject(
                 new UiDispatchRejectedError(
@@ -338,6 +357,15 @@ export class SessionController {
             case "toggleObservation":
                 this.toggleObservation();
                 return;
+            case "openModelSelector":
+                this.openModelSelector();
+                return;
+            case "cancelModelSelect":
+                this.cancelModelSelect();
+                return;
+            case "selectModel":
+                await this.selectModel(command.model);
+                return;
         }
     }
 
@@ -365,6 +393,22 @@ export class SessionController {
             ...(this.dependencies.maxSteps === undefined
                 ? {}
                 : { maxSteps: this.dependencies.maxSteps }),
+            ...(this.selectedModelId !== undefined
+                ? {
+                    modelSelection: {
+                        ...(this.dependencies.defaultModelSelection ?? {
+                            structuredOutputMode: "strict" as const,
+                            inputEstimator: { kind: "character-v1" as const },
+                        }),
+                        provider: this.dependencies.defaultModelSelection?.provider
+                            ?? this.dependencies.llmConfig?.provider
+                            ?? "openai",
+                        modelId: this.selectedModelId,
+                    },
+                }
+                : this.dependencies.defaultModelSelection !== undefined
+                    ? { modelSelection: this.dependencies.defaultModelSelection }
+                    : {}),
         };
         let result: LaunchResult;
         try {
@@ -585,6 +629,28 @@ export class SessionController {
                 message: `Goal "${goalId}" was not found`,
             }, goals);
             return;
+        }
+
+        if (this.dependencies.modelRestorer !== undefined) {
+            const restoreResult = await this.dependencies.modelRestorer.restoreModel({ goal });
+            if (!restoreResult.ok) {
+                this.previousSnapshotBeforeModelSelect = this.snapshot;
+                this.modelCatalogGeneration += 1;
+                this.setSnapshot({
+                    screen: "model_select",
+                    busy: false,
+                    origin: "blocked",
+                    goal,
+                    currentModelId: goal.state.modelSelection?.modelId ?? "unknown",
+                    state: {
+                        status: "error",
+                        generation: this.modelCatalogGeneration,
+                        error: restoreResult.error,
+                    },
+                    error: restoreResult.error,
+                });
+                return;
+            }
         }
 
         this.setSnapshot(this.toSessionView(goal, undefined, true));
@@ -1036,6 +1102,137 @@ export class SessionController {
         }
     }
 
+    /** 打开模型选择界面，并在当前 Provider 范围内异步获取模型目录。 */
+    openModelSelector(): void {
+        let origin: UiModelSelectOrigin;
+        let currentModelId: string;
+        let goal: Goal | undefined;
+
+        if (this.snapshot.screen === "intent_input") {
+            origin = "intent";
+            currentModelId = this.selectedModelId
+                ?? this.dependencies.defaultModelId
+                ?? this.dependencies.llmConfig?.model
+                ?? "unknown";
+        } else if (this.snapshot.screen === "session") {
+            const waitingFor = this.snapshot.waitingFor;
+            if (waitingFor === "question") origin = "question";
+            else if (waitingFor === "approval") origin = "proposal_feedback";
+            else if (waitingFor === "blocked") origin = "blocked";
+            else {
+                this.setError({ code: "MODEL_SWITCH_NOT_ALLOWED", message: "Model switching is only allowed at a text waiting point" });
+                return;
+            }
+            goal = this.snapshot.goal;
+            currentModelId = goal.state.modelSelection?.modelId
+                ?? this.dependencies.defaultModelId
+                ?? "unknown";
+        } else {
+            this.setError({ code: "MODEL_SWITCH_NOT_ALLOWED", message: "Model switching is not allowed on the current screen" });
+            return;
+        }
+
+        this.previousSnapshotBeforeModelSelect = this.snapshot;
+        const generation = ++this.modelCatalogGeneration;
+        this.modelCatalogAbortController?.abort();
+        const abortController = new AbortController();
+        this.modelCatalogAbortController = abortController;
+        this.setSnapshot({
+            screen: "model_select",
+            busy: false,
+            origin,
+            ...(goal === undefined ? {} : { goal }),
+            currentModelId,
+            state: { status: "loading", generation },
+        });
+        void this.fetchModelCatalog(generation, abortController.signal);
+    }
+
+    private async fetchModelCatalog(generation: number, signal: AbortSignal): Promise<void> {
+        if (this.dependencies.modelCatalog === undefined) {
+            if (this.modelCatalogGeneration !== generation || signal.aborted || this.snapshot.screen !== "model_select") return;
+            const id = this.snapshot.currentModelId;
+            const fallback: LlmModelDescriptor = {
+                provider: this.dependencies.llmConfig?.provider ?? "openai",
+                id,
+                displayName: id,
+                contextWindowTokens: 128_000,
+                maxOutputTokens: 4096,
+                availabilitySource: "configured",
+                metadataSource: "configured",
+                selectable: true,
+            };
+            this.setSnapshot({ ...this.snapshot, state: { status: "list", generation, models: [fallback] } });
+            return;
+        }
+
+        try {
+            const currentModelId = this.snapshot.screen === "model_select" ? this.snapshot.currentModelId : "default";
+            const defaultSelection = this.dependencies.defaultModelSelection;
+            const config: LlmConfig = this.dependencies.llmConfig ?? {
+                provider: (defaultSelection?.provider ?? "openai") as LlmConfig["provider"],
+                model: currentModelId,
+                apiKey: "",
+                structuredOutputMode: defaultSelection?.structuredOutputMode ?? "strict",
+            } as LlmConfig;
+            const models = await this.dependencies.modelCatalog.list(config, { signal });
+            if (signal.aborted || this.modelCatalogGeneration !== generation || this.snapshot.screen !== "model_select") return;
+            this.setSnapshot({ ...this.snapshot, state: { status: "list", generation, models } });
+        } catch (error: unknown) {
+            if (signal.aborted || this.modelCatalogGeneration !== generation || this.snapshot.screen !== "model_select") return;
+            this.setSnapshot({ ...this.snapshot, state: { status: "error", generation, error: toUiError(error) } });
+        }
+    }
+
+    /** 取消模型选择并恢复原页面。 */
+    cancelModelSelect(): void {
+        if (this.snapshot.screen !== "model_select") return;
+        this.modelCatalogAbortController?.abort();
+        this.modelCatalogAbortController = undefined;
+        this.modelCatalogGeneration += 1;
+        this.restoreOriginView({ kind: "info", message: "Model selection cancelled." });
+    }
+
+    private async selectModel(model: LlmModelDescriptor): Promise<void> {
+        if (this.snapshot.screen !== "model_select") return;
+        if (!model.selectable) {
+            this.setSnapshot({ ...this.snapshot, error: { code: "MODEL_NOT_SELECTABLE", message: model.unavailableReason ?? "This model is not selectable." } });
+            return;
+        }
+        if (model.id === this.snapshot.currentModelId) {
+            this.restoreOriginView({ kind: "info", message: `Current model kept: ${model.displayName || model.id}.` });
+            return;
+        }
+
+        const currentGoal = this.snapshot.goal;
+        if (this.dependencies.modelSwitcher !== undefined) {
+            const result = await this.dependencies.modelSwitcher.switchModel({
+                ...(currentGoal === undefined ? {} : { goal: currentGoal }),
+                targetModel: model,
+            });
+            if (!result.ok) {
+                this.setSnapshot({ ...this.snapshot, error: result.error });
+                return;
+            }
+            if (result.goal !== undefined && this.previousSnapshotBeforeModelSelect?.screen === "session") {
+                this.previousSnapshotBeforeModelSelect = this.toSessionView(result.goal, undefined, false);
+            }
+        }
+        if (currentGoal === undefined) this.selectedModelId = model.id;
+        this.restoreOriginView({ kind: "info", message: `Model switched to ${model.displayName || model.id}.` });
+    }
+
+    private restoreOriginView(notice?: UiNotice): void {
+        const previous = this.previousSnapshotBeforeModelSelect;
+        this.previousSnapshotBeforeModelSelect = undefined;
+        if (previous !== undefined) {
+            const { error: _error, ...rest } = previous as UiViewModel & { readonly error?: UiError };
+            this.setSnapshot({ ...rest, busy: false, ...(notice === undefined ? {} : { notice }) } as UiViewModel);
+            return;
+        }
+        this.setSnapshot({ screen: "intent_input", busy: false, ...(notice === undefined ? {} : { notice }) });
+    }
+
     private setBusy(busy: boolean, clearError = false): void {
         const current = this.snapshot;
 
@@ -1087,6 +1284,14 @@ export class SessionController {
                 }
                 return;
             }
+            case "model_select":
+                if (clearError) {
+                    const { error: _error, ...withoutError } = current;
+                    this.setSnapshot({ ...withoutError, busy });
+                } else {
+                    this.setSnapshot({ ...current, busy });
+                }
+                return;
             case "shutting_down":
                 if (clearError) {
                     const { error: _error, ...withoutError } = current;
@@ -1135,6 +1340,9 @@ export class SessionController {
                 });
                 return;
             case "session":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "model_select":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
             case "shutting_down":

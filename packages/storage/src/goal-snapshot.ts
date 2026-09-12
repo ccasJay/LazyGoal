@@ -234,11 +234,24 @@ export type GoalSnapshotWorkflowV1 =
         readonly task: GoalSnapshotTaskV1;
     };
 
+/** Snapshot 中持久化的模型选择状态。 */
+export interface GoalSnapshotModelSelectionV1 {
+    readonly provider: string;
+    readonly modelId: string;
+    readonly structuredOutputMode: "strict" | "prompt_only";
+    readonly contextWindowTokens?: number | undefined;
+    readonly maxOutputTokens?: number | undefined;
+    readonly inputEstimator:
+        | { readonly kind: "character-v1" }
+        | { readonly kind: "token-encoding"; readonly encoding: "cl100k_base" | "o200k_base" };
+}
+
 /** Snapshot 中的 Goal 状态。 */
 export interface GoalSnapshotStateV1 {
     readonly workflow: GoalSnapshotWorkflowV1;
     readonly messages: readonly GoalSnapshotMessageV1[];
     readonly run: GoalSnapshotRunStateV1;
+    readonly modelSelection: GoalSnapshotModelSelectionV1;
 }
 
 /** 当前唯一支持的 Goal Snapshot DTO。 */
@@ -506,6 +519,31 @@ const ContextEpochSchema = z.object({
     openedAtSequence: z.number().int().nonnegative(),
 }).strict();
 
+const ModelSelectionSchema = z.object({
+    provider: NonEmptyStringSchema,
+    modelId: NonEmptyStringSchema,
+    structuredOutputMode: z.enum(["strict", "prompt_only"]),
+    contextWindowTokens: z.number().int().positive().optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
+    inputEstimator: z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("character-v1") }).strict(),
+        z.object({
+            kind: z.literal("token-encoding"),
+            encoding: z.enum(["cl100k_base", "o200k_base"]),
+        }).strict(),
+    ]),
+}).strict().superRefine((val, ctx) => {
+    if (val.contextWindowTokens !== undefined && val.maxOutputTokens !== undefined) {
+        if (val.maxOutputTokens >= val.contextWindowTokens) {
+            ctx.addIssue({
+                code: "custom",
+                message: "maxOutputTokens must be strictly less than contextWindowTokens",
+                path: ["maxOutputTokens"],
+            });
+        }
+    }
+});
+
 const GoalSnapshotV1BaseSchema = z.object({
     id: NonEmptyStringSchema,
     metadata: z.object({ schemaVersion: z.literal(1) }).strict(),
@@ -553,6 +591,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
+        modelSelection: ModelSelectionSchema,
     }).strict(),
 }).strict();
 

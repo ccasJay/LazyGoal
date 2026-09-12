@@ -108,7 +108,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 selection: {
                     provider: "unknown",
                     modelId: "unknown",
-                    structuredOutputMode: dependencies.adapter.structuredOutputMode,
+                    structuredOutputMode: dependencies.adapter.structuredOutputMode === "strict" ? "strict" : "prompt_only",
                     inputEstimator: { kind: "character-v1" },
                 },
                 adapter: dependencies.adapter,

@@ -89,3 +89,78 @@ test("JsonFileGoalStore rejects a historical Snapshot without migration or write
         await rm(directory, { recursive: true, force: true });
     }
 });
+
+test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述，且序列化不含凭据", () => {
+    const customSelection = {
+        provider: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        structuredOutputMode: "prompt_only" as const,
+        contextWindowTokens: 200000,
+        maxOutputTokens: 8192,
+        inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },
+    };
+
+    const goal = createGoal({
+        ...currentProtocols,
+        id: "goal-model-selection-test",
+        intent: "验证模型选择编解码",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-model-selection-test",
+        modelSelection: customSelection,
+    });
+
+    const encoded = goalSnapshotCodec.encode(goal);
+    assert.deepEqual(encoded.state.modelSelection, customSelection);
+
+    // 检查序列化 JSON 中绝对不包含任何敏感字段
+    const jsonString = JSON.stringify(encoded);
+    assert.doesNotMatch(jsonString, /apiKey/i);
+    assert.doesNotMatch(jsonString, /baseURL/i);
+    assert.doesNotMatch(jsonString, /authorization/i);
+
+    const decoded = goalSnapshotCodec.decode(encoded);
+    assert.deepEqual(decoded.state.modelSelection, customSelection);
+    assert.notEqual(decoded.state.modelSelection, encoded.state.modelSelection);
+});
+
+test("GoalSnapshotCodec: 缺失 modelSelection 的旧快照明确拒绝失败", () => {
+    const encoded = goalSnapshotCodec.encode(createCurrentGoal());
+    const legacySnapshot = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state = legacySnapshot["state"] as Record<string, unknown>;
+    delete state["modelSelection"];
+
+    assert.throws(
+        () => goalSnapshotCodec.decode(legacySnapshot),
+        assertProtocolError,
+    );
+});
+
+test("GoalSnapshotCodec: 包含额外敏感字段或非法容量的模型选择快照被严格拒绝", () => {
+    const encoded = goalSnapshotCodec.encode(createCurrentGoal());
+
+    // 1. 含有 extra 字段（如 apiKey）
+    const snapshotWithApiKey = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state1 = snapshotWithApiKey["state"] as Record<string, unknown>;
+    state1["modelSelection"] = {
+        ...(state1["modelSelection"] as object),
+        apiKey: "canary-secret-key",
+    };
+    assert.throws(
+        () => goalSnapshotCodec.decode(snapshotWithApiKey),
+        assertProtocolError,
+    );
+
+    // 2. maxOutputTokens >= contextWindowTokens
+    const snapshotInvalidCapacity = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state2 = snapshotInvalidCapacity["state"] as Record<string, unknown>;
+    state2["modelSelection"] = {
+        ...(state2["modelSelection"] as object),
+        contextWindowTokens: 1000,
+        maxOutputTokens: 2000,
+    };
+    assert.throws(
+        () => goalSnapshotCodec.decode(snapshotInvalidCapacity),
+        assertProtocolError,
+    );
+});

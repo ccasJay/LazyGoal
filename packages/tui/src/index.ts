@@ -23,6 +23,8 @@ export {
 export { StatusSpinner } from "./status-spinner";
 export { ErrorLine } from "./error-line";
 export { StepWaterfallItem, truncateSummary, MAX_STEP_SUMMARY_CHARS } from "./step-waterfall-item";
+export { CommandAwareTextInput } from "./command-aware-text-input";
+export { ModelSelector } from "./model-selector";
 export type { HomeScreenProps } from "./home-screen";
 export type { SettingsScreenProps } from "./settings-screen";
 export type { TuiAppProps } from "./app";
@@ -31,6 +33,8 @@ export type { PreparationScreenProps } from "./preparation-screen";
 export type { GoalSelectScreenProps } from "./goal-select-screen";
 export type { SessionScreenProps } from "./session-screen";
 export type { ActiveDrawerProps } from "./session-screen";
+export type { CommandAwareTextInputProps } from "./command-aware-text-input";
+export type { ModelSelectorProps } from "./model-selector";
 export type { InspectorScreenProps } from "./inspector-screen";
 export type { SliceTrajectoryOptions } from "./inspector-step-slicer";
 export type { StatusSpinnerProps } from "./status-spinner";
@@ -65,6 +69,10 @@ export type {
     UiTerminalSummary,
     UiViewModel,
     UiWaitingFor,
+    UiNotice,
+    UiModelSelectOrigin,
+    UiModelSelectState,
+    UiModelSelectViewModel,
 } from "./types";
 export {
     createCompositionRoot,

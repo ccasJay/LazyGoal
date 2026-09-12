@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     allocateImmutableEvent,
     computeContentHash,
+    DEFAULT_GOAL_MODEL_SELECTION,
     launch,
 } from "../src/index";
 import type {
@@ -202,6 +203,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
                     openedAtSequence: 0,
                 },
             },
+            modelSelection: DEFAULT_GOAL_MODEL_SELECTION,
         },
     };
     const coordinator = new FakeCoordinator(waitingResult(expectedGoal), events);

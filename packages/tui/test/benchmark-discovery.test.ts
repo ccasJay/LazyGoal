@@ -34,6 +34,12 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
             executionPolicy: { maxSteps: 30 },
         },
         state: {
+            modelSelection: {
+                provider: "openai",
+                modelId: "gpt-4o",
+                structuredOutputMode: "prompt_only",
+                inputEstimator: { kind: "character-v1" },
+            },
             workflow: {
                 phase: "executing",
                 preparation: { status: "completed" },

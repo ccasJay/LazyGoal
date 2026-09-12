@@ -7,6 +7,7 @@ import type {
     GoalProgressResult,
     GoalStore,
     GoalTask,
+    GoalModelSelection,
     LaunchRequest,
     LaunchResult,
     PendingAction,
@@ -15,6 +16,8 @@ import type {
     RunRef,
     RunStatus,
 } from "../../runtime/src/index";
+import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
+import type { LlmConfig } from "../../llm/src/config";
 
 /** Controller 在已有异步操作期间拒绝新命令时使用的稳定错误码。 */
 export const UI_BUSY_CODE = "UI_BUSY" as const;
@@ -30,6 +33,7 @@ export type UiScreen =
     | "session"
     | "settings"
     | "inspector"
+    | "model_select"
     | "shutting_down";
 
 /**
@@ -104,7 +108,10 @@ export type UiCommand =
     }
     | { readonly kind: "inspectStep"; readonly stepIndex: number }
     | { readonly kind: "toggleReasoning" }
-    | { readonly kind: "toggleObservation" };
+    | { readonly kind: "toggleObservation" }
+    | { readonly kind: "openModelSelector" }
+    | { readonly kind: "cancelModelSelect" }
+    | { readonly kind: "selectModel"; readonly model: LlmModelDescriptor };
 
 /**
  * 执行期人机协同模式。
@@ -119,6 +126,12 @@ export type UiCommand =
  * ```
  */
 export type ExecutionMode = "confirm" | "yolo";
+
+/** 面向用户的临时通知提示。 */
+export interface UiNotice {
+    readonly kind: "info" | "warning" | "error";
+    readonly message: string;
+}
 
 /** Session 等待用户输入的细分类型。 */
 export type UiWaitingFor =
@@ -175,6 +188,7 @@ export interface UiIntentInputViewModel {
     readonly screen: "intent_input";
     readonly busy: boolean;
     readonly error?: UiError;
+    readonly notice?: UiNotice;
 }
 
 /**
@@ -428,6 +442,7 @@ export interface UiSessionViewModel {
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
     readonly error?: UiError;
+    readonly notice?: UiNotice;
     /** 可选执行模式（"auto" 或 "review"）。 */
     readonly mode?: "auto" | "review";
     /** 可选任务标识或描述。 */
@@ -503,6 +518,40 @@ export interface UiStepSummary {
     readonly outputSummary?: string;
 }
 
+/** 触发打开模型选择界面的原始页面语义位置。 */
+export type UiModelSelectOrigin =
+    | "intent"
+    | "question"
+    | "proposal_feedback"
+    | "blocked";
+
+/** 模型选择界面的三态异步状态。 */
+export type UiModelSelectState =
+    | { readonly status: "loading"; readonly generation: number }
+    | {
+        readonly status: "list";
+        readonly generation: number;
+        readonly models: readonly LlmModelDescriptor[];
+        readonly warning?: string | undefined;
+    }
+    | {
+        readonly status: "error";
+        readonly generation: number;
+        readonly error: UiError;
+    };
+
+/** 模型选择界面的不可变投影。 */
+export interface UiModelSelectViewModel {
+    readonly screen: "model_select";
+    readonly busy: boolean;
+    readonly origin: UiModelSelectOrigin;
+    readonly goal?: Goal | undefined;
+    readonly currentModelId: string;
+    readonly state: UiModelSelectState;
+    readonly error?: UiError | undefined;
+    readonly notice?: UiNotice | undefined;
+}
+
 /**
  * 关闭流程页面的不可变投影；由后续 ShutdownController 驱动。
  *
@@ -526,6 +575,7 @@ export type UiViewModel =
     | UiSessionViewModel
     | UiSettingsViewModel
     | UiInspectorViewModel
+    | UiModelSelectViewModel
     | UiShuttingDownViewModel;
 
 /** SessionController 快照订阅回调。 */
@@ -658,6 +708,25 @@ export interface SessionControllerDependencies {
         readonly modelName?: string;
         readonly dataDirectory?: string;
     };
+    /** 可选的模型目录服务，用于支持 /model 命令查询。 */
+    readonly modelCatalog?: LlmModelCatalog | undefined;
+    /** 可选的模型配置，用于目录查询与上下文校验。 */
+    readonly llmConfig?: LlmConfig | undefined;
+    /** 可选的模型切换处理句柄，供 selectModel 命令执行原子切换。 */
+    readonly modelSwitcher?: {
+        switchModel(options: {
+            readonly goal?: Goal | undefined;
+            readonly targetModel: LlmModelDescriptor;
+        }): Promise<{ readonly ok: true; readonly goal?: Goal } | { readonly ok: false; readonly error: UiError }>;
+    } | undefined;
+    /** 当前默认模型 ID。 */
+    readonly defaultModelId?: string | undefined;
+    /** 可选的初始模型选择，用于新建 Goal。 */
+    readonly defaultModelSelection?: GoalModelSelection | undefined;
+    /** 可选的模型恢复校验器，供恢复 Goal 时校验与重建 Binding。 */
+    readonly modelRestorer?: {
+        restoreModel(options: { readonly goal: Goal }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: UiError }>;
+    } | undefined;
 }
 
 /**

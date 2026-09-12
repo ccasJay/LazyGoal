@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text, useInput } from "ink";
-import { ConfirmInput, TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiStepSummary, UiTerminalSummary } from "./types";
@@ -9,6 +8,8 @@ import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
 import { StepWaterfallItem } from "./step-waterfall-item";
 import { ErrorLine } from "./error-line";
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
+import { CommandAwareTextInput } from "./command-aware-text-input";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -102,6 +103,8 @@ export interface SessionScreenProps {
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
     /** 切换 YOLO / Confirm 协同模式的回调。 */
     readonly onToggleExecutionMode?: () => void | Promise<void>;
+    /** Slash 命令派发产生的领域副作用回调。 */
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -116,6 +119,7 @@ export function SessionScreen({
     onApproveAction,
     onRejectAction,
     onToggleExecutionMode,
+    onCommandEffect,
 }: SessionScreenProps): React.JSX.Element {
     const timelineItems = useTimelineItems(session);
     useInput((_input, key) => {
@@ -140,7 +144,8 @@ export function SessionScreen({
                 onSubmitMessage={onSubmitMessage}
                 onApproveAction={onApproveAction}
                 onRejectAction={onRejectAction}
-                ...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })
+                {...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         </Box>
     );
@@ -174,6 +179,7 @@ export interface ActiveDrawerProps {
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
     /** 切换 YOLO / Confirm 协同模式的回调。 */
     readonly onToggleExecutionMode?: () => void | Promise<void>;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -188,6 +194,7 @@ export function ActiveDrawer({
     onApproveAction,
     onRejectAction,
     onToggleExecutionMode,
+    onCommandEffect,
 }: ActiveDrawerProps): React.JSX.Element {
     const terminal = terminalFor(session);
 
@@ -205,6 +212,7 @@ export function ActiveDrawer({
                     onSubmitMessage={onSubmitMessage}
                     onApproveAction={onApproveAction}
                     onRejectAction={onRejectAction}
+                    {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 />
             )}
         </Box>
@@ -267,7 +275,7 @@ function SessionStatus({ session, onToggleExecutionMode }: SessionStatusProps): 
             {isActiveRun(session)
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}
-            {session.terminal === undefined && onToggleExecutionMode !== undefined ? <Text dimColor>
+            {session.terminal === undefined ? <Text dimColor>
                 {executionMode === "yolo"
                     ? "[Shift+Tab] Confirm at next approval  [Ctrl+C] Stop"
                     : "[Shift+Tab] Enable YOLO  [Ctrl+C] Stop"}
@@ -305,6 +313,7 @@ function SessionInteraction({
     onSubmitMessage,
     onApproveAction,
     onRejectAction,
+    onCommandEffect,
 }: SessionInteractionProps): React.JSX.Element {
     if (session.waitingFor === "blocked") {
         return (
@@ -314,6 +323,7 @@ function SessionInteraction({
                     ? {}
                     : { reason: session.blockedReason })}
                 onSubmit={onSubmitMessage}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         );
     }
@@ -331,6 +341,7 @@ function SessionInteraction({
                     : { pendingAction: session.pendingAction })}
                 onApprove={onApproveAction}
                 onReject={onRejectAction}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         );
     }
@@ -348,9 +359,10 @@ interface BlockedPanelProps {
     readonly busy: boolean;
     readonly reason?: string;
     readonly onSubmit: (content: string) => void | Promise<void>;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
-function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.Element {
+function BlockedPanel({ busy, reason, onSubmit, onCommandEffect }: BlockedPanelProps): React.JSX.Element {
     const [value, setValue] = useState("");
     const [inputKey, setInputKey] = useState(0);
     const submitGate = useSubmitGate(busy, true);
@@ -375,17 +387,20 @@ function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.
             <Text bold>Agent is blocked</Text>
             <Text>{reason ?? "The agent is waiting for your input."}</Text>
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
-            <TextInput
+            <CommandAwareTextInput
                 key={inputKey}
                 isDisabled={busy}
                 defaultValue={value}
                 placeholder="Type a message to continue..."
                 onChange={setValue}
                 onSubmit={handleSubmit}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         </Box>
     );
 }
+
+const ACTION_INPUT_HINT = "[Enter] Approve  Type feedback to reject";
 
 interface ActionPanelProps {
     readonly busy: boolean;
@@ -393,6 +408,7 @@ interface ActionPanelProps {
     readonly pendingAction?: PendingAction;
     readonly onApprove: (actionId: string) => void | Promise<void>;
     readonly onReject: (actionId: string, reason: string) => void | Promise<void>;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 function ActionPanel({
@@ -401,50 +417,38 @@ function ActionPanel({
     pendingAction,
     onApprove,
     onReject,
+    onCommandEffect,
 }: ActionPanelProps): React.JSX.Element {
-    const [feedbackMode, setFeedbackMode] = useState(false);
-    const [feedbackValue, setFeedbackValue] = useState("");
-    const [feedbackInputKey, setFeedbackInputKey] = useState(0);
+    const [inputValue, setInputValue] = useState("");
+    const [inputKey, setInputKey] = useState(0);
     const actionId = pendingAction?.action.actionId;
-    const resetKey = useMemo(
-        () => [actionId, recovery],
-        [actionId, recovery],
-    );
+    const resetKey = useMemo(() => [actionId, recovery], [actionId, recovery]);
     const submitGate = useSubmitGate(busy, resetKey);
 
-    const clearFeedbackInput = useCallback(() => {
-        setFeedbackValue("");
-        setFeedbackInputKey((key) => key + 1);
+    const clearInput = useCallback(() => {
+        setInputValue("");
+        setInputKey((key) => key + 1);
     }, []);
 
     useEffect(() => {
-        setFeedbackMode(false);
-        clearFeedbackInput();
-    }, [clearFeedbackInput, resetKey]);
+        clearInput();
+    }, [clearInput, resetKey]);
 
-    const handleApprove = useCallback(() => {
+    const handleSubmit = useCallback((value: string) => {
         if (actionId === undefined) {
             return;
         }
 
+        const trimmed = value.trim();
         submitGate.attempt(() => {
-            void onApprove(actionId);
+            if (trimmed.length === 0) {
+                void onApprove(actionId);
+            } else {
+                void onReject(actionId, trimmed);
+            }
+            clearInput();
         });
-    }, [actionId, onApprove, submitGate]);
-
-    const handleReject = useCallback((reason: string) => {
-        if (actionId === undefined) {
-            return;
-        }
-
-        submitGate.attempt(() => {
-            void onReject(actionId, reason);
-            clearFeedbackInput();
-        }, {
-            value: reason,
-            emptyMessage: "Rejection reason must not be empty",
-        });
-    }, [actionId, clearFeedbackInput, onReject, submitGate]);
+    }, [actionId, clearInput, onApprove, onReject, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -460,30 +464,18 @@ function ActionPanel({
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
-            {actionId === undefined ? null : feedbackMode ? (
-                <Box flexDirection="column" gap={1}>
-                    <Text>Why should this Action be rejected?</Text>
-                    <TextInput
-                        key={feedbackInputKey}
+            {actionId === undefined ? null : (
+                <Box flexDirection="column">
+                    <CommandAwareTextInput
+                        key={inputKey}
                         isDisabled={busy}
-                        defaultValue={feedbackValue}
-                        placeholder="Provide a non-empty reason..."
-                        onChange={setFeedbackValue}
-                        onSubmit={handleReject}
+                        defaultValue={inputValue}
+                        placeholder="Feedback, or Enter to approve..."
+                        onChange={setInputValue}
+                        onSubmit={handleSubmit}
+                        {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                     />
-                </Box>
-            ) : (
-                <Box flexDirection="column" gap={1}>
-                    <ConfirmInput
-                        submitOnEnter={false}
-                        isDisabled={busy}
-                        onConfirm={handleApprove}
-                        onCancel={() => {
-                            submitGate.clearError();
-                            setFeedbackMode(true);
-                        }}
-                    />
-                    <Text dimColor>Press Y to approve or N to reject with a reason.</Text>
+                    <Text dimColor>{ACTION_INPUT_HINT}</Text>
                 </Box>
             )}
         </Box>

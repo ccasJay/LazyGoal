@@ -11,6 +11,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、Action/Observation 数据契约 | I/O 和模型调用 |
 | [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界，并接收当前 committed Preparation provenance | 阶段推进、消息追加与持久化 |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 推进 Preparation、按阶段校验并规范化 Memory Patch、恢复输入、持久化等待点、委派 executing Goal | Step 执行 |
+| [GoalModelSelectionCoordinator](../../packages/runtime/src/goal-model-selection-coordinator.ts) | 在安全等待点（question、planning approval feedback、executing blocked）将新模型选择持久化到 Goal 快照 | 创建 Adapter、调用模型、追加 Trajectory 事件或改写 Run 状态 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入、冻结 Profile、创建并保存 Goal、调用 Coordinator | 恢复已有 Goal |
 | [AgentProfile 契约](../../packages/runtime/src/agent-profile.ts) | `AgentProfile`、`AgentProfileRegistry` 与 `AgentProfileStore` Port | 文件读取、Schema 校验、Tool 实例与 Prompt |
 | [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
@@ -37,7 +38,7 @@ Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、�
 
 ## 生命周期与保存顺序
 
-Goal 将创建后冻结的 intent、`promptBundleVersion`、`structured@1` Memory、`trajectory-layered@1` Model Context、`bm25-lite@1` Cold Retrieval、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages 和 Run 放在 `state`。Runtime 只拥有这些协议的稳定标识，不持有或渲染文本；Composition Root 为新 Goal 固定唯一组合，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。Run 保存最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence`、Context Epoch 和可选 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal 将创建后冻结的 intent、`promptBundleVersion`、`structured@1` Memory、`trajectory-layered@1` Model Context、`bm25-lite@1` Cold Retrieval、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages、Run 以及可恢复的非敏感模型选择状态 `modelSelection: GoalModelSelection`（包含 provider、modelId、structuredOutputMode、容量上限与估算器契约；绝不包含凭据）放在 `state`。Runtime 只拥有这些协议的稳定标识，不持有或渲染文本；Composition Root 为新 Goal 固定唯一组合，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。Run 保存最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence`、Context Epoch 和可选 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
 
 Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileAgentProfileStore`
 按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`

@@ -1,12 +1,13 @@
 import React, { useCallback } from "react";
 import { Box, Text, useInput } from "ink";
-import { TextInput } from "@inkjs/ui";
 
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
 import { useTerminalSize } from "./use-terminal-size";
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
+import { CommandAwareTextInput } from "./command-aware-text-input";
 
 /**
  * IntentScreen 的渲染与命令回调边界。
@@ -32,6 +33,8 @@ export interface IntentScreenProps {
     readonly onSubmit: (intent: string) => void | Promise<void>;
     /** Esc 放弃当前未提交文本并返回主页；busy 时禁用。 */
     readonly onBack?: () => void;
+    /** Slash 命令派发产生的领域副作用回调。 */
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -45,6 +48,7 @@ export function IntentScreen({
     error,
     onSubmit,
     onBack,
+    onCommandEffect,
 }: IntentScreenProps): React.JSX.Element {
     const { columns } = useTerminalSize();
     useInput((_input, key) => {
@@ -74,11 +78,12 @@ export function IntentScreen({
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
             <Box borderStyle="round" borderColor={busy ? "gray" : "cyan"} paddingX={1}>
                 <Text color="cyan">› </Text>
-                <TextInput
+                <CommandAwareTextInput
                     isDisabled={busy}
                     placeholder="Describe your goal..."
                     onChange={submitGate.clearError}
                     onSubmit={handleSubmit}
+                    {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 />
             </Box>
             <Text dimColor>Enter Create Goal{onBack === undefined ? "" : "  Esc Main Menu"}</Text>

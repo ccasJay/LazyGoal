@@ -2,6 +2,7 @@ export {
     createGoal,
     createEmptyWorkingMemory,
     createRun,
+    DEFAULT_GOAL_MODEL_SELECTION,
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
     isMemoryProtocol,
@@ -59,6 +60,7 @@ export type {
     GoalCreationInput,
     GoalDefinition,
     GoalMessage,
+    GoalModelSelection,
     GoalState,
     GoalTask,
     GoalWorkflowState,
@@ -426,3 +428,13 @@ export type {
     TrajectorySink,
     TrajectoryStore,
 } from "./trajectory";
+export {
+    DefaultGoalModelSelectionCoordinator,
+    isSafeWaitingPointForModelSwitching,
+} from "./goal-model-selection-coordinator";
+export type {
+    GoalModelSelectionCoordinator,
+    GoalModelSelectionErrorCode,
+    GoalModelSelectionRequest,
+    GoalModelSelectionResult,
+} from "./goal-model-selection-coordinator";

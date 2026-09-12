@@ -21,6 +21,8 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面、记住最近检查的 Goal 以恢复列表焦点，并将退出回调交给 CLI | Runtime 编排和快照写入 |
 | [InspectorScreen](../../packages/tui/src/inspector-screen.tsx) | 只读切步、按终端尺寸换行和滚动、思考内容展开、外部 JSON 查看及终端画面恢复 | 推进 Goal、写入轨迹或快照 |
 | [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
+| [CommandAwareTextInput](../../packages/tui/src/command-aware-text-input.tsx) | 命令感知单行文本输入、实时 Slash 候选展示、合法命令拦截派发与非法拒绝 | 终端布局、状态机转换、直接调用 Runtime |
+| [ModelSelector](../../packages/tui/src/model-selector.tsx) | 渲染模型目录三态（loading/list/error）、当前激活模型、上下文容量与不可选原因，处理上下导航、Enter 选择与 ESC 取消 | 异步模型拉取、原子快照持久化与 Binding 切换 |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
 ## 当前数据流
@@ -115,6 +117,21 @@ Inspector 根据当前 Ink 输出流的 resize 事件调整正文宽高，按终
 滚动限制在正文首尾，切步或折叠思考内容回到顶部。外部查看只生成临时 JSON 文件，返回后清理该文件，并通过 Ink 的
 输出恢复接口同步画面与帧缓存；编辑器启动失败显示在当前页。
 备用屏幕由挂载层管理，Inspector 切入时不重复清屏；背景继承终端主题。
+
+用户在文本输入框键入 `/model` 并回车触发 `open_model_selector` 命令时，
+Controller 仅允许在 `intent_input` 或安全文本等待点（question、approval、blocked）切换，
+否则留在原视图并反馈拒绝原因。进入选择界面后，Controller 派发带有单调 generation 与独立 AbortController
+的异步目录拉取；`ModelSelector` 渲染 loading、list 与 error 三态，支持上下键导航、容量展示与不可选项拦截。
+用户按 ESC 取消时中止请求并无缝恢复原页面；选择合法模型时调用协调器或原子更新会话，
+并展示瞬时 notice 提示，下一次交互命令自动清除。
+
+Composition Root 组装单一 `MutableModelBinding` 并注入给 `LLMPreparationExecutor` 与
+`LLMStepExecutor`，使两个 Executor 无需直接感知切换时机即可透明读取最新不可变 Binding；
+组装的 `modelSwitcher` 遵循三阶段原子切换：先离线通过 `createCandidate` 校验能力与预算并构建候选 Binding，
+再对活动 Goal 委托 `GoalModelSelectionCoordinator` 保存快照，快照写入成功后同步且无异常地 `publish` 候选 Binding，
+若保存失败则维持旧 Binding 不变；组装的 `modelRestorer` 在 Goal 恢复时校验快照内的模型选择与当前进程 Provider 的兼容性，
+若兼容则重建 Binding，若显式锁定不兼容 Provider 则拒绝推进并转入 `model_select` 错误态，防止模型错配。
+
 
 ## 关闭流程
 

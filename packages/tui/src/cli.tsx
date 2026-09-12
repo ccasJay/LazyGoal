@@ -15,6 +15,7 @@ import {
     ProcessExitPort,
     ShutdownCoordinator,
     GoalCoordinator,
+    DefaultGoalModelSelectionCoordinator,
     InMemoryToolRegistry,
     InlineScheduler,
     Runner,
@@ -25,6 +26,8 @@ import {
     type AgentProfileRegistry,
     type GoalCatalog,
     type GoalStore,
+    type GoalModelSelection,
+    type GoalModelSelectionCoordinator,
     type ExitPort,
     type GoalProtocolValidator,
     type PreparationExecutor,
@@ -47,11 +50,13 @@ import {
     createDefaultModelContextBudgetPolicy,
     createDefaultPromptBundleRenderer,
     createDefaultPromptBundleProtocolValidator,
+    createModelExecutionBinding,
     createModelContextBudgetPolicy,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
     LLMPreparationExecutor,
     LLMStepExecutor,
+    MutableModelBinding,
     resolveModelInputEstimator,
     createModelCapabilities,
     ModelCapabilitiesError,
@@ -59,6 +64,7 @@ import {
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
+    type ModelExecutionBinding,
     type ModelInputEstimator,
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
@@ -68,6 +74,11 @@ import { resolveXdgPaths } from "../../llm/src/xdg";
 import { loadProfileToml } from "../../llm/src/toml-config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
+import {
+    createLlmModelCatalog,
+    type LlmModelCatalog,
+    type LlmModelDescriptor,
+} from "../../llm/src/model-catalog";
 import {
     BashTool,
     EditFileTool,
@@ -86,7 +97,7 @@ import {
     AggregatedTrajectoryStore,
 } from "./index";
 import { StatusSpinner } from "./status-spinner";
-import type { SessionLauncher, UiScreen } from "./types";
+import type { SessionLauncher, UiError, UiScreen } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
 const DEFAULT_PROFILE_ID = "default";
@@ -423,6 +434,14 @@ export interface CompositionRootOptions {
     readonly initialGoalSelectMode?: "resume" | "inspect";
     /** 可选的 Benchmark 评测输出根目录，默认自动发现 <workspaceRoot>/.lazygoal/benchmarks。 */
     readonly benchmarksDirectory?: string;
+    /** 可选的模型目录服务。 */
+    readonly modelCatalog?: LlmModelCatalog;
+    /** 可选的模型执行绑定管理器。 */
+    readonly modelBinding?: MutableModelBinding;
+    /** 可选的 Goal 模型选择协调器。 */
+    readonly goalModelSelectionCoordinator?: GoalModelSelectionCoordinator;
+    /** 可选的针对目标选择的 Adapter 工厂。 */
+    readonly adapterFactory?: (selection: GoalModelSelection) => LLMAdapter;
 }
 
 /**
@@ -489,6 +508,14 @@ export interface CompositionRoot {
     readonly trajectoryStore: TrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
+    /** 当前生效的模型目录服务。 */
+    readonly modelCatalog: LlmModelCatalog;
+    /** 当前生效的可变模型执行绑定管理器。 */
+    readonly modelBinding: MutableModelBinding;
+    /** 当前生效的 Goal 模型选择协调器。 */
+    readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
+    /** 启动时初始的默认模型选择。 */
+    readonly defaultModelSelection: GoalModelSelection;
     /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
     readonly retrievalIndexStore: JsonFileContextRetrievalIndexStore;
     /** 共享的独立诊断 Trace Sink。 */
@@ -575,7 +602,8 @@ export async function createCompositionRoot(
             llmConfig = readLlmConfig(env);
         } catch (error) {
             const xdgPaths = resolveXdgPaths(env);
-            if (existsSync(xdgPaths.configFile)) {
+            const allowXdgConfig = env.XDG_CONFIG_HOME !== undefined || env.HOME !== undefined;
+            if (allowXdgConfig && existsSync(xdgPaths.configFile)) {
                 const runtimeConfig = await loadRuntimeConfig({ env, xdgPaths });
                 llmConfig = runtimeConfig.llm;
             } else {
@@ -630,7 +658,8 @@ export async function createCompositionRoot(
             const hasXdgConfig = existsSync(xdgConfigFile);
             const hasXdgProfile = existsSync(xdgDefaultProfile);
 
-            if (!hasXdgConfig && !hasXdgProfile) {
+            const allowXdgConfig = env.XDG_CONFIG_HOME !== undefined || env.HOME !== undefined;
+            if (!allowXdgConfig || (!hasXdgConfig && !hasXdgProfile)) {
                 throw new AgentProfileConfigurationError(
                     DEFAULT_PROFILE_ID,
                     profilePath,
@@ -741,8 +770,31 @@ export async function createCompositionRoot(
         traceSink,
     });
     const toolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
+    const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
+        provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
+        modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
+        structuredOutputMode: adapter.structuredOutputMode === "strict" ? "strict" : "prompt_only",
+        ...(modelCapabilities === undefined ? {} : {
+            contextWindowTokens: modelCapabilities.contextWindowTokens,
+            maxOutputTokens: modelCapabilities.maxOutputTokens,
+        }),
+        inputEstimator: modelCapabilities !== undefined && "encoding" in modelCapabilities.tokenEstimator
+            ? { kind: "token-encoding" as const, encoding: (modelCapabilities.tokenEstimator as { encoding: "cl100k_base" | "o200k_base" }).encoding }
+            : { kind: "character-v1" as const },
+    };
+    const modelCatalog = options.modelCatalog ?? createLlmModelCatalog();
+    const modelBinding = options.modelBinding ?? new MutableModelBinding(
+        createModelExecutionBinding({
+            generation: 1,
+            selection: defaultModelSelection,
+            adapter,
+            trajectoryStore,
+            modelContextBudget: options.modelContextBudget,
+            customEstimator: modelInputEstimator,
+        }),
+    );
     const preparationExecutor = options.preparationExecutor ?? new LLMPreparationExecutor({
-        adapter,
+        bindingProvider: modelBinding,
         renderer,
         contextCompactor,
         traceSink,
@@ -752,7 +804,7 @@ export async function createCompositionRoot(
     const runner = new Runner({
         store: checkpointStore,
         executor: new LLMStepExecutor({
-            adapter,
+            bindingProvider: modelBinding,
             renderer,
             contextCompactor,
             traceSink,
@@ -805,6 +857,77 @@ export async function createCompositionRoot(
     ): Promise<Readonly<TrajectoryReadResult>> =>
         readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
 
+    const goalModelSelectionCoordinator = options.goalModelSelectionCoordinator
+        ?? new DefaultGoalModelSelectionCoordinator({ store: checkpointStore });
+    const modelSwitcher = {
+        async switchModel(switchOptions: {
+            readonly goal?: import("../../runtime/src/index").Goal;
+            readonly targetModel: LlmModelDescriptor;
+        }): Promise<{ readonly ok: true; readonly goal?: import("../../runtime/src/index").Goal } | { readonly ok: false; readonly error: UiError }> {
+            const activeProvider = llmConfig?.provider ?? defaultModelSelection.provider;
+            if (switchOptions.targetModel.provider !== activeProvider) {
+                return { ok: false, error: { code: "PROVIDER_MISMATCH", message: `Cannot switch across providers from "${activeProvider}" to "${switchOptions.targetModel.provider}"` } };
+            }
+            const targetSelection: GoalModelSelection = {
+                provider: switchOptions.targetModel.provider,
+                modelId: switchOptions.targetModel.id,
+                structuredOutputMode: defaultModelSelection.structuredOutputMode,
+                ...(switchOptions.targetModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: switchOptions.targetModel.contextWindowTokens }),
+                ...(switchOptions.targetModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: switchOptions.targetModel.maxOutputTokens }),
+                inputEstimator: defaultModelSelection.inputEstimator,
+            };
+            let candidateAdapter: LLMAdapter;
+            try {
+                candidateAdapter = options.adapterFactory !== undefined
+                    ? options.adapterFactory(targetSelection)
+                    : llmConfig !== undefined
+                        ? createLlmAdapter({ ...llmConfig, model: switchOptions.targetModel.id })
+                        : adapter;
+                const candidateBinding = modelBinding.createCandidate({
+                    selection: targetSelection,
+                    adapter: candidateAdapter,
+                    trajectoryStore,
+                    modelContextBudget: options.modelContextBudget,
+                    customEstimator: modelInputEstimator,
+                });
+                let updatedGoal: import("../../runtime/src/index").Goal | undefined;
+                if (switchOptions.goal !== undefined) {
+                    const saved = await goalModelSelectionCoordinator.updateModelSelection({
+                        ref: { goalId: switchOptions.goal.id, runId: switchOptions.goal.state.run.id },
+                        selection: targetSelection,
+                    }, { signal: abortController.signal });
+                    if (!saved.ok) return { ok: false, error: saved.error };
+                    updatedGoal = saved.goal;
+                }
+                modelBinding.publish(candidateBinding);
+                return { ok: true, ...(updatedGoal === undefined ? {} : { goal: updatedGoal }) };
+            } catch (error: unknown) {
+                return { ok: false, error: { code: error instanceof Error && "code" in error ? String((error as { code: unknown }).code) : "MODEL_SWITCH_FAILED", message: error instanceof Error ? error.message : String(error) } };
+            }
+        },
+    };
+    const modelRestorer = {
+        async restoreModel(restoreOptions: { readonly goal: import("../../runtime/src/index").Goal }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: UiError }> {
+            const selection = restoreOptions.goal.state.modelSelection;
+            const active = modelBinding.current();
+            if (active.selection.provider === selection.provider && active.selection.modelId === selection.modelId) return { ok: true };
+            if (selection.provider !== (llmConfig?.provider ?? defaultModelSelection.provider)) {
+                return { ok: false, error: { code: "RESTORE_PROVIDER_MISMATCH", message: "Snapshot provider does not match active provider" } };
+            }
+            try {
+                const candidateAdapter = options.adapterFactory !== undefined
+                    ? options.adapterFactory(selection)
+                    : llmConfig !== undefined
+                        ? createLlmAdapter({ ...llmConfig, model: selection.modelId })
+                        : adapter;
+                modelBinding.publish(modelBinding.createCandidate({ selection, adapter: candidateAdapter, trajectoryStore, modelContextBudget: options.modelContextBudget, customEstimator: modelInputEstimator }));
+                return { ok: true };
+            } catch (error: unknown) {
+                return { ok: false, error: { code: "RESTORE_MODEL_FAILED", message: error instanceof Error ? error.message : String(error) } };
+            }
+        },
+    };
+
     const controller = new SessionController({
         launcher,
         coordinator,
@@ -814,7 +937,7 @@ export async function createCompositionRoot(
         goalIdGenerator,
         control: { signal: abortController.signal },
         notifyingStore,
-        initialScreen: options.initialScreen ?? "home",
+        initialScreen: options.initialScreen ?? "intent_input",
         ...(options.initialGoalSelectMode !== undefined
             ? { initialGoalSelectMode: options.initialGoalSelectMode }
             : {}),
@@ -825,6 +948,12 @@ export async function createCompositionRoot(
             ...(llmConfig?.model === undefined ? {} : { modelName: llmConfig.model }),
             dataDirectory,
         },
+        modelCatalog,
+        llmConfig,
+        modelSwitcher,
+        modelRestorer,
+        defaultModelId: defaultModelSelection.modelId,
+        defaultModelSelection,
     });
     const shutdownCoordinator = new ShutdownCoordinator({
         checkpointStore,
@@ -872,6 +1001,10 @@ export async function createCompositionRoot(
         abortController,
         shutdownCoordinator,
         coordinator,
+        modelCatalog,
+        modelBinding,
+        goalModelSelectionCoordinator,
+        defaultModelSelection,
         controller,
         goalIdGenerator,
         runIdGenerator,

@@ -10,6 +10,8 @@ import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
 import { InspectorScreen } from "./inspector-screen";
 import { TerminalScreen } from "./terminal-screen";
+import { ModelSelector } from "./model-selector";
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import { UiDispatchRejectedError, type UiCommand } from "./types";
 
 /**
@@ -74,6 +76,12 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
         });
     }, [controller]);
 
+    const handleCommandEffect = useCallback((effect: ModelCommandEffect) => {
+        if (effect.kind === "open_model_selector") {
+            dispatch({ kind: "openModelSelector" });
+        }
+    }, [dispatch]);
+
     return <TerminalScreen alternate={snapshot.screen === "inspector"}>{renderScreen()}</TerminalScreen>;
 
     function renderScreen(): React.JSX.Element | null {
@@ -106,8 +114,10 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                 <IntentScreen
                     busy={snapshot.busy}
                     {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    {...("notice" in snapshot && snapshot.notice !== undefined ? { notice: snapshot.notice } : {})}
                     onSubmit={(intent) => dispatch({ kind: "create", intent })}
                     onBack={() => dispatch({ kind: "openHome" })}
+                    onCommandEffect={handleCommandEffect}
                 />
             );
         case "session":
@@ -128,6 +138,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         reason,
                     })}
                     onToggleExecutionMode={() => dispatch({ kind: "toggleExecutionMode" })}
+                    onCommandEffect={handleCommandEffect}
                 />
             ) : (
                 <PreparationScreen
@@ -138,6 +149,18 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     })}
                     onApproveTask={() => dispatch({ kind: "approveTask" })}
                     onRetry={() => dispatch({ kind: "retryPreparation" })}
+                    onCommandEffect={handleCommandEffect}
+                />
+            );
+        case "model_select":
+            return (
+                <ModelSelector
+                    currentModelId={snapshot.currentModelId}
+                    state={snapshot.state}
+                    busy={snapshot.busy}
+                    {...(snapshot.error === undefined ? {} : { error: snapshot.error })}
+                    onSelect={(model) => dispatch({ kind: "selectModel", model })}
+                    onCancel={() => dispatch({ kind: "cancelModelSelect" })}
                 />
             );
         case "goal_select":

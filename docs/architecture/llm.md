@@ -29,6 +29,13 @@ Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
 strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../packages/llm/src/core/adapter.ts)。
 
+[LlmModelCatalog](../../packages/llm/src/model-catalog.ts) 负责当前 Provider 的模型发现与能力补全，默认组合 [DefaultProviderModelFetcher](../../packages/llm/src/provider-fetchers.ts) 进行在线发现：
+- 适配 OpenAI、Google、Anthropic、OpenRouter、DeepSeek 与 `openai-compatible` 的官方/配置端点与专属鉴权头；
+- Google (`pageToken`) 与 Anthropic (`has_more` / `last_id`) 支持安全完整分页，拒绝不递进或循环 cursor；
+- 共享 5000ms 超时与外部取消，并以 pi-ai 静态目录补充上下文容量、展示名与视觉能力；
+- 网络故障、超时或端点不支持 (404/405/501) 允许静态目录或配置兜底；鉴权 (401)、权限 (403) 与协议非法错误坚决拒绝且不静默降级；
+- 所有异常与日志严格脱敏，不复制任何 API Key、Authorization 头或敏感响应正文。
+
 ## 配置
 
 运行要求 Node ≥22.19.0。系统支持 XDG 基础目录规范（优先读取 `$XDG_CONFIG_HOME/lazygoal`，默认回退至 `$HOME/.config/lazygoal`），按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`、`structured_output_mode`；现有环境需补充 provider，不推断旧配置。
