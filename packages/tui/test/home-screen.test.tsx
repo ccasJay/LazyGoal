@@ -72,7 +72,7 @@ test("HomeScreen renders ASCII banner, environment summary, and official select 
     assert.match(frame, /View History/);
     assert.match(frame, /Settings/);
     assert.match(frame, /Exit/);
-    assert.match(frame, /Use ↑\/↓ to navigate, Enter to select, 'q' to exit/);
+    assert.match(frame, /↑\/↓ Navigate  Enter Select  q Exit/);
 });
 
 test("HomeScreen triggers onExit when pressing 'q'", async () => {

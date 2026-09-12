@@ -70,6 +70,7 @@ export function GoalSelectScreen({
     const [query, setQuery] = useState("");
     const [searching, setSearching] = useState(false);
     const contentWidth = Math.max(1, columns - 4);
+    const gap = rows < 20 ? 0 : 1;
 
     useInput((input, key) => {
         if (busy) return;
@@ -90,13 +91,27 @@ export function GoalSelectScreen({
     const options = useMemo(
         () => goals.filter((entry) => [entry.intent, entry.goalId, entry.runStatus, entry.workflowPhase]
             .join(" ").toLowerCase().includes(query.trim().toLowerCase())).map((entry) => ({
-            label: wrapAnsi(formatGoalEntry(entry, mode), contentWidth, { hard: true, trim: false }),
+            label: formatGoalEntry(entry, mode),
+            description: wrapAnsi([
+                mode === "resume" ? `phase=${entry.workflowPhase}  run=${entry.runStatus}` : entry.runStatus,
+                truncateId(entry.goalId),
+                entry.updatedAt,
+            ].join("  "), contentWidth, { hard: true, trim: false }),
             value: entry.goalId,
         })),
         [goals, mode, query, contentWidth],
     );
-    const optionHeight = options.reduce((height, option) => Math.max(height, option.label.split("\n").length), 1);
-    const visibleOptionCount = Math.max(1, Math.min(8, Math.floor((rows - 12) / optionHeight)));
+    const optionHeight = options.reduce((height, option) => Math.max(height,
+        1 + option.description.split("\n").length), 1);
+    const navigationHint = searching
+        ? "Type to filter. Enter to browse. Esc to clear."
+        : "↑/↓ Select  Enter Open  / Search";
+    const backHint = (searching || query.length > 0 ? "Esc Clear search  " : onBack === undefined ? "" : "Esc Main Menu  ")
+        + (searching ? "Ctrl+C Exit" : onExit === undefined ? "Press Ctrl+C to exit." : "q Exit");
+    const hintHeight = [navigationHint, backHint].reduce((height, hint) => height
+        + wrapAnsi(hint, Math.max(1, columns - 2), { hard: true }).split("\n").length, 0);
+    const visibleOptionCount = Math.max(1, Math.min(8,
+        Math.floor((rows - 5 - gap * 4 - hintHeight) / optionHeight)));
 
     const handleSelect = useCallback((goalId: string) => {
         selectGate.attempt(() => {
@@ -113,7 +128,7 @@ export function GoalSelectScreen({
     const isInspect = mode === "inspect";
 
     return (
-        <Box flexDirection="column" gap={1} width={columns}>
+        <Box flexDirection="column" gap={gap} width={columns} paddingX={1}>
             <Text bold color="cyan">
                 {isInspect ? "Inspect Goal Trajectory" : "Resume a Goal"}
             </Text>
@@ -136,10 +151,7 @@ export function GoalSelectScreen({
             ) : options.length === 0 ? (
                 <Text>No matching Goals. Press Esc to clear the search.</Text>
             ) : (
-                <Box flexDirection="column" gap={1}>
-                    <Text>
-                        {isInspect ? "Select a Goal to inspect:" : "Select a Goal to resume:"}
-                    </Text>
+                <Box flexDirection="column">
                     <GoalList
                         key={query}
                         isDisabled={busy || searching}
@@ -152,11 +164,8 @@ export function GoalSelectScreen({
                 </Box>
             )}
             {busy ? <StatusSpinner label={isInspect ? "Loading trajectory..." : "Resuming goal..."} /> : null}
-            <Text dimColor>{searching
-                ? "Type to filter. Enter to browse. Esc to clear."
-                : "↑/↓ Select  Enter Open  / Search"}</Text>
-            <Text dimColor>{searching || query.length > 0 ? "Esc Clear search  " : onBack === undefined ? "" : "Esc Main Menu  "}
-                {onExit === undefined ? "Press Ctrl+C to exit." : "q Exit"}</Text>
+            <Text dimColor>{navigationHint}</Text>
+            <Text dimColor>{backHint}</Text>
         </Box>
     );
 }
@@ -169,24 +178,8 @@ function formatGoalEntry(
         const label = entry.intent.startsWith("[")
             ? entry.intent
             : `[Goal] ${entry.intent}`;
-        const shortIntent = summarizeIntent(label, 60);
-        return `${shortIntent} (${entry.runStatus}) | ${truncateId(entry.goalId)} | ${entry.updatedAt}`;
+        return label.replace(/\s+/g, " ").trim();
     }
 
-    return [
-        truncateId(entry.goalId),
-        summarizeIntent(entry.intent),
-        `phase=${entry.workflowPhase}`,
-        `run=${entry.runStatus}`,
-        `updated=${entry.updatedAt}`,
-    ].join(" | ");
-}
-
-function summarizeIntent(intent: string, maxLength = 72): string {
-    const normalized = intent.replace(/\s+/g, " ").trim();
-    if (normalized.length <= maxLength) {
-        return normalized;
-    }
-
-    return `${normalized.slice(0, maxLength - 1)}…`;
+    return entry.intent.replace(/\s+/g, " ").trim();
 }

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { stripVTControlCharacters } from "node:util";
+import stringWidth from "string-width";
 import { afterEach, test } from "node:test";
 import React from "react";
 import { cleanup, render } from "ink-testing-library";
@@ -117,7 +119,7 @@ test("InspectorScreen renders step header, navigation controls, and message cont
         />,
     );
 
-    const frame = instance.lastFrame() ?? "";
+    const frame = stripVTControlCharacters(instance.lastFrame() ?? "");
     assert.match(frame, /Goal Inspector/);
     assert.match(frame, /goal-test-1/);
     assert.match(frame, /Step 1 \/ 2/);
@@ -238,37 +240,37 @@ test("InspectorScreen supports j and k for vertical scrolling", async () => {
     );
 
     // 默认未滚动
-    assert.match(instance.lastFrame() ?? "", /Lines 1-17 \/ 62  Top/);
+    assert.match(instance.lastFrame() ?? "", /Lines 1-17 \/ 61  Top/);
 
     // 按 j 键向下滚动一行
     instance.stdin.write("j");
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 62/);
+    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 61/);
     assert.doesNotMatch(instance.lastFrame() ?? "", /\[User\]/);
 
     // 再次按 j 键向下滚动两行
     instance.stdin.write("j");
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 3-19 \/ 62/);
+    assert.match(instance.lastFrame() ?? "", /Lines 3-19 \/ 61/);
 
     // 按 k 键向上回滚
     instance.stdin.write("k");
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 62/);
+    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 61/);
     instance.stdin.write("\u001b[6~");
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 19-35 \/ 62/);
+    assert.match(instance.lastFrame() ?? "", /Lines 19-35 \/ 61/);
     instance.stdin.write("\u001b[5~");
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 62/);
+    assert.match(instance.lastFrame() ?? "", /Lines 2-18 \/ 61/);
     instance.stdin.write("G" + "j".repeat(100));
     await nextFrame();
     assert.match(instance.lastFrame() ?? "", /Line 60/);
-    assert.match(instance.lastFrame() ?? "", /Lines 46-62 \/ 62  Bottom/);
+    assert.match(instance.lastFrame() ?? "", /Lines 45-61 \/ 61  Bottom/);
     assert.equal(instance.lastFrame()?.split("\n").length, 23);
     instance.stdin.write("g" + "k".repeat(100));
     await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /Lines 1-17 \/ 62  Top/);
+    assert.match(instance.lastFrame() ?? "", /Lines 1-17 \/ 61  Top/);
 });
 
 test("InspectorScreen displays folded and expanded reasoning with 'r' key", async () => {
@@ -305,7 +307,7 @@ test("InspectorScreen displays folded and expanded reasoning with 'r' key", asyn
         />,
     );
 
-    assert.match(foldedInstance.lastFrame() ?? "", /Reasoning folded/);
+    assert.match(foldedInstance.lastFrame() ?? "", /r Expand/);
     assert.doesNotMatch(foldedInstance.lastFrame() ?? "", /Detailed internal thoughts/);
 
     foldedInstance.stdin.write("r");
@@ -326,7 +328,7 @@ test("InspectorScreen displays folded and expanded reasoning with 'r' key", asyn
         />,
     );
 
-    assert.match(expandedInstance.lastFrame() ?? "", /Reasoning \/ CoT/);
+    assert.match(expandedInstance.lastFrame() ?? "", /Reasoning/);
     assert.match(expandedInstance.lastFrame() ?? "", /Detailed internal thoughts/);
 });
 
@@ -415,7 +417,7 @@ test("InspectorScreen clamps short content and keeps controls visible after resi
     instance.stdin.write("j".repeat(100));
     await nextFrame();
     assert.match(instance.lastFrame() ?? "", /Short content/);
-    assert.match(instance.lastFrame() ?? "", /Lines 1-3 \/ 3  All/);
+    assert.match(instance.lastFrame() ?? "", /Lines 1-2 \/ 2  All/);
 
     Object.defineProperty(instance.stdout, "columns", { value: 48, configurable: true });
     Object.defineProperty(instance.stdout, "rows", { value: 18, configurable: true });
@@ -424,7 +426,7 @@ test("InspectorScreen clamps short content and keeps controls visible after resi
     instance.rerender(screen({ ...model, steps: [{ ...model.steps[0]!,
         messages: [{ role: "user", content: longContent }] }] }));
     await nextFrame();
-    let frame = instance.lastFrame() ?? "";
+    let frame = stripVTControlCharacters(instance.lastFrame() ?? "");
     assert.equal(frame.split("\n").length, 17);
     assert.match(frame, /Goal Inspector/);
     assert.match(frame, /Step 1 \/ 1/);
@@ -437,7 +439,7 @@ test("InspectorScreen clamps short content and keeps controls visible after resi
     Object.defineProperty(instance.stdout, "rows", { value: 30, configurable: true });
     instance.stdout.emit("resize");
     await nextFrame();
-    frame = instance.lastFrame() ?? "";
+    frame = stripVTControlCharacters(instance.lastFrame() ?? "");
     assert.match(frame, /Lines 1-.*All/);
     assert.match(frame, /LAST-CONTENT/);
     assert.equal(frame.split("\n").length, 29);
@@ -525,31 +527,31 @@ test("InspectorScreen renders structured Decision, Action, Observation, Result b
         />,
     );
 
-    let frame = instance.lastFrame() ?? "";
+    let frame = stripVTControlCharacters(instance.lastFrame() ?? "");
     // 验证未提交警告
-    assert.match(frame, /WARNING: UNCOMMITTED TAIL/);
+    assert.match(frame, /Uncommitted events/);
     assert.match(frame, /Trailing uncommitted events detected/);
     // 验证标题
-    assert.match(frame, /=== Step 2: Execution \(unit-42\) ===/);
+    assert.match(frame, /Execution/);
     // 验证 Decision 区块
-    assert.match(frame, /\[Decision: tool_call\]/);
+    assert.match(frame, /Decision: tool_call/);
     assert.match(frame, /Decided to read file/);
-    assert.match(frame, /Target Tool: read_file/);
+    assert.match(frame, /Action: read_file/);
     // 验证 Action 区块
-    assert.match(frame, /\[Action: read_file\] \(Approved\)/);
+    assert.match(frame, /Action: read_file\s+Approved/);
     assert.match(frame, /README\.md/);
     // 验证 Observation 区块（折叠/截断状态）
-    assert.match(frame, /\[Observation: read_file\] SUCCESS \(45ms\)/);
+    assert.match(frame, /Observation: read_file\s+success \(45ms\)/);
     assert.match(frame, /Short preview\.\.\./);
-    assert.match(frame, /\[Observation truncated - press o to expand\]/);
+    assert.match(frame, /Output truncated · o Expand/);
     // 验证快捷键提示包含 [o] Obs
-    assert.match(frame, /\[o\] Obs/);
+    assert.match(frame, /\[o\] Output/);
 
     // 按 G 键滚动到底部验证 Result 区块
     instance.stdin.write("G");
     await nextFrame();
-    frame = instance.lastFrame() ?? "";
-    assert.match(frame, /\[Result: NEXT_STEP\]/);
+    frame = stripVTControlCharacters(instance.lastFrame() ?? "");
+    assert.match(frame, /Result: next step/);
     assert.match(frame, /File content retrieved successfully/);
 
     // 触发 'o' 键
@@ -573,9 +575,66 @@ test("InspectorScreen renders structured Decision, Action, Observation, Result b
         />,
     );
     await nextFrame();
-    frame = instance.lastFrame() ?? "";
+    frame = stripVTControlCharacters(instance.lastFrame() ?? "");
     // 展开状态下展示完整内容与收起提示
     assert.match(frame, /Very long full content of README\.md that was truncated/);
-    assert.match(frame, /Full output displayed - press o to collapse/);
+    assert.match(frame, /Full output · o Collapse/);
 });
 
+
+test("InspectorScreen keeps available controls visible across narrow viewports and scrolls to the final line", async () => {
+    const inspector: UiInspectorViewModel = {
+        screen: "inspector", busy: false, goalId: "goal-narrow", currentStepIndex: 0,
+        totalSteps: 1, showReasoning: false, expandObservation: false,
+        steps: [{ index: 0, totalSteps: 1, rawJson: "{}", reasoning: "Stored reasoning",
+            observation: { toolId: "read_file", actionId: "action-1", status: "success",
+                observationPreview: Array.from({ length: 40 }, (_,i) => `line ${i} 界面测试`).join("\n") + "\nLAST-LINE",
+                rawObservation: "Full output", isTruncated: true } }],
+    };
+    let exits = 0;
+    const instance = render(<InspectorScreen inspector={inspector}
+        onInspectStep={() => undefined} onToggleReasoning={() => undefined}
+        onToggleObservation={() => undefined} onBack={() => undefined}
+        onExit={() => { exits += 1; }} />);
+    for (const [columns, rows] of [[24, 12], [29, 13], [48, 18], [60, 18], [100, 30]] as const) {
+        Object.defineProperty(instance.stdout, "columns", { value: columns, configurable: true });
+        Object.defineProperty(instance.stdout, "rows", { value: rows, configurable: true });
+        instance.stdout.emit("resize");
+        await nextFrame();
+        const frame = stripVTControlCharacters(instance.lastFrame() ?? "");
+        assert.equal(frame.split("\n").length, rows - 1, `${columns}x${rows}\n${frame}`);
+        assert.ok(frame.split("\n").every((line) => stringWidth(line) <= columns), frame);
+        for (const hint of ["[r] Reasoning", "[o] Output", "[e] Raw", "[Esc] History", "[q] Exit"]) {
+            assert.ok(frame.includes(hint), `${columns}x${rows}: missing ${hint}\n${frame}`);
+        }
+        instance.stdin.write("G");
+        await nextFrame();
+        assert.match(instance.lastFrame() ?? "", /Bottom/);
+        // 最窄视口正文只容一行；从折叠提示向上滚动仍可读到输出末行。
+        for (let i = 0; i < 3 && !(instance.lastFrame() ?? "").includes("LAST-LINE"); i++) {
+            instance.stdin.write("k");
+            await nextFrame();
+        }
+        assert.match(instance.lastFrame() ?? "", /LAST-LINE/);
+    }
+    instance.stdin.write("q");
+    await nextFrame();
+    assert.equal(exits, 1);
+});
+
+test("InspectorScreen omits and ignores unavailable expansion actions", async () => {
+    let toggles = 0;
+    const inspector: UiInspectorViewModel = {
+        screen: "inspector", busy: false, goalId: "goal-empty", currentStepIndex: 0,
+        totalSteps: 1, showReasoning: false,
+        steps: [{ index: 0, totalSteps: 1, rawJson: "{}", messages: [] }],
+    };
+    const instance = render(<InspectorScreen inspector={inspector}
+        onInspectStep={() => undefined} onToggleReasoning={() => { toggles += 1; }}
+        onToggleObservation={() => { toggles += 1; }} />);
+    instance.stdin.write("ro");
+    await nextFrame();
+    assert.equal(toggles, 0);
+    assert.doesNotMatch(instance.lastFrame() ?? "", /\[r\]|\[o\]/);
+    assert.match(instance.lastFrame() ?? "", /\[e\] Raw/);
+});

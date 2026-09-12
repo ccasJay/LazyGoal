@@ -77,7 +77,7 @@ test("GoalSelectScreen preserves Catalog order and renders every summary field",
     assert.match(frame, /Newest resumable workflow/);
     assert.match(frame, /phase=planning/);
     assert.match(frame, /run=waiting/);
-    assert.match(frame, /updated=2026-08-17T02:00:00\.000Z/);
+    assert.match(frame, /2026-08-17T02:00:00\.000Z/);
 });
 
 test("GoalSelectScreen submits the focused keyboard selection once", async () => {
@@ -96,7 +96,7 @@ test("GoalSelectScreen submits the focused keyboard selection once", async () =>
     );
 
     instance.stdin.write("\u001b[B");
-    await waitForFrame(instance, /❯ goal-sec/);
+    await waitForFrame(instance, /❯ Second workflow/);
     instance.stdin.write("\r");
     await nextFrame();
     instance.stdin.write("\r");
@@ -171,9 +171,9 @@ test("GoalSelectScreen renders benchmark and goal labels in inspect mode", () =>
     );
 
     const frame = instance.lastFrame() ?? "";
-    assert.match(frame, /\[GAIA\] gaia-smoke-001 \(completed\)/);
-    assert.match(frame, /\[Goal\] User defined intent \(waiting\)/);
-    assert.match(frame, /Select a Goal to inspect/);
+    assert.match(frame, /\[GAIA\] gaia-smoke-001\n\s+completed/);
+    assert.match(frame, /\[Goal\] User defined intent\n\s+waiting/);
+    assert.match(frame, /Inspect Goal Trajectory/);
 });
 
 test("GoalSelectScreen searches summaries without submitting text and supports clearing and back", async () => {
@@ -221,7 +221,7 @@ test("GoalSelectScreen displays no matches and preserves the last inspected sele
     await waitForFrame(instance, /No matching Goals/);
     instance.stdin.write("\u001b");
     await waitForFrame(instance, /2 \/ 2 Goals/);
-    assert.match(instance.lastFrame() ?? "", /❯ goal-sec/);
+    assert.match(instance.lastFrame() ?? "", /❯ Second workflow/);
 });
 
 test("GoalSelectScreen shows loading without an empty-history flash", () => {
@@ -229,4 +229,29 @@ test("GoalSelectScreen shows loading without an empty-history flash", () => {
         onSelect={() => undefined} />);
     assert.match(instance.lastFrame() ?? "", /Loading trajectory/);
     assert.doesNotMatch(instance.lastFrame() ?? "", /No Goal history found/);
+});
+
+test("GoalSelectScreen keeps long titles, focused selection and exit controls within a short terminal", async () => {
+    const goals = Array.from({length: 20}, (_, i) => entry(
+        `goal-${i}`, `Task ${i} ${"检查日志文件".repeat(30)}`, "2026-09-12T01:02:03.000Z",
+    ));
+    const selected: string[] = [];
+    const instance = render(<GoalSelectScreen goals={goals} busy={false} mode="inspect"
+        onSelect={(id) => { selected.push(id); }} onBack={() => undefined} onExit={() => undefined} />);
+    for (const [columns, rows] of [[30, 13], [48, 18], [80, 24]] as const) {
+        Object.defineProperty(instance.stdout, "columns", { value: columns, configurable: true });
+        Object.defineProperty(instance.stdout, "rows", { value: rows, configurable: true });
+        instance.stdout.emit("resize");
+        await nextFrame();
+        const frame = instance.lastFrame() ?? "";
+        assert.ok(frame.split("\n").length < rows, `${columns}x${rows}\n${frame}`);
+        assert.match(frame, /Esc Main Menu.*q Exit/);
+        assert.match(frame, /❯ \[Goal\] Task 0/);
+    }
+    instance.stdin.write("j".repeat(19));
+    await nextFrame();
+    assert.match(instance.lastFrame() ?? "", /❯ \[Goal\] Task 19/);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(selected, ["goal-19"]);
 });

@@ -13,8 +13,12 @@ import { Box, Text, useInput } from "ink";
  *   initialGoalId="goal-1" onChange={selectGoal} />
  */
 export interface GoalListProps {
-    /** 有序摘要；label 可以包含换行，value 为唯一 Goal ID。 */
-    readonly options: readonly { readonly label: string; readonly value: string }[];
+    /** 有序摘要；标题占一行，description 可换行，value 为唯一 Goal ID。 */
+    readonly options: readonly {
+        readonly label: string;
+        readonly value: string;
+        readonly description?: string;
+    }[];
     /** 同时展示的选项数量，至少为 1。 */
     readonly visibleOptionCount: number;
     /** 搜索编辑或异步读取期间禁用全部列表按键。 */
@@ -64,12 +68,18 @@ export function GoalList({
                 return (
                     <Box key={option.value}>
                         <Text {...(focused ? { color: "cyan" } : {})}>{focused ? "❯ " : "  "}</Text>
-                        <Text {...(focused ? { color: "cyan" } : {})}>{option.label}</Text>
+                        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+                            <Text bold={focused} wrap="truncate-end"
+                                {...(focused ? { color: "cyan" } : {})}>{option.label}</Text>
+                            {option.description === undefined ? null : (
+                                <Text dimColor>{option.description}</Text>
+                            )}
+                        </Box>
                     </Box>
                 );
             })}
-            <Text dimColor>{options.length === 0 ? 0 : focusedIndex + 1} / {options.length}
-                {options.length > count ? "  PgUp/PgDn to browse more" : ""}</Text>
+            <Text dimColor wrap="truncate-end">{options.length === 0 ? 0 : focusedIndex + 1} / {options.length}
+                {options.length > count ? "  PgUp/PgDn" : ""}</Text>
         </Box>
     );
 }

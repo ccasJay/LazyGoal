@@ -110,9 +110,12 @@ q 使用与 Ctrl+C 相同的关闭流程。新目标输入页可用 Esc 放弃�
 这些返回入口不应用于正在执行的 Goal 会话。
 
 Inspector 根据当前 Ink 输出流的 resize 事件调整正文宽高，按终端显示列换行后
-分页，固定显示标题、行号范围和快捷键。滚动限制在正文首尾，切步或折叠思考内容
-回到顶部。外部查看只生成临时 JSON 文件，返回后清理该文件，并通过 Ink 的
+分页，固定显示标题、行号范围和快捷键。快捷键按完整操作提示换行，仅显示可用的
+思考与输出展开操作，并从正文高度中扣除实际提示行数。代码和工具输出先折行再添加
+槽线；历史列表分开展示标题与状态、ID、更新时间，按摘要实际高度限制可见条目。
+滚动限制在正文首尾，切步或折叠思考内容回到顶部。外部查看只生成临时 JSON 文件，返回后清理该文件，并通过 Ink 的
 输出恢复接口同步画面与帧缓存；编辑器启动失败显示在当前页。
+备用屏幕由挂载层管理，Inspector 切入时不重复清屏；背景继承终端主题。
 
 ## 关闭流程
 
@@ -131,6 +134,7 @@ Inspector 根据当前 Ink 输出流的 resize 事件调整正文宽高，按终
 - TUI 把 Trajectory/Trace、Warm Sidecar、Working Memory 限制、Model Context Assembler、
   Protocol Validator 和共享提交器作为 Composition Root 依赖装配；
   `CompositionRoot.readTrajectory` 提供按 Goal/Run 和序列范围的只读入口，并以最新 Snapshot
-  边界返回 committed/tail 分类。Inspector 当前复盘的是 Snapshot 中的消息步骤切片，
-  不等同于完整的 committed/tail 事实事件或 Memory 视图；Sidecar 删除后下一轮由
-  committed Trajectory 重新派生。
+  边界返回 committed/tail 分类。Inspector 通过
+  [Trajectory Projector](../../packages/tui/src/trajectory-projector.ts) 把已提交事件投影为
+  Preparation、按 executionUnitId 分组的执行步骤和终态区块；未提交尾部显示警告。
+  Inspector 不提供归约后的 Memory 视图；Sidecar 删除后下一轮由 committed Trajectory 重新派生。

@@ -115,18 +115,18 @@ export function HomeScreen({
     }, [selectGate, onSelectNewGoal, onSelectViewHistory, onSelectSettings, handleExit]);
 
     return (
-        <Box flexDirection="column" gap={1} width={columns}>
+        <Box flexDirection="column" gap={rows < 20 ? 0 : 1} width={columns} paddingX={1}>
             <Text bold color="cyan">
-                {columns < 52 || rows < 24 ? "LazyGoal" : LAZYGOAL_ASCII_BANNER}
+                {columns < 52 || rows < 28 ? "LazyGoal" : LAZYGOAL_ASCII_BANNER}
             </Text>
             {environmentSummary === undefined ? null : (
                 <Box flexDirection="column">
                     <Text dimColor wrap="truncate-middle">Workspace: {environmentSummary.workspaceRoot}</Text>
-                    <Text dimColor>Profile: {environmentSummary.profileId}</Text>
+                    <Text dimColor wrap="truncate-end">Profile: {environmentSummary.profileId}</Text>
                 </Box>
             )}
             {error === undefined ? null : <ErrorLine error={error} />}
-            <Box flexDirection="column" gap={1}>
+            <Box flexDirection="column" gap={rows < 20 ? 0 : 1}>
                 <Text bold>Main Menu:</Text>
                 <Select
                     isDisabled={busy}
@@ -134,7 +134,7 @@ export function HomeScreen({
                     onChange={handleSelect}
                 />
             </Box>
-            <Text dimColor>Use ↑/↓ to navigate, Enter to select, 'q' to exit</Text>
+            <Text dimColor>↑/↓ Navigate  Enter Select  q Exit</Text>
             {busy ? <StatusSpinner label="Loading..." /> : null}
         </Box>
     );

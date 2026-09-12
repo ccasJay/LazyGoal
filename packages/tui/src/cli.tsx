@@ -929,7 +929,7 @@ function TuiMountHost({
     const { stdout, write } = useStdout();
     useEffect(() => {
         if (!stdout?.isTTY) return;
-        write("\x1b[?1049h\x1b[40m\x1b[2J\x1b[H");
+        write("\x1b[?1049h\x1b[2J\x1b[H");
         return () => {
             write("\x1b[0m\x1b[?1049l");
         };

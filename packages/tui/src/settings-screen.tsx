@@ -3,6 +3,7 @@ import { Box, Text, useInput } from "ink";
 
 import type { UiError, UiSettingsViewModel } from "./types";
 import { ErrorLine } from "./error-line";
+import { useTerminalSize } from "./use-terminal-size";
 
 /**
  * SettingsScreen 的渲染与交互边界。
@@ -43,6 +44,7 @@ export function SettingsScreen({
     error,
     onBack,
 }: SettingsScreenProps): React.JSX.Element {
+    const { columns } = useTerminalSize();
     useInput((input, key) => {
         if (
             !busy
@@ -53,14 +55,21 @@ export function SettingsScreen({
     });
 
     return (
-        <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column" gap={1} width={columns} paddingX={1}>
             <Text bold color="cyan">Settings & Environment</Text>
             {error === undefined ? null : <ErrorLine error={error} />}
-            <Box flexDirection="column" paddingLeft={1} borderStyle="round" borderColor="gray">
-                <Text><Text bold>Workspace Root:</Text> {settings.workspaceRoot}</Text>
-                <Text><Text bold>Active Profile:</Text> {settings.profileId}</Text>
-                <Text><Text bold>Model Name:    </Text> {settings.modelName ?? "(default / adapter)"}</Text>
-                <Text><Text bold>Data Directory:</Text> {settings.dataDirectory ?? ".lazygoal"}</Text>
+            <Box flexDirection="column" gap={1}>
+                {[
+                    ["Workspace Root:", settings.workspaceRoot],
+                    ["Active Profile:", settings.profileId],
+                    ["Model Name:", settings.modelName ?? "(default / adapter)"],
+                    ["Data Directory:", settings.dataDirectory ?? ".lazygoal"],
+                ].map(([label, value]) => (
+                    <Box key={label} flexDirection={columns < 60 ? "column" : "row"}>
+                        <Box width={17} flexShrink={0}><Text dimColor>{label}</Text></Box>
+                        <Box flexShrink={1} minWidth={0}><Text wrap="truncate-middle">{value}</Text></Box>
+                    </Box>
+                ))}
             </Box>
             <Text dimColor>Press Enter, Esc, or 'q' to return to Main Menu.</Text>
         </Box>

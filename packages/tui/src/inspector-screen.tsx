@@ -78,13 +78,33 @@ export function InspectorScreen({
     const currentStep = inspector.steps[inspector.currentStepIndex];
     const contentWidth = Math.max(1, columns - 2);
     const compact = columns < 60;
-    const viewportHeight = Math.max(1, rows - (compact ? 8 : 7));
-
-    useEffect(() => {
-        if (!stdout.isTTY) return;
-        // 清屏并保持纯黑底色（BCE），同步 Ink 帧缓存与终端缓冲区。
-        write("\x1b[40m\x1b[2J\x1b[H");
-    }, [stdout, write]);
+    const canToggleReasoning = currentStep?.reasoning !== undefined;
+    const canToggleObservation = currentStep?.observation?.isTruncated === true
+        && onToggleObservation !== undefined;
+    const navigationHelp = compact
+        ? ["[h/l] Step", "[j/k] Scroll", ...(contentWidth >= 42 ? ["[PgUp/PgDn] Page"] : [])]
+        : ["[h/l] Prev/Next", "[0/$] First/Last", "[j/k] Scroll", "[PgUp/PgDn] Page"];
+    const detailHelp = [
+        canToggleReasoning ? "[r] Reasoning" : undefined,
+        canToggleObservation ? "[o] Output" : undefined,
+        "[e] Raw",
+    ].filter((hint): hint is string => hint !== undefined);
+    const exitHelp = [...(onBack === undefined ? [] : ["[Esc] History"]), "[q] Exit"];
+    const helpLines = [navigationHelp,
+        ...(compact ? [detailHelp, exitHelp] : [[...detailHelp, ...exitHelp]]),
+    ].flatMap((items) => {
+        const lines: string[] = [];
+        for (const item of items) {
+            const last = lines.at(-1);
+            if (last !== undefined && last.length + 2 + item.length <= contentWidth) {
+                lines[lines.length - 1] = last + "  " + item;
+            } else {
+                lines.push(item);
+            }
+        }
+        return lines;
+    });
+    const viewportHeight = Math.max(1, rows - 5 - helpLines.length);
 
     useEffect(() => {
         setScrollOffset(0);
@@ -105,20 +125,22 @@ export function InspectorScreen({
 
         // 1. 未提交尾部警示
         if (currentStep.uncommittedWarning !== undefined) {
-            lines.push(ansi.bold(ansi.red("⚠️  [WARNING: UNCOMMITTED TAIL]")));
+            lines.push(ansi.bold(ansi.yellow("Uncommitted events")));
             lines.push(ansi.yellow(currentStep.uncommittedWarning));
             lines.push("");
         }
 
         // 2. 步骤标题
         if (currentStep.title) {
-            lines.push(ansi.bold(ansi.cyan(`=== ${currentStep.title} ===`)));
+            lines.push(ansi.bold(currentStep.executionUnitId === undefined
+                ? currentStep.title.replace(/^Step \d+: /, "")
+                : "Execution"));
             lines.push("");
         }
 
         // 2.1 准备阶段详情（Step 1: Preparation & Planning）
         if (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0) {
-            lines.push(formatSectionDivider("[Preparation & Context]", contentWidth, {
+            lines.push(formatSectionDivider("Preparation & context", contentWidth, {
                 icon: "◈",
                 color: ansi.cyan,
             }));
@@ -130,31 +152,31 @@ export function InspectorScreen({
 
         // 3. 思维链 (Reasoning / CoT)
         if (currentStep.reasoning !== undefined) {
-            lines.push(formatSectionDivider("[Reasoning / CoT]", contentWidth, {
-                icon: "💭",
+            lines.push(formatSectionDivider("Reasoning", contentWidth, {
+                icon: "·",
                 color: ansi.magenta,
-                badge: inspector.showReasoning ? "[Expanded]" : "[Folded - press r]",
+                badge: inspector.showReasoning ? "r Collapse" : "r Expand",
                 badgeColor: ansi.gray,
             }));
             if (inspector.showReasoning) {
-                lines.push(formatGutter(currentStep.reasoning, { color: ansi.softMagenta }));
-            } else {
-                lines.push(ansi.dim("  Reasoning folded - press r to expand"));
+                lines.push(formatGutter(currentStep.reasoning, { color: ansi.softMagenta, width: contentWidth }));
             }
             lines.push("");
         }
 
         // 4. 决策区块 (Decision)
         if (currentStep.decision !== undefined) {
-            lines.push(formatSectionDivider(`[Decision: ${currentStep.decision.kind}]`, contentWidth, {
+            lines.push(formatSectionDivider(`Decision: ${currentStep.decision.kind}`, contentWidth, {
                 icon: "◈",
                 color: ansi.cyan,
             }));
             if (currentStep.decision.summary) {
-                lines.push(`  ${ansi.gray("Summary:")}     ${currentStep.decision.summary}`);
+                lines.push(`  ${ansi.gray("Summary:")} ${currentStep.decision.summary}`);
             }
             if (currentStep.decision.toolCall !== undefined) {
-                lines.push(`  ${ansi.green(`Target Tool: ${currentStep.decision.toolCall.toolId}`)} ${ansi.dim(`(Action: ${currentStep.decision.toolCall.actionId})`)}`);
+                if (currentStep.action === undefined) {
+                    lines.push(`  Target Tool: ${currentStep.decision.toolCall.toolId}`);
+                }
             }
             lines.push("");
         }
@@ -173,14 +195,14 @@ export function InspectorScreen({
                 : currentStep.action.approvalStatus === "awaiting_approval"
                     ? ansi.yellow
                     : ansi.green;
-            lines.push(formatSectionDivider(`[Action: ${currentStep.action.toolId}] (${statusLabel})`, contentWidth, {
-                icon: "⚡",
+            lines.push(formatSectionDivider(`Action: ${currentStep.action.toolId}`, contentWidth, {
+                icon: "›",
                 color: ansi.yellow,
+                badge: statusLabel,
                 badgeColor,
             }));
             if (currentStep.action.inputJson) {
-                lines.push(`  ${ansi.gray("Input:")}`);
-                lines.push(formatGutter(currentStep.action.inputJson, { color: ansi.softYellow }));
+                lines.push(formatGutter(currentStep.action.inputJson, { color: ansi.softYellow, width: contentWidth }));
             }
             if (currentStep.action.rejectionReason !== undefined) {
                 lines.push(`  ${ansi.red("Rejection Reason:")} ${currentStep.action.rejectionReason}`);
@@ -195,10 +217,11 @@ export function InspectorScreen({
             const durationLabel = currentStep.observation.durationMs !== undefined
                 ? ` (${currentStep.observation.durationMs}ms)`
                 : "";
-            const obsHeader = `[Observation: ${currentStep.observation.toolId}] ${currentStep.observation.status.toUpperCase()}${durationLabel}`;
+            const obsHeader = `Observation: ${currentStep.observation.toolId}`;
             lines.push(formatSectionDivider(obsHeader, contentWidth, {
-                icon: "❯",
+                icon: isSuccess ? "+" : "!",
                 color: statusColor,
+                badge: currentStep.observation.status + durationLabel,
             }));
             const isExpanded = inspector.expandObservation ?? false;
             const gutterColor = isSuccess ? ansi.softGreen : ansi.softRed;
@@ -206,14 +229,14 @@ export function InspectorScreen({
                 const fullText = typeof currentStep.observation.rawObservation === "string"
                     ? currentStep.observation.rawObservation
                     : JSON.stringify(currentStep.observation.rawObservation, null, 2);
-                lines.push(formatGutter(fullText, { color: gutterColor }));
+                lines.push(formatGutter(fullText, { color: gutterColor, width: contentWidth }));
                 if (currentStep.observation.isTruncated) {
-                    lines.push(ansi.dim("  (Full output displayed - press o to collapse)"));
+                    lines.push(ansi.dim("  Full output · o Collapse"));
                 }
             } else {
-                lines.push(formatGutter(currentStep.observation.observationPreview, { color: gutterColor }));
+                lines.push(formatGutter(currentStep.observation.observationPreview, { color: gutterColor, width: contentWidth }));
                 if (currentStep.observation.isTruncated) {
-                    lines.push(ansi.yellow("  ... [Observation truncated - press o to expand]"));
+                    lines.push(ansi.yellow("  Output truncated · o Expand"));
                 }
             }
             lines.push("");
@@ -222,9 +245,10 @@ export function InspectorScreen({
         // 7. 步骤结果区块 (Result)
         if (currentStep.result !== undefined) {
             const isCompleted = currentStep.result.outcome === "completed" || currentStep.result.outcome === "next_step";
-            const resColor = isCompleted ? ansi.green : ansi.red;
-            lines.push(formatSectionDivider(`[Result: ${currentStep.result.outcome.toUpperCase()}]`, contentWidth, {
-                icon: "★",
+            const resColor = isCompleted ? ansi.green
+                : currentStep.result.outcome === "failed" ? ansi.red : ansi.yellow;
+            lines.push(formatSectionDivider(`Result: ${currentStep.result.outcome.replaceAll("_", " ")}`, contentWidth, {
+                icon: isCompleted ? "+" : "!",
                 color: resColor,
             }));
             if (currentStep.result.summary) {
@@ -261,7 +285,7 @@ export function InspectorScreen({
             lines.push("No messages recorded for this step.", "Press e to view the raw step data.");
         }
 
-        return wrapAnsi(lines.join("\n").replace(/\t/g, "    "), contentWidth, {
+        return wrapAnsi(lines.join("\n").replace(/\n+$/, "").replace(/\t/g, "    "), contentWidth, {
             hard: true,
             trim: false,
         }).split("\n");
@@ -309,8 +333,8 @@ export function InspectorScreen({
                         + (error instanceof Error ? error.message : String(error)));
                 } finally {
                     if (stdout.isTTY) {
-                        // write 会清除 Ink 的旧帧并恢复全屏纯黑输出。
-                        write("\x1b[?1049h\x1b[40m\x1b[2J\x1b[H");
+                        // 通过 Ink 清除旧帧并恢复备用屏幕。
+                        write("\x1b[?1049h\x1b[2J\x1b[H");
                     }
                 }
             }
@@ -371,10 +395,12 @@ export function InspectorScreen({
                 case "g": setScrollOffset(0); break;
                 case "G": setScrollOffset(maxScroll); break;
                 case "r":
+                    if (!canToggleReasoning) break;
                     setScrollOffset(0);
                     onToggleReasoning();
                     break;
                 case "o":
+                    if (!canToggleObservation) break;
                     setScrollOffset(0);
                     onToggleObservation?.();
                     break;
@@ -387,16 +413,22 @@ export function InspectorScreen({
 
     const displayStep = inspector.totalSteps > 0 ? inspector.currentStepIndex + 1 : 0;
     const visibleLines = bodyLines.slice(visibleOffset, visibleOffset + viewportHeight);
-    const range = "Lines " + (visibleOffset + 1) + "-"
+    const range = (columns < 36 ? "" : "Lines ") + (visibleOffset + 1) + "-"
         + Math.min(visibleOffset + viewportHeight, bodyLines.length) + " / " + bodyLines.length;
     const position = maxScroll === 0 ? "All" : visibleOffset === 0 ? "Top"
         : visibleOffset === maxScroll ? "Bottom" : Math.round(visibleOffset / maxScroll * 100) + "%";
 
+    if (columns < 24 || rows < 10) {
+        return <Box width={columns} height={Math.max(1, rows - 1)} overflow="hidden">
+            <Text>Enlarge terminal to 24×10. q Exit</Text>
+        </Box>;
+    }
+
     return (
-        <Box flexDirection="column" width={columns} height={Math.max(8, rows - 1)}
+        <Box flexDirection="column" width={columns} height={rows - 1}
             paddingX={1} overflow="hidden">
             <Box flexShrink={0} justifyContent="space-between">
-                <Text bold color="cyan">Goal Inspector</Text>
+                <Text bold color="cyan">{columns < 36 ? "Inspector" : "Goal Inspector"}</Text>
                 <Text bold color="yellow">Step {displayStep} / {inspector.totalSteps}</Text>
             </Box>
             <Text dimColor wrap="truncate-end">{inspector.goalId}</Text>
@@ -409,16 +441,9 @@ export function InspectorScreen({
             <Text color={externalError === undefined ? "gray" : "red"} wrap="truncate-end">
                 {externalError ?? range + "  " + position}
             </Text>
-            <Text dimColor wrap="truncate-end">
-                {compact
-                    ? "[h/l] Step  [j/k] Scroll  [r] CoT  [o] Obs"
-                    : "[h/l] Prev/Next  [0/$] First/Last  [j/k] Scroll  [PgUp/PgDn] Page"}
-            </Text>
-            {compact ? <Text dimColor wrap="truncate-end">[PgUp/PgDn] Page  [g/G] Top/Bottom</Text> : null}
-            <Text dimColor wrap="truncate-end">
-                {compact ? "" : "[Home/End] Top/Bottom  [r] CoT  [o] Obs  "}
-                [e] Raw  {onBack === undefined ? "" : "[Esc] History  "}[q] Exit
-            </Text>
+            {helpLines.map((line, index) => (
+                <Text key={index} dimColor wrap="truncate-end">{line}</Text>
+            ))}
         </Box>
     );
 }
