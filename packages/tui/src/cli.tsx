@@ -1124,12 +1124,15 @@ export async function runCli(
     const onSigint = (): void => {
         void requestShutdown();
     };
+    const cleanupSigint = (): void => {
+        process.off("SIGINT", onSigint);
+    };
 
     try {
         process.on("SIGINT", onSigint);
         unregisterSigint = root.resources.register({
             close: () => {
-                process.off("SIGINT", onSigint);
+                cleanupSigint();
             },
         });
         // 首帧 loading 来自真实查询，不能在构造时占用 dispatch 的 busy 锁。
@@ -1212,6 +1215,7 @@ export async function runCli(
         return 1;
     } finally {
         unregisterSigint?.();
+        cleanupSigint();
         root.controller.dispose();
         if (shutdownPromise === undefined) {
             root.checkpointStore.freeze();

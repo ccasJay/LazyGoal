@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { stripVTControlCharacters } from "node:util";
 import stringWidth from "string-width";
 import { afterEach, test } from "node:test";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import React from "react";
 import { cleanup, render } from "ink-testing-library";
 
@@ -637,4 +640,65 @@ test("InspectorScreen omits and ignores unavailable expansion actions", async ()
     assert.equal(toggles, 0);
     assert.doesNotMatch(instance.lastFrame() ?? "", /\[r\]|\[o\]/);
     assert.match(instance.lastFrame() ?? "", /\[e\] Raw/);
+});
+
+test("external viewer accepts arguments and restores input and display after success or failure", async t => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal viewer "));
+    const viewer = join(directory, "view step.cjs");
+    const resultPath = join(directory, "result.json");
+    await writeFile(viewer, `
+        const fs = require('node:fs');
+        const [result, flag, file] = process.argv.slice(2);
+        fs.writeFileSync(result, JSON.stringify({ flag, file, data: fs.readFileSync(file, 'utf8') }));
+        process.exit(flag === '--fail' ? 17 : 0);
+    `);
+    const saved = { VISUAL: process.env.VISUAL, EDITOR: process.env.EDITOR };
+    t.after(async () => {
+        for (const [key, value] of Object.entries(saved)) {
+            if (value === undefined) delete process.env[key]; else process.env[key] = value;
+        }
+        await rm(directory, { recursive: true, force: true });
+    });
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    process.env.VISUAL = "";
+    const model: UiInspectorViewModel = {
+        screen: "inspector", busy: false, goalId: "goal-viewer", currentStepIndex: 0,
+        totalSteps: 2, showReasoning: false,
+        steps: [{ index: 0, totalSteps: 2, rawJson: '{"data":"complete output"}' }],
+    };
+    const steps: number[] = [];
+    const instance = render(<InspectorScreen inspector={model}
+        onInspectStep={index => steps.push(index)} onToggleReasoning={() => {}} />);
+    let raw = true;
+    const rawChanges: boolean[] = [];
+    Object.defineProperty(instance.stdin, "isRaw", { get: () => raw });
+    Object.defineProperty(instance.stdin, "setRawMode", { value: (value: boolean) => {
+        raw = value;
+        rawChanges.push(value);
+    } });
+    Object.defineProperty(instance.stdout, "isTTY", { value: true });
+
+    for (const flag of ["--readonly", "--fail"]) {
+        process.env.EDITOR = [quote(process.execPath), quote(viewer), quote(resultPath), flag].join(" ");
+        const start = instance.frames.length;
+        instance.stdin.write("e");
+        await nextFrame();
+        const result = JSON.parse(await readFile(resultPath, "utf8"));
+        assert.equal(result.flag, flag);
+        assert.equal(result.data, model.steps[0]?.rawJson);
+        await assert.rejects(access(result.file), { code: "ENOENT" });
+        assert.deepEqual(rawChanges.splice(0), [false, true]);
+        assert.equal(raw, true);
+        const frames = instance.frames.slice(start);
+        const entered = frames.indexOf("\x1b[?1049h\x1b[?25l");
+        assert.ok(entered >= 0);
+        assert.ok(frames.slice(entered + 1).some(frame => frame.includes("\x1b[2J\x1b[H")),
+            "Ink must clear its old frame only after entering the alternate buffer");
+        if (flag === "--fail") {
+            assert.match(instance.lastFrame() ?? "", /Could not open raw step: Editor exited with 17/);
+        }
+        instance.stdin.write("l");
+        await nextFrame();
+    }
+    assert.deepEqual(steps, [1, 1]);
 });

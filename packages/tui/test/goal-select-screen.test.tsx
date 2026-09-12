@@ -249,8 +249,7 @@ test("GoalSelectScreen keeps long titles, focused selection and exit controls wi
         assert.match(frame, /❯ \[Goal\] Task 0/);
     }
     instance.stdin.write("j".repeat(19));
-    await nextFrame();
-    assert.match(instance.lastFrame() ?? "", /❯ \[Goal\] Task 19/);
+    await waitForFrame(instance, /❯ \[Goal\] Task 19/);
     instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(selected, ["goal-19"]);

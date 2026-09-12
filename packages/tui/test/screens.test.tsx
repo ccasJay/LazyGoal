@@ -544,7 +544,7 @@ test("TuiApp routes the first raw-mode Ctrl+C to the shutdown callback once", as
     assert.equal(shutdownRequests, 1);
 });
 
-test("TuiApp exits the Inspector through the shutdown callback", async () => {
+test("TuiApp exits the Inspector normally and releases keyboard listeners", async () => {
     const { controller } = controllerForApp(questionGoal("goal-inspector-exit"));
     await controller.dispatch({
         kind: "openInspector",
@@ -565,7 +565,8 @@ test("TuiApp exits the Inspector through the shutdown callback", async () => {
     instance.stdin.write("q");
     await nextFrame();
 
-    assert.equal(shutdownRequests, 1);
+    assert.equal(shutdownRequests, 0);
+    assert.equal(instance.stdin.listenerCount("readable"), 0);
 });
 
 test("TuiApp reports unexpected dispatch failures instead of swallowing them", async () => {

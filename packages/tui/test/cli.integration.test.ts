@@ -207,11 +207,36 @@ test("SessionController selectGoal in inspect mode restores Goal and opens inspe
     }
 });
 
+test("normal CLI exit returns zero and cleans up without requesting an interrupt exit", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-normal-exit-"));
+    try {
+        await writeDefaultProfile(workspace);
+        const exitCodes: number[] = [];
+        let unmounts = 0;
+        const listeners = process.listenerCount("SIGINT");
+        const code = await runCli([], {
+            cwd: workspace,
+            env: { LLM_PROVIDER: "openai", LLM_API_KEY: "test", LLM_MODEL: "model",
+                LLM_STRUCTURED_OUTPUT_MODE: "strict" },
+            exitPort: { exit: code => { exitCodes.push(code); } },
+            render: (() => ({ unmount: () => { unmounts += 1; },
+                waitUntilExit: async () => {} })) as never,
+        });
+        assert.equal(code, 0);
+        assert.equal(unmounts, 1);
+        assert.deepEqual(exitCodes, []);
+        assert.equal(process.listenerCount("SIGINT"), listeners);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("runCli with inspect non-existent goalId returns error code 1", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-inspect-missing-"));
     try {
         await writeDefaultProfile(workspace);
         const errors: string[] = [];
+        const lifecycle: string[] = [];
 
         const exitCode = await runCli(["inspect", "non-existent-goal"], {
             cwd: workspace,
@@ -223,12 +248,13 @@ test("runCli with inspect non-existent goalId returns error code 1", async () =>
             },
             writeError: (msg) => errors.push(msg),
             render: (() => ({
-                unmount: () => {},
-                waitUntilExit: async () => {},
+                unmount: () => { lifecycle.push("unmount"); },
+                waitUntilExit: async () => { lifecycle.push("wait"); },
             })) as never,
         });
 
         assert.equal(exitCode, 1);
+        assert.deepEqual(lifecycle, ["unmount", "wait"]);
         assert.ok(errors.some((err) => err.includes("Goal not found: non-existent-goal")));
     } finally {
         await rm(workspace, { recursive: true, force: true });
