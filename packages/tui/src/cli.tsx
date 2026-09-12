@@ -568,11 +568,16 @@ export async function createCompositionRoot(
             llmConfig = undefined;
         }
     } else {
-        if (env.LLM_PROVIDER !== undefined && env.LLM_PROVIDER.trim() !== "") {
+        try {
             llmConfig = readLlmConfig(env);
-        } else {
-            const runtimeConfig = await loadRuntimeConfig({ env });
-            llmConfig = runtimeConfig.llm;
+        } catch (error) {
+            const xdgPaths = resolveXdgPaths(env);
+            if (existsSync(xdgPaths.configFile)) {
+                const runtimeConfig = await loadRuntimeConfig({ env, xdgPaths });
+                llmConfig = runtimeConfig.llm;
+            } else {
+                throw error;
+            }
         }
         adapter = createLlmAdapter(llmConfig);
     }
