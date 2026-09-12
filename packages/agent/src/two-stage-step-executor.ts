@@ -1,5 +1,5 @@
 import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest } from "../../llm/src/core/types";
+import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     AgentDecision,
     DiagnosticTraceSink,
@@ -134,7 +134,7 @@ export class TwoStageStepExecutor implements StepExecutor {
         throwIfAborted(control);
 
         // 构造 Stage 1 思考引导请求（不携带 structuredOutput）
-        const thinkingMessages: ModelConversationMessage[] = [
+        const thinkingMessages: LLMMessage[] = [
             ...basePlan.request.messages,
             {
                 role: "user",
@@ -211,7 +211,7 @@ export class TwoStageStepExecutor implements StepExecutor {
         throwIfAborted(control);
 
         // 注入思考上下文
-        const decideMessages: ModelConversationMessage[] = [
+        const decideMessages: LLMMessage[] = [
             ...decidePlan.request.messages,
             {
                 role: "user",
@@ -278,6 +278,7 @@ export class TwoStageStepExecutor implements StepExecutor {
         }
 
         return {
+            ...decision,
             decision,
             thought: sanitizedThought,
         };

@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `packages/agent/test/two-stage-executor.test.ts` 单元测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 4. 适配 Preparation 阶段并完成全量回归验证
+- [x] //TODO 4. 适配 Preparation 阶段并完成全量回归验证
 
   - 实现目标：将两阶段调度扩展至 `gathering_context` 与 `planning` 阶段，确保准备阶段动作符合对应分支契约，并在运行时层完成全链路贯通。
   - 成功判据：准备阶段在 `two_stage` 模式下先思考后输出合规分支动作；运行现有的全量回归测试套件全部通过。
@@ -36,13 +36,23 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | 执行阶段单步决策自动串联自由思考与严格抽取两次调用 | `packages/agent/test/two-stage-executor.test.ts`（待实现） |
-| [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4) | 第二阶段输出合规决策动作；异常与取消信号立即终止 | `packages/agent/test/two-stage-executor.test.ts`（待实现） |
-| [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2) | 准备阶段在两阶段模式下生成符合阶段分支的动作 | 准备阶段两阶段单元测试（待实现） |
-| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3) | 思考链记录入轨并在 TUI 中展示，无思考链时优雅缺省 | `packages/runtime/test/trajectory-thought.test.ts`（待实现） |
-| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | 思考文本计入预算，超长时执行安全截断并打上标记 | 预算裁剪单元测试（待实现） |
-| [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2) | 显式配置 two_stage 激活流水线，单阶段配置完全兼容 | 配置测试与既有集成测试（待实现） |
+| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | 执行阶段单步决策自动串联自由思考与严格抽取两次调用 | `packages/agent/test/two-stage-executor.test.ts` |
+| [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4) | 第二阶段输出合规决策动作；异常与取消信号立即终止 | `packages/agent/test/two-stage-executor.test.ts` |
+| [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2) | 准备阶段在两阶段模式下生成符合阶段分支的动作 | `packages/agent/test/two-stage-preparation.test.ts` |
+| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3) | 思考链记录入轨并在 TUI 中展示，无思考链时优雅缺省 | `packages/runtime/test/trajectory-thought.test.ts` |
+| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | 思考文本计入预算，超长时执行安全截断并打上标记 | `packages/agent/test/thought-budget.test.ts` |
+| [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2) | 显式配置 two_stage 激活流水线，单阶段配置完全兼容 | `packages/llm/test/two-stage-config.test.ts` |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- 整体状态：已通过
+- 时间：2026-09-12
+- 被测代码状态：干净，全量 985 个确定性测试与 13 个 scripts 架构校验 100% 绿灯通过（0 失败，0 告警）
+- 逐项证据：
+  - `packages/agent/test/two-stage-executor.test.ts`：7 个测试全部通过
+  - `packages/agent/test/two-stage-preparation.test.ts`：6 个测试全部通过
+  - `packages/agent/test/thought-budget.test.ts`：通过
+  - `packages/runtime/test/trajectory-thought.test.ts`：通过
+  - `packages/llm/test/two-stage-config.test.ts`：通过
+  - `npm test`：985 pass, 0 fail; scripts: 13 pass, 0 fail
+

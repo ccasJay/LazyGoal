@@ -282,7 +282,8 @@ test("TwoStageStepExecutor 在思考文本超长时执行安全截断并注入�
     });
 
     assert.equal(adapter.requests.length, 2);
-    assert.ok(result.thought?.includes(THOUGHT_TRUNCATION_MARKER));
+    assert.ok(result.thought !== undefined);
+    assert.ok(result.thought.includes(THOUGHT_TRUNCATION_MARKER));
     assert.ok(result.thought.length <= 500);
     const req2 = adapter.requests[1]!;
     assert.ok(req2.messages.some(m => m.content.includes(THOUGHT_TRUNCATION_MARKER)));

@@ -52,12 +52,12 @@ export interface StepExecutionInput {
  * };
  * ```
  */
-export interface StepExecutionResult {
+export type StepExecutionResult = AgentDecision & {
     /** 当前 structured@1 的决策动作。 */
     readonly decision: AgentDecision;
     /** 模型自由推演产出的思考链纯文本（如果有）。 */
     readonly thought?: string;
-}
+};
 
 /**
  * AgentDecision 版本的单步执行边界。
