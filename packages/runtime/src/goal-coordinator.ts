@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
     AssistantMessage,
     CanonicalMemoryOperation,
@@ -5,6 +7,7 @@ import type {
     GoalTask,
     GoalPhase,
     GoalProtocolValidator,
+    JsonValue,
     MemoryPatch,
     RunRef,
     WorkingMemory,
@@ -12,6 +15,7 @@ import type {
 import type { GoalStore } from "./goal-store";
 import type {
     PreparationExecutor,
+    PreparationProbeResult,
     PreparationResult,
 } from "./preparation-executor";
 import {
@@ -37,9 +41,13 @@ import type { RunScheduler } from "./scheduler";
 import {
     InMemoryToolRegistry,
     resolveAuthorizedToolDefinitions,
+    type ToolObservation,
+    type ToolPreparationResult,
+    type ToolRegistration,
     type ToolRegistry,
 } from "./tool";
 import {
+    isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
@@ -76,6 +84,10 @@ import {
 type PreparationLookupOutcome =
     | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
     | Extract<GoalProgressResult, { readonly ok: false }>;
+
+function createPreparationProbeActionId(goalId: string): string {
+    return `probe-${goalId}-${randomUUID()}`;
+}
 
 function preparationInputRecorded(
     goal: Pick<Goal, "id" | "state">,
@@ -118,7 +130,13 @@ export type GoalProgressErrorCode =
     | "INVALID_PHASE_RESULT"
     | "ACTION_NOT_AUTHORIZED"
     | "INVALID_CONTEXT_LOOKUP"
-    | "CONTEXT_LOOKUP_CHAIN_LIMIT";
+    | "CONTEXT_LOOKUP_CHAIN_LIMIT"
+    | "TOOL_NOT_AUTHORIZED"
+    | "TOOL_NOT_FOUND"
+    | "PREPARATION_READ_ONLY_VIOLATION"
+    | "PREPARATION_PROBE_LIMIT_EXCEEDED"
+    | "INVALID_TOOL_INPUT"
+    | "TOOL_EXECUTION_ERROR";
 
 /**
  * 用户对 Goal 当前交互等待点提交的操作。
@@ -202,6 +220,54 @@ export type GoalProgressResult =
     };
 
 /**
+ * 准备阶段只读探查生命周期事件。
+ *
+ * @remarks
+ * 用于通知上层控制器或 TUI 实时呈现准备阶段的只读调查进度。
+ * 输入完成授权与语义校验、即将执行时触发 `started`；提交成功后触发
+ * `finished`，执行或提交失败时触发 `failed`。三个分支共享同一 `actionId`。
+ *
+ * @example
+ * ```ts
+ * const event: PreparationProbeProgressEvent = {
+ *   kind: "started",
+ *   actionId: "probe-goal-1-m1-1",
+ *   goalId: "goal-1",
+ *   toolId: "read_file",
+ *   input: { path: "package.json" },
+ *   probeNumber: 1,
+ * };
+ * ```
+ */
+export type PreparationProbeProgressEvent =
+    | {
+        readonly kind: "started";
+        readonly actionId: string;
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly probeNumber: number;
+    }
+    | {
+        readonly kind: "finished";
+        readonly actionId: string;
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly observation: ToolObservation;
+        readonly probeNumber: number;
+    }
+    | {
+        readonly kind: "failed";
+        readonly actionId: string;
+        readonly goalId: string;
+        readonly toolId: string;
+        readonly input: JsonValue;
+        readonly message: string;
+        readonly probeNumber: number;
+    };
+
+/**
  * 创建 {@link GoalCoordinator} 所需的执行与持久化依赖。
  *
  * @remarks
@@ -221,7 +287,7 @@ export interface GoalCoordinatorDependencies {
     /** 运行 executing Goal，直到 blocked 或终态。 */
     readonly scheduler: RunScheduler;
     /**
-     * 解析 planning 可见 ToolDefinition 的 Registry；省略时按空 Registry
+     * 解析 Preparation 可见 ToolDefinition 的 Registry；省略时按空 Registry
      * 处理，因此不会向 Preparation Executor 提供任何 Tool。
      */
     readonly toolRegistry?: ToolRegistry;
@@ -240,6 +306,8 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的准备阶段只读探查生命周期事件回调。 */
+    readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
 }
 
 /**
@@ -259,6 +327,8 @@ export interface GoalCoordinatorDependencies {
  * }
  * ```
  */
+const MAX_PREPARATION_PROBES = 5;
+
 export class GoalCoordinator {
     private readonly store: GoalStore;
     private readonly preparationExecutor: PreparationExecutor;
@@ -269,6 +339,8 @@ export class GoalCoordinator {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly probeListeners = new Set<(event: PreparationProbeProgressEvent) => void>();
+    private readonly onProbeProgressCallback: ((event: PreparationProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -280,6 +352,7 @@ export class GoalCoordinator {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
+        this.onProbeProgressCallback = dependencies.onProbeProgress;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -290,6 +363,41 @@ export class GoalCoordinator {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
+    }
+
+    /**
+     * 注册准备阶段只读探查生命周期事件监听器。
+     *
+     * @param listener - 接收只读探查生命周期事件的监听回调。
+     * @returns 幂等注销该监听器的清理函数。
+     *
+     * @example
+     * ```ts
+     * const unsubscribe = coordinator.onProbeProgress((event) => {
+     *   console.log(event.kind, event.toolId);
+     * });
+     * ```
+     */
+    onProbeProgress(listener: (event: PreparationProbeProgressEvent) => void): () => void {
+        this.probeListeners.add(listener);
+        return () => {
+            this.probeListeners.delete(listener);
+        };
+    }
+
+    private notifyProbeProgress(event: PreparationProbeProgressEvent): void {
+        try {
+            this.onProbeProgressCallback?.(event);
+        } catch {
+            // 忽略外部回调异常，不影响领域执行
+        }
+        for (const listener of this.probeListeners) {
+            try {
+                listener(event);
+            } catch {
+                // 隔离监听器异常
+            }
+        }
     }
 
     /**
@@ -317,6 +425,8 @@ export class GoalCoordinator {
 
         let contextLookupResult = await this.restoreContextLookupResult(goal, control);
         let preparationLookupCount = 0;
+        let lastProbeResult: PreparationProbeResult | undefined;
+        let preparationProbeCount = 0;
 
         while (goal.state.workflow.phase !== "executing") {
             const workflow = goal.state.workflow;
@@ -333,11 +443,14 @@ export class GoalCoordinator {
                 }
 
                 throwIfAborted(control);
+                const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
+                throwIfAborted(control);
                 const session = await this.openWorkingMemorySession(goal, control);
                 try {
+                    const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
                     const rawResult = await this.preparationExecutor.execute({
                         goal,
-                        authorizedTools: [],
+                        authorizedTools: probeLimitReached ? [] : tools,
                         ...(session === undefined
                             ? {}
                             : {
@@ -348,6 +461,10 @@ export class GoalCoordinator {
                         ...(contextLookupResult === undefined
                             ? {}
                             : { contextLookupResult }),
+                        ...(lastProbeResult === undefined
+                            ? {}
+                            : { lastProbeResult }),
+                        ...(probeLimitReached ? { probeLimitReached: true } : {}),
                     });
                     throwIfAborted(control);
 
@@ -355,6 +472,33 @@ export class GoalCoordinator {
                     if (!validation.ok) return validation;
                     const result = validation.result;
 
+                    if (result.kind === "probe_action") {
+                        if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
+                            return {
+                                ok: false,
+                                error: {
+                                    code: "PREPARATION_PROBE_LIMIT_EXCEEDED",
+                                    message: `Preparation probe limit exceeded: maximum ${MAX_PREPARATION_PROBES} probes allowed`,
+                                },
+                            };
+                        }
+
+                        const probeOutcome = await this.prepareProbeAction(
+                            goal,
+                            result,
+                            workflow.phase,
+                            session,
+                            preparationProbeCount,
+                            control,
+                        );
+                        if (!probeOutcome.ok) return probeOutcome;
+                        goal = probeOutcome.goal;
+                        lastProbeResult = probeOutcome.result;
+                        contextLookupResult = undefined;
+                        preparationProbeCount += 1;
+
+                        continue;
+                    }
 
                     if (result.kind === "context_lookup") {
                         const lookup = await this.prepareContextLookup(
@@ -398,6 +542,7 @@ export class GoalCoordinator {
                             control,
                         );
                         contextLookupResult = undefined;
+                        lastProbeResult = undefined;
                         continue;
                     }
 
@@ -462,6 +607,7 @@ export class GoalCoordinator {
                         control,
                     );
                     contextLookupResult = undefined;
+                    lastProbeResult = undefined;
                 } finally {
                     session?.close();
                 }
@@ -483,9 +629,10 @@ export class GoalCoordinator {
             throwIfAborted(control);
             const session = await this.openWorkingMemorySession(goal, control);
             try {
+                const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
                 const rawResult = await this.preparationExecutor.execute({
                     goal,
-                    authorizedTools: tools,
+                    authorizedTools: probeLimitReached ? [] : tools,
                     ...(session === undefined
                         ? {}
                         : {
@@ -496,6 +643,10 @@ export class GoalCoordinator {
                     ...(contextLookupResult === undefined
                         ? {}
                         : { contextLookupResult }),
+                    ...(lastProbeResult === undefined
+                        ? {}
+                        : { lastProbeResult }),
+                    ...(probeLimitReached ? { probeLimitReached: true } : {}),
                 });
                 throwIfAborted(control);
 
@@ -503,6 +654,33 @@ export class GoalCoordinator {
                 if (!validation.ok) return validation;
                 const result = validation.result;
 
+                if (result.kind === "probe_action") {
+                    if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
+                        return {
+                            ok: false,
+                            error: {
+                                code: "PREPARATION_PROBE_LIMIT_EXCEEDED",
+                                message: `Preparation probe limit exceeded: maximum ${MAX_PREPARATION_PROBES} probes allowed`,
+                            },
+                        };
+                    }
+
+                    const probeOutcome = await this.prepareProbeAction(
+                        goal,
+                        result,
+                        workflow.phase,
+                        session,
+                        preparationProbeCount,
+                        control,
+                    );
+                    if (!probeOutcome.ok) return probeOutcome;
+                    goal = probeOutcome.goal;
+                    lastProbeResult = probeOutcome.result;
+                    contextLookupResult = undefined;
+                    preparationProbeCount += 1;
+
+                    continue;
+                }
 
                 if (result.kind === "context_lookup") {
                     const lookup = await this.prepareContextLookup(
@@ -546,6 +724,7 @@ export class GoalCoordinator {
                         control,
                     );
                     contextLookupResult = undefined;
+                    lastProbeResult = undefined;
                     continue;
                 }
 
@@ -1060,6 +1239,237 @@ export class GoalCoordinator {
             error: {
                 code: "INVALID_CONTEXT_LOOKUP",
                 message,
+            },
+        };
+    }
+
+    private async prepareProbeAction(
+        goal: Goal,
+        result: Extract<PreparationResult, { readonly kind: "probe_action" }>,
+        phase: "gathering_context" | "planning",
+        session: WorkingMemorySession,
+        probeCount: number,
+        control?: ExecutionControl,
+    ): Promise<
+        | {
+            readonly ok: true;
+            readonly goal: Goal;
+            readonly result: PreparationProbeResult;
+        }
+        | {
+            readonly ok: false;
+            readonly error: {
+                readonly code: GoalProgressErrorCode;
+                readonly message: string;
+            };
+        }
+    > {
+        throwIfAborted(control);
+
+        const toolId = result.action.toolId;
+
+        // 1. 检查 Profile 授权
+        if (!goal.definition.profile.toolIds.includes(toolId)) {
+            return {
+                ok: false,
+                error: {
+                    code: "TOOL_NOT_AUTHORIZED",
+                    message: `Tool "${toolId}" is not authorized by the frozen Profile`,
+                },
+            };
+        }
+
+        // 2. 从 Registry 获取 Registration
+        let registration: ToolRegistration | undefined;
+        try {
+            registration = this.toolRegistry.get(toolId);
+            throwIfAborted(control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            return {
+                ok: false,
+                error: {
+                    code: "TOOL_EXECUTION_ERROR",
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            };
+        }
+
+        if (registration === undefined) {
+            return {
+                ok: false,
+                error: {
+                    code: "TOOL_NOT_FOUND",
+                    message: `Authorized Tool "${toolId}" is not registered`,
+                },
+            };
+        }
+
+        // 3. 严格只读校验与写拦截（安全第一，写工具零执行、零副作用）
+        if (registration.definition.isReadOnly !== true) {
+            return {
+                ok: false,
+                error: {
+                    code: "PREPARATION_READ_ONLY_VIOLATION",
+                    message: `Tool "${toolId}" is not read-only and cannot be executed during preparation`,
+                },
+            };
+        }
+
+        // 4. Prepare 工具输入
+        let prepared: ToolPreparationResult;
+        try {
+            prepared = registration.prepare(result.action.input, control);
+            throwIfAborted(control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            return {
+                ok: false,
+                error: {
+                    code: "TOOL_EXECUTION_ERROR",
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            };
+        }
+
+        if (prepared.ok === false) {
+            return {
+                ok: false,
+                error: {
+                    code: "INVALID_TOOL_INPUT",
+                    message: prepared.error.message,
+                },
+            };
+        }
+
+        // 5. 执行只读工具
+        const actionId = createPreparationProbeActionId(goal.id);
+        const probeNumber = probeCount + 1;
+        this.notifyProbeProgress({
+            kind: "started",
+            actionId,
+            goalId: goal.id,
+            toolId,
+            input: prepared.input,
+            probeNumber,
+        });
+        let observation: ToolObservation;
+        try {
+            observation = await prepared.execute(actionId, control);
+            throwIfAborted(control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            const message = error instanceof Error ? error.message : String(error);
+            this.notifyProbeProgress({
+                kind: "failed",
+                actionId,
+                goalId: goal.id,
+                toolId,
+                input: prepared.input,
+                message,
+                probeNumber,
+            });
+            return {
+                ok: false,
+                error: {
+                    code: "TOOL_EXECUTION_ERROR",
+                    message,
+                },
+            };
+        }
+
+        // 6. 构造 Trajectory 事实事件
+        const preparationFact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase,
+            actionId,
+            eventType: "preparation_result",
+            payload: { type: "preparation_result", result: "probe_action" },
+        };
+        const toolStartedFact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase,
+            actionId,
+            eventType: "tool_started",
+            payload: {
+                type: "tool_started",
+                actionId,
+                toolId,
+                input: prepared.input,
+            },
+        };
+        const toolFinishedFact: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase,
+            actionId,
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId,
+                toolId,
+                observation,
+            },
+        };
+
+        // 7. 处理可选的 Working Memory Patch
+        const acceptedPatch = this.acceptPreparationPatch(
+            goal,
+            result.memoryPatch,
+            phase,
+            session,
+        );
+
+        // 8. 提交探查事实事件并持久化至 Trajectory 与快照
+        let commitResult: Awaited<ReturnType<TrajectoryCheckpointCommitterPort["commit"]>>;
+        try {
+            commitResult = await this.checkpointCommitter.commit(goal, {
+                facts: [preparationFact, toolStartedFact, toolFinishedFact],
+                ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+                ...(control === undefined ? {} : { control }),
+            });
+        } catch (error) {
+            if (!isExecutionAbortedError(error)) {
+                this.notifyProbeProgress({
+                    kind: "failed",
+                    actionId,
+                    goalId: goal.id,
+                    toolId,
+                    input: prepared.input,
+                    message: error instanceof Error ? error.message : String(error),
+                    probeNumber,
+                });
+            }
+            throw error;
+        }
+        const committedGoal = commitResult.goal;
+        const observationSequence = commitResult.events.find((event) =>
+            event.eventType === "tool_finished" && event.actionId === actionId
+        )?.sequence;
+
+        this.notifyProbeProgress({
+            kind: "finished",
+            actionId,
+            goalId: goal.id,
+            toolId,
+            input: prepared.input,
+            observation,
+            probeNumber,
+        });
+
+        return {
+            ok: true,
+            goal: committedGoal,
+            result: {
+                actionId,
+                action: {
+                    toolId,
+                    input: prepared.input,
+                },
+                observation,
+                ...(observationSequence === undefined ? {} : { observationSequence }),
             },
         };
     }

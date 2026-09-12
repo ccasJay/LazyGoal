@@ -27,6 +27,7 @@ export type ToolInputContract = Contract<JsonValue>;
  *   id: "read_file",
  *   description: "读取工作区内的文本文件",
  *   inputContract: InputContract,
+ *   isReadOnly: true,
  * };
  * ```
  */
@@ -37,6 +38,14 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
     readonly description: string;
     /** Tool 输入结构唯一事实源；模型 Schema 由该 AST 编译得到。 */
     readonly inputContract: C;
+    /**
+     * 是否为只读工具。
+     *
+     * @remarks
+     * 声明为 `true` 的工具可在准备阶段由模型自主调用。该字段是能力分类的唯一
+     * 事实源；实现者仍须保证工具不会修改工作区、配置或外部可变状态。
+     */
+    readonly isReadOnly: boolean;
 }
 
 /** Tool 实际返回的成功或领域失败 Observation；拒绝由 Runtime 状态机生成。 */
@@ -89,6 +98,7 @@ export type ToolValidationResult =
  *     id: "echo",
  *     description: "返回输入文本",
  *     inputContract: InputContract,
+ *     isReadOnly: true,
  *   },
  *   replayPolicy: "safe",
  *   validate: (input) => input.message.trim() === ""
@@ -125,6 +135,23 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
         request: ToolExecutionRequest<InferContract<C>>,
         control?: ExecutionControl,
     ): Promise<ToolObservation>;
+}
+
+/**
+ * 判定 ToolDefinition 是否声明为只读工具。
+ *
+ * @param tool - ToolDefinition 或其只读能力投影。
+ * @returns 当且仅当定义显式标记为 `isReadOnly: true` 时返回 `true`。
+ *
+ * @example
+ * ```ts
+ * const readOnly = isReadOnlyTool(readFileTool.definition);
+ * ```
+ */
+export function isReadOnlyTool(
+    tool: Pick<ToolDefinition, "isReadOnly">,
+): boolean {
+    return tool.isReadOnly;
 }
 
 /** Tool Contract 与语义校验完成后的单次准备结果。 */
@@ -200,6 +227,7 @@ export function createToolRegistration<C extends ToolInputContract>(
         id: tool.definition.id,
         description: tool.definition.description,
         inputContract: tool.definition.inputContract,
+        isReadOnly: tool.definition.isReadOnly,
     });
 
     return {
@@ -377,6 +405,7 @@ export function resolveAuthorizedToolDefinitions(
                 id: registration.definition.id,
                 description: registration.definition.description,
                 inputContract: registration.definition.inputContract,
+                isReadOnly: registration.definition.isReadOnly,
             }));
         }
     }

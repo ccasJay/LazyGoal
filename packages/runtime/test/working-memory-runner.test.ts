@@ -121,6 +121,7 @@ function tool(): Tool<typeof TEST_INPUT_CONTRACT> {
             id: "read_file",
             description: "read",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

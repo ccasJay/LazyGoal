@@ -66,6 +66,8 @@ export {
     MemoryEntryStatusContract,
     MemoryPatchOperationContract,
     ModelContextCheckpointResultContract,
+    NonProbeGatheringPreparationResultContract,
+    NonProbePlanningPreparationResultContract,
     NonToolExecutingDecisionContract,
     OrdinaryExecutingDecisionContract,
     PlanItemCreateContract,
@@ -74,6 +76,8 @@ export {
     PlanItemUpdateContract,
     PlanningPreparationResultContract,
     PreparationResultContract,
+    ProbeActionContract,
+    ProbeActionPreparationResultContract,
     QuestionPreparationResultContract,
     RetireFactProposalContract,
     StructuredAgentDecisionContract,
@@ -112,12 +116,16 @@ export type {
     ModelContextCheckpointResult,
     ModelOutputSemanticIssue,
     ModelOutputSemanticIssueCode,
+    NonProbeGatheringPreparationResult,
+    NonProbePlanningPreparationResult,
     PlanItemCreate,
     PlanItemCreateStatus,
     PlanItemStatus,
     PlanItemUpdate,
     PlanningPreparationResult,
     PreparationResult,
+    ProbeAction,
+    ProbeActionPreparationResult,
     RetireFactProposal,
     StructuredAgentDecision,
     ToolCallAction,
@@ -136,6 +144,7 @@ export {
 } from "./model-output/provider-schema";
 export {
     createModelOutputContractBundle,
+    isReadOnlyToolContract,
 } from "./model-output/factory";
 export type {
     AuthorizedToolContract,

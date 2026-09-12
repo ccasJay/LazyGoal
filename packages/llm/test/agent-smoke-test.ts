@@ -45,7 +45,7 @@ export async function runAgentSmoke(
     const inputContract = contract.object({});
     const tool: Tool<typeof inputContract> = {
         definition: {
-            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputContract,
+            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputContract, isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

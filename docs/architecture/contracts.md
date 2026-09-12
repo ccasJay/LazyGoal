@@ -29,6 +29,8 @@ flowchart LR
 | [Schema compiler](../../packages/contracts/src/json-schema.ts) | 从 AST 确定性生成独立的 JSON Schema 2020-12 数据 | 持有 validator 实例、缓存或第二份可编辑定义 |
 | [Model output contracts](../../packages/contracts/src/model-output/index.ts) | 构造阶段 Wire Contract AST、生成 Shape Guide 并编译模型原生 JSON Schema Bundle | 发起网络请求或解析具体响应 |
 
+Preparation 的 Wire Contract 由当轮授权的只读 `ToolDefinition` 动态构造：存在可用工具且未达到探查上限时，`gathering_context` 与 `planning` 分别在既有阶段结果之外开放 `probe_action`；达到上限后该分支从 Shape Guide 与 strict JSON Schema 同时移除。Contracts 只描述模型输出结构，工具只读授权与实际执行仍由 Runtime 强制校验。
+
 ## 边界与当前限制
 
 - `packages/contracts/src/` 不依赖 LazyGoal 其它 package，也不依赖外部结构校验器；Ajv 仅存在于
@@ -38,4 +40,3 @@ flowchart LR
   输入契约与模型输出契约，其余 Snapshot、Trajectory、Profile 和 Diagnostic Trace 协议保持原校验入口。
 - AST 是进程内定义，不是 wire protocol；Schema 是按次编译的派生产物。Parser 只接受有限 JSON 值，
   optional 只能直接用于 object 字段，递归输入受固定深度和诊断数量上限约束。
-

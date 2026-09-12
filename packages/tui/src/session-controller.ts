@@ -18,6 +18,7 @@ import {
     type UiTerminalSummary,
     type UiViewModel,
 } from "./types";
+import type { PreparationProbeProgressEvent } from "../../runtime/src/index";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -47,7 +48,9 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private committedSteps: UiStepSummary[] = [];
+    private preparationSteps: UiStepSummary[] = [];
     private storeUnsubscribe: (() => void) | undefined;
+    private probeUnsubscribe: (() => void) | undefined;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -68,6 +71,11 @@ export class SessionController {
         if (dependencies.notifyingStore !== undefined) {
             this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
                 this.onGoalCommitted(goal);
+            });
+        }
+        if (dependencies.coordinator.onProbeProgress !== undefined) {
+            this.probeUnsubscribe = dependencies.coordinator.onProbeProgress((event) => {
+                this.handleProbeProgress(event);
             });
         }
     }
@@ -143,6 +151,8 @@ export class SessionController {
     dispose(): void {
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.probeUnsubscribe?.();
+        this.probeUnsubscribe = undefined;
         this.subscribers.clear();
     }
 
@@ -481,6 +491,7 @@ export class SessionController {
         this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
         if (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id) {
             this.committedSteps = [];
+            this.preparationSteps = [];
         }
         const newStep = deriveStepSummary(goal);
         if (newStep !== undefined && !this.committedSteps.some((s) => s.stepNumber === newStep.stepNumber)) {
@@ -515,6 +526,12 @@ export class SessionController {
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
             committedSteps: this.committedSteps.slice(),
+            ...(this.preparationSteps.length > 0
+                ? { preparationSteps: this.preparationSteps.slice() }
+                : {}),
+            ...(currentSession?.activeProbeDescription !== undefined
+                ? { activeProbeDescription: currentSession.activeProbeDescription }
+                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -612,11 +629,71 @@ export class SessionController {
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
             committedSteps: this.committedSteps.slice(),
+            ...(this.preparationSteps.length > 0
+                ? { preparationSteps: this.preparationSteps.slice() }
+                : {}),
+            ...(this.snapshot.activeProbeDescription !== undefined
+                ? { activeProbeDescription: this.snapshot.activeProbeDescription }
+                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
             ...(lastObservation !== undefined ? { lastCommittedObservation: lastObservation } : {}),
         });
+    }
+
+    private handleProbeProgress(event: PreparationProbeProgressEvent): void {
+        if (
+            this.shuttingDown
+            || this.snapshot.screen !== "session"
+            || this.snapshot.goal.id !== event.goalId
+        ) {
+            return;
+        }
+
+        if (event.kind === "started") {
+            const description = formatProbeDescription(event.toolId, event.input);
+            this.setSnapshot({
+                ...this.snapshot,
+                activeProbeDescription: description,
+            });
+            return;
+        }
+
+        if (event.kind === "failed") {
+            const { activeProbeDescription: _unused, ...rest } = this.snapshot;
+            this.setSnapshot(rest);
+            return;
+        }
+
+        if (event.kind === "finished") {
+            const inputSummary = summarizeInput(event.input);
+            let outputSummary: string | undefined;
+            if (event.observation.kind === "success") {
+                outputSummary = event.observation.summary;
+            } else if (event.observation.kind === "failure") {
+                outputSummary = event.observation.message;
+            }
+
+            const step: UiStepSummary = {
+                stepNumber: this.preparationSteps.length + 1,
+                toolId: event.toolId,
+                actionId: event.actionId,
+                status: event.observation.kind === "success" ? "success" : "failure",
+                ...(inputSummary !== undefined ? { inputSummary } : {}),
+                ...(outputSummary !== undefined ? { outputSummary } : {}),
+            };
+
+            if (!this.preparationSteps.some((s) => s.actionId === step.actionId)) {
+                this.preparationSteps.push(step);
+            }
+
+            const { activeProbeDescription: _unused, ...rest } = this.snapshot;
+            this.setSnapshot({
+                ...rest,
+                preparationSteps: this.preparationSteps.slice(),
+            });
+        }
     }
 
     /**
@@ -964,4 +1041,27 @@ function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
         ...(inputSummary !== undefined ? { inputSummary } : {}),
         ...(outputSummary !== undefined ? { outputSummary } : {}),
     };
+}
+
+/**
+ * 依据工具类型与输入参数格式化准备阶段探查的友好显示说明。
+ *
+ * @param toolId - 调用的只读工具标识。
+ * @param input - 输入参数 payload。
+ * @returns 面向终端用户的英文进行中操作文案。
+ */
+export function formatProbeDescription(toolId: string, input: unknown): string {
+    const summary = summarizeInput(input);
+    switch (toolId) {
+        case "read_file":
+            return summary !== undefined ? `Reading file ${summary}...` : "Reading file...";
+        case "grep":
+            return summary !== undefined ? `Searching for "${summary}"...` : "Searching...";
+        case "web_search":
+            return summary !== undefined ? `Searching web for "${summary}"...` : "Searching web...";
+        case "web_fetch":
+            return summary !== undefined ? `Fetching web URL ${summary}...` : "Fetching web URL...";
+        default:
+            return summary !== undefined ? `Executing probe [${toolId}] ${summary}...` : `Executing probe [${toolId}]...`;
+    }
 }

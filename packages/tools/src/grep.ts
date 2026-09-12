@@ -131,6 +131,7 @@ export class GrepTool implements Tool<typeof GREP_INPUT_CONTRACT> {
         id: GREP_TOOL_ID,
         description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
         inputContract: GREP_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 
     readonly replayPolicy = "safe" as const;

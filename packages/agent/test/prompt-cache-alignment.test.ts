@@ -46,6 +46,7 @@ const tools: readonly ToolDefinition[] = [
         id: "navigate_to",
         description: "移动到指定目标位置",
         inputContract: LOCATION_INPUT_CONTRACT,
+        isReadOnly: false,
     },
 ];
 

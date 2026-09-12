@@ -209,8 +209,8 @@ function isMatchingBranch(branch: RuntimeContract, value: Record<string, unknown
         }
     }
 
-    // 针对 tool_call 特殊匹配：检查 action.toolId
-    if (value.kind === "tool_call" && "action" in shape && isObjectRecord(value.action)) {
+    // 针对 tool_call 与 probe_action 特殊匹配：检查 action.toolId
+    if ((value.kind === "tool_call" || value.kind === "probe_action") && "action" in shape && isObjectRecord(value.action)) {
         const actionProp = shape.action as RuntimeContract;
         if (actionProp.kind === "object" && isObjectRecord(actionProp.shape)) {
             const actionShape = actionProp.shape as Record<string, unknown>;

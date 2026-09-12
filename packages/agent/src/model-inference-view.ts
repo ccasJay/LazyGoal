@@ -491,6 +491,44 @@ export interface ModelPreparationInputEvidence {
 }
 
 /**
+ * 上一轮已提交只读探查的模型侧投影。
+ *
+ * @remarks
+ * 该 DTO 只在紧邻的下一次 Preparation 推理中出现。`observationSequence` 可用于
+ * 后续 Memory Patch 引用本次可信 Tool Observation；它不写入 Conversation。
+ *
+ * @example
+ * ```ts
+ * const result: ModelPreparationProbeResult = {
+ *     actionId: "probe-goal-1-4",
+ *     action: { toolId: "read_file", input: { path: "package.json" } },
+ *     observation: { kind: "success", output: "{}", summary: "读取成功" },
+ *     observationSequence: 4,
+ * };
+ * ```
+ */
+export interface ModelPreparationProbeResult {
+    readonly actionId: string;
+    readonly action: {
+        readonly toolId: string;
+        readonly input: ModelJsonValue;
+    };
+    readonly observation:
+        | {
+            readonly kind: "success";
+            readonly output: ModelJsonValue;
+            readonly summary: string;
+          }
+        | {
+            readonly kind: "failure";
+            readonly code: string;
+            readonly message: string;
+            readonly retryable: boolean;
+          };
+    readonly observationSequence?: number;
+}
+
+/**
  * 最终模型可见 Conversation 位置到 Goal 原始消息位置的映射项。
  *
  * @remarks
@@ -558,6 +596,10 @@ export interface ModelInferenceView {
     readonly contextLookupResult?: ModelContextLookupResult;
     /** 已提交 Preparation 用户输入的 hash-only provenance；Executing 不得携带。 */
     readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
+    /** 紧邻上一轮已提交只读探查的结果；Executing 不得携带。 */
+    readonly lastProbeResult?: ModelPreparationProbeResult;
+    /** 连续探查已达到上限，当前请求只能收敛为阶段终止结果。 */
+    readonly probeLimitReached?: true;
     /** `trajectory-layered@1` 的当前 Epoch 控制投影。 */
     readonly contextEpoch: ModelContextEpochView;
 }

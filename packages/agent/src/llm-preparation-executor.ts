@@ -112,6 +112,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             this.modelCapabilities,
             input.preparationInputEvidence,
             mode,
+            input.lastProbeResult,
+            input.probeLimitReached,
         );
         throwIfAborted(control);
         const startedAt = Date.now();

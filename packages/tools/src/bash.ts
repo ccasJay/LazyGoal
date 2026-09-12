@@ -260,6 +260,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
         inputContract: BASH_INPUT_CONTRACT,
+        isReadOnly: false,
     };
 
     readonly replayPolicy = "manual" as const;
