@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/slash-command/test/*.test.ts`；`npm run check:dependencies`；`npx tsc --noEmit`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 2. 将 Slash Command 输入语义接入现有 TUI 文本面板
+- [x] //TODO 2. 将 Slash Command 输入语义接入现有 TUI 文本面板
 
   - 实现目标：实现共享 `CommandAwareTextInput`，在 Intent、question、proposal feedback 与 blocked 输入中接入候选渲染、effect 派发和普通文本回调。
   - 成功判据：`/` 与前缀实时显示稳定候选；命令不进入原提交回调；`//` 解码后按普通文本提交；非命令输入继续沿用现有 submit gate、清空和推进行为。

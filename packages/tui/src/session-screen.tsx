@@ -3,10 +3,12 @@ import { Box, Static, Text } from "ink";
 import { ConfirmInput, TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import type { UiSessionViewModel, UiTerminalSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
+import { CommandAwareTextInput } from "./command-aware-text-input";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -42,6 +44,8 @@ export interface SessionScreenProps {
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
     /** 带理由拒绝当前 pending Action 的回调。 */
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
+    /** Slash 命令派发产生的领域副作用回调。 */
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -55,6 +59,7 @@ export function SessionScreen({
     onSubmitMessage,
     onApproveAction,
     onRejectAction,
+    onCommandEffect,
 }: SessionScreenProps): React.JSX.Element {
     const staticMessages = useMemo(
         () => session.messages.slice(),
@@ -77,6 +82,7 @@ export function SessionScreen({
                     onSubmitMessage={onSubmitMessage}
                     onApproveAction={onApproveAction}
                     onRejectAction={onRejectAction}
+                    {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 />}
         </Box>
     );
@@ -168,6 +174,7 @@ function SessionInteraction({
     onSubmitMessage,
     onApproveAction,
     onRejectAction,
+    onCommandEffect,
 }: SessionInteractionProps): React.JSX.Element {
     if (session.waitingFor === "blocked") {
         return (
@@ -177,6 +184,7 @@ function SessionInteraction({
                     ? {}
                     : { reason: session.blockedReason })}
                 onSubmit={onSubmitMessage}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         );
     }
@@ -211,9 +219,10 @@ interface BlockedPanelProps {
     readonly busy: boolean;
     readonly reason?: string;
     readonly onSubmit: (content: string) => void | Promise<void>;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
-function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.Element {
+function BlockedPanel({ busy, reason, onSubmit, onCommandEffect }: BlockedPanelProps): React.JSX.Element {
     const [value, setValue] = useState("");
     const [inputKey, setInputKey] = useState(0);
     const submitGate = useSubmitGate(busy, true);
@@ -238,13 +247,14 @@ function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.
             <Text bold>Agent is blocked</Text>
             <Text>{reason ?? "The agent is waiting for your input."}</Text>
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
-            <TextInput
+            <CommandAwareTextInput
                 key={inputKey}
                 isDisabled={busy}
                 defaultValue={value}
                 placeholder="Type a message to continue..."
                 onChange={setValue}
                 onSubmit={handleSubmit}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         </Box>
     );

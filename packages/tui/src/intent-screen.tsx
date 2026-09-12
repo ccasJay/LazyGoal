@@ -1,11 +1,11 @@
 import React, { useCallback } from "react";
 import { Box, Text } from "ink";
-import { TextInput } from "@inkjs/ui";
-
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { CommandAwareTextInput } from "./command-aware-text-input";
 
 /**
  * IntentScreen 的渲染与命令回调边界。
@@ -29,6 +29,8 @@ export interface IntentScreenProps {
     readonly error?: UiError;
     /** 合法 intent 提交回调；Screen 不等待或解释其返回值。 */
     readonly onSubmit: (intent: string) => void | Promise<void>;
+    /** Slash 命令派发产生的领域副作用回调。 */
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -41,6 +43,7 @@ export function IntentScreen({
     busy,
     error,
     onSubmit,
+    onCommandEffect,
 }: IntentScreenProps): React.JSX.Element {
     const submitGate = useSubmitGate(busy, true);
 
@@ -64,10 +67,11 @@ export function IntentScreen({
             <Text bold color="cyan">LazyGoal</Text>
             <Text>What would you like to accomplish?</Text>
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
-            <TextInput
+            <CommandAwareTextInput
                 isDisabled={busy}
                 placeholder="Describe your goal..."
                 onSubmit={handleSubmit}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
             {busy ? <StatusSpinner label="Creating goal..." /> : null}
         </Box>

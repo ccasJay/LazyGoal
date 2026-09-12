@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { ConfirmInput, Spinner, TextInput } from "@inkjs/ui";
+import { ConfirmInput, Spinner } from "@inkjs/ui";
 
+import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import type { UiSessionViewModel } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { CommandAwareTextInput } from "./command-aware-text-input";
 
 /**
  * PreparationScreen 的渲染与用户操作回调边界。
@@ -40,6 +42,8 @@ export interface PreparationScreenProps {
      * 不应直接调用 Runtime。
      */
     readonly onRetry: () => void | Promise<void>;
+    /** Slash 命令派发产生的领域副作用回调。 */
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 /**
@@ -53,6 +57,7 @@ export function PreparationScreen({
     onSubmitMessage,
     onApproveTask,
     onRetry,
+    onCommandEffect,
 }: PreparationScreenProps): React.JSX.Element {
     const [feedbackMode, setFeedbackMode] = useState(false);
     const [messageValue, setMessageValue] = useState("");
@@ -133,6 +138,7 @@ export function PreparationScreen({
                     inputKey={messageInputKey}
                     onChange={setMessageValue}
                     onSubmit={handleMessageSubmit}
+                    {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 />
                 : null}
             {session.waitingFor === "approval"
@@ -149,6 +155,7 @@ export function PreparationScreen({
                     inputKey={messageInputKey}
                     onChange={setMessageValue}
                     onSubmitFeedback={handleMessageSubmit}
+                    {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 />
                 : null}
             {showStalledPanel
@@ -230,6 +237,7 @@ interface QuestionPanelProps {
     readonly inputKey: number;
     readonly onChange: (value: string) => void;
     readonly onSubmit: (value: string) => void;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 function QuestionPanel({
@@ -239,18 +247,20 @@ function QuestionPanel({
     inputKey,
     onChange,
     onSubmit,
+    onCommandEffect,
 }: QuestionPanelProps): React.JSX.Element {
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold>Agent question</Text>
             <Text>{question ?? "The agent is waiting for your answer."}</Text>
-            <TextInput
+            <CommandAwareTextInput
                 key={inputKey}
                 isDisabled={busy}
                 defaultValue={value}
                 placeholder="Type your answer..."
                 onChange={onChange}
                 onSubmit={onSubmit}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
         </Box>
     );
@@ -266,6 +276,7 @@ interface ProposalPanelProps {
     readonly onApprove: () => void;
     readonly onFeedback: () => void;
     readonly onSubmitFeedback: (value: string) => void;
+    readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
 
 function ProposalPanel({
@@ -278,6 +289,7 @@ function ProposalPanel({
     onApprove,
     onFeedback,
     onSubmitFeedback,
+    onCommandEffect,
 }: ProposalPanelProps): React.JSX.Element {
     return (
         <Box flexDirection="column" gap={1}>
@@ -294,13 +306,14 @@ function ProposalPanel({
             {feedbackMode ? (
                 <Box flexDirection="column" gap={1}>
                     <Text>Describe the changes you want:</Text>
-                    <TextInput
+                    <CommandAwareTextInput
                         key={inputKey}
                         isDisabled={busy}
                         defaultValue={value}
                         placeholder="Provide non-empty feedback..."
                         onChange={onChange}
                         onSubmit={onSubmitFeedback}
+                        {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                     />
                 </Box>
             ) : (

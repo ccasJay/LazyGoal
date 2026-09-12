@@ -20,6 +20,7 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口为 `resume`，另有针对中断 Preparation 的 `retryPreparation` | 自行推断 Runtime 可用操作 |
 | [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面并将 Ctrl+C 回调交给 CLI | Runtime 编排和快照写入 |
 | [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
+| [CommandAwareTextInput](../../packages/tui/src/command-aware-text-input.tsx) | 命令感知单行文本输入、实时 Slash 候选展示、合法命令拦截派发与非法拒绝 | 终端布局、状态机转换、直接调用 Runtime |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
 ## 当前数据流
