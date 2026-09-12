@@ -12,13 +12,14 @@ import { pathToFileURL } from "node:url";
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    "slash-command": [],
     acp: [],
     runtime: ["contracts"],
     llm: ["runtime", "contracts"],
     storage: ["runtime", "contracts"],
     agent: ["runtime", "llm", "contracts"],
     tools: ["runtime", "contracts"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

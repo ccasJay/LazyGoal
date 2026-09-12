@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立独立 Slash Command Package 与公共契约
+- [x] //TODO 1. 建立独立 Slash Command Package 与公共契约
 
   - 实现目标：新增 `@lazygoal/slash-command` 的 Definition、Registry、inspection/dispatch 结果、`/model` effect 和公开导出，并把零出站依赖加入仓库依赖边界。
   - 成功判据：合法命令可注册、查询和派发；重复或非法名称稳定失败；候选排序、未知命令、参数拒绝、前导空白、`//` 与普通文本均产生约定结果，Package 不导入 UI、Provider 或 Storage。
