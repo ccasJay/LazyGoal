@@ -15,12 +15,14 @@ import {
 } from "../src/cli";
 import { SessionController } from "../src/index";
 import {
+    createGoal,
     createToolRegistration,
     InMemoryToolRegistry,
     type AgentProfile,
     type ToolPolicy,
     type PreparationExecutor,
 } from "../../runtime/src/index";
+import { currentProtocols } from "../../runtime/test/current-fixtures.js";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import { AgentProfileConfigurationError } from "../../storage/src/index";
@@ -508,5 +510,38 @@ test("mountTuiApp 挂载控制器并支持正常退出与 unmount", async () => 
     assert.equal(unmounted, true);
     await handle.waitUntilExit();
     assert.equal(exitWaitCalls, 1);
+});
+
+test("createCompositionRoot 装配 NotifyingGoalStore 并注入 SessionController", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-notifying-"));
+    await writeDefaultProfile(workspace);
+
+    const root = await createCompositionRoot({
+        cwd: workspace,
+        env: environment(),
+        adapter: {} as LLMAdapter,
+    });
+
+    assert.ok(root.notifyingStore !== undefined);
+
+    let notificationFired = false;
+    const unsubscribe = root.notifyingStore.onSave(() => {
+        notificationFired = true;
+    });
+
+    const testGoal = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-notify-test",
+        intent: "test intent",
+        profile: { id: "default", systemPrompt: "test", instructions: [], toolIds: [] },
+        runId: "run-notify-test",
+    });
+
+    await root.checkpointStore.save(testGoal);
+    assert.equal(notificationFired, true);
+
+    unsubscribe();
+    root.controller.dispose();
 });
 

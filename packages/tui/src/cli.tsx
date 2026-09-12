@@ -71,7 +71,7 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../tools/src/index";
-import { SessionController, TuiApp } from "./index";
+import { NotifyingGoalStore, SessionController, TuiApp } from "./index";
 import { StatusSpinner } from "./status-spinner";
 import type { SessionLauncher } from "./types";
 
@@ -443,6 +443,13 @@ export interface CompositionRoot {
     readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: JsonFileGoalStore;
+    /**
+     * 底层 GoalStore 的提交事件通知包装器。
+     *
+     * @remarks
+     * 每次成功持久化写入检查点快照时触发提交通知。
+     */
+    readonly notifyingStore: NotifyingGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: JsonFileTrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
@@ -637,6 +644,7 @@ export async function createCompositionRoot(
             modelInputEstimator,
         );
     const store = new JsonFileGoalStore(goalsDirectory);
+    const notifyingStore = new NotifyingGoalStore(store);
     const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -648,7 +656,7 @@ export async function createCompositionRoot(
         trajectoryStore,
         policy: modelContextPolicy,
     });
-    const checkpointStore = new CheckpointGateGoalStore(store);
+    const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
     const abortController = options.abortController ?? new AbortController();
@@ -726,6 +734,7 @@ export async function createCompositionRoot(
         profileId: profile.id,
         goalIdGenerator,
         control: { signal: abortController.signal },
+        notifyingStore,
     });
     const shutdownCoordinator = new ShutdownCoordinator({
         checkpointStore,
@@ -764,6 +773,7 @@ export async function createCompositionRoot(
         toolPolicy,
         preparationExecutor,
         store,
+        notifyingStore,
         trajectoryStore,
         contextLookupService,
         retrievalIndexStore,

@@ -6,7 +6,7 @@
   - 验证方式：执行 `npx tsx --test packages/tui/test/session-progress.test.tsx`。
   - _Requirements: [2.1](./requirements.md#req-2-1)_
 
-- [ ] //TODO 2. 修复 CLI 组合根的 NotifyingGoalStore 提交通知装配
+- [x] //TODO 2. 修复 CLI 组合根的 NotifyingGoalStore 提交通知装配
   - 实现目标：在 `packages/tui/src/cli.tsx` 中使用 `NotifyingGoalStore` 包装存储实例，并将通知对象注入到 `SessionController` 的 `notifyingStore` 依赖中。
   - 成功判据：Controller 初始化时建立有效的保存通知监听；Runtime 保存快照时触发回调；关闭时安全解绑。
   - 验证方式：在 `packages/tui/test/cli.test.ts` 中验证 `notifyingStore` 依赖注入与生命周期。
