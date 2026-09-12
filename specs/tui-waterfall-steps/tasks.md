@@ -30,7 +30,7 @@
   - 验证方式：在 `packages/tui/test/session-screen.test.tsx` 中使用 `ink-testing-library` 断言多步提交时终端帧保留所有历史步骤。
   - _Requirements: [3.1](./requirements.md#req-3-1), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 6. 全量集成验证与端到端回归
+- [x] //TODO 6. 全量集成验证与端到端回归
   - 实现目标：执行全量测试套件，验证 CLI 与 TUI 在真实场景下的连续步骤推进与视觉渲染。
   - 成功判据：全部测试用例通过，无类型错误，无视觉撕裂或历史步骤丢失。
   - 验证方式：运行 `node scripts/run-regression.mjs`。
@@ -44,19 +44,32 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1) | CLI 启动时正确包装并向 Controller 注入 NotifyingGoalStore | 待实现的 CLI 组合根装配测试 |
-| [1.2](./requirements.md#req-1-2) | Runtime 保存快照时实时触发 Controller 的提交通知 | 待实现的 Controller 实时通知集成测试 |
-| [1.3](./requirements.md#req-1-3) | Controller 关闭后丢弃通知不触发重绘 | 待实现的 Controller 关闭生命周期测试 |
-| [2.1](./requirements.md#req-2-1) | 新 Step 到达时追加到 ViewModel 的 committedSteps | 待实现的 Controller 步骤投影测试 |
-| [2.2](./requirements.md#req-2-2) | 相同或旧的 stepCount 被自动去重拒绝 | 待实现的 Controller 幂等去重测试 |
-| [2.3](./requirements.md#req-2-3) | 恢复已有 Goal 时正确初始化已提交步骤 | 待实现的 Controller 恢复初始化测试 |
-| [3.1](./requirements.md#req-3-1) | 已提交步骤通过 Ink Static 固化到终端历史中 | 待实现的 SessionScreen Static 渲染测试 |
-| [3.2](./requirements.md#req-3-2) | 步骤条目清晰包含序号、Tool 名称与成功/失败指示 | 待实现的 StepWaterfallItem 单元测试 |
-| [3.3](./requirements.md#req-3-3) | 超长参数与输出执行安全单行截断 | 待实现的 StepWaterfallItem 截断测试 |
-| [4.1](./requirements.md#req-4-1) | 运行中在底部展示 StatusSpinner 和当前步骤文案 | 待实现的 SessionScreen 运行态渲染测试 |
-| [4.2](./requirements.md#req-4-2) | 等待审批时底部展示待审批面板且保留上方步骤流 | 待实现的 SessionScreen 审批交互渲染测试 |
-| [4.3](./requirements.md#req-4-3) | 终态时展示完成/失败摘要并完整保留全部步骤流 | 待实现的 SessionScreen 终态视图测试 |
+| [1.1](./requirements.md#req-1-1) | CLI 启动时正确包装并向 Controller 注入 NotifyingGoalStore | `packages/tui/test/cli.test.ts` |
+| [1.2](./requirements.md#req-1-2) | Runtime 保存快照时实时触发 Controller 的提交通知 | `packages/tui/test/session-progress.test.tsx` |
+| [1.3](./requirements.md#req-1-3) | Controller 关闭后丢弃通知不触发重绘 | `packages/tui/test/session-progress.test.tsx` |
+| [2.1](./requirements.md#req-2-1) | 新 Step 到达时追加到 ViewModel 的 committedSteps | `packages/tui/test/session-controller.test.ts` |
+| [2.2](./requirements.md#req-2-2) | 相同或旧的 stepCount 被自动去重拒绝 | `packages/tui/test/session-controller.test.ts` |
+| [2.3](./requirements.md#req-2-3) | 恢复已有 Goal 时正确初始化已提交步骤 | `packages/tui/test/session-controller.test.ts` |
+| [3.1](./requirements.md#req-3-1) | 已提交步骤通过 Ink Static 固化到终端历史中 | `packages/tui/test/session-screen.test.tsx` |
+| [3.2](./requirements.md#req-3-2) | 步骤条目清晰包含序号、Tool 名称与成功/失败指示 | `packages/tui/test/step-waterfall-item.test.tsx` |
+| [3.3](./requirements.md#req-3-3) | 超长参数与输出执行安全单行截断 | `packages/tui/test/step-waterfall-item.test.tsx` |
+| [4.1](./requirements.md#req-4-1) | 运行中在底部展示 StatusSpinner 和当前步骤文案 | `packages/tui/test/session-screen.test.tsx` |
+| [4.2](./requirements.md#req-4-2) | 等待审批时底部展示待审批面板且保留上方步骤流 | `packages/tui/test/session-screen.test.tsx` |
+| [4.3](./requirements.md#req-4-3) | 终态时展示完成/失败摘要并完整保留全部步骤流 | `packages/tui/test/session-screen.test.tsx` |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- 验证时间：2026-09-12 20:24
+- 整体状态：PASS（全部验证项通过，无失败、无跳过）
+- 被测分支与提交：`feature/tui-waterfall-steps` @ `2a7d5aa`
+- 执行命令与证据：
+  - `node scripts/run-regression.mjs`
+  - 核心套件测试：907 pass, 0 fail (耗时 13.01s)
+  - scripts 规则校验：13 pass, 0 fail (耗时 0.11s)
+  - TypeScript 类型检查：`npx tsc --noEmit` 0 错误
+- 验收结果：
+  1. CLI 组合根成功装配 `NotifyingGoalStore` 并在存储保存快照时实时通知 `SessionController`；
+  2. `SessionController` 正确维护步骤单调递增历史，执行去重并暴露给 `committedSteps`；
+  3. `StepWaterfallItem` 紧凑渲染序号、状态图标（✔/✖）、单行安全截断；
+  4. `SessionScreen` 将消息与历史步骤统一汇入 Ink `<Static>` 瀑布流输出，底部通过 `ActiveDrawer` 维持整洁动态区域；
+  5. 连续步骤提交时，先前步骤在终端 scrollback 中完整保留，不再发生原地擦除覆盖。
