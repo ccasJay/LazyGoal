@@ -116,7 +116,7 @@ export type {
     GoalStore,
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
-export type { StepExecutionInput } from "./step-executor";
+export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
 export type {
     PreparationExecutor,
     PreparationExecutionInput,
