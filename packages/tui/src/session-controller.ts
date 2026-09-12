@@ -13,6 +13,7 @@ import {
     type UiCommand,
     type UiError,
     type UiSessionViewModel,
+    type UiStepSummary,
     type UiSubscriber,
     type UiTerminalSummary,
     type UiViewModel,
@@ -45,6 +46,7 @@ export class SessionController {
     private readonly dependencies: SessionControllerDependencies;
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
+    private committedSteps: UiStepSummary[] = [];
     private storeUnsubscribe: (() => void) | undefined;
     private snapshot: UiViewModel = {
         screen: "intent_input",
@@ -56,6 +58,10 @@ export class SessionController {
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
         if (dependencies.initialGoal !== undefined) {
+            const initialStep = deriveStepSummary(dependencies.initialGoal);
+            if (initialStep !== undefined) {
+                this.committedSteps = [initialStep];
+            }
             this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
             this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
         }
@@ -473,6 +479,13 @@ export class SessionController {
         busy: boolean,
     ): UiSessionViewModel {
         this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
+        if (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id) {
+            this.committedSteps = [];
+        }
+        const newStep = deriveStepSummary(goal);
+        if (newStep !== undefined && !this.committedSteps.some((s) => s.stepNumber === newStep.stepNumber)) {
+            this.committedSteps.push(newStep);
+        }
         const snapshot = structuredClone(goal);
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
             ? progress.waitingFor
@@ -501,6 +514,7 @@ export class SessionController {
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
+            committedSteps: this.committedSteps.slice(),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -582,6 +596,11 @@ export class SessionController {
             }
         }
 
+        const newStep = deriveStepSummary(savedGoal);
+        if (newStep !== undefined && !this.committedSteps.some((s) => s.stepNumber === newStep.stepNumber)) {
+            this.committedSteps.push(newStep);
+        }
+
         const mode = this.dependencies.mode ?? this.snapshot.mode;
         const taskTitle = this.dependencies.taskTitle ?? this.snapshot.taskTitle;
 
@@ -592,6 +611,7 @@ export class SessionController {
             runStatus: savedGoal.state.run.status,
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
+            committedSteps: this.committedSteps.slice(),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
@@ -890,5 +910,58 @@ function deriveTerminalSummary(goal: Goal): UiTerminalSummary | undefined {
         status,
         ...(summary === undefined ? {} : { summary }),
         ...(reason === undefined ? {} : { reason }),
+    };
+}
+
+function summarizeInput(input: unknown): string | undefined {
+    if (input === undefined || input === null) {
+        return undefined;
+    }
+    if (typeof input === "object") {
+        const record = input as Record<string, unknown>;
+        if ("command" in record && typeof record.command === "string") {
+            return record.command.trim();
+        }
+        if ("path" in record && typeof record.path === "string") {
+            return record.path.trim();
+        }
+        if ("query" in record && typeof record.query === "string") {
+            return record.query.trim();
+        }
+        try {
+            return JSON.stringify(input);
+        } catch {
+            return undefined;
+        }
+    }
+    return String(input);
+}
+
+function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
+    const lastStep = goal.state.run.lastStep;
+    if (lastStep === undefined || lastStep.kind !== "action") {
+        return undefined;
+    }
+
+    const toolId = lastStep.action.toolId;
+    const actionId = lastStep.action.actionId;
+    const status = lastStep.observation.kind === "success" ? "success" : "failure";
+    const inputSummary = summarizeInput(lastStep.action.input);
+    let outputSummary: string | undefined;
+    if (lastStep.observation.kind === "success") {
+        outputSummary = lastStep.observation.summary;
+    } else if (lastStep.observation.kind === "failure") {
+        outputSummary = lastStep.observation.message;
+    } else if (lastStep.observation.kind === "rejected") {
+        outputSummary = lastStep.observation.reason;
+    }
+
+    return {
+        stepNumber: goal.state.run.stepCount,
+        toolId,
+        actionId,
+        status,
+        ...(inputSummary !== undefined ? { inputSummary } : {}),
+        ...(outputSummary !== undefined ? { outputSummary } : {}),
     };
 }

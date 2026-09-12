@@ -755,3 +755,125 @@ test("retryPreparation reports a stable error without an active session", async 
     assert.equal(view.error?.code, "NO_ACTIVE_SESSION");
     assert.deepEqual(coordinator.advanceRefs, []);
 });
+
+function createExecutingGoal(id: string, stepCount: number, lastStep?: Goal["state"]["run"]["lastStep"]): Goal {
+    const waiting = createWaitingGoal(id);
+    return {
+        ...waiting,
+        state: {
+            ...waiting.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: {
+                    objective: "Test objective",
+                    completionCriteria: [{ text: "Criteria 1" }],
+                },
+            },
+            run: {
+                ...waiting.state.run,
+                status: "running",
+                stepCount,
+                ...(lastStep !== undefined ? { lastStep } : {}),
+            },
+        },
+    };
+}
+
+test("committedSteps 时间线：连续提交时按单调顺序累积且去重", async () => {
+    const goal = createWaitingGoal("goal-steps-timeline");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    let notifyListener: ((savedGoal: Goal) => void) | undefined;
+    const fakeNotifyingStore = {
+        onSave(listener: (savedGoal: Goal) => void) {
+            notifyListener = listener;
+            return () => {};
+        },
+    };
+
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        notifyingStore: fakeNotifyingStore,
+    });
+
+    await controller.dispatch({ kind: "create", intent: "Start" });
+    let view = sessionView(controller);
+    assert.deepEqual(view.committedSteps, []);
+
+    // 提交 Step 1
+    const step1Goal = createExecutingGoal("goal-steps-timeline", 1, {
+        kind: "action",
+        action: { actionId: "act-1", toolId: "read_file", input: { path: "src/index.ts" } },
+        observation: { kind: "success", output: { lines: 100 }, summary: "Read 100 lines" },
+    });
+    notifyListener?.(step1Goal);
+
+    view = sessionView(controller);
+    assert.equal(view.committedSteps?.length, 1);
+    assert.equal(view.committedSteps[0]?.stepNumber, 1);
+    assert.equal(view.committedSteps[0]?.toolId, "read_file");
+    assert.equal(view.committedSteps[0]?.inputSummary, "src/index.ts");
+    assert.equal(view.committedSteps[0]?.outputSummary, "Read 100 lines");
+    assert.equal(view.committedSteps[0]?.status, "success");
+
+    // 提交 Step 2
+    const step2Goal = createExecutingGoal("goal-steps-timeline", 2, {
+        kind: "action",
+        action: { actionId: "act-2", toolId: "bash", input: { command: "npm test" } },
+        observation: { kind: "failure", code: "COMMAND_FAILED", message: "1 test failed", retryable: false },
+    });
+    notifyListener?.(step2Goal);
+
+    view = sessionView(controller);
+    assert.equal(view.committedSteps?.length, 2);
+    assert.equal(view.committedSteps[1]?.stepNumber, 2);
+    assert.equal(view.committedSteps[1]?.toolId, "bash");
+    assert.equal(view.committedSteps[1]?.inputSummary, "npm test");
+    assert.equal(view.committedSteps[1]?.outputSummary, "1 test failed");
+    assert.equal(view.committedSteps[1]?.status, "failure");
+
+    // 重复提交 Step 2（幂等去重）
+    notifyListener?.(step2Goal);
+    view = sessionView(controller);
+    assert.equal(view.committedSteps?.length, 2);
+
+    // 迟到的旧 Step 1（忽略）
+    notifyListener?.(step1Goal);
+    view = sessionView(controller);
+    assert.equal(view.committedSteps?.length, 2);
+
+    controller.dispose();
+});
+
+test("committedSteps 时间线：通过 initialGoal 初始化恢复时正确还原步骤", async () => {
+    const existingGoal = createExecutingGoal("goal-restored", 3, {
+        kind: "action",
+        action: { actionId: "act-3", toolId: "grep", input: { query: "export" } },
+        observation: { kind: "success", output: {}, summary: "found 5 matches" },
+    });
+
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(existingGoal)),
+            new FakeCoordinator(waitingResult(existingGoal)),
+            new FakeStore([existingGoal]),
+            new FakeCatalog([]),
+        ),
+        initialGoal: existingGoal,
+    });
+
+    const view = sessionView(controller);
+    assert.equal(view.stepCount, 3);
+    assert.equal(view.committedSteps?.length, 1);
+    assert.equal(view.committedSteps[0]?.stepNumber, 3);
+    assert.equal(view.committedSteps[0]?.toolId, "grep");
+    assert.equal(view.committedSteps[0]?.inputSummary, "export");
+    assert.equal(view.committedSteps[0]?.outputSummary, "found 5 matches");
+
+    controller.dispose();
+});

@@ -12,7 +12,7 @@
   - 验证方式：在 `packages/tui/test/cli.test.ts` 中验证 `notifyingStore` 依赖注入与生命周期。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 3. 实现 SessionController 步骤时间线单调累积与快照投影
+- [x] //TODO 3. 实现 SessionController 步骤时间线单调累积与快照投影
   - 实现目标：在 `SessionController` 中维护私有步骤列表，在构造函数与 `onGoalCommitted` 中提取最新 Step，执行单调递增去重并暴露到 ViewModel。
   - 成功判据：按 `stepCount` 严格递增去重，乱序或已提交步骤不重复追加；已有 Goal 恢复时正确初始化步骤历史。
   - 验证方式：在 `packages/tui/test/session-controller.test.ts` 中增加多步提交通知与恢复投影的单元测试。
