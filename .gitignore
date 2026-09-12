@@ -4,7 +4,7 @@
 !.env.example
 
 # Dependencies
-node_modules/
+node_modules
 
 # Build and test output
 dist/

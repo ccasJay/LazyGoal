@@ -62,36 +62,43 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
         inputContract: BASH_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: READ_FILE_TOOL_ID,
         description: "读取 workspaceRoot 内的 UTF-8 文本文件",
         inputContract: READ_FILE_INPUT_CONTRACT,
+        isReadOnly: true,
     },
     {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
         inputContract: WRITE_FILE_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
         inputContract: EDIT_FILE_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: GREP_TOOL_ID,
         description: "在 workspaceRoot 内按正则搜索文本文件并返回带行号的匹配行",
         inputContract: GREP_INPUT_CONTRACT,
+        isReadOnly: true,
     },
     {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
         inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+        isReadOnly: false,
     },
     {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
         inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+        isReadOnly: false,
     },
 ];
 
@@ -170,6 +177,7 @@ function toolDefinition(id = "read_file"): ToolDefinition {
         id,
         description: "读取工作区内文本文件",
         inputContract: PATH_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 }
 
@@ -644,7 +652,7 @@ test("Projector 在 executing 阶段拒绝任何 Preparation provenance 字段",
             undefined,
             [],
         ),
-        /Preparation input evidence requires a preparation phase/,
+        /Preparation-only inputs require a preparation phase/,
     );
 });
 
@@ -655,6 +663,7 @@ test("Projector 在遇到无效 Tool Contract 时快速抛出异常", () => {
         inputContract: {
             kind: "unknown_kind" as any,
         } as any,
+        isReadOnly: false,
     };
 
     assert.throws(

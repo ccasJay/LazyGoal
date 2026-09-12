@@ -2,19 +2,25 @@ import { contract } from "../contract";
 import { safeParse } from "../parser";
 import { ContractValidationError } from "../errors";
 import type { JsonSchema202012 } from "../json-schema";
-import type { Contract } from "../types";
+import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
     ContextLookupRequestContract,
+    ContextReadyPreparationResultContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
     GatheringPreparationResultContract,
     ModelContextCheckpointResultContract,
+    NonProbeGatheringPreparationResultContract,
+    NonProbePlanningPreparationResultContract,
     NonToolExecutingDecisionContract,
     PlanningPreparationResultContract,
     type PreparationResult,
+    QuestionPreparationResultContract,
+    TaskProposalPreparationResultContract,
+    WorkingMemoryPatchContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
@@ -43,6 +49,32 @@ export interface AuthorizedToolContract {
     readonly id: string;
     /** 工具入参契约。 */
     readonly inputContract: Contract<unknown>;
+    /**
+     * 是否为只读工具。
+     *
+     * @remarks
+     * 声明为 `true` 的工具在准备阶段可被模型自主调用，且对工作区无任何副作用。默认为 `false`。
+     */
+    readonly isReadOnly?: boolean;
+}
+
+/**
+ * 判定指定的授权工具契约是否显式声明为只读。
+ *
+ * @param tool - 授权工具契约描述。
+ * @returns 声明为 `isReadOnly: true` 时返回 `true`，否则返回 `false`。
+ *
+ * @example
+ * ```ts
+ * const readOnly = isReadOnlyToolContract({
+ *     id: "read_file",
+ *     inputContract: READ_FILE_INPUT_CONTRACT,
+ *     isReadOnly: true,
+ * });
+ * ```
+ */
+export function isReadOnlyToolContract(tool: AuthorizedToolContract): boolean {
+    return tool.isReadOnly === true;
 }
 
 /**
@@ -52,8 +84,14 @@ export interface AuthorizedToolContract {
  * 分别对应上下文收集、规划、执行与检查点阶段。
  */
 export type ModelOutputRequest =
-    | { readonly kind: "gathering" }
-    | { readonly kind: "planning" }
+    | {
+        readonly kind: "gathering";
+        readonly authorizedTools?: readonly AuthorizedToolContract[];
+      }
+    | {
+        readonly kind: "planning";
+        readonly authorizedTools?: readonly AuthorizedToolContract[];
+      }
     | {
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
@@ -125,6 +163,34 @@ function buildWireToolBranch(tool: AuthorizedToolContract): Contract<unknown> {
 }
 
 /**
+ * 为单个只读 Tool 构造 canonical 的 probe_action 决策分支契约。
+ */
+function buildCanonicalProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
+    return contract.object({
+        kind: contract.literal("probe_action"),
+        action: contract.object({
+            toolId: contract.literal(tool.id),
+            input: tool.inputContract,
+        }),
+        memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    });
+}
+
+/**
+ * 为单个只读 Tool 派生 wire 的 probe_action 决策分支契约。
+ */
+function buildWireProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
+    return contract.object({
+        kind: contract.enum(["probe_action"]),
+        action: contract.object({
+            toolId: contract.enum([tool.id]),
+            input: deriveWireContract(tool.inputContract),
+        }),
+        memoryPatch: contract.nullable(deriveWireContract(WorkingMemoryPatchContract)),
+    });
+}
+
+/**
  * 校验授权工具列表，按 code-point 排序，并确保工具 ID 非空且无重复。
  */
 function validateAndSortAuthorizedTools(
@@ -159,7 +225,9 @@ function validateAndSortAuthorizedTools(
  * 创建请求级模型输出契约包。
  *
  * @remarks
- * 1. Gathering、Planning、Checkpoint 阶段派生固定的 Wire 与 Canonical 契约；
+ * 1. Gathering、Planning 阶段依据授权只读 Tool 集合动态组合：
+ *    - 声明为 `isReadOnly: true` 的只读工具按稳定 Tool ID 码点序派生专属 `probe_action` 分支；
+ *    - 未提供只读工具时仅保留各阶段的基础决策分支；
  * 2. Executing 阶段依据授权 Tool 集合动态组合：
  *    - 授权工具按稳定 Tool ID 码点序派生，每个 tool 绑定专属 `tool_call` 分支；
  *    - 空集合或未配置 Tool 时直接省略 `tool_call` 分支；
@@ -173,8 +241,8 @@ function validateAndSortAuthorizedTools(
  * @example
  * ```ts
  * const bundle = createModelOutputContractBundle({
- *     kind: "executing",
- *     authorizedTools: [{ id: "read_file", inputContract: ReadFileInputContract }],
+ *     kind: "gathering",
+ *     authorizedTools: [{ id: "read_file", inputContract: ReadFileInputContract, isReadOnly: true }],
  * });
  * ```
  */
@@ -186,16 +254,72 @@ export function createModelOutputContractBundle(
     let wireContract: Contract<unknown>;
 
     switch (request.kind) {
-        case "gathering":
+        case "gathering": {
             name = "gathering_preparation_result";
-            canonicalContract = GatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-            wireContract = deriveWireEnvelopeContract(GatheringPreparationResultContract);
+            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
+                .filter(isReadOnlyToolContract);
+
+            if (sortedReadOnlyTools.length === 0) {
+                canonicalContract = NonProbeGatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(NonProbeGatheringPreparationResultContract);
+            } else {
+                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
+                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                const baseCanonical = [
+                    QuestionPreparationResultContract,
+                    ContextReadyPreparationResultContract,
+                    ContextLookupRequestContract,
+                ];
+                const baseWire = [
+                    deriveWireContract(QuestionPreparationResultContract),
+                    deriveWireContract(ContextReadyPreparationResultContract),
+                    deriveWireContract(ContextLookupRequestContract),
+                ];
+                canonicalContract = contract.union([
+                    ...probeCanonical,
+                    ...baseCanonical,
+                ] as any) as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union([
+                        ...probeWire,
+                        ...baseWire,
+                    ] as any),
+                });
+            }
             break;
-        case "planning":
+        }
+        case "planning": {
             name = "planning_preparation_result";
-            canonicalContract = PlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-            wireContract = deriveWireEnvelopeContract(PlanningPreparationResultContract);
+            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
+                .filter(isReadOnlyToolContract);
+
+            if (sortedReadOnlyTools.length === 0) {
+                canonicalContract = NonProbePlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = deriveWireEnvelopeContract(NonProbePlanningPreparationResultContract);
+            } else {
+                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
+                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
+                const baseCanonical = [
+                    TaskProposalPreparationResultContract,
+                    ContextLookupRequestContract,
+                ];
+                const baseWire = [
+                    deriveWireContract(TaskProposalPreparationResultContract),
+                    deriveWireContract(ContextLookupRequestContract),
+                ];
+                canonicalContract = contract.union([
+                    ...probeCanonical,
+                    ...baseCanonical,
+                ] as any) as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union([
+                        ...probeWire,
+                        ...baseWire,
+                    ] as any),
+                });
+            }
             break;
+        }
         case "executing": {
             name = "executing_agent_decision";
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);

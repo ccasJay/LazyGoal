@@ -127,6 +127,7 @@ function createRunnerTool(
             id: "read_file",
             description: "读取文件",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate,
@@ -1136,6 +1137,7 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
             id: "read_file",
             description: "读取文件",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1233,6 +1235,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
             id: "read_file",
             description: "读取文件",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({
@@ -1289,6 +1292,7 @@ test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也�
             id: "read_file",
             description: "读取文件",
             inputContract: PATH_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1378,6 +1382,7 @@ test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事�
             id: "read_file",
             description: "读取文件",
             inputContract: PATH_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: (input) => {
@@ -1457,6 +1462,7 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
             id: "read_file",
             description: "读取文件",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1505,6 +1511,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
             id: "read_file",
             description: "读取文件",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => {
@@ -1693,6 +1700,7 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
             id: "bash",
             description: "执行 Bash 命令",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
@@ -2059,6 +2067,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
             id: "manual_tool",
             description: "需要人工确认的 Tool",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
         },
         replayPolicy: "manual" as const,
     };

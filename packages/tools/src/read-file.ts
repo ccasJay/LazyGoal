@@ -78,6 +78,7 @@ export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
         id: READ_FILE_TOOL_ID,
         description: "读取 workspaceRoot 内的 UTF-8 文本文件",
         inputContract: READ_FILE_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 
     readonly replayPolicy = "safe" as const;

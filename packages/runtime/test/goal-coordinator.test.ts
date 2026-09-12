@@ -512,11 +512,13 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
         id: "read_file",
         description: "读取文件",
         inputContract: TEST_INPUT_CONTRACT,
+        isReadOnly: true,
     };
     const writeDefinition: ToolDefinition<typeof TEST_INPUT_CONTRACT> = {
         id: "write_file",
         description: "写入文件",
         inputContract: TEST_INPUT_CONTRACT,
+        isReadOnly: false,
     };
     const tools = new Map<string, Tool>([
         ["read_file", createTool(readDefinition)],
@@ -525,6 +527,7 @@ test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 
             id: "not_authorized",
             description: "未授权",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
         })],
     ]);
     const executor = new FakePreparationExecutor([{
@@ -1001,6 +1004,7 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
             id: "read_file",
             description: "需要人工确认的读取 Tool",
             inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: true,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),

@@ -120,6 +120,7 @@ export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
 export type {
     PreparationExecutor,
     PreparationExecutionInput,
+    PreparationProbeResult,
     PreparationResult,
 } from "./preparation-executor";
 export {
@@ -357,6 +358,7 @@ export type {
 export {
     createToolRegistration,
     InMemoryToolRegistry,
+    isReadOnlyTool,
     resolveAuthorizedToolDefinitions,
 } from "./tool";
 export type {
@@ -386,6 +388,7 @@ export type {
     GoalProgressErrorCode,
     GoalProgressResult,
     GoalUserAction,
+    PreparationProbeProgressEvent,
     ResumeGoalRequest,
 } from "./goal-coordinator";
 export {

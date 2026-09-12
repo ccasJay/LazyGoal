@@ -7,6 +7,7 @@ import type {
     ModelContextLookupResult,
     ModelContextEpochView,
     ModelPreparationInputEvidence,
+    ModelPreparationProbeResult,
     VisibleConversationMessageMapEntry,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -30,6 +31,8 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @param contextEpoch - 可选的 Context Epoch 视图。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时完全省略。
+ * @param lastProbeResult - 紧邻上一轮已提交的 Preparation Tool Observation。
+ * @param probeLimitReached - 连续探查已达上限时的强制收敛标记。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */
 export function renderWorkingContextMessage(
@@ -39,6 +42,8 @@ export function renderWorkingContextMessage(
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
     responseShapeGuide?: string,
+    lastProbeResult?: ModelPreparationProbeResult,
+    probeLimitReached?: true,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     return {
         role: "user",
@@ -50,6 +55,8 @@ export function renderWorkingContextMessage(
             contextEpoch,
             undefined,
             responseShapeGuide,
+            lastProbeResult,
+            probeLimitReached,
         ), null, 2),
     };
 }
@@ -65,6 +72,8 @@ function createWorkingContextPayload(
         readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
     },
     responseShapeGuide?: string,
+    lastProbeResult?: ModelPreparationProbeResult,
+    probeLimitReached?: true,
 ): Record<string, unknown> {
     if (context.phase === "executing") {
         const payload: Record<string, unknown> = {
@@ -116,6 +125,8 @@ function createWorkingContextPayload(
                     ? {}
                     : { preparationInputEvidence: preparationMetadata.preparationInputEvidence }),
             }),
+        ...(lastProbeResult === undefined ? {} : { lastProbeResult }),
+        ...(probeLimitReached === undefined ? {} : { probeLimitReached }),
     };
 
     if (responseShapeGuide !== undefined) {
@@ -146,6 +157,8 @@ function renderViewWorkingContextMessage(
             view.contextEpoch,
             preparationMetadata,
             responseShapeGuide,
+            view.lastProbeResult,
+            view.probeLimitReached,
         ), null, 2),
     };
 }
@@ -205,10 +218,14 @@ export function renderRequest(
 ): LLMRequest {
     if (
         view.workingContext.phase === "executing"
-        && view.preparationInputEvidence !== undefined
+        && (
+            view.preparationInputEvidence !== undefined
+            || view.lastProbeResult !== undefined
+            || view.probeLimitReached !== undefined
+        )
     ) {
         throw new Error(
-            "Executing request must not receive Preparation input evidence",
+            "Executing request must not receive Preparation-only inputs",
         );
     }
 

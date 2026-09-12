@@ -143,6 +143,7 @@ export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
         id: WEB_SEARCH_TOOL_ID,
         description: "在互联网上搜索信息并返回有界的标题、URL 和摘要列表",
         inputContract: WEB_SEARCH_INPUT_CONTRACT,
+        isReadOnly: true,
     };
 
     readonly replayPolicy = "safe" as const;

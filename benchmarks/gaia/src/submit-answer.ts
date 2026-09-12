@@ -57,6 +57,7 @@ export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRAC
         id: SUBMIT_ANSWER_TOOL_ID,
         description: "提交 GAIA 任务的最终答案。每个任务只允许调用一次，提交后任务结束。",
         inputContract: SUBMIT_ANSWER_INPUT_CONTRACT,
+        isReadOnly: false,
     };
 
     readonly replayPolicy = "manual" as const;
@@ -150,4 +151,3 @@ export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRAC
         }
     }
 }
-

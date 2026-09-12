@@ -79,6 +79,7 @@ import {
 } from "../../tools/src/index";
 import {
     SessionController,
+    NotifyingGoalStore,
     TuiApp,
     projectTrajectoryEvents,
     AggregatedGoalStore,
@@ -482,6 +483,8 @@ export interface CompositionRoot {
     readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: GoalStore & GoalCatalog;
+    /** 持久化 GoalStore 的提交通知包装器，供 TUI 实时刷新已提交步骤。 */
+    readonly notifyingStore: NotifyingGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
     readonly trajectoryStore: TrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
@@ -726,7 +729,8 @@ export async function createCompositionRoot(
         trajectoryStore,
         policy: modelContextPolicy,
     });
-    const checkpointStore = new CheckpointGateGoalStore(store);
+    const notifyingStore = new NotifyingGoalStore(store);
+    const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
     const abortController = options.abortController ?? new AbortController();
@@ -809,6 +813,7 @@ export async function createCompositionRoot(
         profileId: profile.id,
         goalIdGenerator,
         control: { signal: abortController.signal },
+        notifyingStore,
         initialScreen: options.initialScreen ?? "home",
         ...(options.initialGoalSelectMode !== undefined
             ? { initialGoalSelectMode: options.initialGoalSelectMode }
@@ -853,6 +858,7 @@ export async function createCompositionRoot(
         toolPolicy,
         preparationExecutor,
         store,
+        notifyingStore,
         trajectoryStore,
         contextLookupService,
         retrievalIndexStore,

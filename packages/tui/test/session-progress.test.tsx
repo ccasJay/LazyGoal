@@ -190,7 +190,7 @@ test("实时提交投影：阻塞下一次模型响应时上一已提交 Action 
 
     const frameText = lastFrame() ?? "";
     assert.match(frameText, /Steps: 1/);
-    assert.match(frameText, /Last Action: \[bash\]/);
+    assert.match(frameText, /Step 1:\s*\[bash\]/);
     assert.match(frameText, /\[REVIEW\]/);
     assert.match(frameText, /SWE-bench astropy__astropy-12907/);
 

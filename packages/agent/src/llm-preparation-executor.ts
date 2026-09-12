@@ -21,9 +21,15 @@ import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
 import {
+    createDefaultModelContextBudgetPolicy,
     TokenBudgetPlanner,
     type ModelCapabilities,
 } from "./model-context-budget";
+import {
+    MutableModelBinding,
+    type ModelExecutionBinding,
+    type ModelExecutionBindingProvider,
+} from "./model-execution-binding";
 import {
     recordLlmError,
     recordLlmRequest,
@@ -49,7 +55,7 @@ import {
  */
 export interface LLMPreparationExecutorDependencies {
     /** 接收统一消息协议并返回模型原始文本的 Adapter。 */
-    readonly adapter: LLMAdapter;
+    readonly adapter?: LLMAdapter;
     /** 由 Composition Root 创建、与 Step Executor 共享的 Prompt Bundle Renderer。 */
     readonly renderer: PromptBundleRenderer;
     /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
@@ -62,6 +68,8 @@ export interface LLMPreparationExecutorDependencies {
     readonly modelCapabilities?: ModelCapabilities;
     /** 思考链允许保留的最大字符数（可选，缺省使用 {@link DEFAULT_MAX_THOUGHT_CHARS}）。 */
     readonly maxThoughtChars?: number;
+    /** 可替换的模型执行绑定提供者；每次 execute 开始时读取当前绑定。 */
+    readonly bindingProvider?: ModelExecutionBindingProvider;
 }
 
 /**
@@ -72,7 +80,7 @@ export interface LLMPreparationExecutorDependencies {
  * 兼顾深度推理与合规准备动作。
  */
 export class LLMPreparationExecutor implements PreparationExecutor {
-    private readonly adapter: LLMAdapter;
+    private readonly bindingProvider: ModelExecutionBindingProvider;
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
@@ -83,7 +91,6 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMPreparationExecutorDependencies) {
-        this.adapter = dependencies.adapter;
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
@@ -92,6 +99,26 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         this.maxThoughtChars = dependencies.maxThoughtChars ?? DEFAULT_MAX_THOUGHT_CHARS;
         if (this.modelCapabilities !== undefined) {
             this.budgetPlanner = new TokenBudgetPlanner(this.modelCapabilities);
+        }
+        if (dependencies.bindingProvider !== undefined) {
+            this.bindingProvider = dependencies.bindingProvider;
+        } else if (dependencies.adapter !== undefined) {
+            const fallbackBinding: ModelExecutionBinding = {
+                generation: 1,
+                selection: {
+                    provider: "unknown",
+                    modelId: "unknown",
+                    structuredOutputMode: dependencies.adapter.structuredOutputMode,
+                    inputEstimator: { kind: "character-v1" },
+                },
+                adapter: dependencies.adapter,
+                modelCapabilities: dependencies.modelCapabilities,
+                modelContextPolicy: createDefaultModelContextBudgetPolicy(),
+                trajectoryContextAssembler: dependencies.trajectoryContextAssembler as TrajectoryModelContextAssembler,
+            };
+            this.bindingProvider = new MutableModelBinding(fallbackBinding);
+        } else {
+            throw new Error("Either bindingProvider or adapter must be provided to LLMPreparationExecutor");
         }
     }
 
@@ -119,7 +146,16 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             );
         }
 
-        const mode = this.adapter.structuredOutputMode;
+        const binding = this.bindingProvider.current();
+        const adapter = binding.adapter;
+        const modelCapabilities = binding.modelCapabilities;
+        const trajectoryContextAssembler = binding.trajectoryContextAssembler;
+        const budgetPlanner = modelCapabilities === this.modelCapabilities
+            ? this.budgetPlanner
+            : modelCapabilities === undefined
+                ? undefined
+                : new TokenBudgetPlanner(modelCapabilities);
+        const mode = adapter.structuredOutputMode;
 
         if (mode === "two_stage") {
             // ==========================================
@@ -132,11 +168,13 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 this.contextCompactor,
                 control?.signal,
                 input.workingMemory,
-                this.trajectoryContextAssembler,
+                trajectoryContextAssembler,
                 input.contextLookupResult,
-                this.modelCapabilities,
+                modelCapabilities,
                 input.preparationInputEvidence,
                 "two_stage",
+                input.lastProbeResult,
+                input.probeLimitReached,
             );
             throwIfAborted(control);
 
@@ -152,8 +190,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
             const thinkingRequest: LLMRequest = {
                 messages: thinkingMessages,
-                ...(this.modelCapabilities !== undefined
-                    ? { maxOutputTokens: this.modelCapabilities.maxOutputTokens }
+                ...(modelCapabilities !== undefined
+                    ? { maxOutputTokens: modelCapabilities.maxOutputTokens }
                     : basePlan.request.maxOutputTokens !== undefined
                         ? { maxOutputTokens: basePlan.request.maxOutputTokens }
                         : {}),
@@ -164,7 +202,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
             let stage1Response: Awaited<ReturnType<LLMAdapter["generate"]>>;
             try {
-                stage1Response = await this.adapter.generate(thinkingRequest, control);
+                stage1Response = await adapter.generate(thinkingRequest, control);
             } catch (error) {
                 await recordLlmError(
                     this.traceSink,
@@ -197,7 +235,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             // 思考链 Token 预算防护与安全截断
             const truncatedThoughtResult = truncateThought(rawThought, {
                 maxChars: this.maxThoughtChars,
-                ...(this.budgetPlanner !== undefined ? { planner: this.budgetPlanner } : {}),
+                ...(budgetPlanner !== undefined ? { planner: budgetPlanner } : {}),
             });
             const sanitizedThought = truncatedThoughtResult.thought;
 
@@ -211,11 +249,13 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 this.contextCompactor,
                 control?.signal,
                 input.workingMemory,
-                this.trajectoryContextAssembler,
+                trajectoryContextAssembler,
                 input.contextLookupResult,
-                this.modelCapabilities,
+                modelCapabilities,
                 input.preparationInputEvidence,
                 "strict",
+                input.lastProbeResult,
+                input.probeLimitReached,
             );
             throwIfAborted(control);
 
@@ -233,8 +273,8 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                     name: decidePlan.bundle.name,
                     schema: decidePlan.bundle.jsonSchema,
                 },
-                ...(this.modelCapabilities !== undefined
-                    ? { maxOutputTokens: this.modelCapabilities.maxOutputTokens }
+                ...(modelCapabilities !== undefined
+                    ? { maxOutputTokens: modelCapabilities.maxOutputTokens }
                     : decidePlan.request.maxOutputTokens !== undefined
                         ? { maxOutputTokens: decidePlan.request.maxOutputTokens }
                         : {}),
@@ -245,7 +285,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
             let stage2Response: Awaited<ReturnType<LLMAdapter["generate"]>>;
             try {
-                stage2Response = await this.adapter.generate(decideRequest, control);
+                stage2Response = await adapter.generate(decideRequest, control);
             } catch (error) {
                 await recordLlmError(
                     this.traceSink,
@@ -298,22 +338,24 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             this.contextCompactor,
             control?.signal,
             input.workingMemory,
-            this.trajectoryContextAssembler,
+            trajectoryContextAssembler,
             input.contextLookupResult,
-            this.modelCapabilities,
+            modelCapabilities,
             input.preparationInputEvidence,
             mode,
+            input.lastProbeResult,
+            input.probeLimitReached,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
-        const providerRequest = this.modelCapabilities === undefined
+        const providerRequest = modelCapabilities === undefined
             ? plan.request
-            : { ...plan.request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+            : { ...plan.request, maxOutputTokens: modelCapabilities.maxOutputTokens };
         await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
-            response = await this.adapter.generate(providerRequest, control);
+            response = await adapter.generate(providerRequest, control);
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

@@ -231,7 +231,7 @@ test("Preparation 控制消息只暴露最终可见 Conversation 映射和匹配
     ]);
 });
 
-test("Executing 请求注入 Preparation provenance 时在渲染器调用前失败", () => {
+test("Executing 请求注入 Preparation 专用字段时在渲染器调用前失败", () => {
     const view = buildView(
         "executing",
         {
@@ -255,7 +255,7 @@ test("Executing 请求注入 Preparation provenance 时在渲染器调用前失�
 
     assert.throws(
         () => renderRequest(view, rejectingRenderer),
-        /Executing request must not receive Preparation input evidence/,
+        /Executing request must not receive Preparation-only inputs/,
     );
     assert.equal(rendererCalled, false);
 });
@@ -448,5 +448,4 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
     assert.equal("intent" in parsed, false);
     assert.equal("task" in parsed, false);
 });
-
 

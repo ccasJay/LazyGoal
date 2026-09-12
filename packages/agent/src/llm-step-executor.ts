@@ -22,7 +22,12 @@ import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
-import type { ModelCapabilities } from "./model-context-budget";
+import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "./model-context-budget";
+import {
+    MutableModelBinding,
+    type ModelExecutionBinding,
+    type ModelExecutionBindingProvider,
+} from "./model-execution-binding";
 import {
     recordLlmError,
     recordLlmRequest,
@@ -43,7 +48,7 @@ import { TwoStageStepExecutor } from "./two-stage-step-executor";
  * ```
  */
 export interface LLMStepExecutorDependencies {
-    readonly adapter: LLMAdapter;
+    readonly adapter?: LLMAdapter;
     /** 由 Composition Root 创建、与 Preparation Executor 共享的 Prompt Bundle Renderer。 */
     readonly renderer: PromptBundleRenderer;
     /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
@@ -54,6 +59,8 @@ export interface LLMStepExecutorDependencies {
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
     /** 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
     readonly modelCapabilities?: ModelCapabilities;
+    /** 可替换的模型执行绑定提供者；每次 execute 开始时读取当前绑定。 */
+    readonly bindingProvider?: ModelExecutionBindingProvider;
 }
 
 /**
@@ -71,35 +78,39 @@ export interface LLMStepExecutorDependencies {
  * 也不把未授权 Tool 暴露给模型。
  */
 export class LLMStepExecutor implements StepExecutor {
-    private readonly adapter: LLMAdapter;
+    private readonly bindingProvider: ModelExecutionBindingProvider;
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
-    private readonly twoStageExecutor?: TwoStageStepExecutor;
 
     /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
-        this.adapter = dependencies.adapter;
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
-        if (this.adapter.structuredOutputMode === "two_stage") {
-            this.twoStageExecutor = new TwoStageStepExecutor({
-                adapter: this.adapter,
-                renderer: this.renderer,
-                contextCompactor: this.contextCompactor,
-                ...(this.traceSink !== undefined ? { traceSink: this.traceSink } : {}),
-                ...(this.trajectoryContextAssembler !== undefined
-                    ? { trajectoryContextAssembler: this.trajectoryContextAssembler }
-                    : {}),
-                ...(this.modelCapabilities !== undefined
-                    ? { modelCapabilities: this.modelCapabilities }
-                    : {}),
-            });
+        if (dependencies.bindingProvider !== undefined) {
+            this.bindingProvider = dependencies.bindingProvider;
+        } else if (dependencies.adapter !== undefined) {
+            const fallbackBinding: ModelExecutionBinding = {
+                generation: 1,
+                selection: {
+                    provider: "unknown",
+                    modelId: "unknown",
+                    structuredOutputMode: dependencies.adapter.structuredOutputMode,
+                    inputEstimator: { kind: "character-v1" },
+                },
+                adapter: dependencies.adapter,
+                modelCapabilities: dependencies.modelCapabilities,
+                modelContextPolicy: createDefaultModelContextBudgetPolicy(),
+                trajectoryContextAssembler: dependencies.trajectoryContextAssembler as TrajectoryModelContextAssembler,
+            };
+            this.bindingProvider = new MutableModelBinding(fallbackBinding);
+        } else {
+            throw new Error("Either bindingProvider or adapter must be provided to LLMStepExecutor");
         }
     }
 
@@ -111,13 +122,24 @@ export class LLMStepExecutor implements StepExecutor {
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
     async execute(input: StepExecutionInput): Promise<AgentDecision | StepExecutionResult> {
-        if (this.twoStageExecutor !== undefined) {
-            return this.twoStageExecutor.execute(input);
+        const { goal, authorizedTools: tools, control } = input;
+        const binding = this.bindingProvider.current();
+        const adapter = binding.adapter;
+        const modelCapabilities = binding.modelCapabilities;
+        const trajectoryContextAssembler = binding.trajectoryContextAssembler;
+
+        if (adapter.structuredOutputMode === "two_stage") {
+            return new TwoStageStepExecutor({
+                adapter,
+                renderer: this.renderer,
+                contextCompactor: this.contextCompactor,
+                ...(this.traceSink !== undefined ? { traceSink: this.traceSink } : {}),
+                ...(trajectoryContextAssembler !== undefined ? { trajectoryContextAssembler } : {}),
+                ...(modelCapabilities !== undefined ? { modelCapabilities } : {}),
+            }).execute(input);
         }
 
-        const { goal, authorizedTools: tools, control } = input;
-
-        const mode = this.adapter.structuredOutputMode;
+        const mode = adapter.structuredOutputMode;
         const plan = await buildStepRequest(
             goal,
             tools,
@@ -125,21 +147,21 @@ export class LLMStepExecutor implements StepExecutor {
             this.contextCompactor,
             control?.signal,
             input.workingMemory,
-            this.trajectoryContextAssembler,
+            trajectoryContextAssembler,
             input.contextLookupResult,
-            this.modelCapabilities,
+            modelCapabilities,
             mode,
         );
         throwIfAborted(control);
         const startedAt = Date.now();
-        const providerRequest = this.modelCapabilities === undefined
+        const providerRequest = modelCapabilities === undefined
             ? plan.request
-            : { ...plan.request, maxOutputTokens: this.modelCapabilities.maxOutputTokens };
+            : { ...plan.request, maxOutputTokens: modelCapabilities.maxOutputTokens };
         await recordLlmRequest(this.traceSink, goal, providerRequest);
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
-            response = await this.adapter.generate(providerRequest, control);
+            response = await adapter.generate(providerRequest, control);
         } catch (error) {
             await recordLlmError(
                 this.traceSink,

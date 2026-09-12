@@ -5,6 +5,7 @@ import type {
     GoalTask,
     LaunchResult,
     TrajectoryReadResult,
+    PreparationProbeProgressEvent,
 } from "../../runtime/src/index";
 import {
     UI_BUSY_CODE,
@@ -16,6 +17,7 @@ import {
     type UiError,
     type UiInspectorStep,
     type UiSessionViewModel,
+    type UiStepSummary,
     type UiSubscriber,
     type UiTerminalSummary,
     type UiViewModel,
@@ -53,6 +55,9 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
+    private probeUnsubscribe: (() => void) | undefined;
+    private committedSteps: UiStepSummary[] = [];
+    private preparationSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
     private snapshot: UiViewModel = {
         screen: "intent_input",
@@ -65,6 +70,10 @@ export class SessionController {
         this.dependencies = dependencies;
         this.executionMode = dependencies.initialExecutionMode ?? "confirm";
         if (dependencies.initialGoal !== undefined) {
+            const initialStep = deriveStepSummary(dependencies.initialGoal);
+            if (initialStep !== undefined) {
+                this.committedSteps = [initialStep];
+            }
             this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
             this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
         } else if (dependencies.initialScreen === "home") {
@@ -108,6 +117,11 @@ export class SessionController {
         if (dependencies.notifyingStore !== undefined) {
             this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
                 this.onGoalCommitted(goal);
+            });
+        }
+        if (dependencies.coordinator.onProbeProgress !== undefined) {
+            this.probeUnsubscribe = dependencies.coordinator.onProbeProgress((event) => {
+                this.handleProbeProgress(event);
             });
         }
     }
@@ -183,6 +197,8 @@ export class SessionController {
     dispose(): void {
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.probeUnsubscribe?.();
+        this.probeUnsubscribe = undefined;
         this.subscribers.clear();
     }
 
@@ -799,6 +815,14 @@ export class SessionController {
         busy: boolean,
     ): UiSessionViewModel {
         this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
+        if (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id) {
+            this.committedSteps = [];
+            this.preparationSteps = [];
+        }
+        const newStep = deriveStepSummary(goal);
+        if (newStep !== undefined && !this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
+            this.committedSteps.push(newStep);
+        }
         const snapshot = structuredClone(goal);
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
             ? progress.waitingFor
@@ -828,6 +852,13 @@ export class SessionController {
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
             executionMode: this.executionMode,
+            committedSteps: this.committedSteps.slice(),
+            ...(this.preparationSteps.length > 0
+                ? { preparationSteps: this.preparationSteps.slice() }
+                : {}),
+            ...(currentSession?.activeProbeDescription !== undefined
+                ? { activeProbeDescription: currentSession.activeProbeDescription }
+                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -909,6 +940,11 @@ export class SessionController {
             }
         }
 
+        const newStep = deriveStepSummary(savedGoal);
+        if (newStep !== undefined && !this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
+            this.committedSteps.push(newStep);
+        }
+
         const mode = this.dependencies.mode ?? this.snapshot.mode;
         const taskTitle = this.dependencies.taskTitle ?? this.snapshot.taskTitle;
 
@@ -920,10 +956,64 @@ export class SessionController {
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
             executionMode: this.executionMode,
+            committedSteps: this.committedSteps.slice(),
+            ...(this.preparationSteps.length > 0
+                ? { preparationSteps: this.preparationSteps.slice() }
+                : {}),
+            ...(this.snapshot.activeProbeDescription !== undefined
+                ? { activeProbeDescription: this.snapshot.activeProbeDescription }
+                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
             ...(lastObservation !== undefined ? { lastCommittedObservation: lastObservation } : {}),
+        });
+    }
+
+    private handleProbeProgress(event: PreparationProbeProgressEvent): void {
+        if (
+            this.shuttingDown
+            || this.snapshot.screen !== "session"
+            || this.snapshot.goal.id !== event.goalId
+        ) {
+            return;
+        }
+
+        if (event.kind === "started") {
+            this.setSnapshot({
+                ...this.snapshot,
+                activeProbeDescription: formatProbeDescription(event.toolId, event.input),
+            });
+            return;
+        }
+
+        if (event.kind === "failed") {
+            const { activeProbeDescription: _activeProbeDescription, ...rest } = this.snapshot;
+            this.setSnapshot(rest);
+            return;
+        }
+
+        const inputSummary = summarizeInput(event.input);
+        const outputSummary = event.observation.kind === "success"
+            ? event.observation.summary
+            : event.observation.kind === "failure"
+                ? event.observation.message
+                : undefined;
+        const step: UiStepSummary = {
+            stepNumber: this.preparationSteps.length + 1,
+            toolId: event.toolId,
+            actionId: event.actionId,
+            status: event.observation.kind === "success" ? "success" : "failure",
+            ...(inputSummary === undefined ? {} : { inputSummary }),
+            ...(outputSummary === undefined ? {} : { outputSummary }),
+        };
+        if (!this.preparationSteps.some((item) => item.actionId === step.actionId)) {
+            this.preparationSteps.push(step);
+        }
+        const { activeProbeDescription: _activeProbeDescription, ...rest } = this.snapshot;
+        this.setSnapshot({
+            ...rest,
+            preparationSteps: this.preparationSteps.slice(),
         });
     }
 
@@ -1253,4 +1343,64 @@ function deriveTerminalSummary(goal: Goal): UiTerminalSummary | undefined {
         ...(summary === undefined ? {} : { summary }),
         ...(reason === undefined ? {} : { reason }),
     };
+}
+
+function summarizeInput(input: unknown): string | undefined {
+    if (input === undefined || input === null) return undefined;
+    if (typeof input === "object") {
+        const record = input as Record<string, unknown>;
+        for (const key of ["command", "path", "query"]) {
+            if (typeof record[key] === "string") return record[key].trim();
+        }
+        try {
+            return JSON.stringify(input);
+        } catch {
+            return undefined;
+        }
+    }
+    return String(input);
+}
+
+function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
+    const lastStep = goal.state.run.lastStep;
+    if (lastStep === undefined || lastStep.kind !== "action") return undefined;
+    const observation = lastStep.observation;
+    const inputSummary = summarizeInput(lastStep.action.input);
+    return {
+        stepNumber: goal.state.run.stepCount,
+        toolId: lastStep.action.toolId,
+        actionId: lastStep.action.actionId,
+        status: observation.kind === "success" ? "success" : "failure",
+        ...(inputSummary === undefined ? {} : { inputSummary }),
+        ...(observation.kind === "success"
+            ? { outputSummary: observation.summary }
+            : observation.kind === "failure"
+                ? { outputSummary: observation.message }
+                : { outputSummary: observation.reason }),
+    };
+}
+
+/**
+ * 依据工具和输入格式化准备阶段探查的进行中提示。
+ *
+ * @param toolId - 只读工具标识。
+ * @param input - 工具输入。
+ * @returns 面向终端用户的英文操作说明。
+ */
+export function formatProbeDescription(toolId: string, input: unknown): string {
+    const summary = summarizeInput(input);
+    switch (toolId) {
+        case "read_file":
+            return summary === undefined ? "Reading file..." : `Reading file ${summary}...`;
+        case "grep":
+            return summary === undefined ? "Searching..." : `Searching for "${summary}"...`;
+        case "web_search":
+            return summary === undefined ? "Searching web..." : `Searching web for "${summary}"...`;
+        case "web_fetch":
+            return summary === undefined ? "Fetching web URL..." : `Fetching web URL ${summary}...`;
+        default:
+            return summary === undefined
+                ? `Executing probe [${toolId}]...`
+                : `Executing probe [${toolId}] ${summary}...`;
+    }
 }

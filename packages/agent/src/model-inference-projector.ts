@@ -5,6 +5,7 @@ import {
     type WorkingMemory,
 } from "../../runtime/src/domain";
 import type { PreparationInputEvidence } from "../../runtime/src/trajectory";
+import type { PreparationProbeResult } from "../../runtime/src/preparation-executor";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
@@ -23,6 +24,7 @@ import type {
     ModelTrajectoryContext,
     ModelContextLookupResult,
     ModelPreparationInputEvidence,
+    ModelPreparationProbeResult,
     PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
@@ -55,6 +57,8 @@ export class ModelInferenceProjector {
      * `bm25-lite@1` 时允许提供，且只存在于当前模型调用。
      * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only
      *   provenance；Executing 阶段提供该字段（包括空数组）会立即失败。
+     * @param lastProbeResult - 紧邻上一轮已提交只读探查的瞬时结果。
+     * @param probeLimitReached - 当前连续探查是否已达到硬上限。
      * @returns 与当前 phase 对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -65,6 +69,8 @@ export class ModelInferenceProjector {
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
         preparationInputEvidence?: readonly PreparationInputEvidence[],
+        lastProbeResult?: PreparationProbeResult,
+        probeLimitReached?: true,
     ): ModelInferenceView {
         const memoryProtocol = goal.definition.memoryProtocol;
         const modelContextProtocol = goal.definition.modelContextProtocol;
@@ -91,16 +97,23 @@ export class ModelInferenceProjector {
 
         const workingContext = this.projectWorkingContext(goal);
         if (
-            preparationInputEvidence !== undefined
+            (
+                preparationInputEvidence !== undefined
+                || lastProbeResult !== undefined
+                || probeLimitReached !== undefined
+            )
             && workingContext.phase === "executing"
         ) {
             throw new Error(
-                "Preparation input evidence requires a preparation phase",
+                "Preparation-only inputs require a preparation phase",
             );
         }
         const projectedPreparationInputEvidence = preparationInputEvidence === undefined
             ? undefined
             : projectPreparationInputEvidence(preparationInputEvidence);
+        const projectedLastProbeResult = lastProbeResult === undefined
+            ? undefined
+            : projectPreparationProbeResult(lastProbeResult);
 
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion:
@@ -128,6 +141,10 @@ export class ModelInferenceProjector {
             ...(projectedPreparationInputEvidence === undefined
                 ? {}
                 : { preparationInputEvidence: deepFreeze(projectedPreparationInputEvidence) }),
+            ...(projectedLastProbeResult === undefined
+                ? {}
+                : { lastProbeResult: deepFreeze(projectedLastProbeResult) }),
+            ...(probeLimitReached === undefined ? {} : { probeLimitReached }),
             contextEpoch: projectContextEpoch(goal.state.run.contextEpoch),
         };
     }
@@ -332,6 +349,12 @@ function projectPreparationInputEvidence(
         messageIndex: entry.messageIndex,
         contentHash: entry.contentHash,
     }));
+}
+
+function projectPreparationProbeResult(
+    result: PreparationProbeResult,
+): ModelPreparationProbeResult {
+    return structuredClone(result);
 }
 
 function projectTools(
