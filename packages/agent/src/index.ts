@@ -1,5 +1,7 @@
 export { LLMStepExecutor } from "./llm-step-executor";
 export type { LLMStepExecutorDependencies } from "./llm-step-executor";
+export { TwoStageStepExecutor } from "./two-stage-step-executor";
+export type { TwoStageStepExecutorDependencies } from "./two-stage-step-executor";
 export { LLMPreparationExecutor } from "./llm-preparation-executor";
 export type {
     LLMPreparationExecutorDependencies,
@@ -13,6 +15,17 @@ export type {
     ModelOutputRequestPlan,
     StructuredOutputMode,
 } from "./prompt";
+
+export {
+    THOUGHT_TRUNCATION_MARKER,
+    DEFAULT_MAX_THOUGHT_CHARS,
+    truncateThought,
+    formatThinkingContext,
+} from "./thought-budget";
+export type {
+    TruncateThoughtOptions,
+    TruncateThoughtResult,
+} from "./thought-budget";
 
 export {
     ModelInferenceProjector,

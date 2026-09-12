@@ -1,11 +1,12 @@
 import React, { useCallback } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import { TextInput } from "@inkjs/ui";
 
 import type { UiError } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { ErrorLine } from "./error-line";
 import { StatusSpinner } from "./status-spinner";
+import { useTerminalSize } from "./use-terminal-size";
 
 /**
  * IntentScreen 的渲染与命令回调边界。
@@ -29,6 +30,8 @@ export interface IntentScreenProps {
     readonly error?: UiError;
     /** 合法 intent 提交回调；Screen 不等待或解释其返回值。 */
     readonly onSubmit: (intent: string) => void | Promise<void>;
+    /** Esc 放弃当前未提交文本并返回主页；busy 时禁用。 */
+    readonly onBack?: () => void;
 }
 
 /**
@@ -41,7 +44,12 @@ export function IntentScreen({
     busy,
     error,
     onSubmit,
+    onBack,
 }: IntentScreenProps): React.JSX.Element {
+    const { columns } = useTerminalSize();
+    useInput((_input, key) => {
+        if (!busy && key.escape) onBack?.();
+    });
     const submitGate = useSubmitGate(busy, true);
 
     const handleSubmit = useCallback((value: string) => {
@@ -60,15 +68,20 @@ export function IntentScreen({
             : { code: error.code, message: error.message };
 
     return (
-        <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column" gap={1} width={columns} paddingX={1}>
             <Text bold color="cyan">LazyGoal</Text>
             <Text>What would you like to accomplish?</Text>
             {errorView === undefined ? null : <ErrorLine error={errorView} />}
-            <TextInput
-                isDisabled={busy}
-                placeholder="Describe your goal..."
-                onSubmit={handleSubmit}
-            />
+            <Box borderStyle="round" borderColor={busy ? "gray" : "cyan"} paddingX={1}>
+                <Text color="cyan">› </Text>
+                <TextInput
+                    isDisabled={busy}
+                    placeholder="Describe your goal..."
+                    onChange={submitGate.clearError}
+                    onSubmit={handleSubmit}
+                />
+            </Box>
+            <Text dimColor>Enter Create Goal{onBack === undefined ? "" : "  Esc Main Menu"}</Text>
             {busy ? <StatusSpinner label="Creating goal..." /> : null}
         </Box>
     );

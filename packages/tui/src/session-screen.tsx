@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Box, Static, Text } from "ink";
-import { ConfirmInput, TextInput } from "@inkjs/ui";
+import { Box, Static, Text, useInput } from "ink";
+import { TextInput } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiTerminalSummary } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
+import { ErrorLine } from "./error-line";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -30,6 +31,7 @@ const MAX_ACTION_JSON_CHARS = 500;
  *     actionId,
  *     reason,
  *   })}
+ *   onToggleExecutionMode={() => controller.dispatch({ kind: "toggleExecutionMode" })}
  * />
  * ```
  */
@@ -42,6 +44,8 @@ export interface SessionScreenProps {
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
     /** 带理由拒绝当前 pending Action 的回调。 */
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
+    /** 切换 YOLO / Confirm 协同模式的回调。 */
+    readonly onToggleExecutionMode?: () => void | Promise<void>;
 }
 
 /**
@@ -55,7 +59,13 @@ export function SessionScreen({
     onSubmitMessage,
     onApproveAction,
     onRejectAction,
+    onToggleExecutionMode,
 }: SessionScreenProps): React.JSX.Element {
+    useInput((_input, key) => {
+        if (key.shift && key.tab) {
+            void onToggleExecutionMode?.();
+        }
+    }, { isActive: session.terminal === undefined && onToggleExecutionMode !== undefined });
     const staticMessages = useMemo(
         () => session.messages.slice(),
         [session.messages],
@@ -106,10 +116,12 @@ interface SessionStatusProps {
 }
 
 function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
+    const executionMode = session.executionMode ?? "confirm";
     return (
         <Box flexDirection="column">
             <Text bold color="cyan">
                 Goal {truncateId(session.goal.id)}
+                {` [${executionMode.toUpperCase()}]`}
                 {session.mode !== undefined ? ` [${session.mode.toUpperCase()}]` : ""}
                 {session.taskTitle !== undefined ? ` - ${session.taskTitle}` : ""}
             </Text>
@@ -131,10 +143,15 @@ function SessionStatus({ session }: SessionStatusProps): React.JSX.Element {
             ) : null}
             {session.error === undefined
                 ? null
-                : <Text color="red">Error [{session.error.code}]: {session.error.message}</Text>}
+                : <ErrorLine error={session.error} />}
             {isActiveRun(session)
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}
+            {session.terminal === undefined ? <Text dimColor>
+                {executionMode === "yolo"
+                    ? "[Shift+Tab] Confirm at next approval  [Ctrl+C] Stop"
+                    : "[Shift+Tab] Enable YOLO  [Ctrl+C] Stop"}
+            </Text> : null}
         </Box>
     );
 }
@@ -250,6 +267,8 @@ function BlockedPanel({ busy, reason, onSubmit }: BlockedPanelProps): React.JSX.
     );
 }
 
+const ACTION_INPUT_HINT = "[Enter] Approve  Type feedback to reject";
+
 interface ActionPanelProps {
     readonly busy: boolean;
     readonly recovery: boolean;
@@ -265,9 +284,8 @@ function ActionPanel({
     onApprove,
     onReject,
 }: ActionPanelProps): React.JSX.Element {
-    const [feedbackMode, setFeedbackMode] = useState(false);
-    const [feedbackValue, setFeedbackValue] = useState("");
-    const [feedbackInputKey, setFeedbackInputKey] = useState(0);
+    const [inputValue, setInputValue] = useState("");
+    const [inputKey, setInputKey] = useState(0);
     const actionId = pendingAction?.action.actionId;
     const resetKey = useMemo(
         () => [actionId, recovery],
@@ -275,39 +293,30 @@ function ActionPanel({
     );
     const submitGate = useSubmitGate(busy, resetKey);
 
-    const clearFeedbackInput = useCallback(() => {
-        setFeedbackValue("");
-        setFeedbackInputKey((key) => key + 1);
+    const clearInput = useCallback(() => {
+        setInputValue("");
+        setInputKey((key) => key + 1);
     }, []);
 
     useEffect(() => {
-        setFeedbackMode(false);
-        clearFeedbackInput();
-    }, [clearFeedbackInput, resetKey]);
+        clearInput();
+    }, [clearInput, resetKey]);
 
-    const handleApprove = useCallback(() => {
+    const handleSubmit = useCallback((value: string) => {
         if (actionId === undefined) {
             return;
         }
 
+        const trimmed = value.trim();
         submitGate.attempt(() => {
-            void onApprove(actionId);
+            if (trimmed.length === 0) {
+                void onApprove(actionId);
+            } else {
+                void onReject(actionId, trimmed);
+            }
+            clearInput();
         });
-    }, [actionId, onApprove, submitGate]);
-
-    const handleReject = useCallback((reason: string) => {
-        if (actionId === undefined) {
-            return;
-        }
-
-        submitGate.attempt(() => {
-            void onReject(actionId, reason);
-            clearFeedbackInput();
-        }, {
-            value: reason,
-            emptyMessage: "Rejection reason must not be empty",
-        });
-    }, [actionId, clearFeedbackInput, onReject, submitGate]);
+    }, [actionId, clearInput, onApprove, onReject, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -323,30 +332,17 @@ function ActionPanel({
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
-            {actionId === undefined ? null : feedbackMode ? (
-                <Box flexDirection="column" gap={1}>
-                    <Text>Why should this Action be rejected?</Text>
+            {actionId === undefined ? null : (
+                <Box flexDirection="column">
                     <TextInput
-                        key={feedbackInputKey}
+                        key={inputKey}
                         isDisabled={busy}
-                        defaultValue={feedbackValue}
-                        placeholder="Provide a non-empty reason..."
-                        onChange={setFeedbackValue}
-                        onSubmit={handleReject}
+                        defaultValue={inputValue}
+                        placeholder="Feedback, or Enter to approve..."
+                        onChange={setInputValue}
+                        onSubmit={handleSubmit}
                     />
-                </Box>
-            ) : (
-                <Box flexDirection="column" gap={1}>
-                    <ConfirmInput
-                        submitOnEnter={false}
-                        isDisabled={busy}
-                        onConfirm={handleApprove}
-                        onCancel={() => {
-                            submitGate.clearError();
-                            setFeedbackMode(true);
-                        }}
-                    />
-                    <Text dimColor>Press Y to approve or N to reject with a reason.</Text>
+                    <Text dimColor>{ACTION_INPUT_HINT}</Text>
                 </Box>
             )}
         </Box>

@@ -11,6 +11,7 @@ import {
     type LaunchRequest,
     type LaunchResult,
     type ResumeGoalRequest,
+    type TrajectoryEvent,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
@@ -754,4 +755,497 @@ test("retryPreparation reports a stable error without an active session", async 
     assert.equal(view.screen, "intent_input");
     assert.equal(view.error?.code, "NO_ACTIVE_SESSION");
     assert.deepEqual(coordinator.advanceRefs, []);
+});
+
+test("initialScreen: home initializes snapshot with home screen and environment summary", () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "home",
+        environmentSummary: {
+            workspaceRoot: "/test/workspace",
+            profileId: "profile-1",
+            modelName: "claude-3-5",
+            dataDirectory: "/test/data",
+        },
+    });
+
+    const snapshot = controller.getSnapshot();
+    assert.equal(snapshot.screen, "home");
+    assert.equal(snapshot.busy, false);
+    if (snapshot.screen === "home") {
+        assert.deepEqual(snapshot.environmentSummary, {
+            workspaceRoot: "/test/workspace",
+            profileId: "profile-1",
+            modelName: "claude-3-5",
+            dataDirectory: "/test/data",
+        });
+    }
+});
+
+test("initial inspect selection allows its first history load without a busy deadlock", async () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+    });
+
+    const snapshot = controller.getSnapshot();
+    assert.equal(snapshot.screen, "goal_select");
+    assert.equal(snapshot.busy, false);
+    if (snapshot.screen === "goal_select") {
+        assert.equal(snapshot.mode, "inspect");
+    }
+    await controller.dispatch({ kind: "openHistory" });
+    const loaded = controller.getSnapshot();
+    assert.equal(loaded.screen, "goal_select");
+    assert.equal(loaded.busy, false);
+    assert.equal(loaded.error, undefined);
+    if (loaded.screen === "goal_select") assert.equal(loaded.mode, "inspect");
+});
+
+test("openHome, openIntentInput, and openSettings switch views predictably", async () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+        environmentSummary: {
+            workspaceRoot: "/workspace",
+            profileId: "profile-1",
+            modelName: "test-model",
+        },
+    });
+
+    assert.equal(controller.getSnapshot().screen, "intent_input");
+
+    await controller.dispatch({ kind: "openHome" });
+    assert.equal(controller.getSnapshot().screen, "home");
+
+    await controller.dispatch({ kind: "openSettings" });
+    const settingsView = controller.getSnapshot();
+    assert.equal(settingsView.screen, "settings");
+    if (settingsView.screen === "settings") {
+        assert.equal(settingsView.settings.workspaceRoot, "/workspace");
+        assert.equal(settingsView.settings.profileId, "profile-1");
+        assert.equal(settingsView.settings.modelName, "test-model");
+    }
+
+    await controller.dispatch({ kind: "openIntentInput" });
+    assert.equal(controller.getSnapshot().screen, "intent_input");
+});
+
+test("executionMode defaults to confirm, reflects in session, and toggles seamlessly", async () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Build feature" });
+    assert.equal(sessionView(controller).executionMode, "confirm");
+
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(sessionView(controller).executionMode, "yolo");
+
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(sessionView(controller).executionMode, "confirm");
+
+    await controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+    assert.equal(sessionView(controller).executionMode, "yolo");
+});
+
+test("switching to yolo mode auto-approves pending action waiting in session", async () => {
+    const pendingGoal = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-pending-act",
+        intent: "Run script",
+        profile,
+        runId: "run-pending-act",
+    });
+    const awaitingGoal: Goal = {
+        ...pendingGoal,
+        state: {
+            ...pendingGoal.state,
+            workflow: {
+                phase: "executing",
+                preparation: { status: "completed" },
+                task: { objective: "Execute", completionCriteria: [] },
+            },
+            run: {
+                ...pendingGoal.state.run,
+                status: "waiting",
+                pendingAction: {
+                    status: "awaiting_approval",
+                    action: { actionId: "act-99", toolId: "bash", input: {} },
+                },
+            },
+        },
+    };
+
+    const { pendingAction: _pendingAction, ...runWithoutPendingAction } = awaitingGoal.state.run;
+    const completedGoal: Goal = {
+        ...awaitingGoal,
+        state: {
+            ...awaitingGoal.state,
+            run: {
+                ...runWithoutPendingAction,
+                status: "completed",
+            },
+        },
+    };
+
+    const advanceResult: GoalProgressResult = {
+        ok: true,
+        kind: "waiting",
+        phase: "executing",
+        waitingFor: "action_approval",
+        goal: awaitingGoal,
+    };
+
+    const resumeResult: GoalProgressResult = {
+        ok: true,
+        kind: "terminal",
+        phase: "executing",
+        goal: completedGoal,
+    };
+
+    const coordinator = new FakeCoordinator(advanceResult, resumeResult);
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(advanceResult),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "create", intent: "Run script" });
+    assert.equal(sessionView(controller).waitingFor, "action_approval");
+    assert.equal(coordinator.resumeRequests.length, 0);
+
+    // 切到 yolo，触发自动放行
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(sessionView(controller).executionMode, "yolo");
+    assert.equal(coordinator.resumeRequests.length, 1);
+    assert.deepEqual(coordinator.resumeRequests[0], {
+        ref: { goalId: "goal-pending-act", runId: "run-pending-act" },
+        action: { kind: "approve_action", actionId: "act-99" },
+    });
+    assert.equal(sessionView(controller).runStatus, "completed");
+});
+
+test("YOLO keeps advancement serialized and switches to Confirm during an in-flight action", async () => {
+    const base = createWaitingGoal("goal-live-mode");
+    const goal: Goal = { ...base, state: { ...base.state,
+        workflow: { phase: "executing", preparation: { status: "completed" },
+            task: { objective: "Review files", completionCriteria: [] } },
+        run: { ...base.state.run, status: "waiting", pendingAction: {
+            status: "awaiting_approval",
+            action: { actionId: "act-1", toolId: "bash", input: {} },
+        } },
+    } };
+    const result: GoalProgressResult = { ok: true, kind: "waiting", phase: "executing",
+        waitingFor: "action_approval", goal };
+    let resolvePending!: (val: GoalProgressResult) => void;
+    const pendingPromise = new Promise<GoalProgressResult>((resolve) => {
+        resolvePending = resolve;
+    });
+    const pending = {
+        promise: pendingPromise,
+        resolve: resolvePending,
+    };
+    const requests: ResumeGoalRequest[] = [];
+    const coordinator: SessionCoordinator = {
+        advance: async () => result,
+        resume: async request => { requests.push(request); return pending.promise; },
+    };
+    const controller = new SessionController({
+        ...dependencies(new FakeLauncher(result), coordinator, new FakeStore([]), new FakeCatalog([])),
+        initialGoal: goal,
+    });
+    const running = controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+    assert.equal(sessionView(controller).busy, true);
+    assert.equal(requests.length, 1);
+    await controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+    assert.equal(requests.length, 1, "setting the mode while busy must not approve twice");
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(sessionView(controller).executionMode, "confirm");
+    assert.equal(sessionView(controller).busy, true);
+    await assert.rejects(controller.dispatch({ kind: "approveAction", actionId: "act-1" }),
+        error => error instanceof UiDispatchRejectedError && error.code === "UI_BUSY");
+    resolvePending({ ...result, goal: { ...goal, state: { ...goal.state,
+        run: { ...goal.state.run, pendingAction: { status: "awaiting_approval",
+            action: { actionId: "act-2", toolId: "bash", input: {} } } },
+    } } });
+    await running;
+    assert.equal(requests.length, 1, "Confirm must leave the next action for the user");
+    assert.equal(sessionView(controller).pendingAction?.action.actionId, "act-2");
+    assert.equal(sessionView(controller).busy, false);
+});
+
+test("YOLO publishes busy snapshots throughout consecutive approvals", async () => {
+    const base = createWaitingGoal("goal-auto-chain");
+    const resultAt = (index: number): GoalProgressResult => ({
+        ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
+        goal: { ...base, state: { ...base.state,
+            workflow: { phase: "executing", preparation: { status: "completed" },
+                task: { objective: "Review files", completionCriteria: [] } },
+            run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
+                status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
+            } },
+        } },
+    });
+    let count = 0;
+    const coordinator: SessionCoordinator = {
+        advance: async () => resultAt(0),
+        resume: async () => resultAt(++count),
+    };
+    const controller = new SessionController({
+        ...dependencies(new FakeLauncher(resultAt(0)), coordinator, new FakeStore([]), new FakeCatalog([])),
+        initialExecutionMode: "yolo",
+    });
+    const states: boolean[] = [];
+    controller.subscribe(() => {
+        const view = controller.getSnapshot();
+        if (view.screen !== "session") return;
+        states.push(view.busy);
+        if (view.stepCount === 100 && view.executionMode === "yolo") {
+            void controller.dispatch({ kind: "setExecutionMode", mode: "confirm" });
+        }
+    });
+    await controller.dispatch({ kind: "create", intent: "Review files" });
+    assert.equal(count, 100);
+    assert.equal(states.at(-1), false);
+    assert.ok(states.slice(0, -1).every(Boolean), "the lock is released only after the chain ends");
+});
+
+test("openInspector, inspectStep, and toggleReasoning manage inspector state", async () => {
+    const goal = createWaitingGoal();
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const controller = new SessionController(
+        dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    const steps = [
+        { index: 0, totalSteps: 3, messages: [], rawJson: "{}" },
+        { index: 1, totalSteps: 3, messages: [], rawJson: "{}", reasoning: "Thinking..." },
+        { index: 2, totalSteps: 3, messages: [], rawJson: "{}" },
+    ];
+
+    await controller.dispatch({
+        kind: "openInspector",
+        goalId: "goal-inspect-1",
+        steps,
+    });
+
+    let view = controller.getSnapshot();
+    assert.equal(view.screen, "inspector");
+    if (view.screen === "inspector") {
+        assert.equal(view.goalId, "goal-inspect-1");
+        assert.equal(view.currentStepIndex, 0);
+        assert.equal(view.totalSteps, 3);
+        assert.equal(view.showReasoning, false);
+    }
+
+    await Promise.all([
+        controller.dispatch({ kind: "inspectStep", stepIndex: 1 }),
+        controller.dispatch({ kind: "inspectStep", stepIndex: 2 }),
+    ]);
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.currentStepIndex, 2);
+        assert.equal(view.busy, false);
+    }
+
+    await controller.dispatch({ kind: "inspectStep", stepIndex: 1 });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.currentStepIndex, 1);
+    }
+
+    // 越界保护
+    await controller.dispatch({ kind: "inspectStep", stepIndex: 99 });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.currentStepIndex, 2);
+    }
+
+    await controller.dispatch({ kind: "inspectStep", stepIndex: -5 });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.currentStepIndex, 0);
+    }
+
+    // 翻转 reasoning
+    await controller.dispatch({ kind: "toggleReasoning" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.showReasoning, true);
+    }
+    await controller.dispatch({ kind: "toggleReasoning" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.showReasoning, false);
+    }
+
+    // 翻转 observation
+    await controller.dispatch({ kind: "toggleObservation" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.expandObservation, true);
+    }
+    await controller.dispatch({ kind: "toggleObservation" });
+    view = controller.getSnapshot();
+    if (view.screen === "inspector") {
+        assert.equal(view.expandObservation, false);
+    }
+});
+
+test("inspect mode selectGoal orchestrates trajectory loading and event projection", async () => {
+    const goal = createWaitingGoal("goal-inspect-ok");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const events: TrajectoryEvent[] = [
+        {
+            eventSchemaVersion: 1,
+            eventId: "evt-1",
+            sequence: 1,
+            occurredAt: "2026-09-11T12:00:00.000Z",
+            goalId: "goal-inspect-ok",
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "decision_received",
+            executionUnitId: "unit-1",
+            stepIndex: 1,
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "complete",
+                    summary: "Inspection done",
+                    completionEvidence: [],
+                },
+            },
+        },
+    ];
+
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async (query) => {
+            assert.equal(query.goalId, "goal-inspect-ok");
+            assert.equal(query.runId, goal.state.run.id);
+            return {
+                committed: events,
+                uncommittedTail: [],
+            };
+        },
+    });
+
+    await controller.dispatch({ kind: "selectGoal", goalId: "goal-inspect-ok" });
+    const view = controller.getSnapshot();
+    assert.equal(view.screen, "inspector");
+    if (view.screen === "inspector") {
+        assert.equal(view.goalId, "goal-inspect-ok");
+        assert.equal(view.totalSteps, 2);
+        assert.equal(view.steps[0]?.title, "Step 1: Preparation & Planning");
+        assert.equal(view.steps[1]?.title, "Step 2: Execution (unit-1)");
+        assert.equal(view.steps[1]?.decision?.summary, "Inspection done");
+    }
+});
+
+test("inspect mode selectGoal reports TRAJECTORY_NOT_FOUND when readTrajectory is missing or returns empty", async () => {
+    const goal = createWaitingGoal("goal-no-traj");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+
+    // 1. 未配置 readTrajectory
+    const controllerNoReader = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+    });
+
+    await controllerNoReader.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    let view = controllerNoReader.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
+
+    // 2. 返回空事件
+    const controllerEmpty = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async () => ({
+            committed: [],
+            uncommittedTail: [],
+        }),
+    });
+
+    await controllerEmpty.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    view = controllerEmpty.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
+
+    // 3. 读取抛错
+    const controllerError = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            coordinator,
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialScreen: "goal_select",
+        initialGoalSelectMode: "inspect",
+        readTrajectory: async () => {
+            throw new Error("File corrupted or missing");
+        },
+    });
+
+    await controllerError.dispatch({ kind: "selectGoal", goalId: "goal-no-traj" });
+    view = controllerError.getSnapshot();
+    assert.equal(view.screen, "goal_select");
+    assert.equal(view.error?.code, "TRAJECTORY_NOT_FOUND");
 });

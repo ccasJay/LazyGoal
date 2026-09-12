@@ -39,8 +39,8 @@ function environment(): NodeJS.ProcessEnv {
     };
 }
 
-test("parseCliArgs routes the three supported entry intents", () => {
-    assert.deepEqual(parseCliArgs([]), { kind: "create" });
+test("parseCliArgs routes the supported entry intents", () => {
+    assert.deepEqual(parseCliArgs([]), { kind: "home" });
     assert.deepEqual(parseCliArgs(["-c"]), { kind: "continueLatest" });
     assert.deepEqual(parseCliArgs(["resume"]), { kind: "resume" });
     assert.throws(
@@ -280,9 +280,11 @@ test("missing CLI configuration exits before touching the workspace", async () =
     });
 
     assert.equal(exitCode, 1);
-    assert.deepEqual(errors, [
-        "Missing required environment variable(s): LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_STRUCTURED_OUTPUT_MODE",
-    ]);
+    assert.equal(errors.length, 1);
+    assert.match(
+        errors[0] ?? "",
+        /缺少必要的 LLM 配置项|Missing required environment variable/,
+    );
     await assert.rejects(access(join(workspace, ".lazygoal")));
 });
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -23,11 +24,13 @@ import {
     type AgentProfile,
     type AgentProfileRegistry,
     type GoalCatalog,
+    type GoalStore,
     type ExitPort,
     type GoalProtocolValidator,
     type PreparationExecutor,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
+    type TrajectoryStore,
     type ToolPolicy,
     type WorkingMemoryLimits,
     IndexedContextLookupService,
@@ -60,6 +63,9 @@ import {
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
 import { readLlmConfig, type LlmConfig } from "../../llm/src/config";
+import { loadRuntimeConfig } from "../../llm/src/config-loader";
+import { resolveXdgPaths } from "../../llm/src/xdg";
+import { loadProfileToml } from "../../llm/src/toml-config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
@@ -71,9 +77,15 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../tools/src/index";
-import { SessionController, TuiApp } from "./index";
+import {
+    SessionController,
+    TuiApp,
+    projectTrajectoryEvents,
+    AggregatedGoalStore,
+    AggregatedTrajectoryStore,
+} from "./index";
 import { StatusSpinner } from "./status-spinner";
-import type { SessionLauncher } from "./types";
+import type { SessionLauncher, UiScreen } from "./types";
 
 /** 默认 Profile 的稳定标识。 */
 const DEFAULT_PROFILE_ID = "default";
@@ -214,22 +226,27 @@ export function readModelCapabilities(
     });
 }
 
-/** CLI 只支持的三个入口意图。 */
+/** CLI 支持的入口意图。 */
 export type CliCommand =
+    | { readonly kind: "home" }
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
-    | { readonly kind: "resume" };
+    | { readonly kind: "resume" }
+    | { readonly kind: "inspect"; readonly goalId?: string; readonly dir?: string };
 
 /**
  * 使用 Node `parseArgs` 解析 CLI 参数。
  *
  * @param argv - 不包含 Node 和 bin 路径的参数数组。
- * @returns 空参数、`-c` 或 `resume` 对应的入口意图。
+ * @returns 空参数、`-c`、`resume` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
- * parseCliArgs([]); // { kind: "create" }
+ * parseCliArgs([]); // { kind: "home" }
  * parseCliArgs(["-c"]); // { kind: "continueLatest" }
+ * parseCliArgs(["inspect"]); // { kind: "inspect" }
+ * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
+ * parseCliArgs(["inspect", "--dir", ".lazygoal/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: ".lazygoal/benchmarks/run" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -240,6 +257,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
             args: [...argv],
             options: {
                 continue: { type: "boolean", short: "c" },
+                dir: { type: "string" },
             },
             allowPositionals: true,
             strict: true,
@@ -250,21 +268,36 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
     }
 
     const hasContinue = parsed.values.continue === true;
+    const customDir = typeof parsed.values.dir === "string" && parsed.values.dir.trim().length > 0
+        ? parsed.values.dir.trim()
+        : undefined;
 
-    if (hasContinue && parsed.positionals.length === 0) {
+    if (hasContinue && parsed.positionals.length === 0 && customDir === undefined) {
         return { kind: "continueLatest" };
     }
 
     if (!hasContinue && parsed.positionals.length === 1
-        && parsed.positionals[0] === "resume") {
+        && parsed.positionals[0] === "resume" && customDir === undefined) {
         return { kind: "resume" };
     }
 
-    if (!hasContinue && parsed.positionals.length === 0) {
-        return { kind: "create" };
+    if (!hasContinue && parsed.positionals.length >= 1
+        && parsed.positionals[0] === "inspect") {
+        if (parsed.positionals.length === 1) {
+            return { kind: "inspect", ...(customDir ? { dir: customDir } : {}) };
+        }
+        const goalId = parsed.positionals[1];
+        if (parsed.positionals.length === 2 && goalId !== undefined) {
+            return { kind: "inspect", goalId, ...(customDir ? { dir: customDir } : {}) };
+        }
+        throw new Error("Invalid command line arguments: Usage: lazygoal inspect [--dir <dir>] [goalId]");
     }
 
-    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume]");
+    if (!hasContinue && parsed.positionals.length === 0 && customDir === undefined) {
+        return { kind: "home" };
+    }
+
+    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [--dir <dir>] [goalId]]");
 }
 
 /**
@@ -383,6 +416,12 @@ export interface CompositionRootOptions {
     readonly modelInputEstimator?: ModelInputEstimator;
     /** 可选的总模型输入预算覆盖；非法配置在创建 Store 前失败。 */
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
+    /** 可选初始屏幕；省略时默认为 "home"。 */
+    readonly initialScreen?: UiScreen;
+    /** 可选初始目标选择模式（"resume" 或 "inspect"），在 initialScreen 为 "goal_select" 时生效。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
+    /** 可选的 Benchmark 评测输出根目录，默认自动发现 <workspaceRoot>/.lazygoal/benchmarks。 */
+    readonly benchmarksDirectory?: string;
 }
 
 /**
@@ -442,9 +481,9 @@ export interface CompositionRoot {
     /** 当前生效的 Preparation 执行器。 */
     readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
-    readonly store: JsonFileGoalStore;
+    readonly store: GoalStore & GoalCatalog;
     /** 共享的事实事件追加与读取 Store。 */
-    readonly trajectoryStore: JsonFileTrajectoryStore;
+    readonly trajectoryStore: TrajectoryStore;
     /** Coordinator 与 Runner 共享的当前 fielded BM25-lite Lookup 服务。 */
     readonly contextLookupService: IndexedContextLookupService;
     /** 可重建的 Conversation/Trajectory Retrieval Index Sidecar Store。 */
@@ -529,7 +568,17 @@ export async function createCompositionRoot(
             llmConfig = undefined;
         }
     } else {
-        llmConfig = readLlmConfig(env);
+        try {
+            llmConfig = readLlmConfig(env);
+        } catch (error) {
+            const xdgPaths = resolveXdgPaths(env);
+            if (existsSync(xdgPaths.configFile)) {
+                const runtimeConfig = await loadRuntimeConfig({ env, xdgPaths });
+                llmConfig = runtimeConfig.llm;
+            } else {
+                throw error;
+            }
+        }
         adapter = createLlmAdapter(llmConfig);
     }
     const conversationCharBudget = readConversationCharBudget(env);
@@ -569,15 +618,39 @@ export async function createCompositionRoot(
         const profileStore = new JsonFileAgentProfileStore(profilesDirectory);
         const loadedProfile = await profileStore.load(DEFAULT_PROFILE_ID);
 
-        if (loadedProfile === undefined) {
-            throw new AgentProfileConfigurationError(
-                DEFAULT_PROFILE_ID,
-                profilePath,
-                "Profile 文件不存在",
-            );
+        if (loadedProfile !== undefined) {
+            profile = loadedProfile;
+        } else {
+            const xdgPaths = resolveXdgPaths(env);
+            const xdgConfigFile = join(xdgPaths.lazygoalConfigDir, "config.toml");
+            const xdgDefaultProfile = join(xdgPaths.profilesDir, `${DEFAULT_PROFILE_ID}.toml`);
+            const hasXdgConfig = existsSync(xdgConfigFile);
+            const hasXdgProfile = existsSync(xdgDefaultProfile);
+
+            if (!hasXdgConfig && !hasXdgProfile) {
+                throw new AgentProfileConfigurationError(
+                    DEFAULT_PROFILE_ID,
+                    profilePath,
+                    "Profile 文件不存在",
+                );
+            }
+
+            profile = {
+                id: DEFAULT_PROFILE_ID,
+                name: "Default Agent",
+                description: "LazyGoal 默认用户 Profile",
+                systemPrompt: "You are LazyGoal, a goal-driven, resumable agent runtime.",
+                instructions: ["Advance the goal through safe, verified actions."],
+                toolIds: [
+                    READ_FILE_TOOL_ID,
+                    "write_file",
+                    "edit_file",
+                    GREP_TOOL_ID,
+                    "bash",
+                ],
+            };
         }
 
-        profile = loadedProfile;
         profiles = {
             get(profileId: string): AgentProfile | undefined {
                 return profileId === profile.id
@@ -636,8 +709,13 @@ export async function createCompositionRoot(
             options.modelContextBudget,
             modelInputEstimator,
         );
-    const store = new JsonFileGoalStore(goalsDirectory);
-    const trajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const benchmarksDirectory = options.benchmarksDirectory !== undefined
+        ? resolve(options.benchmarksDirectory)
+        : join(workspaceRoot, ".lazygoal", "benchmarks");
+    const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
+    const store = new AggregatedGoalStore(primaryGoalStore, benchmarksDirectory);
+    const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
         trajectoryStore,
@@ -718,6 +796,11 @@ export async function createCompositionRoot(
             );
         },
     };
+    const readTrajectory = (
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>> =>
+        readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
+
     const controller = new SessionController({
         launcher,
         coordinator,
@@ -726,6 +809,17 @@ export async function createCompositionRoot(
         profileId: profile.id,
         goalIdGenerator,
         control: { signal: abortController.signal },
+        initialScreen: options.initialScreen ?? "home",
+        ...(options.initialGoalSelectMode !== undefined
+            ? { initialGoalSelectMode: options.initialGoalSelectMode }
+            : {}),
+        readTrajectory,
+        environmentSummary: {
+            workspaceRoot,
+            profileId: profile.id,
+            ...(llmConfig?.model === undefined ? {} : { modelName: llmConfig.model }),
+            dataDirectory,
+        },
     });
     const shutdownCoordinator = new ShutdownCoordinator({
         checkpointStore,
@@ -736,11 +830,6 @@ export async function createCompositionRoot(
             ? {}
             : { gracePeriodMs: options.gracePeriodMs }),
     });
-
-    const readTrajectory = (
-        query: TrajectoryReadQuery,
-    ): Promise<Readonly<TrajectoryReadResult>> =>
-        readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
 
     return {
         workspaceRoot,
@@ -812,6 +901,10 @@ export interface CliRunOptions {
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
     readonly gracePeriodMs?: number;
+    /** 可选初始屏幕；测试或特定调用场景可覆盖默认首页。 */
+    readonly initialScreen?: "home" | "intent_input";
+    /** 可选初始目标选择模式（"resume" 或 "inspect"）。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
 }
 
 /**
@@ -925,10 +1018,11 @@ export function mountTuiApp(options: MountTuiOptions): MountedTuiApp {
  * 执行一次 lazygoal CLI 命令。
  *
  * @remarks
- * 环境变量和工作区在创建 TUI 前校验。空参数渲染 intent 页面；`resume` 先
+ * 环境变量和工作区在创建 TUI 前校验。空参数渲染主页；`resume` 先
  * 打开 Catalog 选择页；`-c` 先确认有候选项，再委托 Controller 选择排序首项。
  * 该函数不调用 `process.exit`，调用方通过返回码决定进程退出；Ctrl+C 会进入
- * `ShutdownCoordinator` 管理的幂等关闭流程。
+ * `ShutdownCoordinator` 管理的幂等关闭流程。菜单退出返回 0；初始化失败也会
+ * 卸载已挂载的 Ink、恢复终端并释放 Controller 订阅。
  *
  * @param argv - 不包含 Node/bin 路径的 CLI 参数。
  * @param options - 测试可注入的环境、工作区、渲染器和错误输出。
@@ -965,6 +1059,23 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
+            ...(command.kind === "inspect" && command.dir !== undefined
+                ? { benchmarksDirectory: command.dir }
+                : {}),
+            initialScreen: options.initialScreen ?? (
+                command.kind === "home"
+                    ? "home"
+                    : command.kind === "inspect" && command.goalId !== undefined
+                        ? "inspector"
+                        : command.kind === "inspect" || command.kind === "resume"
+                            ? "goal_select"
+                            : "intent_input"
+            ),
+            ...(options.initialGoalSelectMode !== undefined
+                ? { initialGoalSelectMode: options.initialGoalSelectMode }
+                : command.kind === "inspect" && command.goalId === undefined
+                    ? { initialGoalSelectMode: "inspect" as const }
+                    : {}),
         });
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
@@ -1013,24 +1124,85 @@ export async function runCli(
     const onSigint = (): void => {
         void requestShutdown();
     };
+    const cleanupSigint = (): void => {
+        process.off("SIGINT", onSigint);
+    };
 
     try {
         process.on("SIGINT", onSigint);
         unregisterSigint = root.resources.register({
             close: () => {
-                process.off("SIGINT", onSigint);
+                cleanupSigint();
             },
         });
+        // 首帧 loading 来自真实查询，不能在构造时占用 dispatch 的 busy 锁。
+        const initialListing = command.kind === "resume"
+            ? root.controller.dispatch({ kind: "resume" })
+            : command.kind === "inspect" && command.goalId === undefined
+                ? root.controller.dispatch({ kind: "openHistory" })
+                : undefined;
         app = mountTuiApp({
-            controller: root.controller,
+            ...(command.kind === "inspect" && command.goalId !== undefined
+                ? { initialStatus: "Loading trajectory..." }
+                : { controller: root.controller }),
             onShutdown: requestShutdown,
             render: renderer,
         });
 
-        if (command.kind === "resume") {
-            await root.controller.dispatch({ kind: "resume" });
+        if (initialListing !== undefined) {
+            await initialListing;
         } else if (command.kind === "continueLatest") {
             await root.controller.dispatch({ kind: "continueLatest" });
+        } else if (command.kind === "create") {
+            await root.controller.dispatch({ kind: "openIntentInput" });
+        } else if (command.kind === "inspect") {
+            if (command.goalId !== undefined) {
+                let goal;
+                try {
+                    goal = await root.store.restore(command.goalId);
+                } catch (error: unknown) {
+                    writeError(toErrorMessage(error));
+                    return 1;
+                }
+                if (goal === undefined) {
+                    writeError(`Goal not found: ${command.goalId}`);
+                    return 1;
+                }
+                let trajectoryResult;
+                try {
+                    trajectoryResult = await root.readTrajectory({
+                        goalId: command.goalId,
+                        runId: goal.state.run.id,
+                    });
+                } catch (error: unknown) {
+                    writeError(`Failed to read trajectory: ${toErrorMessage(error)}`);
+                    return 1;
+                }
+                const hasCommitted = trajectoryResult.committed.length > 0;
+                const hasUncommitted = (trajectoryResult.uncommittedTail?.length ?? 0) > 0;
+                if (!hasCommitted && !hasUncommitted) {
+                    writeError(`Trajectory for Goal "${command.goalId}" contains no events`);
+                    return 1;
+                }
+                const steps = projectTrajectoryEvents({
+                    goalId: command.goalId,
+                    goal,
+                    committedEvents: trajectoryResult.committed,
+                    ...(trajectoryResult.uncommittedTail !== undefined
+                        ? { uncommittedTail: trajectoryResult.uncommittedTail }
+                        : {}),
+                });
+                if (steps.length === 0) {
+                    writeError(`Trajectory for Goal "${command.goalId}" yielded no inspectable steps`);
+                    return 1;
+                }
+                await root.controller.dispatch({
+                    kind: "openInspector",
+                    goalId: command.goalId,
+                    steps,
+                });
+                app.setController?.(root.controller);
+            }
         }
 
         await app.waitUntilExit();
@@ -1043,6 +1215,15 @@ export async function runCli(
         return 1;
     } finally {
         unregisterSigint?.();
+        cleanupSigint();
+        root.controller.dispose();
+        if (shutdownPromise === undefined) {
+            root.checkpointStore.freeze();
+            root.abortController.abort();
+            app?.unmount();
+            if (app !== undefined) await app.waitUntilExit();
+            await root.resources.closeAll();
+        }
     }
 }
 

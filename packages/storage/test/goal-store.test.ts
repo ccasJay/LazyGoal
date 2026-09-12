@@ -938,6 +938,32 @@ test("JsonFileGoalStore catalogs non-terminal snapshots with stable mtime orderi
     }
 });
 
+test("JsonFileGoalStore.listHistory returns all goals including completed, failed, and cancelled", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "goal-store-history-"));
+    const store = new JsonFileGoalStore(directory);
+
+    try {
+        await store.save(createCatalogGoal("goal-completed", "completed"));
+        await store.save(createCatalogGoal("goal-failed", "failed"));
+        await store.save(createCatalogGoal("goal-cancelled", "cancelled"));
+        await store.save(createCatalogGoal("goal-running", "running"));
+
+        const resumable = await store.listResumable();
+        assert.equal(resumable.length, 1);
+        assert.equal(resumable[0]?.goalId, "goal-running");
+
+        const history = await store.listHistory();
+        assert.equal(history.length, 4);
+        const goalIds = history.map((entry) => entry.goalId);
+        assert.ok(goalIds.includes("goal-completed"));
+        assert.ok(goalIds.includes("goal-failed"));
+        assert.ok(goalIds.includes("goal-cancelled"));
+        assert.ok(goalIds.includes("goal-running"));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => {
     const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 

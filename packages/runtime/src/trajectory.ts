@@ -38,10 +38,12 @@ export type TrajectoryEventPayload =
     | {
         readonly type: "preparation_result";
         readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint";
+        readonly thought?: string;
     }
     | {
         readonly type: "decision_received";
         readonly decision: AgentDecision;
+        readonly thought?: string;
     }
     | {
         readonly type: "context_lookup_requested";
@@ -595,6 +597,12 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError(
                 `payload must not contain derived state field: ${key}`,
             );
+        }
+    }
+
+    if (eventType === "decision_received" || eventType === "preparation_result") {
+        if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
+            throw new TrajectoryProtocolError("thought must be a string");
         }
     }
     if (eventType === "context_epoch_advanced") {

@@ -4,19 +4,23 @@ import type {
     GoalProgressResult,
     GoalTask,
     LaunchResult,
+    TrajectoryReadResult,
 } from "../../runtime/src/index";
 import {
     UI_BUSY_CODE,
     UI_SHUTTING_DOWN_CODE,
     UiDispatchRejectedError,
+    type ExecutionMode,
     type SessionControllerDependencies,
     type UiCommand,
     type UiError,
+    type UiInspectorStep,
     type UiSessionViewModel,
     type UiSubscriber,
     type UiTerminalSummary,
     type UiViewModel,
 } from "./types";
+import { projectTrajectoryEvents } from "./trajectory-projector";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -30,8 +34,11 @@ type WaitingProgress = Extract<
  * @remarks
  * Controller 是唯一的 UI 命令串行化入口。它不复制 Runtime 状态机：创建、
  * 恢复、消息和批准命令分别委托给 Launcher、Store 与 Coordinator，然后把
- * 最新 Goal 转换成不可变 ViewModel。一次调用未完成前，后续 dispatch 会以
- * `UI_BUSY` 拒绝；业务错误会保留当前 Goal/最近快照并显示稳定错误。
+ * 最新 Goal 转换成不可变 ViewModel。异步业务命令一次调用未完成前，后续
+ * dispatch 会以 `UI_BUSY` 拒绝；Inspector 的本地浏览和执行模式切换只替换
+ * 内存 ViewModel，不被该锁阻塞。模式切换不取消已经发出的操作，下一等待点
+ * 使用最新模式决定是否自动批准。业务错误会保留当前
+ * Goal/最近快照并显示稳定错误。
  *
  * @example
  * ```ts
@@ -46,6 +53,7 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
+    private executionMode: ExecutionMode;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -55,9 +63,47 @@ export class SessionController {
     /** @param dependencies - Launcher、Coordinator、Store、Catalog 与身份依赖。 */
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
+        this.executionMode = dependencies.initialExecutionMode ?? "confirm";
         if (dependencies.initialGoal !== undefined) {
             this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
             this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
+        } else if (dependencies.initialScreen === "home") {
+            this.snapshot = {
+                screen: "home",
+                busy: false,
+                ...(dependencies.environmentSummary !== undefined
+                    ? { environmentSummary: dependencies.environmentSummary }
+                    : {}),
+            };
+        } else if (dependencies.initialScreen === "goal_select") {
+            this.snapshot = {
+                screen: "goal_select",
+                busy: false,
+                goals: [],
+                ...(dependencies.initialGoalSelectMode !== undefined
+                    ? { mode: dependencies.initialGoalSelectMode }
+                    : {}),
+            };
+        } else if (dependencies.initialScreen === "settings") {
+            this.snapshot = {
+                screen: "settings",
+                busy: false,
+                settings: {
+                    workspaceRoot: dependencies.environmentSummary?.workspaceRoot ?? process.cwd(),
+                    profileId: dependencies.profileId,
+                    ...(dependencies.environmentSummary?.modelName !== undefined
+                        ? { modelName: dependencies.environmentSummary.modelName }
+                        : {}),
+                    ...(dependencies.environmentSummary?.dataDirectory !== undefined
+                        ? { dataDirectory: dependencies.environmentSummary.dataDirectory }
+                        : {}),
+                },
+            };
+        } else {
+            this.snapshot = {
+                screen: "intent_input",
+                busy: false,
+            };
         }
         if (dependencies.notifyingStore !== undefined) {
             this.storeUnsubscribe = dependencies.notifyingStore.onSave((goal) => {
@@ -141,11 +187,18 @@ export class SessionController {
     }
 
     /**
-     * 串行处理一个 UI 命令。
+     * 处理一个 UI 命令。
+     *
+     * @remarks
+     * 创建、恢复、消息、批准和页面数据加载等异步业务命令保持串行处理，
+     * 同时进行时以 `UI_BUSY` 拒绝。Inspector 浏览和执行模式切换可在 busy
+     * 期间更新本地状态；切换模式不会并发调用 Coordinator，也不撤销已批准的
+     * Action。YOLO 自动推进期间保持 busy，直到最终等待点或终态。
      *
      * @param command - 不携带运行时状态的用户意图。
      * @returns 命令处理完成；业务失败会体现在 ViewModel.error 中。
-     * @throws `UiDispatchRejectedError` 表示已有命令执行中或 Controller 正在关闭。
+     * @throws `UiDispatchRejectedError` 表示异步业务命令已有命令执行中，或
+     * Controller 正在关闭。
      */
     dispatch(command: UiCommand): Promise<void> {
         if (this.snapshot.screen === "shutting_down") {
@@ -157,7 +210,26 @@ export class SessionController {
             );
         }
 
+        if (command.kind === "inspectStep") {
+            this.inspectStep(command.stepIndex);
+            return Promise.resolve();
+        }
+
+        if (command.kind === "toggleReasoning") {
+            this.toggleReasoning();
+            return Promise.resolve();
+        }
+
+        if (command.kind === "toggleObservation") {
+            this.toggleObservation();
+            return Promise.resolve();
+        }
+
         if (this.snapshot.busy) {
+            if (command.kind === "toggleExecutionMode" || command.kind === "setExecutionMode") {
+                return this.setMode(command.kind === "setExecutionMode"
+                    ? command.mode : this.executionMode === "confirm" ? "yolo" : "confirm", false);
+            }
             return Promise.reject(
                 new UiDispatchRejectedError(
                     UI_BUSY_CODE,
@@ -220,14 +292,44 @@ export class SessionController {
                     reason: command.reason,
                 });
                 return;
+            case "openHome":
+                this.openHome();
+                return;
+            case "openIntentInput":
+                this.openIntentInput();
+                return;
+            case "openSettings":
+                this.openSettings();
+                return;
+            case "openHistory":
+                await this.openHistory();
+                return;
+            case "toggleExecutionMode":
+                await this.setMode(this.executionMode === "confirm" ? "yolo" : "confirm");
+                return;
+            case "setExecutionMode":
+                await this.setMode(command.mode);
+                return;
+            case "openInspector":
+                this.openInspector(command.goalId, command.steps);
+                return;
+            case "inspectStep":
+                this.inspectStep(command.stepIndex);
+                return;
+            case "toggleReasoning":
+                this.toggleReasoning();
+                return;
+            case "toggleObservation":
+                this.toggleObservation();
+                return;
         }
     }
 
     private async createGoal(intent: string): Promise<void> {
-        if (this.snapshot.screen !== "intent_input") {
+        if (this.snapshot.screen !== "intent_input" && this.snapshot.screen !== "home") {
             this.setError({
                 code: "CREATE_NOT_ALLOWED",
-                message: "A Goal can only be created from the intent screen",
+                message: "A Goal can only be created from the intent or home screen",
             });
             return;
         }
@@ -273,7 +375,7 @@ export class SessionController {
             }
         }
 
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     private async continueLatest(): Promise<void> {
@@ -294,7 +396,22 @@ export class SessionController {
         await this.listResumableIntoGoalSelect();
     }
 
-    private async listResumableIntoGoalSelect(): Promise<GoalCatalogEntry[] | undefined> {
+    private async openHistory(): Promise<void> {
+        const entries = await this.listResumableIntoGoalSelect("inspect");
+        if (entries === undefined) {
+            return;
+        }
+        this.setSnapshot({
+            screen: "goal_select",
+            busy: false,
+            goals: entries,
+            mode: "inspect",
+        });
+    }
+
+    private async listResumableIntoGoalSelect(
+        mode: "resume" | "inspect" = "resume",
+    ): Promise<GoalCatalogEntry[] | undefined> {
         if (this.snapshot.screen === "session") {
             this.setError({
                 code: "SESSION_ACTIVE",
@@ -303,9 +420,19 @@ export class SessionController {
             return undefined;
         }
 
+        this.setSnapshot({
+            screen: "goal_select",
+            busy: true,
+            goals: [],
+            ...(mode === "inspect" ? { mode: "inspect" as const } : {}),
+        });
         let goals: readonly GoalCatalogEntry[];
         try {
-            goals = await this.dependencies.catalog.listResumable();
+            if (mode === "inspect" && typeof this.dependencies.catalog.listHistory === "function") {
+                goals = await this.dependencies.catalog.listHistory();
+            } else {
+                goals = await this.dependencies.catalog.listResumable();
+            }
         } catch (error: unknown) {
             this.setGoalSelectError(toUiError(error));
             return undefined;
@@ -316,9 +443,10 @@ export class SessionController {
             screen: "goal_select",
             busy: true,
             goals: entries,
+            ...(mode === "inspect" ? { mode: "inspect" } : {}),
         });
 
-        if (entries.length === 0) {
+        if (entries.length === 0 && mode === "resume") {
             this.setError({
                 code: "NO_RESUMABLE_GOAL",
                 message: "No resumable Goal was found",
@@ -344,6 +472,76 @@ export class SessionController {
                 code: "INVALID_GOAL_ID",
                 message: "Goal ID must not be empty",
             });
+            return;
+        }
+
+        if (this.snapshot.screen === "goal_select" && this.snapshot.mode === "inspect") {
+            let goal: Goal | undefined;
+            try {
+                goal = await this.dependencies.store.restore(normalizedGoalId);
+            } catch (error: unknown) {
+                this.setGoalSelectError(toUiError(error), this.snapshot.goals);
+                return;
+            }
+
+            if (goal === undefined) {
+                this.setGoalSelectError({
+                    code: "RUN_NOT_FOUND",
+                    message: `Goal "${normalizedGoalId}" was not found`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            if (!this.dependencies.readTrajectory) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory reading is not configured for Goal "${normalizedGoalId}"`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            let trajectoryResult: Readonly<TrajectoryReadResult>;
+            try {
+                trajectoryResult = await this.dependencies.readTrajectory({
+                    goalId: normalizedGoalId,
+                    runId: goal.state.run.id,
+                });
+            } catch (error: unknown) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Failed to read trajectory for Goal "${normalizedGoalId}": ${error instanceof Error ? error.message : String(error)}`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            const hasCommitted = trajectoryResult.committed.length > 0;
+            const hasUncommitted = (trajectoryResult.uncommittedTail?.length ?? 0) > 0;
+            if (!hasCommitted && !hasUncommitted) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory for Goal "${normalizedGoalId}" contains no events`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            const steps = projectTrajectoryEvents({
+                goalId: normalizedGoalId,
+                goal,
+                committedEvents: trajectoryResult.committed,
+                ...(trajectoryResult.uncommittedTail !== undefined
+                    ? { uncommittedTail: trajectoryResult.uncommittedTail }
+                    : {}),
+            });
+
+            if (steps.length === 0) {
+                this.setGoalSelectError({
+                    code: "TRAJECTORY_NOT_FOUND",
+                    message: `Trajectory for Goal "${normalizedGoalId}" yielded no inspectable steps`,
+                }, this.snapshot.goals);
+                return;
+            }
+
+            this.openInspector(normalizedGoalId, steps);
             return;
         }
 
@@ -378,7 +576,7 @@ export class SessionController {
             { goalId: goal.id, runId: goal.state.run.id },
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     private async resumeSession(
@@ -411,7 +609,7 @@ export class SessionController {
             request,
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
     /**
@@ -445,16 +643,144 @@ export class SessionController {
             { goalId: goal.id, runId: goal.state.run.id },
             this.dependencies.control,
         );
-        this.applyProgress(result);
+        await this.applyProgress(result);
     }
 
-    private applyProgress(result: ProgressResult): void {
-        if (!result.ok) {
-            this.setError(result.error);
+    private async applyProgress(result: ProgressResult): Promise<void> {
+        while (!this.shuttingDown) {
+            if (!result.ok) {
+                this.setError(result.error);
+                return;
+            }
+            this.setSnapshot(this.toSessionView(result.goal, result, true));
+            if (this.executionMode !== "yolo"
+                || result.kind !== "waiting"
+                || result.waitingFor !== "action_approval"
+                || result.goal.state.run.pendingAction?.action === undefined) return;
+
+            result = await this.dependencies.coordinator.resume({
+                ref: {
+                    goalId: result.goal.id,
+                    runId: result.goal.state.run.id,
+                },
+                action: {
+                    kind: "approve_action",
+                    actionId: result.goal.state.run.pendingAction.action.actionId,
+                },
+            }, this.dependencies.control);
+        }
+    }
+
+    private openHome(): void {
+        this.setSnapshot({
+            screen: "home",
+            busy: false,
+            ...(this.dependencies.environmentSummary !== undefined
+                ? { environmentSummary: this.dependencies.environmentSummary }
+                : {}),
+        });
+    }
+
+    private openIntentInput(): void {
+        this.setSnapshot({
+            screen: "intent_input",
+            busy: false,
+        });
+    }
+
+    private openSettings(): void {
+        this.setSnapshot({
+            screen: "settings",
+            busy: false,
+            settings: {
+                workspaceRoot: this.dependencies.environmentSummary?.workspaceRoot ?? process.cwd(),
+                profileId: this.dependencies.profileId,
+                ...(this.dependencies.environmentSummary?.modelName !== undefined
+                    ? { modelName: this.dependencies.environmentSummary.modelName }
+                    : {}),
+                ...(this.dependencies.environmentSummary?.dataDirectory !== undefined
+                    ? { dataDirectory: this.dependencies.environmentSummary.dataDirectory }
+                    : {}),
+            },
+        });
+    }
+
+    private async setMode(mode: ExecutionMode, advance = true): Promise<void> {
+        this.executionMode = mode;
+        if (this.snapshot.screen === "session") {
+            this.setSnapshot({
+                ...this.snapshot,
+                executionMode: mode,
+            });
+            if (
+                advance && mode === "yolo"
+                && !this.shuttingDown
+                && this.snapshot.waitingFor === "action_approval"
+                && this.snapshot.pendingAction?.action !== undefined
+            ) {
+                const actionId = this.snapshot.pendingAction.action.actionId;
+                const request = {
+                    ref: {
+                        goalId: this.snapshot.goal.id,
+                        runId: this.snapshot.goal.state.run.id,
+                    },
+                    action: {
+                        kind: "approve_action" as const,
+                        actionId,
+                    },
+                };
+                const result = await this.dependencies.coordinator.resume(
+                    request,
+                    this.dependencies.control,
+                );
+                await this.applyProgress(result);
+            }
+        }
+    }
+
+    private openInspector(goalId: string, steps: readonly UiInspectorStep[]): void {
+        this.setSnapshot({
+            screen: "inspector",
+            busy: false,
+            goalId,
+            currentStepIndex: 0,
+            totalSteps: steps.length,
+            steps,
+            showReasoning: false,
+            expandObservation: false,
+        });
+    }
+
+    private inspectStep(stepIndex: number): void {
+        if (this.snapshot.screen !== "inspector") {
             return;
         }
+        const maxIndex = Math.max(0, this.snapshot.totalSteps - 1);
+        const boundedIndex = Math.max(0, Math.min(stepIndex, maxIndex));
+        this.setSnapshot({
+            ...this.snapshot,
+            currentStepIndex: boundedIndex,
+        });
+    }
 
-        this.setSnapshot(this.toSessionView(result.goal, result, false));
+    private toggleReasoning(): void {
+        if (this.snapshot.screen !== "inspector") {
+            return;
+        }
+        this.setSnapshot({
+            ...this.snapshot,
+            showReasoning: !this.snapshot.showReasoning,
+        });
+    }
+
+    private toggleObservation(): void {
+        if (this.snapshot.screen !== "inspector") {
+            return;
+        }
+        this.setSnapshot({
+            ...this.snapshot,
+            expandObservation: !this.snapshot.expandObservation,
+        });
     }
 
     private async restoreAfterLaunchFailure(
@@ -489,7 +815,7 @@ export class SessionController {
         const preparationStalled = isStalledPreparation(snapshot, waitingFor);
         const terminal = deriveTerminalSummary(snapshot);
 
-        const currentSession = this.snapshot.screen === "session" ? this.snapshot : undefined;
+        const currentSession = this.snapshot?.screen === "session" ? this.snapshot : undefined;
         const mode = this.dependencies.mode ?? currentSession?.mode;
         const taskTitle = this.dependencies.taskTitle ?? currentSession?.taskTitle;
 
@@ -501,6 +827,7 @@ export class SessionController {
             runStatus: snapshot.state.run.status,
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
+            executionMode: this.executionMode,
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -592,6 +919,7 @@ export class SessionController {
             runStatus: savedGoal.state.run.status,
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
+            executionMode: this.executionMode,
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
@@ -622,6 +950,29 @@ export class SessionController {
         const current = this.snapshot;
 
         switch (current.screen) {
+            case "home":
+                this.setSnapshot(clearError
+                    ? { screen: "home", busy, ...(current.environmentSummary !== undefined ? { environmentSummary: current.environmentSummary } : {}) }
+                    : { ...current, busy });
+                return;
+            case "settings":
+                this.setSnapshot(clearError
+                    ? { screen: "settings", busy, settings: current.settings }
+                    : { ...current, busy });
+                return;
+            case "inspector":
+                this.setSnapshot(clearError
+                    ? {
+                        screen: "inspector",
+                        busy,
+                        goalId: current.goalId,
+                        currentStepIndex: current.currentStepIndex,
+                        totalSteps: current.totalSteps,
+                        steps: current.steps,
+                        showReasoning: current.showReasoning,
+                    }
+                    : { ...current, busy });
+                return;
             case "intent_input":
                 this.setSnapshot(clearError
                     ? { screen: "intent_input", busy }
@@ -633,6 +984,7 @@ export class SessionController {
                         screen: "goal_select",
                         busy,
                         goals: current.goals,
+                        ...(current.mode !== undefined ? { mode: current.mode } : {}),
                     }
                     : { ...current, busy });
                 return;
@@ -661,24 +1013,34 @@ export class SessionController {
         goals: readonly GoalCatalogEntry[] =
             this.snapshot.screen === "goal_select" ? this.snapshot.goals : [],
     ): void {
+        const mode = this.snapshot.screen === "goal_select" ? this.snapshot.mode : undefined;
         this.setSnapshot({
             screen: "goal_select",
             busy: false,
             goals,
             error,
+            ...(mode !== undefined ? { mode } : {}),
         });
     }
 
     private setError(error: UiError): void {
         switch (this.snapshot.screen) {
+            case "home":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "settings":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "inspector":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
             case "intent_input":
                 this.setSnapshot({ screen: "intent_input", busy: false, error });
                 return;
             case "goal_select":
                 this.setSnapshot({
-                    screen: "goal_select",
+                    ...this.snapshot,
                     busy: false,
-                    goals: this.snapshot.goals,
                     error,
                 });
                 return;

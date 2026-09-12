@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 const { spawnSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
 const { resolve } = require("node:path");
 
 const argv = process.argv.slice(2);
@@ -25,11 +24,7 @@ const source = isAlfworldEval
         : resolve(__dirname, "../packages/tui/src/cli.tsx");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
-const cwdEnv = resolve(process.cwd(), ".env");
-const envFile = existsSync(cwdEnv) ? cwdEnv : undefined;
-const nodeArgs = envFile !== undefined
-    ? [`--env-file=${envFile}`, "--import", tsxLoader]
-    : ["--import", tsxLoader];
+const nodeArgs = ["--import", tsxLoader];
 
 const result = spawnSync(
     process.execPath,

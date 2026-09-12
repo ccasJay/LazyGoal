@@ -23,9 +23,12 @@ export const UI_SHUTTING_DOWN_CODE = "UI_SHUTTING_DOWN" as const;
 
 /** Controller 支持的顶层 TUI 页面。 */
 export type UiScreen =
+    | "home"
     | "intent_input"
     | "goal_select"
     | "session"
+    | "settings"
+    | "inspector"
     | "shutting_down";
 
 /**
@@ -86,7 +89,35 @@ export type UiCommand =
         readonly kind: "rejectAction";
         readonly actionId: string;
         readonly reason: string;
-    };
+    }
+    | { readonly kind: "openHome" }
+    | { readonly kind: "openIntentInput" }
+    | { readonly kind: "openSettings" }
+    | { readonly kind: "openHistory" }
+    | { readonly kind: "toggleExecutionMode" }
+    | { readonly kind: "setExecutionMode"; readonly mode: ExecutionMode }
+    | {
+        readonly kind: "openInspector";
+        readonly goalId: string;
+        readonly steps: readonly UiInspectorStep[];
+    }
+    | { readonly kind: "inspectStep"; readonly stepIndex: number }
+    | { readonly kind: "toggleReasoning" }
+    | { readonly kind: "toggleObservation" };
+
+/**
+ * 执行期人机协同模式。
+ *
+ * @remarks
+ * - `"confirm"`：逐项人工确认待批准动作（按 Enter 批准，输入意见拒绝）；
+ * - `"yolo"`：自动放行待批准动作，全速推进直至任务完成或进入 blocked 等待。
+ *
+ * @example
+ * ```ts
+ * const mode: ExecutionMode = "confirm";
+ * ```
+ */
+export type ExecutionMode = "confirm" | "yolo";
 
 /** Session 等待用户输入的细分类型。 */
 export type UiWaitingFor =
@@ -111,6 +142,24 @@ export interface UiTerminalSummary {
     readonly summary?: string;
     /** Runtime 或取消流程提供的终止原因（如果有）。 */
     readonly reason?: string;
+}
+
+/**
+ * 导航主页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiHomeViewModel = { screen: "home", busy: false };
+ * ```
+ */
+export interface UiHomeViewModel {
+    readonly screen: "home";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly environmentSummary?: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+    };
 }
 
 /**
@@ -140,6 +189,193 @@ export interface UiGoalSelectViewModel {
     readonly busy: boolean;
     readonly goals: readonly GoalCatalogEntry[];
     readonly error?: UiError;
+    /** 选择目标后的操作模式（默认为 resume，继续推进；inspect 为只读复盘审查）。 */
+    readonly mode?: "resume" | "inspect";
+}
+
+/**
+ * 环境与配置页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiSettingsViewModel = {
+ *     screen: "settings",
+ *     busy: false,
+ *     settings: { workspaceRoot: "/workspace", profileId: "default" },
+ * };
+ * ```
+ */
+export interface UiSettingsViewModel {
+    readonly screen: "settings";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly settings: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+        readonly modelName?: string;
+        readonly dataDirectory?: string;
+    };
+}
+
+/**
+ * 轨迹单步执行单元的结构化决策区块。
+ *
+ * @remarks
+ * 记录单步中模型生成的决策类型、思考过程摘要与候选工具调用信息。
+ *
+ * @example
+ * ```ts
+ * const decision: UiStepDecisionBlock = {
+ *     kind: "tool_call",
+ *     toolCall: { toolId: "read_file", actionId: "a1" },
+ * };
+ * ```
+ */
+export interface UiStepDecisionBlock {
+    readonly kind: "tool_call" | "complete" | "wait" | "fail" | "context_lookup";
+    readonly summary?: string;
+    readonly reasoning?: string;
+    readonly toolCall?: {
+        readonly toolId: string;
+        readonly actionId: string;
+    };
+}
+
+/**
+ * 轨迹单步执行单元的工具调用与审批区块。
+ *
+ * @remarks
+ * 记录工具入参参数 JSON、审批状态（自动放行、人工批准、拒绝）以及拒绝理由。
+ *
+ * @example
+ * ```ts
+ * const action: UiStepActionBlock = {
+ *     toolId: "bash",
+ *     actionId: "a1",
+ *     inputJson: "{\"command\": \"ls\"}",
+ *     approvalStatus: "auto_approved",
+ * };
+ * ```
+ */
+export interface UiStepActionBlock {
+    readonly toolId: string;
+    readonly actionId: string;
+    readonly inputJson: string;
+    readonly approvalStatus: "auto_approved" | "approved" | "rejected" | "awaiting_approval";
+    readonly rejectionReason?: string;
+}
+
+/**
+ * 轨迹单步执行单元的工具执行与观测区块。
+ *
+ * @remarks
+ * 记录工具执行状态、耗时、预览文本与是否发生截断。
+ *
+ * @example
+ * ```ts
+ * const obs: UiStepObservationBlock = {
+ *     toolId: "bash",
+ *     actionId: "a1",
+ *     status: "success",
+ *     observationPreview: "file1.txt\nfile2.txt",
+ *     rawObservation: { exitCode: 0 },
+ *     isTruncated: false,
+ * };
+ * ```
+ */
+export interface UiStepObservationBlock {
+    readonly toolId: string;
+    readonly actionId: string;
+    readonly status: "success" | "error";
+    readonly durationMs?: number;
+    readonly observationPreview: string;
+    readonly rawObservation: unknown;
+    readonly isTruncated: boolean;
+}
+
+/**
+ * 轨迹单步执行单元的终态或阶段结果区块。
+ *
+ * @remarks
+ * 记录当前步产生的状态流转结果或终态说明。
+ *
+ * @example
+ * ```ts
+ * const result: UiStepResultBlock = { outcome: "completed", summary: "任务已完成" };
+ * ```
+ */
+export interface UiStepResultBlock {
+    readonly outcome: "next_step" | "completed" | "failed" | "cancelled" | "waiting";
+    readonly summary?: string;
+    readonly errorCode?: string;
+    readonly errorMessage?: string;
+}
+
+/**
+ * 轨迹复盘中单步（Step）的只读展示数据。
+ *
+ * @remarks
+ * 包含当前步在整个轨迹中的索引、当步包含的消息与可选模型思考内容，以及对应的原始 JSON 序列化字符串。
+ * 包含当前步在整个轨迹中的索引、标题、所属阶段、结构化执行区块（Decision/Action/Observation/Result）、
+ * 未提交尾部警示，以及对应的原始 JSON 序列化字符串。
+ *
+ * @example
+ * ```ts
+ * const step: UiInspectorStep = {
+ *     index: 0,
+ *     totalSteps: 1,
+ *     messages: [],
+ *     title: "Step 1: Preparation & Planning",
+ *     phase: "planning",
+ *     rawJson: "{}",
+ * };
+ * ```
+ */
+export interface UiInspectorStep {
+    readonly index: number;
+    readonly totalSteps: number;
+    readonly title?: string;
+    readonly executionUnitId?: string;
+    readonly phase?: "gathering_context" | "planning" | "executing";
+    readonly preparationDetails?: readonly string[];
+    readonly decision?: UiStepDecisionBlock;
+    readonly action?: UiStepActionBlock;
+    readonly observation?: UiStepObservationBlock;
+    readonly result?: UiStepResultBlock;
+    readonly uncommittedWarning?: string;
+    /** 兼容历史对话渲染的可选消息列表。 */
+    readonly messages?: readonly GoalMessage[];
+    readonly reasoning?: string;
+    readonly rawJson: string;
+}
+
+/**
+ * 轨迹检查器全屏复盘页面的不可变投影。
+ *
+ * @example
+ * ```ts
+ * const view: UiInspectorViewModel = {
+ *     screen: "inspector",
+ *     busy: false,
+ *     goalId: "goal-1",
+ *     currentStepIndex: 0,
+ *     totalSteps: 1,
+ *     steps: [],
+ *     showReasoning: false,
+ * };
+ * ```
+ */
+export interface UiInspectorViewModel {
+    readonly screen: "inspector";
+    readonly busy: boolean;
+    readonly error?: UiError;
+    readonly goalId: string;
+    readonly currentStepIndex: number;
+    readonly totalSteps: number;
+    readonly steps: readonly UiInspectorStep[];
+    readonly showReasoning: boolean;
+    /** 是否完整展开当前步的 Observation 观测输出（默认为 compact 紧凑截断）。 */
+    readonly expandObservation?: boolean;
 }
 
 /**
@@ -165,6 +401,8 @@ export interface UiSessionViewModel {
     readonly stepCount: number;
     readonly messages: readonly GoalMessage[];
     readonly waitingFor?: UiWaitingFor;
+    /** 执行期人机协同模式（"confirm" 逐项确认 / "yolo" 自动放行）。 */
+    readonly executionMode?: ExecutionMode;
     /**
      * 当前 Goal 的 Preparation 阶段是否已停滞在无法自行推进的中间态。
      *
@@ -226,9 +464,12 @@ export interface UiShuttingDownViewModel {
 
 /** React 外部 Store 所需的统一快照类型。 */
 export type UiViewModel =
+    | UiHomeViewModel
     | UiIntentInputViewModel
     | UiGoalSelectViewModel
     | UiSessionViewModel
+    | UiSettingsViewModel
+    | UiInspectorViewModel
     | UiShuttingDownViewModel;
 
 /** SessionController 快照订阅回调。 */
@@ -335,6 +576,23 @@ export interface SessionControllerDependencies {
     readonly taskTitle?: string;
     /** 可选初始 Goal 会话实例，提供时直接进入 Session 页面。 */
     readonly initialGoal?: import("../../runtime/src/index.js").Goal;
+    /** 可选初始展示页面，未指定 initialGoal 时默认为 "intent_input"（若指定 initialScreen 为 "home" 则进入主页）。 */
+    readonly initialScreen?: UiScreen;
+    /** 可选初始目标选择模式（"resume" 或 "inspect"），在 initialScreen 为 "goal_select" 时生效。 */
+    readonly initialGoalSelectMode?: "resume" | "inspect";
+    /** 可选初始人机协同模式，默认为 "confirm"。 */
+    readonly initialExecutionMode?: ExecutionMode;
+    /** 可选的 Trajectory 事件读取器（通常来自 readTrajectoryAtSnapshot）。 */
+    readonly readTrajectory?: (
+        query: import("../../runtime/src/index.js").TrajectoryReadQuery,
+    ) => Promise<Readonly<import("../../runtime/src/index.js").TrajectoryReadResult>>;
+    /** 可选当前环境与配置信息，用于 Home 与 Settings 页面只读展示。 */
+    readonly environmentSummary?: {
+        readonly workspaceRoot: string;
+        readonly profileId: string;
+        readonly modelName?: string;
+        readonly dataDirectory?: string;
+    };
 }
 
 /**

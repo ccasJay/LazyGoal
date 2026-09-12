@@ -63,11 +63,11 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
         throw new LlmConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
     }
     const mode = value("LLM_STRUCTURED_OUTPUT_MODE");
-    if (mode !== "strict" && mode !== "prompt_only") {
-        throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${mode}": must be either "strict" or "prompt_only"`);
+    if (mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") {
+        throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${mode}": must be either "strict", "prompt_only", or "two_stage"`);
     }
-    if (mode === "strict" && !["openai", "google", "openai-compatible"].includes(provider)) {
-        throw new LlmConfigurationError([], `Provider "${provider}" does not support strict output; select prompt_only`);
+    if ((mode === "strict" || mode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
+        throw new LlmConfigurationError([], `Provider "${provider}" does not support ${mode} output; select prompt_only`);
     }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {

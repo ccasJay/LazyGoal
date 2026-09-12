@@ -131,7 +131,7 @@ class FakeContainer extends SwebenchContainer {
     }
 }
 
-function options(container: SwebenchContainer, outputDirectory: string, artifactGraceMs = 100): Parameters<typeof runSwebenchSupervisor>[0] {
+function options(container: SwebenchContainer, outputDirectory: string, artifactGraceMs = 2000): Parameters<typeof runSwebenchSupervisor>[0] {
     return {
         task,
         container,

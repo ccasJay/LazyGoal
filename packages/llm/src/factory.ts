@@ -23,6 +23,6 @@ export function createLlmAdapter(config: LlmConfig): LLMAdapter {
         case "google":
             return new Gemini(config);
         default:
-            throw new LlmConfigurationError([], `Provider "${config.provider}" does not support strict output; select prompt_only`);
+            throw new LlmConfigurationError([], `Provider "${config.provider}" does not support ${config.structuredOutputMode} output; select prompt_only`);
     }
 }

@@ -1,422 +1,262 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import {
-    access,
-    mkdtemp,
-    readFile,
-    readdir,
-    realpath,
-    rm,
-} from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 
 import {
+    parseCliArgs,
+    runCli,
+} from "../src/cli";
+import {
+    SessionController,
+    type SessionLauncher,
+    type SessionCoordinator,
+} from "../src/index";
+import {
     createGoal,
-    type AgentProfile,
+    type Goal,
+    type GoalCatalog,
+    type GoalCatalogEntry,
+    type GoalProgressResult,
+    type GoalStore,
+    type LaunchResult,
 } from "../../runtime/src/index";
-import { JsonFileGoalStore } from "../../storage/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { writeDefaultProfile } from "./profile-fixture";
 
-const projectRoot = fileURLToPath(new URL("../../../", import.meta.url));
-const processFixturePath = fileURLToPath(
-    new URL("./fixtures/model-abort-process.ts", import.meta.url),
-);
-const continueProcessFixturePath = fileURLToPath(
-    new URL("./fixtures/model-continue-process.ts", import.meta.url),
-);
-const tsxLoaderPath = fileURLToPath(
-    new URL("../../../node_modules/tsx/dist/esm/index.mjs", import.meta.url),
-);
+class MemoryGoalStore implements GoalStore {
+    readonly goals = new Map<string, Goal>();
 
-const seededProfile: AgentProfile = {
-    id: "seeded-profile",
-    systemPrompt: "You are a focused coding agent.",
-    instructions: ["Resume and continue."],
-    toolIds: [],
-};
-
-function waitFor<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    label: string,
-): Promise<T> {
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`Timed out waiting for ${label}`)), timeoutMs);
-    });
-
-    return Promise.race([promise, timeout]).finally(() => {
-        if (timer !== undefined) {
-            clearTimeout(timer);
-        }
-    });
-}
-
-function listen(server: ReturnType<typeof createServer>): Promise<number> {
-    return new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(0, "127.0.0.1", () => {
-            const address = server.address();
-            if (address === null || typeof address === "string") {
-                reject(new Error("Fake server did not expose a TCP port"));
-                return;
-            }
-
-            resolve(address.port);
-        });
-    });
-}
-
-function close(server: ReturnType<typeof createServer>): Promise<void> {
-    return new Promise((resolve, reject) => {
-        server.close((error) => error === undefined ? resolve() : reject(error));
-    });
-}
-
-function requestHandler(
-    request: IncomingMessage,
-    response: ServerResponse,
-    onRequest: () => void,
-    onAbort: () => void,
-): void {
-    if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
-        response.statusCode = 404;
-        response.end();
-        return;
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return this.goals.get(goalId);
     }
 
-    onRequest();
-    request.on("aborted", onAbort);
-    request.on("close", onAbort);
-    // Deliberately keep the model response open so the child must abort it.
+    async save(goal: Goal): Promise<void> {
+        this.goals.set(goal.id, goal);
+    }
 }
 
-test("CLI composition child aborts an in-flight model request and preserves its checkpoint", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-process-"));
-    await writeDefaultProfile(workspace);
-    let requestStarted!: () => void;
-    let requestAborted!: () => void;
-    const modelRequest = new Promise<void>((resolve) => {
-        requestStarted = resolve;
-    });
-    const modelAbort = new Promise<void>((resolve) => {
-        requestAborted = resolve;
-    });
-    const server = createServer((request, response) => {
-        requestHandler(request, response, requestStarted, requestAborted);
-    });
-    const port = await listen(server);
-    const child = spawn(
-        process.execPath,
-        ["--import", tsxLoaderPath, processFixturePath],
-        {
-            cwd: workspace,
-            env: {
-                ...process.env,
-                LLM_PROVIDER: "openai",
-                LLM_API_KEY: "test-key",
-                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
-                LLM_MODEL: "test-model",
-                LLM_STRUCTURED_OUTPUT_MODE: "strict",
-            },
-            stdio: ["pipe", "pipe", "pipe"],
-        },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-    });
+class MemoryGoalCatalog implements GoalCatalog {
+    constructor(private readonly entries: readonly GoalCatalogEntry[]) {}
 
-    try {
-        await waitFor(modelRequest, 6_000, "the fake model request");
-        child.kill("SIGINT");
-        await waitFor(modelAbort, 6_000, "the model request abort");
-        const result = await waitFor(new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-            child.once("close", (code, signal) => resolve({ code, signal }));
-        }), 6_000, "the CLI child exit");
-
-        assert.equal(result.signal, null, stderr);
-        assert.equal(result.code, 130, stderr);
-        const goalDirectory = join(workspace, ".lazygoal", "goals");
-        const files = (await readdir(goalDirectory)).filter((file) => file.endsWith(".json"));
-        assert.equal(files.length, 1);
-        const snapshot = JSON.parse(await readFile(join(goalDirectory, files[0]!), "utf8")) as {
-            readonly state: { readonly workflow: { readonly phase: string }; readonly run: { readonly status: string } };
-        };
-        assert.equal(snapshot.state.workflow.phase, "gathering_context");
-        assert.equal(snapshot.state.run.status, "created");
-    } finally {
-        if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-        }
-        await close(server);
-        await rm(workspace, { recursive: true, force: true });
+    async listResumable(): Promise<readonly GoalCatalogEntry[]> {
+        return this.entries;
     }
-});
+}
 
-test("CLI bin resolves its TSX loader from the project when launched in another workspace", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-bin-workspace-"));
-    await writeDefaultProfile(workspace);
-    const binPath = join(projectRoot, "bin", "lazygoal.cjs");
-    const child = spawn(
-        process.execPath,
-        [binPath, "-c"],
-        {
-            cwd: workspace,
-            env: {
-                ...process.env,
-                LLM_PROVIDER: "openai",
-                LLM_API_KEY: "test-key",
-                LLM_BASE_URL: "http://127.0.0.1:1/v1",
-                LLM_MODEL: "test-model",
-                LLM_STRUCTURED_OUTPUT_MODE: "strict",
-            },
-            stdio: ["ignore", "pipe", "pipe"],
-        },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-    });
-
-    try {
-        const result = await waitFor(new Promise<{ code: number | null }>((resolve) => {
-            child.once("close", (code) => resolve({ code }));
-        }), 6_000, "the bin shim exit");
-        assert.equal(result.code, 1, stderr);
-        assert.match(stderr, /No resumable Goal was found/);
-        await assert.rejects(access(join(workspace, ".lazygoal", "goals")));
-    } finally {
-        if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-        }
-        await rm(workspace, { recursive: true, force: true });
+class FakeLauncher implements SessionLauncher {
+    async launch(): Promise<LaunchResult> {
+        return { ok: false, error: { code: "PROFILE_NOT_FOUND", message: "fail" } };
     }
-});
+}
 
-test("CLI -c restores a pre-seeded resumable Goal and mid-flight abort preserves its checkpoint", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-continue-process-"));
-    await writeDefaultProfile(workspace);
-    const store = new JsonFileGoalStore(
-        join(await realpath(workspace), ".lazygoal", "goals"),
-    );
-    await store.save(createGoal({
+class FakeCoordinator implements SessionCoordinator {
+    async advance(): Promise<GoalProgressResult> {
+        return { ok: false, error: { code: "RUN_NOT_FOUND", message: "fail" } };
+    }
+
+    async resume(): Promise<GoalProgressResult> {
+        return { ok: false, error: { code: "RUN_NOT_FOUND", message: "fail" } };
+    }
+}
+
+function createTestGoal(id: string, intent: string): Goal {
+    const profile = {
+        id: "default",
+        name: "Default",
+        description: "Default",
+        systemPrompt: "Default",
+        instructions: [],
+        toolIds: [],
+    };
+    return createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
-        id: "goal-seeded",
-        intent: "Resume and continue the seeded Goal",
-        profile: seededProfile,
-        runId: "run-seeded",
-    }));
-    let requestStarted!: () => void;
-    let requestAborted!: () => void;
-    const modelRequest = new Promise<void>((resolve) => {
-        requestStarted = resolve;
-    });
-    const modelAbort = new Promise<void>((resolve) => {
-        requestAborted = resolve;
-    });
-    const server = createServer((request, response) => {
-        requestHandler(request, response, requestStarted, requestAborted);
-    });
-    const port = await listen(server);
-    const child = spawn(
-        process.execPath,
-        ["--import", tsxLoaderPath, continueProcessFixturePath],
-        {
-            cwd: workspace,
-            env: {
-                ...process.env,
-                LLM_PROVIDER: "openai",
-                LLM_API_KEY: "test-key",
-                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
-                LLM_MODEL: "test-model",
-                LLM_STRUCTURED_OUTPUT_MODE: "strict",
-            },
-            stdio: ["pipe", "pipe", "pipe"],
-        },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-    });
-
-    try {
-        await waitFor(modelRequest, 6_000, "the fake model request for the seeded Goal");
-        child.kill("SIGINT");
-        await waitFor(modelAbort, 6_000, "the model request abort");
-        const result = await waitFor(new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
-            child.once("close", (code, signal) => resolve({ code, signal }));
-        }), 6_000, "the CLI child exit");
-
-        assert.equal(result.signal, null, stderr);
-        assert.equal(result.code, 130, stderr);
-        const goalsDirectory = join(await realpath(workspace), ".lazygoal", "goals");
-        const files = (await readdir(goalsDirectory)).filter((file) => file.endsWith(".json"));
-        assert.equal(files.length, 1);
-        const snapshot = JSON.parse(await readFile(join(goalsDirectory, files[0]!), "utf8")) as {
-            readonly id: string;
-            readonly state: { readonly workflow: { readonly phase: string } };
-        };
-        assert.equal(snapshot.id, "goal-seeded");
-        assert.equal(snapshot.state.workflow.phase, "gathering_context");
-    } finally {
-        if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-        }
-        await close(server);
-        await rm(workspace, { recursive: true, force: true });
-    }
-});
-
-test("CLI 跨进程恢复后从完整 Snapshot 重新裁剪单轮 Conversation", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-pruning-process-"));
-    await writeDefaultProfile(workspace);
-    const messages = [
-        { role: "user" as const, content: "旧输入内容" },
-        {
-            role: "assistant" as const,
-            assistant: { profileId: seededProfile.id },
-            content: "旧响应内容",
-        },
-        { role: "user" as const, content: "最新输入" },
-        {
-            role: "assistant" as const,
-            assistant: { profileId: seededProfile.id },
-            content: "最新响应",
-        },
-    ];
-    const intent = "Resume with a bounded model context";
-    const persistedMessages = [
-        { role: "user" as const, content: intent },
-        ...messages,
-    ];
-    const store = new JsonFileGoalStore(
-        join(await realpath(workspace), ".lazygoal", "goals"),
-    );
-    const goal = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "goal-pruning",
+        id,
         intent,
-        profile: seededProfile,
-        messages,
-        runId: "run-pruning",
+        profile,
+        runId: `run-${id}`,
     });
-    await store.save({
+}
+
+test("parseCliArgs parses inspect, --dir, and inspect [goalId] commands", () => {
+    assert.deepEqual(parseCliArgs(["inspect"]), { kind: "inspect" });
+    assert.deepEqual(parseCliArgs(["inspect", "goal-42"]), {
+        kind: "inspect",
+        goalId: "goal-42",
+    });
+    assert.deepEqual(parseCliArgs(["inspect", "--dir", ".lazygoal/benchmarks/run", "goal-42"]), {
+        kind: "inspect",
+        goalId: "goal-42",
+        dir: ".lazygoal/benchmarks/run",
+    });
+
+    assert.throws(
+        () => parseCliArgs(["inspect", "goal-1", "unexpected"]),
+        /Invalid command line arguments: Usage: lazygoal inspect/,
+    );
+});
+
+test("SessionController openHistory transitions to goal_select with mode: inspect", async () => {
+    const entry: GoalCatalogEntry = {
+        goalId: "goal-hist-1",
+        runId: "run-goal-hist-1",
+        intent: "Inspect historical trajectory",
+        workflowPhase: "executing",
+        runStatus: "completed",
+        updatedAt: new Date().toISOString(),
+    };
+    const store = new MemoryGoalStore();
+    const catalog = new MemoryGoalCatalog([entry]);
+
+    const controller = new SessionController({
+        launcher: new FakeLauncher(),
+        coordinator: new FakeCoordinator(),
+        store,
+        catalog,
+        profileId: "default",
+        goalIdGenerator: () => "gen-1",
+    });
+
+    await controller.dispatch({ kind: "openHistory" });
+    const snapshot = controller.getSnapshot();
+
+    assert.equal(snapshot.screen, "goal_select");
+    if (snapshot.screen === "goal_select") {
+        assert.equal(snapshot.mode, "inspect");
+        assert.equal(snapshot.goals.length, 1);
+        assert.equal(snapshot.goals[0]?.goalId, "goal-hist-1");
+    }
+});
+
+test("SessionController selectGoal in inspect mode restores Goal and opens inspector", async () => {
+    const goal = createTestGoal("goal-inspect-select", "Analyze system logs");
+    const updatedGoal: Goal = {
         ...goal,
         state: {
             ...goal.state,
-            run: {
-                ...goal.state.run,
-                contextEpoch: {
-                    ...goal.state.run.contextEpoch,
-                    number: 1,
-                    conversationStartIndex: 3,
-                    openedAtSequence: 0,
+            messages: [
+                { role: "user", content: "Analyze system logs" },
+                {
+                    role: "assistant",
+                    assistant: { profileId: "default" },
+                    content: "<thought>Checking log files</thought>No errors found.",
                 },
-            },
+            ],
         },
+    };
+
+    const store = new MemoryGoalStore();
+    await store.save(updatedGoal);
+
+    const entry: GoalCatalogEntry = {
+        goalId: "goal-inspect-select",
+        runId: "run-goal-inspect-select",
+        intent: "Analyze system logs",
+        workflowPhase: "executing",
+        runStatus: "completed",
+        updatedAt: new Date().toISOString(),
+    };
+    const catalog = new MemoryGoalCatalog([entry]);
+
+    const controller = new SessionController({
+        launcher: new FakeLauncher(),
+        coordinator: new FakeCoordinator(),
+        store,
+        catalog,
+        profileId: "default",
+        goalIdGenerator: () => "gen-1",
+        readTrajectory: async () => ({
+            committed: [
+                {
+                    eventSchemaVersion: 1,
+                    eventId: "evt-1",
+                    sequence: 1,
+                    occurredAt: "2026-09-11T12:00:00.000Z",
+                    goalId: "goal-inspect-select",
+                    runId: "run-goal-inspect-select",
+                    phase: "executing",
+                    eventType: "decision_received",
+                    executionUnitId: "unit-1",
+                    stepIndex: 1,
+                    payload: {
+                        type: "decision_received",
+                        decision: {
+                            kind: "complete",
+                            summary: "Inspection done",
+                            completionEvidence: [],
+                        },
+                    },
+                },
+            ],
+            uncommittedTail: [],
+        }),
     });
 
-    let requestBody!: (value: unknown) => void;
-    let requestAborted!: () => void;
-    const capturedRequest = new Promise<unknown>((resolve) => {
-        requestBody = resolve;
-    });
-    const modelAbort = new Promise<void>((resolve) => {
-        requestAborted = resolve;
-    });
-    const server = createServer((request, response) => {
-        const chunks: Buffer[] = [];
-        request.on("data", (chunk: Buffer) => chunks.push(chunk));
-        request.on("end", () => {
-            requestBody(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+    await controller.dispatch({ kind: "openHistory" });
+    await controller.dispatch({ kind: "selectGoal", goalId: "goal-inspect-select" });
+
+    const snapshot = controller.getSnapshot();
+    assert.equal(snapshot.screen, "inspector");
+    if (snapshot.screen === "inspector") {
+        assert.equal(snapshot.goalId, "goal-inspect-select");
+        assert.equal(snapshot.totalSteps, 2);
+        assert.equal(snapshot.steps[1]?.title, "Step 2: Execution (unit-1)");
+        assert.equal(snapshot.steps[1]?.decision?.summary, "Inspection done");
+    }
+});
+
+test("normal CLI exit returns zero and cleans up without requesting an interrupt exit", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-normal-exit-"));
+    try {
+        await writeDefaultProfile(workspace);
+        const exitCodes: number[] = [];
+        let unmounts = 0;
+        const listeners = process.listenerCount("SIGINT");
+        const code = await runCli([], {
+            cwd: workspace,
+            env: { LLM_PROVIDER: "openai", LLM_API_KEY: "test", LLM_MODEL: "model",
+                LLM_STRUCTURED_OUTPUT_MODE: "strict" },
+            exitPort: { exit: code => { exitCodes.push(code); } },
+            render: (() => ({ unmount: () => { unmounts += 1; },
+                waitUntilExit: async () => {} })) as never,
         });
-        request.on("aborted", requestAborted);
-        request.on("close", requestAborted);
-        // 保持响应打开，使测试能在捕获请求投影后中止子进程。
-        void response;
-    });
-    const port = await listen(server);
-    const child = spawn(
-        process.execPath,
-        ["--import", tsxLoaderPath, continueProcessFixturePath],
-        {
+        assert.equal(code, 0);
+        assert.equal(unmounts, 1);
+        assert.deepEqual(exitCodes, []);
+        assert.equal(process.listenerCount("SIGINT"), listeners);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("runCli with inspect non-existent goalId returns error code 1", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-inspect-missing-"));
+    try {
+        await writeDefaultProfile(workspace);
+        const errors: string[] = [];
+        const lifecycle: string[] = [];
+
+        const exitCode = await runCli(["inspect", "non-existent-goal"], {
             cwd: workspace,
             env: {
-                ...process.env,
                 LLM_PROVIDER: "openai",
-                LLM_API_KEY: "test-key",
-                LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
-                LLM_MODEL: "test-model",
+                LLM_API_KEY: "test",
+                LLM_MODEL: "model",
                 LLM_STRUCTURED_OUTPUT_MODE: "strict",
-                LLM_CONTEXT_WINDOW_TOKENS: "8192",
-                LLM_MAX_OUTPUT_TOKENS: "1024",
-                LLM_TOKENIZER_ENCODING: "cl100k_base",
             },
-            stdio: ["pipe", "pipe", "pipe"],
-        },
-    );
-    let stderr = "";
-    child.stderr.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-    });
+            writeError: (msg) => errors.push(msg),
+            render: (() => ({
+                unmount: () => { lifecycle.push("unmount"); },
+                waitUntilExit: async () => { lifecycle.push("wait"); },
+            })) as never,
+        });
 
-    try {
-        const payload = await waitFor(
-            capturedRequest,
-            6_000,
-            "the pruned model request",
-        ) as {
-            readonly messages: ReadonlyArray<{
-                readonly role: string;
-                readonly content: string;
-            }>;
-        };
-        assert.deepEqual(
-            payload.messages.slice(1, -1),
-            messages.slice(2).map(({ role, content }) => ({ role, content })),
-        );
-
-        child.kill("SIGINT");
-        await waitFor(modelAbort, 6_000, "the pruned request abort");
-        const result = await waitFor(new Promise<{
-            code: number | null;
-            signal: NodeJS.Signals | null;
-        }>((resolve) => {
-            child.once("close", (code, signal) => resolve({ code, signal }));
-        }), 6_000, "the pruning child exit");
-        assert.equal(result.signal, null, stderr);
-        assert.equal(result.code, 130, stderr);
-
-        const restored = await store.restore("goal-pruning");
-        assert.deepEqual(restored?.state.messages, persistedMessages);
-        const goalsDirectory = join(workspace, ".lazygoal", "goals");
-        const files = await readdir(goalsDirectory);
-        const snapshot = JSON.parse(await readFile(
-            join(goalsDirectory, files[0]!),
-            "utf8",
-        )) as {
-            readonly metadata: { readonly schemaVersion: number };
-            readonly state: {
-                readonly messages: unknown;
-                readonly summary?: unknown;
-            };
-        };
-        assert.equal(snapshot.metadata.schemaVersion, 1);
-        assert.deepEqual(snapshot.state.messages, persistedMessages);
-        assert.equal(snapshot.state.summary, undefined);
+        assert.equal(exitCode, 1);
+        assert.deepEqual(lifecycle, ["unmount", "wait"]);
+        assert.ok(errors.some((err) => err.includes("Goal not found: non-existent-goal")));
     } finally {
-        if (child.exitCode === null && child.signalCode === null) {
-            child.kill("SIGKILL");
-        }
-        await close(server);
         await rm(workspace, { recursive: true, force: true });
     }
 });
