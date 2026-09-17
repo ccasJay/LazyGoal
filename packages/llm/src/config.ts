@@ -52,7 +52,7 @@ export class LlmConfigurationError extends Error {
  */
 export function readLlmConfig(env: Readonly<Record<string, string | undefined>>): LlmConfig {
     const value = (name: string) => env[name]?.trim() ?? "";
-    const required = ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_STRUCTURED_OUTPUT_MODE"];
+    const required = ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"];
     if (value("LLM_PROVIDER") === "openai-compatible") {
         required.push("LLM_BASE_URL", "LLM_CONTEXT_WINDOW_TOKENS", "LLM_MAX_OUTPUT_TOKENS");
     }
@@ -62,12 +62,16 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
     if (!["openai", "google", "anthropic", "openrouter", "deepseek", "openai-compatible"].includes(provider)) {
         throw new LlmConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
     }
-    const mode = value("LLM_STRUCTURED_OUTPUT_MODE");
-    if (mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") {
-        throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${mode}": must be either "strict", "prompt_only", or "two_stage"`);
-    }
-    if ((mode === "strict" || mode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
-        throw new LlmConfigurationError([], `Provider "${provider}" does not support ${mode} output; select prompt_only`);
+    const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
+    let mode: StructuredOutputMode = "prompt_only";
+    if (rawMode) {
+        if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
+            throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
+        }
+        if ((rawMode === "strict" || rawMode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
+            throw new LlmConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
+        }
+        mode = rawMode as StructuredOutputMode;
     }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {

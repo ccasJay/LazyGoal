@@ -72,3 +72,26 @@ test("loadRuntimeConfig 缺少必填项时快速失败并提示配置路径", as
         await rm(tempDir, { recursive: true, force: true });
     }
 });
+
+test("需求 5.1: 用户配置 config.toml 时无需指定 structured_output_mode 即可成功加载运行", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-no-mode-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+
+        await writeFile(xdgPaths.configFile, `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-test"
+`);
+
+        const config = await loadRuntimeConfig({ xdgPaths });
+        assert.equal(config.llm.provider, "openai");
+        assert.equal(config.llm.model, "gpt-4o");
+        assert.equal(config.llm.apiKey, "sk-test");
+        assert.ok(config.llm.structuredOutputMode !== undefined);
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});

@@ -83,33 +83,26 @@ test("createModelExecutionBinding: 成功构造字符兜底模式绑定", () => 
     assert.equal(binding.modelContextPolicy.estimator.unit, "character");
 });
 
-test("createModelExecutionBinding: 模式失配时拒绝构造并抛出 ModelCapabilitiesError", () => {
+test("需求 5.3: createModelExecutionBinding 允许不同历史模式或省略模式平滑构造，自适应兼容", () => {
     const trajectoryStore = createInMemoryTrajectoryStore();
     const adapter = new PromptOnlyAdapter(); // prompt_only
     const selection: GoalModelSelection = {
         provider: "openai",
         modelId: "gpt-4o",
-        structuredOutputMode: "strict", // strict
+        structuredOutputMode: "strict", // 历史 snapshot 可能残留 strict
         contextWindowTokens: 128_000,
         maxOutputTokens: 4096,
         inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
     };
 
-    assert.throws(
-        () => {
-            createModelExecutionBinding({
-                generation: 1,
-                selection,
-                adapter,
-                trajectoryStore,
-            });
-        },
-        (error: unknown) => {
-            assert.ok(error instanceof ModelCapabilitiesError);
-            assert.match((error as Error).message, /does not match selection structuredOutputMode/);
-            return true;
-        },
-    );
+    const binding = createModelExecutionBinding({
+        generation: 1,
+        selection,
+        adapter,
+        trajectoryStore,
+    });
+    assert.equal(binding.generation, 1);
+    assert.equal(binding.adapter, adapter);
 });
 
 test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => {

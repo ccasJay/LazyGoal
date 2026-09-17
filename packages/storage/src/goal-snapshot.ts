@@ -238,7 +238,7 @@ export type GoalSnapshotWorkflowV1 =
 export interface GoalSnapshotModelSelectionV1 {
     readonly provider: string;
     readonly modelId: string;
-    readonly structuredOutputMode: "strict" | "prompt_only" | "two_stage";
+    readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
     readonly maxOutputTokens?: number | undefined;
     readonly inputEstimator:
@@ -522,7 +522,7 @@ const ContextEpochSchema = z.object({
 const ModelSelectionSchema = z.object({
     provider: NonEmptyStringSchema,
     modelId: NonEmptyStringSchema,
-    structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]),
+    structuredOutputMode: z.enum(["strict", "prompt_only", "two_stage"]).optional(),
     contextWindowTokens: z.number().int().positive().optional(),
     maxOutputTokens: z.number().int().positive().optional(),
     inputEstimator: z.discriminatedUnion("kind", [

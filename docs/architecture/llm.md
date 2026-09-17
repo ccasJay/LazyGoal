@@ -38,7 +38,7 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 
 ## 配置
 
-运行要求 Node ≥22.19.0。系统支持 XDG 基础目录规范（优先读取 `$XDG_CONFIG_HOME/lazygoal`，默认回退至 `$HOME/.config/lazygoal`），按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`、`structured_output_mode`；现有环境需补充 provider，不推断旧配置。
+运行要求 Node ≥22.19.0。系统支持 XDG 基础目录规范（优先读取 `$XDG_CONFIG_HOME/lazygoal`，默认回退至 `$HOME/.config/lazygoal`），按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；系统采用原生双通道工具调用架构自适应派发工具 Schema，`structured_output_mode` 已废除强制配置（缺省自适应，保留可选兼容）。
 
 ```toml
 # ~/.config/lazygoal/config.toml
@@ -46,7 +46,6 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 provider = "openai"
 model = "gpt-4o"
 api_key = "sk-..."
-structured_output_mode = "prompt_only"
 
 [profile]
 active = "default"
@@ -57,7 +56,6 @@ active = "default"
 LLM_PROVIDER=anthropic
 LLM_MODEL=claude-sonnet-4-5
 LLM_API_KEY=your-api-key
-LLM_STRUCTURED_OUTPUT_MODE=prompt_only
 ```
 
 `openai` 和 `google` 可用 `LLM_BASE_URL` 覆盖端点，未设置时使用官方地址；`openai-compatible`

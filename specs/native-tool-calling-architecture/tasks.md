@@ -24,10 +24,10 @@
   - 验证方式：`npx tsx --test packages/tui/test/transcript-thinking-flow.test.ts`（已通过）与 `npx tsx --test packages/runtime/test/trajectory.test.ts`（已通过）
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 5. 废除 structured_output_mode 显式配置与模式分支去重
+- [x] //TODO 5. 废除 structured_output_mode 显式配置与模式分支去重
   - 实现目标：从 `config.toml`、CLI 解析、环境校验与 Goal 快照 Schema 中彻底移除 `structured_output_mode` 枚举与依赖，清理多余模式判断分支
   - 成功判据：省略该配置项即可成功加载并运行；旧快照不包含该字段或包含历史值均能平滑加载，不再抛出模式不匹配错误
-  - 验证方式：`npx tsx --test packages/llm/test/config-loader.test.ts` 与 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts`
+  - 验证方式：`npx tsx --test packages/llm/test/config-loader.test.ts`（已通过）与 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts`（已通过）
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
 - [ ] //TODO 6. 端到端集成验证与 Benchmark 回归测试

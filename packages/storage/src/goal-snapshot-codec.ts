@@ -235,7 +235,7 @@ function encodeModelSelection(selection: GoalModelSelection): GoalSnapshotModelS
     return {
         provider: selection.provider,
         modelId: selection.modelId,
-        structuredOutputMode: selection.structuredOutputMode,
+        ...(selection.structuredOutputMode !== undefined ? { structuredOutputMode: selection.structuredOutputMode } : {}),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
         inputEstimator: selection.inputEstimator.kind === "character-v1"
@@ -475,7 +475,7 @@ function decodeModelSelection(selection: GoalSnapshotModelSelectionV1): GoalMode
     return {
         provider: selection.provider,
         modelId: selection.modelId,
-        structuredOutputMode: selection.structuredOutputMode,
+        ...(selection.structuredOutputMode !== undefined ? { structuredOutputMode: selection.structuredOutputMode } : {}),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
         inputEstimator: selection.inputEstimator.kind === "character-v1"

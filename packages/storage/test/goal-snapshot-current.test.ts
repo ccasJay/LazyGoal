@@ -143,6 +143,26 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     const decoded = goalSnapshotCodec.decode(encoded);
     assert.deepEqual(decoded.state.modelSelection, customSelection);
     assert.notEqual(decoded.state.modelSelection, encoded.state.modelSelection);
+
+    // 需求 5.3: 省略 structuredOutputMode 的模型选择能够平滑编解码，实现对历史快照的无缝兼容
+    const selectionWithoutMode = {
+        provider: "openai",
+        modelId: "gpt-4o",
+        inputEstimator: { kind: "character-v1" as const },
+    };
+    const goalWithoutMode = createGoal({
+        ...currentProtocols,
+        id: "goal-no-mode-test",
+        intent: "验证无 structuredOutputMode 的模型选择快照",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-no-mode-test",
+        modelSelection: selectionWithoutMode,
+    });
+    const encodedNoMode = goalSnapshotCodec.encode(goalWithoutMode);
+    assert.equal(encodedNoMode.state.modelSelection.structuredOutputMode, undefined);
+    const decodedNoMode = goalSnapshotCodec.decode(encodedNoMode);
+    assert.equal(decodedNoMode.state.modelSelection.structuredOutputMode, undefined);
 });
 
 test("GoalSnapshotCodec: 缺失 modelSelection 的旧快照明确拒绝失败", () => {

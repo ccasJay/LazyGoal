@@ -16,15 +16,20 @@ const custom = {
     LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024",
 };
 
-test("configuration requires explicit provider, model, key and mode", () => {
+test("configuration requires explicit provider, model and key (structuredOutputMode optional)", () => {
     assert.throws(() => readLlmConfig({}), (error: unknown) => {
         assert.ok(error instanceof LlmConfigurationError);
-        assert.deepEqual(error.missing, ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_STRUCTURED_OUTPUT_MODE"]);
+        assert.deepEqual(error.missing, ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY"]);
         return true;
     });
     assert.equal(readLlmConfig({ ...base, LLM_API_KEY: "  explicit-key  " }).apiKey, "explicit-key");
     assert.throws(() => readLlmConfig({ ...base, LLM_PROVIDER: "unknown" }), /Unsupported LLM_PROVIDER/);
     assert.throws(() => readLlmConfig({ ...base, LLM_STRUCTURED_OUTPUT_MODE: "auto" }), /Invalid LLM_STRUCTURED_OUTPUT_MODE/);
+
+    // 需求 5.2: 省略 LLM_STRUCTURED_OUTPUT_MODE 时平滑加载，默认为 prompt_only
+    const { LLM_STRUCTURED_OUTPUT_MODE: _omitted, ...withoutMode } = base;
+    const config = readLlmConfig(withoutMode);
+    assert.equal(config.structuredOutputMode, "prompt_only");
 });
 
 test("factory dispatches all six providers without network or ambient credentials", () => {
