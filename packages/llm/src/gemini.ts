@@ -146,7 +146,7 @@ export class Gemini implements LLMAdapter {
 
             const content = response.text ?? "";
             return {
-                content: this.structuredOutputMode === "strict" && request.structuredOutput !== undefined
+                content: (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined
                     ? restoreGeminiResponseProjection(content, request.structuredOutput.schema)
                     : content,
                 providerMetadata: {
@@ -268,9 +268,11 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
     if (isJsonObject(value) && isJsonObject(value.result)) {
         const result = value.result;
 
-        // 1. 若具有有效的 action 对象，确认为 tool_call，清理非当前分支的字段
+        // 1. 若具有有效的 action 对象，非 probe_action 时确认为 tool_call，清理非当前分支的字段
         if (result.action !== undefined && result.action !== null && typeof result.action === "object") {
-            result.kind = "tool_call";
+            if (result.kind !== "probe_action") {
+                result.kind = "tool_call";
+            }
             delete result.type;
             delete result.summary;
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
@@ -299,7 +301,7 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
                 delete result.completionEvidence;
             }
-        } else if (result.kind === "tool_call") {
+        } else if (result.kind === "tool_call" || result.kind === "probe_action") {
             delete result.summary;
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
                 delete result.completionEvidence;
@@ -331,6 +333,13 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             delete result.completionEvidence;
             delete result.reason;
             delete result.error;
+        }
+
+        // 清理非 complete 分支残留的 completionEvidence
+        if (result.kind !== "complete") {
+            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
+                delete result.completionEvidence;
+            }
         }
 
         // 清理常见非对应分支残留的 null 字段
@@ -539,7 +548,7 @@ function mergeGeminiUnion(
                         merged = {
                             ...merged,
                             nullable: true,
-                            description: 'Required. If kind="tool_call", provide the tool action object. For any other kind, return null.',
+                            description: 'Required. If kind="tool_call" or kind="probe_action", provide the tool action object. For any other kind, return null.',
                         };
                     }
                     if (path.join(".") === "properties.result" && ["reason", "error", "need", "question", "filters"].includes(key)) {
@@ -548,7 +557,7 @@ function mergeGeminiUnion(
                             nullable: true,
                         };
                     }
-                    if (path.join(".") === "properties.result" && key === "kind") {
+                    if (path.join(".") === "properties.result" && key === "kind" && discriminatorValues.includes("tool_call")) {
                         merged = {
                             ...merged,
                             description: "Select exactly one result shape: kind=\"tool_call\" requires action and completionEvidence=\"__lazygoal_absent__\" and forbids summary, reason, and error; kind=\"complete\" requires summary and compact completionEvidence and forbids action; kind=\"wait\" requires reason and completionEvidence=\"__lazygoal_absent__\" and forbids action, summary, and error; kind=\"fail\" requires error and completionEvidence=\"__lazygoal_absent__\" and forbids action, summary, and reason; kind=\"context_lookup\" requires need, question, filters, and completionEvidence=\"__lazygoal_absent__\".",

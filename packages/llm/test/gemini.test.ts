@@ -54,7 +54,7 @@ test("Gemini SDK preserves complete phase schemas and all five tool branches", a
     }
 });
 
-function createAdapter(mode: "strict" | "prompt_only") {
+function createAdapter(mode: "strict" | "prompt_only" | "two_stage") {
     return new Gemini({
         apiKey: "test-api-key",
         model: "gemini-2.5-flash",
@@ -646,3 +646,47 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
     assert.throws(() => bundle.decode(JSON.parse(resInvalid.content)));
 });
 
+test("Gemini in two_stage mode restores sentinel values when structuredOutput is provided", async () => {
+    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [] });
+    const text = JSON.stringify({
+        result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
+    });
+    const adapter = createAdapter("two_stage");
+    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
+    const wire = JSON.parse(response.content);
+    assert.equal(wire.result.memoryPatch, null);
+    const decoded = bundle.decode(wire);
+    assert.equal(decoded.kind, "complete");
+    assert.equal(decoded.memoryPatch, undefined);
+});
+
+test("Gemini preserves probe_action branch in gathering preparation without converting to tool_call", async () => {
+    const bundle = createModelOutputContractBundle({
+        kind: "gathering",
+        authorizedTools: [{
+            id: "grep",
+            inputContract: contract.object({
+                pattern: contract.string(),
+                ignoreCase: contract.optional(contract.boolean()),
+            }),
+            isReadOnly: true,
+        }],
+    });
+    const text = JSON.stringify({
+        result: {
+            kind: "probe_action",
+            action: { toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
+            memoryPatch: "__lazygoal_null__",
+        },
+    });
+    const adapter = createAdapter("two_stage");
+    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
+    const wire = JSON.parse(response.content);
+    assert.equal(wire.result.kind, "probe_action");
+    assert.equal(wire.result.memoryPatch, null);
+    const decoded = bundle.decode(wire);
+    assert.equal(decoded.kind, "probe_action");
+    assert.equal(decoded.memoryPatch, undefined);
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
+import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import {
@@ -304,4 +304,44 @@ test("LLMPreparationExecutor 在思考文本超长时执行安全截断", async 
     assert.equal(result.kind, "context_ready");
     const req2 = adapter.requests[1]!;
     assert.ok(req2.messages.some(m => m.content.includes(THOUGHT_TRUNCATION_MARKER)));
+});
+
+test("LLMPreparationExecutor 在 gathering_context 阶段 two_stage 模式下成功返回 probe_action", async () => {
+    const stage1CoT = "思考：需要使用 grep 搜索最近的 spec 文件。";
+    const stage2Output = JSON.stringify({
+        result: {
+            kind: "probe_action",
+            action: { toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
+            memoryPatch: null,
+        },
+    });
+
+    const adapter = new MockTwoStageAdapter(stage1CoT, stage2Output);
+    const executor = new LLMPreparationExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
+
+    const result = await executor.execute({
+        goal: createGatheringGoal(),
+        authorizedTools: [{
+            id: "grep",
+            description: "grep files",
+            inputContract: contract.object({
+                pattern: contract.string(),
+                ignoreCase: contract.optional(contract.boolean()),
+            }),
+            isReadOnly: true,
+        }],
+        workingMemory: currentWorkingMemory,
+    });
+
+    assert.equal(adapter.requests.length, 2);
+    assert.equal(result.kind, "probe_action");
+    if (result.kind === "probe_action") {
+        assert.equal(result.action.toolId, "grep");
+        assert.deepEqual(result.action.input, { pattern: "spec", ignoreCase: true });
+    }
 });
