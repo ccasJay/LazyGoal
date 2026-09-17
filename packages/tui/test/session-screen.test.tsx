@@ -644,3 +644,144 @@ test("SessionScreen retains full waterfall steps when reaching terminal state", 
     assert.match(frame, /Summary: Inspection fully completed\./);
 });
 
+test("SessionScreen renders streamingTail above ActiveDrawer and below Static history", () => {
+    const goal = executingGoal("goal-streaming-screen");
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                waitingFor: "blocked",
+                blockedReason: "What is your next instruction?",
+                timeline: [
+                    {
+                        kind: "message",
+                        id: "msg-1",
+                        message: { role: "user", content: "Initial user query" },
+                    },
+                ],
+                streamingTail: {
+                    messageId: "msg-assistant-stream",
+                    content: "```ts\nconst liveTailCode = 42;\n```",
+                    showAuthor: true,
+                },
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    const idxUser = frame.indexOf("Initial user query");
+    const idxTail = frame.indexOf("liveTailCode");
+    const idxDrawer = frame.indexOf("What is your next instruction?");
+
+    assert.ok(idxUser !== -1, "Committed user query must be visible");
+    assert.ok(idxTail !== -1, "Streaming tail must be visible");
+    assert.ok(idxDrawer !== -1, "Active drawer question must be visible");
+
+    // 结构顺序：Static 历史 -> streamingTail -> ActiveDrawer
+    assert.ok(idxUser < idxTail, "User message in Static must appear before streaming tail");
+    assert.ok(idxTail < idxDrawer, "Streaming tail must appear before ActiveDrawer composer");
+});
+
+test("SessionScreen smoothly moves committed blocks into timeline without duplicate content", () => {
+    const goal = executingGoal("goal-streaming-transition");
+
+    // 帧 1：Tail 包含全部未决内容
+    const { rerender, lastFrame } = render(
+        <SessionScreen
+            session={session(goal, {
+                timeline: [
+                    {
+                        kind: "message",
+                        id: "msg-1",
+                        message: { role: "user", content: "Start" },
+                    },
+                ],
+                streamingTail: {
+                    messageId: "msg-2",
+                    content: "# Heading\n\nFirst paragraph\n\nSecond paragraph",
+                    showAuthor: true,
+                },
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    let frame = lastFrame() ?? "";
+    assert.match(frame, /Heading/);
+    assert.match(frame, /First paragraph/);
+    assert.match(frame, /Second paragraph/);
+
+    // 帧 2：第一块转入 committed timeline，tail 仅包含第二块
+    rerender(
+        <SessionScreen
+            session={session(goal, {
+                timeline: [
+                    {
+                        kind: "message",
+                        id: "msg-1",
+                        message: { role: "user", content: "Start" },
+                    },
+                    {
+                        kind: "assistant_markdown",
+                        id: "msg-2-blk-0",
+                        block: "# Heading\n\nFirst paragraph\n\n",
+                        showAuthor: true,
+                    },
+                ],
+                streamingTail: {
+                    messageId: "msg-2",
+                    content: "Second paragraph",
+                    showAuthor: false,
+                },
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    frame = lastFrame() ?? "";
+    assert.match(frame, /Heading/);
+    assert.match(frame, /First paragraph/);
+    assert.match(frame, /Second paragraph/);
+
+    // 帧 3：全部提交进 committed timeline，streamingTail 清空
+    rerender(
+        <SessionScreen
+            session={session(goal, {
+                timeline: [
+                    {
+                        kind: "message",
+                        id: "msg-1",
+                        message: { role: "user", content: "Start" },
+                    },
+                    {
+                        kind: "assistant_markdown",
+                        id: "msg-2-blk-0",
+                        block: "# Heading\n\nFirst paragraph\n\n",
+                        showAuthor: true,
+                    },
+                    {
+                        kind: "assistant_markdown",
+                        id: "msg-2-blk-1",
+                        block: "Second paragraph",
+                        showAuthor: false,
+                    },
+                ],
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    frame = lastFrame() ?? "";
+    assert.match(frame, /Heading/);
+    assert.match(frame, /First paragraph/);
+    assert.match(frame, /Second paragraph/);
+});
+

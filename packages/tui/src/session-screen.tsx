@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Box, Static, Text, useInput } from "ink";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
-import type { UiSessionViewModel, UiStepSummary, UiTerminalSummary } from "./types";
+import type { UiSessionViewModel, UiStepSummary, UiTerminalSummary, UiTimelineItem } from "./types";
 import { useSubmitGate } from "./use-submit-gate";
 import { StatusSpinner } from "./status-spinner";
 import { truncateId } from "./format";
@@ -10,62 +10,33 @@ import { StepWaterfallItem } from "./step-waterfall-item";
 import { ErrorLine } from "./error-line";
 import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import { CommandAwareTextInput } from "./command-aware-text-input";
+import { MarkdownRenderer } from "./markdown-renderer";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
-type TimelineItem =
-    | { readonly kind: "message"; readonly id: string; readonly message: GoalMessage }
-    | { readonly kind: "step"; readonly id: string; readonly step: UiStepSummary };
-
-function useTimelineItems(session: UiSessionViewModel): TimelineItem[] {
-    const goalIdRef = useRef(session.goal.id);
-    const seenMessageCountRef = useRef(0);
-    const seenStepNumbersRef = useRef<Set<number>>(new Set());
-    const itemsRef = useRef<TimelineItem[]>([]);
-
-    if (goalIdRef.current !== session.goal.id) {
-        goalIdRef.current = session.goal.id;
-        seenMessageCountRef.current = 0;
-        seenStepNumbersRef.current = new Set();
-        itemsRef.current = [];
+function resolveTimelineItems(session: UiSessionViewModel): readonly UiTimelineItem[] {
+    if (session.timeline !== undefined) {
+        return session.timeline;
     }
-
-    let hasNewItems = false;
-    const currentItems = itemsRef.current;
-
-    if (session.messages.length > seenMessageCountRef.current) {
-        for (let i = seenMessageCountRef.current; i < session.messages.length; i++) {
-            const message = session.messages[i]!;
-            currentItems.push({
-                kind: "message",
-                id: `msg-${session.goal.id}-${i}`,
-                message,
-            });
-        }
-        seenMessageCountRef.current = session.messages.length;
-        hasNewItems = true;
+    const fallback: UiTimelineItem[] = [];
+    for (let i = 0; i < session.messages.length; i++) {
+        const message = session.messages[i]!;
+        fallback.push({
+            kind: "message",
+            id: `msg-${session.goal.id}-${i}`,
+            message,
+        });
     }
-
     if (session.committedSteps !== undefined) {
         for (const step of session.committedSteps) {
-            if (!seenStepNumbersRef.current.has(step.stepNumber)) {
-                seenStepNumbersRef.current.add(step.stepNumber);
-                currentItems.push({
-                    kind: "step",
-                    id: `step-${session.goal.id}-${step.stepNumber}`,
-                    step,
-                });
-                hasNewItems = true;
-            }
+            fallback.push({
+                kind: "step",
+                id: `step-${session.goal.id}-${step.stepNumber}`,
+                step,
+            });
         }
     }
-
-    const snapshotRef = useRef<TimelineItem[]>(currentItems.slice());
-    if (hasNewItems) {
-        snapshotRef.current = currentItems.slice();
-    }
-
-    return snapshotRef.current;
+    return fallback;
 }
 
 /**
@@ -121,7 +92,7 @@ export function SessionScreen({
     onToggleExecutionMode,
     onCommandEffect,
 }: SessionScreenProps): React.JSX.Element {
-    const timelineItems = useTimelineItems(session);
+    const timelineItems = [...resolveTimelineItems(session)];
     useInput((_input, key) => {
         if (key.shift && key.tab) {
             void onToggleExecutionMode?.();
@@ -131,14 +102,35 @@ export function SessionScreen({
     return (
         <Box flexDirection="column" gap={1}>
             <Static items={timelineItems}>
-                {(item) =>
-                    item.kind === "message" ? (
-                        <MessageLine key={item.id} message={item.message} />
-                    ) : (
-                        <StepWaterfallItem key={item.id} step={item.step} />
-                    )
-                }
+                {(item) => {
+                    if (item.kind === "message") {
+                        return <MessageLine key={item.id} message={item.message} />;
+                    }
+                    if (item.kind === "assistant_markdown") {
+                        return (
+                            <Box key={item.id} flexDirection="column">
+                                {item.showAuthor ? (
+                                    <Text bold color="cyan">
+                                        Agent
+                                    </Text>
+                                ) : null}
+                                <MarkdownRenderer content={item.block} />
+                            </Box>
+                        );
+                    }
+                    return <StepWaterfallItem key={item.id} step={item.step} />;
+                }}
             </Static>
+            {session.streamingTail !== undefined && session.streamingTail.content.length > 0 ? (
+                <Box flexDirection="column">
+                    {session.streamingTail.showAuthor ? (
+                        <Text bold color="cyan">
+                            Agent
+                        </Text>
+                    ) : null}
+                    <MarkdownRenderer content={session.streamingTail.content} />
+                </Box>
+            ) : null}
             <ActiveDrawer
                 session={session}
                 onSubmitMessage={onSubmitMessage}
@@ -233,7 +225,11 @@ function MessageLine({ message }: MessageLineProps): React.JSX.Element {
             <Text bold color={message.role === "user" ? "green" : "cyan"}>
                 {message.role === "user" ? "User" : "Agent"}
             </Text>
-            <Text>{message.content}</Text>
+            {message.role === "assistant" ? (
+                <MarkdownRenderer content={message.content} />
+            ) : (
+                <Text>{message.content}</Text>
+            )}
         </Box>
     );
 }

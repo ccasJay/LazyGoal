@@ -21,7 +21,7 @@
   - 验证方式：扩展 `session-controller` 测试，使用可控 scheduler 覆盖合成流、恢复、排序、切换、关闭和全文一致性。
   - _Requirements: [1.3](./requirements.md#req-1-3), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 4. 重构 SessionScreen 为 Static 历史与动态尾部
+- [x] //TODO 4. 重构 SessionScreen 为 Static 历史与动态尾部
 
   - 实现目标：删除 Screen 内本地历史累积，直接渲染 `timeline`；在 `Static` 与 `ActiveDrawer` 之间渲染统一 Markdown live tail，保持 Preparation 不变。
   - 成功判据：block 从 tail 转入历史时无重复或消失；composer 始终位于 tail 下方；rerender 保留已有消息与步骤；终端 resize 不触发历史重建。
