@@ -12,10 +12,10 @@
   - 验证方式：`npx tsx --test packages/llm/test/native-tool-calling.test.ts`（已通过）与既有 LLM 测试
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 3. Agent 单步执行器归一与 1 RTT 执行流重构
+- [x] //TODO 3. Agent 单步执行器归一与 1 RTT 执行流重构
   - 实现目标：重构 `LLMStepExecutor` 与 `LLMPreparationExecutor`，彻底删除两阶段执行器，统一在单次网络往返（1 RTT）内完成思考接收、工具参数解码与 `AgentDecision` / `PreparationResult` 领域映射
   - 成功判据：单步推进严格发起且仅发起 1 次模型调用；模型缺失工具调用时抛出确定性协议异常；合法工具调用直接完成校验并流转至 Coordinator
-  - 验证方式：`npx tsx --test packages/agent/test/native-step-executor.test.ts`（待实现）
+  - 验证方式：`npx tsx --test packages/agent/test/native-step-executor.test.ts`（已通过）
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
 - [ ] //TODO 4. 思考流实时接入 TUI Transcript 与 Trajectory 审计入轨

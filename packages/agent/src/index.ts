@@ -1,7 +1,5 @@
 export { LLMStepExecutor } from "./llm-step-executor";
 export type { LLMStepExecutorDependencies } from "./llm-step-executor";
-export { TwoStageStepExecutor } from "./two-stage-step-executor";
-export type { TwoStageStepExecutorDependencies } from "./two-stage-step-executor";
 export { LLMPreparationExecutor } from "./llm-preparation-executor";
 export type {
     LLMPreparationExecutorDependencies,

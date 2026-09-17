@@ -21,6 +21,15 @@ import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
 import {
+    createCheckpointToolDeclarations,
+    createGatheringToolDeclarations,
+    createPlanningToolDeclarations,
+    decodePhaseToolCall,
+    type SystemToolDeclaration,
+} from "../../contracts/src/index";
+import { ContractValidationError } from "../../contracts/src/errors";
+import type { LLMToolDefinition } from "../../llm/src/core/types";
+import {
     createDefaultModelContextBudgetPolicy,
     TokenBudgetPlanner,
     type ModelCapabilities,
@@ -157,180 +166,6 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 : new TokenBudgetPlanner(modelCapabilities);
         const mode = adapter.structuredOutputMode;
 
-        if (mode === "two_stage") {
-            // ==========================================
-            // Stage 1: Think (自由文本推理生成 CoT)
-            // ==========================================
-            const basePlan = await buildPreparationRequest(
-                goal,
-                tools,
-                this.renderer,
-                this.contextCompactor,
-                control?.signal,
-                input.workingMemory,
-                trajectoryContextAssembler,
-                input.contextLookupResult,
-                modelCapabilities,
-                input.preparationInputEvidence,
-                "two_stage",
-                input.lastProbeResult,
-                input.probeLimitReached,
-            );
-            throwIfAborted(control);
-
-            const thinkingMessages: LLMMessage[] = [
-                ...basePlan.request.messages,
-                {
-                    role: "user",
-                    content: workflow.phase === "gathering_context"
-                        ? "Please analyze the goal intent, conversation history, and missing information. Think step-by-step about what context is needed or whether context is ready. Do not output JSON."
-                        : "Please analyze the gathered context, goal intent, and available tools. Think step-by-step about the execution plan, tasks, and completion criteria. Do not output JSON.",
-                },
-            ];
-
-            const thinkingRequest: LLMRequest = {
-                messages: thinkingMessages,
-                ...(modelCapabilities !== undefined
-                    ? { maxOutputTokens: modelCapabilities.maxOutputTokens }
-                    : basePlan.request.maxOutputTokens !== undefined
-                        ? { maxOutputTokens: basePlan.request.maxOutputTokens }
-                        : {}),
-            };
-
-            const stage1StartedAt = Date.now();
-            await recordLlmRequest(this.traceSink, goal, thinkingRequest);
-
-            let stage1Response: Awaited<ReturnType<LLMAdapter["generate"]>>;
-            try {
-                stage1Response = await adapter.generate(thinkingRequest, control);
-            } catch (error) {
-                await recordLlmError(
-                    this.traceSink,
-                    goal,
-                    error,
-                    Date.now() - stage1StartedAt,
-                    "adapter",
-                );
-                if (isExecutionAbortedError(error)) {
-                    throw error;
-                }
-
-                if (control?.signal?.aborted) {
-                    throw new ExecutionAbortedError();
-                }
-
-                throw error;
-            }
-
-            throwIfAborted(control);
-            await recordLlmResponse(
-                this.traceSink,
-                goal,
-                stage1Response,
-                Date.now() - stage1StartedAt,
-            );
-
-            const rawThought = stage1Response.content.trim();
-
-            // 思考链 Token 预算防护与安全截断
-            const truncatedThoughtResult = truncateThought(rawThought, {
-                maxChars: this.maxThoughtChars,
-                ...(budgetPlanner !== undefined ? { planner: budgetPlanner } : {}),
-            });
-            const sanitizedThought = truncatedThoughtResult.thought;
-
-            // ==========================================
-            // Stage 2: Decide (挂载 strict Schema 提取合规 PreparationResult)
-            // ==========================================
-            const decidePlan = await buildPreparationRequest(
-                goal,
-                tools,
-                this.renderer,
-                this.contextCompactor,
-                control?.signal,
-                input.workingMemory,
-                trajectoryContextAssembler,
-                input.contextLookupResult,
-                modelCapabilities,
-                input.preparationInputEvidence,
-                "strict",
-                input.lastProbeResult,
-                input.probeLimitReached,
-            );
-            throwIfAborted(control);
-
-            const decideMessages: LLMMessage[] = [
-                ...decidePlan.request.messages,
-                {
-                    role: "user",
-                    content: formatThinkingContext(sanitizedThought),
-                },
-            ];
-
-            const decideRequest: LLMRequest = {
-                messages: decideMessages,
-                structuredOutput: decidePlan.request.structuredOutput ?? {
-                    name: decidePlan.bundle.name,
-                    schema: decidePlan.bundle.jsonSchema,
-                },
-                ...(modelCapabilities !== undefined
-                    ? { maxOutputTokens: modelCapabilities.maxOutputTokens }
-                    : decidePlan.request.maxOutputTokens !== undefined
-                        ? { maxOutputTokens: decidePlan.request.maxOutputTokens }
-                        : {}),
-            };
-
-            const stage2StartedAt = Date.now();
-            await recordLlmRequest(this.traceSink, goal, decideRequest);
-
-            let stage2Response: Awaited<ReturnType<LLMAdapter["generate"]>>;
-            try {
-                stage2Response = await adapter.generate(decideRequest, control);
-            } catch (error) {
-                await recordLlmError(
-                    this.traceSink,
-                    goal,
-                    error,
-                    Date.now() - stage2StartedAt,
-                    "adapter",
-                );
-                if (isExecutionAbortedError(error)) {
-                    throw error;
-                }
-
-                if (control?.signal?.aborted) {
-                    throw new ExecutionAbortedError();
-                }
-
-                throw error;
-            }
-
-            throwIfAborted(control);
-            await recordLlmResponse(
-                this.traceSink,
-                goal,
-                stage2Response,
-                Date.now() - stage2StartedAt,
-            );
-
-            try {
-                const result = parseModelOutput(
-                    stage2Response.content,
-                    decidePlan.bundle,
-                );
-                return result;
-            } catch (error) {
-                await recordLlmError(
-                    this.traceSink,
-                    goal,
-                    error,
-                    Date.now() - stage2StartedAt,
-                    "response_parse",
-                );
-                throw error;
-            }
-        }
-
         const plan = await buildPreparationRequest(
             goal,
             tools,
@@ -347,6 +182,15 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             input.probeLimitReached,
         );
         throwIfAborted(control);
+
+        const phase = goal.state.workflow.phase;
+        const toolDeclarations: readonly SystemToolDeclaration<PreparationResult>[] =
+            plan.bundle.kind === "checkpoint"
+                ? createCheckpointToolDeclarations()
+                : phase === "gathering_context"
+                ? createGatheringToolDeclarations(tools)
+                : createPlanningToolDeclarations(tools);
+
         const startedAt = Date.now();
         const providerRequest = modelCapabilities === undefined
             ? plan.request
@@ -382,21 +226,52 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             Date.now() - startedAt,
         );
 
-        try {
-            const result = parseModelOutput(
-                response.content,
-                plan.bundle,
-            );
-            return result;
-        } catch (error) {
-            await recordLlmError(
-                this.traceSink,
-                goal,
-                error,
-                Date.now() - startedAt,
-                "response_parse",
-            );
-            throw error;
+        let result: PreparationResult;
+
+        if (response.toolCalls && response.toolCalls.length > 0) {
+            const toolCall = response.toolCalls[0]!;
+            let rawArgs: unknown;
+            try {
+                rawArgs = JSON.parse(toolCall.argumentsJson);
+            } catch (err) {
+                const parseErr = new LLMResponseProtocolError(
+                    "INVALID_LLM_RESPONSE",
+                    `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
+                );
+                await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
+                throw parseErr;
+            }
+
+            try {
+                result = decodePhaseToolCall(toolDeclarations, toolCall.toolId, rawArgs);
+            } catch (error) {
+                const validationErr = error instanceof ContractValidationError
+                    ? new LLMResponseProtocolError(
+                        "INVALID_LLM_RESPONSE",
+                        `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+                    )
+                    : error;
+                await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
+                throw validationErr;
+            }
+        } else {
+            try {
+                result = parseModelOutput(
+                    response.content,
+                    plan.bundle,
+                );
+            } catch (error) {
+                await recordLlmError(
+                    this.traceSink,
+                    goal,
+                    error,
+                    Date.now() - startedAt,
+                    "response_parse",
+                );
+                throw error;
+            }
         }
+
+        return result;
     }
 }

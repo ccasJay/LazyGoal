@@ -33,8 +33,13 @@ import type {
     PreparationResult,
 } from "../../contracts/src/index";
 import {
+    createCheckpointToolDeclarations,
+    createExecutingToolDeclarations,
+    createGatheringToolDeclarations,
+    createPlanningToolDeclarations,
     createModelOutputContractBundle,
 } from "../../contracts/src/index";
+import type { LLMToolDefinition } from "../../llm/src/core/types";
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
@@ -217,7 +222,16 @@ export async function buildStepRequest(
             authorizedTools: tools.map((t) => ({ id: t.id, inputContract: t.inputContract })),
         }) as unknown as ModelOutputContractBundle<AgentDecision>);
 
-    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode);
+    const toolDeclarations = isInitialCheckpoint
+        ? createCheckpointToolDeclarations()
+        : createExecutingToolDeclarations(tools);
+    const llmTools: LLMToolDefinition[] = toolDeclarations.map((d) => ({
+        id: d.id,
+        description: d.description,
+        parametersSchema: d.parametersSchema,
+    }));
+
+    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode, llmTools);
 }
 
 /**
@@ -301,7 +315,18 @@ export async function buildPreparationRequest(
             })),
         }) as unknown as ModelOutputContractBundle<PreparationResult>);
 
-    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode);
+    const toolDeclarations = isInitialCheckpoint
+        ? createCheckpointToolDeclarations()
+        : goal.state.workflow.phase === "gathering_context"
+        ? createGatheringToolDeclarations(readOnlyTools)
+        : createPlanningToolDeclarations(readOnlyTools);
+    const llmTools: LLMToolDefinition[] = toolDeclarations.map((d) => ({
+        id: d.id,
+        description: d.description,
+        parametersSchema: d.parametersSchema,
+    }));
+
+    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode, llmTools);
 }
 
 /** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
@@ -311,6 +336,7 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
     initialBundle: ModelOutputContractBundle<Result>,
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
+    tools: readonly LLMToolDefinition[] = [],
 ): ModelOutputRequestPlan<Result> {
     let currentBundle = initialBundle;
 
@@ -328,15 +354,23 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
         req: LLMRequest,
         bundle: ModelOutputContractBundle<Result>,
     ): ModelOutputRequestPlan<Result> => ({
-        request: structuredOutputMode === "strict"
-            ? {
-                ...req,
-                structuredOutput: {
-                    name: bundle.name,
-                    schema: bundle.jsonSchema,
-                },
-            }
-            : req,
+        request: {
+            ...req,
+            ...(tools.length > 0
+                ? {
+                    tools,
+                    toolChoice: "required" as const,
+                }
+                : {}),
+            ...(structuredOutputMode === "strict"
+                ? {
+                    structuredOutput: {
+                        name: bundle.name,
+                        schema: bundle.jsonSchema,
+                    },
+                }
+                : {}),
+        },
         bundle,
     });
 

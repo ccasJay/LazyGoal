@@ -33,7 +33,13 @@ import {
     recordLlmRequest,
     recordLlmResponse,
 } from "./llm-diagnostic-trace";
-import { TwoStageStepExecutor } from "./two-stage-step-executor";
+import {
+    createCheckpointToolDeclarations,
+    createExecutingToolDeclarations,
+    decodePhaseToolCall,
+} from "../../contracts/src/index";
+import { ContractValidationError } from "../../contracts/src/errors";
+import type { LLMToolDefinition } from "../../llm/src/core/types";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -128,17 +134,6 @@ export class LLMStepExecutor implements StepExecutor {
         const modelCapabilities = binding.modelCapabilities;
         const trajectoryContextAssembler = binding.trajectoryContextAssembler;
 
-        if (adapter.structuredOutputMode === "two_stage") {
-            return new TwoStageStepExecutor({
-                adapter,
-                renderer: this.renderer,
-                contextCompactor: this.contextCompactor,
-                ...(this.traceSink !== undefined ? { traceSink: this.traceSink } : {}),
-                ...(trajectoryContextAssembler !== undefined ? { trajectoryContextAssembler } : {}),
-                ...(modelCapabilities !== undefined ? { modelCapabilities } : {}),
-            }).execute(input);
-        }
-
         const mode = adapter.structuredOutputMode;
         const plan = await buildStepRequest(
             goal,
@@ -153,6 +148,11 @@ export class LLMStepExecutor implements StepExecutor {
             mode,
         );
         throwIfAborted(control);
+
+        const toolDeclarations = plan.bundle.kind === "checkpoint"
+            ? createCheckpointToolDeclarations()
+            : createExecutingToolDeclarations(tools);
+
         const startedAt = Date.now();
         const providerRequest = modelCapabilities === undefined
             ? plan.request
@@ -189,6 +189,40 @@ export class LLMStepExecutor implements StepExecutor {
         );
 
         let decision: AgentDecision;
+
+        if (response.toolCalls && response.toolCalls.length > 0) {
+            const toolCall = response.toolCalls[0]!;
+            let rawArgs: unknown;
+            try {
+                rawArgs = JSON.parse(toolCall.argumentsJson);
+            } catch (err) {
+                const parseErr = new LLMResponseProtocolError(
+                    "INVALID_LLM_RESPONSE",
+                    `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
+                );
+                await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
+                throw parseErr;
+            }
+
+            try {
+                decision = decodePhaseToolCall(toolDeclarations, toolCall.toolId, rawArgs) as AgentDecision;
+            } catch (error) {
+                const validationErr = error instanceof ContractValidationError
+                    ? new LLMResponseProtocolError(
+                        "INVALID_LLM_RESPONSE",
+                        `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+                    )
+                    : error;
+                await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
+                throw validationErr;
+            }
+
+            const thought = response.content?.trim();
+            return Object.assign({}, decision, {
+                decision,
+                ...(thought ? { thought } : {}),
+            });
+        }
 
         try {
             decision = parseModelOutput(
