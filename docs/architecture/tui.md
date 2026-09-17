@@ -23,6 +23,8 @@ Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量�
 | [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
 | [CommandAwareTextInput](../../packages/tui/src/command-aware-text-input.tsx) | 命令感知单行文本输入、实时 Slash 候选展示、合法命令拦截派发与非法拒绝 | 终端布局、状态机转换、直接调用 Runtime |
 | [ModelSelector](../../packages/tui/src/model-selector.tsx) | 渲染模型目录三态（loading/list/error）、当前激活模型、上下文容量与不可选原因，处理上下导航、Enter 选择与 ESC 取消 | 异步模型拉取、原子快照持久化与 Binding 切换 |
+| [StreamingTranscriptController](../../packages/tui/src/streaming-transcript-controller.ts) | 校验流式事件生命周期、累积原始全文、驱动保守 Markdown 分块、管理 40ms 自适应 Tick 节流与同步 flush 屏障 | React/Ink 渲染、持久化、用户输入 |
+| [MarkdownRenderer](../../packages/tui/src/markdown-renderer.tsx) | 解析 Markdown Token 并映射为 Ink 渲染树，对未知 Token 回退为 raw 文本；统一服务历史 Block 与动态尾部 | 稳定边界判断、提交节流、状态持有 |
 | Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
 
 ## 当前数据流
@@ -102,7 +104,13 @@ Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近
 通知 CLI；CLI 同时监听进程级 `SIGINT`。`IntentScreen`、`GoalSelectScreen` 与
 `PreparationScreen` 与 `SessionScreen` 只在提交非空文本、确认选择、批准或拒绝
 时发出一次语义化命令，busy 时停用输入控件。`GoalSelectScreen` 只展示 Catalog
-摘要，不在选择前恢复完整 Goal；`PreparationScreen` 与 `SessionScreen` 均使用 Ink `Static` 瀑布流累积固化真实对话消息与已完成步骤（`StepWaterfallItem`），并在底部动态活动抽屉展示状态头部、Spinner、输入/提问/待审批面板和终态摘要，避免步骤在终端 scrollback 中发生原地擦除覆盖。Controller 只消费当前 Goal 的 Preparation 探查进度，以 Runtime 分配的稳定 `actionId` 去重；`started` 展示当前工具说明，`finished` 固化步骤，`failed` 清除活动 Spinner。恢复后新探查即使阶段内序号重新开始，也不会与既有步骤冲突。
+摘要，不在选择前恢复完整 Goal；`PreparationScreen` 使用 Ink `Static` 瀑布流累积固化真实对话消息与只读探查步骤。
+而在 `SessionScreen` 中，Controller 统一拥有单调不可变时间线 `timeline`（`UiTimelineItem[]`）与流式转录状态机 `StreamingTranscriptController`：
+新到达的完整 Assistant 消息经由合成流管道（`started`/`delta`/`completed`）驱动保守 Markdown 分块，只有未结束行、代码围栏、表格与 Setext 等结构闭合且确认稳定的 Block，才按约 40ms 自适应 Tick 节流迁移至不可变历史；未提交的 pending Block 与不稳定性尾部组合为 `streamingTail` 在底部动态呈现；
+恢复已有 Goal 或初次切入 executing 时，快照中的完整消息直接 hydrate 为 committed 历史项，不回放动画；
+新的用户消息到达或执行步骤提交前，触发同步 flush barrier 保证时间线顺序严格单调；
+`SessionScreen` 为纯展示组件，不再维护本地历史累积 ref；不可变历史通过 Ink `<Static>` 原生 scrollback 呈现，下方渲染统一 Markdown `streamingTail`，最下方为交互抽屉与输入 Composer；终端 resize 时仅由 Ink 重新计算动态尾部与抽屉，已进入原生 scrollback 的历史块既不清除也不重放；
+`MarkdownRenderer` 统一服务于历史 Block 与动态尾部，对未知 Token 平滑降级为 raw 文本，不丢失内容。Controller 只消费当前 Goal 的 Preparation 探查进度，以 Runtime 分配的稳定 `actionId` 去重；`started` 展示当前工具说明，`finished` 固化步骤，`failed` 清除活动 Spinner。恢复后新探查即使阶段内序号重新开始，也不会与既有步骤冲突。
 
 `GoalSelectScreen` 在 Catalog 摘要中按标题、ID、状态和阶段本地过滤，保持原始
 顺序；搜索与列表选择互斥，Enter 先结束搜索编辑，再确认目标。Esc 清除搜索，

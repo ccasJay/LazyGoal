@@ -174,7 +174,7 @@ export class StreamingTranscriptController {
         if (this.isDisposed) {
             throw new TranscriptProtocolError("Controller is already disposed");
         }
-        if (this.activeStreaming || this.activeStreamId !== null) {
+        if (this.activeStreaming) {
             throw new TranscriptProtocolError(
                 `Cannot start stream ${event.streamId}: stream ${this.activeStreamId} is still active`,
             );
@@ -184,6 +184,10 @@ export class StreamingTranscriptController {
         }
         if (!event.messageId) {
             throw new TranscriptProtocolError("messageId cannot be empty");
+        }
+
+        if (this.pending.length > 0) {
+            this.flush();
         }
 
         this.cancelTimer();

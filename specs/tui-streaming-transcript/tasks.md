@@ -28,7 +28,7 @@
   - 验证方式：扩展 `session-screen` 测试，覆盖 Markdown tail、提交迁移、步骤历史、交互布局和恢复帧。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [4.4](./requirements.md#req-4-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 5. 同步架构文档并完成全量验证
+- [x] //TODO 5. 同步架构文档并完成全量验证
 
   - 实现目标：更新当前 TUI 架构中的 transcript 所有权、数据流、恢复和 resize 限制，并核对公共导出与依赖声明。
   - 成功判据：架构文档只描述已实现行为；所有需求有自动化证据；现有 Preparation、Session waterfall、shutdown 与恢复行为不回归。
@@ -43,18 +43,25 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | 合法事件确定性累积；乱序、错误 ID 和并发开始稳定失败且不污染状态 | transcript controller 协议测试（待实现） |
-| [1.3](./requirements.md#req-1-3) | reset、Goal 切换、shutdown 与 dispose 后 timer 和迟到事件不再发布 | controller 生命周期测试（待实现） |
-| [1.4](./requirements.md#req-1-4), [5.3](./requirements.md#req-5-3) | `getText()` 和最终导出逐字符等于输入及 canonical 消息 | 分块不变量与 Session 集成测试（待实现） |
-| [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2) | 未结束行、段落、列表、引用、Setext、围栏和表格在结构稳定前留在 tail | collector fixture 测试（待实现） |
-| [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4) | pending 与 mutable 内容连续可见，complete 后无丢失且不受 delta 切分影响 | collector 与快照测试（待实现） |
-| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2) | fake clock 下按 40ms 和批量公式迁移，历史与 tail 原子交接 | scheduler 测试（待实现） |
-| [3.3](./requirements.md#req-3-3) | resize 不清屏、不重建已提交历史 | Session 渲染与终端行为测试（待实现） |
-| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | 新 Assistant 完整消息渐进提交，恢复消息直接 hydrate | SessionController 集成测试（待实现） |
-| [4.3](./requirements.md#req-4-3) | user message 和 step 在未完成流之后追加 | 时间线排序测试（待实现） |
-| [4.4](./requirements.md#req-4-4) | `Static` 历史、live tail、状态和 composer 顺序稳定，Preparation 不变 | Ink Screen 回归测试（待实现） |
-| [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2) | 常用 Markdown 在历史与 tail 一致渲染，未知 token 保留 raw | Markdown renderer 测试（待实现） |
+| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | 合法事件确定性累积；乱序、错误 ID 和并发开始稳定失败且不污染状态 | transcript controller 协议测试（`streaming-transcript-controller.test.ts`） |
+| [1.3](./requirements.md#req-1-3) | reset、Goal 切换、shutdown 与 dispose 后 timer 和迟到事件不再发布 | controller 生命周期测试（`streaming-transcript-controller.test.ts`, `session-controller-timeline.test.ts`） |
+| [1.4](./requirements.md#req-1-4), [5.3](./requirements.md#req-5-3) | `getText()` 和最终导出逐字符等于输入及 canonical 消息 | 分块不变量与 Session 集成测试（`session-controller-timeline.test.ts`） |
+| [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2) | 未结束行、段落、列表、引用、Setext、围栏和表格在结构稳定前留在 tail | collector fixture 测试（`streaming-transcript-controller.test.ts`） |
+| [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4) | pending 与 mutable 内容连续可见，complete 后无丢失且不受 delta 切分影响 | collector 与快照测试（`streaming-transcript-controller.test.ts`） |
+| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2) | fake clock 下按 40ms 和批量公式迁移，历史与 tail 原子交接 | scheduler 测试（`streaming-transcript-controller.test.ts`, `session-screen.test.tsx`） |
+| [3.3](./requirements.md#req-3-3) | resize 不清屏、不重建已提交历史 | Session 渲染与终端行为测试（`session-screen.test.tsx`） |
+| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | 新 Assistant 完整消息渐进提交，恢复消息直接 hydrate | SessionController 集成测试（`session-controller-timeline.test.ts`） |
+| [4.3](./requirements.md#req-4-3) | user message 和 step 在未完成流之后追加 | 时间线排序测试（`session-controller-timeline.test.ts`） |
+| [4.4](./requirements.md#req-4-4) | `Static` 历史、live tail、状态和 composer 顺序稳定，Preparation 不变 | Ink Screen 回归测试（`session-screen.test.tsx`） |
+| [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2) | 常用 Markdown 在历史与 tail 一致渲染，未知 token 保留 raw | Markdown renderer 测试（`markdown-renderer.test.tsx`, `session-screen.test.tsx`） |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- 执行时间：2026-09-17
+- 验证结果：全量通过（PASS）
+- 证据记录：
+  1. `npm run check:dependencies`：通过（151 个源文件依赖边界合法）。
+  2. `npx tsc --noEmit`：通过（无类型与 contract 错误）。
+  3. `git diff --check`：通过（无空白与格式异常）。
+  4. 核心功能测试：`packages/tui/test/streaming-transcript-controller.test.ts`、`packages/tui/test/markdown-renderer.test.tsx`、`packages/tui/test/session-controller-timeline.test.ts`、`packages/tui/test/session-screen.test.tsx` 共 36 个测试全部通过。
+  5. 全量回归：`node scripts/run-regression.mjs` 运行 1113 个单测与 13 个 scripts 测试，1126 项测试 100% 通过。
