@@ -23,11 +23,17 @@ import {
     type UiStepSummary,
     type UiSubscriber,
     type UiTerminalSummary,
+    type UiTimelineItem,
+    type UiStreamingTail,
     type UiViewModel,
 } from "./types";
 import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
 import { projectTrajectoryEvents } from "./trajectory-projector";
+import {
+    StreamingTranscriptController,
+    type TranscriptSnapshot,
+} from "./streaming-transcript-controller";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -68,6 +74,20 @@ export class SessionController {
     private modelCatalogAbortController: AbortController | undefined;
     private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
     private selectedModelId: string | undefined;
+    private readonly transcriptController: StreamingTranscriptController;
+    private readonly transcriptUnsubscribe: () => void;
+    private timeline: UiTimelineItem[] = [];
+    private activeAssistantStream: {
+        readonly streamId: string;
+        readonly messageId: string;
+        readonly messageIndex: number;
+        hasCommittedBlock: boolean;
+        committedBlockCount: number;
+    } | null = null;
+    private processedMessageCount = 0;
+    private committedStepNumbers = new Set<number>();
+    private streamingTail: UiStreamingTail | undefined = undefined;
+    private currentGoalId: string | null = null;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -78,11 +98,16 @@ export class SessionController {
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
         this.executionMode = dependencies.initialExecutionMode ?? "confirm";
+        this.transcriptController = new StreamingTranscriptController({
+            ...(dependencies.transcriptScheduler !== undefined
+                ? { scheduler: dependencies.transcriptScheduler }
+                : {}),
+        });
+        this.transcriptUnsubscribe = this.transcriptController.subscribe((snapshot) => {
+            this.onTranscriptSnapshot(snapshot);
+        });
         if (dependencies.initialGoal !== undefined) {
-            const initialStep = deriveStepSummary(dependencies.initialGoal);
-            if (initialStep !== undefined) {
-                this.committedSteps = [initialStep];
-            }
+            this.hydrateInitialGoal(dependencies.initialGoal);
             this.snapshot = this.toSessionView(dependencies.initialGoal, undefined, false);
             this.lastCommittedStepCount = dependencies.initialGoal.state.run.stepCount;
         } else if (dependencies.initialScreen === "home") {
@@ -181,6 +206,9 @@ export class SessionController {
         this.shuttingDown = true;
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.transcriptController.dispose();
+        this.activeAssistantStream = null;
+        this.streamingTail = undefined;
         const goal = this.snapshot.screen === "session"
             ? structuredClone(this.snapshot.goal)
             : undefined;
@@ -196,7 +224,7 @@ export class SessionController {
      * 释放 Controller 持有的外部订阅资源。
      *
      * @remarks
-     * 注销对底层 GoalStore 的提交监听，并清空所有 UI 订阅者。
+     * 注销对底层 GoalStore 的提交监听，并清空所有 UI 订阅者与流式 Transcript 定时器。
      *
      * @example
      * ```ts
@@ -208,7 +236,28 @@ export class SessionController {
         this.storeUnsubscribe = undefined;
         this.probeUnsubscribe?.();
         this.probeUnsubscribe = undefined;
+        this.transcriptController.dispose();
+        this.transcriptUnsubscribe?.();
+        this.activeAssistantStream = null;
+        this.streamingTail = undefined;
         this.subscribers.clear();
+    }
+
+    /**
+     * 获取当前活动或刚结束流累积的原始文本。
+     *
+     * @remarks
+     * 独立于 Markdown Block 切分保存，用于在测试与集成中校验与 canonical GoalMessage.content 逐字符一致。
+     *
+     * @returns 累积的原始字符串。
+     *
+     * @example
+     * ```ts
+     * const raw = controller.getTranscriptText();
+     * ```
+     */
+    getTranscriptText(): string {
+        return this.transcriptController.getText();
     }
 
     /**
@@ -875,15 +924,158 @@ export class SessionController {
         }
     }
 
+    private hydrateInitialGoal(goal: Goal): void {
+        this.currentGoalId = goal.id;
+        this.timeline = [];
+        this.committedStepNumbers.clear();
+        this.activeAssistantStream = null;
+        this.streamingTail = undefined;
+        this.committedSteps = [];
+        this.preparationSteps = [];
+
+        // 需求 4.2：恢复已有 Goal 或初次进入时，把快照中的完整消息直接初始化为 committed history，不回放动画
+        for (let i = 0; i < goal.state.messages.length; i++) {
+            const message = goal.state.messages[i]!;
+            this.timeline.push({
+                kind: "message",
+                id: `msg-${goal.id}-${i}`,
+                message,
+            });
+        }
+        this.processedMessageCount = goal.state.messages.length;
+
+        const initialStep = deriveStepSummary(goal);
+        if (initialStep !== undefined) {
+            this.committedSteps = [initialStep];
+            this.committedStepNumbers.add(initialStep.stepNumber);
+            this.timeline.push({
+                kind: "step",
+                id: `step-${initialStep.stepNumber}-${initialStep.actionId}`,
+                step: initialStep,
+            });
+        }
+    }
+
+    private flushActiveStreamBarrier(): void {
+        if (this.activeAssistantStream !== null) {
+            this.transcriptController.flush();
+            this.streamingTail = undefined;
+            this.activeAssistantStream = null;
+        }
+    }
+
+    private syncTimelineWithGoal(goal: Goal): void {
+        if (this.currentGoalId === null || this.currentGoalId !== goal.id) {
+            this.transcriptController.reset();
+            this.hydrateInitialGoal(goal);
+            return;
+        }
+
+        // 检查新增消息
+        if (goal.state.messages.length > this.processedMessageCount) {
+            for (let i = this.processedMessageCount; i < goal.state.messages.length; i++) {
+                const message = goal.state.messages[i]!;
+                if (message.role === "user") {
+                    this.flushActiveStreamBarrier();
+                    this.timeline.push({
+                        kind: "message",
+                        id: `msg-${goal.id}-${i}`,
+                        message,
+                    });
+                } else if (message.role === "assistant") {
+                    this.flushActiveStreamBarrier();
+                    // 需求 4.1：将新增完整 Assistant 消息转换为合成流事件
+                    const streamId = `stream-${goal.id}-${i}`;
+                    const messageId = `msg-${goal.id}-${i}`;
+                    this.activeAssistantStream = {
+                        streamId,
+                        messageId,
+                        messageIndex: i,
+                        hasCommittedBlock: false,
+                        committedBlockCount: 0,
+                    };
+                    this.transcriptController.started({ streamId, messageId });
+                    this.transcriptController.delta({ streamId, text: message.content });
+                    this.transcriptController.completed({ streamId });
+                }
+            }
+            this.processedMessageCount = goal.state.messages.length;
+        }
+
+        // 检查新增步骤
+        const newStep = deriveStepSummary(goal);
+        if (newStep !== undefined && !this.committedStepNumbers.has(newStep.stepNumber)) {
+            this.flushActiveStreamBarrier();
+            this.committedStepNumbers.add(newStep.stepNumber);
+            this.timeline.push({
+                kind: "step",
+                id: `step-${newStep.stepNumber}-${newStep.actionId}`,
+                step: newStep,
+            });
+        }
+    }
+
+    private onTranscriptSnapshot(snapshot: TranscriptSnapshot): void {
+        if (this.shuttingDown || this.activeAssistantStream === null) {
+            return;
+        }
+        if (snapshot.streamId !== this.activeAssistantStream.streamId) {
+            return;
+        }
+
+        if (snapshot.committedBlocks.length > this.activeAssistantStream.committedBlockCount) {
+            for (let i = this.activeAssistantStream.committedBlockCount; i < snapshot.committedBlocks.length; i++) {
+                const block = snapshot.committedBlocks[i]!;
+                const showAuthor = !this.activeAssistantStream.hasCommittedBlock;
+                this.timeline.push({
+                    kind: "assistant_markdown",
+                    id: `${this.activeAssistantStream.messageId}-blk-${i}`,
+                    block,
+                    showAuthor,
+                });
+                this.activeAssistantStream.hasCommittedBlock = true;
+            }
+            this.activeAssistantStream.committedBlockCount = snapshot.committedBlocks.length;
+        }
+
+        if (snapshot.liveTail.length > 0) {
+            this.streamingTail = {
+                messageId: this.activeAssistantStream.messageId,
+                content: snapshot.liveTail,
+                showAuthor: !this.activeAssistantStream.hasCommittedBlock,
+            };
+        } else {
+            this.streamingTail = undefined;
+            if (!snapshot.isStreaming && snapshot.pendingBlocks.length === 0) {
+                this.activeAssistantStream = null;
+            }
+        }
+
+        if (this.snapshot.screen === "session") {
+            const current = this.snapshot;
+            const nextSession: UiSessionViewModel = {
+                ...current,
+                timeline: this.timeline.slice(),
+                ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
+            };
+            if (this.streamingTail === undefined) {
+                delete (nextSession as any).streamingTail;
+            }
+            this.setSnapshot(nextSession);
+        }
+    }
+
     private toSessionView(
         goal: Goal,
         progress: ProgressResult | undefined,
         busy: boolean,
     ): UiSessionViewModel {
         this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
-        if (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id) {
-            this.committedSteps = [];
-            this.preparationSteps = [];
+        if (this.currentGoalId === null || (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id)) {
+            this.transcriptController.reset();
+            this.hydrateInitialGoal(goal);
+        } else {
+            this.syncTimelineWithGoal(goal);
         }
         const newStep = deriveStepSummary(goal);
         if (newStep !== undefined && !this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
@@ -918,6 +1110,8 @@ export class SessionController {
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
             executionMode: this.executionMode,
+            timeline: this.timeline.slice(),
+            ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
             ...(this.preparationSteps.length > 0
                 ? { preparationSteps: this.preparationSteps.slice() }
@@ -1007,8 +1201,19 @@ export class SessionController {
         }
 
         const newStep = deriveStepSummary(savedGoal);
-        if (newStep !== undefined && !this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
-            this.committedSteps.push(newStep);
+        if (newStep !== undefined) {
+            if (!this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
+                this.committedSteps.push(newStep);
+            }
+            if (!this.committedStepNumbers.has(newStep.stepNumber)) {
+                this.flushActiveStreamBarrier();
+                this.committedStepNumbers.add(newStep.stepNumber);
+                this.timeline.push({
+                    kind: "step",
+                    id: `step-${newStep.stepNumber}-${newStep.actionId}`,
+                    step: newStep,
+                });
+            }
         }
 
         const mode = this.dependencies.mode ?? this.snapshot.mode;
@@ -1022,6 +1227,8 @@ export class SessionController {
             stepCount: committedStep,
             messages: savedGoal.state.messages.slice(),
             executionMode: this.executionMode,
+            timeline: this.timeline.slice(),
+            ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
             ...(this.preparationSteps.length > 0
                 ? { preparationSteps: this.preparationSteps.slice() }

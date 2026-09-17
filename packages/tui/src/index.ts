@@ -78,6 +78,8 @@ export type {
     UiIntentInputViewModel,
     UiScreen,
     UiSessionViewModel,
+    UiTimelineItem,
+    UiStreamingTail,
     UiStepSummary,
     UiSettingsViewModel,
     UiShuttingDownViewModel,

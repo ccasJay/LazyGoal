@@ -482,6 +482,84 @@ export interface UiSessionViewModel {
     readonly activeProbeDescription?: string;
     /** 是否处于沙箱资源清理阶段。 */
     readonly cleaning?: boolean;
+    /**
+     * 统一单调有序的时间线项目列表（不可变历史）。
+     *
+     * @remarks
+     * 包含已提交的 User 消息、已提交的执行步骤以及已提交的 Assistant Markdown Blocks。
+     * Session 页面中的 Ink Static 历史组件直接消费本时间线，不再在 Screen 内维护本地副本。
+     *
+     * @example
+     * ```ts
+     * if (view.timeline) {
+     *   console.log(view.timeline.length);
+     * }
+     * ```
+     */
+    readonly timeline?: readonly UiTimelineItem[];
+    /**
+     * 当前正在流式接收的 Assistant 动态尾部。
+     *
+     * @remarks
+     * 在有活动 Assistant 消息流时存在，由尚未提交到不可变历史的 pendingBlocks 与 mutableTail 组成。
+     * 随着所有 Block 经由 Commit Tick 提交完毕后置为 undefined。
+     *
+     * @example
+     * ```ts
+     * if (view.streamingTail) {
+     *   console.log(view.streamingTail.content);
+     * }
+     * ```
+     */
+    readonly streamingTail?: UiStreamingTail;
+}
+
+/**
+ * Session 时间线中已提交不可变项的联合类型。
+ *
+ * @remarks
+ * 保持严格的产生顺序，供 SessionScreen 中的 Ink Static 组件直接渲染：
+ * 1. `message`: 原子提交的用户或系统消息；
+ * 2. `assistant_markdown`: 由 Assistant 流式增量提交的稳定 Markdown Block；
+ * 3. `step`: 已成功执行并持久化的步骤摘要。
+ *
+ * @example
+ * ```ts
+ * const item: UiTimelineItem = {
+ *     kind: "assistant_markdown",
+ *     id: "msg-1-blk-0",
+ *     block: "Hello world\n\n",
+ *     showAuthor: true,
+ * };
+ * ```
+ */
+export type UiTimelineItem =
+    | { readonly kind: "message"; readonly id: string; readonly message: GoalMessage }
+    | { readonly kind: "assistant_markdown"; readonly id: string; readonly block: string; readonly showAuthor: boolean }
+    | { readonly kind: "step"; readonly id: string; readonly step: UiStepSummary };
+
+/**
+ * 正在流式接收的 Assistant 动态尾部。
+ *
+ * @remarks
+ * 包含当前活动流关联的消息 ID、尚未提交的 Markdown 内容与作者标识显示状态。
+ *
+ * @example
+ * ```ts
+ * const tail: UiStreamingTail = {
+ *     messageId: "msg-1",
+ *     content: "Thinking actively...",
+ *     showAuthor: false,
+ * };
+ * ```
+ */
+export interface UiStreamingTail {
+    /** 关联的 Assistant 消息唯一标识。 */
+    readonly messageId: string;
+    /** 尚未提交到不可变历史的全部活动尾部文本（pending + mutable）。 */
+    readonly content: string;
+    /** 是否需要在尾部前置显示 Assistant 作者标识（若该消息尚无 block 进入历史则为 true）。 */
+    readonly showAuthor: boolean;
 }
 
 /**
@@ -727,6 +805,18 @@ export interface SessionControllerDependencies {
     readonly modelRestorer?: {
         restoreModel(options: { readonly goal: Goal }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: UiError }>;
     } | undefined;
+    /**
+     * 可选注入的 Transcript 调度器。
+     *
+     * @remarks
+     * 允许单元测试注入 FakeScheduler，实现对 40ms Commit 节奏的无等待精确步进控制。
+     *
+     * @example
+     * ```ts
+     * const deps: SessionControllerDependencies = { ...baseDeps, transcriptScheduler: fakeScheduler };
+     * ```
+     */
+    readonly transcriptScheduler?: import("./streaming-transcript-controller.js").TranscriptScheduler | undefined;
 }
 
 /**

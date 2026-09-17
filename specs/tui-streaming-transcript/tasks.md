@@ -14,7 +14,7 @@
   - 验证方式：待实现的 renderer 组件测试，覆盖支持 token、未知 token 回退和 committed/live 两种调用方式。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 3. 将 Transcript 接入 SessionController 时间线
+- [x] //TODO 3. 将 Transcript 接入 SessionController 时间线
 
   - 实现目标：扩展 ViewModel 公共类型和 `SessionController`，统一拥有 timeline、transcript 订阅、完整 Assistant 合成流、恢复 hydrate、user/step flush barrier 与 Goal 隔离。
   - 成功判据：新 Assistant 消息渐进追加 block；恢复消息立即可见；后续 user/step 不越序；Goal 切换、shutdown 和 dispose 不接收旧流更新；最终文本与 canonical 内容一致。
