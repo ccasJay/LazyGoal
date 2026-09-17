@@ -254,6 +254,12 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
                 throw validationErr;
             }
+
+            const thought = response.content?.trim();
+            return Object.assign({}, result, {
+                result,
+                ...(thought ? { thought } : {}),
+            });
         } else {
             try {
                 result = parseModelOutput(

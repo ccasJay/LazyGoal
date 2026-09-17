@@ -1729,6 +1729,7 @@ export class Runner {
                                 payload: {
                                     type: "decision_received",
                                     decision: invocation.request,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                                 },
                             },
                             ...invocation.facts,

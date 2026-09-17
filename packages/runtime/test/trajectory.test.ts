@@ -152,3 +152,72 @@ test("diagnostic trace uses an independent no-op channel", async () => {
     await sink.append(record);
     assert.equal(record.kind, "model_request");
 });
+
+test("需求 4.2 & 4.3: decision_received 与 preparation_result 保留 thought 属性，且缺省时完全向下兼容", () => {
+    // 1. 带 thought 的 decision_received
+    const decisionWithThoughtDraft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing",
+        executionUnitId: "unit-1",
+        eventType: "decision_received",
+        payload: {
+            type: "decision_received",
+            decision: {
+                kind: "wait",
+                reason: "Waiting for user confirmation",
+            },
+            thought: "I need user input to proceed safely.",
+        },
+    };
+
+    assertValidTrajectoryEventDraft(decisionWithThoughtDraft);
+    const decisionEvent = allocateImmutableEvent(decisionWithThoughtDraft, 10, "evt-decision-thought");
+    assert.equal((decisionEvent.payload as any).thought, "I need user input to proceed safely.");
+    assert.equal(classifyTrajectoryEvent(decisionEvent), "decision");
+
+    // 2. 缺省 thought 的 decision_received（完全兼容）
+    const decisionWithoutThoughtDraft: TrajectoryEventDraft = {
+        ...decisionWithThoughtDraft,
+        payload: {
+            type: "decision_received",
+            decision: {
+                kind: "wait",
+                reason: "Waiting for user confirmation",
+            },
+        },
+    };
+    assertValidTrajectoryEventDraft(decisionWithoutThoughtDraft);
+    const legacyDecisionEvent = allocateImmutableEvent(decisionWithoutThoughtDraft, 11, "evt-decision-legacy");
+    assert.equal((legacyDecisionEvent.payload as any).thought, undefined);
+
+    // 3. 带 thought 的 preparation_result
+    const prepWithThoughtDraft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "gathering_context",
+        eventType: "preparation_result",
+        payload: {
+            type: "preparation_result",
+            result: "context_ready",
+            thought: "All necessary context has been discovered from the repository.",
+        },
+    };
+    assertValidTrajectoryEventDraft(prepWithThoughtDraft);
+    const prepEvent = allocateImmutableEvent(prepWithThoughtDraft, 12, "evt-prep-thought");
+    assert.equal((prepEvent.payload as any).thought, "All necessary context has been discovered from the repository.");
+    assert.equal(classifyTrajectoryEvent(prepEvent), "decision");
+
+    // 4. 缺省 thought 的 preparation_result
+    const prepWithoutThoughtDraft: TrajectoryEventDraft = {
+        ...prepWithThoughtDraft,
+        payload: {
+            type: "preparation_result",
+            result: "context_ready",
+        },
+    };
+    assertValidTrajectoryEventDraft(prepWithoutThoughtDraft);
+    const legacyPrepEvent = allocateImmutableEvent(prepWithoutThoughtDraft, 13, "evt-prep-legacy");
+    assert.equal((legacyPrepEvent.payload as any).thought, undefined);
+});
+

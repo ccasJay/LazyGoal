@@ -261,6 +261,63 @@ export class SessionController {
     }
 
     /**
+     * 接入模型文本通道流式输出的思考推演增量。
+     *
+     * @remarks
+     * 对应需求 4.1：当模型在自由文本通道以流式方式产生思考内容时，本方法将文本增量实时同步至
+     * 内部 `StreamingTranscriptController`，驱动动态 `streamingTail` 在终端流式渲染思维链。
+     * 若当前尚无针对该 `streamId` 的活跃流，将先自动触发 `started` 事件初始化新流。
+     * 若 Controller 已处于关闭状态（`shuttingDown`），增量将被安全丢弃。
+     *
+     * @param streamId - 关联的模型推理流或步骤唯一标识。
+     * @param deltaText - 本次到达的思考文本增量片段。
+     * @param messageId - 可选的消息标识；未提供时默认为 `thought-${streamId}`。
+     *
+     * @example
+     * ```ts
+     * controller.feedThinkingDelta("stream-step-1", "正在分析项目目录结构...\n");
+     * ```
+     */
+    feedThinkingDelta(streamId: string, deltaText: string, messageId?: string): void {
+        if (this.shuttingDown) return;
+        const targetMessageId = messageId ?? `thought-${streamId}`;
+        if (this.activeAssistantStream === null || this.activeAssistantStream.streamId !== streamId) {
+            this.flushActiveStreamBarrier();
+            this.activeAssistantStream = {
+                streamId,
+                messageId: targetMessageId,
+                messageIndex: -1,
+                hasCommittedBlock: false,
+                committedBlockCount: 0,
+            };
+            this.transcriptController.started({ streamId, messageId: targetMessageId });
+        }
+        this.transcriptController.delta({ streamId, text: deltaText });
+    }
+
+    /**
+     * 结束指定流的思考推演过程。
+     *
+     * @remarks
+     * 标记当前思考流已完成，触发 `StreamingTranscriptController` 收束剩余尾部并排期提交 Tick，
+     * 保证在后续动作审批抽屉弹出或步骤执行前思维推演渲染完整。
+     * 若当前流标识不匹配或处于关闭态，不产生副作用。
+     *
+     * @param streamId - 待完成的思考推演流标识。
+     *
+     * @example
+     * ```ts
+     * controller.completeThinking("stream-step-1");
+     * ```
+     */
+    completeThinking(streamId: string): void {
+        if (this.shuttingDown) return;
+        if (this.activeAssistantStream !== null && this.activeAssistantStream.streamId === streamId) {
+            this.transcriptController.completed({ streamId });
+        }
+    }
+
+    /**
      * 处理一个 UI 命令。
      *
      * @remarks

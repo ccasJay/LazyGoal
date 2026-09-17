@@ -470,7 +470,7 @@ export class GoalCoordinator {
 
                     const validation = this.validatePreparationResult(rawResult);
                     if (!validation.ok) return validation;
-                    const result = validation.result;
+                    const { result, thought } = validation;
 
                     if (result.kind === "probe_action") {
                         if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
@@ -490,6 +490,7 @@ export class GoalCoordinator {
                             session,
                             preparationProbeCount,
                             control,
+                            thought,
                         );
                         if (!probeOutcome.ok) return probeOutcome;
                         goal = probeOutcome.goal;
@@ -507,6 +508,7 @@ export class GoalCoordinator {
                             workflow.phase,
                             preparationLookupCount,
                             control,
+                            thought,
                         );
                         if (!lookup.ok) return lookup;
                         goal = lookup.goal;
@@ -534,7 +536,11 @@ export class GoalCoordinator {
                                     runId: goal.state.run.id,
                                     phase: workflow.phase,
                                     eventType: "preparation_result",
-                                    payload: { type: "preparation_result", result: result.kind },
+                                    payload: {
+                                        type: "preparation_result",
+                                        result: result.kind,
+                                        ...(thought !== undefined ? { thought } : {}),
+                                    },
                                 },
                                 epoch.fact,
                             ],
@@ -551,7 +557,11 @@ export class GoalCoordinator {
                         runId: goal.state.run.id,
                         phase: workflow.phase,
                         eventType: "preparation_result",
-                        payload: { type: "preparation_result", result: result.kind },
+                        payload: {
+                            type: "preparation_result",
+                            result: result.kind,
+                            ...(thought !== undefined ? { thought } : {}),
+                        },
                     };
 
                     if (result.kind === "question") {
@@ -652,7 +662,7 @@ export class GoalCoordinator {
 
                 const validation = this.validatePreparationResult(rawResult);
                 if (!validation.ok) return validation;
-                const result = validation.result;
+                const { result, thought } = validation;
 
                 if (result.kind === "probe_action") {
                     if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
@@ -672,6 +682,7 @@ export class GoalCoordinator {
                         session,
                         preparationProbeCount,
                         control,
+                        thought,
                     );
                     if (!probeOutcome.ok) return probeOutcome;
                     goal = probeOutcome.goal;
@@ -689,6 +700,7 @@ export class GoalCoordinator {
                         workflow.phase,
                         preparationLookupCount,
                         control,
+                        thought,
                     );
                     if (!lookup.ok) return lookup;
                     goal = lookup.goal;
@@ -716,7 +728,11 @@ export class GoalCoordinator {
                                 runId: goal.state.run.id,
                                 phase: workflow.phase,
                                 eventType: "preparation_result",
-                                payload: { type: "preparation_result", result: result.kind },
+                                payload: {
+                                    type: "preparation_result",
+                                    result: result.kind,
+                                    ...(thought !== undefined ? { thought } : {}),
+                                },
                             },
                             epoch.fact,
                         ],
@@ -743,7 +759,11 @@ export class GoalCoordinator {
                     runId: goal.state.run.id,
                     phase: workflow.phase,
                     eventType: "preparation_result",
-                    payload: { type: "preparation_result", result: result.kind },
+                    payload: {
+                        type: "preparation_result",
+                        result: result.kind,
+                        ...(thought !== undefined ? { thought } : {}),
+                    },
                 };
                 goal = this.withProposal(goal, result);
                 throwIfAborted(control);
@@ -1171,6 +1191,7 @@ export class GoalCoordinator {
         phase: "gathering_context" | "planning",
         lookupCount: number,
         control?: ExecutionControl,
+        thought?: string,
     ): Promise<PreparationLookupOutcome> {
         if (lookupCount >= 3) {
             return {
@@ -1218,7 +1239,11 @@ export class GoalCoordinator {
             runId: goal.state.run.id,
             phase,
             eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "context_lookup" },
+            payload: {
+                type: "preparation_result",
+                result: "context_lookup",
+                ...(thought !== undefined ? { thought } : {}),
+            },
         };
         const committedGoal = await this.commitPreparation(
             goal,
@@ -1250,6 +1275,7 @@ export class GoalCoordinator {
         session: WorkingMemorySession,
         probeCount: number,
         control?: ExecutionControl,
+        thought?: string,
     ): Promise<
         | {
             readonly ok: true;
@@ -1385,7 +1411,11 @@ export class GoalCoordinator {
             phase,
             actionId,
             eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "probe_action" },
+            payload: {
+                type: "preparation_result",
+                result: "probe_action",
+                ...(thought !== undefined ? { thought } : {}),
+            },
         };
         const toolStartedFact: TrajectoryEventDraft = {
             goalId: goal.id,
@@ -1981,7 +2011,7 @@ export class GoalCoordinator {
     private validatePreparationResult(
         rawResult: unknown,
     ):
-        | { readonly ok: true; readonly result: PreparationResult }
+        | { readonly ok: true; readonly result: PreparationResult; readonly thought?: string }
         | {
             readonly ok: false;
             readonly error: {
@@ -1989,7 +2019,20 @@ export class GoalCoordinator {
                 readonly message: string;
             };
         } {
-        const parsed = safeParse(PreparationResultContract, rawResult);
+        const isResultObject = typeof rawResult === "object"
+            && rawResult !== null
+            && "result" in rawResult;
+        let candidate = isResultObject ? (rawResult as any).result : rawResult;
+        const extractedThought = isResultObject && typeof (rawResult as any).thought === "string"
+            ? (rawResult as any).thought
+            : (typeof (rawResult as any)?.thought === "string" ? (rawResult as any).thought : undefined);
+
+        if (candidate && typeof candidate === "object" && "thought" in candidate) {
+            const { thought: _ignored, ...stripped } = candidate as any;
+            candidate = stripped;
+        }
+
+        const parsed = safeParse(PreparationResultContract, candidate);
         if (!parsed.success) {
             return {
                 ok: false,
@@ -2009,7 +2052,7 @@ export class GoalCoordinator {
                 },
             };
         }
-        return { ok: true, result: parsed.data };
+        return { ok: true, result: parsed.data, ...(extractedThought !== undefined ? { thought: extractedThought } : {}) };
     }
 
     private invalidPhaseResult(

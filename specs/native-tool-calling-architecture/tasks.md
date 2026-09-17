@@ -1,9 +1,9 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 系统决策动作函数化与 Contract AST 映射
+- [x] //TODO 1. 系统决策动作函数化与 Contract AST 映射
   - 实现目标：在 `@lazygoal/contracts` 中定义全阶段系统函数（`system_complete_task`、`system_wait_for_input`、`system_fail_goal`、`system_ask_clarification`、`system_context_ready`、`system_propose_task_plan`、`system_probe_action`、`system_context_lookup`），支持从阶段契约导出原生 Function Calling 参数 Schema 并通过 AST 严格反序列化
   - 成功判据：内置函数参数生成合规 JSON Schema，非法参数输入返回带精确定位路径的 ContractValidationError，合法输入确定性解码为领域动作对象
-  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（待实现）
+  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（已通过）
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
 - [x] //TODO 2. LLM 双通道交互协议与多厂商原生 Function Calling 适配
@@ -18,10 +18,10 @@
   - 验证方式：`npx tsx --test packages/agent/test/native-step-executor.test.ts`（已通过）
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4)_
 
-- [ ] //TODO 4. 思考流实时接入 TUI Transcript 与 Trajectory 审计入轨
+- [x] //TODO 4. 思考流实时接入 TUI Transcript 与 Trajectory 审计入轨
   - 实现目标：将模型文本通道输出的思考内容直接接入 TUI 流式 Transcript 控制器进行终端渲染，并将完整思考文本持久化为 Trajectory 决策事件属性
   - 成功判据：TUI 在单步推进中流畅显示思维推演过程，随后弹出动作审批抽屉；轨迹事件正确保留 `thought` 字段且快照回放完全兼容历史数据
-  - 验证方式：`npx tsx --test packages/tui/test/transcript-thinking-flow.test.ts`（待实现）与 `npx tsx --test packages/runtime/test/trajectory.test.ts`
+  - 验证方式：`npx tsx --test packages/tui/test/transcript-thinking-flow.test.ts`（已通过）与 `npx tsx --test packages/runtime/test/trajectory.test.ts`（已通过）
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
 - [ ] //TODO 5. 废除 structured_output_mode 显式配置与模式分支去重
