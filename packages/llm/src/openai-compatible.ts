@@ -5,6 +5,7 @@ import {
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
+    type LLMToolCall,
     type StructuredOutputMode,
 } from "./core/types";
 import { extractOpenAIUsage } from "./core/usage";
@@ -81,7 +82,7 @@ export class OpenAICompatible implements LLMAdapter {
     ): Promise<LLMResponse> {
         throwIfAborted(control);
 
-        if (this.structuredOutputMode === "strict") {
+        if (_request.tools === undefined && this.structuredOutputMode === "strict") {
             if (_request.structuredOutput === undefined) {
                 throw new LLMRequestModeMismatchError(
                     "OpenAICompatible adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
@@ -99,6 +100,7 @@ export class OpenAICompatible implements LLMAdapter {
         const maxOutputTokens = _request.maxOutputTokens ?? this.maxOutputTokens;
 
         try {
+            const hasTools = _request.tools !== undefined && _request.tools.length > 0;
             const request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
                 model: this.model,
                 messages,
@@ -117,6 +119,20 @@ export class OpenAICompatible implements LLMAdapter {
                         },
                     }
                     : {}),
+                ...(hasTools
+                    ? {
+                        tools: _request.tools!.map(tool => ({
+                            type: "function" as const,
+                            function: {
+                                name: tool.id,
+                                description: tool.description,
+                                parameters: tool.parametersSchema,
+                                strict: true,
+                            },
+                        })),
+                        tool_choice: _request.toolChoice ?? "required",
+                    }
+                    : {}),
             };
             const response = control?.signal === undefined
                 ? await this.client.chat.completions.create(request)
@@ -126,10 +142,24 @@ export class OpenAICompatible implements LLMAdapter {
                 );
             throwIfAborted(control);
             const choice = response.choices[0];
+            const message = choice?.message;
             const usage = extractOpenAIUsage(response.usage);
 
+            const textContent = message?.content ?? "";
+            const reasoningContent = (message as any)?.reasoning_content ?? (message as any)?.thought ?? "";
+            const fullContent = textContent && reasoningContent
+                ? `${reasoningContent}\n${textContent}`
+                : (textContent || (typeof reasoningContent === "string" ? reasoningContent : ""));
+
+            const toolCalls: LLMToolCall[] | undefined = message?.tool_calls?.map(tc => ({
+                callId: tc.id,
+                toolId: tc.function.name,
+                argumentsJson: tc.function.arguments,
+            }));
+
             return {
-                content: choice?.message.content ?? "",
+                content: fullContent,
+                ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
                 providerMetadata: {
                     requestId: response.id,
                     model: response.model,

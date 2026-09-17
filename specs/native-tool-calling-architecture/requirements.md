@@ -91,3 +91,4 @@ LazyGoal 当前采用将整个决策塞入单一 JSON 封包的设计，导致�
 1. <a id="req-5-1"></a> 当用户在 `config.toml` 中配置模型时，系统不得要求用户填写 `structured_output_mode` 字段。
 2. <a id="req-5-2"></a> 当系统加载配置或环境变量时，必须彻底移除对 `LLM_STRUCTURED_OUTPUT_MODE` 的校验与报错逻辑。
 3. <a id="req-5-3"></a> 当生成或校验 Goal 持久化快照时，快照契约不得强制依赖具体的输出模式枚举，实现对历史快照的无缝平滑兼容。
+

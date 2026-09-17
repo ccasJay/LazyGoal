@@ -173,3 +173,4 @@ export interface LLMResponse {
   - 验证系统函数被无损映射为领域 `AgentDecision` 和 `PreparationResult`。
 - **全量回归与 Benchmark 兼容**：
   - 运行全量回归，确保 SWE-bench 和 ALFWorld 评测套件在 1 RTT 下正确调度并提升吞吐量。
+

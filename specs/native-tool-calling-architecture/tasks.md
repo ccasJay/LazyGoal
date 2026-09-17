@@ -1,15 +1,15 @@
 # Implementation Plan
 
-- [x] //TODO 1. 系统决策动作函数化与 Contract AST 映射
+- [ ] //TODO 1. 系统决策动作函数化与 Contract AST 映射
   - 实现目标：在 `@lazygoal/contracts` 中定义全阶段系统函数（`system_complete_task`、`system_wait_for_input`、`system_fail_goal`、`system_ask_clarification`、`system_context_ready`、`system_propose_task_plan`、`system_probe_action`、`system_context_lookup`），支持从阶段契约导出原生 Function Calling 参数 Schema 并通过 AST 严格反序列化
   - 成功判据：内置函数参数生成合规 JSON Schema，非法参数输入返回带精确定位路径的 ContractValidationError，合法输入确定性解码为领域动作对象
-  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（已通过）
+  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（待实现）
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 2. LLM 双通道交互协议与多厂商原生 Function Calling 适配
+- [x] //TODO 2. LLM 双通道交互协议与多厂商原生 Function Calling 适配
   - 实现目标：重构 `LLMRequest` 与 `LLMResponse` 引入 `tools`、`toolChoice: "required"` 与 `toolCalls`，在 OpenAICompatible、Gemini 与 PiAi 适配器中实现厂商原生 Function Calling 映射与思考文本无损捕获
   - 成功判据：OpenAI 挂载 `tools` 与 `strict: true`，Gemini 挂载 `functionDeclarations` 与 `ANY` 模式；单次调用同时返回自然语言思考文本与符合定义的工具调用，原生思考模型无损捕获且不产生重复推演
-  - 验证方式：`npx tsx --test packages/llm/test/native-tool-calling.test.ts`（待实现）与既有 LLM 测试
+  - 验证方式：`npx tsx --test packages/llm/test/native-tool-calling.test.ts`（已通过）与既有 LLM 测试
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
 - [ ] //TODO 3. Agent 单步执行器归一与 1 RTT 执行流重构
@@ -54,3 +54,4 @@
 ### Latest Result
 
 未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+

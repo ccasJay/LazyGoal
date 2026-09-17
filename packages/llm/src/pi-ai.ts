@@ -6,7 +6,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { LLMAdapter } from "./core/adapter";
-import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse } from "./core/types";
+import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMToolCall } from "./core/types";
 import { LlmConfigurationError, type LlmConfig } from "./config";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../runtime/src/execution-control";
 
@@ -108,16 +108,44 @@ export class PiAiAdapter implements LLMAdapter {
             throw error;
         }
         if (response.stopReason === "aborted") throw new ExecutionAbortedError();
-        if (response.stopReason !== "stop" || response.content.some(block => block.type === "toolCall")) {
-            // Provider messages may echo request credentials; do not copy arbitrary SDK text into Runtime errors.
-            throw new PiAiProviderError(this.config.provider, response.stopReason,
-                `Provider "${this.config.provider}" did not complete a text response (${response.stopReason})`);
+        const hasTools = request.tools !== undefined && request.tools.length > 0;
+        if (!hasTools) {
+            if (response.stopReason !== "stop" || response.content.some(block => block.type === "toolCall")) {
+                // Provider messages may echo request credentials; do not copy arbitrary SDK text into Runtime errors.
+                throw new PiAiProviderError(this.config.provider, response.stopReason,
+                    `Provider "${this.config.provider}" did not complete a text response (${response.stopReason})`);
+            }
+        } else {
+            const validStop = response.stopReason === "stop" || response.stopReason === "toolUse";
+            if (!validStop && !response.content.some(block => block.type === "toolCall")) {
+                throw new PiAiProviderError(this.config.provider, response.stopReason,
+                    `Provider "${this.config.provider}" did not complete a text response (${response.stopReason})`);
+            }
         }
         const { input, output, cacheRead, cacheWrite, reasoning } = response.usage;
         const piUsage = Object.fromEntries(Object.entries({ input, output, cacheRead, cacheWrite, reasoning })
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
+
+        const textBlocks = response.content.flatMap(block => block.type === "text" ? [block.text] : []);
+        const thinkingBlocks = response.content.flatMap(block => block.type === "thinking" ? [block.thinking] : []);
+        const content = hasTools && thinkingBlocks.length > 0
+            ? `${thinkingBlocks.join("\n")}\n${textBlocks.join("\n")}`.trim()
+            : textBlocks.join("");
+
+        const toolCalls: LLMToolCall[] = response.content.flatMap(block => {
+            if (block.type === "toolCall") {
+                return [{
+                    callId: block.id,
+                    toolId: block.name,
+                    argumentsJson: typeof block.arguments === "string" ? block.arguments : JSON.stringify(block.arguments ?? {}),
+                }];
+            }
+            return [];
+        });
+
         return {
-            content: response.content.flatMap(block => block.type === "text" ? [block.text] : []).join(""),
+            content,
+            ...(toolCalls.length > 0 ? { toolCalls } : {}),
             providerMetadata: {
                 provider: response.provider, api: response.api, model: response.model,
                 ...(response.responseId === undefined ? {} : { responseId: response.responseId }),
@@ -152,6 +180,15 @@ export class PiAiAdapter implements LLMAdapter {
                 });
             }
         }
-        return { messages, ...(system.length ? { systemPrompt: system.join("\n") } : {}) };
+        const tools = request.tools?.map(t => ({
+            name: t.id,
+            description: t.description,
+            parameters: t.parametersSchema,
+        }));
+        return {
+            messages,
+            ...(system.length ? { systemPrompt: system.join("\n") } : {}),
+            ...(tools && tools.length > 0 ? { tools: tools as any } : {}),
+        };
     }
 }

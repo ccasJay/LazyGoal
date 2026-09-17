@@ -51,6 +51,54 @@ export interface LLMStructuredOutput {
     readonly schema: JsonSchema202012;
 }
 
+/**
+ * 原生 Function Calling / Tool Calling 工具声明定义。
+ *
+ * @remarks
+ * 供 LLM 适配器映射为具体供应商的工具结构（如 OpenAI `tools[].function` 或 Gemini `functionDeclarations`）。
+ *
+ * @example
+ * ```ts
+ * const tool: LLMToolDefinition = {
+ *     id: "bash",
+ *     description: "Execute bash command",
+ *     parametersSchema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+ * };
+ * ```
+ */
+export interface LLMToolDefinition {
+    /** 工具唯一标识，作为函数调用的名称。 */
+    readonly id: string;
+    /** 工具的功能描述。 */
+    readonly description: string;
+    /** 符合 JSON Schema 规范的入参定义。 */
+    readonly parametersSchema: Record<string, unknown>;
+}
+
+/**
+ * 模型返回的原生结构化工具调用。
+ *
+ * @remarks
+ * 表示模型在特定步骤生成的工具执行指令，包含唯一调用 ID、调用的工具名称以及未解析的 JSON 参数字符串。
+ *
+ * @example
+ * ```ts
+ * const call: LLMToolCall = {
+ *     callId: "call_123",
+ *     toolId: "bash",
+ *     argumentsJson: '{"command":"ls -la"}',
+ * };
+ * ```
+ */
+export interface LLMToolCall {
+    /** 工具调用的唯一标识 ID。 */
+    readonly callId: string;
+    /** 所调用的工具名称 / 标识。 */
+    readonly toolId: string;
+    /** 序列化的参数 JSON 字符串。 */
+    readonly argumentsJson: string;
+}
+
 /** 一次 LLM 生成请求；消息顺序必须按原样传递给 Adapter。 */
 export interface LLMRequest {
     readonly messages: readonly LLMMessage[];
@@ -60,6 +108,15 @@ export interface LLMRequest {
      * strict 模式下必须传递的原生结构化输出配置；prompt_only 模式下必须完全省略。
      */
     readonly structuredOutput?: LLMStructuredOutput;
+    /** 原生 Function Calling 挂载的工具定义集合。 */
+    readonly tools?: readonly LLMToolDefinition[];
+    /**
+     * 原生工具调用策略。
+     * - `required`: 强制模型必须且仅触发 1 个工具调用；
+     * - `auto`: 由模型自主决定是仅回复文本还是调用工具；
+     * - `none`: 禁止模型调用工具。
+     */
+    readonly toolChoice?: "auto" | "required" | "none";
 }
 
 /**
@@ -106,8 +163,10 @@ export class LLMRequestModeMismatchError extends Error {
  * ```
  */
 export interface LLMResponse {
-    /** Agent 协议解析使用的原始模型文本。 */
-    content: string;
+    /** Agent 协议解析使用的原始模型文本（包含思维链/自然语言回复）。 */
+    readonly content: string;
+    /** 模型发起的工具调用列表。原生双通道下单次单步通常包含 0 个或 1 个工具调用。 */
+    readonly toolCalls?: readonly LLMToolCall[];
     /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */
-    providerMetadata?: JsonValue;
+    readonly providerMetadata?: JsonValue;
 }

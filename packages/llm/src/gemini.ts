@@ -11,6 +11,7 @@ import {
     type LLMMessage,
     type LLMRequest,
     type LLMResponse,
+    type LLMToolCall,
     type StructuredOutputMode,
 } from "./core/types";
 import { extractGeminiUsage } from "./core/usage";
@@ -105,7 +106,7 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        if (this.structuredOutputMode === "strict") {
+        if (request.tools === undefined && this.structuredOutputMode === "strict") {
             if (request.structuredOutput === undefined) {
                 throw new LLMRequestModeMismatchError(
                     "Gemini adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
@@ -129,6 +130,28 @@ export class Gemini implements LLMAdapter {
             };
         }
 
+        if (request.tools !== undefined && request.tools.length > 0) {
+            input.config = {
+                ...input.config,
+                tools: [{
+                    functionDeclarations: request.tools.map(t => ({
+                        name: t.id,
+                        description: t.description,
+                        parameters: prepareGeminiSchema(t.parametersSchema as unknown as JsonSchema202012),
+                    })),
+                }],
+                toolConfig: {
+                    functionCallingConfig: {
+                        mode: (request.toolChoice === "required"
+                            ? "ANY"
+                            : request.toolChoice === "none"
+                            ? "NONE"
+                            : "AUTO") as any,
+                    },
+                },
+            };
+        }
+
         if (control?.signal !== undefined) {
             input.config = {
                 ...input.config,
@@ -144,11 +167,46 @@ export class Gemini implements LLMAdapter {
             throwIfAborted(control);
             const usage = extractGeminiUsage(response.usageMetadata);
 
-            const content = response.text ?? "";
+            const candidate = response.candidates?.[0];
+            const textParts: string[] = [];
+            const toolCalls: LLMToolCall[] = [];
+
+            if (candidate?.content?.parts) {
+                for (const part of candidate.content.parts) {
+                    if (part.text) {
+                        textParts.push(part.text);
+                    }
+                    if ((part as any).thought) {
+                        textParts.push((part as any).thought);
+                    }
+                    if (part.functionCall) {
+                        toolCalls.push({
+                            callId: (part.functionCall as any).id ?? part.functionCall.name ?? "gemini_call",
+                            toolId: part.functionCall.name ?? "",
+                            argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
+                        });
+                    }
+                }
+            }
+
+            if (toolCalls.length === 0 && (response as any).functionCalls) {
+                for (const fc of (response as any).functionCalls) {
+                    toolCalls.push({
+                        callId: fc.name ?? "gemini_call",
+                        toolId: fc.name ?? "",
+                        argumentsJson: JSON.stringify(fc.args ?? {}),
+                    });
+                }
+            }
+
+            const rawContent = textParts.length > 0 ? textParts.join("\n").trim() : (response.text ?? "");
+            const content = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined
+                ? restoreGeminiResponseProjection(rawContent, request.structuredOutput.schema)
+                : rawContent;
+
             return {
-                content: (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined
-                    ? restoreGeminiResponseProjection(content, request.structuredOutput.schema)
-                    : content,
+                content,
+                ...(toolCalls.length > 0 ? { toolCalls } : {}),
                 providerMetadata: {
                     model: this.model,
                     ...(usage !== undefined ? { usage } : {}),
