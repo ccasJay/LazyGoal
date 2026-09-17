@@ -151,3 +151,22 @@ export type {
     ModelOutputContractBundle,
     ModelOutputRequest,
 } from "./model-output/factory";
+export {
+    SystemCompleteTaskDeclaration,
+    SystemWaitForInputDeclaration,
+    SystemFailGoalDeclaration,
+    SystemContextLookupDeclaration,
+    SystemAskClarificationDeclaration,
+    SystemContextReadyDeclaration,
+    SystemProposeTaskPlanDeclaration,
+    SystemContextCheckpointDeclaration,
+    createExecutingToolDeclarations,
+    createGatheringToolDeclarations,
+    createPlanningToolDeclarations,
+    createCheckpointToolDeclarations,
+    decodePhaseToolCall,
+} from "./model-output/system-tools";
+export type {
+    SystemToolDeclaration,
+} from "./model-output/system-tools";
+

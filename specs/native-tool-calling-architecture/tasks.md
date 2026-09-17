@@ -1,9 +1,9 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 系统决策动作函数化与 Contract AST 映射
+- [x] //TODO 1. 系统决策动作函数化与 Contract AST 映射
   - 实现目标：在 `@lazygoal/contracts` 中定义全阶段系统函数（`system_complete_task`、`system_wait_for_input`、`system_fail_goal`、`system_ask_clarification`、`system_context_ready`、`system_propose_task_plan`、`system_probe_action`、`system_context_lookup`），支持从阶段契约导出原生 Function Calling 参数 Schema 并通过 AST 严格反序列化
   - 成功判据：内置函数参数生成合规 JSON Schema，非法参数输入返回带精确定位路径的 ContractValidationError，合法输入确定性解码为领域动作对象
-  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（待实现）
+  - 验证方式：`npx tsx --test packages/contracts/test/system-tools.test.ts`（已通过）
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
 - [ ] //TODO 2. LLM 双通道交互协议与多厂商原生 Function Calling 适配
