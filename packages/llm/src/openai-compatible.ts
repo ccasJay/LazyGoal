@@ -151,11 +151,14 @@ export class OpenAICompatible implements LLMAdapter {
                 ? `${reasoningContent}\n${textContent}`
                 : (textContent || (typeof reasoningContent === "string" ? reasoningContent : ""));
 
-            const toolCalls: LLMToolCall[] | undefined = message?.tool_calls?.map(tc => ({
-                callId: tc.id,
-                toolId: tc.function.name,
-                argumentsJson: tc.function.arguments,
-            }));
+            const toolCalls: LLMToolCall[] | undefined = message?.tool_calls?.map(tc => {
+                const func = "function" in tc ? tc.function : (tc as any).function;
+                return {
+                    callId: tc.id,
+                    toolId: func?.name ?? "",
+                    argumentsJson: func?.arguments ?? "{}",
+                };
+            });
 
             return {
                 content: fullContent,

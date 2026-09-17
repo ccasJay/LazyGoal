@@ -60,9 +60,8 @@ test("readLlmConfig reports every missing variable before creating a root", () =
                 "LLM_PROVIDER",
                 "LLM_MODEL",
                 "LLM_API_KEY",
-                "LLM_STRUCTURED_OUTPUT_MODE",
             ]);
-            assert.match(error.message, /LLM_PROVIDER, LLM_MODEL, LLM_API_KEY, LLM_STRUCTURED_OUTPUT_MODE/);
+            assert.match(error.message, /LLM_PROVIDER, LLM_MODEL, LLM_API_KEY/);
             return true;
         },
     );

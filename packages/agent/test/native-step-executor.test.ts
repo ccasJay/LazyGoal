@@ -103,7 +103,7 @@ test("LLMStepExecutor 单步 1 RTT 原生工具调用返回 AgentDecision 与 th
         id: "bash",
         description: "执行命令",
         inputContract: contract.object({ command: contract.string() }),
-        outputContract: contract.string(),
+        isReadOnly: false,
     };
 
     let callCount = 0;

@@ -304,6 +304,7 @@ export function createExecutingBusinessToolDeclaration(
         (input): AgentDecision => ({
             kind: "tool_call",
             action: {
+                actionId: "",
                 toolId: tool.id,
                 input: input as any,
             },

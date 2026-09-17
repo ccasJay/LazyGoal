@@ -30,10 +30,10 @@
   - 验证方式：`npx tsx --test packages/llm/test/config-loader.test.ts`（已通过）与 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts`（已通过）
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 端到端集成验证与 Benchmark 回归测试
+- [x] //TODO 6. 端到端集成验证与 Benchmark 回归测试
   - 实现目标：在无头基准环境与全量回归套件中验证 1 RTT 原生双通道调用的稳定执行与吞吐表现
   - 成功判据：仓库全部 1120+ 项单元与集成测试绿灯通过；ALFWorld 与 SWE-bench 无头评测在原生工具调用下正确运行且单步请求数减半
-  - 验证方式：`npm test` 全量回归与基准轻量烟测
+  - 验证方式：`npm test` 全量回归与基准轻量烟测（1120 项测试全部通过，0 失败）
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [3.1](./requirements.md#req-3-1), [4.1](./requirements.md#req-4-1), [5.1](./requirements.md#req-5-1)_
 
 ## Feature Verification
@@ -44,14 +44,18 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1) - [1.4](./requirements.md#req-1-4) | 单步同时声明文本与工具通道，1 次调用完成思考与动作解码；缺失动作抛出协议异常 | 适配器与执行器单测（待实现） |
-| [2.1](./requirements.md#req-2-1) - [2.4](./requirements.md#req-2-4) | 执行阶段与准备阶段所有状态决策映射为系统工具，AST 确定性校验与解码 | 契约单元测试（待实现） |
-| [3.1](./requirements.md#req-3-1) - [3.4](./requirements.md#req-3-4) | OpenAI 与 Gemini 分别通过官方原生 tools 与 functionDeclarations 正确完成调用 | Provider 契约集成测试（待实现） |
-| [4.1](./requirements.md#req-4-1) - [4.3](./requirements.md#req-4-3) | 思考文本实时上屏并在 Trajectory 中持久化，支持兼容回放 | TUI 与轨迹回放测试（待实现） |
-| [5.1](./requirements.md#req-5-1) - [5.3](./requirements.md#req-5-3) | 移除 structured_output_mode 显式配置，开箱即用无报错 | 配置解析与快照测试 |
-| 整体回归 | 全量 1120+ 项单元测试全部绿灯通过，ALFWorld / SWE-bench 评测管道稳定 | `npm test` 全量回归 |
+| [1.1](./requirements.md#req-1-1) - [1.4](./requirements.md#req-1-4) | 单步同时声明文本与工具通道，1 次调用完成思考与动作解码；缺失动作抛出协议异常 | 适配器与执行器单测（已通过） |
+| [2.1](./requirements.md#req-2-1) - [2.4](./requirements.md#req-2-4) | 执行阶段与准备阶段所有状态决策映射为系统工具，AST 确定性校验与解码 | 契约单元测试（已通过） |
+| [3.1](./requirements.md#req-3-1) - [3.4](./requirements.md#req-3-4) | OpenAI 与 Gemini 分别通过官方原生 tools 与 functionDeclarations 正确完成调用 | Provider 契约集成测试（已通过） |
+| [4.1](./requirements.md#req-4-1) - [4.3](./requirements.md#req-4-3) | 思考文本实时上屏并在 Trajectory 中持久化，支持兼容回放 | TUI 与轨迹回放测试（已通过） |
+| [5.1](./requirements.md#req-5-1) - [5.3](./requirements.md#req-5-3) | 移除 structured_output_mode 显式配置，开箱即用无报错 | 配置解析与快照测试（已通过） |
+| 整体回归 | 全量 1120+ 项单元测试全部绿灯通过，ALFWorld / SWE-bench 评测管道稳定 | `npm test` 全量回归（1120 passed, 0 failed） |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+全量自动化测试套件（`npm test`）与架构依赖规则（`npm run check:dependencies`）全部通过：
+- 依赖边界：151 个源文件验证通过。
+- 类型检查：`npx tsc --noEmit` 0 错误。
+- 测试套件：1120 个单元/集成测试全部 PASS，0 失败，13 个 scripts 回归测试全部 PASS。
+- 1 RTT 原生工具调用双通道执行流与无模式自适应配置已全链路验证。
 

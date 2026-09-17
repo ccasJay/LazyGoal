@@ -157,7 +157,6 @@ function createDependencies(options: {
                 ok: true,
                 kind: "terminal",
                 phase: "executing",
-                terminal: "completed",
                 goal,
             };
         },
@@ -170,7 +169,6 @@ function createDependencies(options: {
                 ok: true,
                 kind: "terminal",
                 phase: "executing",
-                terminal: "completed",
                 goal,
             };
         },
@@ -183,8 +181,8 @@ function createDependencies(options: {
         catalog,
         profileId: profile.id,
         goalIdGenerator: () => "goal-thinking-generated",
-        initialGoal: options.initialGoal,
         transcriptScheduler: options.scheduler,
+        ...(options.initialGoal !== undefined ? { initialGoal: options.initialGoal } : {}),
     };
 
     return { dependencies, goals };

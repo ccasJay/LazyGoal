@@ -185,7 +185,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
 
         const phase = goal.state.workflow.phase;
         const toolDeclarations: readonly SystemToolDeclaration<PreparationResult>[] =
-            plan.bundle.kind === "checkpoint"
+            plan.bundle.name === "context_checkpoint_result"
                 ? createCheckpointToolDeclarations()
                 : phase === "gathering_context"
                 ? createGatheringToolDeclarations(tools)
@@ -235,20 +235,23 @@ export class LLMPreparationExecutor implements PreparationExecutor {
                 rawArgs = JSON.parse(toolCall.argumentsJson);
             } catch (err) {
                 const parseErr = new LLMResponseProtocolError(
-                    "INVALID_LLM_RESPONSE",
                     `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
+                    { cause: err },
                 );
                 await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
                 throw parseErr;
             }
 
             try {
-                result = decodePhaseToolCall(toolDeclarations, toolCall.toolId, rawArgs);
+                result = decodePhaseToolCall(toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as PreparationResult;
             } catch (error) {
                 const validationErr = error instanceof ContractValidationError
                     ? new LLMResponseProtocolError(
-                        "INVALID_LLM_RESPONSE",
                         `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+                        {
+                            issues: error.issues.map(i => ({ code: i.code, path: i.path, message: i.message })),
+                            cause: error,
+                        },
                     )
                     : error;
                 await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");

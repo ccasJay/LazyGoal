@@ -90,9 +90,9 @@ test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 t
     assert.equal(response.content, "我分析了任务，决定调用系统完成函数。");
     assert.ok(response.toolCalls);
     assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls[0].callId, "call_abc123");
-    assert.equal(response.toolCalls[0].toolId, "system_complete_task");
-    const parsedArgs = JSON.parse(response.toolCalls[0].argumentsJson);
+    assert.equal(response.toolCalls![0]!.callId, "call_abc123");
+    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
+    const parsedArgs = JSON.parse(response.toolCalls![0]!.argumentsJson);
     assert.equal(parsedArgs.summary, "任务已成功实现");
 });
 
@@ -143,7 +143,7 @@ test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工�
 
     assert.equal(response.content, "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
     assert.equal(response.toolCalls?.length, 1);
-    assert.equal(response.toolCalls?.[0].toolId, "system_complete_task");
+    assert.equal(response.toolCalls?.[0]!.toolId, "system_complete_task");
 });
 
 test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式并提取双通道数据", async () => {
@@ -210,8 +210,8 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
     assert.equal(response.content, "这是 Gemini 原生生成的思考过程");
     assert.ok(response.toolCalls);
     assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls[0].toolId, "system_complete_task");
-    const parsedArgs = JSON.parse(response.toolCalls[0].argumentsJson);
+    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
+    const parsedArgs = JSON.parse(response.toolCalls![0]!.argumentsJson);
     assert.equal(parsedArgs.summary, "Gemini 执行完毕");
 });
 
@@ -262,6 +262,6 @@ test("PiAiAdapter 原生挂载 tools 并提取 thinking 与 toolCall blocks", as
     assert.equal(response.content, "PiAi 思考推演流");
     assert.ok(response.toolCalls);
     assert.equal(response.toolCalls.length, 1);
-    assert.equal(response.toolCalls[0].callId, "pi_call_1");
-    assert.equal(response.toolCalls[0].toolId, "system_complete_task");
+    assert.equal(response.toolCalls![0]!.callId, "pi_call_1");
+    assert.equal(response.toolCalls![0]!.toolId, "system_complete_task");
 });
