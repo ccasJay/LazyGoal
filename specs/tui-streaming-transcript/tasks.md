@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 实现 Transcript 协议、Markdown collector 与调度器
+- [x] //TODO 1. 实现 Transcript 协议、Markdown collector 与调度器
 
   - 实现目标：新增 `StreamingTranscriptController`、协议事件、快照、稳定 block collector、40ms 自适应 commit tick、同步 flush 与生命周期清理；补充公共中文 TSDoc。
   - 成功判据：任意 delta 切分产生相同全文与等价 block 顺序；非法生命周期不修改状态；pending 内容在提交前持续出现在 live tail；reset/dispose 后无迟到发布。

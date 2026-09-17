@@ -25,6 +25,18 @@ export { ErrorLine } from "./error-line";
 export { StepWaterfallItem, truncateSummary, MAX_STEP_SUMMARY_CHARS } from "./step-waterfall-item";
 export { CommandAwareTextInput } from "./command-aware-text-input";
 export { ModelSelector } from "./model-selector";
+export {
+    StreamingTranscriptController,
+    TranscriptProtocolError,
+    type TranscriptStreamEvent,
+    type TranscriptSnapshot,
+    type TranscriptScheduler,
+    type StreamingTranscriptControllerOptions,
+} from "./streaming-transcript-controller";
+export {
+    collectMarkdownBlocks,
+    type MarkdownBlockCollectionResult,
+} from "./markdown-block-collector";
 export type { HomeScreenProps } from "./home-screen";
 export type { SettingsScreenProps } from "./settings-screen";
 export type { TuiAppProps } from "./app";
