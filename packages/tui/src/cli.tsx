@@ -773,7 +773,7 @@ export async function createCompositionRoot(
     const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        structuredOutputMode: adapter.structuredOutputMode === "strict" ? "strict" : "prompt_only",
+        structuredOutputMode: adapter.structuredOutputMode ?? "prompt_only",
         ...(modelCapabilities === undefined ? {} : {
             contextWindowTokens: modelCapabilities.contextWindowTokens,
             maxOutputTokens: modelCapabilities.maxOutputTokens,

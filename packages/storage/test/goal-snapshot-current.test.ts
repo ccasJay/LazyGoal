@@ -113,6 +113,27 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     const encoded = goalSnapshotCodec.encode(goal);
     assert.deepEqual(encoded.state.modelSelection, customSelection);
 
+    // 验证 two_stage 模式的编解码一致性
+    const twoStageSelection = {
+        provider: "google",
+        modelId: "gemini-3.6-flash-high",
+        structuredOutputMode: "two_stage" as const,
+        inputEstimator: { kind: "character-v1" as const },
+    };
+    const twoStageGoal = createGoal({
+        ...currentProtocols,
+        id: "goal-two-stage-test",
+        intent: "验证 two_stage 模型选择编解码",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-two-stage-test",
+        modelSelection: twoStageSelection,
+    });
+    const encodedTwoStage = goalSnapshotCodec.encode(twoStageGoal);
+    assert.deepEqual(encodedTwoStage.state.modelSelection, twoStageSelection);
+    const decodedTwoStage = goalSnapshotCodec.decode(encodedTwoStage);
+    assert.deepEqual(decodedTwoStage.state.modelSelection, twoStageSelection);
+
     // 检查序列化 JSON 中绝对不包含任何敏感字段
     const jsonString = JSON.stringify(encoded);
     assert.doesNotMatch(jsonString, /apiKey/i);

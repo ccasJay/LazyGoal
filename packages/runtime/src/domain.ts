@@ -829,8 +829,8 @@ export interface GoalModelSelection {
     readonly provider: string;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
-    /** 结构化输出模式：原生 strict 约束或 prompt_only 提示词约束。 */
-    readonly structuredOutputMode: "strict" | "prompt_only";
+    /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
+    readonly structuredOutputMode: "strict" | "prompt_only" | "two_stage";
     /** 模型上下文窗口 Token 容量上限。 */
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token 限制。 */
