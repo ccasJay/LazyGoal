@@ -29,5 +29,8 @@
     "tsx": "^4.23.7",
     "typescript": "^7.0.2",
     "wrap-ansi": "^9.0.2"
+  },
+  "dependencies": {
+    "marked": "^18.0.13"
   }
 }

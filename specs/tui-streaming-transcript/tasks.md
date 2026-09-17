@@ -7,7 +7,7 @@
   - 验证方式：待实现的 transcript controller 单元测试，使用 fake scheduler 覆盖协议、Markdown 边界、批量公式和清理路径。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2)_
 
-- [ ] //TODO 2. 实现统一 Ink Markdown renderer
+- [x] //TODO 2. 实现统一 Ink Markdown renderer
 
   - 实现目标：接入 `marked`，把支持的 block/inline token 映射为 Ink 组件，并为未知 token 保留 raw 文本；历史与 tail 复用同一入口。
   - 成功判据：标题、段落、强调、行内代码、链接、列表、引用、围栏代码、分隔线和 GFM 表格可读渲染，未知结构不丢内容。

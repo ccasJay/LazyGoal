@@ -37,6 +37,10 @@ export {
     collectMarkdownBlocks,
     type MarkdownBlockCollectionResult,
 } from "./markdown-block-collector";
+export {
+    MarkdownRenderer,
+    type MarkdownRendererProps,
+} from "./markdown-renderer";
 export type { HomeScreenProps } from "./home-screen";
 export type { SettingsScreenProps } from "./settings-screen";
 export type { TuiAppProps } from "./app";
