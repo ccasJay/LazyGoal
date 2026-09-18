@@ -76,16 +76,19 @@ test("默认 Renderer 可编译当前模板并拒绝历史 Bundle", async () => 
     );
 });
 
-test("v1 Prompt 明确 Working Memory、交互边界与区分任务状态", async () => {
+test("v1 Prompt 明确统一执行循环、证据边界与任务状态投影", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
-    // 1. 无 task（计划期/未批准任务）
+    // 1. 无 task（仍在收集事实并等待任务批准）
     const unapproved = renderer.render(context({ task: undefined }));
-    assert.match(unapproved, /Plan Phase \(Task Not Yet Approved\)/);
+    assert.match(unapproved, /No Goal Task is approved yet/);
     assert.match(unapproved, /authorized read-only tool, system_ask_user, system_context_lookup, or system_task_proposal/);
+    assert.match(unapproved, /Every authorized read-only Tool call is an ordinary Action/);
     assert.match(unapproved, /Writing tools and terminal completion decisions .* are strictly prohibited/);
+    assert.match(unapproved, /Committed Tool\/Observation evidence has priority/);
     assert.match(unapproved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
     assert.match(unapproved, /must never be cited as completion evidence/);
+    assert.doesNotMatch(unapproved, /Plan Phase|probe/i);
 
     // 2. 有 task（已批准任务）
     const approved = renderer.render(context({
@@ -97,8 +100,10 @@ test("v1 Prompt 明确 Working Memory、交互边界与区分任务状态", asyn
     assert.match(approved, /Approved Goal Task Contract:/);
     assert.match(approved, /Objective: 实现目标/);
     assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, or system_ask_user/);
+    assert.match(approved, /Continue from the latest committed Tool\/Observation evidence/);
     assert.match(approved, /system_task_proposal is prohibited after a task has been approved/);
     assert.match(approved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
+    assert.doesNotMatch(approved, /Plan Phase|probe/i);
 });
 
 test("默认协议校验器只接受唯一当前组合", () => {
@@ -147,4 +152,3 @@ test("Goal-stable 根前缀确定性渲染任务契约与决策分支", async ()
     assert.match(rendered1, /system_complete_task/);
     assert.match(rendered1, /system_wait_for_input/);
 });
-

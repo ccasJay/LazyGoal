@@ -136,7 +136,8 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     const request = renderRequest(view, renderer);
     const systemContent = request.messages[0]?.content ?? "";
 
-    assert.match(systemContent, /Active Phase Protocol:/);
+    assert.match(systemContent, /Active Executing Protocol:/);
+    assert.doesNotMatch(systemContent, /Plan Phase|probe/i);
     assert.match(systemContent, /trajectory-layered@1/);
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);

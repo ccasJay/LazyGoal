@@ -21,7 +21,7 @@
   - 验证方式：更新 `packages/agent/test/trajectory-execution-unit-adapter.test.ts`、`trajectory-model-context-assembler.test.ts` 和 Runtime Observation 集成测试；确认不再依赖 Probe 标记。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [7.2](./requirements.md#req-7-2), [8.1](./requirements.md#req-8-1)_
 
-- [ ] //TODO 4. 重写统一默认工作模式 System Prompt 与决策投影
+- [x] //TODO 4. 重写统一默认工作模式 System Prompt 与决策投影
 
   - 实现目标：更新统一 `executing` Prompt，使模型按“读取事实—等待 Observation—最小下一步—必要时提问/提案—证据完成”的循环工作；保留 task gate 的合法分支投影，但删除 Probe 术语和特殊能力叙述。
   - 成功判据：无 task Prompt 允许只读读取、`ask_user`、Context Lookup 和 Task Proposal；有 task Prompt 引导执行验证并禁止再次提案；两种 Prompt 都明确 Observation/Evidence 优先级，模型不得生成 Runtime 元数据。
