@@ -730,18 +730,6 @@ function validateSnapshotInvariants(
         addInvariantIssue(context, "created Run cannot contain execution progress");
     }
 
-    if (workflow.task === undefined && (
-        run.stepCount !== 0
-        || step !== undefined
-        || run.pendingAction !== undefined
-    )) {
-        addInvariantIssue(
-            context,
-            "unapproved task cannot accumulate execution progress or pending actions",
-            ["state", "run"],
-        );
-    }
-
     if (run.status !== "failed" && run.stopReason !== undefined) {
         addInvariantIssue(context, "stopReason is only valid for a failed Run");
     }

@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    transition,
     type AgentProfile,
     type Goal,
 } from "../../runtime/src/index";
@@ -204,4 +205,81 @@ test("GoalSnapshotCodec: 包含额外敏感字段或非法容量的模型选择�
         () => goalSnapshotCodec.decode(snapshotInvalidCapacity),
         assertProtocolError,
     );
+});
+
+test("无最终任务的普通只读 Step 可以通过当前 Snapshot 编解码", () => {
+    const goal = createCurrentGoal();
+    const running = transition(goal.state.run, { kind: "start" });
+    assert.equal(running.ok, true);
+    if (!running.ok) return;
+
+    const staged = transition(running.state, {
+        kind: "stage_action",
+        action: {
+            actionId: "read-action-1",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "approved",
+    });
+    assert.equal(staged.ok, true);
+    if (!staged.ok) return;
+
+    const observed = transition(staged.state, {
+        kind: "observe_action",
+        actionId: "read-action-1",
+        observation: {
+            kind: "success",
+            output: "当前文件内容",
+            summary: "读取成功",
+        },
+    });
+    assert.equal(observed.ok, true);
+    if (!observed.ok) return;
+
+    const progressed: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: observed.state,
+        },
+    };
+    const encoded = goalSnapshotCodec.encode(progressed);
+    const decoded = goalSnapshotCodec.decode(encoded);
+
+    assert.equal(decoded.state.workflow.task, undefined);
+    assert.equal(decoded.state.run.stepCount, 1);
+    assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
+});
+
+test("无最终任务的普通只读 Action 可以保存为可恢复 pendingAction", () => {
+    const goal = createCurrentGoal();
+    const running = transition(goal.state.run, { kind: "start" });
+    assert.equal(running.ok, true);
+    if (!running.ok) return;
+
+    const waiting = transition(running.state, {
+        kind: "stage_action",
+        action: {
+            actionId: "read-action-approval",
+            toolId: "read_file",
+            input: { path: "README.md" },
+        },
+        status: "awaiting_approval",
+    });
+    assert.equal(waiting.ok, true);
+    if (!waiting.ok) return;
+
+    const encoded = goalSnapshotCodec.encode({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: waiting.state,
+        },
+    });
+    const decoded = goalSnapshotCodec.decode(encoded);
+
+    assert.equal(decoded.state.workflow.task, undefined);
+    assert.deepEqual(decoded.state.run.pendingAction, waiting.state.pendingAction);
+    assert.equal(decoded.state.run.stepCount, 0);
 });

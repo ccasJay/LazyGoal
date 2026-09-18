@@ -1493,168 +1493,48 @@ export class Runner {
         }
     }
 
-    private async countCommittedProbes(goal: Goal, control?: ExecutionControl): Promise<number> {
-        if (this.trajectoryStore === undefined) {
-            return 0;
-        }
-        try {
-            throwIfAborted(control);
-            const raw = await this.trajectoryStore.readWithBoundary(
-                { goalId: goal.id, runId: goal.state.run.id },
-                goal.state.run.committedThroughSequence,
-            );
-            throwIfAborted(control);
-            let count = 0;
-            for (const event of raw.committed) {
-                if (event.phase === "executing" && event.eventType === "task_approved") {
-                    break;
-                }
-                if (event.phase === "executing" && event.eventType === "observation_recorded") {
-                    count += 1;
-                }
-            }
-            return count;
-        } catch {
-            return 0;
-        }
-    }
-
     private async executePlanProbe(
         goal: Goal,
         prepared: PreparedToolAction,
         executionUnitId: string,
-        probeNumber: number,
         acceptedPatch?: AcceptedMemoryPatchInput,
         control?: ExecutionControl,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
-        let observation: ToolObservation;
-
-        this.notifyProbeProgress({
-            kind: "started",
-            actionId: prepared.action.actionId,
-            goalId: goal.id,
-            toolId: prepared.action.toolId,
-            input: prepared.action.input,
-            probeNumber,
-        });
-
-        try {
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                executionUnitId,
-                actionId: prepared.action.actionId,
-                eventType: "tool_started",
-                payload: {
-                    type: "tool_started",
-                    actionId: prepared.action.actionId,
-                    toolId: prepared.action.toolId,
-                    input: prepared.action.input,
-                },
-            }, control);
-            const rawObservation = await prepared.execute(control);
-            throwIfAborted(control);
-            observation = validateToolObservation(rawObservation);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-            if (error instanceof TrajectoryAppendError) {
-                throw error;
-            }
-
-            throwIfAborted(control);
-
-            this.notifyProbeProgress({
-                kind: "failed",
-                actionId: prepared.action.actionId,
-                goalId: goal.id,
-                toolId: prepared.action.toolId,
-                input: prepared.action.input,
-                message: error instanceof Error ? error.message : String(error),
-                probeNumber,
-            });
-
-            const toolError = error instanceof RunnerExecutionError
-                ? error
-                : new RunnerExecutionError(
-                    "TOOL_EXECUTION_ERROR",
-                    error instanceof Error ? error.message : String(error),
-                );
-
-            return {
-                kind: "stopped",
-                result: await this.stopWithExecutionError(goal, toolError, control),
-            };
-        }
-
-        this.notifyProbeProgress({
-            kind: "finished",
-            actionId: prepared.action.actionId,
-            goalId: goal.id,
-            toolId: prepared.action.toolId,
-            input: prepared.action.input,
-            observation,
-            probeNumber,
-        });
-
         throwIfAborted(control);
-        const toolFinishedEvent = await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            executionUnitId,
-            actionId: prepared.action.actionId,
-            eventType: "tool_finished",
-            payload: {
-                type: "tool_finished",
-                actionId: prepared.action.actionId,
-                toolId: prepared.action.toolId,
-                observation,
-            },
-        }, control);
-        const projectorPatch = toolFinishedEvent === undefined
-            ? undefined
-            : await this.projectToolMemoryPatch(
-                goal,
-                prepared.action,
-                observation,
-                toolFinishedEvent.sequence,
-                control,
-            );
-        const observedRun = this.applyTransition(goal.state.run, {
-            kind: "observe_probe",
+        const stagedRun = this.applyTransition(goal.state.run, {
+            kind: "stage_action",
             action: prepared.action,
-            observation,
+            status: "approved",
         });
-        const observedGoal = this.withRun(goal, observedRun);
-
-        const effectivePatch = projectorPatch ?? acceptedPatch;
-
-        const committed = await this.checkpointCommitter.commit(observedGoal, {
-            facts: [{
+        const stagedGoal = this.withRun(goal, stagedRun);
+        const stagedCheckpoint = await this.commitDecision(
+            stagedGoal,
+            [{
                 goalId: goal.id,
                 runId: goal.state.run.id,
                 phase: "executing",
                 executionUnitId,
                 actionId: prepared.action.actionId,
-                eventType: "observation_recorded",
+                eventType: "action_staged",
                 payload: {
-                    type: "observation_recorded",
-                    actionId: prepared.action.actionId,
-                    observation,
+                    type: "action_staged",
+                    action: prepared.action,
+                    approvalStatus: "approved",
                 },
             }],
-            ...(effectivePatch === undefined ? {} : { acceptedPatch: effectivePatch }),
-            ...(control === undefined ? {} : { control }),
-        });
-        const checkpoint = committed.goal;
-        return { kind: "observed", goal: checkpoint };
+            acceptedPatch,
+            control,
+        );
+
+        return this.executeToolAndObserve(
+            stagedCheckpoint,
+            prepared,
+            executionUnitId,
+            control,
+        );
     }
 
     private async runLoop(
@@ -1669,7 +1549,6 @@ export class Runner {
         let contextLookupResult = initialContextLookupResult;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
-        let probeCount = await this.countCommittedProbes(goal, control);
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
@@ -2182,14 +2061,42 @@ export class Runner {
                         },
                     }, control);
 
-                    // 任务未批准时：执行计划期只读探查（planProbe），不计 stepCount，继续循环推进
+                    // 任务未批准时只允许只读 Tool；只读 Action 仍遵循普通 Policy。
                     if (goal.state.workflow.task === undefined) {
-                        probeCount += 1;
+                        if (validated.policy !== "allow") {
+                            throwIfAborted(control);
+                            const stagedRun = this.applyTransition(goal.state.run, {
+                                kind: "stage_action",
+                                action: validated.action,
+                                status: "awaiting_approval",
+                            });
+                            const stagedGoal = this.withRun(goal, stagedRun);
+
+                            goal = await this.commitDecision(
+                                stagedGoal,
+                                [{
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    actionId: validated.action.actionId,
+                                    eventType: "action_staged",
+                                    payload: {
+                                        type: "action_staged",
+                                        action: validated.action,
+                                        approvalStatus: "awaiting_approval",
+                                    },
+                                }],
+                                acceptedPatch,
+                                control,
+                            );
+                            continue;
+                        }
+
                         const probeOutcome = await this.executePlanProbe(
                             goal,
                             validated,
                             executionUnitId,
-                            probeCount,
                             acceptedPatch,
                             control,
                         );

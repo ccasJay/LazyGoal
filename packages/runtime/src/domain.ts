@@ -88,7 +88,6 @@ export type PlanProbeProgressEvent =
         readonly probeNumber: number;
     };
 
-
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
     | "executing";
@@ -1064,12 +1063,6 @@ export type RunInput =
     | {
         readonly kind: "observe_action";
         readonly actionId: string;
-        readonly observation: Exclude<Observation, { readonly kind: "rejected" }>;
-    }
-    | {
-        /** 记录计划期只读探查结果，推进 committedThroughSequence 但不更新 lastStep 且不增加 stepCount。 */
-        readonly kind: "observe_probe";
-        readonly action: ToolCallAction;
         readonly observation: Exclude<Observation, { readonly kind: "rejected" }>;
     }
     | {

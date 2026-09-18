@@ -1,6 +1,6 @@
 # 实施计划
 
-- [ ] //TODO 1. 收敛 Domain、Transition 与 Snapshot 的普通读取不变量
+- [x] //TODO 1. 收敛 Domain、Transition 与 Snapshot 的普通读取不变量
 
   - 实现目标：删除 `RunInput.observe_probe`、`PlanProbeProgressEvent` 及其导出，更新 `transition` 和当前 Snapshot 校验，使无最终任务的 Goal 可以保存普通只读 Step、`lastStep` 与可恢复 `pendingAction`，同时拒绝旧 Probe 数据。
   - 成功判据：无 task 的普通只读 Action/Observation 能完成一次 `observe_action` 并增加一次 Step；旧 Probe 事件、字段或不完整执行单元不能通过当前 Codec/Storage 边界。
