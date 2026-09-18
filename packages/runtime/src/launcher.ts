@@ -27,8 +27,8 @@ import {
  * 创建并启动一个统一执行 Goal 的公开输入。
  *
  * @remarks
- * `intent` 是创建后冻结的原始用户意图；`maxSteps` 只限制批准后 executing
- * 阶段的 Step，省略或传 `0` 表示无限。
+ * `intent` 是创建后冻结的原始用户意图；`maxSteps` 限制 executing 阶段的全部
+ * Step（包括任务批准前的只读 Tool），省略或传 `0` 表示无限。
  *
  * @example
  * ```ts

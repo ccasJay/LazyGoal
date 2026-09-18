@@ -84,7 +84,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
             result: {
                 kind: "tool_call",
                 action: {
-                    actionId: "probe-readme",
+                    actionId: "read-readme",
                     toolId: "read_file",
                     input: { path: "README.md" },
                 },
@@ -108,7 +108,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
                             predicate: "workflow_requested",
                             value: "Verify the current workflow",
                             stability: "stable",
-                            evidenceSequences: [13],
+                            evidenceSequences: [16],
                             scope: "goal",
                         },
                     }],

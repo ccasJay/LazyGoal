@@ -68,7 +68,7 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function createPlanProbeGoal(
+function createUnapprovedGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
@@ -213,7 +213,7 @@ test("请求顺序固定为 system、真实历史、当前 Working Context", asy
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
     assert.ok((request.messages[0]?.content ?? "").includes(
-        "Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)",
+        "Active Executing Protocol: structured@1; trajectory-layered@1; bm25-lite@1",
     ));
     assert.deepEqual(
         request.messages.slice(1, -1),
@@ -248,7 +248,7 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
 
     assert.match(systemContent, /read_file/);
     assert.match(systemContent, /读取工作区内文本文件/);
-    assert.match(systemContent, /Active Phase Protocol: executing/);
+    assert.match(systemContent, /Active Executing Protocol:/);
 });
 
 const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
@@ -415,19 +415,19 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         ],
     );
 
-    const probeRequest = await executingRequest(
-        createPlanProbeGoal(),
+    const unapprovedRequest = await executingRequest(
+        createUnapprovedGoal(),
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
     );
-    const probeSystemContent = probeRequest.messages[0]?.content ?? "";
-    const probeToolsOffset = probeSystemContent.lastIndexOf(toolsMarker);
+    const unapprovedSystemContent = unapprovedRequest.messages[0]?.content ?? "";
+    const unapprovedToolsOffset = unapprovedSystemContent.lastIndexOf(toolsMarker);
 
-    assert.notEqual(probeToolsOffset, -1);
-    const probeProjectedTools = JSON.parse(
-        probeSystemContent.slice(probeToolsOffset + toolsMarker.length),
+    assert.notEqual(unapprovedToolsOffset, -1);
+    const unapprovedProjectedTools = JSON.parse(
+        unapprovedSystemContent.slice(unapprovedToolsOffset + toolsMarker.length),
     );
     assert.deepEqual(
-        probeProjectedTools.map((t: { id: string }) => t.id),
+        unapprovedProjectedTools.map((t: { id: string }) => t.id),
         [GREP_TOOL_ID, READ_FILE_TOOL_ID],
     );
 });
@@ -514,7 +514,7 @@ test("未批准任务时根据 isReadOnly 动态投影只读 ToolDefinition 并�
         },
     };
 
-    await stepRequest(createPlanProbeGoal(), tools, capturingRenderer);
+    await stepRequest(createUnapprovedGoal(), tools, capturingRenderer);
 
     assert.ok(contexts.length > 0);
     assert.ok(contexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
@@ -610,10 +610,10 @@ test("Builder 拒绝非 executing 或非 running 的 Goal", async () => {
 });
 
 test("请求构建返回成对的 request 与 bundle，未批准与已批准状态分别匹配对应 Schema", async () => {
-    const unapprovedGoal = createPlanProbeGoal();
+    const unapprovedGoal = createUnapprovedGoal();
     const executingGoal = createExecutingGoal();
 
-    // 1. 未批准任务（计划探查）
+    // 1. 未批准任务（读取事实并提出任务）
     const unapprovedPlan = await buildStepRequest(
         unapprovedGoal,
         [],
@@ -765,8 +765,8 @@ test("buildStepRequest populates structuredOutput in strict mode and omits in pr
     );
     assert.equal(promptOnlyStepPlan.request.structuredOutput, undefined);
 
-    const unapprovedGoal = createPlanProbeGoal();
-    const strictProbePlan = await buildStepRequest(
+    const unapprovedGoal = createUnapprovedGoal();
+    const strictUnapprovedPlan = await buildStepRequest(
         unapprovedGoal,
         [],
         renderer,
@@ -778,11 +778,11 @@ test("buildStepRequest populates structuredOutput in strict mode and omits in pr
         undefined,
         "strict",
     );
-    assert.ok(strictProbePlan.request.structuredOutput !== undefined);
-    assert.equal(strictProbePlan.request.structuredOutput.name, strictProbePlan.bundle.name);
-    assert.deepEqual(strictProbePlan.request.structuredOutput.schema, strictProbePlan.bundle.jsonSchema);
+    assert.ok(strictUnapprovedPlan.request.structuredOutput !== undefined);
+    assert.equal(strictUnapprovedPlan.request.structuredOutput.name, strictUnapprovedPlan.bundle.name);
+    assert.deepEqual(strictUnapprovedPlan.request.structuredOutput.schema, strictUnapprovedPlan.bundle.jsonSchema);
 
-    const promptOnlyProbePlan = await buildStepRequest(
+    const promptOnlyUnapprovedPlan = await buildStepRequest(
         unapprovedGoal,
         [],
         renderer,
@@ -794,7 +794,7 @@ test("buildStepRequest populates structuredOutput in strict mode and omits in pr
         undefined,
         "prompt_only",
     );
-    assert.equal(promptOnlyProbePlan.request.structuredOutput, undefined);
+    assert.equal(promptOnlyUnapprovedPlan.request.structuredOutput, undefined);
 });
 
 test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读工具并排除写操作与未知工具", async () => {
@@ -836,7 +836,7 @@ test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读
         },
     ];
 
-    const unapprovedGoal = createPlanProbeGoal();
+    const unapprovedGoal = createUnapprovedGoal();
     const plan = await buildStepRequest(
         unapprovedGoal,
         mixedTools,
@@ -848,10 +848,10 @@ test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读
     );
 
     const systemMsg = plan.request.messages.find(m => m.role === "system")?.content ?? "";
-    assert.ok(systemMsg.includes("read_file"), "计划探查阶段应包含只读工具 read_file");
-    assert.ok(systemMsg.includes("web_search"), "计划探查阶段应包含只读工具 web_search");
-    assert.ok(systemMsg.includes("custom_doc_search"), "计划探查阶段应自动识别并包含扩展只读工具 custom_doc_search");
-    assert.ok(!systemMsg.includes("write_file"), "计划探查阶段必须严格排除写操作工具 write_file");
-    assert.ok(!systemMsg.includes("bash"), "计划探查阶段必须严格排除副作用工具 bash");
-    assert.ok(!systemMsg.includes("unknown_side_effect_tool"), "计划探查阶段必须排除未声明只读性的工具");
+    assert.ok(systemMsg.includes("read_file"), "未批准任务时应包含只读工具 read_file");
+    assert.ok(systemMsg.includes("web_search"), "未批准任务时应包含只读工具 web_search");
+    assert.ok(systemMsg.includes("custom_doc_search"), "未批准任务时应自动识别并包含扩展只读工具 custom_doc_search");
+    assert.ok(!systemMsg.includes("write_file"), "未批准任务时必须严格排除写操作工具 write_file");
+    assert.ok(!systemMsg.includes("bash"), "未批准任务时必须严格排除副作用工具 bash");
+    assert.ok(!systemMsg.includes("unknown_side_effect_tool"), "未批准任务时必须排除未声明只读性的工具");
 });

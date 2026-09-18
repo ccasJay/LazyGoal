@@ -11,7 +11,7 @@ Runtime 是控制平面：拥有 Goal/Run 状态、统一推进循环、Trajecto
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Task、Run、Action/Observation 和交互等待契约 | I/O 和模型调用 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、用户回答/任务批准/反馈恢复、提交等待点并委派 Scheduler | 直接执行 Tool |
-| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读探查、Tool 授权、Action/Observation、Evidence 和 Run 转换 | 供应商协议和 UI |
+| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读 Tool、Tool 授权、Action/Observation、Evidence 和 Run 转换 | 供应商协议和 UI |
 | [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
@@ -27,7 +27,7 @@ Goal workflow 只有 `phase: "executing"`。Goal 创建时可以没有 `workflow
 
 - 未批准任务：允许 `ask_user`、`task_proposal`、历史 Context Lookup 和 `isReadOnly` Tool；副作用 Tool 不会进入可执行分支。
 - 已批准任务：允许普通 Tool、Context Lookup、`complete`、`wait`、`fail` 和执行期 `ask_user`。
-- 只读探查仍沿用 Tool Registry、Action ID、Tool Observation 和 Trajectory 提交路径，但不创建普通执行 Step，也不绕过 Runtime 授权。
+- 只读 Tool 与副作用 Tool 统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径；任务批准前只开放只读 Tool，且每次完成的 `observe_action` 都计入 Step。
 - `task_proposal` 进入 `task_approval` 等待点；反馈移除当前提案并重新请求；批准把提案复制为最终 Task。
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 

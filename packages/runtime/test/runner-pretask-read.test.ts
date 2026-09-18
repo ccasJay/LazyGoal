@@ -118,7 +118,7 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
 
     const goal = createGoal({
         id: "goal-pretask-read-1",
-        intent: "探查并规划",
+        intent: "读取并规划",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
@@ -142,8 +142,8 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
         {
             kind: "task_proposal",
             task: {
-                objective: "基于探查结果实现目标",
-                completionCriteria: [{ text: "探查完成" }],
+                objective: "基于读取结果实现目标",
+                completionCriteria: [{ text: "读取完成" }],
             },
             approvalRequest: "请批准任务",
         },
@@ -346,7 +346,7 @@ test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Ste
 
     const goal = createGoal({
         id: "goal-pretask-read-failure",
-        intent: "处理失败探查",
+        intent: "处理读取失败",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
@@ -418,7 +418,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
 
     const goal = createGoal({
         id: "goal-pretask-read-crash",
-        intent: "测试探查崩溃",
+        intent: "测试读取崩溃",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
@@ -648,7 +648,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
 
     const goal = createGoal({
         id: "goal-pretask-read-resume",
-        intent: "跨重启探查",
+        intent: "跨重启读取",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
@@ -658,7 +658,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
     });
     await store.save(goal);
 
-    // 第一次探查后挂起等待用户回答
+    // 第一次读取后挂起等待用户回答
     stepExecutor1.enqueue(
         {
             kind: "tool_call",
@@ -673,7 +673,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
             questions: [
                 {
                     header: "方向",
-                    question: "需要继续深入探查吗？",
+                    question: "需要继续读取更多信息吗？",
                     multiSelect: false,
                     options: [{ label: "继续" }, { label: "停止" }],
                 },
@@ -716,10 +716,10 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
         {
             kind: "task_proposal",
             task: {
-                objective: "基于两次探查结果规划任务",
-                completionCriteria: [{ text: "两次探查完成" }],
+                objective: "基于两次读取结果规划任务",
+                completionCriteria: [{ text: "两次读取完成" }],
             },
-            approvalRequest: "探查已全部完成，请批准任务",
+            approvalRequest: "读取已全部完成，请批准任务",
         },
     );
 

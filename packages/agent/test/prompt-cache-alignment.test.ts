@@ -313,7 +313,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
     const trajectoryStore = createInMemoryTrajectoryStore();
     const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
-    // 1. 未批准任务（计划探查期）：无任务契约
+    // 1. 未批准任务：只读读取与任务提案契约
     const unapprovedGoal = createExecutingGoal({
         stepCount: 0,
         workflow: {
@@ -329,7 +329,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(unapprovedPlan.request.messages[0]!.content, /Active Phase Protocol: executing/);
+    assert.match(unapprovedPlan.request.messages[0]!.content, /Active Executing Protocol:/);
     assert.doesNotMatch(unapprovedPlan.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
     // 2. 进入任务已批准执行阶段后，注入 Task 契约
@@ -343,7 +343,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(executingPlan1.request.messages[0]!.content, /Active Phase Protocol: executing/);
+    assert.match(executingPlan1.request.messages[0]!.content, /Active Executing Protocol:/);
     assert.match(executingPlan1.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
     // 3. 任务已批准执行阶段的后续步，哈希保持一致

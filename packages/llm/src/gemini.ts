@@ -328,11 +328,9 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
     if (isJsonObject(value) && isJsonObject(value.result)) {
         const result = value.result;
 
-        // 1. 若具有有效的 action 对象，非 probe_action 时确认为 tool_call，清理非当前分支的字段
+        // 1. 若具有有效的 action 对象，确认为 tool_call，清理非当前分支的字段
         if (result.action !== undefined && result.action !== null && typeof result.action === "object") {
-            if (result.kind !== "probe_action") {
-                result.kind = "tool_call";
-            }
+            result.kind = "tool_call";
             delete result.type;
             delete result.summary;
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
@@ -361,7 +359,7 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
                 delete result.completionEvidence;
             }
-        } else if (result.kind === "tool_call" || result.kind === "probe_action") {
+        } else if (result.kind === "tool_call") {
             delete result.summary;
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
                 delete result.completionEvidence;
@@ -608,7 +606,7 @@ function mergeGeminiUnion(
                         merged = {
                             ...merged,
                             nullable: true,
-                            description: 'Required. If kind="tool_call" or kind="probe_action", provide the tool action object. For any other kind, return null.',
+                            description: 'Required. If kind="tool_call", provide the tool action object. For any other kind, return null.',
                         };
                     }
                     if (path.join(".") === "properties.result" && ["reason", "error", "need", "question", "filters"].includes(key)) {

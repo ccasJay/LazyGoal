@@ -350,7 +350,7 @@ test("准备结果保留原始文本、类型和可选字段缺省状态", () =>
     }
 });
 
-test("工具声明式 isReadOnly 元数据准确区分只读探查与写操作工具", () => {
+test("工具声明式 isReadOnly 元数据准确区分只读读取与写操作工具", () => {
     const readOnlyTools = [
         new ReadFileTool("/workspace"),
         new GrepTool("/workspace"),

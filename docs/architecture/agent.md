@@ -19,7 +19,7 @@ Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。
 
 `ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括当前 task（若已批准）、真实 Conversation、Profile、授权 Tool Schema、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 JSON DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Action ID 或内部计数。
 
-`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。动态模型绑定只在调用边界读取；请求开始后不切换 Adapter 或 generation。
+`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler` 以 Goal 的 committed boundary 为准，把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。动态模型绑定只在调用边界读取；请求开始后不切换 Adapter 或 generation。
 
 ## 当前决策门控
 

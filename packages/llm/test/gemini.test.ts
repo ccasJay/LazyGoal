@@ -692,7 +692,7 @@ test("Gemini preserves unified read-only tool_call branch before task approval",
     const text = JSON.stringify({
         result: {
             kind: "tool_call",
-            action: { actionId: "probe-1", toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
+            action: { actionId: "read-1", toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
             memoryPatch: "__lazygoal_null__",
         },
     });

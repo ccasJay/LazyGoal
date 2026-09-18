@@ -21,7 +21,7 @@ Controller 唯一持有单调不可变 `timeline`，元素包括已提交 User/S
 
 新的 Assistant 消息由 `StreamingTranscriptController` 接收 `started`、`delta`、`completed` 事件。稳定 Block 按节流 Tick 进入时间线；未提交部分保留为 `streamingTail`。新用户消息、步骤提交、等待点和恢复都会触发 flush barrier，保证内容顺序；恢复时直接 hydrate 已提交消息，不重复播放旧流。
 
-只读探查和普通 Tool 都通过 Runtime 的 `PlanProbeProgressEvent` 投影为活动抽屉/步骤摘要，使用稳定 `actionId` 去重。探查不会重新创建页面或第二条时间线。
+普通只读 Tool 和副作用 Tool 都通过 Goal Snapshot 的已提交 `lastStep` 投影为步骤摘要，使用稳定 `actionId` 去重。TUI 不订阅 Tool 执行中的专用事件；运行中的 Session 只显示统一的执行状态。
 
 ## 恢复、模型切换与关闭
 

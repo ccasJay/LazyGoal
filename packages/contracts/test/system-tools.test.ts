@@ -106,12 +106,12 @@ test("任务批准前统一执行流仅挂载只读工具与交互系统工具",
     assert.ok(ids.includes("system_propose_task_plan"));
     assert.ok(ids.includes("system_context_lookup"));
 
-    // 只读工具在统一执行流中仍然是普通 tool_call，Runner 再将其走 planProbe 路径。
-    const probe = decodePhaseToolCall(decls, "read_file", { path: "README.md" });
-    assert.equal(probe.kind, "tool_call");
-    if (probe.kind === "tool_call") {
-        assert.equal(probe.action.toolId, "read_file");
-        assert.deepEqual(probe.action.input, { path: "README.md" });
+    // 只读工具在统一执行流中就是普通 tool_call。
+    const read = decodePhaseToolCall(decls, "read_file", { path: "README.md" });
+    assert.equal(read.kind, "tool_call");
+    if (read.kind === "tool_call") {
+        assert.equal(read.action.toolId, "read_file");
+        assert.deepEqual(read.action.input, { path: "README.md" });
     }
 
     // 验证结构化提问被解码为 ask_user
@@ -130,7 +130,7 @@ test("任务批准前统一执行流仅挂载只读工具与交互系统工具",
     }
 });
 
-test("任务批准前统一执行流挂载只读探查与任务提案工具", () => {
+test("任务批准前统一执行流挂载只读读取与任务提案工具", () => {
     const decls = createUnifiedToolDeclarations([
         {
             id: "grep",

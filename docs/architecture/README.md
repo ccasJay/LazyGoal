@@ -35,7 +35,7 @@ flowchart LR
 ## 主流程
 
 1. Launcher 校验 intent、Profile、协议组合和持久化依赖，创建 `phase: "executing"` 的 Goal；任务尚未批准时 `workflow.task` 缺省。
-2. Coordinator 调用统一 Runner。模型在同一决策协议中可以提问、提交只读探查、提出任务提案或请求历史 Context Lookup。
+2. Coordinator 调用统一 Runner。模型在同一决策协议中可以提问、提交普通只读 Tool Action、提出任务提案或请求历史 Context Lookup。
 3. `ask_user` 与 `task_proposal` 都保存为可恢复的 `pendingInteraction`。用户回答、批准或反馈后，Coordinator 先保存再继续。
 4. 任务批准后，Runner 继续处理普通 Tool、Lookup、完成、等待和失败决策；Tool 权限、输入、Policy 与 Evidence 由 Runtime 再次校验。
 5. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 通过 Store 提交通知和流式转录构造统一时间线。
@@ -43,7 +43,7 @@ flowchart LR
 ## 跨模块不变量
 
 - Goal workflow 只有 `executing`；`workflow.task` 缺省表示任务尚未批准，存在时表示已批准任务。
-- 未批准任务时，模型只能看到 `ask_user`、任务提案、Lookup 和显式只读 Tool；副作用 Tool 必须等任务批准。
+- 未批准任务时，模型只能看到 `ask_user`、任务提案、Lookup 和显式只读 Tool；副作用 Tool 必须等任务批准。只读 Tool 仍走普通 `stage_action`、执行和 `observe_action`，并计入 Step。
 - Runtime 独占状态转换、持久化、Tool 授权和 Evidence 校验；Agent 不保存 Goal，也不决定 Runtime ID、Step、Epoch 或审批状态。
 - `goalId` 定位 Session，`runId` 标识执行实例；恢复时二者必须同时匹配。
 - `pendingInteraction` 与 `pendingAction` 的等待点可持久化恢复；请求 ID、Goal/Run 身份和提交边界必须匹配。

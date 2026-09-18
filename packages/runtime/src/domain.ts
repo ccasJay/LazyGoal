@@ -863,7 +863,7 @@ export interface ModelContextEpochState {
 /**
  * Goal 当前可变且需要持久化的状态。
  *
- * @remarks 交互与只读探查不消费 Run Step；messages 只保存真实交互。
+ * @remarks 交互不会消费 Run Step；已提交的 Tool Observation 会生成最新 Step；messages 只保存真实交互。
  * @example
  * ```ts
  * const state: GoalState = {
@@ -988,8 +988,8 @@ export type RunStatus =
  * @remarks
  * `stage_action` 只建立可恢复的 Action 意图，不消费 Step；`approve_action` 和
  * `recover_action` 只解除或改变 Action 恢复状态，不消费 Step；`observe_action`、
- * `reject_action` 和非 Tool 的 `decision` 才完成一个 Step。`execution_error`
- * 停止当前 Run 但不消费 Step，并在存在待执行 Action 时保留其不确定结果。
+ * `reject_action` 和非 Tool 的 `decision` 完成一个 Step。`execution_error`
+ * 停止当前 Run 但不额外消费 Step，并在存在待执行 Action 时保留其不确定结果。
  *
  * `resume` 由外部协调器在保存解除 Agent wait 的真实输入时使用；`recover_action`
  * 由 Runner 在进程恢复时用于把已批准但结果未知的 Action 转为可处理的等待点。

@@ -101,7 +101,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
 ];
 
-function createPlanProbeGoal(
+function createUnapprovedGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
@@ -238,8 +238,8 @@ function assertPortableSchema(schema: Record<string, unknown>, path: string): vo
     }
 }
 
-test("Projector 投影未批准计划探查的 PromptContext、Conversation 与 Working Context", () => {
-    const view = project(createPlanProbeGoal([
+test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Working Context", () => {
+    const view = project(createUnapprovedGoal([
         {
             role: "assistant",
             assistant: { profileId: "profile-1" },
@@ -550,13 +550,13 @@ test("Projector 投影并冻结 structured@1 Working Memory", () => {
             updatedAtSequence: 12,
         }],
     };
-    const view = project(createPlanProbeGoal(), [], memory);
+    const view = project(createUnapprovedGoal(), [], memory);
 
     assert.deepEqual(view.workingMemory, memory);
     assert.notStrictEqual(view.workingMemory, memory);
     assert.ok(Object.isFrozen(view.workingMemory));
     assert.throws(
-        () => projector.project(createPlanProbeGoal(), [], undefined),
+        () => projector.project(createUnapprovedGoal(), [], undefined),
         /requires a WorkingMemory projection/,
     );
 });

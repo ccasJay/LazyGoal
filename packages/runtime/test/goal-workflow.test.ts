@@ -3,10 +3,13 @@ import { test } from "node:test";
 
 import {
     GoalCoordinator,
+    InMemoryToolRegistry,
     InlineScheduler,
     launch,
     Runner,
+    createToolRegistration,
 } from "../src/index";
+import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { trajectoryStoreFor } from "./current-fixtures";
 import type {
@@ -19,13 +22,32 @@ import type {
     LaunchResult,
     StepExecutionInput,
     StepExecutor,
+    Tool,
 } from "../src/index";
 
 const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "You are a focused coding agent.",
     instructions: ["Clarify with ask_user, propose task, then execute continuously."],
-    toolIds: [],
+    toolIds: ["read_file"],
+};
+
+const readFileTool: Tool = {
+    definition: {
+        id: "read_file",
+        description: "Read a file",
+        inputContract: contract.object({ path: contract.string() }),
+        isReadOnly: true,
+    },
+    replayPolicy: "safe",
+    validate: () => ({ ok: true }),
+    async execute({ input }) {
+        return {
+            kind: "success",
+            output: { path: (input as { readonly path: string }).path, content: "workflow facts" },
+            summary: "Read workflow facts",
+        };
+    },
 };
 
 class SingleProfileRegistry implements AgentProfileRegistry {
@@ -72,6 +94,14 @@ class WorkflowStepExecutor implements StepExecutor {
             ],
         },
         {
+            kind: "tool_call",
+            action: {
+                actionId: "workflow-read-1",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        },
+        {
             kind: "task_proposal",
             task: {
                 objective: "Implement JSON session persistence",
@@ -116,13 +146,16 @@ function requireSuccess(
     return result;
 }
 
-test("runs the complete plan-probe, ask_user, approval, blocked resume, and execution flow", async () => {
+test("runs the complete ask_user, ordinary read, task approval, blocked resume, and execution flow", async () => {
     const events: string[] = [];
     const store = new WorkflowStore(events);
     const runner = new Runner({
         trajectoryStore: trajectoryStoreFor(store),
         store,
         executor: new WorkflowStepExecutor(events),
+        toolRegistry: new InMemoryToolRegistry([
+            createToolRegistration(readFileTool),
+        ]),
     });
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
@@ -174,9 +207,21 @@ test("runs the complete plan-probe, ask_user, approval, blocked resume, and exec
     assert.equal(proposed.kind, "waiting");
     assert.equal(proposed.phase, "executing");
     assert.equal(proposed.waitingFor, "task_approval");
-    assert.equal(proposed.goal.state.run.stepCount, 0);
+    assert.equal(proposed.goal.state.run.stepCount, 1);
+    assert.equal(proposed.goal.state.run.lastStep?.kind, "action");
+    if (proposed.goal.state.run.lastStep?.kind === "action") {
+        assert.equal(proposed.goal.state.run.lastStep.action.actionId, "workflow-read-1");
+        assert.equal(proposed.goal.state.run.lastStep.observation.kind, "success");
+    }
     assert.equal(proposed.goal.state.workflow.task, undefined);
     assert.equal(proposed.goal.state.run.pendingInteraction?.kind, "task_approval");
+
+    const trajectory = await trajectoryStoreFor(store).read({
+        goalId: ref.goalId,
+        runId: ref.runId,
+    });
+    assert.ok(trajectory.some((event) => event.eventType === "action_staged"));
+    assert.ok(trajectory.some((event) => event.eventType === "observation_recorded"));
 
     events.length = 0;
     const blocked = requireSuccess(await coordinator.resume({
@@ -187,7 +232,7 @@ test("runs the complete plan-probe, ask_user, approval, blocked resume, and exec
     assert.equal(blocked.kind, "waiting");
     assert.equal(blocked.phase, "executing");
     assert.equal(blocked.waitingFor, "blocked");
-    assert.equal(blocked.goal.state.run.stepCount, 1);
+    assert.equal(blocked.goal.state.run.stepCount, 2);
     assert.deepEqual(blocked.goal.state.workflow.task, {
         objective: "Implement JSON session persistence",
         completionCriteria: [],
@@ -202,5 +247,5 @@ test("runs the complete plan-probe, ask_user, approval, blocked resume, and exec
     assert.equal(completed.kind, "terminal");
     assert.equal(completed.phase, "executing");
     assert.equal(completed.goal.state.run.status, "completed");
-    assert.equal(completed.goal.state.run.stepCount, 2);
+    assert.equal(completed.goal.state.run.stepCount, 3);
 });

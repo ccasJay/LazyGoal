@@ -813,7 +813,7 @@ export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionCont
  * 任务提案决策契约。
  *
  * @remarks
- * 模型提出目标与完成验收标准，请求用户审查并批准。在批准前只允许只读探查。
+ * 模型提出目标与完成验收标准，请求用户审查并批准。在批准前只允许只读 Tool。
  *
  * @example
  * ```ts

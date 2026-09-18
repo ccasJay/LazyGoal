@@ -31,7 +31,7 @@ const executingNoToolBundle = createModelOutputContractBundle({
     kind: "executing",
 });
 
-const planProbeBundle = createModelOutputContractBundle({
+const unapprovedBundle = createModelOutputContractBundle({
     kind: "executing",
     taskPresent: false,
 });
@@ -79,7 +79,7 @@ test("extractJsonPayload 接受裸 JSON 与完整 fenced code block，严格拒�
 });
 
 test("parseModelOutput 成功解析各类请求的合法结果并还原 optional 字段", () => {
-    // 1. plan probe - ask_user
+    // 1. 未批准任务 - ask_user
     const askUserRaw = JSON.stringify({
         result: {
             kind: "ask_user",
@@ -97,7 +97,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
             memoryPatch: null,
         },
     });
-    const askUserResult = parseModelOutput(askUserRaw, planProbeBundle);
+    const askUserResult = parseModelOutput(askUserRaw, unapprovedBundle);
     assert.deepEqual(askUserResult, {
         kind: "ask_user",
         questions: [
@@ -110,7 +110,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
         ],
     });
 
-    // 2. plan probe - task_proposal (完整 fenced code block)
+    // 2. 未批准任务 - task_proposal (完整 fenced code block)
     const proposalRaw = `\`\`\`json\n${JSON.stringify({
         result: {
             kind: "task_proposal",
@@ -122,7 +122,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
             memoryPatch: null,
         },
     })}\n\`\`\``;
-    const proposalResult = parseModelOutput(proposalRaw, planProbeBundle);
+    const proposalResult = parseModelOutput(proposalRaw, unapprovedBundle);
     assert.deepEqual(proposalResult, {
         kind: "task_proposal",
         task: {

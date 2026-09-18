@@ -253,9 +253,9 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
     assert.throws(() => goalSnapshotCodec.encode(completedGoal), GoalSnapshotProtocolError);
 });
 
-test("快照不变量: 任务未批准时不得累积 stepCount 或 pendingAction", () => {
+test("快照不变量: 任务未批准时允许普通 Step 与 pendingAction", () => {
     const goal = createBaseGoal();
-    // task 未定义，却有 stepCount > 0
+    // task 未定义，却有普通只读 Action/Observation Step
     const stepCountGoal: Goal = {
         ...goal,
         state: {
@@ -263,18 +263,20 @@ test("快照不变量: 任务未批准时不得累积 stepCount 或 pendingActio
             workflow: { phase: "executing" },
             run: {
                 ...goal.state.run,
-                status: "waiting",
-                stepCount: 2,
+                status: "running",
+                stepCount: 1,
                 lastStep: {
-                    kind: "decision",
-                    result: { kind: "wait", reason: "等待" },
+                    kind: "action",
+                    action: { actionId: "read-1", toolId: "read_file", input: { path: "README.md" } },
+                    observation: { kind: "success", output: "内容", summary: "读取完成" },
                 },
             },
         },
     };
-    assert.throws(() => goalSnapshotCodec.encode(stepCountGoal), GoalSnapshotProtocolError);
+    const encodedStep = goalSnapshotCodec.encode(stepCountGoal);
+    assert.equal(goalSnapshotCodec.decode(encodedStep).state.run.stepCount, 1);
 
-    // task 未定义，却有 pendingAction
+    // task 未定义，却有需要批准的普通只读 Action
     const pendingActionGoal: Goal = {
         ...goal,
         state: {
@@ -290,7 +292,11 @@ test("快照不变量: 任务未批准时不得累积 stepCount 或 pendingActio
             },
         },
     };
-    assert.throws(() => goalSnapshotCodec.encode(pendingActionGoal), GoalSnapshotProtocolError);
+    const encodedPending = goalSnapshotCodec.encode(pendingActionGoal);
+    assert.equal(
+        goalSnapshotCodec.decode(encodedPending).state.run.pendingAction?.status,
+        "awaiting_approval",
+    );
 });
 
 test("历史 Preparation 快照在 decode 时 fail-closed 拒绝", () => {

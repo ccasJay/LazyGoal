@@ -35,7 +35,7 @@
   - 验证方式：更新 `packages/tui/test/session-controller.test.ts`、时间线/恢复测试和相关类型测试；确认 `packages/tui/src` 不再导出或订阅 Probe 事件。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 6. 完成跨包协议收口、架构文档和组合流回归
+- [x] //TODO 6. 完成跨包协议收口、架构文档和组合流回归
 
   - 实现目标：清理跨包导出、测试夹具和架构说明中的 Probe 语义，补充“创建 Goal → 读取环境 → Observation → 任务提案 → 批准 → 执行”的自动化组合测试，并保持现有 Action Approval、Evidence Gate 与流式屏障行为。
   - 成功判据：生产源码、当前测试入口和架构文档不再依赖 Probe 专用路径；组合流不会停留在 `creating goal...`，读取结果可推动任务提案，批准后普通执行仍可完成。
@@ -62,4 +62,4 @@
 
 ### Latest Result
 
-未执行。运行后按 `delivery-loop.md` 记录逐项证据、整体状态、时效、测试提交或未提交工作树指纹及当前契约版本。
+已完成：跨包 Probe 语义已清理，架构文档与组合流测试已更新；组合流覆盖创建 Goal → 读取环境 → Observation → 任务提案 → 批准 → 执行，读取结果推动下一轮决策且不再停留在 `creating goal...`。`npm test` 全量通过（1094 个测试与 13 个脚本测试），其中包含类型检查、依赖边界检查；`git diff --check` 通过。

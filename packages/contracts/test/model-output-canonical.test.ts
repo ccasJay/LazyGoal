@@ -387,12 +387,12 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
     });
     assert.equal(bundle.name, "unapproved_executing_agent_decision");
 
-    // 统一 tool_call 输出承载只读探查，不再使用 probe_action 分支。
+    // 统一 tool_call 输出承载批准前的只读读取。
     const wireJson = {
         result: {
             kind: "tool_call",
             action: {
-                actionId: "probe-1",
+                actionId: "read-1",
                 toolId: "read_file",
                 input: { path: "package.json" },
             },
@@ -409,7 +409,7 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
         result: {
             kind: "tool_call",
             action: {
-                actionId: "probe-2",
+                actionId: "read-2",
                 toolId: "grep",
                 input: { pattern: "test" },
             },
@@ -428,7 +428,7 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
         result: {
             kind: "tool_call",
             action: {
-                actionId: "probe-3",
+                actionId: "illegal-write-1",
                 toolId: "write_file",
                 input: { path: "test.txt", content: "data" },
             },
