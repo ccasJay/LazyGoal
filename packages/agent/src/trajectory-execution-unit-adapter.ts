@@ -98,8 +98,8 @@ export interface TrajectoryExecutionUnitAdapterOptions {
  *
  * @remarks
  * Adapter 会忽略提交边界之外的 tail，但会严格校验边界内事件的序号、Goal/Run
- * 身份、执行阶段、单元连续性和事件配对。成功的 Tool 单元必须包含 Decision、已
- * 批准 Action、Tool 开始/结果与 Observation；非 Tool Decision 必须包含对应终态。
+ * 身份、执行阶段、单元连续性和事件配对。Tool 单元必须包含 Decision、已批准
+ * Action、Tool 开始/结果与 Observation；非 Tool Decision 必须包含对应终态。
  * 不完整单元被排除而不被拆分，结构矛盾则抛出 `MODEL_CONTEXT_SOURCE_ERROR`。
  *
  * @example
@@ -357,13 +357,13 @@ function completeExecutionUnit(
                 `Tool Execution Unit ${executionUnitId} contains a terminal event`,
             );
         }
-        if (
-            staged.length !== 1
-            || staged[0]!.payload.approvalStatus !== "approved"
-            || started.length !== 1
-            || finished.length !== 1
-            || observations.length !== 1
-        ) {
+        const isApprovedTool = staged.length === 1
+            && staged[0]!.payload.approvalStatus === "approved"
+            && started.length === 1
+            && finished.length === 1
+            && observations.length === 1;
+
+        if (!isApprovedTool) {
             return undefined;
         }
 
@@ -467,4 +467,3 @@ export function projectTrajectoryExecutionUnits(
 /** 规范命名的执行单元投影适配器类。 */
 export const TrajectoryExecutionUnitProjectionAdapter = TrajectoryExecutionUnitAdapter;
 export type TrajectoryExecutionUnitProjectionAdapter = TrajectoryExecutionUnitAdapter;
-

@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `packages/runtime/test/runner.test.ts`、`packages/runtime/test/runner-plan-probe.test.ts` 替换测试与 `goal-coordinator` 恢复测试；覆盖保存失败、Tool 失败、预算耗尽和批准后普通执行。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 3. 统一 Trajectory 执行单元与下一轮上下文
+- [x] //TODO 3. 统一 Trajectory 执行单元与下一轮上下文
 
   - 实现目标：移除 Agent Context Adapter 对无 `action_staged` Probe 单元的特殊识别，确保普通只读 Action/Observation 进入 Hot/Warm 上下文，并保留失败 Observation、提交边界和 Evidence 过滤。
   - 成功判据：读取成功或失败提交后，下一轮模型请求都能看到对应 Tool 标识、状态和受限结果；缺失 staging、跨身份、序号断裂或旧 Probe 单元 fail-closed。

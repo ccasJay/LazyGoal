@@ -104,6 +104,56 @@ test("Adapter 只投影 committed boundary 内的完整 Tool execution unit", ()
     assert.equal(Object.isFrozen(units[0]?.events), true);
 });
 
+test("Adapter 对缺失 action staging 的旧 Tool 单元 fail-closed", () => {
+    const source = [
+        event(1, {
+            unitId: "unit-legacy-read",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: toolDecision(),
+            },
+        }),
+        event(2, {
+            unitId: "unit-legacy-read",
+            eventType: "tool_started",
+            payload: {
+                type: "tool_started",
+                actionId: "action-tool",
+                toolId: "echo",
+                input: {},
+            },
+        }),
+        event(3, {
+            unitId: "unit-legacy-read",
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId: "action-tool",
+                toolId: "echo",
+                observation: { kind: "success", output: "legacy result", summary: "done" },
+            },
+        }),
+        event(4, {
+            unitId: "unit-legacy-read",
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: "action-tool",
+                observation: { kind: "success", output: "legacy result", summary: "done" },
+            },
+        }),
+    ];
+
+    const units = new TrajectoryExecutionUnitAdapter().adapt(source, {
+        committedThroughSequence: 4,
+        goalId: "goal-1",
+        runId: "run-1",
+    });
+
+    assert.deepEqual(units, []);
+});
+
 test("Adapter 保留完整的非 Tool Decision，排除生命周期、marker 和不完整单元", () => {
     const source = [
         event(1, {

@@ -159,6 +159,157 @@ test("Assembler 从 committed Trajectory 选择完整 Hot，并按确定性规�
     assert.equal(Object.isFrozen(assembled.trajectoryContext?.warm), true);
 });
 
+test("Assembler 将 committed 只读 Tool/Observation 带入下一轮 Hot 上下文", async () => {
+    const events = [
+        event(1, "read-unit", {
+            type: "decision_received",
+            decision: {
+                kind: "tool_call",
+                action: {
+                    actionId: "read-action",
+                    toolId: "echo",
+                    input: { query: "spec" },
+                },
+            },
+        }),
+        event(2, "read-unit", {
+            type: "action_staged",
+            action: {
+                actionId: "read-action",
+                toolId: "echo",
+                input: { query: "spec" },
+            },
+            approvalStatus: "approved",
+        }),
+        event(3, "read-unit", {
+            type: "tool_started",
+            actionId: "read-action",
+            toolId: "echo",
+            input: { query: "spec" },
+        }),
+        event(4, "read-unit", {
+            type: "tool_finished",
+            actionId: "read-action",
+            toolId: "echo",
+            observation: {
+                kind: "success",
+                output: "found spec",
+                summary: "read completed",
+            },
+        }),
+        event(5, "read-unit", {
+            type: "observation_recorded",
+            actionId: "read-action",
+            observation: {
+                kind: "success",
+                output: "found spec",
+                summary: "read completed",
+            },
+        }),
+    ];
+    const trajectoryStore = new MemoryTrajectoryStore(events);
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore,
+        policy,
+    });
+    const goal = layeredExecutingGoal(5);
+    const view = new ModelInferenceProjector().project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+    );
+
+    const assembled = await assembler.assemble({ goal, view });
+    const hot = assembled.trajectoryContext?.hot ?? [];
+
+    assert.deepEqual(hot.map((unit) => unit.executionUnitId), ["read-unit"]);
+    assert.deepEqual(
+        hot[0]?.events.map((item) => item.eventType),
+        ["decision_received", "action_staged", "tool_started", "tool_finished", "observation_recorded"],
+    );
+    const observation = hot[0]?.events.find(
+        (item) => item.eventType === "observation_recorded",
+    )?.payload as { readonly observation?: { readonly output?: { readonly value?: unknown } } } | undefined;
+    assert.equal(observation?.observation?.output?.value, "found spec");
+});
+
+test("Assembler 将失败 Observation 作为普通 Tool 单元带入下一轮上下文", async () => {
+    const events = [
+        event(1, "failed-read-unit", {
+            type: "decision_received",
+            decision: {
+                kind: "tool_call",
+                action: {
+                    actionId: "failed-read-action",
+                    toolId: "echo",
+                    input: { query: "missing" },
+                },
+            },
+        }),
+        event(2, "failed-read-unit", {
+            type: "action_staged",
+            action: {
+                actionId: "failed-read-action",
+                toolId: "echo",
+                input: { query: "missing" },
+            },
+            approvalStatus: "approved",
+        }),
+        event(3, "failed-read-unit", {
+            type: "tool_started",
+            actionId: "failed-read-action",
+            toolId: "echo",
+            input: { query: "missing" },
+        }),
+        event(4, "failed-read-unit", {
+            type: "tool_finished",
+            actionId: "failed-read-action",
+            toolId: "echo",
+            observation: {
+                kind: "failure",
+                code: "NOT_FOUND",
+                message: "missing",
+                retryable: false,
+            },
+        }),
+        event(5, "failed-read-unit", {
+            type: "observation_recorded",
+            actionId: "failed-read-action",
+            observation: {
+                kind: "failure",
+                code: "NOT_FOUND",
+                message: "missing",
+                retryable: false,
+            },
+        }),
+    ];
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore: new MemoryTrajectoryStore(events),
+        policy,
+    });
+    const goal = layeredExecutingGoal(5);
+    const view = new ModelInferenceProjector().project(
+        goal,
+        [],
+        createEmptyWorkingMemory(),
+    );
+
+    const assembled = await assembler.assemble({ goal, view });
+    const unit = assembled.trajectoryContext?.hot[0];
+    assert.equal(unit?.executionUnitId, "failed-read-unit");
+    const observation = unit?.events.find(
+        (item) => item.eventType === "observation_recorded",
+    )?.payload as Extract<
+        TrajectoryEvent["payload"],
+        { readonly type: "observation_recorded" }
+    > | undefined;
+    assert.equal(observation?.type, "observation_recorded");
+    if (observation?.type === "observation_recorded") {
+        assert.equal(observation.observation.kind, "failure");
+        assert.equal(observation.observation.code, "NOT_FOUND");
+    }
+});
+
 test("Assembler 相同输入下多次调用产生确定性 Warm 结果且不依赖持久化缓存", async () => {
     const events = [
         completeEvent(1, "unit-1", "first"),
