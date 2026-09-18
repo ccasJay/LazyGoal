@@ -245,7 +245,6 @@ function createInitialGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: goalDefinition,
             },
             messages: [...messages],
@@ -407,30 +406,6 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.deepEqual(persisted.state.run, state);
 });
 
-test("does not start or consume a Step for a preparation Goal", async () => {
-    const events: string[] = [];
-    const store = new RecordingGoalStore(events);
-    const preparationGoal = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "goal-preparation",
-        intent: "先收集上下文",
-        profile,
-        runId: "run-preparation",
-    });
-    await store.seed(preparationGoal);
-    const executor = new FakeStepExecutor([], events);
-    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
-
-    const state = requireSuccessfulState(
-        await runner.runUntilBlocked(createRef(preparationGoal)),
-    );
-
-    assert.deepEqual(state, createRun("run-preparation"));
-    assert.deepEqual(events, ["restore:goal-preparation"]);
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(executor.receivedGoals, []);
-});
 
 test("stops on blocked and continues an externally resumed Goal", async () => {
     const events: string[] = [];

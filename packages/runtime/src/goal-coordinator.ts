@@ -1,112 +1,42 @@
-import { randomUUID } from "node:crypto";
-
 import type {
-    AssistantMessage,
-    CanonicalMemoryOperation,
     Goal,
     GoalTask,
-    GoalPhase,
     GoalProtocolValidator,
     JsonValue,
-    MemoryPatch,
     RunRef,
-    WorkingMemory,
+    AskUserAnswer,
+    AskUserQuestion,
 } from "./domain";
 import type { GoalStore } from "./goal-store";
-import type {
-    PreparationExecutor,
-    PreparationProbeResult,
-    PreparationResult,
-} from "./preparation-executor";
-import {
-    PreparationResultContract,
-    safeParse,
-    validateModelOutputSemantics,
-} from "../../contracts/src/index";
-
-import {
-    CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
-    CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
-    ContextLookupProtocolError,
-    assertContextLookupResultOwnership,
-    createContextLookupId,
-    invokeContextLookup,
-    normalizeContextLookupRequest,
-    normalizeContextLookupResult,
-    type ContextLookupPort,
-    type ContextLookupRequest,
-    type ContextLookupResult,
-} from "./context-retrieval";
+import type { PreparationExecutor } from "./preparation-executor";
+import { validateAskUserAnswers } from "../../contracts/src/index";
+import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
 import {
     InMemoryToolRegistry,
-    resolveAuthorizedToolDefinitions,
     type ToolObservation,
-    type ToolPreparationResult,
-    type ToolRegistration,
     type ToolRegistry,
 } from "./tool";
 import {
-    isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
 import { transition } from "./transition";
 import {
     type DiagnosticTraceSink,
-    type TrajectoryEvent,
     type TrajectoryEventDraft,
     type TrajectoryStore,
-    computeContentHash,
 } from "./trajectory";
 import {
     advanceContextEpoch,
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
-import {
-    createSupersedeScopeOperation,
-    mergeNormalizedMemoryPatches,
-    normalizeMemoryPatch,
-    reduceWorkingMemory,
-    type NormalizedWorkingMemoryPatch,
-    WorkingMemoryPatchError,
-    type WorkingMemoryLimitsInput,
-    validateMemoryPatchPhase,
-} from "./working-memory-core";
-import { WorkingMemorySession } from "./working-memory-session";
+import type { WorkingMemoryLimitsInput } from "./working-memory-core";
 import {
     TrajectoryCheckpointCommitter,
-    type AcceptedMemoryPatchInput,
-    type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
+    type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
-
-type PreparationLookupOutcome =
-    | { readonly ok: true; readonly goal: Goal; readonly result: ContextLookupResult }
-    | Extract<GoalProgressResult, { readonly ok: false }>;
-
-function createPreparationProbeActionId(goalId: string): string {
-    return `probe-${goalId}-${randomUUID()}`;
-}
-
-function preparationInputRecorded(
-    goal: Pick<Goal, "id" | "state">,
-    messageIndex: number,
-    content: string,
-    phase: "gathering_context" | "planning",
-): TrajectoryEventDraft {
-    return {
-        goalId: goal.id,
-        runId: goal.state.run.id,
-        phase,
-        eventType: "preparation_input_recorded",
-        payload: {
-            type: "preparation_input_recorded",
-            messageIndex,
-            contentHash: computeContentHash(content),
-        },
-    };
-}
 
 function cloneCriterion(criterion: GoalTask["completionCriteria"][number]): GoalTask["completionCriteria"][number] {
     return {
@@ -120,6 +50,43 @@ function cloneCriterion(criterion: GoalTask["completionCriteria"][number]): Goal
                 },
             }),
     };
+}
+
+function cloneTask(task: GoalTask): GoalTask {
+    return {
+        objective: task.objective,
+        completionCriteria: task.completionCriteria.map(cloneCriterion),
+    };
+}
+
+function formatAskUserAnswers(
+    questions: readonly AskUserQuestion[],
+    answers: readonly AskUserAnswer[],
+): string {
+    const answerMap = new Map(answers.map((a) => [a.questionId, a]));
+    const blocks: string[] = [];
+
+    for (const q of questions) {
+        const answer = answerMap.get(q.id);
+        if (!answer) continue;
+
+        const selectedLabels: string[] = [];
+        for (const optId of answer.optionIds) {
+            const matchedOpt = q.options.find((o) => o.id === optId);
+            if (matchedOpt) {
+                selectedLabels.push(matchedOpt.label);
+            }
+        }
+        if (answer.otherText !== undefined && answer.otherText.trim().length > 0) {
+            selectedLabels.push(`Other: ${answer.otherText.trim()}`);
+        }
+
+        blocks.push(
+            `### ${q.header}\n${q.question}\nAnswer: ${selectedLabels.join(", ")}`,
+        );
+    }
+
+    return blocks.join("\n\n");
 }
 
 /** Goal 推进失败时返回的稳定业务错误码。 */
@@ -142,20 +109,39 @@ export type GoalProgressErrorCode =
  * 用户对 Goal 当前交互等待点提交的操作。
  *
  * @remarks
- * `message` 用于回答问题、反馈任务提案或解除 Agent wait，内容按原文持久化；
- * `approve` 只批准当前 proposal；`approve_action` 先持久化批准状态再用一次性
- * 授权继续执行；`reject_action` 将拒绝写成 Observation。两种 Action 操作只
- * 处理当前 pendingAction，不追加伪造的会话消息。
+ * 统一执行生命周期支持以下用户操作：
+ * - `message`: 向普通 wait/blocked 等待追加用户消息；
+ * - `approve_task`: 批准当前任务提案并将其固定为最终任务，推进执行；
+ * - `feedback_task`: 对当前任务提案提供反馈，使旧提案失效并重新规划；
+ * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
+ * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
+ * - `reject_action`: 拒绝待审批的工具调用并记录原因。
+ * 兼容分支 `approve` 与 `approve_task` 行为一致。
+ *
+ * @example
+ * ```ts
+ * const action: GoalUserAction = {
+ *   kind: "approve_task",
+ *   requestId: "proposal-1",
+ * };
+ * ```
  */
 export type GoalUserAction =
     | { readonly kind: "message"; readonly content: string }
-    | { readonly kind: "approve" }
+    | { readonly kind: "approve_task"; readonly requestId?: string }
+    | { readonly kind: "feedback_task"; readonly requestId?: string; readonly feedback: string }
+    | {
+        readonly kind: "answer_ask_user";
+        readonly requestId: string;
+        readonly answers: readonly AskUserAnswer[];
+    }
     | { readonly kind: "approve_action"; readonly actionId: string }
     | {
         readonly kind: "reject_action";
         readonly actionId: string;
         readonly reason: string;
-    };
+    }
+    | { readonly kind: "approve"; readonly requestId?: string };
 
 /**
  * 恢复等待中 Goal 所需的稳定关联键与用户操作。
@@ -164,7 +150,7 @@ export type GoalUserAction =
  * ```ts
  * const request: ResumeGoalRequest = {
  *   ref: { goalId: "goal-1", runId: "run-1" },
- *   action: { kind: "message", content: "Use PostgreSQL" },
+ *   action: { kind: "approve_task" },
  * };
  * ```
  */
@@ -179,30 +165,33 @@ export interface ResumeGoalRequest {
  * GoalCoordinator 推进一次 Goal 后到达的等待点、执行终态或业务失败。
  *
  * @remarks
- * 成功结果始终携带本次推进得到的最新完整 Goal。准备阶段不会启动 Run 或
- * 消费 Step；executing 阶段区分 Agent wait、Action approval/recovery 等待与
- * Run 终态。
+ * 统一执行生命周期中 phase 恒为 `executing`。
+ * 等待点细分为：
+ * - `ask_user`: 等待回答 Agent 结构化提问；
+ * - `task_approval`: 等待用户批准或反馈任务提案；
+ * - `action_approval`: 等待审批副作用工具调用；
+ * - `action_recovery`: 等待恢复结果未知的工具调用；
+ * - `blocked`: 等待解除 Agent 主动发起的 wait。
+ *
+ * @example
+ * ```ts
+ * const result = await coordinator.advance({ goalId: "goal-1", runId: "run-1" });
+ * if (result.ok && result.kind === "waiting") {
+ *   console.log(result.waitingFor);
+ * }
+ * ```
  */
 export type GoalProgressResult =
     | {
         readonly ok: true;
         readonly kind: "waiting";
-        readonly phase: "gathering_context";
-        readonly waitingFor: "question";
-        readonly goal: Goal;
-    }
-    | {
-        readonly ok: true;
-        readonly kind: "waiting";
-        readonly phase: "planning";
-        readonly waitingFor: "approval";
-        readonly goal: Goal;
-    }
-    | {
-        readonly ok: true;
-        readonly kind: "waiting";
         readonly phase: "executing";
-        readonly waitingFor: "blocked" | "action_approval" | "action_recovery";
+        readonly waitingFor:
+            | "ask_user"
+            | "task_approval"
+            | "action_approval"
+            | "action_recovery"
+            | "blocked";
         readonly goal: Goal;
     }
     | {
@@ -220,18 +209,16 @@ export type GoalProgressResult =
     };
 
 /**
- * 准备阶段只读探查生命周期事件。
+ * 只读探查生命周期事件。
  *
  * @remarks
- * 用于通知上层控制器或 TUI 实时呈现准备阶段的只读调查进度。
- * 输入完成授权与语义校验、即将执行时触发 `started`；提交成功后触发
- * `finished`，执行或提交失败时触发 `failed`。三个分支共享同一 `actionId`。
+ * 用于通知上层控制器或 TUI 呈现探查进度。
  *
  * @example
  * ```ts
  * const event: PreparationProbeProgressEvent = {
  *   kind: "started",
- *   actionId: "probe-goal-1-m1-1",
+ *   actionId: "probe-1",
  *   goalId: "goal-1",
  *   toolId: "read_file",
  *   input: { path: "package.json" },
@@ -271,25 +258,24 @@ export type PreparationProbeProgressEvent =
  * 创建 {@link GoalCoordinator} 所需的执行与持久化依赖。
  *
  * @remarks
- * Coordinator 拥有准备阶段转换和消息追加；Executor 只返回单轮决策，
- * Scheduler 只运行已经进入 executing 的 Goal。
+ * Coordinator 作为外层调度控制器，推进 Goal 执行并处理交互恢复。
  *
  * @example
  * ```ts
- * const coordinator = new GoalCoordinator({ store, preparationExecutor, scheduler });
+ * const coordinator = new GoalCoordinator({ store, scheduler });
  * ```
  */
 export interface GoalCoordinatorDependencies {
     /** 用于恢复和保存 Goal 最新完整快照。 */
     readonly store: GoalStore;
-    /** 生成 active Preparation 的单轮结构化决策。 */
-    readonly preparationExecutor: PreparationExecutor;
-    /** 运行 executing Goal，直到 blocked 或终态。 */
-    readonly scheduler: RunScheduler;
     /**
-     * 解析 Preparation 可见 ToolDefinition 的 Registry；省略时按空 Registry
-     * 处理，因此不会向 Preparation Executor 提供任何 Tool。
+     * 生成 active Preparation 的单轮决策（已废弃）。
+     * @deprecated Preparation 阶段已移除，此字段保留仅用于过渡期兼容。
      */
+    readonly preparationExecutor?: PreparationExecutor;
+    /** 运行 executing Goal，直到 blocked、waiting 或终态。 */
+    readonly scheduler: RunScheduler;
+    /** 工具注册表；省略时按空 InMemoryToolRegistry 处理。 */
     readonly toolRegistry?: ToolRegistry;
     /** 可选 Domain Event 追加与 Snapshot 边界读取端口；省略时只保存 Snapshot。 */
     readonly trajectoryStore?: TrajectoryStore;
@@ -297,16 +283,13 @@ export interface GoalCoordinatorDependencies {
     readonly traceSink?: DiagnosticTraceSink;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
-    /**
-     * 可选 Prompt/Memory 协议校验器；Composition Root 可用它在推进前执行
-     * 额外的协议边界校验。
-     */
+    /** 可选 Prompt/Memory 协议校验器；Composition Root 可用它在推进前执行额外的协议边界校验。 */
     readonly protocolValidator?: GoalProtocolValidator;
     /** 可选共享提交器；省略时由 Coordinator 按当前依赖创建。 */
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
-    /** 可选的准备阶段只读探查生命周期事件回调。 */
+    /** 可选的探查生命周期事件回调。 */
     readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
 }
 
@@ -314,10 +297,9 @@ export interface GoalCoordinatorDependencies {
  * 推进可恢复 Goal，直到下一交互等待点或执行终态。
  *
  * @remarks
- * `advance` 是自动推进入口。每次跨阶段继续前都会先保存完整 Goal；保存失败
- * 时错误原样传播，且不会调用下一轮 Executor 或 Scheduler。Preparation
- * result 与当前 phase 不匹配时返回 `INVALID_PHASE_RESULT`，不产生副作用。
- * `resume` 恢复准备阶段的 question/approval 和 executing blocked 等待。
+ * `advance` 是自动推进入口。新 Goal 直接进入统一执行生命周期。
+ * 每次下游调用（调度或恢复）前都会先保存最新完整 Goal；保存失败时错误原样传播。
+ * `resume` 恢复处于 `ask_user`、`task_approval`、工具审批或 blocked 等待的 Goal。
  *
  * @example
  * ```ts
@@ -327,11 +309,8 @@ export interface GoalCoordinatorDependencies {
  * }
  * ```
  */
-const MAX_PREPARATION_PROBES = 5;
-
 export class GoalCoordinator {
     private readonly store: GoalStore;
-    private readonly preparationExecutor: PreparationExecutor;
     private readonly scheduler: RunScheduler;
     private readonly toolRegistry: ToolRegistry;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
@@ -342,10 +321,9 @@ export class GoalCoordinator {
     private readonly probeListeners = new Set<(event: PreparationProbeProgressEvent) => void>();
     private readonly onProbeProgressCallback: ((event: PreparationProbeProgressEvent) => void) | undefined;
 
-    /** @param dependencies - GoalStore、PreparationExecutor 与 RunScheduler。 */
+    /** @param dependencies - GoalCoordinatorDependencies。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
         this.store = dependencies.store;
-        this.preparationExecutor = dependencies.preparationExecutor;
         this.scheduler = dependencies.scheduler;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
         this.trajectoryStore = dependencies.trajectoryStore;
@@ -366,9 +344,9 @@ export class GoalCoordinator {
     }
 
     /**
-     * 注册准备阶段只读探查生命周期事件监听器。
+     * 注册探查生命周期事件监听器。
      *
-     * @param listener - 接收只读探查生命周期事件的监听回调。
+     * @param listener - 接收探查生命周期事件的监听回调。
      * @returns 幂等注销该监听器的清理函数。
      *
      * @example
@@ -389,7 +367,7 @@ export class GoalCoordinator {
         try {
             this.onProbeProgressCallback?.(event);
         } catch {
-            // 忽略外部回调异常，不影响领域执行
+            // 隔离外部回调异常
         }
         for (const listener of this.probeListeners) {
             try {
@@ -405,16 +383,20 @@ export class GoalCoordinator {
      *
      * @param ref - Goal 与其当前 Run 的关联键。
      * @param control - 当前 Goal 推进调用共享的中止控制。
-     * @returns 下一等待点、executing 终态或稳定业务失败。
-     * @throws Executor、Scheduler 或 GoalStore 失败时传播原始异常；中止时抛出
-     *   `ExecutionAbortedError`。
+     * @returns 下一等待点、执行终态或稳定业务失败。
+     * @throws Scheduler 或 GoalStore 失败时传播原始异常；中止时抛出 `ExecutionAbortedError`。
+     *
+     * @example
+     * ```ts
+     * const result = await coordinator.advance({ goalId: "g-1", runId: "r-1" });
+     * ```
      */
     async advance(
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
         throwIfAborted(control);
-        let goal = await this.restore(ref, control);
+        const goal = await this.restore(ref, control);
         throwIfAborted(control);
 
         if (goal === undefined) {
@@ -422,377 +404,6 @@ export class GoalCoordinator {
         }
 
         this.validateGoalProtocol(goal);
-
-        let contextLookupResult = await this.restoreContextLookupResult(goal, control);
-        let preparationLookupCount = 0;
-        let lastProbeResult: PreparationProbeResult | undefined;
-        let preparationProbeCount = 0;
-
-        while (goal.state.workflow.phase !== "executing") {
-            const workflow = goal.state.workflow;
-
-            if (workflow.phase === "gathering_context") {
-                if (workflow.preparation.status === "waiting_input") {
-                    return {
-                        ok: true,
-                        kind: "waiting",
-                        phase: "gathering_context",
-                        waitingFor: "question",
-                        goal,
-                    };
-                }
-
-                throwIfAborted(control);
-                const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
-                throwIfAborted(control);
-                const session = await this.openWorkingMemorySession(goal, control);
-                try {
-                    const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
-                    const rawResult = await this.preparationExecutor.execute({
-                        goal,
-                        authorizedTools: probeLimitReached ? [] : tools,
-                        ...(session === undefined
-                            ? {}
-                            : {
-                                workingMemory: session.workingMemory,
-                                preparationInputEvidence: session.preparationInputEvidence,
-                            }),
-                        ...(control === undefined ? {} : { control }),
-                        ...(contextLookupResult === undefined
-                            ? {}
-                            : { contextLookupResult }),
-                        ...(lastProbeResult === undefined
-                            ? {}
-                            : { lastProbeResult }),
-                        ...(probeLimitReached ? { probeLimitReached: true } : {}),
-                    });
-                    throwIfAborted(control);
-
-                    const validation = this.validatePreparationResult(rawResult);
-                    if (!validation.ok) return validation;
-                    const { result, thought } = validation;
-
-                    if (result.kind === "probe_action") {
-                        if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
-                            return {
-                                ok: false,
-                                error: {
-                                    code: "PREPARATION_PROBE_LIMIT_EXCEEDED",
-                                    message: `Preparation probe limit exceeded: maximum ${MAX_PREPARATION_PROBES} probes allowed`,
-                                },
-                            };
-                        }
-
-                        const probeOutcome = await this.prepareProbeAction(
-                            goal,
-                            result,
-                            workflow.phase,
-                            session,
-                            preparationProbeCount,
-                            control,
-                            thought,
-                        );
-                        if (!probeOutcome.ok) return probeOutcome;
-                        goal = probeOutcome.goal;
-                        lastProbeResult = probeOutcome.result;
-                        contextLookupResult = undefined;
-                        preparationProbeCount += 1;
-
-                        continue;
-                    }
-
-                    if (result.kind === "context_lookup") {
-                        const lookup = await this.prepareContextLookup(
-                            goal,
-                            result,
-                            workflow.phase,
-                            preparationLookupCount,
-                            control,
-                            thought,
-                        );
-                        if (!lookup.ok) return lookup;
-                        goal = lookup.goal;
-                        contextLookupResult = lookup.result;
-                        preparationLookupCount += 1;
-                        continue;
-                    }
-
-                    if (result.kind === "context_checkpoint") {
-                        const acceptedPatch = this.acceptPreparationPatch(
-                            goal,
-                            result.memoryPatch,
-                            workflow.phase,
-                            session,
-                        );
-                        const epoch = this.advanceGoalContextEpoch(
-                            goal,
-                            "input_threshold",
-                        );
-                        goal = await this.commitPreparation(
-                            epoch.goal,
-                            [
-                                {
-                                    goalId: goal.id,
-                                    runId: goal.state.run.id,
-                                    phase: workflow.phase,
-                                    eventType: "preparation_result",
-                                    payload: {
-                                        type: "preparation_result",
-                                        result: result.kind,
-                                        ...(thought !== undefined ? { thought } : {}),
-                                    },
-                                },
-                                epoch.fact,
-                            ],
-                            acceptedPatch,
-                            control,
-                        );
-                        contextLookupResult = undefined;
-                        lastProbeResult = undefined;
-                        continue;
-                    }
-
-                    const preparationFact: TrajectoryEventDraft = {
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: workflow.phase,
-                        eventType: "preparation_result",
-                        payload: {
-                            type: "preparation_result",
-                            result: result.kind,
-                            ...(thought !== undefined ? { thought } : {}),
-                        },
-                    };
-
-                    if (result.kind === "question") {
-                        const acceptedPatch = this.acceptPreparationPatch(
-                            goal,
-                            result.memoryPatch,
-                            workflow.phase,
-                            session,
-                        );
-                        throwIfAborted(control);
-                        goal = this.withQuestion(goal, result.question);
-                        goal = await this.commitPreparation(
-                            goal,
-                            [
-                                preparationFact,
-                                {
-                                    goalId: goal.id,
-                                    runId: goal.state.run.id,
-                                    phase: "gathering_context",
-                                    eventType: "run_waiting",
-                                    payload: { type: "run_waiting", reason: "question" },
-                                },
-                            ],
-                            acceptedPatch,
-                            control,
-                        );
-                        return {
-                            ok: true,
-                            kind: "waiting",
-                            phase: "gathering_context",
-                            waitingFor: "question",
-                            goal,
-                        };
-                    }
-
-                    if (result.kind !== "context_ready") {
-                        return this.invalidPhaseResult(workflow.phase, result);
-                    }
-
-                    const acceptedPatch = this.acceptPreparationPatch(
-                        goal,
-                        result.memoryPatch,
-                        workflow.phase,
-                        session,
-                        this.contextReadyLifecycle(session),
-                    );
-                    goal = this.withPlanning(goal);
-                    throwIfAborted(control);
-                    goal = await this.commitPreparation(
-                        goal,
-                        [preparationFact],
-                        acceptedPatch,
-                        control,
-                    );
-                    contextLookupResult = undefined;
-                    lastProbeResult = undefined;
-                } finally {
-                    session?.close();
-                }
-                continue;
-            }
-
-            if (workflow.preparation.status === "waiting_approval") {
-                return {
-                    ok: true,
-                    kind: "waiting",
-                    phase: "planning",
-                    waitingFor: "approval",
-                    goal,
-                };
-            }
-
-            throwIfAborted(control);
-            const tools = resolveAuthorizedToolDefinitions(goal, this.toolRegistry);
-            throwIfAborted(control);
-            const session = await this.openWorkingMemorySession(goal, control);
-            try {
-                const probeLimitReached = preparationProbeCount >= MAX_PREPARATION_PROBES;
-                const rawResult = await this.preparationExecutor.execute({
-                    goal,
-                    authorizedTools: probeLimitReached ? [] : tools,
-                    ...(session === undefined
-                        ? {}
-                        : {
-                            workingMemory: session.workingMemory,
-                            preparationInputEvidence: session.preparationInputEvidence,
-                        }),
-                    ...(control === undefined ? {} : { control }),
-                    ...(contextLookupResult === undefined
-                        ? {}
-                        : { contextLookupResult }),
-                    ...(lastProbeResult === undefined
-                        ? {}
-                        : { lastProbeResult }),
-                    ...(probeLimitReached ? { probeLimitReached: true } : {}),
-                });
-                throwIfAborted(control);
-
-                const validation = this.validatePreparationResult(rawResult);
-                if (!validation.ok) return validation;
-                const { result, thought } = validation;
-
-                if (result.kind === "probe_action") {
-                    if (preparationProbeCount >= MAX_PREPARATION_PROBES) {
-                        return {
-                            ok: false,
-                            error: {
-                                code: "PREPARATION_PROBE_LIMIT_EXCEEDED",
-                                message: `Preparation probe limit exceeded: maximum ${MAX_PREPARATION_PROBES} probes allowed`,
-                            },
-                        };
-                    }
-
-                    const probeOutcome = await this.prepareProbeAction(
-                        goal,
-                        result,
-                        workflow.phase,
-                        session,
-                        preparationProbeCount,
-                        control,
-                        thought,
-                    );
-                    if (!probeOutcome.ok) return probeOutcome;
-                    goal = probeOutcome.goal;
-                    lastProbeResult = probeOutcome.result;
-                    contextLookupResult = undefined;
-                    preparationProbeCount += 1;
-
-                    continue;
-                }
-
-                if (result.kind === "context_lookup") {
-                    const lookup = await this.prepareContextLookup(
-                        goal,
-                        result,
-                        workflow.phase,
-                        preparationLookupCount,
-                        control,
-                        thought,
-                    );
-                    if (!lookup.ok) return lookup;
-                    goal = lookup.goal;
-                    contextLookupResult = lookup.result;
-                    preparationLookupCount += 1;
-                    continue;
-                }
-
-                if (result.kind === "context_checkpoint") {
-                    const acceptedPatch = this.acceptPreparationPatch(
-                        goal,
-                        result.memoryPatch,
-                        workflow.phase,
-                        session,
-                    );
-                    const epoch = this.advanceGoalContextEpoch(
-                        goal,
-                        "input_threshold",
-                    );
-                    goal = await this.commitPreparation(
-                        epoch.goal,
-                        [
-                            {
-                                goalId: goal.id,
-                                runId: goal.state.run.id,
-                                phase: workflow.phase,
-                                eventType: "preparation_result",
-                                payload: {
-                                    type: "preparation_result",
-                                    result: result.kind,
-                                    ...(thought !== undefined ? { thought } : {}),
-                                },
-                            },
-                            epoch.fact,
-                        ],
-                        acceptedPatch,
-                        control,
-                    );
-                    contextLookupResult = undefined;
-                    lastProbeResult = undefined;
-                    continue;
-                }
-
-                if (result.kind !== "task_proposal") {
-                    return this.invalidPhaseResult(workflow.phase, result);
-                }
-
-                const acceptedPatch = this.acceptPreparationPatch(
-                    goal,
-                    result.memoryPatch,
-                    workflow.phase,
-                    session,
-                );
-                const preparationFact: TrajectoryEventDraft = {
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: workflow.phase,
-                    eventType: "preparation_result",
-                    payload: {
-                        type: "preparation_result",
-                        result: result.kind,
-                        ...(thought !== undefined ? { thought } : {}),
-                    },
-                };
-                goal = this.withProposal(goal, result);
-                throwIfAborted(control);
-                goal = await this.commitPreparation(
-                    goal,
-                    [
-                        preparationFact,
-                        {
-                            goalId: goal.id,
-                            runId: goal.state.run.id,
-                            phase: "planning",
-                            eventType: "run_waiting",
-                            payload: { type: "run_waiting", reason: "approval" },
-                        },
-                    ],
-                    acceptedPatch,
-                    control,
-                );
-            } finally {
-                session?.close();
-            }
-            return {
-                ok: true,
-                kind: "waiting",
-                phase: "planning",
-                waitingFor: "approval",
-                goal,
-            };
-        }
 
         if (
             goal.state.run.status === "created"
@@ -831,23 +442,28 @@ export class GoalCoordinator {
     }
 
     /**
-     * 提交交互等待中的用户消息或批准操作。
+     * 提交交互等待中的用户操作（问答、任务提案批准/反馈、工具审核或消息）。
      *
      * @remarks
-     * gathering message 会恢复为 active 并追加原文 user 消息；planning
-     * message 会移除当前 proposal、保留反馈并重新规划；approve 不追加消息，
-     * 而是把当前 proposal 复制为最终 task；executing message 会追加原文输入并
-     * 将 Run 从 waiting 恢复为 running。executing 的 `approve_action` 接受当前
-     * `awaiting_approval` 或 `outcome_unknown` Action，保存为 approved 后透传一次性
-     * 授权；`reject_action` 保存 rejected Observation 后继续推进。所有分支均先
-     * 保存完整 Goal，再调用 {@link advance}。当前没有匹配等待点或 action 不匹配时
-     * 无副作用地失败。
+     * 交互恢复处理逻辑：
+     * - `ask_user`: 校验 requestId 和答案结构，写入 `ask_user_answered` 事实并解除等待；
+     * - `task_approval`: 批准将提案固定为最终任务并推进 ContextEpoch；反馈追加用户消息并重新规划；
+     * - `approve_action`/`reject_action`: 审核待处理的工具调用；
+     * - `message`: 解除因 wait 决策引起的 blocked 等待。
+     * 所有恢复分支均先保存最新 Goal 快照，再调用 {@link advance}。
      *
      * @param request - 当前 RunRef 与用户操作。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 保存后自动推进得到的下一等待点或执行终态。
-     * @throws GoalStore、PreparationExecutor 或 Scheduler 失败时传播原始异常；
-     *   中止时抛出 `ExecutionAbortedError`。
+     * @throws GoalStore 或 Scheduler 失败时传播原始异常；中止时抛出 `ExecutionAbortedError`。
+     *
+     * @example
+     * ```ts
+     * const result = await coordinator.resume({
+     *   ref: { goalId: "g-1", runId: "r-1" },
+     *   action: { kind: "approve_task" },
+     * });
+     * ```
      */
     async resume(
         request: ResumeGoalRequest,
@@ -863,139 +479,219 @@ export class GoalCoordinator {
 
         this.validateGoalProtocol(goal);
 
-        const workflow = goal.state.workflow;
-
-        if (workflow.phase === "gathering_context") {
-            if (workflow.preparation.status !== "waiting_input") {
-                return this.goalNotWaiting(request.ref);
-            }
-
-            if (request.action.kind !== "message") {
-                return this.invalidGoalInput(
-                    "gathering_context requires a message action",
-                );
-            }
-
-            if (request.action.content.trim().length === 0) {
-                return this.invalidGoalInput("Message content must not be empty");
-            }
-
-            const resumedGoal = this.withGatheringAnswer(
-                goal,
-                request.action.content,
-            );
-            throwIfAborted(control);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "gathering_context",
-                eventType: "run_resumed",
-                payload: { type: "run_resumed" },
-            }, control);
-            await this.appendTrajectory(
-                preparationInputRecorded(
-                    resumedGoal,
-                    resumedGoal.state.messages.length - 1,
-                    request.action.content,
-                    "gathering_context",
-                ),
-                control,
-            );
-            await this.saveCheckpoint(resumedGoal, control);
-            return this.advance(request.ref, control);
+        if (goal.state.run.status !== "waiting") {
+            return this.goalNotWaiting(request.ref);
         }
 
-        if (workflow.phase === "planning") {
-            if (workflow.preparation.status !== "waiting_approval") {
-                return this.goalNotWaiting(request.ref);
-            }
-
-            if (request.action.kind === "message") {
-                if (request.action.content.trim().length === 0) {
-                    return this.invalidGoalInput("Message content must not be empty");
+        const pendingInteraction = goal.state.run.pendingInteraction;
+        if (pendingInteraction !== undefined) {
+            if (pendingInteraction.kind === "ask_user") {
+                if (request.action.kind !== "answer_ask_user") {
+                    return this.invalidGoalInput(
+                        "ask_user interaction requires an answer_ask_user action",
+                    );
                 }
 
-                const resumedGoal = this.withPlanningFeedback(
-                    goal,
-                    request.action.content,
-                );
-                const session = await this.openWorkingMemorySession(goal, control);
+                if (request.action.requestId.trim().length === 0) {
+                    return this.invalidGoalInput("requestId must not be empty");
+                }
+
+                if (request.action.requestId !== pendingInteraction.requestId) {
+                    return this.invalidGoalInput(
+                        `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
+                    );
+                }
+
                 try {
-                    const acceptedPatch = this.lifecyclePatch(
-                        goal,
-                        session,
+                    validateAskUserAnswers(pendingInteraction.questions, request.action.answers);
+                } catch (error) {
+                    return this.invalidGoalInput(
+                        error instanceof Error ? error.message : String(error),
                     );
-                    throwIfAborted(control);
-                    await this.commitPreparation(
-                        resumedGoal,
-                        [{
-                            goalId: goal.id,
-                            runId: goal.state.run.id,
-                            phase: "planning",
-                            eventType: "run_resumed",
-                            payload: { type: "run_resumed" },
-                        }, preparationInputRecorded(
-                            resumedGoal,
-                            resumedGoal.state.messages.length - 1,
-                            request.action.content,
-                            "planning",
-                        )],
-                        acceptedPatch,
-                        control,
-                    );
-                } finally {
-                    session?.close();
                 }
+
+                const resolvedRun = transition(goal.state.run, {
+                    kind: "resolve_interaction",
+                    interactionKind: "ask_user",
+                });
+
+                if (!resolvedRun.ok) {
+                    throw new Error(
+                        `GoalCoordinator invariant violated: ${resolvedRun.error.message}`,
+                    );
+                }
+
+                const answerContent = formatAskUserAnswers(
+                    pendingInteraction.questions,
+                    request.action.answers,
+                );
+
+                const resumedGoal: Goal = {
+                    ...goal,
+                    state: {
+                        ...goal.state,
+                        messages: [
+                            ...goal.state.messages,
+                            { role: "user", content: answerContent },
+                        ],
+                        run: resolvedRun.state,
+                    },
+                };
+
+                throwIfAborted(control);
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "run_resumed",
+                    payload: { type: "run_resumed" },
+                }, control);
+
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "ask_user_answered",
+                    payload: {
+                        type: "ask_user_answered",
+                        requestId: pendingInteraction.requestId,
+                        answers: request.action.answers,
+                    },
+                }, control);
+
+                await this.saveCheckpoint(resumedGoal, control);
                 return this.advance(request.ref, control);
             }
 
-            if (request.action.kind !== "approve") {
-                return this.invalidGoalInput(
-                    "planning approval requires an approve action",
-                );
-            }
+            if (pendingInteraction.kind === "task_approval") {
+                if (
+                    request.action.kind === "approve_task"
+                    || request.action.kind === "approve"
+                ) {
+                    if (
+                        request.action.requestId !== undefined
+                        && pendingInteraction.requestId !== undefined
+                        && request.action.requestId !== pendingInteraction.requestId
+                    ) {
+                        return this.invalidGoalInput(
+                            `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
+                        );
+                    }
 
-            const proposal = workflow.preparation.proposal;
+                    const proposal = pendingInteraction.proposal;
+                    const epoch = this.advanceGoalContextEpoch(goal, "planning_approved");
+                    const resolvedRun = transition(epoch.goal.state.run, {
+                        kind: "resolve_interaction",
+                        interactionKind: "task_approval",
+                    });
 
-            if (proposal === undefined) {
-                return this.goalNotWaiting(request.ref);
-            }
+                    if (!resolvedRun.ok) {
+                        throw new Error(
+                            `GoalCoordinator invariant violated: ${resolvedRun.error.message}`,
+                        );
+                    }
 
-            const epoch = this.advanceGoalContextEpoch(goal, "planning_approved");
-            const approvedGoal = this.withApprovedTask(
-                epoch.goal,
-                proposal,
-            );
-            const session = await this.openWorkingMemorySession(goal, control);
-            try {
-                const acceptedPatch = this.lifecyclePatch(
-                    goal,
-                    session,
-                );
-                throwIfAborted(control);
-                await this.commitPreparation(
-                    approvedGoal,
-                    [
-                        {
-                            goalId: goal.id,
-                            runId: goal.state.run.id,
-                            phase: "planning",
-                            eventType: "run_resumed",
-                            payload: { type: "run_resumed" },
+                    const approvedGoal: Goal = {
+                        ...epoch.goal,
+                        state: {
+                            ...epoch.goal.state,
+                            workflow: {
+                                phase: "executing",
+                                task: cloneTask(proposal),
+                            },
+                            run: resolvedRun.state,
                         },
-                        epoch.fact,
-                    ],
-                    acceptedPatch,
-                    control,
-                );
-            } finally {
-                session?.close();
-            }
-            return this.advance(request.ref, control);
-        }
+                    };
 
-        if (goal.state.run.status !== "waiting") {
-            return this.goalNotWaiting(request.ref);
+                    throwIfAborted(control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
+                    }, control);
+                    await this.appendTrajectory(epoch.fact, control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "task_approved",
+                        payload: {
+                            type: "task_approved",
+                            task: proposal,
+                        },
+                    }, control);
+
+                    await this.saveCheckpoint(approvedGoal, control);
+                    return this.advance(request.ref, control);
+                }
+
+                if (
+                    request.action.kind === "feedback_task"
+                    || request.action.kind === "message"
+                ) {
+                    const feedbackText = request.action.kind === "feedback_task"
+                        ? request.action.feedback
+                        : request.action.content;
+
+                    if (feedbackText.trim().length === 0) {
+                        return this.invalidGoalInput("Feedback must not be empty");
+                    }
+
+                    if (
+                        request.action.kind === "feedback_task"
+                        && request.action.requestId !== undefined
+                        && pendingInteraction.requestId !== undefined
+                        && request.action.requestId !== pendingInteraction.requestId
+                    ) {
+                        return this.invalidGoalInput(
+                            `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
+                        );
+                    }
+
+                    const resolvedRun = transition(goal.state.run, {
+                        kind: "resolve_interaction",
+                        interactionKind: "task_approval",
+                    });
+
+                    if (!resolvedRun.ok) {
+                        throw new Error(
+                            `GoalCoordinator invariant violated: ${resolvedRun.error.message}`,
+                        );
+                    }
+
+                    const resumedGoal: Goal = {
+                        ...goal,
+                        state: {
+                            ...goal.state,
+                            messages: [
+                                ...goal.state.messages,
+                                { role: "user", content: feedbackText },
+                            ],
+                            run: resolvedRun.state,
+                        },
+                    };
+
+                    throwIfAborted(control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
+                    }, control);
+
+                    await this.saveCheckpoint(resumedGoal, control);
+                    return this.advance(request.ref, control);
+                }
+
+                return this.invalidGoalInput(
+                    "task_approval interaction requires approve_task, feedback_task, or message",
+                );
+            }
+
+            return this.invalidGoalInput("Unknown pending interaction kind");
         }
 
         const pendingAction = goal.state.run.pendingAction;
@@ -1168,554 +864,6 @@ export class GoalCoordinator {
         return this.advance(request.ref, control);
     }
 
-    private async openWorkingMemorySession(
-        goal: Goal,
-        control?: ExecutionControl,
-    ): Promise<WorkingMemorySession> {
-        throwIfAborted(control);
-        const session = await WorkingMemorySession.restore(goal, {
-            ...(this.trajectoryStore === undefined
-                ? {}
-                : { trajectoryStore: this.trajectoryStore }),
-            ...(this.workingMemoryLimits === undefined
-                ? {}
-                : { limits: this.workingMemoryLimits }),
-        });
-        throwIfAborted(control);
-        return session;
-    }
-
-    private async prepareContextLookup(
-        goal: Goal,
-        rawRequest: Extract<PreparationResult, { readonly kind: "context_lookup" }>,
-        phase: "gathering_context" | "planning",
-        lookupCount: number,
-        control?: ExecutionControl,
-        thought?: string,
-    ): Promise<PreparationLookupOutcome> {
-        if (lookupCount >= 3) {
-            return {
-                ok: false,
-                error: {
-                    code: CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
-                    message: `${CONTEXT_LOOKUP_CHAIN_LIMIT_CODE}: Preparation lookup chain exceeds 3 queries`,
-                },
-            };
-        }
-
-        let request: ContextLookupRequest;
-        try {
-            request = normalizeContextLookupRequest(rawRequest);
-        } catch (error) {
-            return this.invalidContextLookup(
-                error instanceof Error
-                    ? error.message
-                    : `${CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE}: request is invalid`,
-            );
-        }
-
-        throwIfAborted(control);
-        let invocation;
-        try {
-            invocation = await invokeContextLookup({
-                goal,
-                request,
-                phase,
-                ...(this.contextLookupPort === undefined
-                    ? {}
-                    : { port: this.contextLookupPort }),
-                ...(control === undefined ? {} : { control }),
-            });
-        } catch (error) {
-            if (error instanceof ContextLookupProtocolError) {
-                return this.invalidContextLookup(error.message);
-            }
-            throw error;
-        }
-        throwIfAborted(control);
-
-        const preparationFact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase,
-            eventType: "preparation_result",
-            payload: {
-                type: "preparation_result",
-                result: "context_lookup",
-                ...(thought !== undefined ? { thought } : {}),
-            },
-        };
-        const committedGoal = await this.commitPreparation(
-            goal,
-            [preparationFact, ...invocation.facts],
-            undefined,
-            control,
-        );
-        return {
-            ok: true,
-            goal: committedGoal,
-            result: invocation.result,
-        };
-    }
-
-    private invalidContextLookup(message: string): PreparationLookupOutcome {
-        return {
-            ok: false,
-            error: {
-                code: "INVALID_CONTEXT_LOOKUP",
-                message,
-            },
-        };
-    }
-
-    private async prepareProbeAction(
-        goal: Goal,
-        result: Extract<PreparationResult, { readonly kind: "probe_action" }>,
-        phase: "gathering_context" | "planning",
-        session: WorkingMemorySession,
-        probeCount: number,
-        control?: ExecutionControl,
-        thought?: string,
-    ): Promise<
-        | {
-            readonly ok: true;
-            readonly goal: Goal;
-            readonly result: PreparationProbeResult;
-        }
-        | {
-            readonly ok: false;
-            readonly error: {
-                readonly code: GoalProgressErrorCode;
-                readonly message: string;
-            };
-        }
-    > {
-        throwIfAborted(control);
-
-        const toolId = result.action.toolId;
-
-        // 1. 检查 Profile 授权
-        if (!goal.definition.profile.toolIds.includes(toolId)) {
-            return {
-                ok: false,
-                error: {
-                    code: "TOOL_NOT_AUTHORIZED",
-                    message: `Tool "${toolId}" is not authorized by the frozen Profile`,
-                },
-            };
-        }
-
-        // 2. 从 Registry 获取 Registration
-        let registration: ToolRegistration | undefined;
-        try {
-            registration = this.toolRegistry.get(toolId);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            return {
-                ok: false,
-                error: {
-                    code: "TOOL_EXECUTION_ERROR",
-                    message: error instanceof Error ? error.message : String(error),
-                },
-            };
-        }
-
-        if (registration === undefined) {
-            return {
-                ok: false,
-                error: {
-                    code: "TOOL_NOT_FOUND",
-                    message: `Authorized Tool "${toolId}" is not registered`,
-                },
-            };
-        }
-
-        // 3. 严格只读校验与写拦截（安全第一，写工具零执行、零副作用）
-        if (registration.definition.isReadOnly !== true) {
-            return {
-                ok: false,
-                error: {
-                    code: "PREPARATION_READ_ONLY_VIOLATION",
-                    message: `Tool "${toolId}" is not read-only and cannot be executed during preparation`,
-                },
-            };
-        }
-
-        // 4. Prepare 工具输入
-        let prepared: ToolPreparationResult;
-        try {
-            prepared = registration.prepare(result.action.input, control);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            return {
-                ok: false,
-                error: {
-                    code: "TOOL_EXECUTION_ERROR",
-                    message: error instanceof Error ? error.message : String(error),
-                },
-            };
-        }
-
-        if (prepared.ok === false) {
-            return {
-                ok: false,
-                error: {
-                    code: "INVALID_TOOL_INPUT",
-                    message: prepared.error.message,
-                },
-            };
-        }
-
-        // 5. 执行只读工具
-        const actionId = createPreparationProbeActionId(goal.id);
-        const probeNumber = probeCount + 1;
-        this.notifyProbeProgress({
-            kind: "started",
-            actionId,
-            goalId: goal.id,
-            toolId,
-            input: prepared.input,
-            probeNumber,
-        });
-        let observation: ToolObservation;
-        try {
-            observation = await prepared.execute(actionId, control);
-            throwIfAborted(control);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            const message = error instanceof Error ? error.message : String(error);
-            this.notifyProbeProgress({
-                kind: "failed",
-                actionId,
-                goalId: goal.id,
-                toolId,
-                input: prepared.input,
-                message,
-                probeNumber,
-            });
-            return {
-                ok: false,
-                error: {
-                    code: "TOOL_EXECUTION_ERROR",
-                    message,
-                },
-            };
-        }
-
-        // 6. 构造 Trajectory 事实事件
-        const preparationFact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase,
-            actionId,
-            eventType: "preparation_result",
-            payload: {
-                type: "preparation_result",
-                result: "probe_action",
-                ...(thought !== undefined ? { thought } : {}),
-            },
-        };
-        const toolStartedFact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase,
-            actionId,
-            eventType: "tool_started",
-            payload: {
-                type: "tool_started",
-                actionId,
-                toolId,
-                input: prepared.input,
-            },
-        };
-        const toolFinishedFact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase,
-            actionId,
-            eventType: "tool_finished",
-            payload: {
-                type: "tool_finished",
-                actionId,
-                toolId,
-                observation,
-            },
-        };
-
-        // 7. 处理可选的 Working Memory Patch
-        const acceptedPatch = this.acceptPreparationPatch(
-            goal,
-            result.memoryPatch,
-            phase,
-            session,
-        );
-
-        // 8. 提交探查事实事件并持久化至 Trajectory 与快照
-        let commitResult: Awaited<ReturnType<TrajectoryCheckpointCommitterPort["commit"]>>;
-        try {
-            commitResult = await this.checkpointCommitter.commit(goal, {
-                facts: [preparationFact, toolStartedFact, toolFinishedFact],
-                ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
-                ...(control === undefined ? {} : { control }),
-            });
-        } catch (error) {
-            if (!isExecutionAbortedError(error)) {
-                this.notifyProbeProgress({
-                    kind: "failed",
-                    actionId,
-                    goalId: goal.id,
-                    toolId,
-                    input: prepared.input,
-                    message: error instanceof Error ? error.message : String(error),
-                    probeNumber,
-                });
-            }
-            throw error;
-        }
-        const committedGoal = commitResult.goal;
-        const observationSequence = commitResult.events.find((event) =>
-            event.eventType === "tool_finished" && event.actionId === actionId
-        )?.sequence;
-
-        this.notifyProbeProgress({
-            kind: "finished",
-            actionId,
-            goalId: goal.id,
-            toolId,
-            input: prepared.input,
-            observation,
-            probeNumber,
-        });
-
-        return {
-            ok: true,
-            goal: committedGoal,
-            result: {
-                actionId,
-                action: {
-                    toolId,
-                    input: prepared.input,
-                },
-                observation,
-                ...(observationSequence === undefined ? {} : { observationSequence }),
-            },
-        };
-    }
-
-    private async restoreContextLookupResult(
-        goal: Goal,
-        control?: ExecutionControl,
-    ): Promise<ContextLookupResult | undefined> {
-        const trajectoryStore = this.trajectoryStore;
-        const boundary = goal.state.run.committedThroughSequence;
-        if (trajectoryStore === undefined || boundary <= 0) return undefined;
-
-        throwIfAborted(control);
-        const raw = await trajectoryStore.readWithBoundary(
-            { goalId: goal.id, runId: goal.state.run.id },
-            boundary,
-        );
-        throwIfAborted(control);
-        const committed = [...raw.committed]
-            .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
-            .sort((left, right) => right.sequence - left.sequence);
-        const lastFact = committed.find((event) => event.eventType !== "state_committed");
-        if (
-            lastFact === undefined
-            || (
-                lastFact.eventType !== "context_lookup_completed"
-                && lastFact.eventType !== "context_lookup_not_found"
-                && lastFact.eventType !== "context_lookup_failed"
-            )
-        ) {
-            return undefined;
-        }
-
-        const lookupId = lastFact.payload.lookupId;
-        const requested = committed.find((event) =>
-            event.eventType === "context_lookup_requested"
-            && event.payload.lookupId === lookupId
-            && event.sequence < lastFact.sequence,
-        ) as Extract<TrajectoryEvent, { readonly eventType: "context_lookup_requested" }> | undefined;
-        if (requested === undefined) {
-            throw new ContextLookupProtocolError(
-                "committed lookup result has no preceding requested fact",
-            );
-        }
-        const request = normalizeContextLookupRequest(requested.payload.request);
-        if (createContextLookupId(goal.id, goal.state.run.id, request) !== lookupId) {
-            throw new ContextLookupProtocolError("committed lookupId does not match request");
-        }
-        const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
-            const result = normalizeContextLookupResult(
-                value,
-                lookupId,
-                boundary,
-                request,
-            );
-            if (result.status === "found") {
-                assertContextLookupResultOwnership(
-                    result,
-                    goal.id,
-                    goal.state.run.id,
-                );
-            }
-            return result;
-        };
-
-        if (lastFact.eventType === "context_lookup_completed") {
-            return normalizeRestoredResult(lastFact.payload.result);
-        }
-        if (lastFact.eventType === "context_lookup_not_found") {
-            return normalizeRestoredResult(lastFact.payload.result);
-        }
-
-        const failedResult: ContextLookupResult = {
-            status: "lookup_error",
-            lookupId,
-            code: lastFact.payload.code,
-            message: lastFact.payload.message,
-            committedThroughSequence: boundary,
-        };
-        return normalizeRestoredResult(failedResult);
-    }
-
-    private acceptPreparationPatch(
-        goal: Goal,
-        memoryPatch: MemoryPatch | undefined,
-        phase: GoalPhase,
-        session: WorkingMemorySession,
-        lifecycleOperations: readonly CanonicalMemoryOperation[] = [],
-    ): AcceptedMemoryPatchInput | undefined {
-        let modelPatch: NormalizedWorkingMemoryPatch | undefined;
-        if (memoryPatch !== undefined) {
-            const memorySession: WorkingMemorySession = session;
-            const currentMemory = memorySession.workingMemory;
-            const workingMemory = lifecycleOperations.length === 0
-                ? currentMemory
-                : reduceWorkingMemory(currentMemory, lifecycleOperations, {
-                    ...(this.workingMemoryLimits === undefined
-                        ? {}
-                        : { limits: this.workingMemoryLimits }),
-                });
-            validateMemoryPatchPhase(memoryPatch, phase, {
-                workingMemory,
-                ...(this.workingMemoryLimits === undefined
-                    ? {}
-                    : { limits: this.workingMemoryLimits }),
-            });
-            memorySession.validatePatch(memoryPatch, "preparation", workingMemory);
-            modelPatch = normalizeMemoryPatch(memoryPatch, {
-                phase,
-                originSequence: Math.max(
-                    1,
-                    goal.state.run.committedThroughSequence + 1,
-                ),
-                workingMemory,
-                ...(this.workingMemoryLimits === undefined
-                    ? {}
-                    : { limits: this.workingMemoryLimits }),
-            });
-        }
-
-        if (
-            modelPatch === undefined
-            && lifecycleOperations.length === 0
-        ) {
-            return undefined;
-        }
-
-        // 生命周期失效必须先于模型操作，避免 context-ready/feedback 把刚生成的
-        // 新控制条目一并清除；模型操作仍保持其在同一 Patch 中的声明顺序。
-        const merged = mergeNormalizedMemoryPatches(
-            undefined,
-            [
-                ...lifecycleOperations,
-                ...(modelPatch?.operations ?? []),
-            ],
-        );
-        if (merged.operations.length === 0) return undefined;
-
-        const hasModelOperations = (modelPatch?.operations.length ?? 0) > 0;
-
-        return {
-            phase,
-            producers: [
-                ...(hasModelOperations ? ["model" as const] : []),
-                ...(lifecycleOperations.length === 0
-                    ? []
-                    : ["runtime_lifecycle" as const]),
-            ],
-            operations: merged.operations,
-        };
-    }
-
-    private contextReadyLifecycle(
-        session: WorkingMemorySession,
-    ): readonly CanonicalMemoryOperation[] {
-        return this.lifecycleOperations(
-            session.workingMemory,
-            "gathering_context",
-            ["hypothesis"],
-        );
-    }
-
-    private lifecyclePatch(
-        goal: Goal,
-        session: WorkingMemorySession,
-    ): AcceptedMemoryPatchInput | undefined {
-        const operations = this.lifecycleOperations(
-            session.workingMemory,
-            "planning",
-            ["plan", "hypothesis", "blocker"],
-        );
-        return this.acceptPreparationPatch(
-            goal,
-            undefined,
-            "planning",
-            session,
-            operations,
-        );
-    }
-
-    private lifecycleOperations(
-        memory: WorkingMemory,
-        phase: GoalPhase,
-        kinds: readonly ("hypothesis" | "plan" | "blocker")[],
-    ): readonly CanonicalMemoryOperation[] {
-        const entries = [
-            ...memory.hypotheses,
-            ...memory.plan,
-            ...memory.blockers,
-        ];
-        const hasActiveEntry = entries.some((entry) =>
-            entry.status === "active"
-            && entry.scope === "phase"
-            && entry.originPhase === phase
-            && kinds.includes(entry.kind),
-        );
-        if (!hasActiveEntry) return [];
-
-        return [createSupersedeScopeOperation("phase", { phase, kinds })];
-    }
-
-    private async commitPreparation(
-        goal: Goal,
-        facts: readonly TrajectoryEventDraft[],
-        acceptedPatch: AcceptedMemoryPatchInput | undefined,
-        control?: ExecutionControl,
-    ): Promise<Goal> {
-        const result = await this.checkpointCommitter.commit(goal, {
-            facts,
-            ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
-            ...(control === undefined ? {} : { control }),
-        });
-        return result.goal;
-    }
-
-    /** 在 preparation 或 planning 批准边界原子推进 Context Epoch。 */
     private advanceGoalContextEpoch(
         goal: Goal,
         reason: "conversation_pruned" | "input_threshold" | "planning_approved",
@@ -1730,8 +878,6 @@ export class GoalCoordinator {
             current.conversationStartIndex,
         );
         const boundary = goal.state.run.committedThroughSequence;
-        // 本 Coordinator 边界会先追加一条 preparation_result/run_resumed，Epoch
-        // 事件紧随其后，因此 openedAtSequence 对应第二个新增事实。
         const opened = advanceContextEpoch(current, messages, start, boundary + 2);
         const closed = toEpochRange(current, messages.length, boundary);
         return {
@@ -1774,14 +920,7 @@ export class GoalCoordinator {
     }
 
     private validateGoalProtocol(goal: Goal): void {
-        if (this.protocolValidator === undefined) return;
-
-        this.protocolValidator.validate({
-            promptBundleVersion: goal.definition.promptBundleVersion,
-            memoryProtocol: goal.definition.memoryProtocol,
-            modelContextProtocol: goal.definition.modelContextProtocol,
-            contextRetrievalProtocol: goal.definition.contextRetrievalProtocol,
-        });
+        this.protocolValidator?.assertGoal(goal);
     }
 
     private async saveCheckpoint(
@@ -1846,12 +985,19 @@ export class GoalCoordinator {
     }
 
     private executingWaitingResult(goal: Goal): GoalProgressResult {
+        const pendingInteraction = goal.state.run.pendingInteraction;
         const pendingAction = goal.state.run.pendingAction;
-        const waitingFor = pendingAction?.status === "awaiting_approval"
-            ? "action_approval"
-            : pendingAction?.status === "outcome_unknown"
-                ? "action_recovery"
-                : "blocked";
+
+        let waitingFor: "ask_user" | "task_approval" | "action_approval" | "action_recovery" | "blocked";
+        if (pendingInteraction !== undefined) {
+            waitingFor = pendingInteraction.kind === "ask_user" ? "ask_user" : "task_approval";
+        } else if (pendingAction?.status === "awaiting_approval") {
+            waitingFor = "action_approval";
+        } else if (pendingAction?.status === "outcome_unknown") {
+            waitingFor = "action_recovery";
+        } else {
+            waitingFor = "blocked";
+        }
 
         return {
             ok: true,
@@ -1862,208 +1008,12 @@ export class GoalCoordinator {
         };
     }
 
-    private withQuestion(goal: Goal, question: string): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "gathering_context",
-                    preparation: { status: "waiting_input" },
-                },
-                messages: [
-                    ...goal.state.messages,
-                    this.assistantMessage(goal, question),
-                ],
-            },
-        };
-    }
-
-    private withPlanning(goal: Goal): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "planning",
-                    preparation: { status: "active" },
-                },
-            },
-        };
-    }
-
-    private withGatheringAnswer(goal: Goal, content: string): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "gathering_context",
-                    preparation: { status: "active" },
-                },
-                messages: [
-                    ...goal.state.messages,
-                    { role: "user", content },
-                ],
-            },
-        };
-    }
-
-    private withPlanningFeedback(goal: Goal, content: string): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "planning",
-                    preparation: { status: "active" },
-                },
-                messages: [
-                    ...goal.state.messages,
-                    { role: "user", content },
-                ],
-            },
-        };
-    }
-
-    private withApprovedTask(goal: Goal, proposal: GoalTask): Goal {
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "executing",
-                    preparation: { status: "completed" },
-                    task: this.cloneTask(proposal),
-                },
-            },
-        };
-    }
-
     private withRun(goal: Goal, run: Goal["state"]["run"]): Goal {
         return {
             ...goal,
             state: {
                 ...goal.state,
                 run,
-            },
-        };
-    }
-
-    private withProposal(
-        goal: Goal,
-        result: Extract<PreparationResult, { readonly kind: "task_proposal" }>,
-    ): Goal {
-        const proposal = this.cloneTask(result.task);
-
-        return {
-            ...goal,
-            state: {
-                ...goal.state,
-                workflow: {
-                    phase: "planning",
-                    preparation: {
-                        status: "waiting_approval",
-                        proposal,
-                    },
-                },
-                messages: [
-                    ...goal.state.messages,
-                    this.assistantMessage(
-                        goal,
-                        this.formatProposal(proposal, result.approvalRequest),
-                    ),
-                ],
-            },
-        };
-    }
-
-    private assistantMessage(goal: Goal, content: string): AssistantMessage {
-        return {
-            role: "assistant",
-            assistant: { profileId: goal.definition.profile.id },
-            content,
-        };
-    }
-
-    private cloneTask(task: GoalTask): GoalTask {
-        return {
-            objective: task.objective,
-            completionCriteria: task.completionCriteria.map(cloneCriterion),
-        };
-    }
-
-    private formatProposal(task: GoalTask, approvalRequest: string): string {
-        const criteria = task.completionCriteria.length === 0
-            ? ["None"]
-            : task.completionCriteria.map(
-                (criterion, index) => `${index + 1}. ${criterion.text}`,
-            );
-
-        return [
-            `Objective: ${task.objective}`,
-            "Completion criteria:",
-            ...criteria,
-            `Approval request: ${approvalRequest}`,
-        ].join("\n");
-    }
-
-    private validatePreparationResult(
-        rawResult: unknown,
-    ):
-        | { readonly ok: true; readonly result: PreparationResult; readonly thought?: string }
-        | {
-            readonly ok: false;
-            readonly error: {
-                readonly code: "INVALID_PHASE_RESULT";
-                readonly message: string;
-            };
-        } {
-        const isResultObject = typeof rawResult === "object"
-            && rawResult !== null
-            && "result" in rawResult;
-        let candidate = isResultObject ? (rawResult as any).result : rawResult;
-        const extractedThought = isResultObject && typeof (rawResult as any).thought === "string"
-            ? (rawResult as any).thought
-            : (typeof (rawResult as any)?.thought === "string" ? (rawResult as any).thought : undefined);
-
-        if (candidate && typeof candidate === "object" && "thought" in candidate) {
-            const { thought: _ignored, ...stripped } = candidate as any;
-            candidate = stripped;
-        }
-
-        const parsed = safeParse(PreparationResultContract, candidate);
-        if (!parsed.success) {
-            return {
-                ok: false,
-                error: {
-                    code: "INVALID_PHASE_RESULT",
-                    message: `Preparation result violates canonical Contract: ${parsed.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
-                },
-            };
-        }
-        const semanticIssues = validateModelOutputSemantics(parsed.data);
-        if (semanticIssues.length > 0) {
-            return {
-                ok: false,
-                error: {
-                    code: "INVALID_PHASE_RESULT",
-                    message: `Preparation result violates semantic rules: ${semanticIssues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
-                },
-            };
-        }
-        return { ok: true, result: parsed.data, ...(extractedThought !== undefined ? { thought: extractedThought } : {}) };
-    }
-
-    private invalidPhaseResult(
-        phase: "gathering_context" | "planning",
-        result: PreparationResult,
-    ): GoalProgressResult {
-        return {
-            ok: false,
-            error: {
-                code: "INVALID_PHASE_RESULT",
-                message: `Preparation result "${result.kind}" is invalid for phase "${phase}"`,
             },
         };
     }

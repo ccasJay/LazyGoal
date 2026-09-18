@@ -613,6 +613,7 @@ export interface PendingInteractionAskUser {
  */
 export interface PendingInteractionTaskApproval {
     readonly kind: "task_approval";
+    readonly requestId?: string;
     readonly proposal: GoalTask;
     readonly approvalRequest: string;
 }

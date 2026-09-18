@@ -14,7 +14,7 @@
   - 验证方式：待实现的 Storage、Trajectory checkpoint 和 recovery 集成测试，覆盖成功恢复、错误恢复和 tail 不可见。
   - _Requirements: [2.4](./requirements.md#req-2-4), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [8.2](./requirements.md#req-8-2), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 3. 重构 Coordinator、Runner 与任务批准推进
+- [x] //TODO 3. 重构 Coordinator、Runner 与任务批准推进
 
   - 实现目标：移除阶段分支和 `PreparationExecutor` 调用，统一处理 `ask_user`、任务提案、反馈、批准、普通决策和终态，并让每次下游调用都遵守保存后继续。
   - 成功判据：任务提案未批准时副作用 Tool 不会执行；批准会固定任务并继续；反馈会保存真实消息并生成新提案；失配操作不改变 Goal、Run 或 Tool 状态；交互等待不增加 Step。

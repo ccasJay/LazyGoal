@@ -150,6 +150,7 @@ function encodePendingInteraction(
                 kind: "task_approval",
                 proposal: encodeTask(interaction.proposal),
                 approvalRequest: interaction.approvalRequest,
+                ...(interaction.requestId === undefined ? {} : { requestId: interaction.requestId }),
             };
     }
 }
@@ -407,6 +408,7 @@ function decodePendingInteraction(
                 kind: "task_approval",
                 proposal: decodeTask(interaction.proposal),
                 approvalRequest: interaction.approvalRequest,
+                ...(interaction.requestId === undefined ? {} : { requestId: interaction.requestId }),
             };
     }
 }

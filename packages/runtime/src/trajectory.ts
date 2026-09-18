@@ -616,8 +616,9 @@ function assertPayload(payload: unknown, eventType: unknown): void {
                 !isRecord(answer)
                 || typeof answer.questionId !== "string"
                 || !answer.questionId
-                || !Array.isArray(answer.selectedOptionIds)
-                || answer.selectedOptionIds.some((id: unknown) => typeof id !== "string" || !id)
+                || !Array.isArray(answer.optionIds)
+                || answer.optionIds.some((id: unknown) => typeof id !== "string" || !id)
+                || (answer.otherText !== undefined && typeof answer.otherText !== "string")
             ) {
                 throw new TrajectoryProtocolError("ask_user_answered contains invalid answer");
             }

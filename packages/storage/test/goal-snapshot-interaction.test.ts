@@ -337,7 +337,7 @@ test("Trajectory: 支持 ask_user_answered 与 task_approved 事件，拒绝旧 
             type: "ask_user_answered",
             requestId: "req-1",
             answers: [
-                { questionId: "q-1", selectedOptionIds: ["opt-1"] },
+                { questionId: "q-1", optionIds: ["opt-1"] },
             ],
         },
     };

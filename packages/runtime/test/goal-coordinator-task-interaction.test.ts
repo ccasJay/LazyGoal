@@ -1,0 +1,492 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+    GoalCoordinator,
+    InlineScheduler,
+    Runner,
+    createGoal,
+    createToolRegistration,
+    InMemoryToolRegistry,
+    type AgentDecision,
+    type AgentProfile,
+    type StepExecutionInput,
+    type StepExecutor,
+    type Tool,
+    type ToolDefinition,
+} from "../src/index";
+import { InMemoryGoalStore } from "../../storage/src/index";
+import { trajectoryStoreFor } from "./current-fixtures";
+import { contract, type AskUserQuestionInput } from "../../contracts/src/index";
+
+const profile: AgentProfile = {
+    id: "profile-1",
+    systemPrompt: "You are a helpful assistant.",
+    instructions: ["Clarify plan, propose task, then execute."],
+    toolIds: ["read_file", "write_file"],
+};
+
+const READ_FILE_DEFINITION: ToolDefinition = {
+    id: "read_file",
+    description: "Read file content",
+    inputContract: contract.object({ path: contract.string() }),
+    isReadOnly: true,
+};
+
+const WRITE_FILE_DEFINITION: ToolDefinition = {
+    id: "write_file",
+    description: "Write file content",
+    inputContract: contract.object({ path: contract.string(), content: contract.string() }),
+    isReadOnly: false,
+};
+
+function createMockTool(definition: ToolDefinition): Tool {
+    return {
+        definition,
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute(input) {
+            return {
+                kind: "success",
+                output: { executed: true, input },
+                summary: `Executed ${definition.id}`,
+            };
+        },
+    };
+}
+
+class QueueStepExecutor implements StepExecutor {
+    private queue: AgentDecision[] = [];
+
+    enqueue(...decisions: AgentDecision[]): void {
+        this.queue.push(...decisions);
+    }
+
+    async execute({ goal: _goal }: StepExecutionInput): Promise<AgentDecision> {
+        const next = this.queue.shift();
+        if (next === undefined) {
+            throw new Error("QueueStepExecutor: no queued decision available");
+        }
+        return next;
+    }
+}
+
+function createCoordinatorTestRig() {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = trajectoryStoreFor(store);
+    const stepExecutor = new QueueStepExecutor();
+    const toolRegistry = new InMemoryToolRegistry([
+        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        createToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor: stepExecutor,
+        trajectoryStore,
+        toolRegistry,
+    });
+    const scheduler = new InlineScheduler(runner);
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler,
+        trajectoryStore,
+        toolRegistry,
+    });
+
+    const goal = createGoal({
+        id: "goal-test-unified-1",
+        intent: "完成用户需求",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-test-unified-1",
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+    });
+
+    return {
+        store,
+        trajectoryStore,
+        stepExecutor,
+        coordinator,
+        goal,
+        ref: { goalId: goal.id, runId: goal.state.run.id },
+    };
+}
+
+test("统一执行生命周期: 新 Goal 直接推进，ask_user 请求进入等待且不计 Step", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    const questions: AskUserQuestionInput[] = [
+        {
+            header: "架构风格",
+            question: "请选择架构风格？",
+            options: [
+                { label: "Monolith" },
+                { label: "Microservices" },
+            ],
+            multiSelect: false,
+        },
+    ];
+
+    stepExecutor.enqueue({
+        kind: "ask_user",
+        questions,
+    });
+
+    const result = await coordinator.advance(ref);
+    assert.equal(result.ok, true);
+    if (!result.ok || result.kind !== "waiting") {
+        assert.fail("Expected waiting result");
+    }
+
+    assert.equal(result.phase, "executing");
+    assert.equal(result.waitingFor, "ask_user");
+    assert.equal(result.goal.state.run.stepCount, 0);
+    assert.equal(result.goal.state.workflow.task, undefined);
+
+    const pending = result.goal.state.run.pendingInteraction;
+    assert.ok(pending);
+    assert.equal(pending.kind, "ask_user");
+    if (pending.kind === "ask_user") {
+        assert.equal(pending.mode, "plan");
+        assert.equal(pending.questions.length, 1);
+        assert.equal(pending.questions[0]?.header, "架构风格");
+    }
+
+    // 验证快照也是最新的 waiting 状态
+    const saved = await store.restore(goal.id);
+    assert.equal(saved?.state.run.status, "waiting");
+    assert.equal(saved?.state.run.pendingInteraction?.kind, "ask_user");
+});
+
+test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用户消息并推进下一轮", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    stepExecutor.enqueue({
+        kind: "ask_user",
+        questions: [
+            {
+                header: "数据库选择",
+                question: "使用哪种数据库？",
+                options: [
+                    { label: "PostgreSQL" },
+                    { label: "SQLite" },
+                ],
+                multiSelect: false,
+            },
+        ],
+    });
+
+    const firstAdvance = await coordinator.advance(ref);
+    assert.equal(firstAdvance.ok, true);
+    if (!firstAdvance.ok || firstAdvance.kind !== "waiting") assert.fail();
+    const pending = firstAdvance.goal.state.run.pendingInteraction;
+    assert.equal(pending?.kind, "ask_user");
+    if (pending?.kind !== "ask_user") return;
+
+    const reqId = pending.requestId;
+    const q1 = pending.questions[0];
+    assert.ok(q1);
+    const optPg = q1.options[0];
+    assert.ok(optPg);
+    const optSqlite = q1.options[1];
+    assert.ok(optSqlite);
+
+    // 1. 失配 requestId 测试 (Req 6.3)
+    const mismatchResult = await coordinator.resume({
+        ref,
+        action: {
+            kind: "answer_ask_user",
+            requestId: "wrong-req-id",
+            answers: [{ questionId: q1.id, optionIds: [optPg.id] }],
+        },
+    });
+    assert.equal(mismatchResult.ok, false);
+    if (!mismatchResult.ok) {
+        assert.equal(mismatchResult.error.code, "INVALID_GOAL_INPUT");
+    }
+    // 验证状态未改变
+    const afterMismatch = await store.restore(goal.id);
+    assert.equal(afterMismatch?.state.run.status, "waiting");
+
+    // 2. 非法答案结构测试 (单选传入多项)
+    const invalidAnswerResult = await coordinator.resume({
+        ref,
+        action: {
+            kind: "answer_ask_user",
+            requestId: reqId,
+            answers: [{ questionId: q1.id, optionIds: [optPg.id, optSqlite.id] }],
+        },
+    });
+    assert.equal(invalidAnswerResult.ok, false);
+    if (!invalidAnswerResult.ok) {
+        assert.equal(invalidAnswerResult.error.code, "INVALID_GOAL_INPUT");
+    }
+
+    // 3. 准备下一轮模型的决策：返回 task_proposal
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: {
+            objective: "使用 PostgreSQL 构建系统",
+            completionCriteria: [{ text: "数据库连接正常" }],
+        },
+        approvalRequest: "请批准任务提案",
+    });
+
+    // 4. 合法提交问答
+    const resumedResult = await coordinator.resume({
+        ref,
+        action: {
+            kind: "answer_ask_user",
+            requestId: reqId,
+            answers: [{ questionId: q1.id, optionIds: [optPg.id] }],
+        },
+    });
+
+    assert.equal(resumedResult.ok, true);
+    if (!resumedResult.ok || resumedResult.kind !== "waiting") assert.fail();
+
+    // 此时 Goal 推进到了 task_proposal 等待
+    assert.equal(resumedResult.waitingFor, "task_approval");
+    assert.equal(resumedResult.goal.state.run.stepCount, 0);
+
+    // 验证消息列表包含了回答格式化文本
+    const userMsg = resumedResult.goal.state.messages.find(
+        (m) => m.role === "user" && m.content.includes("PostgreSQL"),
+    );
+    assert.ok(userMsg);
+});
+
+test("任务提案门控: 任务未批准时副作用写工具被硬拦截", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    // 模型尝试直接调用非只读的 write_file 工具
+    stepExecutor.enqueue({
+        kind: "tool_call",
+        action: {
+            actionId: "act-write-1",
+            toolId: "write_file",
+            input: { path: "hello.txt", content: "forbidden" },
+        },
+    });
+
+    const result = await coordinator.advance(ref);
+    // 应该因为 TOOL_NOT_AUTHORIZED 导致失败终态或错误中断
+    assert.equal(result.ok, true);
+    if (result.ok && result.kind === "terminal") {
+        assert.equal(result.goal.state.run.status, "failed");
+        assert.equal(result.goal.state.run.stopReason?.kind, "execution_error");
+        if (result.goal.state.run.stopReason?.kind === "execution_error") {
+            assert.equal(result.goal.state.run.stopReason.code, "TOOL_NOT_AUTHORIZED");
+        }
+    } else {
+        assert.fail("Expected terminal failure due to unauthorized write tool");
+    }
+});
+
+test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息并重新规划 (不计 Step)", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: {
+            objective: "初步方案",
+            completionCriteria: [{ text: "初步条件" }],
+        },
+        approvalRequest: "请审核初步方案",
+    });
+
+    const first = await coordinator.advance(ref);
+    assert.equal(first.ok, true);
+    if (!first.ok || first.kind !== "waiting") assert.fail();
+    assert.equal(first.waitingFor, "task_approval");
+
+    const proposalReqId = first.goal.state.run.pendingInteraction?.kind === "task_approval"
+        ? first.goal.state.run.pendingInteraction.requestId
+        : undefined;
+
+    // 下一轮模型根据反馈重新给出提案
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: {
+            objective: "调整后的优化方案",
+            completionCriteria: [{ text: "优化条件" }],
+        },
+        approvalRequest: "请审核新方案",
+    });
+
+    // 用户提供反馈
+    const feedbackResult = await coordinator.resume({
+        ref,
+        action: {
+            kind: "feedback_task",
+            requestId: proposalReqId,
+            feedback: "请不要使用外部依赖，改为原生实现",
+        },
+    });
+
+    assert.equal(feedbackResult.ok, true);
+    if (!feedbackResult.ok || feedbackResult.kind !== "waiting") assert.fail();
+    assert.equal(feedbackResult.waitingFor, "task_approval");
+    assert.equal(feedbackResult.goal.state.run.stepCount, 0);
+    assert.equal(feedbackResult.goal.state.workflow.task, undefined);
+
+    // 检查反馈消息已追加
+    const messages = feedbackResult.goal.state.messages;
+    const userFeedback = messages.find((m) => m.content === "请不要使用外部依赖，改为原生实现");
+    assert.ok(userFeedback);
+});
+
+test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后续 Tool 执行增加 Step", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: {
+            objective: "最终方案",
+            completionCriteria: [],
+        },
+        approvalRequest: "请批准最终方案",
+    });
+
+    const first = await coordinator.advance(ref);
+    assert.equal(first.ok, true);
+    if (!first.ok || first.kind !== "waiting") assert.fail();
+    assert.equal(first.waitingFor, "task_approval");
+
+    const proposalPending = first.goal.state.run.pendingInteraction;
+    assert.equal(proposalPending?.kind, "task_approval");
+    const proposalReqId = proposalPending?.kind === "task_approval" ? proposalPending.requestId : undefined;
+
+    // 批准后模型执行只读查询，随后完成
+    stepExecutor.enqueue(
+        {
+            kind: "tool_call",
+            action: {
+                actionId: "act-read-1",
+                toolId: "read_file",
+                input: { path: "src/index.ts" },
+            },
+        },
+        {
+            kind: "complete",
+            summary: "任务圆满完成",
+            completionEvidence: [],
+        },
+    );
+
+    const approveResult = await coordinator.resume({
+        ref,
+        action: {
+            kind: "approve_task",
+            requestId: proposalReqId,
+        },
+    });
+
+    assert.equal(approveResult.ok, true);
+    if (!approveResult.ok || approveResult.kind !== "terminal") {
+        assert.fail("Expected terminal result after task completion");
+    }
+
+    // 任务被固定
+    assert.equal(approveResult.goal.state.workflow.task?.objective, "最终方案");
+    // pendingInteraction 已被清除
+    assert.equal(approveResult.goal.state.run.pendingInteraction, undefined);
+    // 批准后执行了一步工具调用与一次完成决策，stepCount 增加了 2
+    assert.equal(approveResult.goal.state.run.stepCount, 2);
+    assert.equal(approveResult.goal.state.run.status, "completed");
+});
+
+test("失配操作安全边界: 状态不匹配时拒绝且不改变快照或状态", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    stepExecutor.enqueue({
+        kind: "ask_user",
+        questions: [
+            {
+                header: "模式",
+                question: "选择模式？",
+                options: [{ label: "A" }, { label: "B" }],
+                multiSelect: false,
+            },
+        ],
+    });
+
+    const first = await coordinator.advance(ref);
+    assert.equal(first.ok, true);
+    if (!first.ok || first.kind !== "waiting") assert.fail();
+
+    // 在 ask_user 等待下尝试提交 approve_task
+    const rejectApprove = await coordinator.resume({
+        ref,
+        action: { kind: "approve_task" },
+    });
+    assert.equal(rejectApprove.ok, false);
+    if (!rejectApprove.ok) {
+        assert.equal(rejectApprove.error.code, "INVALID_GOAL_INPUT");
+    }
+
+    // 检查快照未被污染
+    const restored = await store.restore(goal.id);
+    assert.equal(restored?.state.run.status, "waiting");
+    assert.equal(restored?.state.run.pendingInteraction?.kind, "ask_user");
+});
+
+test("保存失败原子性: 快照保存故障时异常原样传播且不改变最后状态", async () => {
+    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+    await store.save(goal);
+
+    stepExecutor.enqueue({
+        kind: "ask_user",
+        questions: [
+            {
+                header: "模式",
+                question: "选择模式？",
+                options: [{ label: "A" }, { label: "B" }],
+                multiSelect: false,
+            },
+        ],
+    });
+
+    const first = await coordinator.advance(ref);
+    assert.equal(first.ok, true);
+    if (!first.ok || first.kind !== "waiting") assert.fail();
+    const reqId = first.goal.state.run.pendingInteraction?.kind === "ask_user"
+        ? first.goal.state.run.pendingInteraction.requestId
+        : undefined;
+    assert.ok(reqId);
+
+    // 模拟 store.save 抛出磁盘/网络异常
+    const originalSave = store.save.bind(store);
+    store.save = async () => {
+        throw new Error("DISK_FULL_SIMULATION");
+    };
+
+    await assert.rejects(
+        async () => {
+            await coordinator.resume({
+                ref,
+                action: {
+                    kind: "answer_ask_user",
+                    requestId: reqId,
+                    answers: [{ questionId: "q-1", optionIds: ["o-1"] }],
+                },
+            });
+        },
+        /DISK_FULL_SIMULATION/,
+    );
+
+    // 恢复正常 save 并验证当前存储仍是上次成功的 waiting 快照
+    store.save = originalSave;
+    const restored = await store.restore(goal.id);
+    assert.equal(restored?.state.run.status, "waiting");
+    assert.equal(restored?.state.run.pendingInteraction?.kind, "ask_user");
+});

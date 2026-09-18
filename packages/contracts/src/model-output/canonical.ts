@@ -1095,11 +1095,12 @@ export type AskUserAnswer = InferContract<typeof AskUserAnswerContract>;
  * ```
  */
 export function normalizeAskUserRequest(
-    input: { readonly questions: readonly AskUserQuestionInput[] },
+    input: { readonly questions: readonly AskUserQuestionInput[] } | readonly AskUserQuestionInput[],
     requestId?: string,
 ): { readonly requestId: string; readonly questions: readonly AskUserQuestion[] } {
     const effectiveRequestId = requestId ?? `ask-${randomUUID()}`;
-    const questions = input.questions.map((q, qIndex) => {
+    const rawQuestions = Array.isArray(input) ? input : input.questions;
+    const questions = rawQuestions.map((q, qIndex) => {
         const questionId = `q-${qIndex + 1}`;
         const options = q.options.map((opt, optIndex) => ({
             id: `o-${optIndex + 1}`,

@@ -288,6 +288,7 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
  */
 export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
     readonly kind: "task_approval";
+    readonly requestId?: string | undefined;
     readonly proposal: GoalSnapshotTaskV1;
     readonly approvalRequest: string;
 }
@@ -580,6 +581,7 @@ const PendingInteractionAskUserSchema = z.object({
 
 const PendingInteractionTaskApprovalSchema = z.object({
     kind: z.literal("task_approval"),
+    requestId: NonEmptyStringSchema.optional(),
     proposal: GoalSnapshotTaskSchema,
     approvalRequest: NonEmptyStringSchema,
 }).strict();

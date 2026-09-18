@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type {
     AgentDecision,
     ExecutionErrorCode,
@@ -10,6 +12,10 @@ import type {
     ToolCallAction,
     WorkingMemoryPatch,
     GoalProtocolValidator,
+    AskUserQuestion,
+    GoalTask,
+    PendingInteractionAskUser,
+    PendingInteractionTaskApproval,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -28,6 +34,7 @@ import {
 } from "./context-retrieval";
 import {
     AgentDecisionContract,
+    normalizeAskUserRequest,
     safeParse,
     validateModelOutputSemantics,
 } from "../../contracts/src/index";
@@ -262,6 +269,13 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_FOUND",
             `Authorized Tool "${action.toolId}" is not registered`,
+        );
+    }
+
+    if (goal.state.workflow.task === undefined && !registration.definition.isReadOnly) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" is not allowed before task is approved: only read-only tools are allowed`,
         );
     }
 
@@ -1795,6 +1809,126 @@ export class Runner {
                     continue;
                 }
 
+                if (normalized.decision.kind === "ask_user") {
+                    const normalizedReq = normalizeAskUserRequest(normalized.decision.questions);
+                    const mode: "plan" | "execution" = goal.state.workflow.task === undefined ? "plan" : "execution";
+                    const pendingInteraction: PendingInteractionAskUser = {
+                        kind: "ask_user",
+                        requestId: normalizedReq.requestId,
+                        mode,
+                        questions: normalizedReq.questions,
+                    };
+
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "stage_interaction",
+                        interaction: pendingInteraction,
+                    });
+                    const transitionedGoal = this.withRun(goal, nextRun);
+                    const formattedContent = this.formatAskUserQuestions(normalizedReq.questions);
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+
+                    const decisionFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "decision_received",
+                        payload: {
+                            type: "decision_received",
+                            decision: normalized.decision,
+                            ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                        },
+                    };
+
+                    const waitingFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_waiting",
+                        payload: {
+                            type: "run_waiting",
+                            reason: "ask_user",
+                        },
+                    };
+
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [decisionFact, waitingFact],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
+                if (normalized.decision.kind === "task_proposal") {
+                    if (goal.state.workflow.task !== undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "task_proposal is not allowed after task has already been approved",
+                            ),
+                            control,
+                        );
+                    }
+
+                    const pendingInteraction: PendingInteractionTaskApproval = {
+                        kind: "task_approval",
+                        requestId: `proposal-${randomUUID()}`,
+                        proposal: normalized.decision.task,
+                        approvalRequest: normalized.decision.approvalRequest,
+                    };
+
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "stage_interaction",
+                        interaction: pendingInteraction,
+                    });
+                    const transitionedGoal = this.withRun(goal, nextRun);
+                    const formattedContent = this.formatTaskProposal(
+                        normalized.decision.task,
+                        normalized.decision.approvalRequest,
+                    );
+                    const nextGoal = this.appendAssistantContent(transitionedGoal, formattedContent);
+
+                    const decisionFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "decision_received",
+                        payload: {
+                            type: "decision_received",
+                            decision: normalized.decision,
+                            ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                        },
+                    };
+
+                    const waitingFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        eventType: "run_waiting",
+                        payload: {
+                            type: "run_waiting",
+                            reason: "task_approval",
+                        },
+                    };
+
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [decisionFact, waitingFact],
+                        acceptedPatch,
+                        control,
+                    );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
+                }
+
                 if (normalized.decision.kind === "tool_call") {
                     let validated;
 
@@ -1958,6 +2092,16 @@ export class Runner {
 
                 let terminalFact: TrajectoryEventDraft;
                 if (normalized.decision.kind === "complete") {
+                    if (goal.state.workflow.task === undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "complete decision is not allowed before task is approved",
+                            ),
+                            control,
+                        );
+                    }
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2016,6 +2160,38 @@ export class Runner {
         return { ok: true, state: goal.state.run };
     }
 
+    private formatAskUserQuestions(questions: readonly AskUserQuestion[]): string {
+        const blocks: string[] = [];
+        for (const q of questions) {
+            const lines: string[] = [
+                `### ${q.header}`,
+                q.question,
+                `Options (${q.multiSelect ? "multiple choice" : "single choice"}):`,
+            ];
+            for (const opt of q.options) {
+                const desc = opt.description ? ` - ${opt.description}` : "";
+                lines.push(`- [${opt.id}] ${opt.label}${desc}`);
+            }
+            blocks.push(lines.join("\n"));
+        }
+        return blocks.join("\n\n");
+    }
+
+    private formatTaskProposal(task: GoalTask, approvalRequest: string): string {
+        const criteria = task.completionCriteria.length === 0
+            ? ["None"]
+            : task.completionCriteria.map(
+                (criterion, index) => `${index + 1}. ${criterion.text}`,
+            );
+
+        return [
+            `Objective: ${task.objective}`,
+            "Completion criteria:",
+            ...criteria,
+            `Approval request: ${approvalRequest}`,
+        ].join("\n");
+    }
+
     private withRun(goal: Goal, run: RunState): Goal {
         return {
             ...goal,
@@ -2033,6 +2209,8 @@ export class Runner {
             { readonly kind: "tool_call" }
                 | { readonly kind: "context_lookup" }
                 | { readonly kind: "context_checkpoint" }
+                | { readonly kind: "ask_user" }
+                | { readonly kind: "task_proposal" }
         >,
     ): Goal {
         const content = decision.kind === "complete"
