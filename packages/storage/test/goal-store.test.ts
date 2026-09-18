@@ -75,7 +75,6 @@ function createExecutingGoal(input: {
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
@@ -241,7 +240,6 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: goal.definition.intent,
                     completionCriteria: [],
@@ -375,19 +373,12 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
         profile,
         runId: "run-planning",
     });
-    const planningWaiting: Goal = {
+    const taskApprovalWaiting: Goal = {
         ...planning,
         state: {
             ...planning.state,
             workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal: {
-                        objective: "准备后的任务",
-                        completionCriteria: [{ text: "批准后执行" }],
-                    },
-                },
+                phase: "executing",
             },
             messages: [
                 ...planning.state.messages,
@@ -397,6 +388,48 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
                     content: "请批准任务",
                 },
             ],
+            run: {
+                ...planning.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    proposal: {
+                        objective: "准备后的任务",
+                        completionCriteria: [{ text: "批准后执行" }],
+                    },
+                    approvalRequest: "请批准任务",
+                },
+            },
+        },
+    };
+    const askUserWaiting: Goal = {
+        ...planning,
+        state: {
+            ...planning.state,
+            workflow: {
+                phase: "executing",
+            },
+            run: {
+                ...planning.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "req-1",
+                    mode: "plan",
+                    questions: [
+                        {
+                            id: "q-1",
+                            header: "问答标题",
+                            question: "选择执行语言",
+                            options: [
+                                { id: "opt-1", label: "TypeScript" },
+                                { id: "opt-2", label: "Rust" },
+                            ],
+                            multiSelect: false,
+                        },
+                    ],
+                },
+            },
         },
     };
     const failed: Goal = {
@@ -444,7 +477,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
         },
     };
 
-    for (const goal of [planning, planningWaiting, failed]) {
+    for (const goal of [planning, taskApprovalWaiting, askUserWaiting, failed]) {
         const restored = goalSnapshotCodec.decode(
             goalSnapshotCodec.encode(goal),
         );
@@ -599,30 +632,17 @@ test("GoalSnapshotCodec fails fast on legacy string completionCriteria", () => {
         },
     );
 
-    const planningGoal: Goal = {
-        ...createSnapshot("run-planning"),
-        state: {
-            ...createSnapshot("run-planning").state,
-            workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal: {
-                        objective: "计划目标",
-                        completionCriteria: [{ text: "结构化条件" }],
-                    },
-                },
-            },
-        },
+    const legacyPreparationSnapshot = JSON.parse(JSON.stringify(validSnapshot));
+    legacyPreparationSnapshot.state.workflow = {
+        phase: "planning",
+        preparation: { status: "active" },
     };
-    const planningSnapshot = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(planningGoal)));
-    planningSnapshot.state.workflow.preparation.proposal.completionCriteria = ["旧版 proposal 条件"];
     assert.throws(
-        () => goalSnapshotCodec.decode(planningSnapshot),
+        () => goalSnapshotCodec.decode(legacyPreparationSnapshot),
         (error: unknown) => {
             return (
                 error instanceof Error
-                && error.message.includes("legacy string completionCriteria are no longer supported")
+                && error.message.includes("legacy preparation workflows are no longer supported")
             );
         },
     );

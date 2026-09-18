@@ -209,30 +209,99 @@ export interface GoalSnapshotRunStateV1 {
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
+    readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
 
-/** Snapshot 中的工作流状态。 */
-export type GoalSnapshotWorkflowV1 =
-    | {
-        readonly phase: "gathering_context";
-        readonly preparation: { readonly status: "active" | "waiting_input" };
-    }
-    | {
-        readonly phase: "planning";
-        readonly preparation:
-            | { readonly status: "active" }
-            | {
-                readonly status: "waiting_approval";
-                readonly proposal: GoalSnapshotTaskV1;
-            };
-    }
-    | {
-        readonly phase: "executing";
-        readonly preparation: { readonly status: "completed" };
-        readonly task: GoalSnapshotTaskV1;
-    };
+/**
+ * Snapshot 中的 AskUser 预设选项。
+ *
+ * @example
+ * ```ts
+ * const option: GoalSnapshotAskUserOptionV1 = {
+ *     id: "opt-1",
+ *     label: "TypeScript",
+ *     description: "使用强类型开发",
+ * };
+ * ```
+ */
+export interface GoalSnapshotAskUserOptionV1 {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string | undefined;
+}
+
+/**
+ * Snapshot 中的 AskUser 结构化问题契约。
+ *
+ * @example
+ * ```ts
+ * const question: GoalSnapshotAskUserQuestionV1 = {
+ *     id: "q-1",
+ *     header: "语言选择",
+ *     question: "请选择首选语言：",
+ *     options: [{ id: "opt-1", label: "TypeScript" }, { id: "opt-2", label: "Rust" }],
+ *     multiSelect: false,
+ * };
+ * ```
+ */
+export interface GoalSnapshotAskUserQuestionV1 {
+    readonly id: string;
+    readonly header: string;
+    readonly question: string;
+    readonly options: readonly GoalSnapshotAskUserOptionV1[];
+    readonly multiSelect: boolean;
+}
+
+/**
+ * Snapshot 中持久化等待 AskUser 问答完成的挂起交互。
+ *
+ * @example
+ * ```ts
+ * const pending: GoalSnapshotPendingInteractionAskUserV1 = {
+ *     kind: "ask_user",
+ *     requestId: "req-1",
+ *     mode: "plan",
+ *     questions: [],
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingInteractionAskUserV1 {
+    readonly kind: "ask_user";
+    readonly requestId: string;
+    readonly mode: "plan" | "execution";
+    readonly questions: readonly GoalSnapshotAskUserQuestionV1[];
+}
+
+/**
+ * Snapshot 中持久化等待任务提案批准的挂起交互。
+ *
+ * @example
+ * ```ts
+ * const pending: GoalSnapshotPendingInteractionTaskApprovalV1 = {
+ *     kind: "task_approval",
+ *     proposal: { objective: "重构模块", completionCriteria: [] },
+ *     approvalRequest: "请确认任务目标",
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
+    readonly kind: "task_approval";
+    readonly proposal: GoalSnapshotTaskV1;
+    readonly approvalRequest: string;
+}
+
+/** Snapshot 中的挂起用户交互联合类型。 */
+export type GoalSnapshotPendingInteractionV1 =
+    | GoalSnapshotPendingInteractionAskUserV1
+    | GoalSnapshotPendingInteractionTaskApprovalV1;
+
+/** Snapshot 中的工作流状态，仅保留统一 executing 阶段。 */
+export type GoalSnapshotWorkflowV1 = {
+    readonly phase: "executing";
+    readonly task?: GoalSnapshotTaskV1 | undefined;
+};
 
 /** Snapshot 中持久化的模型选择状态。 */
 export interface GoalSnapshotModelSelectionV1 {
@@ -488,29 +557,42 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
     }).strict(),
 ]);
 
-const WorkflowSchema = z.discriminatedUnion("phase", [
-    z.object({
-        phase: z.literal("gathering_context"),
-        preparation: z.object({
-            status: z.enum(["active", "waiting_input"]),
-        }).strict(),
-    }).strict(),
-    z.object({
-        phase: z.literal("planning"),
-        preparation: z.union([
-            z.object({ status: z.literal("active") }).strict(),
-            z.object({
-                status: z.literal("waiting_approval"),
-                proposal: GoalSnapshotTaskSchema,
-            }).strict(),
-        ]),
-    }).strict(),
-    z.object({
-        phase: z.literal("executing"),
-        preparation: z.object({ status: z.literal("completed") }).strict(),
-        task: GoalSnapshotTaskSchema,
-    }).strict(),
+const AskUserOptionSchema = z.object({
+    id: NonEmptyStringSchema,
+    label: NonEmptyStringSchema,
+    description: NonEmptyStringSchema.optional(),
+}).strict();
+
+const AskUserQuestionSchema = z.object({
+    id: NonEmptyStringSchema,
+    header: NonEmptyStringSchema,
+    question: NonEmptyStringSchema,
+    options: z.array(AskUserOptionSchema).min(2).max(3),
+    multiSelect: z.boolean(),
+}).strict();
+
+const PendingInteractionAskUserSchema = z.object({
+    kind: z.literal("ask_user"),
+    requestId: NonEmptyStringSchema,
+    mode: z.enum(["plan", "execution"]),
+    questions: z.array(AskUserQuestionSchema).min(1).max(3),
+}).strict();
+
+const PendingInteractionTaskApprovalSchema = z.object({
+    kind: z.literal("task_approval"),
+    proposal: GoalSnapshotTaskSchema,
+    approvalRequest: NonEmptyStringSchema,
+}).strict();
+
+const PendingInteractionSchema = z.discriminatedUnion("kind", [
+    PendingInteractionAskUserSchema,
+    PendingInteractionTaskApprovalSchema,
 ]);
+
+const WorkflowSchema = z.object({
+    phase: z.literal("executing"),
+    task: GoalSnapshotTaskSchema.optional(),
+}).strict();
 
 const ContextEpochSchema = z.object({
     version: z.literal(1),
@@ -588,6 +670,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             }).strict().optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
+            pendingInteraction: PendingInteractionSchema.optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -639,21 +722,20 @@ function validateSnapshotInvariants(
         run.stepCount !== 0
         || step !== undefined
         || run.pendingAction !== undefined
+        || run.pendingInteraction !== undefined
         || run.stopReason !== undefined
     )) {
         addInvariantIssue(context, "created Run cannot contain execution progress");
     }
 
-    if (workflow.phase !== "executing" && (
-        run.status !== "created"
-        || run.stepCount !== 0
+    if (workflow.task === undefined && (
+        run.stepCount !== 0
         || step !== undefined
         || run.pendingAction !== undefined
-        || run.stopReason !== undefined
     )) {
         addInvariantIssue(
             context,
-            "Preparation workflow requires a created Run without execution memory",
+            "unapproved task cannot accumulate execution progress or pending actions",
             ["state", "run"],
         );
     }
@@ -663,15 +745,25 @@ function validateSnapshotInvariants(
     }
 
     const pendingAction = run.pendingAction;
-    if (pendingAction !== undefined) {
-        if (workflow.phase !== "executing") {
-            addInvariantIssue(
-                context,
-                "pendingAction is only valid for an executing Goal",
-                ["state", "run", "pendingAction"],
-            );
-        }
+    const pendingInteraction = run.pendingInteraction;
 
+    if (pendingAction !== undefined && pendingInteraction !== undefined) {
+        addInvariantIssue(
+            context,
+            "pendingAction and pendingInteraction are mutually exclusive",
+            ["state", "run"],
+        );
+    }
+
+    if (pendingInteraction !== undefined && run.status !== "waiting") {
+        addInvariantIssue(
+            context,
+            "pendingInteraction requires a waiting Run",
+            ["state", "run", "pendingInteraction"],
+        );
+    }
+
+    if (pendingAction !== undefined) {
         if (
             pendingAction.status === "awaiting_approval"
             && run.status !== "waiting"
@@ -707,9 +799,15 @@ function validateSnapshotInvariants(
         }
     }
 
+    if (run.status === "completed" || run.status === "cancelled") {
+        if (pendingInteraction !== undefined) {
+            addInvariantIssue(context, "terminal Run cannot contain a pendingInteraction");
+        }
+    }
+
     if (run.status === "waiting") {
-        if (pendingAction === undefined && result?.kind !== "wait") {
-            addInvariantIssue(context, "waiting Run requires a wait decision or a pending Action");
+        if (pendingAction === undefined && pendingInteraction === undefined && result?.kind !== "wait") {
+            addInvariantIssue(context, "waiting Run requires a wait decision, a pending Action, or a pending Interaction");
         }
 
         if (

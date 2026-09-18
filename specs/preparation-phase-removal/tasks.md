@@ -7,7 +7,7 @@
   - 验证方式：待实现的 Runtime domain 与 Contracts 单元测试，覆盖创建、协议解析、交互等待和拒绝分支。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 2. 更新 Snapshot、Trajectory 与恢复不变量
+- [x] //TODO 2. 更新 Snapshot、Trajectory 与恢复不变量
 
   - 实现目标：更新当前 Snapshot schema/codec、Trajectory 事件和跨字段校验，持久化 `pendingInteraction`、`ask_user_answered` 与任务批准边界，删除旧 Preparation 字段和迁移分支。
   - 成功判据：等待中的 `ask_user`/任务提案重启后恢复完整请求、模式和关联 ID；请求 ID、Goal/Run 不匹配、提交边界损坏或旧 Preparation 数据均 fail-closed，保存失败保留最后成功快照。

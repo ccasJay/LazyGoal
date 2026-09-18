@@ -64,16 +64,32 @@ test("draft validation rejects derived state and mismatched payload type", () =>
     );
 });
 
-test("preparation input provenance uses a strict hash-only lifecycle payload", () => {
+test("computeContentHash 计算合法哈希，且旧 preparation_input_recorded 事件被严格拒绝", () => {
     assert.equal(
         computeContentHash("hello"),
         "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
     );
 
-    const draft: TrajectoryEventDraft = {
+    const askUserDraft: TrajectoryEventDraft = {
         goalId: "goal-1",
         runId: "run-1",
-        phase: "gathering_context",
+        phase: "executing",
+        eventType: "ask_user_answered",
+        payload: {
+            type: "ask_user_answered",
+            requestId: "req-1",
+            answers: [{ questionId: "q-1", selectedOptionIds: ["opt-1"] }],
+        },
+    };
+
+    const event = allocateImmutableEvent(askUserDraft, 1, "event-ask-user");
+    assert.deepEqual(event.payload, askUserDraft.payload);
+    assert.equal(classifyTrajectoryEvent(event), "lifecycle");
+
+    const legacyDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing",
         eventType: "preparation_input_recorded",
         payload: {
             type: "preparation_input_recorded",
@@ -82,30 +98,9 @@ test("preparation input provenance uses a strict hash-only lifecycle payload", (
         },
     };
 
-    const event = allocateImmutableEvent(draft, 1, "event-provenance");
-    assert.deepEqual(event.payload, draft.payload);
-    assert.equal(classifyTrajectoryEvent(event), "lifecycle");
-
     assert.throws(
-        () => assertValidTrajectoryEventDraft({
-            ...draft,
-            payload: { ...draft.payload, sourceText: "hello" },
-        }),
-        /contains unknown fields/,
-    );
-    assert.throws(
-        () => assertValidTrajectoryEventDraft({
-            ...draft,
-            payload: { ...draft.payload, contentHash: "sha256:bad" },
-        }),
-        /contentHash is invalid/,
-    );
-    assert.throws(
-        () => assertValidTrajectoryEventDraft({
-            ...draft,
-            phase: "executing",
-        }),
-        /not allowed in executing phase/,
+        () => assertValidTrajectoryEventDraft(legacyDraft),
+        /eventType is invalid/,
     );
 });
 
@@ -153,7 +148,7 @@ test("diagnostic trace uses an independent no-op channel", async () => {
     assert.equal(record.kind, "model_request");
 });
 
-test("需求 4.2 & 4.3: decision_received 与 preparation_result 保留 thought 属性，且缺省时完全向下兼容", () => {
+test("decision_received 保留 thought 属性且缺省时向下兼容，旧 preparation_result 被严格拒绝", () => {
     // 1. 带 thought 的 decision_received
     const decisionWithThoughtDraft: TrajectoryEventDraft = {
         goalId: "goal-1",
@@ -191,33 +186,21 @@ test("需求 4.2 & 4.3: decision_received 与 preparation_result 保留 thought 
     const legacyDecisionEvent = allocateImmutableEvent(decisionWithoutThoughtDraft, 11, "evt-decision-legacy");
     assert.equal((legacyDecisionEvent.payload as any).thought, undefined);
 
-    // 3. 带 thought 的 preparation_result
-    const prepWithThoughtDraft: TrajectoryEventDraft = {
+    // 3. 旧 preparation_result 事件被严格拒绝
+    const prepResultDraft = {
         goalId: "goal-1",
         runId: "run-1",
-        phase: "gathering_context",
+        phase: "executing",
         eventType: "preparation_result",
         payload: {
             type: "preparation_result",
             result: "context_ready",
-            thought: "All necessary context has been discovered from the repository.",
+            thought: "All necessary context has been discovered.",
         },
     };
-    assertValidTrajectoryEventDraft(prepWithThoughtDraft);
-    const prepEvent = allocateImmutableEvent(prepWithThoughtDraft, 12, "evt-prep-thought");
-    assert.equal((prepEvent.payload as any).thought, "All necessary context has been discovered from the repository.");
-    assert.equal(classifyTrajectoryEvent(prepEvent), "decision");
-
-    // 4. 缺省 thought 的 preparation_result
-    const prepWithoutThoughtDraft: TrajectoryEventDraft = {
-        ...prepWithThoughtDraft,
-        payload: {
-            type: "preparation_result",
-            result: "context_ready",
-        },
-    };
-    assertValidTrajectoryEventDraft(prepWithoutThoughtDraft);
-    const legacyPrepEvent = allocateImmutableEvent(prepWithoutThoughtDraft, 13, "evt-prep-legacy");
-    assert.equal((legacyPrepEvent.payload as any).thought, undefined);
+    assert.throws(
+        () => assertValidTrajectoryEventDraft(prepResultDraft),
+        /eventType is invalid/,
+    );
 });
 

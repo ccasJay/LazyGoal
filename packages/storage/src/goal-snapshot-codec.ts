@@ -9,6 +9,7 @@ import type {
     GoalWorkflowState,
     Observation,
     PendingAction,
+    PendingInteraction,
     StepRecord,
     ToolCallAction,
     WorkingMemoryPatch,
@@ -23,6 +24,7 @@ import {
     type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
     type GoalSnapshotPendingActionV1,
+    type GoalSnapshotPendingInteractionV1,
     type GoalSnapshotProfileV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
@@ -116,27 +118,38 @@ function encodeTask(task: GoalTask): GoalSnapshotTaskV1 {
 }
 
 function encodeWorkflow(workflow: GoalWorkflowState): GoalSnapshotWorkflowV1 {
-    switch (workflow.phase) {
-        case "gathering_context":
+    return {
+        phase: "executing",
+        ...(workflow.task === undefined ? {} : { task: encodeTask(workflow.task) }),
+    };
+}
+
+function encodePendingInteraction(
+    interaction: PendingInteraction,
+): GoalSnapshotPendingInteractionV1 {
+    switch (interaction.kind) {
+        case "ask_user":
             return {
-                phase: "gathering_context",
-                preparation: { status: workflow.preparation.status },
+                kind: "ask_user",
+                requestId: interaction.requestId,
+                mode: interaction.mode,
+                questions: interaction.questions.map((q) => ({
+                    id: q.id,
+                    header: q.header,
+                    question: q.question,
+                    options: q.options.map((opt) => ({
+                        id: opt.id,
+                        label: opt.label,
+                        ...(opt.description === undefined ? {} : { description: opt.description }),
+                    })),
+                    multiSelect: q.multiSelect,
+                })),
             };
-        case "planning":
-            return workflow.preparation.status === "active"
-                ? { phase: "planning", preparation: { status: "active" } }
-                : {
-                    phase: "planning",
-                    preparation: {
-                        status: "waiting_approval",
-                        proposal: encodeTask(workflow.preparation.proposal),
-                    },
-                };
-        case "executing":
+        case "task_approval":
             return {
-                phase: "executing",
-                preparation: { status: "completed" },
-                task: encodeTask(workflow.task),
+                kind: "task_approval",
+                proposal: encodeTask(interaction.proposal),
+                approvalRequest: interaction.approvalRequest,
             };
     }
 }
@@ -305,6 +318,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                             status: run.pendingAction.status,
                         },
                     }),
+                ...(run.pendingInteraction === undefined
+                    ? {}
+                    : { pendingInteraction: encodePendingInteraction(run.pendingInteraction) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -359,27 +375,38 @@ function decodeTask(task: GoalSnapshotTaskV1): GoalTask {
 }
 
 function decodeWorkflow(workflow: GoalSnapshotWorkflowV1): GoalWorkflowState {
-    switch (workflow.phase) {
-        case "gathering_context":
+    return {
+        phase: "executing",
+        ...(workflow.task === undefined ? {} : { task: decodeTask(workflow.task) }),
+    };
+}
+
+function decodePendingInteraction(
+    interaction: GoalSnapshotPendingInteractionV1,
+): PendingInteraction {
+    switch (interaction.kind) {
+        case "ask_user":
             return {
-                phase: "gathering_context",
-                preparation: { status: workflow.preparation.status },
+                kind: "ask_user",
+                requestId: interaction.requestId,
+                mode: interaction.mode,
+                questions: interaction.questions.map((q) => ({
+                    id: q.id,
+                    header: q.header,
+                    question: q.question,
+                    options: q.options.map((opt) => ({
+                        id: opt.id,
+                        label: opt.label,
+                        ...(opt.description === undefined ? {} : { description: opt.description }),
+                    })),
+                    multiSelect: q.multiSelect,
+                })),
             };
-        case "planning":
-            return workflow.preparation.status === "active"
-                ? { phase: "planning", preparation: { status: "active" } }
-                : {
-                    phase: "planning",
-                    preparation: {
-                        status: "waiting_approval",
-                        proposal: decodeTask(workflow.preparation.proposal),
-                    },
-                };
-        case "executing":
+        case "task_approval":
             return {
-                phase: "executing",
-                preparation: { status: "completed" },
-                task: decodeTask(workflow.task),
+                kind: "task_approval",
+                proposal: decodeTask(interaction.proposal),
+                approvalRequest: interaction.approvalRequest,
             };
     }
 }
@@ -525,12 +552,39 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingAction === undefined
                     ? {}
                     : { pendingAction: decodePendingAction(run.pendingAction) }),
+                ...(run.pendingInteraction === undefined
+                    ? {}
+                    : { pendingInteraction: decodePendingInteraction(run.pendingInteraction) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
             modelSelection: decodeModelSelection(snapshot.state.modelSelection),
         },
     };
+}
+
+/**
+ * 检查快照中是否残留旧版 Preparation 工作流并给出明确错误。
+ *
+ * @remarks
+ * 移除独立 preparation phase 后，旧的 `gathering_context`、`planning` 阶段
+ * 以及旧的 `preparation` 对象均不再支持，fail-closed 拒绝并指引重建。
+ */
+function assertNoLegacyPreparationWorkflow(input: unknown): void {
+    if (!isRecord(input) || !isRecord(input.state) || !isRecord(input.state.workflow)) {
+        return;
+    }
+
+    const workflow = input.state.workflow;
+    if (
+        workflow.phase === "gathering_context"
+        || workflow.phase === "planning"
+        || "preparation" in workflow
+    ) {
+        throw protocolError(
+            "Invalid Goal snapshot: legacy preparation workflows are no longer supported; delete and recreate the Goal",
+        );
+    }
 }
 
 /**
@@ -546,19 +600,8 @@ function assertNoLegacyStringCriteria(input: unknown): void {
     }
 
     const workflow = input.state.workflow;
-    const tasks: unknown[] = [];
-    if (isRecord(workflow.preparation) && isRecord(workflow.preparation.proposal)) {
-        tasks.push(workflow.preparation.proposal);
-    }
-    if (isRecord(workflow.task)) {
-        tasks.push(workflow.task);
-    }
-
-    for (const task of tasks) {
-        if (!isRecord(task) || !Array.isArray(task.completionCriteria)) {
-            continue;
-        }
-        if (task.completionCriteria.some((criterion) => typeof criterion === "string")) {
+    if (isRecord(workflow.task) && Array.isArray(workflow.task.completionCriteria)) {
+        if (workflow.task.completionCriteria.some((criterion) => typeof criterion === "string")) {
             throw protocolError(
                 "Invalid Goal snapshot: legacy string completionCriteria are no longer supported; delete and recreate the Goal",
             );
@@ -580,6 +623,7 @@ export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSn
             );
         }
 
+        assertNoLegacyPreparationWorkflow(input);
         assertNoLegacyStringCriteria(input);
 
         const validation = GoalSnapshotV1Schema.safeParse(input);

@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 
 import type {
     AgentDecision,
+    AskUserAnswer,
     ExecutionErrorCode,
+    GoalTask,
     JsonValue,
     Observation,
     ToolCallAction,
@@ -17,10 +19,7 @@ import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
 
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
-export type TrajectoryPhase =
-    | "gathering_context"
-    | "planning"
-    | "executing";
+export type TrajectoryPhase = "executing";
 
 /** Domain Event 的稳定事件类型集合。 */
 export type TrajectoryEventPayload =
@@ -31,14 +30,13 @@ export type TrajectoryEventPayload =
     | { readonly type: "run_started" }
     | { readonly type: "run_resumed" }
     | {
-        readonly type: "preparation_input_recorded";
-        readonly messageIndex: number;
-        readonly contentHash: `sha256:${string}`;
+        readonly type: "ask_user_answered";
+        readonly requestId: string;
+        readonly answers: readonly AskUserAnswer[];
     }
     | {
-        readonly type: "preparation_result";
-        readonly result: "question" | "context_ready" | "task_proposal" | "context_lookup" | "context_checkpoint" | "probe_action";
-        readonly thought?: string;
+        readonly type: "task_approved";
+        readonly task: GoalTask;
     }
     | {
         readonly type: "decision_received";
@@ -536,8 +534,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
     "run_resumed",
-    "preparation_input_recorded",
-    "preparation_result",
+    "ask_user_answered",
+    "task_approved",
     "decision_received",
     "context_lookup_requested",
     "context_lookup_completed",
@@ -562,8 +560,6 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
 ]);
 
 const TRAJECTORY_PHASES: ReadonlySet<TrajectoryPhase> = new Set([
-    "gathering_context",
-    "planning",
     "executing",
 ]);
 
@@ -600,9 +596,44 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
     }
 
-    if (eventType === "decision_received" || eventType === "preparation_result") {
+    if (eventType === "decision_received") {
         if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
             throw new TrajectoryProtocolError("thought must be a string");
+        }
+    }
+    if (eventType === "ask_user_answered") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "answers"].includes(key))) {
+            throw new TrajectoryProtocolError("ask_user_answered contains unknown fields");
+        }
+        if (typeof payload.requestId !== "string" || payload.requestId.length === 0) {
+            throw new TrajectoryProtocolError("ask_user_answered requestId is invalid");
+        }
+        if (!Array.isArray(payload.answers)) {
+            throw new TrajectoryProtocolError("ask_user_answered answers must be an array");
+        }
+        for (const answer of payload.answers) {
+            if (
+                !isRecord(answer)
+                || typeof answer.questionId !== "string"
+                || !answer.questionId
+                || !Array.isArray(answer.selectedOptionIds)
+                || answer.selectedOptionIds.some((id: unknown) => typeof id !== "string" || !id)
+            ) {
+                throw new TrajectoryProtocolError("ask_user_answered contains invalid answer");
+            }
+        }
+    }
+    if (eventType === "task_approved") {
+        if (Object.keys(payload).some((key) => !["type", "task"].includes(key))) {
+            throw new TrajectoryProtocolError("task_approved contains unknown fields");
+        }
+        if (
+            !isRecord(payload.task)
+            || typeof payload.task.objective !== "string"
+            || !payload.task.objective
+            || !Array.isArray(payload.task.completionCriteria)
+        ) {
+            throw new TrajectoryProtocolError("task_approved task is invalid");
         }
     }
     if (eventType === "context_epoch_advanced") {
@@ -621,32 +652,6 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         assertEpochState(payload.openedEpoch);
         if (payload.memoryRevisionEventId !== undefined) {
             assertNonEmptyString(payload.memoryRevisionEventId, "memoryRevisionEventId");
-        }
-    }
-    if (eventType === "preparation_input_recorded") {
-        if (Object.keys(payload).some((key) => ![
-            "type", "messageIndex", "contentHash",
-        ].includes(key))) {
-            throw new TrajectoryProtocolError(
-                "preparation_input_recorded contains unknown fields",
-            );
-        }
-        if (
-            typeof payload.messageIndex !== "number"
-            || !Number.isSafeInteger(payload.messageIndex)
-            || payload.messageIndex < 0
-        ) {
-            throw new TrajectoryProtocolError(
-                "preparation_input_recorded messageIndex is invalid",
-            );
-        }
-        if (
-            typeof payload.contentHash !== "string"
-            || !/^sha256:[0-9a-f]{64}$/.test(payload.contentHash)
-        ) {
-            throw new TrajectoryProtocolError(
-                "preparation_input_recorded contentHash is invalid",
-            );
         }
     }
     if (eventType === "context_epoch_closed") {
@@ -706,14 +711,6 @@ function assertMetadata(value: unknown): asserts value is TrajectoryEventMetadat
         throw new TrajectoryProtocolError("stepIndex must be a non-negative integer");
     }
     assertPayload(value.payload, value.eventType);
-    if (
-        value.eventType === "preparation_input_recorded"
-        && value.phase === "executing"
-    ) {
-        throw new TrajectoryProtocolError(
-            "preparation_input_recorded is not allowed in executing phase",
-        );
-    }
 }
 
 /**
@@ -846,9 +843,9 @@ export function classifyTrajectoryEvent(
         case "goal_created":
         case "run_started":
         case "run_resumed":
-        case "preparation_input_recorded":
+        case "ask_user_answered":
+        case "task_approved":
             return "lifecycle";
-        case "preparation_result":
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":
