@@ -32,6 +32,20 @@ function clearPendingAction(
     return stateWithoutPendingAction;
 }
 
+function clearPendingInteraction(
+    state: RunState,
+): Omit<RunState, "pendingInteraction"> {
+    const { pendingInteraction: _pendingInteraction, ...stateWithoutPendingInteraction } = state;
+    return stateWithoutPendingInteraction;
+}
+
+function clearAllPending(
+    state: RunState,
+): Omit<RunState, "pendingAction" | "pendingInteraction"> {
+    const { pendingAction: _pendingAction, pendingInteraction: _pendingInteraction, ...rest } = state;
+    return rest;
+}
+
 function invalidTransition(
     currentState: RunState,
     input: RunInput,
@@ -121,7 +135,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingAction(currentState),
+                        ...clearAllPending(currentState),
                         status: "cancelled",
                     },
                 };
@@ -174,11 +188,11 @@ export function transition(
             }
 
             if (input.kind === "stage_action") {
-                if (currentState.pendingAction !== undefined) {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "Cannot stage an Action while another Action is pending",
+                        "Cannot stage an Action while an Action or interaction is pending",
                     );
                 }
 
@@ -217,6 +231,57 @@ export function transition(
                             action: input.action,
                             status,
                         },
+                    },
+                };
+            }
+
+            if (input.kind === "stage_interaction") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot stage an interaction while an Action or interaction is pending",
+                    );
+                }
+
+                if (input.interaction.kind === "ask_user") {
+                    if (!hasText(input.interaction.requestId)) {
+                        return invalidTransition(
+                            currentState,
+                            input,
+                            "ask_user interaction requires a non-empty requestId",
+                        );
+                    }
+                    if (input.interaction.questions.length === 0) {
+                        return invalidTransition(
+                            currentState,
+                            input,
+                            "ask_user interaction requires at least one question",
+                        );
+                    }
+                } else if (input.interaction.kind === "task_approval") {
+                    if (!hasText(input.interaction.proposal.objective)) {
+                        return invalidTransition(
+                            currentState,
+                            input,
+                            "task_approval interaction requires a non-empty task objective",
+                        );
+                    }
+                    if (!hasText(input.interaction.approvalRequest)) {
+                        return invalidTransition(
+                            currentState,
+                            input,
+                            "task_approval interaction requires a non-empty approvalRequest",
+                        );
+                    }
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "waiting",
+                        pendingInteraction: input.interaction,
                     },
                 };
             }
@@ -275,11 +340,11 @@ export function transition(
             }
 
             if (input.kind === "decision") {
-                if (currentState.pendingAction !== undefined) {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "Cannot apply a terminal decision while an Action is pending",
+                        "Cannot apply a terminal decision while an Action or interaction is pending",
                     );
                 }
 
@@ -312,11 +377,11 @@ export function transition(
             }
 
             if (input.kind === "context_lookup") {
-                if (currentState.pendingAction !== undefined) {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
                     return invalidTransition(
                         currentState,
                         input,
-                        "Cannot apply a Context Lookup while an Action is pending",
+                        "Cannot apply a Context Lookup while an Action or interaction is pending",
                     );
                 }
 
@@ -367,7 +432,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingInteraction(currentState),
                         status: "failed",
                         ...(pendingAction === undefined
                             ? {}
@@ -391,7 +456,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingAction(currentState),
+                        ...clearAllPending(currentState),
                         status: "cancelled",
                     },
                 };
@@ -484,11 +549,40 @@ export function transition(
                 };
             }
 
+            if (input.kind === "resolve_interaction") {
+                const pendingInteraction = currentState.pendingInteraction;
+
+                if (pendingInteraction === undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot resolve interaction without a pendingInteraction",
+                    );
+                }
+
+                if (pendingInteraction.kind !== input.interactionKind) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Resolved interactionKind does not match pendingInteraction",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingInteraction(currentState),
+                        status: "running",
+                    },
+                };
+            }
+
             // 外部协调器解除 Agent wait 后恢复：回到 running，计数和最近结果不变。
-            // 带 pendingAction 的审批/恢复等待不能通过通用 resume 绕过授权。
+            // 带 pendingAction 或 pendingInteraction 的审批/恢复/问答等待不能通过通用 resume 绕过。
             if (
                 input.kind === "resume"
                 && currentState.pendingAction === undefined
+                && currentState.pendingInteraction === undefined
             ) {
                 const nextState: RunState = {
                     ...currentState,
@@ -501,12 +595,12 @@ export function transition(
                 };
             }
 
-            // 等待期间取消：进入 cancelled，清除未完成 Action，且不消费 Step。
+            // 等待期间取消：进入 cancelled，清除未完成 Action 与交互，且不消费 Step。
             if (input.kind === "cancel") {
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingAction(currentState),
+                        ...clearAllPending(currentState),
                         status: "cancelled",
                     },
                 };

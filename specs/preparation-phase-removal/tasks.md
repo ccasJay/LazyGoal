@@ -1,6 +1,6 @@
 # 实施计划
 
-- [ ] //TODO 1. 建立统一 Goal 状态与 Agent 交互协议
+- [x] //TODO 1. 建立统一 Goal 状态与 Agent 交互协议
 
   - 实现目标：将 `GoalWorkflowState` 收敛为统一 `executing`，新增 `pendingInteraction`、`task_proposal` 和 `ask_user` 的严格 Contract/DTO，并删除当前协议中的 Preparation 专属类型。
   - 成功判据：新 Goal 可表示“无最终任务但等待交互”的状态；合法 `ask_user` 请求能被规范化，非法数量、选项和未知字段被整体拒绝；交互状态不增加 Step。

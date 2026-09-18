@@ -22,6 +22,8 @@ import type {
     StructuredAgentDecision,
     ToolCallAction,
     WorkingMemoryPatch,
+    AskUserQuestion,
+    AskUserAnswer,
 } from "../../contracts/src/index";
 import type {
     ContextLookupRequest,
@@ -33,6 +35,8 @@ export type {
     CompletionExpectOutcome,
     CompletionCriterion,
     GoalTask,
+    AskUserQuestion,
+    AskUserAnswer,
 };
 
 
@@ -569,28 +573,85 @@ export interface GoalDefinition {
     };
 }
 
-/** Goal 在执行前的准备工作流，只有 executing 分支拥有最终任务。 */
-export type GoalWorkflowState =
-    | {
-        readonly phase: "gathering_context";
-        readonly preparation: {
-            readonly status: "active" | "waiting_input";
-        };
-    }
-    | {
-        readonly phase: "planning";
-        readonly preparation:
-            | { readonly status: "active" }
-            | {
-                readonly status: "waiting_approval";
-                readonly proposal: GoalTask;
-            };
-    }
-    | {
-        readonly phase: "executing";
-        readonly preparation: { readonly status: "completed" };
-        readonly task: GoalTask;
-    };
+/**
+ * 等待 AskUser 问答交互的挂起状态。
+ *
+ * @remarks
+ * 包含全局请求 ID、交互模式（计划期或执行期）及规范化后的 1 至 3 个问题。
+ *
+ * @example
+ * ```ts
+ * const interaction: PendingInteractionAskUser = {
+ *     kind: "ask_user",
+ *     requestId: "ask-1",
+ *     mode: "plan",
+ *     questions: [],
+ * };
+ * ```
+ */
+export interface PendingInteractionAskUser {
+    readonly kind: "ask_user";
+    readonly requestId: string;
+    readonly mode: "plan" | "execution";
+    readonly questions: readonly AskUserQuestion[];
+}
+
+/**
+ * 等待用户审查并批准任务提案的挂起状态。
+ *
+ * @remarks
+ * 包含 Agent 提出的任务目标、验收标准与审批提示。
+ *
+ * @example
+ * ```ts
+ * const interaction: PendingInteractionTaskApproval = {
+ *     kind: "task_approval",
+ *     proposal: task,
+ *     approvalRequest: "请确认任务目标",
+ * };
+ * ```
+ */
+export interface PendingInteractionTaskApproval {
+    readonly kind: "task_approval";
+    readonly proposal: GoalTask;
+    readonly approvalRequest: string;
+}
+
+/**
+ * 待处理的用户交互挂起状态。
+ *
+ * @remarks
+ * 在 Run 进入 waiting 时记录，与 pendingAction 严格互斥。
+ *
+ * @example
+ * ```ts
+ * const interaction: PendingInteraction = {
+ *     kind: "ask_user",
+ *     requestId: "ask-1",
+ *     mode: "plan",
+ *     questions: [],
+ * };
+ * ```
+ */
+export type PendingInteraction = PendingInteractionAskUser | PendingInteractionTaskApproval;
+
+/**
+ * Goal 工作流状态。
+ *
+ * @remarks
+ * 统一收敛为 executing 生命周期；`task` 在用户批准任务提案前缺省，批准后固定为 GoalTask。
+ *
+ * @example
+ * ```ts
+ * const workflow: GoalWorkflowState = {
+ *     phase: "executing",
+ * };
+ * ```
+ */
+export type GoalWorkflowState = {
+    readonly phase: "executing";
+    readonly task?: GoalTask;
+};
 
 /**
  * Agent 请求 Runtime 调用的单个 Tool Action。
@@ -715,7 +776,13 @@ export type StepRecord =
     }
     | {
         readonly kind: "decision";
-        readonly result: Exclude<AgentDecision, { readonly kind: "tool_call" } | { readonly kind: "context_checkpoint" }>;
+        readonly result: Exclude<
+            AgentDecision,
+            | { readonly kind: "tool_call" }
+            | { readonly kind: "context_checkpoint" }
+            | { readonly kind: "ask_user" }
+            | { readonly kind: "task_proposal" }
+        >;
     };
 
 /** 可识别的 Runtime 执行协议失败代码。 */
@@ -768,6 +835,7 @@ export interface RunState {
     readonly memoryRevision?: MemoryRevision;
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
+    readonly pendingInteraction?: PendingInteraction;
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。
@@ -952,12 +1020,26 @@ export type RunInput =
     }
     | {
         readonly kind: "decision";
-        readonly decision: Exclude<AgentDecision, { readonly kind: "tool_call" }>;
+        readonly decision: Exclude<
+            AgentDecision,
+            | { readonly kind: "tool_call" }
+            | { readonly kind: "context_checkpoint" }
+            | { readonly kind: "ask_user" }
+            | { readonly kind: "task_proposal" }
+        >;
     }
     | {
         /** 完成一个 Context Lookup Step，但保持 Run running。 */
         readonly kind: "context_lookup";
         readonly request: ContextLookupRequest;
+    }
+    | {
+        readonly kind: "stage_interaction";
+        readonly interaction: PendingInteraction;
+    }
+    | {
+        readonly kind: "resolve_interaction";
+        readonly interactionKind: PendingInteraction["kind"];
     }
     | {
         readonly kind: "reject_action";
@@ -1059,9 +1141,9 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
 }
 
 /**
- * 创建 gathering_context 阶段的确定性 Goal 聚合。
+ * 创建统一 executing 生命周期的确定性 Goal 聚合。
  * @param input - Goal ID、原始意图、冻结 Prompt Bundle 版本、Profile、Run ID 与执行策略。
- * @returns Run 为 created/0 的全新 Goal。
+ * @returns 处于 executing 阶段且 Run 为 created/0 的全新 Goal。
  * @throws maxSteps 不是非负整数或协议字段不是当前组合时抛出 Error。
  */
 export function createGoal(input: GoalCreationInput): Goal {
@@ -1096,8 +1178,7 @@ export function createGoal(input: GoalCreationInput): Goal {
         },
         state: {
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
+                phase: "executing",
             },
             messages: cloneMessages([
                 { role: "user", content: input.intent },

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { contract } from "../contract";
 import type { Contract, InferContract, JsonValue } from "../types";
 
@@ -918,10 +919,279 @@ export const ExecutingFailAgentDecisionContract = contract.object({
 });
 
 /**
+ * AskUser 问题选项输入契约。
+ *
+ * @remarks
+ * 模型在 ask_user 决策中提交的单个选项，包含显示标签与可选说明。
+ *
+ * @example
+ * ```ts
+ * const option: AskUserOptionInput = {
+ *     label: "选项 A",
+ *     description: "方案 A 说明",
+ * };
+ * ```
+ */
+export const AskUserOptionInputContract = contract.object({
+    label: contract.string(),
+    description: contract.optional(contract.string()),
+});
+export type AskUserOptionInput = InferContract<typeof AskUserOptionInputContract>;
+
+/**
+ * AskUser 单个问题输入契约。
+ *
+ * @remarks
+ * 包含简短标题、具体问题描述、2 至 3 个候选选项，以及是否允许多选的标记。
+ *
+ * @example
+ * ```ts
+ * const question: AskUserQuestionInput = {
+ *     header: "确认方案",
+ *     question: "请选择架构实现方式：",
+ *     options: [
+ *         { label: "方案 A" },
+ *         { label: "方案 B" },
+ *     ],
+ *     multiSelect: false,
+ * };
+ * ```
+ */
+export const AskUserQuestionInputContract = contract.object({
+    header: contract.string(),
+    question: contract.string(),
+    options: contract.array(AskUserOptionInputContract, { minItems: 2, maxItems: 3 }),
+    multiSelect: contract.boolean(),
+});
+export type AskUserQuestionInput = InferContract<typeof AskUserQuestionInputContract>;
+
+/**
+ * AskUser 用户提问决策契约。
+ *
+ * @remarks
+ * 模型向用户提出 1 至 3 个结构化问题，等待用户交互选择或填写 Other 答案。
+ *
+ * @example
+ * ```ts
+ * const decision: AskUserAgentDecision = {
+ *     kind: "ask_user",
+ *     questions: [
+ *         {
+ *             header: "确认依赖",
+ *             question: "使用哪种包管理器？",
+ *             options: [{ label: "pnpm" }, { label: "npm" }],
+ *             multiSelect: false,
+ *         },
+ *     ],
+ * };
+ * ```
+ */
+export const AskUserAgentDecisionContract = contract.object({
+    kind: contract.literal("ask_user"),
+    questions: contract.array(AskUserQuestionInputContract, { minItems: 1, maxItems: 3 }),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+export type AskUserAgentDecision = InferContract<typeof AskUserAgentDecisionContract>;
+
+/**
+ * 任务提案决策契约。
+ *
+ * @remarks
+ * 模型提出目标与完成验收标准，请求用户审查并批准。在批准前只允许只读探查。
+ *
+ * @example
+ * ```ts
+ * const proposal: TaskProposalAgentDecision = {
+ *     kind: "task_proposal",
+ *     task: { objective: "修复问题", completionCriteria: [{ text: "测试通过" }] },
+ *     approvalRequest: "请批准任务计划",
+ * };
+ * ```
+ */
+export const TaskProposalAgentDecisionContract = contract.object({
+    kind: contract.literal("task_proposal"),
+    task: GoalTaskContract,
+    approvalRequest: contract.string(),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+export type TaskProposalAgentDecision = InferContract<typeof TaskProposalAgentDecisionContract>;
+
+/**
+ * 规范化后的 AskUser 问题选项。
+ *
+ * @remarks
+ * 由 Runtime 分配局部唯一标识 `id`（如 `o-1`, `o-2`）。
+ *
+ * @example
+ * ```ts
+ * const option: AskUserOption = {
+ *     id: "o-1",
+ *     label: "选项 A",
+ * };
+ * ```
+ */
+export interface AskUserOption {
+    readonly id: string;
+    readonly label: string;
+    readonly description?: string;
+}
+
+/**
+ * 规范化后的 AskUser 问题。
+ *
+ * @remarks
+ * 由 Runtime 为问题分配局部唯一标识 `id`（如 `q-1`, `q-2`），并为选项分配 `id`。
+ *
+ * @example
+ * ```ts
+ * const question: AskUserQuestion = {
+ *     id: "q-1",
+ *     header: "模式选择",
+ *     question: "请选择执行模式",
+ *     options: [{ id: "o-1", label: "模式 1" }, { id: "o-2", label: "模式 2" }],
+ *     multiSelect: false,
+ * };
+ * ```
+ */
+export interface AskUserQuestion {
+    readonly id: string;
+    readonly header: string;
+    readonly question: string;
+    readonly options: readonly AskUserOption[];
+    readonly multiSelect: boolean;
+}
+
+/**
+ * 用户对单个 AskUser 问题的回答契约。
+ *
+ * @remarks
+ * 记录用户选择的选项标识数组或自由填写的 Other 文本。
+ *
+ * @example
+ * ```ts
+ * const answer: AskUserAnswer = {
+ *     questionId: "q-1",
+ *     optionIds: ["o-1"],
+ * };
+ * ```
+ */
+export const AskUserAnswerContract = contract.object({
+    questionId: contract.string(),
+    optionIds: contract.array(contract.string()),
+    otherText: contract.optional(contract.string()),
+});
+export type AskUserAnswer = InferContract<typeof AskUserAnswerContract>;
+
+/**
+ * 将模型提交的 AskUser 问题列表规范化，分配稳定局部标识与全局请求标识。
+ *
+ * @param input - 包含 1-3 个问题的原始模型输入。
+ * @param requestId - 可选的指定请求标识，未提供时自动生成。
+ * @returns 规范化后的请求对象，包含 requestId 与分配了 id 的问题数组。
+ *
+ * @example
+ * ```ts
+ * const normalized = normalizeAskUserRequest({ questions });
+ * ```
+ */
+export function normalizeAskUserRequest(
+    input: { readonly questions: readonly AskUserQuestionInput[] },
+    requestId?: string,
+): { readonly requestId: string; readonly questions: readonly AskUserQuestion[] } {
+    const effectiveRequestId = requestId ?? `ask-${randomUUID()}`;
+    const questions = input.questions.map((q, qIndex) => {
+        const questionId = `q-${qIndex + 1}`;
+        const options = q.options.map((opt, optIndex) => ({
+            id: `o-${optIndex + 1}`,
+            label: opt.label,
+            ...(opt.description !== undefined ? { description: opt.description } : {}),
+        }));
+        return {
+            id: questionId,
+            header: q.header,
+            question: q.question,
+            options: Object.freeze(options),
+            multiSelect: q.multiSelect,
+        };
+    });
+    return {
+        requestId: effectiveRequestId,
+        questions: Object.freeze(questions),
+    };
+}
+
+/**
+ * 校验用户提交的 AskUser 答案是否合法。
+ *
+ * @param questions - 原始规范化问题列表。
+ * @param answers - 用户提交的答案列表。
+ * @throws 答案数量不匹配、问题 ID 不对应、选项 ID 非法或单/多选规则违反时抛出异常。
+ *
+ * @example
+ * ```ts
+ * validateAskUserAnswers(questions, answers);
+ * ```
+ */
+export function validateAskUserAnswers(
+    questions: readonly AskUserQuestion[],
+    answers: readonly AskUserAnswer[],
+): void {
+    if (answers.length !== questions.length) {
+        throw new Error(`Answer count mismatch: expected ${questions.length}, received ${answers.length}`);
+    }
+    const questionMap = new Map<string, AskUserQuestion>();
+    for (const q of questions) {
+        questionMap.set(q.id, q);
+    }
+
+    const seenQuestionIds = new Set<string>();
+    for (const answer of answers) {
+        if (seenQuestionIds.has(answer.questionId)) {
+            throw new Error(`Duplicate answer for question "${answer.questionId}"`);
+        }
+        seenQuestionIds.add(answer.questionId);
+
+        const question = questionMap.get(answer.questionId);
+        if (question === undefined) {
+            throw new Error(`Answer references unknown question "${answer.questionId}"`);
+        }
+
+        const validOptionIds = new Set(question.options.map((o) => o.id));
+        const selectedOptions = new Set<string>();
+        for (const optId of answer.optionIds) {
+            if (!validOptionIds.has(optId)) {
+                throw new Error(`Option "${optId}" is not valid for question "${question.id}"`);
+            }
+            if (selectedOptions.has(optId)) {
+                throw new Error(`Duplicate option "${optId}" selected in question "${question.id}"`);
+            }
+            selectedOptions.add(optId);
+        }
+
+        const hasOtherText = answer.otherText !== undefined && answer.otherText.trim().length > 0;
+        if (answer.otherText !== undefined && !hasOtherText) {
+            throw new Error(`otherText for question "${question.id}" must not be blank if provided`);
+        }
+
+        if (!question.multiSelect) {
+            const selectedCount = answer.optionIds.length + (hasOtherText ? 1 : 0);
+            if (selectedCount !== 1) {
+                throw new Error(`Single-choice question "${question.id}" requires exactly one selection or otherText, got ${selectedCount}`);
+            }
+        } else {
+            const totalSelections = answer.optionIds.length + (hasOtherText ? 1 : 0);
+            if (totalSelections < 1) {
+                throw new Error(`Multi-choice question "${question.id}" requires at least one selection or otherText`);
+            }
+        }
+    }
+}
+
+/**
  * 结构化 Agent 决策契约（不含 checkpoint）。
  *
  * @remarks
- * 覆盖普通 executing 轮次允许的全部分支：tool_call、complete、wait、fail、context_lookup。
+ * 覆盖普通 executing 轮次允许的全部分支：tool_call、complete、wait、fail、context_lookup、ask_user、task_proposal。
  *
  * @example
  * ```ts
@@ -934,6 +1204,8 @@ export const StructuredAgentDecisionContract = contract.discriminatedUnion("kind
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    AskUserAgentDecisionContract,
+    TaskProposalAgentDecisionContract,
 ]);
 
 /** 结构化 Agent 决策公开类型。 */
@@ -948,7 +1220,7 @@ export const OrdinaryExecutingDecisionContract = StructuredAgentDecisionContract
  * 未授权任何 Tool 时的 Executing 决策契约。
  *
  * @remarks
- * 省略 tool_call 分支，仅允许 complete、wait、fail 与 context_lookup。
+ * 省略 tool_call 分支，允许 complete、wait、fail、context_lookup、ask_user 与 task_proposal。
  *
  * @example
  * ```ts
@@ -960,6 +1232,8 @@ export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kin
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ContextLookupRequestContract,
+    AskUserAgentDecisionContract,
+    TaskProposalAgentDecisionContract,
 ]);
 
 /**
@@ -981,6 +1255,8 @@ export const AgentDecisionContract = contract.discriminatedUnion("kind", [
     WaitAgentDecisionContract,
     FailAgentDecisionContract,
     ContextLookupRequestContract,
+    AskUserAgentDecisionContract,
+    TaskProposalAgentDecisionContract,
 ]);
 
 /** Agent 决策公开类型。 */
@@ -991,7 +1267,8 @@ export type ModelOutputSemanticIssueCode =
     | "blank_string"
     | "invalid_sequence_range"
     | "empty_update"
-    | "invalid_tool_id";
+    | "invalid_tool_id"
+    | "duplicate_option";
 
 /**
  * 定位到结构字段的基础语义问题。
@@ -1260,6 +1537,39 @@ export function validateModelOutputSemantics(
         switch (value.kind) {
             case "question": {
                 checkNonBlank(value.question, [...basePath, "question"], issues, "question");
+                break;
+            }
+            case "ask_user": {
+                if (Array.isArray(value.questions)) {
+                    value.questions.forEach((q, qIndex) => {
+                        if (!isRecord(q)) return;
+                        const qPath = [...basePath, "questions", qIndex];
+                        checkNonBlank(q.header, [...qPath, "header"], issues, "header");
+                        checkNonBlank(q.question, [...qPath, "question"], issues, "question");
+                        if (Array.isArray(q.options)) {
+                            const seenLabels = new Set<string>();
+                            q.options.forEach((opt, optIndex) => {
+                                if (!isRecord(opt)) return;
+                                const optPath = [...qPath, "options", optIndex];
+                                checkNonBlank(opt.label, [...optPath, "label"], issues, "label");
+                                if (opt.description !== undefined) {
+                                    checkNonBlank(opt.description, [...optPath, "description"], issues, "description");
+                                }
+                                if (typeof opt.label === "string" && opt.label.trim().length > 0) {
+                                    const normalizedLabel = opt.label.trim();
+                                    if (seenLabels.has(normalizedLabel)) {
+                                        issues.push({
+                                            code: "duplicate_option",
+                                            path: [...optPath, "label"],
+                                            message: `Duplicate option label "${opt.label}" in question`,
+                                        });
+                                    }
+                                    seenLabels.add(normalizedLabel);
+                                }
+                            });
+                        }
+                    });
+                }
                 break;
             }
             case "task_proposal": {

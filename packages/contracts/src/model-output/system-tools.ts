@@ -20,6 +20,7 @@ import {
     QuestionPreparationResultContract,
     TaskProposalPreparationResultContract,
     WorkingMemoryPatchContract,
+    AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { compileModelOutputSchema } from "./provider-schema";
@@ -187,6 +188,12 @@ export const SystemContextCheckpointInputContract = contract.object({
     memoryPatch: contract.optional(WorkingMemoryPatchContract),
 });
 
+/** 结构化提问工具参数契约。 */
+export const SystemAskUserInputContract = contract.object({
+    questions: contract.array(AskUserQuestionInputContract, { minItems: 1, maxItems: 3 }),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
 // =========================================================================
 // 2. 独立系统函数声明实例
 // =========================================================================
@@ -237,6 +244,28 @@ export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision
     }),
 );
 
+/**
+ * 结构化提问工具声明。
+ *
+ * @remarks
+ * 供 Agent 提出 1 到 3 个结构化问题，供用户明确单选、多选或填写 Other 答案。
+ *
+ * @example
+ * ```ts
+ * const declaration = SystemAskUserDeclaration;
+ * ```
+ */
+export const SystemAskUserDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "ask_user",
+    "Ask the user 1 to 3 structured questions with discrete options. Users can choose options or provide free-form Other text.",
+    SystemAskUserInputContract,
+    (args: { questions: any; memoryPatch?: unknown }): AgentDecision => ({
+        kind: "ask_user",
+        questions: args.questions,
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
 export const SystemAskClarificationDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
     "system_ask_clarification",
     "In gathering phase, ask the user a clarification question when the goal or requirement is ambiguous.",
@@ -258,11 +287,11 @@ export const SystemContextReadyDeclaration: SystemToolDeclaration<PreparationRes
     }),
 );
 
-export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
+export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision & PreparationResult> = buildDeclaration(
     "system_propose_task_plan",
     "In planning phase, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
     SystemProposeTaskPlanInputContract,
-    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): PreparationResult => ({
+    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision & PreparationResult => ({
         kind: "task_proposal",
         task: args.task,
         approvalRequest: args.approvalRequest,
@@ -367,7 +396,44 @@ export function createExecutingToolDeclarations(
         SystemWaitForInputDeclaration,
         SystemFailGoalDeclaration,
         SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+        SystemAskUserDeclaration,
     ];
+}
+
+/**
+ * 构造统一执行流中的系统与业务工具声明集合。
+ *
+ * @remarks
+ * 根据是否已批准最终任务进行门控：
+ * - 任务未批准（计划期）：只暴露只读业务工具，系统工具仅允许 ask_user、task_proposal 和 context_lookup；
+ * - 任务已批准（执行期）：暴露全部授权业务工具，系统工具允许 complete、wait、fail、context_lookup 和 ask_user。
+ *
+ * @param authorizedTools - 当前 Goal 授权的业务工具列表。
+ * @param taskPresent - 是否已批准固定 GoalTask。
+ * @returns 对应状态下的工具声明列表。
+ *
+ * @example
+ * ```ts
+ * const tools = createUnifiedToolDeclarations(tools, true);
+ * ```
+ */
+export function createUnifiedToolDeclarations(
+    authorizedTools: readonly AuthorizedToolContract[],
+    taskPresent: boolean,
+): readonly SystemToolDeclaration<AgentDecision>[] {
+    if (!taskPresent) {
+        const readOnlyTools = authorizedTools
+            .filter(t => t.isReadOnly === true)
+            .map(t => createExecutingBusinessToolDeclaration(t));
+        return [
+            ...readOnlyTools,
+            SystemAskUserDeclaration,
+            SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
+            SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+        ];
+    }
+
+    return createExecutingToolDeclarations(authorizedTools);
 }
 
 /**

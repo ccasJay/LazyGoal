@@ -86,6 +86,13 @@ export {
     ToolCallAgentDecisionContract,
     WaitAgentDecisionContract,
     WorkingMemoryPatchContract,
+    AskUserOptionInputContract,
+    AskUserQuestionInputContract,
+    AskUserAgentDecisionContract,
+    TaskProposalAgentDecisionContract,
+    AskUserAnswerContract,
+    normalizeAskUserRequest,
+    validateAskUserAnswers,
     validateModelOutputSemantics,
 } from "./model-output/canonical";
 export type {
@@ -130,6 +137,13 @@ export type {
     StructuredAgentDecision,
     ToolCallAction,
     WorkingMemoryPatch,
+    AskUserOptionInput,
+    AskUserQuestionInput,
+    AskUserAgentDecision,
+    TaskProposalAgentDecision,
+    AskUserOption,
+    AskUserQuestion,
+    AskUserAnswer,
 } from "./model-output/canonical";
 export { ModelOutputContractDefinitionError } from "./model-output/errors";
 export {
@@ -160,7 +174,9 @@ export {
     SystemContextReadyDeclaration,
     SystemProposeTaskPlanDeclaration,
     SystemContextCheckpointDeclaration,
+    SystemAskUserDeclaration,
     createExecutingToolDeclarations,
+    createUnifiedToolDeclarations,
     createGatheringToolDeclarations,
     createPlanningToolDeclarations,
     createCheckpointToolDeclarations,

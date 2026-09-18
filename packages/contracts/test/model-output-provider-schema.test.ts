@@ -76,7 +76,7 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     const emptySchema = emptyBundle.jsonSchema;
     const emptyResultProp = (emptySchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const emptyAnyOf = emptyResultProp.anyOf as Array<Record<string, unknown>>;
-    assert.equal(emptyAnyOf.length, 4); // complete, wait, fail, context_lookup
+    assert.equal(emptyAnyOf.length, 6); // complete, wait, fail, context_lookup, ask_user, task_proposal
     const hasToolCall = emptyAnyOf.some((b) => {
         const props = b.properties as Record<string, unknown> | undefined;
         const kindProp = props?.kind as Record<string, unknown> | undefined;
