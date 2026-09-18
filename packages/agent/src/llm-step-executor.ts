@@ -34,8 +34,6 @@ import {
     recordLlmResponse,
 } from "./llm-diagnostic-trace";
 import {
-    createCheckpointToolDeclarations,
-    createExecutingToolDeclarations,
     decodePhaseToolCall,
     type SystemToolDeclaration,
 } from "../../contracts/src/index";
@@ -150,10 +148,6 @@ export class LLMStepExecutor implements StepExecutor {
         );
         throwIfAborted(control);
 
-        const toolDeclarations = plan.bundle.name === "context_checkpoint_result"
-            ? createCheckpointToolDeclarations()
-            : createExecutingToolDeclarations(tools);
-
         const startedAt = Date.now();
         const providerRequest = modelCapabilities === undefined
             ? plan.request
@@ -206,7 +200,7 @@ export class LLMStepExecutor implements StepExecutor {
             }
 
             try {
-                decision = decodePhaseToolCall(toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as AgentDecision;
+                decision = decodePhaseToolCall(plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as AgentDecision;
             } catch (error) {
                 const validationErr = error instanceof ContractValidationError
                     ? new LLMResponseProtocolError(

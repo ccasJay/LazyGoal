@@ -21,9 +21,6 @@ import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
 import type { DiagnosticTraceSink } from "../../runtime/src/index";
 import {
-    createCheckpointToolDeclarations,
-    createGatheringToolDeclarations,
-    createPlanningToolDeclarations,
     decodePhaseToolCall,
     type SystemToolDeclaration,
 } from "../../contracts/src/index";
@@ -183,14 +180,6 @@ export class LLMPreparationExecutor implements PreparationExecutor {
         );
         throwIfAborted(control);
 
-        const phase = goal.state.workflow.phase;
-        const toolDeclarations: readonly SystemToolDeclaration<PreparationResult>[] =
-            plan.bundle.name === "context_checkpoint_result"
-                ? createCheckpointToolDeclarations()
-                : phase === "gathering_context"
-                ? createGatheringToolDeclarations(tools)
-                : createPlanningToolDeclarations(tools);
-
         const startedAt = Date.now();
         const providerRequest = modelCapabilities === undefined
             ? plan.request
@@ -243,7 +232,7 @@ export class LLMPreparationExecutor implements PreparationExecutor {
             }
 
             try {
-                result = decodePhaseToolCall(toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as PreparationResult;
+                result = decodePhaseToolCall(plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as PreparationResult;
             } catch (error) {
                 const validationErr = error instanceof ContractValidationError
                     ? new LLMResponseProtocolError(

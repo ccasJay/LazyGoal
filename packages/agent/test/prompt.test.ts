@@ -855,6 +855,14 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
 
     // 验证 bundle 单向切换为 checkpoint
     assert.equal(prunedPlan.bundle.name, "context_checkpoint_result");
+    assert.deepEqual(
+        prunedPlan.request.tools?.map((tool) => tool.id),
+        ["system_context_checkpoint"],
+    );
+    assert.deepEqual(
+        prunedPlan.toolDeclarations.map((tool) => tool.id),
+        ["system_context_checkpoint"],
+    );
     // 验证注入的 Shape Guide 也切换为 checkpoint
     const lastPayload = JSON.parse(prunedPlan.request.messages.at(-1)!.content);
     assert.equal(typeof lastPayload.responseShapeGuide, "string");

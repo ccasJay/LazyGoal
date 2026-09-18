@@ -31,6 +31,7 @@ import type {
     AuthorizedToolContract,
     ModelOutputContractBundle,
     PreparationResult,
+    SystemToolDeclaration,
 } from "../../contracts/src/index";
 import {
     createCheckpointToolDeclarations,
@@ -39,7 +40,6 @@ import {
     createPlanningToolDeclarations,
     createModelOutputContractBundle,
 } from "../../contracts/src/index";
-import type { LLMToolDefinition } from "../../llm/src/core/types";
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { PreparationPhase } from "./model-inference-view";
@@ -64,6 +64,8 @@ export interface ModelOutputRequestPlan<Result = PreparationResult | AgentDecisi
     readonly request: LLMRequest;
     /** 专门用于解析该响应的契约包。 */
     readonly bundle: ModelOutputContractBundle<Result>;
+    /** 与请求中 `tools` 完全一致、用于解码原生工具调用的声明集合。 */
+    readonly toolDeclarations: readonly SystemToolDeclaration<unknown>[];
 }
 
 function project(
@@ -225,13 +227,15 @@ export async function buildStepRequest(
     const toolDeclarations = isInitialCheckpoint
         ? createCheckpointToolDeclarations()
         : createExecutingToolDeclarations(tools);
-    const llmTools: LLMToolDefinition[] = toolDeclarations.map((d) => ({
-        id: d.id,
-        description: d.description,
-        parametersSchema: d.parametersSchema,
-    }));
 
-    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode, llmTools);
+    return renderFinalRequest(
+        assembled,
+        renderer,
+        initialBundle,
+        toolDeclarations,
+        modelCapabilities,
+        structuredOutputMode,
+    );
 }
 
 /**
@@ -320,13 +324,15 @@ export async function buildPreparationRequest(
         : goal.state.workflow.phase === "gathering_context"
         ? createGatheringToolDeclarations(readOnlyTools)
         : createPlanningToolDeclarations(readOnlyTools);
-    const llmTools: LLMToolDefinition[] = toolDeclarations.map((d) => ({
-        id: d.id,
-        description: d.description,
-        parametersSchema: d.parametersSchema,
-    }));
 
-    return renderFinalRequest(assembled, renderer, initialBundle, modelCapabilities, structuredOutputMode, llmTools);
+    return renderFinalRequest(
+        assembled,
+        renderer,
+        initialBundle,
+        toolDeclarations,
+        modelCapabilities,
+        structuredOutputMode,
+    );
 }
 
 /** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
@@ -334,11 +340,12 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     initialBundle: ModelOutputContractBundle<Result>,
+    initialToolDeclarations: readonly SystemToolDeclaration<unknown>[],
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
-    tools: readonly LLMToolDefinition[] = [],
 ): ModelOutputRequestPlan<Result> {
     let currentBundle = initialBundle;
+    let currentToolDeclarations = initialToolDeclarations;
 
     const render = (
         targetView: ModelInferenceView,
@@ -353,12 +360,17 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
     const finalizePlan = (
         req: LLMRequest,
         bundle: ModelOutputContractBundle<Result>,
+        toolDeclarations: readonly SystemToolDeclaration<unknown>[],
     ): ModelOutputRequestPlan<Result> => ({
         request: {
             ...req,
-            ...(tools.length > 0
+            ...(toolDeclarations.length > 0
                 ? {
-                    tools,
+                    tools: toolDeclarations.map((declaration) => ({
+                        id: declaration.id,
+                        description: declaration.description,
+                        parametersSchema: declaration.parametersSchema,
+                    })),
                     toolChoice: "required" as const,
                 }
                 : {}),
@@ -372,10 +384,11 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
                 : {}),
         },
         bundle,
+        toolDeclarations,
     });
 
     if (modelCapabilities === undefined) {
-        return finalizePlan(render(view, currentBundle), currentBundle);
+        return finalizePlan(render(view, currentBundle), currentBundle, currentToolDeclarations);
     }
 
     const planner = new TokenBudgetPlanner(modelCapabilities);
@@ -435,6 +448,7 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
         currentBundle = createModelOutputContractBundle({
             kind: "checkpoint",
         }) as unknown as ModelOutputContractBundle<Result>;
+        currentToolDeclarations = createCheckpointToolDeclarations();
         request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }
@@ -449,5 +463,5 @@ function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
         throw new ModelContextHardOverflowError();
     }
 
-    return finalizePlan(request, currentBundle);
+    return finalizePlan(request, currentBundle, currentToolDeclarations);
 }
