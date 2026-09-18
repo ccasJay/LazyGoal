@@ -262,14 +262,7 @@ export class StreamingTranscriptController {
             );
         }
 
-        this.activeStreaming = false;
-        if (this.tail.length > 0) {
-            const finalCollection = collectMarkdownBlocks(this.tail, true);
-            if (finalCollection.stableBlocks.length > 0) {
-                this.pending.push(...finalCollection.stableBlocks);
-            }
-            this.tail = "";
-        }
+        this.finalizeActiveStream();
 
         if (this.pending.length > 0) {
             this.ensureTimer();
@@ -309,19 +302,25 @@ export class StreamingTranscriptController {
     }
 
     /**
-     * 同步提交当前所有未决 pendingBlocks 到 committed 历史。
+     * 同步收束当前活动流并提交所有未决 Block 到 committed 历史。
      *
      * @remarks
-     * 取消进行中的提交计时器，立即发布一次快照。用作新消息或步骤到达时的顺序屏障。
+     * 取消进行中的提交计时器；若当前流尚未完成，则先按流结束语义收束
+     * mutableTail，再将 pendingBlocks 一次性提交。立即发布一次快照，用作新消息、
+     * 新流或步骤到达时的顺序屏障。
      */
     flush(): void {
         if (this.isDisposed) {
             return;
         }
         this.cancelTimer();
-        if (this.pending.length > 0) {
+        const finalized = this.finalizeActiveStream();
+        const hadPending = this.pending.length > 0;
+        if (hadPending) {
             this.committed.push(...this.pending);
             this.pending = [];
+        }
+        if (finalized || hadPending) {
             this.notifySubscribers();
         }
     }
@@ -412,6 +411,28 @@ export class StreamingTranscriptController {
         if (this.pending.length > 0) {
             this.ensureTimer();
         }
+    }
+
+    /**
+     * 将活动流转为完成态并收束其动态尾部。
+     *
+     * @returns 是否修改了活动流或尾部状态。
+     */
+    private finalizeActiveStream(): boolean {
+        let changed = false;
+        if (this.activeStreaming) {
+            this.activeStreaming = false;
+            changed = true;
+        }
+
+        if (this.tail.length > 0) {
+            const finalCollection = collectMarkdownBlocks(this.tail, true);
+            this.pending.push(...finalCollection.stableBlocks);
+            this.tail = "";
+            changed = true;
+        }
+
+        return changed;
     }
 
     private notifySubscribers(): void {

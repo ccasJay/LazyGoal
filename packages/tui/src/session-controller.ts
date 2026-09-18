@@ -1016,8 +1016,6 @@ export class SessionController {
     private flushActiveStreamBarrier(): void {
         if (this.activeAssistantStream !== null) {
             this.transcriptController.flush();
-            this.streamingTail = undefined;
-            this.activeAssistantStream = null;
         }
     }
 

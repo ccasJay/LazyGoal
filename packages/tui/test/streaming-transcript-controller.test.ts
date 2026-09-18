@@ -302,6 +302,52 @@ describe("StreamingTranscriptController", () => {
         assert.equal(scheduler.tasks.size, 0);
     });
 
+    it("flush() 作为 barrier 收束活动尾部并允许下一条流启动", () => {
+        const cases = [
+            {
+                label: "partial paragraph",
+                text: "unfinished paragraph",
+                expectedBlocks: ["unfinished paragraph"],
+            },
+            {
+                label: "fenced code",
+                text: "```ts\nconst answer = 42;\n",
+                expectedBlocks: ["```ts\nconst answer = 42;\n"],
+            },
+            {
+                label: "table",
+                text: "| Key | Value |\n|---|---|\n| answer | 42 |\n",
+                expectedBlocks: ["| Key | Value |\n|---|---|\n| answer | 42 |\n"],
+            },
+            {
+                label: "pending and tail",
+                text: "stable paragraph\n\nunfinished paragraph",
+                expectedBlocks: ["stable paragraph\n\n", "unfinished paragraph"],
+            },
+        ] as const;
+
+        for (const { label, text, expectedBlocks } of cases) {
+            const scheduler = new FakeScheduler();
+            const controller = new StreamingTranscriptController({ scheduler });
+
+            controller.started({ streamId: `old-${label}`, messageId: `old-${label}` });
+            controller.delta({ streamId: `old-${label}`, text });
+            controller.flush();
+
+            const snapshot = controller.getSnapshot();
+            assert.equal(snapshot.isStreaming, false, label);
+            assert.deepEqual(snapshot.committedBlocks, expectedBlocks, label);
+            assert.deepEqual(snapshot.pendingBlocks, [], label);
+            assert.equal(snapshot.mutableTail, "", label);
+            assert.equal(snapshot.liveTail, "", label);
+            assert.equal(snapshot.rawText, text, label);
+
+            assert.doesNotThrow(() => {
+                controller.started({ streamId: `new-${label}`, messageId: `new-${label}` });
+            }, label);
+        }
+    });
+
     it("reset() 与 dispose() 取消定时器并使旧流失效，dispose 后拒绝任何后续调用", () => {
         const scheduler = new FakeScheduler();
         const controller = new StreamingTranscriptController({ scheduler });

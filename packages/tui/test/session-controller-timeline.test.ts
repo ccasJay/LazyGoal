@@ -401,6 +401,55 @@ describe("SessionController Timeline & Streaming Transcript Integration", () => 
         assert.equal(vm.streamingTail, undefined);
     });
 
+    it("需求 4.3：barrier 收束未完成流尾部、保持步骤顺序并允许下一条流启动", () => {
+        const scheduler = new FakeScheduler();
+        const initialGoal = createExecutingGoal("goal-live-barrier");
+        const { dependencies } = createDependencies({ initialGoal, scheduler });
+        const controller = new SessionController(dependencies);
+
+        const partialText = "Assistant output without a terminating blank line";
+        controller.feedThinkingDelta("stream-live-1", partialText);
+
+        let vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.streamingTail?.content, partialText);
+
+        const updatedWithStep: Goal = {
+            ...initialGoal,
+            state: {
+                ...initialGoal.state,
+                run: {
+                    ...initialGoal.state.run,
+                    stepCount: 1,
+                    lastStep: {
+                        kind: "action",
+                        action: {
+                            actionId: "act-live-1",
+                            toolId: "bash",
+                            input: { command: "pwd" },
+                        },
+                        observation: {
+                            kind: "success",
+                            output: { exitCode: 0 },
+                            summary: "Printed working directory",
+                        },
+                    },
+                },
+            },
+        };
+
+        assert.doesNotThrow(() => controller.onGoalCommitted(updatedWithStep));
+
+        vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.streamingTail, undefined);
+        const assistantBlocks = vm.timeline?.filter(item => item.kind === "assistant_markdown") ?? [];
+        assert.deepEqual(assistantBlocks.map(item => item.block), [partialText]);
+        assert.equal(vm.timeline?.at(-1)?.kind, "step");
+
+        assert.doesNotThrow(() => controller.feedThinkingDelta("stream-live-2", "next stream"));
+        vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.streamingTail?.content, "next stream");
+    });
+
     it("需求 1.3: 关闭与释放 Controller 取消定时器并使流失效，不再发布更新", async () => {
         const scheduler = new FakeScheduler();
         const initialGoal = createExecutingGoal("goal-shutdown");
