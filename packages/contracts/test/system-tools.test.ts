@@ -60,12 +60,14 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
     assert.ok(ids.includes("system_fail_goal"));
     assert.ok(ids.includes("system_context_lookup"));
 
-    // 验证调用业务工具正确解码为 tool_call
+    // 验证调用业务工具正确解码为 tool_call 并携带合规唯一的 actionId
     const decision = decodePhaseToolCall(decls, "read_file", { path: "src/index.ts" });
     assert.equal(decision.kind, "tool_call");
     if (decision.kind === "tool_call") {
         assert.equal(decision.action.toolId, "read_file");
         assert.deepEqual(decision.action.input, { path: "src/index.ts" });
+        assert.ok(typeof decision.action.actionId === "string" && decision.action.actionId.trim().length > 0);
+        assert.match(decision.action.actionId, /^action-read_file-/);
     }
 
     // 验证调用 system_complete_task 正确解码为 complete 决策

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { 
     GoogleGenAI,
     type Content,
@@ -173,15 +174,14 @@ export class Gemini implements LLMAdapter {
 
             if (candidate?.content?.parts) {
                 for (const part of candidate.content.parts) {
-                    if (part.text) {
+                    if (typeof part.text === "string" && part.text.length > 0) {
                         textParts.push(part.text);
-                    }
-                    if ((part as any).thought) {
+                    } else if (typeof (part as any).thought === "string" && (part as any).thought.length > 0) {
                         textParts.push((part as any).thought);
                     }
                     if (part.functionCall) {
                         toolCalls.push({
-                            callId: (part.functionCall as any).id ?? part.functionCall.name ?? "gemini_call",
+                            callId: (part.functionCall as any).id ?? `call_${randomUUID()}`,
                             toolId: part.functionCall.name ?? "",
                             argumentsJson: JSON.stringify(part.functionCall.args ?? {}),
                         });
@@ -192,14 +192,16 @@ export class Gemini implements LLMAdapter {
             if (toolCalls.length === 0 && (response as any).functionCalls) {
                 for (const fc of (response as any).functionCalls) {
                     toolCalls.push({
-                        callId: fc.name ?? "gemini_call",
+                        callId: fc.id ?? `call_${randomUUID()}`,
                         toolId: fc.name ?? "",
                         argumentsJson: JSON.stringify(fc.args ?? {}),
                     });
                 }
             }
 
-            const rawContent = textParts.length > 0 ? textParts.join("\n").trim() : (response.text ?? "");
+            const rawContent = textParts.length > 0
+                ? textParts.join("\n").trim()
+                : (toolCalls.length > 0 ? "" : (response.text ?? ""));
             const content = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined
                 ? restoreGeminiResponseProjection(rawContent, request.structuredOutput.schema)
                 : rawContent;

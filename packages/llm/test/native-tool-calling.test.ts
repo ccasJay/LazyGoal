@@ -215,6 +215,60 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
     assert.equal(parsedArgs.summary, "Gemini 执行完毕");
 });
 
+test("Gemini 纯 functionCall 响应提取工具调用，content 为空字符串且不触发 response.text", async () => {
+    const adapter = new Gemini({
+        apiKey: "test-key",
+        model: "gemini-2.5-flash",
+        structuredOutputMode: "strict",
+    });
+
+    let textPropertyAccessed = false;
+    (adapter as any).client = {
+        models: {
+            generateContent: async () => {
+                const dummyResponse = {
+                    candidates: [
+                        {
+                            content: {
+                                role: "model",
+                                parts: [
+                                    {
+                                        functionCall: {
+                                            name: "read_file",
+                                            args: { path: "package.json" },
+                                        },
+                                    },
+                                ],
+                            },
+                            finishReason: "STOP",
+                        },
+                    ],
+                };
+                Object.defineProperty(dummyResponse, "text", {
+                    get() {
+                        textPropertyAccessed = true;
+                        return "";
+                    },
+                });
+                return dummyResponse;
+            },
+        },
+    };
+
+    const response = await adapter.generate({
+        messages: [{ role: "user", content: "读取文件" }],
+        tools: [mockToolDefinition],
+        toolChoice: "required",
+    });
+
+    assert.equal(response.content, "");
+    assert.equal(textPropertyAccessed, false, "当包含工具调用且无文本时，严禁访问 response.text 避免 SDK 产生告警");
+    assert.ok(response.toolCalls);
+    assert.equal(response.toolCalls.length, 1);
+    assert.equal(response.toolCalls[0]!.toolId, "read_file");
+    assert.ok(response.toolCalls[0]!.callId.startsWith("call_"));
+});
+
 test("PiAiAdapter 原生挂载 tools 并提取 thinking 与 toolCall blocks", async () => {
     const adapter = new PiAiAdapter({
         provider: "openai-compatible",

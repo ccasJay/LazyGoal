@@ -88,6 +88,9 @@ export function recordLlmResponse(
         kind: "model_response",
         payload: {
             content: response.content,
+            ...(response.toolCalls !== undefined && response.toolCalls.length > 0
+                ? { toolCalls: response.toolCalls }
+                : {}),
             ...(providerMetadata === undefined ? {} : { providerMetadata }),
             durationMs,
         },

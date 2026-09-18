@@ -261,6 +261,22 @@ test("validateModelOutputSemantics 拦截空白文本语义且不 trim 输入", 
     assert.equal(actionIssues.length, 2);
     assert.equal(actionIssues.some((i) => i.path.join(".") === "action.actionId"), true);
     assert.equal(actionIssues.some((i) => i.path.join(".") === "action.toolId"), true);
+
+    // 非法系统工具作为 expectToolId
+    const systemToolTask = {
+        kind: "task_proposal",
+        approvalRequest: "请确认",
+        task: {
+            objective: "分析规范",
+            completionCriteria: [
+                { text: "总结分析", acceptance: { expectToolId: "system_complete_task", expectOutcome: "success" } },
+            ],
+        },
+    };
+    const systemToolIssues = validateModelOutputSemantics(systemToolTask);
+    assert.equal(systemToolIssues.length, 1);
+    assert.equal(systemToolIssues[0]?.code, "invalid_tool_id");
+    assert.match(systemToolIssues[0]?.message ?? "", /must not be a system function/);
 });
 
 test("validateModelOutputSemantics 拦截反转 sequenceRange 和无变更 update 操作", () => {

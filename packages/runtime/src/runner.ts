@@ -1107,6 +1107,9 @@ export class Runner {
             const criterion = task.completionCriteria[item.criterionIndex];
             if (criterion?.acceptance !== undefined) {
                 const { expectToolId, expectOutcome } = criterion.acceptance;
+                if (expectToolId.startsWith("system_")) {
+                    continue;
+                }
                 const hasMatch = item.evidenceSequences.some((seq) => {
                     const observation = resolveEvidenceObservation(seq, evidenceIndex);
                     return (

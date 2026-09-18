@@ -227,7 +227,7 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision | PreparationResult> = buildDeclaration(
     "system_context_lookup",
-    "Search historical trajectory context or conversation records for needed evidence.",
+    "Search historical trajectory context or conversation records for needed evidence. Filters are optional; omit sequenceRange unless targeting specific known event sequences.",
     SystemContextLookupInputContract,
     (args: { need: any; question: string; filters?: any }) => ({
         kind: "context_lookup" as const,
@@ -260,7 +260,7 @@ export const SystemContextReadyDeclaration: SystemToolDeclaration<PreparationRes
 
 export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
     "system_propose_task_plan",
-    "In planning phase, propose the goal task objective and verifiable completion criteria for user approval.",
+    "In planning phase, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
     SystemProposeTaskPlanInputContract,
     (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): PreparationResult => ({
         kind: "task_proposal",
@@ -287,6 +287,13 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<Preparati
 /**
  * 将业务授权工具包装为 Executing 阶段原生 Tool 声明。
  */
+let businessActionCounter = 0;
+
+function generateActionId(toolId: string): string {
+    businessActionCounter = (businessActionCounter + 1) % 1_000_000;
+    return `action-${toolId}-${Date.now().toString(36)}-${businessActionCounter}`;
+}
+
 export function createExecutingBusinessToolDeclaration(
     tool: AuthorizedToolContract,
     description = `Execute authorized tool ${tool.id}`,
@@ -304,7 +311,7 @@ export function createExecutingBusinessToolDeclaration(
         (input): AgentDecision => ({
             kind: "tool_call",
             action: {
-                actionId: "",
+                actionId: generateActionId(tool.id),
                 toolId: tool.id,
                 input: input as any,
             },

@@ -990,7 +990,8 @@ export type AgentDecision = InferContract<typeof AgentDecisionContract>;
 export type ModelOutputSemanticIssueCode =
     | "blank_string"
     | "invalid_sequence_range"
-    | "empty_update";
+    | "empty_update"
+    | "invalid_tool_id";
 
 /**
  * 定位到结构字段的基础语义问题。
@@ -1049,6 +1050,13 @@ function checkCriterionSemantics(
             issues,
             "expectToolId",
         );
+        if (typeof criterion.acceptance.expectToolId === "string" && criterion.acceptance.expectToolId.startsWith("system_")) {
+            issues.push({
+                code: "invalid_tool_id",
+                path: [...path, "acceptance", "expectToolId"],
+                message: `expectToolId "${criterion.acceptance.expectToolId}" must not be a system function`,
+            });
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type {
     AgentDecision,
@@ -213,6 +214,21 @@ export class LLMStepExecutor implements StepExecutor {
                     : error;
                 await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
                 throw validationErr;
+            }
+
+            if (decision.kind === "tool_call") {
+                const effectiveActionId = toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
+                    ? toolCall.callId
+                    : (decision.action.actionId && decision.action.actionId.trim().length > 0
+                        ? decision.action.actionId
+                        : `action-${randomUUID()}`);
+                decision = {
+                    ...decision,
+                    action: {
+                        ...decision.action,
+                        actionId: effectiveActionId,
+                    },
+                };
             }
 
             const thought = response.content?.trim();

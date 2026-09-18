@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
+import { contract, validateModelOutputSemantics } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import { createGoal } from "../../runtime/src/index";
@@ -152,6 +152,54 @@ test("LLMStepExecutor 单步 1 RTT 原生工具调用返回 AgentDecision 与 th
     assert.equal((result as any).thought, "思考推演：已确认目标达成，调用完成动作。");
     assert.equal(result.kind, "complete");
     assert.equal((result as any).summary, "执行完毕且通过检验");
+});
+
+test("LLMStepExecutor 单步调用业务工具生成非空合规 actionId 并通过语义校验", async () => {
+    const goal = createExecutingGoal();
+    const mockBashTool: ToolDefinition = {
+        id: "bash",
+        description: "执行命令",
+        inputContract: contract.object({ command: contract.string() }),
+        isReadOnly: false,
+    };
+
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(req: LLMRequest): Promise<LLMResponse> {
+            return {
+                content: "分析需要执行 ls 命令查看目录",
+                toolCalls: [
+                    {
+                        callId: "call-bash-1",
+                        toolId: "bash",
+                        argumentsJson: JSON.stringify({ command: "ls -la" }),
+                    },
+                ],
+            };
+        },
+    };
+
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+    });
+
+    const result = await executor.execute({
+        goal,
+        authorizedTools: [mockBashTool],
+        workingMemory: currentWorkingMemory,
+    });
+
+    assert.equal(result.kind, "tool_call");
+    if (result.kind === "tool_call") {
+        assert.equal(result.action.toolId, "bash");
+        assert.deepEqual(result.action.input, { command: "ls -la" });
+        assert.ok(typeof result.action.actionId === "string" && result.action.actionId.trim().length > 0);
+        const issues = validateModelOutputSemantics(result);
+        assert.equal(issues.length, 0, "生成的 AgentDecision 必须完全通过领域语义规则校验");
+    }
 });
 
 test("LLMStepExecutor 当模型缺失工具调用且非结构化文本时抛出 LLMResponseProtocolError", async () => {

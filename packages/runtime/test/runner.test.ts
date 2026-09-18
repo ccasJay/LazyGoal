@@ -2738,3 +2738,57 @@ test("Runner 声明匹配：无 acceptance 声明的条件保持现状校验通�
     assert.equal(state.status, "completed");
     assert.equal(state.lastStep?.kind, "decision");
 });
+
+test("Runner 声明匹配：防御性忽略以 system_ 开头的非法工具验收声明（避免死锁崩溃）", async () => {
+    const store = new InMemoryGoalStore();
+    const toolProfile: AgentProfile = {
+        id: "profile-system-acc",
+        systemPrompt: "prompt",
+        instructions: [],
+        toolIds: ["read_file"],
+    };
+    const task: GoalTask = {
+        objective: "分析任务",
+        completionCriteria: [
+            {
+                text: "总结分析结果",
+                acceptance: { expectToolId: "system_complete_task", expectOutcome: "success" },
+            },
+        ],
+    };
+    const initial = withExecutingTask(
+        createInitialGoal("run-system-acc", "goal-system-acc", toolProfile),
+        task,
+    );
+    await store.save(initial);
+
+    const tool = createRunnerTool(async () => ({
+        kind: "success",
+        output: { content: "ok" },
+        summary: "read ok",
+    }));
+
+    const executor = new SequenceDecisionExecutor([
+        {
+            kind: "tool_call",
+            action: { actionId: "act-1", toolId: "read_file", input: { path: "a.txt" } },
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            summary: "任务分析完成",
+        },
+    ]);
+
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = await runner.run(createRef(initial, "run-system-acc"));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(state.lastStep?.kind, "decision");
+});

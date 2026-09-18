@@ -578,16 +578,28 @@ export async function invokeContextLookup(
     );
     const committedThroughSequence = input.goal.state.run.committedThroughSequence ?? 0;
     const sequenceRange = request.filters?.sequenceRange;
-    if (
-        sequenceRange !== undefined
-        && (
-            sequenceRange.from < 1
-            || sequenceRange.to > committedThroughSequence
-        )
-    ) {
+    if (sequenceRange !== undefined && sequenceRange.from < 1) {
         throw new ContextLookupProtocolError(
             "sequenceRange must be within the committed Trajectory boundary",
         );
+    }
+
+    let effectiveRequest = request;
+    if (
+        sequenceRange !== undefined
+        && sequenceRange.from <= committedThroughSequence
+        && sequenceRange.to > committedThroughSequence
+    ) {
+        effectiveRequest = {
+            ...request,
+            filters: {
+                ...request.filters,
+                sequenceRange: {
+                    from: sequenceRange.from,
+                    to: committedThroughSequence,
+                },
+            },
+        };
     }
 
     let result: ContextLookupResult;
@@ -599,11 +611,21 @@ export async function invokeContextLookup(
             message: "Context Lookup port is unavailable",
             committedThroughSequence,
         };
+    } else if (
+        sequenceRange !== undefined
+        && (committedThroughSequence < 1 || sequenceRange.from > committedThroughSequence)
+    ) {
+        result = {
+            status: "not_found",
+            lookupId,
+            reason: "No committed trajectory events in requested sequence range",
+            committedThroughSequence,
+        };
     } else {
         try {
             const rawResult = await input.port.lookup({
                 goal: input.goal,
-                request,
+                request: effectiveRequest,
                 lookupId,
                 committedThroughSequence,
                 ...(input.control === undefined ? {} : { control: input.control }),
@@ -613,7 +635,7 @@ export async function invokeContextLookup(
                 rawResult,
                 lookupId,
                 committedThroughSequence,
-                request,
+                effectiveRequest,
             );
             if (result.status === "found") {
                 assertContextLookupResultOwnership(
@@ -648,12 +670,12 @@ export async function invokeContextLookup(
 
     return {
         lookupId,
-        request,
+        request: effectiveRequest,
         result,
         facts: createContextLookupFacts({
             goal: input.goal,
             phase: input.phase,
-            request,
+            request: effectiveRequest,
             lookupId,
             result,
             ...(input.executionUnitId === undefined

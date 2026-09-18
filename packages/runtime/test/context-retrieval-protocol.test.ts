@@ -297,3 +297,92 @@ test("Coordinator 与 Runner 将规范化请求直接交给 invokeContextLookup"
     assert.equal(runnerLookedUpRequest.need, "conversation_history");
     assert.equal(runnerLookedUpRequest.question, "之前的对话");
 });
+
+test("invokeContextLookup 在 sequenceRange.to 超过 committedThroughSequence 时将其 clamp 到当前已提交边界并成功检索", async () => {
+    const goal: Goal = {
+        ...createTestGoal("gathering_context"),
+        state: {
+            ...createTestGoal("gathering_context").state,
+            run: {
+                ...createTestGoal("gathering_context").state.run,
+                committedThroughSequence: 22,
+            },
+        },
+    };
+
+    let capturedRequest: ContextLookupRequest | undefined;
+    const port: ContextLookupPort = {
+        async lookup(input) {
+            capturedRequest = input.request;
+            return {
+                status: "not_found",
+                lookupId: input.lookupId,
+                reason: "未匹配",
+            };
+        },
+    };
+
+    const invocation = await invokeContextLookup({
+        goal,
+        phase: "gathering_context",
+        request: {
+            kind: "context_lookup",
+            need: "historical_execution",
+            question: "查找历史",
+            filters: {
+                sequenceRange: { from: 1, to: 100 },
+            },
+        },
+        port,
+    });
+
+    assert.equal(invocation.result.status, "not_found");
+    assert.ok(capturedRequest !== undefined);
+    assert.deepEqual(capturedRequest.filters?.sequenceRange, { from: 1, to: 22 });
+    assert.deepEqual(invocation.request.filters?.sequenceRange, { from: 1, to: 22 });
+});
+
+test("invokeContextLookup 在 sequenceRange.from 超过 committedThroughSequence 时安全返回 not_found 而不抛出协议错误", async () => {
+    const goal: Goal = {
+        ...createTestGoal("gathering_context"),
+        state: {
+            ...createTestGoal("gathering_context").state,
+            run: {
+                ...createTestGoal("gathering_context").state.run,
+                committedThroughSequence: 10,
+            },
+        },
+    };
+
+    let portCalled = false;
+    const port: ContextLookupPort = {
+        async lookup(input) {
+            portCalled = true;
+            return {
+                status: "not_found",
+                lookupId: input.lookupId,
+                reason: "未匹配",
+            };
+        },
+    };
+
+    const invocation = await invokeContextLookup({
+        goal,
+        phase: "gathering_context",
+        request: {
+            kind: "context_lookup",
+            need: "historical_execution",
+            question: "查找历史",
+            filters: {
+                sequenceRange: { from: 50, to: 100 },
+            },
+        },
+        port,
+    });
+
+    assert.equal(portCalled, false, "当范围完全超过当前已提交边界时，不应调用底层端口");
+    assert.equal(invocation.result.status, "not_found");
+    assert.equal(invocation.facts.length, 2);
+    assert.equal(invocation.facts[0]?.eventType, "context_lookup_requested");
+    assert.equal(invocation.facts[1]?.eventType, "context_lookup_not_found");
+});
