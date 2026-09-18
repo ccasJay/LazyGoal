@@ -16,6 +16,7 @@ import type {
     GoalTask,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
+    PreparationProbeProgressEvent,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -508,6 +509,8 @@ export interface RunnerDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的计划期只读探查进度回调；Runner 在探查启动、完成或失败时通知。 */
+    readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
 }
 
 /**
@@ -542,6 +545,7 @@ export class Runner {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
+    private readonly onProbeProgress: ((event: PreparationProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -554,6 +558,7 @@ export class Runner {
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
         this.traceSink = dependencies.traceSink;
+        this.onProbeProgress = dependencies.onProbeProgress;
         this.toolMemoryProjectors = dependencies.toolMemoryProjectors
             ?? createNoopToolMemoryProjectorRegistry();
         this.checkpointCommitter = dependencies.checkpointCommitter
@@ -1480,6 +1485,178 @@ export class Runner {
         return { kind: "observed", goal: checkpoint };
     }
 
+    private notifyProbeProgress(event: PreparationProbeProgressEvent): void {
+        try {
+            this.onProbeProgress?.(event);
+        } catch {
+            // 隔离外部回调异常
+        }
+    }
+
+    private async countCommittedProbes(goal: Goal, control?: ExecutionControl): Promise<number> {
+        if (this.trajectoryStore === undefined) {
+            return 0;
+        }
+        try {
+            throwIfAborted(control);
+            const raw = await this.trajectoryStore.readWithBoundary(
+                { goalId: goal.id, runId: goal.state.run.id },
+                goal.state.run.committedThroughSequence,
+            );
+            throwIfAborted(control);
+            let count = 0;
+            for (const event of raw.committed) {
+                if (event.phase === "executing" && event.eventType === "task_approved") {
+                    break;
+                }
+                if (event.phase === "executing" && event.eventType === "observation_recorded") {
+                    count += 1;
+                }
+            }
+            return count;
+        } catch {
+            return 0;
+        }
+    }
+
+    private async executePlanProbe(
+        goal: Goal,
+        prepared: PreparedToolAction,
+        executionUnitId: string,
+        probeNumber: number,
+        acceptedPatch?: WorkingMemoryPatch,
+        control?: ExecutionControl,
+    ): Promise<
+        | { readonly kind: "observed"; readonly goal: Goal }
+        | { readonly kind: "stopped"; readonly result: RunnerResult }
+    > {
+        let observation: ToolObservation;
+
+        this.notifyProbeProgress({
+            kind: "started",
+            actionId: prepared.action.actionId,
+            goalId: goal.id,
+            toolId: prepared.action.toolId,
+            input: prepared.action.input,
+            probeNumber,
+        });
+
+        try {
+            throwIfAborted(control);
+            await this.appendTrajectory({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                actionId: prepared.action.actionId,
+                eventType: "tool_started",
+                payload: {
+                    type: "tool_started",
+                    actionId: prepared.action.actionId,
+                    toolId: prepared.action.toolId,
+                    input: prepared.action.input,
+                },
+            }, control);
+            const rawObservation = await prepared.execute(control);
+            throwIfAborted(control);
+            observation = validateToolObservation(rawObservation);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) {
+                throw error;
+            }
+            if (error instanceof TrajectoryAppendError) {
+                throw error;
+            }
+
+            throwIfAborted(control);
+
+            this.notifyProbeProgress({
+                kind: "failed",
+                actionId: prepared.action.actionId,
+                goalId: goal.id,
+                toolId: prepared.action.toolId,
+                input: prepared.action.input,
+                message: error instanceof Error ? error.message : String(error),
+                probeNumber,
+            });
+
+            const toolError = error instanceof RunnerExecutionError
+                ? error
+                : new RunnerExecutionError(
+                    "TOOL_EXECUTION_ERROR",
+                    error instanceof Error ? error.message : String(error),
+                );
+
+            return {
+                kind: "stopped",
+                result: await this.stopWithExecutionError(goal, toolError, control),
+            };
+        }
+
+        this.notifyProbeProgress({
+            kind: "finished",
+            actionId: prepared.action.actionId,
+            goalId: goal.id,
+            toolId: prepared.action.toolId,
+            input: prepared.action.input,
+            observation,
+            probeNumber,
+        });
+
+        throwIfAborted(control);
+        const toolFinishedEvent = await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: prepared.action.actionId,
+            eventType: "tool_finished",
+            payload: {
+                type: "tool_finished",
+                actionId: prepared.action.actionId,
+                toolId: prepared.action.toolId,
+                observation,
+            },
+        }, control);
+        const projectorPatch = toolFinishedEvent === undefined
+            ? undefined
+            : await this.projectToolMemoryPatch(
+                goal,
+                prepared.action,
+                observation,
+                toolFinishedEvent.sequence,
+                control,
+            );
+        const observedRun = this.applyTransition(goal.state.run, {
+            kind: "observe_probe",
+            action: prepared.action,
+            observation,
+        });
+        const observedGoal = this.withRun(goal, observedRun);
+
+        const effectivePatch = projectorPatch ?? acceptedPatch;
+
+        const committed = await this.checkpointCommitter.commit(observedGoal, {
+            facts: [{
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                executionUnitId,
+                actionId: prepared.action.actionId,
+                eventType: "observation_recorded",
+                payload: {
+                    type: "observation_recorded",
+                    actionId: prepared.action.actionId,
+                    observation,
+                },
+            }],
+            ...(effectivePatch === undefined ? {} : { acceptedPatch: effectivePatch }),
+            ...(control === undefined ? {} : { control }),
+        });
+        const checkpoint = committed.goal;
+        return { kind: "observed", goal: checkpoint };
+    }
+
     private async runLoop(
         initialGoal: Goal,
         authorizedActionId?: string,
@@ -1492,6 +1669,7 @@ export class Runner {
         let contextLookupResult = initialContextLookupResult;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
+        let probeCount = await this.countCommittedProbes(goal, control);
 
         while (goal.state.run.status === "running") {
             throwIfAborted(control);
@@ -1990,6 +2168,28 @@ export class Runner {
                             ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                         },
                     }, control);
+
+                    // 任务未批准时：执行计划期只读探查（planProbe），不计 stepCount，继续循环推进
+                    if (goal.state.workflow.task === undefined) {
+                        probeCount += 1;
+                        const probeOutcome = await this.executePlanProbe(
+                            goal,
+                            validated,
+                            executionUnitId,
+                            probeCount,
+                            acceptedPatch,
+                            control,
+                        );
+
+                        if (probeOutcome.kind === "stopped") {
+                            return probeOutcome.result;
+                        }
+
+                        goal = probeOutcome.goal;
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
 
                     if (validated.policy !== "allow") {
                         throwIfAborted(control);

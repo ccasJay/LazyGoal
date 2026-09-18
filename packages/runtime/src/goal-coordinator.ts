@@ -6,7 +6,10 @@ import type {
     RunRef,
     AskUserAnswer,
     AskUserQuestion,
+    PreparationProbeProgressEvent,
 } from "./domain";
+
+export type { PreparationProbeProgressEvent };
 import type { GoalStore } from "./goal-store";
 import type { PreparationExecutor } from "./preparation-executor";
 import { validateAskUserAnswers } from "../../contracts/src/index";
@@ -208,51 +211,6 @@ export type GoalProgressResult =
         };
     };
 
-/**
- * 只读探查生命周期事件。
- *
- * @remarks
- * 用于通知上层控制器或 TUI 呈现探查进度。
- *
- * @example
- * ```ts
- * const event: PreparationProbeProgressEvent = {
- *   kind: "started",
- *   actionId: "probe-1",
- *   goalId: "goal-1",
- *   toolId: "read_file",
- *   input: { path: "package.json" },
- *   probeNumber: 1,
- * };
- * ```
- */
-export type PreparationProbeProgressEvent =
-    | {
-        readonly kind: "started";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly probeNumber: number;
-    }
-    | {
-        readonly kind: "finished";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly observation: ToolObservation;
-        readonly probeNumber: number;
-    }
-    | {
-        readonly kind: "failed";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly message: string;
-        readonly probeNumber: number;
-    };
 
 /**
  * 创建 {@link GoalCoordinator} 所需的执行与持久化依赖。

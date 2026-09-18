@@ -286,6 +286,32 @@ export function transition(
                 };
             }
 
+            if (input.kind === "observe_probe") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot observe probe while an Action or interaction is pending",
+                    );
+                }
+
+                if (!isActionObservation(input.observation)) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "observe_probe cannot carry a rejected Observation",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
+                    },
+                };
+            }
+
             if (input.kind === "observe_action") {
                 const pendingAction = currentState.pendingAction;
 

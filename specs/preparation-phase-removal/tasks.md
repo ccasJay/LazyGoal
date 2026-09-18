@@ -21,7 +21,7 @@
   - 验证方式：待实现的 GoalCoordinator、Runner、transition 集成测试，覆盖首轮推进、批准/反馈、恢复和保存失败顺序。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [6.1](./requirements.md#req-6-1), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 4. 迁移计划期只读探查与 Tool 安全边界
+- [x] //TODO 4. 迁移计划期只读探查与 Tool 安全边界
 
   - 实现目标：在统一 Runner 中加入 `planProbe` 路径，复用 `ToolRegistry`、`isReadOnly`、Observation 和审计事件；批准前只允许只读 Tool，批准后回到现有 Action/Observation 流。
   - 成功判据：只读探查成功/失败均进入统一 Trajectory 和 TUI 顺序，探查不增加 `stepCount`；写 Tool 在执行前被拒绝且不创建外部副作用；YOLO 不会自动回答 `ask_user`。
