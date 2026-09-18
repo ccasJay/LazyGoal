@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/runtime/test/transition.test.ts`、`packages/storage/test/goal-snapshot*.test.ts` 与恢复往返测试；执行相关 Storage/Runtime 测试。
   - _Requirements: [1.3](./requirements.md#req-1-3), [5.3](./requirements.md#req-5-3), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 将 Runner 的前置只读读取接入普通 Action/Observation
+- [x] //TODO 2. 将 Runner 的前置只读读取接入普通 Action/Observation
 
   - 实现目标：删除 `executePlanProbe`、`countCommittedProbes`、Probe 回调和专用循环；在任务门控后复用普通 Tool Policy、`stage_action`、`executeToolAndObserve` 与 `observe_action`，并让 `maxSteps` 统一包含前置读取。
   - 成功判据：无 task 的只读 Tool 经过保存待执行状态、执行、Observation 提交后 `stepCount` 恰好增加一次；无 task 的写 Tool 在任何 Tool/Policy 副作用前被拒绝；需要批准的只读 Action 可通过既有恢复路径继续。

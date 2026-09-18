@@ -10,7 +10,6 @@ import {
     InMemoryToolRegistry,
     type AgentDecision,
     type AgentProfile,
-    type PlanProbeProgressEvent,
     type StepExecutionInput,
     type StepExecutor,
     type Tool,
@@ -24,7 +23,7 @@ import { contract } from "../../contracts/src/index";
 const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "You are a helpful assistant.",
-    instructions: ["Clarify plan, probe if needed, propose task, then execute."],
+    instructions: ["Read only the necessary facts, propose a task, then execute it."],
     toolIds: ["read_file", "write_file", "failing_read", "throwing_read"],
 };
 
@@ -81,12 +80,14 @@ function createMockTool(
 
 class QueueStepExecutor implements StepExecutor {
     private queue: AgentDecision[] = [];
+    calls = 0;
 
     enqueue(...decisions: AgentDecision[]): void {
         this.queue.push(...decisions);
     }
 
     async execute({ goal: _goal }: StepExecutionInput): Promise<AgentDecision> {
+        this.calls += 1;
         const next = this.queue.shift();
         if (next === undefined) {
             throw new Error("QueueStepExecutor: no queued decision available");
@@ -95,11 +96,10 @@ class QueueStepExecutor implements StepExecutor {
     }
 }
 
-test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction，同一次推进继续且记录进度与 Trajectory", async () => {
+test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次推进中提交任务提案", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const toolRegistry = new InMemoryToolRegistry([
         createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
@@ -111,31 +111,30 @@ test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction�
         executor: stepExecutor,
         toolRegistry,
         trajectoryStore,
-        onProbeProgress: (event) => probeEvents.push(event),
     });
 
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({ store, scheduler, trajectoryStore });
 
     const goal = createGoal({
-        id: "goal-probe-1",
+        id: "goal-pretask-read-1",
         intent: "探查并规划",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-        runId: "run-probe-1",
+        runId: "run-pretask-read-1",
     });
     await store.save(goal);
 
-    // 第一步：模型返回只读探查
+    // 第一步：模型返回普通只读 Action
     // 第二步：模型返回任务提案
     stepExecutor.enqueue(
         {
             kind: "tool_call",
             action: {
-                actionId: "action-probe-1",
+                actionId: "action-read-1",
                 toolId: "read_file",
                 input: { path: "package.json" },
             },
@@ -159,21 +158,13 @@ test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction�
         assert.equal(result.waitingFor, "task_approval");
     }
 
-    // 验证快照：stepCount 必须保持为 0，pendingAction 必须为 undefined
+    // 验证快照：普通只读 Action 必须计为一个 Step。
     const latestGoal = await store.restore(goal.id);
     assert.ok(latestGoal !== undefined);
-    assert.equal(latestGoal.state.run.stepCount, 0);
+    assert.equal(latestGoal.state.run.stepCount, 1);
     assert.equal(latestGoal.state.run.pendingAction, undefined);
-    assert.equal(latestGoal.state.run.lastStep, undefined);
-
-    // 验证探查进度回调
-    assert.equal(probeEvents.length, 2);
-    assert.equal(probeEvents[0]?.kind, "started");
-    assert.equal(probeEvents[0]?.actionId, "action-probe-1");
-    assert.equal(probeEvents[0]?.probeNumber, 1);
-    assert.equal(probeEvents[1]?.kind, "finished");
-    assert.equal(probeEvents[1]?.actionId, "action-probe-1");
-    assert.equal(probeEvents[1]?.probeNumber, 1);
+    assert.equal(latestGoal.state.run.lastStep?.kind, "action");
+    assert.equal(latestGoal.state.run.lastStep?.action.actionId, "action-read-1");
 
     // 验证 Trajectory 统一事件流
     const events = await trajectoryStore.read({ goalId: goal.id, runId: goal.state.run.id });
@@ -183,15 +174,150 @@ test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction�
     assert.ok(eventTypes.includes("observation_recorded"));
     assert.ok(eventTypes.includes("decision_received"));
 
-    // 确保没有旧的阶段专属事件
+    assert.ok(eventTypes.includes("action_staged"));
+    // 确保没有阶段专属事件
     assert.equal(eventTypes.includes("preparation_result" as any), false);
 });
 
-test("计划期只读探查: 领域 failure 正常记录且不增 Step，继续下一轮规划", async () => {
+test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复路径", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PlanProbeProgressEvent[] = [];
+    const toolRegistry = new InMemoryToolRegistry([
+        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+    ]);
+    const runner = new Runner({
+        store,
+        executor: stepExecutor,
+        toolRegistry,
+        toolPolicy: { evaluate: () => "require_approval" },
+        trajectoryStore,
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler: new InlineScheduler(runner),
+        trajectoryStore,
+    });
+    const goal = createGoal({
+        id: "goal-pretask-read-approval",
+        intent: "批准只读读取",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-pretask-read-approval",
+    });
+    await store.save(goal);
+    stepExecutor.enqueue({
+        kind: "tool_call",
+        action: {
+            actionId: "action-read-approval",
+            toolId: "read_file",
+            input: { path: "package.json" },
+        },
+    });
+
+    const waiting = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
+    assert.equal(waiting.ok, true);
+    assert.equal(waiting.kind, "waiting");
+    if (waiting.kind === "waiting") {
+        assert.equal(waiting.waitingFor, "action_approval");
+    }
+
+    const pending = await store.restore(goal.id);
+    assert.ok(pending !== undefined);
+    assert.equal(pending.state.run.stepCount, 0);
+    assert.deepEqual(pending.state.run.pendingAction, {
+        action: {
+            actionId: "action-read-approval",
+            toolId: "read_file",
+            input: { path: "package.json" },
+        },
+        status: "awaiting_approval",
+    });
+
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: {
+            objective: "基于读取结果执行目标",
+            completionCriteria: [{ text: "读取已纳入任务上下文" }],
+        },
+        approvalRequest: "请批准任务",
+    });
+    const resumed = await coordinator.resume({
+        ref: { goalId: goal.id, runId: goal.state.run.id },
+        action: { kind: "approve_action", actionId: "action-read-approval" },
+    });
+    assert.equal(resumed.ok, true);
+    assert.equal(resumed.kind, "waiting");
+    if (resumed.kind === "waiting") {
+        assert.equal(resumed.waitingFor, "task_approval");
+    }
+
+    const completedRead = await store.restore(goal.id);
+    assert.ok(completedRead !== undefined);
+    assert.equal(completedRead.state.run.stepCount, 1);
+    assert.equal(completedRead.state.run.pendingAction, undefined);
+});
+
+test("无任务只读 Action: maxSteps 统一计入前置读取", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = trajectoryStoreFor(store);
+    const stepExecutor = new QueueStepExecutor();
+    const runner = new Runner({
+        store,
+        executor: stepExecutor,
+        toolRegistry: new InMemoryToolRegistry([
+            createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        ]),
+        trajectoryStore,
+    });
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler: new InlineScheduler(runner),
+        trajectoryStore,
+    });
+    const goal = createGoal({
+        id: "goal-pretask-read-budget",
+        intent: "读取并限制预算",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-pretask-read-budget",
+        maxSteps: 1,
+    });
+    await store.save(goal);
+    stepExecutor.enqueue({
+        kind: "tool_call",
+        action: {
+            actionId: "action-read-budget",
+            toolId: "read_file",
+            input: { path: "package.json" },
+        },
+    });
+
+    const result = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "terminal");
+    if (result.kind === "terminal") {
+        assert.equal(result.goal.state.run.status, "failed");
+        assert.deepEqual(result.goal.state.run.stopReason, { kind: "max_steps_exceeded" });
+    }
+    assert.equal(stepExecutor.calls, 1);
+
+    const latestGoal = await store.restore(goal.id);
+    assert.ok(latestGoal !== undefined);
+    assert.equal(latestGoal.state.run.stepCount, 1);
+    assert.equal(latestGoal.state.run.lastStep?.kind, "action");
+});
+
+test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Step", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = trajectoryStoreFor(store);
+    const stepExecutor = new QueueStepExecutor();
 
     const failingReadTool = createMockTool(FAILING_READ_DEFINITION, {
         async execute() {
@@ -213,21 +339,20 @@ test("计划期只读探查: 领域 failure 正常记录且不增 Step，继续�
         executor: stepExecutor,
         toolRegistry,
         trajectoryStore,
-        onProbeProgress: (event) => probeEvents.push(event),
     });
 
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({ store, scheduler, trajectoryStore });
 
     const goal = createGoal({
-        id: "goal-probe-failure",
+        id: "goal-pretask-read-failure",
         intent: "处理失败探查",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-        runId: "run-probe-failure",
+        runId: "run-pretask-read-failure",
     });
     await store.save(goal);
 
@@ -235,7 +360,7 @@ test("计划期只读探查: 领域 failure 正常记录且不增 Step，继续�
         {
             kind: "tool_call",
             action: {
-                actionId: "action-probe-fail",
+                actionId: "action-read-fail",
                 toolId: "failing_read",
                 input: { path: "missing.json" },
             },
@@ -259,21 +384,17 @@ test("计划期只读探查: 领域 failure 正常记录且不增 Step，继续�
 
     const latestGoal = await store.restore(goal.id);
     assert.ok(latestGoal !== undefined);
-    assert.equal(latestGoal.state.run.stepCount, 0);
-    assert.equal(latestGoal.state.run.lastStep, undefined);
-
-    assert.equal(probeEvents.length, 2);
-    assert.equal(probeEvents[1]?.kind, "finished");
-    if (probeEvents[1]?.kind === "finished") {
-        assert.equal(probeEvents[1].observation.kind, "failure");
+    assert.equal(latestGoal.state.run.stepCount, 1);
+    assert.equal(latestGoal.state.run.lastStep?.kind, "action");
+    if (latestGoal.state.run.lastStep?.kind === "action") {
+        assert.equal(latestGoal.state.run.lastStep.observation.kind, "failure");
     }
 });
 
-test("计划期只读探查: 工具运行时异常触发 failed 事件并停止为 TOOL_EXECUTION_ERROR", async () => {
+test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERROR", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const throwingReadTool = createMockTool(THROWING_READ_DEFINITION, {
         async execute() {
@@ -290,21 +411,20 @@ test("计划期只读探查: 工具运行时异常触发 failed 事件并停止�
         executor: stepExecutor,
         toolRegistry,
         trajectoryStore,
-        onProbeProgress: (event) => probeEvents.push(event),
     });
 
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({ store, scheduler, trajectoryStore });
 
     const goal = createGoal({
-        id: "goal-probe-crash",
+        id: "goal-pretask-read-crash",
         intent: "测试探查崩溃",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-        runId: "run-probe-crash",
+        runId: "run-pretask-read-crash",
     });
     await store.save(goal);
 
@@ -324,12 +444,6 @@ test("计划期只读探查: 工具运行时异常触发 failed 事件并停止�
         assert.equal(result.goal.state.run.status, "failed");
     }
 
-    assert.equal(probeEvents.length, 2);
-    assert.equal(probeEvents[0]?.kind, "started");
-    assert.equal(probeEvents[1]?.kind, "failed");
-    if (probeEvents[1]?.kind === "failed") {
-        assert.match(probeEvents[1].message, /Disk hardware failure/);
-    }
 });
 
 test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且无 pendingAction", async () => {
@@ -337,6 +451,7 @@ test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
     let writeExecuted = false;
+    let policyEvaluated = false;
 
     const writeTool = createMockTool(WRITE_FILE_DEFINITION, {
         async execute(input) {
@@ -353,6 +468,12 @@ test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且
         store,
         executor: stepExecutor,
         toolRegistry,
+        toolPolicy: {
+            evaluate: () => {
+                policyEvaluated = true;
+                return "allow";
+            },
+        },
         trajectoryStore,
     });
 
@@ -389,6 +510,7 @@ test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且
 
     // 零副作用验证
     assert.equal(writeExecuted, false);
+    assert.equal(policyEvaluated, false);
 
     // 验证持久化快照无 pendingAction 且 stepCount 为 0
     const latestGoal = await store.restore(goal.id);
@@ -505,11 +627,10 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     assert.equal(latestGoal.state.run.pendingInteraction?.kind, "ask_user");
 });
 
-test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNumber 正确累进且 stepCount 保持为 0", async () => {
+test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推进", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor1 = new QueueStepExecutor();
-    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const toolRegistry = new InMemoryToolRegistry([
         createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
@@ -520,21 +641,20 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
         executor: stepExecutor1,
         toolRegistry,
         trajectoryStore,
-        onProbeProgress: (event) => probeEvents.push(event),
     });
 
     const scheduler1 = new InlineScheduler(runner1);
     const coordinator1 = new GoalCoordinator({ store, scheduler: scheduler1, trajectoryStore });
 
     const goal = createGoal({
-        id: "goal-probe-resume",
+        id: "goal-pretask-read-resume",
         intent: "跨重启探查",
         promptBundleVersion: 1,
         profile,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-        runId: "run-probe-resume",
+        runId: "run-pretask-read-resume",
     });
     await store.save(goal);
 
@@ -543,7 +663,7 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
         {
             kind: "tool_call",
             action: {
-                actionId: "action-probe-r1",
+                actionId: "action-read-r1",
                 toolId: "read_file",
                 input: { path: "first.json" },
             },
@@ -564,7 +684,6 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
     const firstResult = await coordinator1.advance({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(firstResult.ok, true);
     assert.equal(firstResult.kind, "waiting");
-    assert.equal(probeEvents[0]?.probeNumber, 1);
 
     // 模拟进程重启：新建 Executor、Runner 和 Coordinator
     const stepExecutor2 = new QueueStepExecutor();
@@ -573,23 +692,23 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
         executor: stepExecutor2,
         toolRegistry,
         trajectoryStore,
-        onProbeProgress: (event) => probeEvents.push(event),
     });
     const scheduler2 = new InlineScheduler(runner2);
     const coordinator2 = new GoalCoordinator({ store, scheduler: scheduler2, trajectoryStore });
 
     const waitingGoal = await store.restore(goal.id);
     assert.ok(waitingGoal !== undefined);
-    assert.equal(waitingGoal.state.run.stepCount, 0);
+    assert.equal(waitingGoal.state.run.stepCount, 1);
+    assert.equal(waitingGoal.state.run.lastStep?.kind, "action");
     assert.equal(waitingGoal.state.run.pendingInteraction?.kind, "ask_user");
     const interaction = waitingGoal.state.run.pendingInteraction as any;
 
-    // 第二轮：用户回答继续，Agent 再次进行探查（第 2 次探查），然后提交提案
+    // 第二轮：用户回答继续，Agent 再次读取，然后提交提案
     stepExecutor2.enqueue(
         {
             kind: "tool_call",
             action: {
-                actionId: "action-probe-r2",
+                actionId: "action-read-r2",
                 toolId: "read_file",
                 input: { path: "second.json" },
             },
@@ -624,13 +743,10 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
         assert.equal(secondResult.waitingFor, "task_approval");
     }
 
-    // 验证第二次探查的 probeNumber 累进为 2
-    const secondProbeStarted = probeEvents.find((e) => e.actionId === "action-probe-r2" && e.kind === "started");
-    assert.ok(secondProbeStarted !== undefined);
-    assert.equal(secondProbeStarted.probeNumber, 2);
-
-    // 验证整个过程中 stepCount 保持为 0
+    // 验证整个过程中两个普通只读 Step 都被持久化。
     const finalGoal = await store.restore(goal.id);
     assert.ok(finalGoal !== undefined);
-    assert.equal(finalGoal.state.run.stepCount, 0);
+    assert.equal(finalGoal.state.run.stepCount, 2);
+    assert.equal(finalGoal.state.run.lastStep?.kind, "action");
+    assert.equal(finalGoal.state.run.lastStep?.action.actionId, "action-read-r2");
 });

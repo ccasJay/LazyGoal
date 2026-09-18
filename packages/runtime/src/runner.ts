@@ -16,7 +16,6 @@ import type {
     GoalTask,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
-    PlanProbeProgressEvent,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -509,8 +508,6 @@ export interface RunnerDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
-    /** 可选的计划期只读探查进度回调；Runner 在探查启动、完成或失败时通知。 */
-    readonly onProbeProgress?: (event: PlanProbeProgressEvent) => void;
 }
 
 /**
@@ -545,7 +542,6 @@ export class Runner {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
-    private readonly onProbeProgress: ((event: PlanProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -558,7 +554,6 @@ export class Runner {
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
         this.traceSink = dependencies.traceSink;
-        this.onProbeProgress = dependencies.onProbeProgress;
         this.toolMemoryProjectors = dependencies.toolMemoryProjectors
             ?? createNoopToolMemoryProjectorRegistry();
         this.checkpointCommitter = dependencies.checkpointCommitter
@@ -1485,58 +1480,6 @@ export class Runner {
         return { kind: "observed", goal: checkpoint };
     }
 
-    private notifyProbeProgress(event: PlanProbeProgressEvent): void {
-        try {
-            this.onProbeProgress?.(event);
-        } catch {
-            // 隔离外部回调异常
-        }
-    }
-
-    private async executePlanProbe(
-        goal: Goal,
-        prepared: PreparedToolAction,
-        executionUnitId: string,
-        acceptedPatch?: AcceptedMemoryPatchInput,
-        control?: ExecutionControl,
-    ): Promise<
-        | { readonly kind: "observed"; readonly goal: Goal }
-        | { readonly kind: "stopped"; readonly result: RunnerResult }
-    > {
-        throwIfAborted(control);
-        const stagedRun = this.applyTransition(goal.state.run, {
-            kind: "stage_action",
-            action: prepared.action,
-            status: "approved",
-        });
-        const stagedGoal = this.withRun(goal, stagedRun);
-        const stagedCheckpoint = await this.commitDecision(
-            stagedGoal,
-            [{
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                executionUnitId,
-                actionId: prepared.action.actionId,
-                eventType: "action_staged",
-                payload: {
-                    type: "action_staged",
-                    action: prepared.action,
-                    approvalStatus: "approved",
-                },
-            }],
-            acceptedPatch,
-            control,
-        );
-
-        return this.executeToolAndObserve(
-            stagedCheckpoint,
-            prepared,
-            executionUnitId,
-            control,
-        );
-    }
-
     private async runLoop(
         initialGoal: Goal,
         authorizedActionId?: string,
@@ -2060,56 +2003,6 @@ export class Runner {
                             ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
                         },
                     }, control);
-
-                    // 任务未批准时只允许只读 Tool；只读 Action 仍遵循普通 Policy。
-                    if (goal.state.workflow.task === undefined) {
-                        if (validated.policy !== "allow") {
-                            throwIfAborted(control);
-                            const stagedRun = this.applyTransition(goal.state.run, {
-                                kind: "stage_action",
-                                action: validated.action,
-                                status: "awaiting_approval",
-                            });
-                            const stagedGoal = this.withRun(goal, stagedRun);
-
-                            goal = await this.commitDecision(
-                                stagedGoal,
-                                [{
-                                    goalId: goal.id,
-                                    runId: goal.state.run.id,
-                                    phase: "executing",
-                                    executionUnitId,
-                                    actionId: validated.action.actionId,
-                                    eventType: "action_staged",
-                                    payload: {
-                                        type: "action_staged",
-                                        action: validated.action,
-                                        approvalStatus: "awaiting_approval",
-                                    },
-                                }],
-                                acceptedPatch,
-                                control,
-                            );
-                            continue;
-                        }
-
-                        const probeOutcome = await this.executePlanProbe(
-                            goal,
-                            validated,
-                            executionUnitId,
-                            acceptedPatch,
-                            control,
-                        );
-
-                        if (probeOutcome.kind === "stopped") {
-                            return probeOutcome.result;
-                        }
-
-                        goal = probeOutcome.goal;
-                        contextLookupResult = undefined;
-                        contextLookupChainCount = 0;
-                        continue;
-                    }
 
                     if (validated.policy !== "allow") {
                         throwIfAborted(control);
