@@ -41,53 +41,6 @@ export type {
     ToolObservation,
 };
 
-/**
- * 计划期只读探查进度事件。
- *
- * @remarks
- * 在任务批准前的探查生命周期（启动、完成、失败）中派发给监听器，
- * 供 TUI 或上层控制器感知探查动作。
- *
- * @example
- * ```ts
- * const event: PlanProbeProgressEvent = {
- *     kind: "started",
- *     actionId: "probe-1",
- *     goalId: "goal-1",
- *     toolId: "read_file",
- *     input: { path: "package.json" },
- *     probeNumber: 1,
- * };
- * ```
- */
-export type PlanProbeProgressEvent =
-    | {
-        readonly kind: "started";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly probeNumber: number;
-    }
-    | {
-        readonly kind: "finished";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly observation: ToolObservation;
-        readonly probeNumber: number;
-    }
-    | {
-        readonly kind: "failed";
-        readonly actionId: string;
-        readonly goalId: string;
-        readonly toolId: string;
-        readonly input: JsonValue;
-        readonly message: string;
-        readonly probeNumber: number;
-    };
-
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
     | "executing";

@@ -312,10 +312,6 @@ function isActiveRun(session: UiSessionViewModel): boolean {
 }
 
 function sessionSpinnerLabel(session: UiSessionViewModel): string {
-    if (session.activeProbeDescription !== undefined) {
-        return session.activeProbeDescription;
-    }
-
     if (session.runStatus === "running") {
         return "Executing step...";
     }

@@ -28,7 +28,7 @@
   - 验证方式：更新 `packages/agent/test/prompting-default-bundles.test.ts`、`render.test.ts`、模型输出和 Contracts 测试；覆盖已有 Observation 时优先推进、非法分支拒绝和 Prompt 不替代 Runtime 校验。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 5. 移除 TUI Probe 事件与专用活动状态
+- [x] //TODO 5. 移除 TUI Probe 事件与专用活动状态
 
   - 实现目标：删除 `SessionCoordinator.onProbeProgress`、`activeProbeDescription`、Probe 监听和专用文案，使只读结果完全由普通 Goal 保存通知、Step Projection 和统一 Session 活动抽屉驱动。
   - 成功判据：只读 Observation 以普通 Step 进入时间线；创建、等待、恢复和任务批准始终停留在统一 Session 页面；TUI 不依赖 Probe 事件或 UI 私有进度重建状态。

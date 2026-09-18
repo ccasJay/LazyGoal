@@ -12,7 +12,6 @@ import {
     type LaunchResult,
     type ResumeGoalRequest,
     type TrajectoryEvent,
-    type PlanProbeProgressEvent,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
@@ -105,16 +104,6 @@ class FakeLauncher implements SessionLauncher {
 class FakeCoordinator implements SessionCoordinator {
     readonly advanceRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
     readonly resumeRequests: ResumeGoalRequest[] = [];
-    private probeListeners = new Set<(event: PlanProbeProgressEvent) => void>();
-
-    readonly onProbeProgress = (listener: (event: PlanProbeProgressEvent) => void): (() => void) => {
-        this.probeListeners.add(listener);
-        return () => this.probeListeners.delete(listener);
-    };
-
-    emitProbeProgress(event: PlanProbeProgressEvent): void {
-        for (const listener of this.probeListeners) listener(event);
-    }
 
     constructor(
         private readonly advanceResult: GoalProgressResult,
@@ -218,8 +207,8 @@ test("create maps Launcher result into a session ViewModel", async () => {
     assert.ok(notifications.length >= 2);
 });
 
-test("任务批准前探查进度会显示 Spinner、固化步骤并过滤其他 Goal", async () => {
-    const goal = createWaitingGoal("goal-probe-tracking");
+test("普通只读 Action 通过 Goal 快照提交后固化步骤", async () => {
+    const goal = createWaitingGoal("goal-pretask-read-tracking");
     const coordinator = new FakeCoordinator(waitingResult(goal));
     const controller = new SessionController({
         ...dependencies(
@@ -231,40 +220,32 @@ test("任务批准前探查进度会显示 Spinner、固化步骤并过滤其他
     });
 
     await controller.dispatch({ kind: "create", intent: "Investigate problem" });
-    coordinator.emitProbeProgress({
-        kind: "started",
-        actionId: "probe-1",
-        goalId: goal.id,
-        toolId: "read_file",
-        input: { path: "src/types.ts" },
-        probeNumber: 1,
+    controller.onGoalCommitted({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                stepCount: 1,
+                lastStep: {
+                    kind: "action",
+                    action: {
+                        actionId: "read-1",
+                        toolId: "read_file",
+                        input: { path: "src/types.ts" },
+                    },
+                    observation: {
+                        kind: "success",
+                        output: {},
+                        summary: "Read 120 lines",
+                    },
+                },
+            },
+        },
     });
-    assert.equal(sessionView(controller).activeProbeDescription, "Reading file src/types.ts...");
-
-    coordinator.emitProbeProgress({
-        kind: "finished",
-        actionId: "probe-1",
-        goalId: goal.id,
-        toolId: "read_file",
-        input: { path: "src/types.ts" },
-        observation: { kind: "success", output: {}, summary: "Read 120 lines" },
-        probeNumber: 1,
-    });
-    let view = sessionView(controller);
-    assert.equal(view.activeProbeDescription, undefined);
-    assert.equal(view.committedSteps?.[0]?.actionId, "probe-1");
+    const view = sessionView(controller);
+    assert.equal(view.committedSteps?.[0]?.actionId, "read-1");
     assert.equal(view.committedSteps?.[0]?.outputSummary, "Read 120 lines");
-
-    coordinator.emitProbeProgress({
-        kind: "started",
-        actionId: "probe-other",
-        goalId: "other-goal",
-        toolId: "grep",
-        input: { query: "ignored" },
-        probeNumber: 1,
-    });
-    view = sessionView(controller);
-    assert.equal(view.activeProbeDescription, undefined);
     controller.dispose();
 });
 

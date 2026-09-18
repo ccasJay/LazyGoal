@@ -6,10 +6,7 @@ import type {
     RunRef,
     AskUserAnswer,
     AskUserQuestion,
-    PlanProbeProgressEvent,
 } from "./domain";
-
-export type { PlanProbeProgressEvent };
 import type { GoalStore } from "./goal-store";
 import { validateAskUserAnswers } from "../../contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
@@ -102,8 +99,6 @@ export type GoalProgressErrorCode =
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
-    | "PLAN_PROBE_READ_ONLY_VIOLATION"
-    | "PLAN_PROBE_LIMIT_EXCEEDED"
     | "INVALID_TOOL_INPUT"
     | "TOOL_EXECUTION_ERROR";
 
@@ -241,8 +236,6 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
-    /** 可选的探查生命周期事件回调。 */
-    readonly onProbeProgress?: (event: PlanProbeProgressEvent) => void;
 }
 
 /**
@@ -270,8 +263,6 @@ export class GoalCoordinator {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
-    private readonly probeListeners = new Set<(event: PlanProbeProgressEvent) => void>();
-    private readonly onProbeProgressCallback: ((event: PlanProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalCoordinatorDependencies。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -282,7 +273,6 @@ export class GoalCoordinator {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
-        this.onProbeProgressCallback = dependencies.onProbeProgress;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -293,41 +283,6 @@ export class GoalCoordinator {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
-    }
-
-    /**
-     * 注册探查生命周期事件监听器。
-     *
-     * @param listener - 接收探查生命周期事件的监听回调。
-     * @returns 幂等注销该监听器的清理函数。
-     *
-     * @example
-     * ```ts
-     * const unsubscribe = coordinator.onProbeProgress((event) => {
-     *   console.log(event.kind, event.toolId);
-     * });
-     * ```
-     */
-    onProbeProgress(listener: (event: PlanProbeProgressEvent) => void): () => void {
-        this.probeListeners.add(listener);
-        return () => {
-            this.probeListeners.delete(listener);
-        };
-    }
-
-    private notifyProbeProgress(event: PlanProbeProgressEvent): void {
-        try {
-            this.onProbeProgressCallback?.(event);
-        } catch {
-            // 隔离外部回调异常
-        }
-        for (const listener of this.probeListeners) {
-            try {
-                listener(event);
-            } catch {
-                // 隔离监听器异常
-            }
-        }
     }
 
     /**

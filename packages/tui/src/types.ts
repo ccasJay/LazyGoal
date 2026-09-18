@@ -11,7 +11,6 @@ import type {
     LaunchRequest,
     LaunchResult,
     PendingAction,
-    PlanProbeProgressEvent,
     ResumeGoalRequest,
     RunRef,
     RunStatus,
@@ -469,13 +468,6 @@ export interface UiSessionViewModel {
      * 瀑布式流式展示的数据源。未执行任何步骤时为空数组或未定义。
      */
     readonly committedSteps?: readonly UiStepSummary[];
-    /**
-     * 当前正在执行的只读探查或工具操作描述。
-     *
-     * @remarks
-     * 仅在操作进行中时有效，用于在底部活动抽屉 Spinner 呈现操作文案。
-     */
-    readonly activeProbeDescription?: string;
     /** 是否处于沙箱资源清理阶段。 */
     readonly cleaning?: boolean;
     /**
@@ -709,15 +701,6 @@ export interface SessionCoordinator {
         request: ResumeGoalRequest,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult>;
-    /**
-     * 注册任务批准前只读探查生命周期事件监听器。
-     *
-     * @param listener - 接收只读探查生命周期事件的监听回调。
-     * @returns 幂等注销该监听器的清理函数。
-     */
-    readonly onProbeProgress?: (
-        listener: (event: PlanProbeProgressEvent) => void,
-    ) => () => void;
 }
 
 /**

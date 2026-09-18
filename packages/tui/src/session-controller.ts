@@ -5,7 +5,6 @@ import type {
     GoalTask,
     LaunchResult,
     TrajectoryReadResult,
-    PlanProbeProgressEvent,
 } from "../../runtime/src/index";
 import {
     UI_BUSY_CODE,
@@ -66,7 +65,6 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
-    private probeUnsubscribe: (() => void) | undefined;
     private committedSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
     private modelCatalogGeneration = 0;
@@ -152,11 +150,6 @@ export class SessionController {
                 this.onGoalCommitted(goal);
             });
         }
-        if (dependencies.coordinator.onProbeProgress !== undefined) {
-            this.probeUnsubscribe = dependencies.coordinator.onProbeProgress((event) => {
-                this.handleProbeProgress(event);
-            });
-        }
     }
 
     /**
@@ -233,8 +226,6 @@ export class SessionController {
     dispose(): void {
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
-        this.probeUnsubscribe?.();
-        this.probeUnsubscribe = undefined;
         this.transcriptController.dispose();
         this.transcriptUnsubscribe?.();
         this.activeAssistantStream = null;
@@ -1149,9 +1140,6 @@ export class SessionController {
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
-            ...(currentSession?.activeProbeDescription !== undefined
-                ? { activeProbeDescription: currentSession.activeProbeDescription }
-                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(currentSession?.lastCommittedAction !== undefined
@@ -1265,66 +1253,10 @@ export class SessionController {
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
-            ...(this.snapshot.activeProbeDescription !== undefined
-                ? { activeProbeDescription: this.snapshot.activeProbeDescription }
-                : {}),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
             ...(lastObservation !== undefined ? { lastCommittedObservation: lastObservation } : {}),
-        });
-    }
-
-    private handleProbeProgress(event: PlanProbeProgressEvent): void {
-        if (
-            this.shuttingDown
-            || this.snapshot.screen !== "session"
-            || this.snapshot.goal.id !== event.goalId
-        ) {
-            return;
-        }
-
-        if (event.kind === "started") {
-            this.setSnapshot({
-                ...this.snapshot,
-                activeProbeDescription: formatProbeDescription(event.toolId, event.input),
-            });
-            return;
-        }
-
-        if (event.kind === "failed") {
-            const { activeProbeDescription: _activeProbeDescription, ...rest } = this.snapshot;
-            this.setSnapshot(rest);
-            return;
-        }
-
-        const inputSummary = summarizeInput(event.input);
-        const outputSummary = event.observation.kind === "success"
-            ? event.observation.summary
-            : event.observation.kind === "failure"
-                ? event.observation.message
-                : undefined;
-        const step: UiStepSummary = {
-            stepNumber: this.committedSteps.length + 1,
-            toolId: event.toolId,
-            actionId: event.actionId,
-            status: event.observation.kind === "success" ? "success" : "failure",
-            ...(inputSummary === undefined ? {} : { inputSummary }),
-            ...(outputSummary === undefined ? {} : { outputSummary }),
-        };
-        if (!this.committedSteps.some((item) => item.actionId === step.actionId)) {
-            this.committedSteps.push(step);
-            this.timeline.push({
-                kind: "step",
-                id: `step-${this.currentGoalId ?? "probe"}-${step.actionId || step.stepNumber}`,
-                step,
-            });
-        }
-        const { activeProbeDescription: _activeProbeDescription, ...rest } = this.snapshot;
-        this.setSnapshot({
-            ...rest,
-            committedSteps: this.committedSteps.slice(),
-            timeline: this.timeline.slice(),
         });
     }
 
@@ -1779,29 +1711,4 @@ function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
                 ? { outputSummary: observation.message }
                 : { outputSummary: observation.reason }),
     };
-}
-
-/**
- * 依据工具和输入格式化任务批准前只读探查的进行中提示。
- *
- * @param toolId - 只读工具标识。
- * @param input - 工具输入。
- * @returns 面向终端用户的英文操作说明。
- */
-export function formatProbeDescription(toolId: string, input: unknown): string {
-    const summary = summarizeInput(input);
-    switch (toolId) {
-        case "read_file":
-            return summary === undefined ? "Reading file..." : `Reading file ${summary}...`;
-        case "grep":
-            return summary === undefined ? "Searching..." : `Searching for "${summary}"...`;
-        case "web_search":
-            return summary === undefined ? "Searching web..." : `Searching web for "${summary}"...`;
-        case "web_fetch":
-            return summary === undefined ? "Fetching web URL..." : `Fetching web URL ${summary}...`;
-        default:
-            return summary === undefined
-                ? `Executing probe [${toolId}]...`
-                : `Executing probe [${toolId}] ${summary}...`;
-    }
 }
