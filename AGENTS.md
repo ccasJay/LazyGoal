@@ -2,7 +2,7 @@
 
 ## Project Purpose
 
-LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into an approved task through context gathering and planning, then advances that task through a controlled Action/Observation loop. Each Goal is persisted as a recoverable session so long-running work can pause, resume, and recover safely.
+LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into a recoverable Goal with a unified executing lifecycle, task proposal/approval and a controlled Action/Observation loop. Each Goal is persisted as a recoverable session so long-running work can pause, resume, and recover safely.
 
 ## Repository Layout
 
@@ -17,7 +17,7 @@ benchmarks/      Explicit headless benchmark evaluation
   swebench/       SWE-bench ACP Worker, Verified containers, patch export, and official grading
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
-  agent/         Agent prompts, response schemas, and LLM preparation/step executors
+  agent/         Agent prompts, response schemas, and the unified LLM step executor
   llm/           LLM configuration, native strict adapters, and pi-ai multi-provider integration
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports

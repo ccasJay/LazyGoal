@@ -33,7 +33,7 @@ export const SWE_ACP_TOOL_IDS = Object.freeze(["read_file", "write_file", "edit_
  *
  * @remarks
  * Profile 只允许五个直接访问 `/testbed` 的文件和命令 Tool；问题描述由任务
- * metadata 进入确定性 Headless Root，不创建交互式 Preparation 模型调用。
+ * metadata 进入确定性 Headless Root，由统一执行流处理任务提案与执行循环。
  *
  * @example
  * ```ts

@@ -1,4 +1,7 @@
 import type {
+    ExecutingWorkingMemoryPatch,
+} from "../../contracts/src/index";
+import type {
     AgentProfile,
     CompletionAcceptance,
     CompletionCriterion,
@@ -12,7 +15,6 @@ import type {
     PendingInteraction,
     StepRecord,
     ToolCallAction,
-    WorkingMemoryPatch,
 } from "../../runtime/src/index";
 import {
     GoalSnapshotProtocolError,
@@ -453,7 +455,7 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 })),
                 ...(result.memoryPatch === undefined
                     ? {}
-                    : { memoryPatch: structuredClone(result.memoryPatch) as WorkingMemoryPatch }),
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
             };
         case "wait":
             return {
@@ -461,7 +463,7 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 reason: result.reason,
                 ...(result.memoryPatch === undefined
                     ? {}
-                    : { memoryPatch: structuredClone(result.memoryPatch) as WorkingMemoryPatch }),
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
             };
         case "fail":
             return {
@@ -469,7 +471,7 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 error: result.error,
                 ...(result.memoryPatch === undefined
                     ? {}
-                    : { memoryPatch: structuredClone(result.memoryPatch) as WorkingMemoryPatch }),
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
             };
         case "context_lookup":
             return {

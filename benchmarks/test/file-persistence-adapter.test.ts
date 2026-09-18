@@ -69,7 +69,7 @@ test("opens isolated LazyGoal stores and an optional trace sink per namespace", 
         const eventDraft: TrajectoryEventDraft = {
             goalId: "goal-1",
             runId: "run-1",
-            phase: "gathering_context",
+            phase: "executing",
             eventType: "goal_created",
             payload: { type: "goal_created", intent: "first" },
         };
@@ -186,23 +186,23 @@ test("reads trajectory using the latest Goal Snapshot boundary", async () => {
         await bindings.trajectoryStore.append({
             goalId: "goal-1",
             runId: "run-1",
-            phase: "gathering_context",
+            phase: "executing",
             eventType: "goal_created",
             payload: { type: "goal_created", intent: "boundary" },
         });
         await bindings.trajectoryStore.append({
             goalId: "goal-1",
             runId: "run-1",
-            phase: "gathering_context",
+            phase: "executing",
             eventType: "state_committed",
             payload: { type: "state_committed", committedThroughSequence: 1 },
         });
         await bindings.trajectoryStore.append({
             goalId: "goal-1",
             runId: "run-1",
-            phase: "planning",
+            phase: "executing",
             eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "approval" },
+            payload: { type: "run_waiting", reason: "task_approval" },
         });
 
         const view = await readHeadlessTrajectoryAtSnapshot(

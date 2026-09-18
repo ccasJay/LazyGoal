@@ -34,14 +34,9 @@ export const CONTEXT_LOOKUP_EVENT_TYPES: readonly TrajectoryEventType[] = [
 /**
  * Memory Patch 证据校验所处的业务范围。
  *
- * @example `const scope: EvidenceValidationScope = "preparation";`
+ * @example `const scope: EvidenceValidationScope = "execution";`
  */
-export type EvidenceValidationScope = "preparation" | "execution";
-
-const EVIDENCE_VALIDATION_SCOPES: readonly EvidenceValidationScope[] = [
-    "preparation",
-    "execution",
-];
+export type EvidenceValidationScope = "execution";
 
 /**
  * Evidence 索引构建所需的当前 Goal/Run 与 Snapshot 边界。
@@ -207,7 +202,7 @@ function assertBoundary(value: unknown): asserts value is number {
 }
 
 function assertScope(value: unknown): asserts value is EvidenceValidationScope {
-    if (!EVIDENCE_VALIDATION_SCOPES.includes(value as EvidenceValidationScope)) {
+    if (value !== "execution") {
         throw new EvidenceGateError("evidence validation scope is invalid");
     }
 }
@@ -285,7 +280,7 @@ export function buildCommittedEvidenceIndex(
  *
  * @param evidenceSequences - Fact 声明的 Trajectory sequence 列表。
  * @param index - 当前 Goal/Run 的 committed Evidence 索引。
- * @param scope - Preparation 可额外接受用户输入 provenance；Execution 只接受 Tool/Observation。
+ * @param scope - 当前统一执行生命周期的证据范围。
  * @throws EvidenceGateError 当列表为空、越界、缺失、跨来源或事件类型不允许时抛出。
  * @example
  * ```ts
@@ -323,14 +318,6 @@ export function validateFactEvidence(
         if (event === undefined) {
             throw new EvidenceGateError("evidence sequence does not belong to this Goal/Run");
         }
-        if (event.eventType === "preparation_input_recorded") {
-            if (scope === "execution") {
-                throw new EvidenceGateError(
-                    "preparation input provenance is not allowed in execution scope",
-                );
-            }
-            continue;
-        }
         if (!eventIsEvidence(event)) {
             throw new EvidenceGateError("evidence event type is not allowed for Fact");
         }
@@ -364,12 +351,12 @@ function evidenceFromOperation(
  *
  * @param patch - 模型提出的结构化 Patch。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
- * @param scope - Fact 可使用的业务证据范围；Plan completion 始终使用 execution。
+ * @param scope - 当前统一执行生命周期的证据范围。
  * @param workingMemory - 更新操作引用现有条目时使用的当前 Memory。
  * @throws WorkingMemoryPatchError 或 EvidenceGateError 当任一校验失败时抛出。
  * @example
  * ```ts
- * validateMemoryPatchEvidence(patch, index, "preparation", workingMemory);
+ * validateMemoryPatchEvidence(patch, index, "execution", workingMemory);
  * ```
  */
 export function validateMemoryPatchEvidence(
@@ -387,12 +374,6 @@ export function validateMemoryPatchEvidence(
         const evidence = evidenceFromOperation(operation);
         if (evidence === undefined || evidence.sequences.length === 0) continue;
         if (evidence.kind === "retire_fact") {
-            if (evidence.sequences.some((sequence) =>
-                index.get(sequence)?.eventType === "preparation_input_recorded")) {
-                throw new EvidenceGateError(
-                    "retire_fact cannot use preparation input provenance",
-                );
-            }
             validateFactEvidence(evidence.sequences, index, "execution");
             continue;
         }
@@ -409,7 +390,7 @@ export function validateMemoryPatchEvidence(
  *
  * @param operations - accepted Event 将保存的规范化操作。
  * @param index - 当前 committed Trajectory 的 Evidence 索引。
- * @param scope - Fact 可使用的业务证据范围；Plan completion 始终使用 execution。
+ * @param scope - 当前统一执行生命周期的证据范围。
  * @throws EvidenceGateError 当证据引用不能回查时抛出。
  */
 export function validateCanonicalFactEvidence(
@@ -447,7 +428,7 @@ export function validateCanonicalFactEvidence(
 export interface EvidenceGate {
     /**
      * @param evidenceSequences - Fact 声明的证据序列。
-     * @param scope - 允许的证据范围；Preparation 才能使用用户输入 provenance。
+     * @param scope - 统一执行生命周期的证据范围。
      */
     validateFact(evidenceSequences: readonly number[], scope: EvidenceValidationScope): void;
     /**

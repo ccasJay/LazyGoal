@@ -5,15 +5,11 @@ import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createGoal,
-    GoalCoordinator,
     Runner,
     type AgentDecision,
     type AgentProfile,
     type ContextLookupPort,
     type Goal,
-    type PreparationExecutionInput,
-    type PreparationExecutor,
-    type PreparationResult,
     type StepExecutionInput,
     type StepExecutor,
     type TrajectoryEvent,
@@ -274,4 +270,3 @@ test("Runner resumes a committed lookup result after interruption without queryi
     assert.equal(resumedInputs[0]?.contextLookupResult?.status, "not_found");
     assert.equal(portCalls, 1);
 });
-

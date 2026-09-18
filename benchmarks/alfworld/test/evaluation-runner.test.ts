@@ -273,10 +273,26 @@ function decision(content: unknown): string {
     return JSON.stringify(content);
 }
 
+function taskProposal(): unknown {
+    return {
+        kind: "task_proposal",
+        task: {
+            objective: "Complete ALFWorld task task-1",
+            completionCriteria: [{
+                text: "The environment reports won=true",
+                acceptance: null,
+            }],
+        },
+        approvalRequest: "Approve the ALFWorld task.",
+        memoryPatch: null,
+    };
+}
+
 test("ALFWorld adapter runs through the headless Root with authorized tools and facts", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         let closed = 0;
         const responses: unknown[] = [
+            taskProposal(),
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -288,7 +304,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             {
                 kind: "complete",
                 summary: "environment won",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [26] }],
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [24] }],
             },
         ];
         const executeEpisode = createAlfworldEpisodeExecutor({
@@ -347,7 +363,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 4 },
         });
         assert.equal(result.failure, undefined);
         assert.equal(closed, 1);
@@ -357,6 +373,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
 test("ALFWorld model completion without an environment win remains evaluator-owned", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         const responses: unknown[] = [
+            taskProposal(),
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -364,7 +381,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             {
                 kind: "complete",
                 summary: "claimed",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [19] }],
+                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
             },
         ];
         let responseIndex = 0;
@@ -405,7 +422,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 2 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
         });
         assert.equal(result.failure, undefined);
 
@@ -424,12 +441,20 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => ({
-                    content: decision({
-                        kind: "tool_call",
-                        action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
-                    }),
-                }),
+                generate: (() => {
+                    let calls = 0;
+                    return async () => {
+                        calls += 1;
+                        return {
+                            content: decision(calls === 1
+                                ? taskProposal()
+                                : {
+                                    kind: "tool_call",
+                                    action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+                                }),
+                        };
+                    };
+                })(),
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },
@@ -473,12 +498,20 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => ({
-                    content: decision({
-                        kind: "tool_call",
-                        action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
-                    }),
-                }),
+                generate: (() => {
+                    let calls = 0;
+                    return async () => {
+                        calls += 1;
+                        return {
+                            content: decision(calls === 1
+                                ? taskProposal()
+                                : {
+                                    kind: "tool_call",
+                                    action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+                                }),
+                        };
+                    };
+                })(),
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },
@@ -497,9 +530,17 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => ({
-                    content: decision({ kind: "fail", error: "model failed" }),
-                }),
+                generate: (() => {
+                    let calls = 0;
+                    return async () => {
+                        calls += 1;
+                        return {
+                            content: decision(calls === 1
+                                ? taskProposal()
+                                : { kind: "fail", error: "model failed" }),
+                        };
+                    };
+                })(),
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },

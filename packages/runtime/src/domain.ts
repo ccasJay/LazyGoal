@@ -24,7 +24,6 @@ import type {
     WorkingMemoryPatch,
     AskUserQuestion,
     AskUserAnswer,
-    JsonValue,
 } from "../../contracts/src/index";
 import type {
     ContextLookupRequest,
@@ -51,7 +50,7 @@ export type {
  *
  * @example
  * ```ts
- * const event: PreparationProbeProgressEvent = {
+ * const event: PlanProbeProgressEvent = {
  *     kind: "started",
  *     actionId: "probe-1",
  *     goalId: "goal-1",
@@ -61,7 +60,7 @@ export type {
  * };
  * ```
  */
-export type PreparationProbeProgressEvent =
+export type PlanProbeProgressEvent =
     | {
         readonly kind: "started";
         readonly actionId: string;
@@ -92,8 +91,6 @@ export type PreparationProbeProgressEvent =
 
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
-    | "gathering_context"
-    | "planning"
     | "executing";
 
 /** Goal 创建后冻结的 Working Memory 协议。 */
@@ -153,7 +150,7 @@ export type MemoryEntrySource = "model" | "tool_projector" | "runtime";
  * ```ts
  * const base: MemoryEntryBase = {
  *     id: "fact-1",
- *     originPhase: "gathering_context",
+ *     originPhase: "executing",
  *     originSequence: 12,
  *     scope: "goal",
  *     updatedAtSequence: 12,
@@ -914,11 +911,11 @@ export interface ModelContextEpochState {
 /**
  * Goal 当前可变且需要持久化的状态。
  *
- * @remarks Preparation 不消费 Run Step；messages 只保存真实交互。
+ * @remarks 交互与只读探查不消费 Run Step；messages 只保存真实交互。
  * @example
  * ```ts
  * const state: GoalState = {
- *   workflow: { phase: "gathering_context", preparation: { status: "active" } },
+ *   workflow: { phase: "executing" },
  *   messages: [],
  *   run: createRun("run-1"),
  * };

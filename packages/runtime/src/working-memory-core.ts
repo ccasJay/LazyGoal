@@ -221,8 +221,6 @@ const PLAN_ITEM_STATUSES: readonly PlanItemStatus[] = [
 ];
 const FACT_STABILITIES = ["stable", "last_observed"] as const;
 const GOAL_PHASES: readonly GoalPhase[] = [
-    "gathering_context",
-    "planning",
     "executing",
 ];
 const CONTROL_STATE_TERMS = new Set([
@@ -716,9 +714,9 @@ export function validateMemoryPatch(
  * @remarks
  * 本函数只读取 Patch、阶段和当前 Working Memory，不产生 canonical operation，也不
  * 修改调用方对象。它同时执行基础 Patch schema 校验，随后按原始操作类型执行唯一的
- * 阶段策略：gathering_context 禁止所有 PlanItem 操作，planning 允许创建或更新已有
- * PlanItem，executing 只允许更新当前投影中已有的 PlanItem。任一操作不满足策略时，
- * 整个 Patch 都会被拒绝；Runtime lifecycle 的 canonical `supersede_scope` 不经过本入口。
+ * 统一执行阶段只允许更新当前投影中已有的 PlanItem，禁止模型创建新的 PlanItem。
+ * 任一操作不满足策略时，整个 Patch 都会被拒绝；Runtime lifecycle 的 canonical
+ * `supersede_scope` 不经过本入口。
  *
  * @param patch - 尚未 canonicalize 的结构化 Patch。
  * @param phase - 产生 Patch 的 Goal 阶段。
@@ -742,20 +740,11 @@ export function validateMemoryPatchPhase(
             operation.type === "create_plan_item" || operation.type === "update_plan_item",
     );
 
-    if (phase === "gathering_context" && planOperations.length > 0) {
-        throw new WorkingMemoryPatchError(
-            "gathering_context does not allow PlanItem operations",
-        );
-    }
-
     for (const operation of planOperations) {
         if (operation.type === "create_plan_item") {
-            if (phase === "executing") {
-                throw new WorkingMemoryPatchError(
-                    "executing does not allow create_plan_item",
-                );
-            }
-            continue;
+            throw new WorkingMemoryPatchError(
+                "executing does not allow create_plan_item",
+            );
         }
         if (!workingMemory.plan.some((item) => item.id === operation.planItem.id)) {
             throw new WorkingMemoryPatchError(

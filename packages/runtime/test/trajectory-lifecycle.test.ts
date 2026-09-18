@@ -95,7 +95,6 @@ function executingGoal(): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: { objective: "execute", completionCriteria: [] },
             },
         },
@@ -325,7 +324,14 @@ test("Coordinator records waiting facts before the committed Snapshot when Run p
                                 pendingInteraction: {
                                     kind: "ask_user",
                                     requestId: "ask-1",
-                                    questions: [{ id: "q1", prompt: "需要什么信息？" }],
+                                    mode: "plan",
+                                    questions: [{
+                                        id: "q1",
+                                        header: "信息",
+                                        question: "需要什么信息？",
+                                        options: [{ id: "o1", label: "继续" }, { id: "o2", label: "停止" }],
+                                        multiSelect: false,
+                                    }],
                                 },
                             },
                         },
@@ -340,8 +346,12 @@ test("Coordinator records waiting facts before the committed Snapshot when Run p
                                     type: "decision_received",
                                     decision: {
                                         kind: "ask_user",
-                                        interactionId: "ask-1",
-                                        prompt: "需要什么信息？",
+                                        questions: [{
+                                            header: "信息",
+                                            question: "需要什么信息？",
+                                            options: [{ label: "继续" }, { label: "停止" }],
+                                            multiSelect: false,
+                                        }],
                                     },
                                 },
                             },
@@ -358,7 +368,9 @@ test("Coordinator records waiting facts before the committed Snapshot when Run p
                         ],
                     });
                 }
-                return { ok: true, status: "waiting", reason: "ask_user" };
+                const saved = await store.restore(ref.goalId);
+                if (saved === undefined) throw new Error("Goal disappeared during test scheduling");
+                return { ok: true, state: saved.state.run };
             },
         },
     });

@@ -10,7 +10,7 @@ import {
     InMemoryToolRegistry,
     type AgentDecision,
     type AgentProfile,
-    type PreparationProbeProgressEvent,
+    type PlanProbeProgressEvent,
     type StepExecutionInput,
     type StepExecutor,
     type Tool,
@@ -99,7 +99,7 @@ test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction�
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PreparationProbeProgressEvent[] = [];
+    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const toolRegistry = new InMemoryToolRegistry([
         createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
@@ -183,7 +183,7 @@ test("计划期只读探查: 探查成功不计 Step，不产生 pendingAction�
     assert.ok(eventTypes.includes("observation_recorded"));
     assert.ok(eventTypes.includes("decision_received"));
 
-    // 确保没有旧的 preparation 事件
+    // 确保没有旧的阶段专属事件
     assert.equal(eventTypes.includes("preparation_result" as any), false);
 });
 
@@ -191,7 +191,7 @@ test("计划期只读探查: 领域 failure 正常记录且不增 Step，继续�
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PreparationProbeProgressEvent[] = [];
+    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const failingReadTool = createMockTool(FAILING_READ_DEFINITION, {
         async execute() {
@@ -273,7 +273,7 @@ test("计划期只读探查: 工具运行时异常触发 failed 事件并停止�
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
-    const probeEvents: PreparationProbeProgressEvent[] = [];
+    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const throwingReadTool = createMockTool(THROWING_READ_DEFINITION, {
         async execute() {
@@ -509,7 +509,7 @@ test("探查重启恢复: 探查后保存快照，恢复后再次探查 probeNum
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor1 = new QueueStepExecutor();
-    const probeEvents: PreparationProbeProgressEvent[] = [];
+    const probeEvents: PlanProbeProgressEvent[] = [];
 
     const toolRegistry = new InMemoryToolRegistry([
         createToolRegistration(createMockTool(READ_FILE_DEFINITION)),

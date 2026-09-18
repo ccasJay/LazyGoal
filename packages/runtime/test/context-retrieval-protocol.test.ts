@@ -8,7 +8,6 @@ import {
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
     createGoal,
-    GoalCoordinator,
     invokeContextLookup,
     normalizeContextLookupRequest,
     Runner,
@@ -17,8 +16,6 @@ import {
     type ContextLookupPort,
     type ContextLookupRequest,
     type Goal,
-    type PreparationExecutionInput,
-    type PreparationExecutor,
     type StepExecutionInput,
     type StepExecutor,
     type TrajectoryEvent,
@@ -69,10 +66,10 @@ class MemoryTrajectoryStore implements TrajectoryStore {
     }
 }
 
-function createTestGoal(phase: "gathering_context" | "executing" = "gathering_context"): Goal {
+function createTestGoal(): Goal {
     const created = createGoal({
-        id: `goal-protocol-${phase}`,
-        runId: `run-protocol-${phase}`,
+        id: "goal-protocol",
+        runId: "run-protocol",
         intent: "验证检索协议与来源限制",
         promptBundleVersion: 1,
         memoryProtocol: { kind: "structured", version: 1 },
@@ -80,8 +77,7 @@ function createTestGoal(phase: "gathering_context" | "executing" = "gathering_co
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         profile,
     });
-    return phase === "executing"
-        ? {
+    return {
             ...created,
             state: {
                 ...created.state,
@@ -92,16 +88,6 @@ function createTestGoal(phase: "gathering_context" | "executing" = "gathering_co
                 run: {
                     ...created.state.run,
                     status: "running",
-                    committedThroughSequence: 0,
-                },
-            },
-        }
-        : {
-            ...created,
-            state: {
-                ...created.state,
-                run: {
-                    ...created.state.run,
                     committedThroughSequence: 0,
                 },
             },
@@ -187,7 +173,7 @@ test("非法结构、额外字段或空问题在检索前直接拒绝", () => {
 
 test("Runner 将规范化请求直接交给 invokeContextLookup", async () => {
     const store = new InMemoryGoalStore();
-    const executingGoal = createTestGoal("executing");
+    const executingGoal = createTestGoal();
     await store.save(executingGoal);
     const runnerTrajectory = new MemoryTrajectoryStore();
 
@@ -242,11 +228,11 @@ test("Runner 将规范化请求直接交给 invokeContextLookup", async () => {
 
 test("invokeContextLookup 在 sequenceRange.to 超过 committedThroughSequence 时将其 clamp 到当前已提交边界并成功检索", async () => {
     const goal: Goal = {
-        ...createTestGoal("gathering_context"),
+        ...createTestGoal(),
         state: {
-            ...createTestGoal("gathering_context").state,
+            ...createTestGoal().state,
             run: {
-                ...createTestGoal("gathering_context").state.run,
+                ...createTestGoal().state.run,
                 committedThroughSequence: 22,
             },
         },
@@ -266,7 +252,7 @@ test("invokeContextLookup 在 sequenceRange.to 超过 committedThroughSequence �
 
     const invocation = await invokeContextLookup({
         goal,
-        phase: "gathering_context",
+        phase: "executing",
         request: {
             kind: "context_lookup",
             need: "historical_execution",
@@ -286,11 +272,11 @@ test("invokeContextLookup 在 sequenceRange.to 超过 committedThroughSequence �
 
 test("invokeContextLookup 在 sequenceRange.from 超过 committedThroughSequence 时安全返回 not_found 而不抛出协议错误", async () => {
     const goal: Goal = {
-        ...createTestGoal("gathering_context"),
+        ...createTestGoal(),
         state: {
-            ...createTestGoal("gathering_context").state,
+            ...createTestGoal().state,
             run: {
-                ...createTestGoal("gathering_context").state.run,
+                ...createTestGoal().state.run,
                 committedThroughSequence: 10,
             },
         },
@@ -310,7 +296,7 @@ test("invokeContextLookup 在 sequenceRange.from 超过 committedThroughSequence
 
     const invocation = await invokeContextLookup({
         goal,
-        phase: "gathering_context",
+        phase: "executing",
         request: {
             kind: "context_lookup",
             need: "historical_execution",

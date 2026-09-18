@@ -29,7 +29,6 @@ import {
     type GoalProgressResult,
     type GoalStore,
     type ManagedResource,
-    type PreparationExecutor,
     type StepExecutor,
     type ToolPolicy,
     type ToolRegistry,
@@ -74,47 +73,6 @@ const DEFAULT_PROTOCOLS = {
     modelContextProtocol: { kind: "trajectory-layered", version: 1 } as const,
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 } as const,
 };
-
-/**
- * 为已确定 Descriptor 的任务创建自动提供 context_ready 与 task_proposal 的 PreparationExecutor。
- *
- * @remarks
- * 在 gathering_context 阶段自动返回 context_ready；在 planning 阶段自动根据 Descriptor 生成 task_proposal。
- *
- * @param descriptor - Benchmark 任务描述符。
- * @returns 满足 Runtime 契约的 PreparationExecutor 实例。
- *
- * @example
- * ```ts
- * const executor = createDescriptorPreparationExecutor(descriptor);
- * ```
- */
-export function createDescriptorPreparationExecutor(
-    descriptor: BenchmarkTaskDescriptor,
-): PreparationExecutor {
-    return {
-        async execute({ goal }) {
-            if (goal.state.workflow.phase === "gathering_context") {
-                return { kind: "context_ready" };
-            }
-
-            if (goal.state.workflow.phase === "planning") {
-                return {
-                    kind: "task_proposal",
-                    task: {
-                        objective: descriptor.objective,
-                        completionCriteria: descriptor.completionCriteria.map((c) =>
-                            typeof c === "string" ? { text: c } : c,
-                        ),
-                    },
-                    approvalRequest: "Benchmark task is ready for execution.",
-                };
-            }
-
-            throw new Error(`Unexpected preparation phase ${goal.state.workflow.phase}`);
-        },
-    };
-}
 
 /**
  * TUI 沙箱单任务执行的输入选项。
@@ -172,8 +130,6 @@ export interface TuiSandboxRunOptions<TTask, TArtifact, TOutcome = unknown> {
     readonly readonlyToolIds?: readonly string[];
     /** 可选自定义 ToolPolicy 实例，省略时按 mode 和 readonlyToolIds 创建。 */
     readonly toolPolicy?: ToolPolicy;
-    /** 可选自定义 PreparationExecutor 实例。 */
-    readonly preparationExecutor?: PreparationExecutor;
     /** 可选自定义 StepExecutor 实例。 */
     readonly stepExecutor?: StepExecutor;
     /** 可选 PromptBundleRenderer。 */
@@ -468,15 +424,11 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
 
                 const scheduler = new InlineScheduler(runner);
 
-                const preparationExecutor: PreparationExecutor = options.preparationExecutor
-                    ?? createDescriptorPreparationExecutor(options.descriptor);
-
                 const coordinator = new GoalCoordinator({
                     store: gate,
                     ...(trajectoryStore !== undefined ? { trajectoryStore } : {}),
                     traceSink,
                     scheduler,
-                    preparationExecutor,
                 });
 
                 const goal = createGoal({
@@ -518,39 +470,39 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                 });
                 app?.setController?.(sessionController);
 
-                // 确定性 Preparation：推进并自动批准预定义任务（req-4-1, req-4-2）
+                // 统一执行流：模型先提交任务提案；auto 模式自动批准，review 模式交给 TUI。
                 let progress = await coordinator.advance({ goalId, runId }, { signal });
-                if (
-                    progress.ok
-                    && progress.kind === "waiting"
-                    && progress.phase === "planning"
-                    && progress.waitingFor === "approval"
-                ) {
-                    progress = await coordinator.resume({
-                        ref: { goalId, runId },
-                        action: { kind: "approve" },
-                    }, { signal });
-                }
-
-                if (!progress.ok) {
-                    runErrors.push(progress.error.message);
-                    return;
-                }
-
-                if (progress.kind === "terminal") {
-                    terminalGoal = progress.goal;
-                    return;
-                }
-
-                // 执行循环
                 while (!signal.aborted) {
+                    if (!progress.ok) {
+                        runErrors.push(progress.error.message);
+                        break;
+                    }
+
                     if (progress.kind === "terminal") {
                         terminalGoal = progress.goal;
                         break;
                     }
 
                     if (progress.kind === "waiting") {
-                        if (progress.waitingFor === "action_approval") {
+                        if (progress.waitingFor === "task_approval") {
+                            if (mode === "auto") {
+                                progress = await coordinator.resume({
+                                    ref: { goalId, runId },
+                                    action: { kind: "approve_task" },
+                                }, { signal });
+                                continue;
+                            }
+                            if (app !== undefined) {
+                                await app.waitUntilExit().catch(() => undefined);
+                                const latest = await gate.restore(goalId);
+                                if (latest?.state.run.status === "completed"
+                                    || latest?.state.run.status === "failed"
+                                    || latest?.state.run.status === "cancelled") {
+                                    terminalGoal = latest;
+                                }
+                            }
+                            break;
+                        } else if (progress.waitingFor === "action_approval") {
                             if (mode === "auto") {
                                 // auto 模式下由 policy 自动放行；如仍遇到 approval 则说明异常
                                 autoBlocked = true;
@@ -561,12 +513,14 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                             if (app !== undefined) {
                                 await app.waitUntilExit().catch(() => undefined);
                                 const latest = await gate.restore(goalId);
-                                if (latest?.state.workflow.phase === "terminal") {
+                                if (latest?.state.run.status !== "waiting"
+                                    && latest?.state.run.status !== "running"
+                                    && latest?.state.run.status !== "created") {
                                     terminalGoal = latest;
                                 }
                             }
                             break;
-                        } else if (progress.waitingFor === "blocked" || progress.waitingFor === "question") {
+                        } else if (progress.waitingFor === "blocked" || progress.waitingFor === "ask_user") {
                             if (mode === "auto") {
                                 // auto 模式遇到用户输入阻塞以未完成结果退出（req-1-7/req-4-2）
                                 autoBlocked = true;
@@ -575,7 +529,9 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                             if (app !== undefined) {
                                 await app.waitUntilExit().catch(() => undefined);
                                 const latest = await gate.restore(goalId);
-                                if (latest?.state.workflow.phase === "terminal") {
+                                if (latest?.state.run.status !== "waiting"
+                                    && latest?.state.run.status !== "running"
+                                    && latest?.state.run.status !== "created") {
                                     terminalGoal = latest;
                                 }
                             }

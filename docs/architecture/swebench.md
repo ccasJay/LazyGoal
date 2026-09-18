@@ -43,7 +43,7 @@ Worker 侧的 [`runSwebenchAcpTask`](../../benchmarks/swebench/src/worker-runtim
 容器内装配真实 `HeadlessCompositionRoot`，固定 `swebench-acp-profile` 和
 `read_file`、`write_file`、`edit_file`、`grep`、`bash` 五个 Tool；五个 Tool 都以
 `/testbed` 为根，每个调用创建独立 Registry。任务 metadata 只在 Worker 内生成确定性
-objective 和完成条件，Preparation 不调用模型并自动批准进入 executing；Goal、Run 和
+objective 和完成条件，Worker 通过统一执行流提交任务提案并自动批准进入 executing；Goal、Run 和
 JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验和
 structured-output mode 一致性检查在首次 Root 副作用前完成。
 

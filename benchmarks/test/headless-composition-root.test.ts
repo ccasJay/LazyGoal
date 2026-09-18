@@ -25,6 +25,7 @@ import {
     validateTaskDescriptor,
     type BenchmarkAdapter,
     type BenchmarkPersistenceAdapter,
+    type BenchmarkTaskDescriptor,
     type HeadlessCompositionRootDependencies,
 } from "../src/headless-composition-root.js";
 
@@ -98,6 +99,7 @@ function createDependencies<TTask, TOutcome>(
         }),
     };
     let modelCalls = 0;
+    let taskDescriptor: BenchmarkTaskDescriptor | undefined;
     return {
         benchmarkId: "fake-benchmark",
         workspaceRoot: "/workspace",
@@ -106,9 +108,33 @@ function createDependencies<TTask, TOutcome>(
             structuredOutputMode: "strict" as const,
             generate: async () => {
                 modelCalls += 1;
+                if (modelCalls === 1) {
+                    assert.ok(taskDescriptor, "the task descriptor must be available before the first model call");
+                    return {
+                        content: JSON.stringify({
+                            result: {
+                                kind: "task_proposal",
+                                task: {
+                                    objective: taskDescriptor.objective,
+                                    completionCriteria: taskDescriptor.completionCriteria.map((criterion) => {
+                                        const normalized = typeof criterion === "string"
+                                            ? { text: criterion }
+                                            : criterion;
+                                        return {
+                                            text: normalized.text,
+                                            acceptance: normalized.acceptance ?? null,
+                                        };
+                                    }),
+                                },
+                                approvalRequest: "Benchmark task is ready for execution.",
+                                memoryPatch: null,
+                            },
+                        }),
+                    };
+                }
                 return {
                     content: JSON.stringify({
-                        result: modelCalls === 1
+                        result: modelCalls === 2
                             ? {
                                 kind: "tool_call",
                                 action: {
@@ -134,7 +160,10 @@ function createDependencies<TTask, TOutcome>(
         renderer: { render: () => "system" },
         contextCompactor: { compact: async (units) => units },
         adapter: {
-            describeTask: adapter.describeTask,
+            describeTask: (task) => {
+                taskDescriptor = adapter.describeTask(task);
+                return taskDescriptor;
+            },
             createEpisode: async (task, context) => {
                 const episode = await adapter.createEpisode(task, context);
                 return {
@@ -165,7 +194,7 @@ function latestObservationSequence(
     return observation.sequence;
 }
 
-test("runs a task through preparation, planning, approval and executing", async () => {
+test("runs a task through unified proposal approval and execution", async () => {
     type Task = { readonly prompt: string };
     type Outcome = { readonly answer: number };
     let created = 0;
@@ -209,9 +238,9 @@ test("runs a task through preparation, planning, approval and executing", async 
     assert.equal(result.runner?.ok, true);
     assert.deepEqual(
         trajectoryStore.events
-            .filter((event) => event.eventType === "preparation_result")
-            .map((event) => event.payload.result),
-        ["context_ready", "task_proposal"],
+            .filter((event) => event.eventType === "task_approved")
+            .map((event) => event.payload.type),
+        ["task_approved"],
     );
 });
 
@@ -264,6 +293,21 @@ test("aggregates normalized usage across model calls and counts missing usage ca
             return {
                 content: JSON.stringify({
                     result: {
+                        kind: "task_proposal",
+                        task: {
+                            objective: "Aggregate model usage",
+                            completionCriteria: [{ text: "The environment accepts completion", acceptance: null }],
+                        },
+                        approvalRequest: "Approve the benchmark task.",
+                        memoryPatch: null,
+                    },
+                }),
+            };
+        }
+        if (modelCalls === 2) {
+            return {
+                content: JSON.stringify({
+                    result: {
                         kind: "tool_call",
                         action: {
                             actionId: "benchmark-evidence-1",
@@ -278,7 +322,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                 },
             };
         }
-        if (modelCalls === 2) {
+        if (modelCalls === 3) {
             return {
                 content: JSON.stringify({
                     result: {
@@ -315,11 +359,11 @@ test("aggregates normalized usage across model calls and counts missing usage ca
     const result = await root.run({ id: "usage-aggregation" });
 
     assert.equal(result.model.completed, true);
-    assert.equal(modelCalls, 3);
+    assert.equal(modelCalls, 4);
     assert.deepEqual(result.model.usage, {
         inputTokens: 150,
         outputTokens: 25,
-        missingCalls: 1,
+        missingCalls: 2,
     });
 });
 
@@ -765,6 +809,30 @@ test("injects structured completion criteria with acceptance into Goal Task duri
             return {
                 content: JSON.stringify({
                     result: {
+                        kind: "task_proposal",
+                        task: {
+                            objective: "Complete task with verifiable evidence",
+                            completionCriteria: [
+                                { text: "String criterion", acceptance: null },
+                                {
+                                    text: "Evidence produced by tool",
+                                    acceptance: {
+                                        expectToolId: "benchmark_evidence",
+                                        expectOutcome: "success",
+                                    },
+                                },
+                            ],
+                        },
+                        approvalRequest: "Approve the benchmark task.",
+                        memoryPatch: null,
+                    },
+                }),
+            };
+        }
+        if (modelCalls === 2) {
+            return {
+                content: JSON.stringify({
+                    result: {
                         kind: "tool_call",
                         action: {
                             actionId: "benchmark-evidence-1",
@@ -875,8 +943,18 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         req.resume();
         calls += 1;
         const result = calls === 1
-            ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
-            : { kind: "complete", summary: "done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [latestObservationSequence(trajectoryStore)] }], memoryPatch: null };
+            ? {
+                kind: "task_proposal",
+                task: {
+                    objective: "Record evidence",
+                    completionCriteria: [{ text: "Record evidence", acceptance: null }],
+                },
+                approvalRequest: "Approve the benchmark task.",
+                memoryPatch: null,
+            }
+            : calls === 2
+                ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
+                : { kind: "complete", summary: "done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [latestObservationSequence(trajectoryStore)] }], memoryPatch: null };
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
             id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
@@ -896,8 +974,8 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         const root = new HeadlessCompositionRoot({ ...dependencies, llmAdapter });
         const result = await root.run({ id: "pi-usage" });
         assert.equal(result.model.completed, true);
-        assert.equal(calls, 2);
-        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 2 });
+        assert.equal(calls, 3);
+        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 3 });
     } finally {
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

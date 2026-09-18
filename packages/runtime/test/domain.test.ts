@@ -31,7 +31,7 @@ const currentProtocols = {
     contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
 };
 
-test("createGoal creates an initial gathering snapshot with independent IDs", () => {
+test("createGoal creates an initial executing snapshot with independent IDs", () => {
     const goal = createGoal({
         ...currentProtocols,
         id: "goal-1",

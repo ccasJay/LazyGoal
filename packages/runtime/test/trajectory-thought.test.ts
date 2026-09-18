@@ -61,8 +61,12 @@ test("JsonFileTrajectoryStore 持久化并准确回读携带思考链的 Traject
                 type: "decision_received",
                 decision: {
                     kind: "ask_user",
-                    interactionId: "ask-1",
-                    prompt: "需要向用户澄清测试范围与边界条件。",
+                    questions: [{
+                        header: "范围",
+                        question: "需要向用户澄清测试范围与边界条件。",
+                        options: [{ label: "完整范围" }, { label: "最小范围" }],
+                        multiSelect: false,
+                    }],
                 },
                 thought: "需要向用户澄清测试范围与边界条件。",
             },
@@ -121,7 +125,6 @@ test("projectTrajectoryEvents 准确将思考链投影至 UiInspectorStep.reason
                 type: "decision_received",
                 decision: {
                     kind: "task_proposal",
-                    interactionId: "prop-1",
                     task: {
                         objective: "已收集足够上下文，准备制定计划。",
                         completionCriteria: [{ text: "任务完成" }],
@@ -178,8 +181,8 @@ test("projectTrajectoryEvents 准确将思考链投影至 UiInspectorStep.reason
 
     assert.equal(steps.length, 3);
 
-    // Step 1: Preparation
-    assert.equal(steps[0]!.title, "Step 1: Preparation & Planning");
+    // Step 1: unified lifecycle
+    assert.equal(steps[0]!.title, "Step 1: Goal Initialized");
     assert.equal(steps[0]!.reasoning, "已收集足够上下文，准备制定计划。");
 
     // Step 2: unit-with-thought

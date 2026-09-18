@@ -175,7 +175,7 @@ export type ContextLookupFilters = InferContract<typeof ContextLookupFiltersCont
  * Context Lookup 请求契约。
  *
  * @remarks
- * Agent 或 Preparation 请求从已提交 Trajectory 查询上下文的独占结果分支。
+ * Agent 统一执行请求从已提交 Trajectory 查询上下文的独占结果分支。
  *
  * @example
  * ```ts
@@ -568,7 +568,7 @@ export type WorkingMemoryPatch = InferContract<typeof WorkingMemoryPatchContract
  * Executing 阶段 Memory Patch 单项操作契约。
  *
  * @remarks
- * Executing 只能更新已存在的 PlanItem；PlanItem 的创建属于 Planning 阶段，
+ * 统一执行流只能更新已存在的 PlanItem；PlanItem 的创建由任务提案承载，
  * 因此此契约刻意不包含 `create_plan_item` 分支。
  *
  * @example
@@ -596,7 +596,7 @@ export type ExecutingMemoryPatchOperation = InferContract<typeof ExecutingMemory
  * Executing 阶段 Working Memory 增量 Patch 契约。
  *
  * @remarks
- * 与 Preparation 使用的 `WorkingMemoryPatchContract` 共用协议版本，
+ * 与统一执行使用的 `WorkingMemoryPatchContract` 共用协议版本，
  * 但禁止创建 PlanItem；Runtime 的阶段门仍负责对已解码 Patch 做最终校验。
  *
  * @example
@@ -616,52 +616,6 @@ export const ExecutingWorkingMemoryPatchContract = contract.object({
 export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingMemoryPatchContract>;
 
 /**
- * Preparation Question 结果契约。
- *
- * @example
- * ```ts
- * const res = { kind: "question", question: "需要支持哪些工具？" };
- * ```
- */
-export const QuestionPreparationResultContract = contract.object({
-    kind: contract.literal("question"),
-    question: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/**
- * Preparation Context Ready 结果契约。
- *
- * @example
- * ```ts
- * const res = { kind: "context_ready" };
- * ```
- */
-export const ContextReadyPreparationResultContract = contract.object({
-    kind: contract.literal("context_ready"),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/**
- * Preparation Task Proposal 结果契约。
- *
- * @example
- * ```ts
- * const res = {
- *     kind: "task_proposal",
- *     task: { objective: "目标", completionCriteria: [] },
- *     approvalRequest: "是否批准？",
- * };
- * ```
- */
-export const TaskProposalPreparationResultContract = contract.object({
-    kind: contract.literal("task_proposal"),
-    task: GoalTaskContract,
-    approvalRequest: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/**
  * Model Context Checkpoint 检查点结果契约。
  *
  * @example
@@ -671,149 +625,11 @@ export const TaskProposalPreparationResultContract = contract.object({
  */
 export const ModelContextCheckpointResultContract = contract.object({
     kind: contract.literal("context_checkpoint"),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /** Context Checkpoint 结果公开类型。 */
 export type ModelContextCheckpointResult = InferContract<typeof ModelContextCheckpointResultContract>;
-
-/**
- * 准备阶段只读探查动作契约。
- *
- * @remarks
- * 仅允许在需求收集或规划阶段调用已声明的只读工具，包含目标工具标识与入参，可选携带 actionId。
- *
- * @example
- * ```ts
- * const probe: ProbeAction = {
- *     toolId: "read_file",
- *     input: { path: "README.md" },
- * };
- * ```
- */
-export const ProbeActionContract = contract.object({
-    toolId: contract.string(),
-    input: JsonValueContract,
-});
-
-/** 准备阶段只读探查动作公开类型。 */
-export type ProbeAction = InferContract<typeof ProbeActionContract>;
-
-/**
- * 准备阶段只读探查决策契约。
- *
- * @remarks
- * 模型在需求收集或方案规划阶段发起的只读环境探查请求，对工作区与外部状态无修改副作用。
- *
- * @example
- * ```ts
- * const res: ProbeActionPreparationResult = {
- *     kind: "probe_action",
- *     action: { toolId: "read_file", input: { path: "package.json" } },
- * };
- * ```
- */
-export const ProbeActionPreparationResultContract = contract.object({
-    kind: contract.literal("probe_action"),
-    action: ProbeActionContract,
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/** 准备阶段只读探查决策公开类型。 */
-export type ProbeActionPreparationResult = InferContract<typeof ProbeActionPreparationResultContract>;
-
-/**
- * Gathering 阶段专属 Preparation 结果契约。
- *
- * @remarks
- * 允许 question、context_ready、context_lookup 或 probe_action。
- */
-export const GatheringPreparationResultContract = contract.discriminatedUnion("kind", [
-    QuestionPreparationResultContract,
-    ContextReadyPreparationResultContract,
-    ContextLookupRequestContract,
-    ProbeActionPreparationResultContract,
-]);
-
-/** Gathering 阶段结果公开类型。 */
-export type GatheringPreparationResult = InferContract<typeof GatheringPreparationResultContract>;
-
-/**
- * 未授权任何只读 Tool 时的 Gathering 阶段结果契约。
- *
- * @remarks
- * 省略 probe_action 分支，仅允许 question、context_ready 与 context_lookup。
- *
- * @example
- * ```ts
- * const parsed = safeParse(NonProbeGatheringPreparationResultContract, result);
- * ```
- */
-export const NonProbeGatheringPreparationResultContract = contract.discriminatedUnion("kind", [
-    QuestionPreparationResultContract,
-    ContextReadyPreparationResultContract,
-    ContextLookupRequestContract,
-]);
-
-/** 未授权任何只读 Tool 时的 Gathering 阶段结果公开类型。 */
-export type NonProbeGatheringPreparationResult = InferContract<typeof NonProbeGatheringPreparationResultContract>;
-
-/**
- * Planning 阶段专属 Preparation 结果契约。
- *
- * @remarks
- * 允许 task_proposal、context_lookup 或 probe_action。
- */
-export const PlanningPreparationResultContract = contract.discriminatedUnion("kind", [
-    TaskProposalPreparationResultContract,
-    ContextLookupRequestContract,
-    ProbeActionPreparationResultContract,
-]);
-
-/** Planning 阶段结果公开类型。 */
-export type PlanningPreparationResult = InferContract<typeof PlanningPreparationResultContract>;
-
-/**
- * 未授权任何只读 Tool 时的 Planning 阶段结果契约。
- *
- * @remarks
- * 省略 probe_action 分支，仅允许 task_proposal 与 context_lookup。
- *
- * @example
- * ```ts
- * const parsed = safeParse(NonProbePlanningPreparationResultContract, result);
- * ```
- */
-export const NonProbePlanningPreparationResultContract = contract.discriminatedUnion("kind", [
-    TaskProposalPreparationResultContract,
-    ContextLookupRequestContract,
-]);
-
-/** 未授权任何只读 Tool 时的 Planning 阶段结果公开类型。 */
-export type NonProbePlanningPreparationResult = InferContract<typeof NonProbePlanningPreparationResultContract>;
-
-/**
- * 完整 Preparation 结果契约。
- *
- * @remarks
- * Runtime Coordinator 校验 Preparation Executor 返回值的统一顶层契约。
- *
- * @example
- * ```ts
- * const parsed = safeParse(PreparationResultContract, raw);
- * ```
- */
-export const PreparationResultContract = contract.discriminatedUnion("kind", [
-    ModelContextCheckpointResultContract,
-    QuestionPreparationResultContract,
-    ContextReadyPreparationResultContract,
-    TaskProposalPreparationResultContract,
-    ContextLookupRequestContract,
-    ProbeActionPreparationResultContract,
-]);
-
-/** Preparation 结果公开类型。 */
-export type PreparationResult = InferContract<typeof PreparationResultContract>;
 
 /**
  * Tool 调用决策契约。
@@ -829,7 +645,7 @@ export type PreparationResult = InferContract<typeof PreparationResultContract>;
 export const ToolCallAgentDecisionContract = contract.object({
     kind: contract.literal("tool_call"),
     action: ToolCallActionContract,
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /**
@@ -848,7 +664,7 @@ export const CompleteAgentDecisionContract = contract.object({
     kind: contract.literal("complete"),
     summary: contract.string(),
     completionEvidence: contract.array(CompletionEvidenceContract),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /**
@@ -862,7 +678,7 @@ export const CompleteAgentDecisionContract = contract.object({
 export const WaitAgentDecisionContract = contract.object({
     kind: contract.literal("wait"),
     reason: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /**
@@ -876,7 +692,7 @@ export const WaitAgentDecisionContract = contract.object({
 export const FailAgentDecisionContract = contract.object({
     kind: contract.literal("fail"),
     error: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /**
@@ -1099,7 +915,9 @@ export function normalizeAskUserRequest(
     requestId?: string,
 ): { readonly requestId: string; readonly questions: readonly AskUserQuestion[] } {
     const effectiveRequestId = requestId ?? `ask-${randomUUID()}`;
-    const rawQuestions = Array.isArray(input) ? input : input.questions;
+    const rawQuestions: readonly AskUserQuestionInput[] = "questions" in input
+        ? input.questions
+        : input;
     const questions = rawQuestions.map((q, qIndex) => {
         const questionId = `q-${qIndex + 1}`;
         const options = q.options.map((opt, optIndex) => ({
@@ -1504,7 +1322,7 @@ function validateMemoryPatchSemantics(
  *
  * @remarks
  * 纯函数，不修改输入、不进行 trim、不补充默认值。
- * 针对 PreparationResult、AgentDecision、ContextLookupRequest、GoalTask 或 MemoryPatch
+ * 针对 AgentDecision、ContextLookupRequest、GoalTask 或 MemoryPatch
  * 检查非空白字符串、非反转 sequenceRange 及 update 操作非空变更。
  *
  * @param value - 待校验的模型输出对象或子对象。

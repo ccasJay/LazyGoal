@@ -122,12 +122,6 @@ export type {
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
 export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
-export type {
-    PreparationExecutor,
-    PreparationExecutionInput,
-    PreparationProbeResult,
-    PreparationResult,
-} from "./preparation-executor";
 export {
     DEFAULT_WORKING_MEMORY_LIMITS,
     WORKING_MEMORY_LIMITS_ERROR_CODE,
@@ -374,7 +368,7 @@ export type {
     ToolObservation,
     ToolPolicy,
     ToolPolicyContext,
-    ToolPreparationResult,
+    PreparedToolAction,
     ToolRegistration,
     ToolRegistry,
     ToolValidationResult,
@@ -393,7 +387,7 @@ export type {
     GoalProgressErrorCode,
     GoalProgressResult,
     GoalUserAction,
-    PreparationProbeProgressEvent,
+    PlanProbeProgressEvent,
     ResumeGoalRequest,
 } from "./goal-coordinator";
 export {
@@ -419,7 +413,6 @@ export type {
     TraceRecord,
     TrajectoryEvent,
     EpochRange,
-    PreparationInputEvidence,
     TrajectoryEventCategory,
     TrajectoryEventDraft,
     TrajectoryEventPayload,

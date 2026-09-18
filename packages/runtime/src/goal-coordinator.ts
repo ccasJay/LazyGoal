@@ -6,12 +6,11 @@ import type {
     RunRef,
     AskUserAnswer,
     AskUserQuestion,
-    PreparationProbeProgressEvent,
+    PlanProbeProgressEvent,
 } from "./domain";
 
-export type { PreparationProbeProgressEvent };
+export type { PlanProbeProgressEvent };
 import type { GoalStore } from "./goal-store";
-import type { PreparationExecutor } from "./preparation-executor";
 import { validateAskUserAnswers } from "../../contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
@@ -103,8 +102,8 @@ export type GoalProgressErrorCode =
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
-    | "PREPARATION_READ_ONLY_VIOLATION"
-    | "PREPARATION_PROBE_LIMIT_EXCEEDED"
+    | "PLAN_PROBE_READ_ONLY_VIOLATION"
+    | "PLAN_PROBE_LIMIT_EXCEEDED"
     | "INVALID_TOOL_INPUT"
     | "TOOL_EXECUTION_ERROR";
 
@@ -226,11 +225,6 @@ export type GoalProgressResult =
 export interface GoalCoordinatorDependencies {
     /** 用于恢复和保存 Goal 最新完整快照。 */
     readonly store: GoalStore;
-    /**
-     * 生成 active Preparation 的单轮决策（已废弃）。
-     * @deprecated Preparation 阶段已移除，此字段保留仅用于过渡期兼容。
-     */
-    readonly preparationExecutor?: PreparationExecutor;
     /** 运行 executing Goal，直到 blocked、waiting 或终态。 */
     readonly scheduler: RunScheduler;
     /** 工具注册表；省略时按空 InMemoryToolRegistry 处理。 */
@@ -248,7 +242,7 @@ export interface GoalCoordinatorDependencies {
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
     /** 可选的探查生命周期事件回调。 */
-    readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
+    readonly onProbeProgress?: (event: PlanProbeProgressEvent) => void;
 }
 
 /**
@@ -276,8 +270,8 @@ export class GoalCoordinator {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
-    private readonly probeListeners = new Set<(event: PreparationProbeProgressEvent) => void>();
-    private readonly onProbeProgressCallback: ((event: PreparationProbeProgressEvent) => void) | undefined;
+    private readonly probeListeners = new Set<(event: PlanProbeProgressEvent) => void>();
+    private readonly onProbeProgressCallback: ((event: PlanProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalCoordinatorDependencies。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
@@ -314,14 +308,14 @@ export class GoalCoordinator {
      * });
      * ```
      */
-    onProbeProgress(listener: (event: PreparationProbeProgressEvent) => void): () => void {
+    onProbeProgress(listener: (event: PlanProbeProgressEvent) => void): () => void {
         this.probeListeners.add(listener);
         return () => {
             this.probeListeners.delete(listener);
         };
     }
 
-    private notifyProbeProgress(event: PreparationProbeProgressEvent): void {
+    private notifyProbeProgress(event: PlanProbeProgressEvent): void {
         try {
             this.onProbeProgressCallback?.(event);
         } catch {
@@ -537,7 +531,7 @@ export class GoalCoordinator {
                     }
 
                     const proposal = pendingInteraction.proposal;
-                    const epoch = this.advanceGoalContextEpoch(goal, "planning_approved");
+                    const epoch = this.advanceGoalContextEpoch(goal, "task_approved");
                     const resolvedRun = transition(epoch.goal.state.run, {
                         kind: "resolve_interaction",
                         interactionKind: "task_approval",
@@ -824,7 +818,7 @@ export class GoalCoordinator {
 
     private advanceGoalContextEpoch(
         goal: Goal,
-        reason: "conversation_pruned" | "input_threshold" | "planning_approved",
+        reason: "conversation_pruned" | "input_threshold" | "task_approved",
     ): {
         readonly goal: Goal;
         readonly fact: TrajectoryEventDraft;
@@ -878,7 +872,14 @@ export class GoalCoordinator {
     }
 
     private validateGoalProtocol(goal: Goal): void {
-        this.protocolValidator?.assertGoal(goal);
+        if (this.protocolValidator === undefined) return;
+
+        this.protocolValidator.validate({
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            memoryProtocol: goal.definition.memoryProtocol,
+            modelContextProtocol: goal.definition.modelContextProtocol,
+            contextRetrievalProtocol: goal.definition.contextRetrievalProtocol,
+        });
     }
 
     private async saveCheckpoint(

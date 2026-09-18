@@ -7,22 +7,13 @@ import {
     type AgentDecision,
     AskUserAgentDecisionContract,
     ContextLookupRequestContract,
-    ContextReadyPreparationResultContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
-    GatheringPreparationResultContract,
     ModelContextCheckpointResultContract,
-    NonProbeGatheringPreparationResultContract,
-    NonProbePlanningPreparationResultContract,
     NonToolExecutingDecisionContract,
-    PlanningPreparationResultContract,
-    type PreparationResult,
-    QuestionPreparationResultContract,
     TaskProposalAgentDecisionContract,
-    TaskProposalPreparationResultContract,
-    WorkingMemoryPatchContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
@@ -55,7 +46,7 @@ export interface AuthorizedToolContract {
      * 是否为只读工具。
      *
      * @remarks
-     * 声明为 `true` 的工具在准备阶段可被模型自主调用，且对工作区无任何副作用。默认为 `false`。
+     * 声明为 `true` 的工具在任务批准前可被模型自主调用，且对工作区无任何副作用。默认为 `false`。
      */
     readonly isReadOnly?: boolean;
 }
@@ -83,17 +74,9 @@ export function isReadOnlyToolContract(tool: AuthorizedToolContract): boolean {
  * 模型输出请求种类定义。
  *
  * @remarks
- * 分别对应上下文收集、规划、执行与检查点阶段。
+ * 统一执行生命周期与上下文检查点请求。
  */
 export type ModelOutputRequest =
-    | {
-        readonly kind: "gathering";
-        readonly authorizedTools?: readonly AuthorizedToolContract[];
-      }
-    | {
-        readonly kind: "planning";
-        readonly authorizedTools?: readonly AuthorizedToolContract[];
-      }
     | {
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
@@ -110,7 +93,7 @@ export type ModelOutputRequest =
  *
  * @example
  * ```ts
- * const bundle = createModelOutputContractBundle({ kind: "gathering" });
+ * const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false });
  * const result = bundle.decode(rawWireJson);
  * ```
  */
@@ -166,34 +149,6 @@ function buildWireToolBranch(tool: AuthorizedToolContract): Contract<unknown> {
 }
 
 /**
- * 为单个只读 Tool 构造 canonical 的 probe_action 决策分支契约。
- */
-function buildCanonicalProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
-    return contract.object({
-        kind: contract.literal("probe_action"),
-        action: contract.object({
-            toolId: contract.literal(tool.id),
-            input: tool.inputContract,
-        }),
-        memoryPatch: contract.optional(WorkingMemoryPatchContract),
-    });
-}
-
-/**
- * 为单个只读 Tool 派生 wire 的 probe_action 决策分支契约。
- */
-function buildWireProbeBranch(tool: AuthorizedToolContract): Contract<unknown> {
-    return contract.object({
-        kind: contract.enum(["probe_action"]),
-        action: contract.object({
-            toolId: contract.enum([tool.id]),
-            input: deriveWireContract(tool.inputContract),
-        }),
-        memoryPatch: contract.nullable(deriveWireContract(WorkingMemoryPatchContract)),
-    });
-}
-
-/**
  * 校验授权工具列表，按 code-point 排序，并确保工具 ID 非空且无重复。
  */
 function validateAndSortAuthorizedTools(
@@ -228,9 +183,9 @@ function validateAndSortAuthorizedTools(
  * 创建请求级模型输出契约包。
  *
  * @remarks
- * 1. Gathering、Planning 阶段依据授权只读 Tool 集合动态组合：
- *    - 声明为 `isReadOnly: true` 的只读工具按稳定 Tool ID 码点序派生专属 `probe_action` 分支；
- *    - 未提供只读工具时仅保留各阶段的基础决策分支；
+ * 1. 统一 Executing 生命周期依据是否已批准任务动态组合：
+ *    - 未批准任务时只派生只读工具的 `tool_call` 分支，并保留 ask_user、task_proposal、lookup；
+ *    - 已批准任务时派生全部授权工具及 complete、wait、fail、lookup、ask_user；
  * 2. Executing 阶段依据授权 Tool 集合动态组合：
  *    - 授权工具按稳定 Tool ID 码点序派生，每个 tool 绑定专属 `tool_call` 分支；
  *    - 空集合或未配置 Tool 时直接省略 `tool_call` 分支；
@@ -244,85 +199,20 @@ function validateAndSortAuthorizedTools(
  * @example
  * ```ts
  * const bundle = createModelOutputContractBundle({
- *     kind: "gathering",
+ *     kind: "executing",
+ *     taskPresent: false,
  *     authorizedTools: [{ id: "read_file", inputContract: ReadFileInputContract, isReadOnly: true }],
  * });
  * ```
  */
 export function createModelOutputContractBundle(
     request: ModelOutputRequest,
-): ModelOutputContractBundle<PreparationResult | AgentDecision> {
+): ModelOutputContractBundle<AgentDecision> {
     let name: string;
-    let canonicalContract: Contract<PreparationResult | AgentDecision>;
+    let canonicalContract: Contract<AgentDecision>;
     let wireContract: Contract<unknown>;
 
     switch (request.kind) {
-        case "gathering": {
-            name = "gathering_preparation_result";
-            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
-                .filter(isReadOnlyToolContract);
-
-            if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = NonProbeGatheringPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = deriveWireEnvelopeContract(NonProbeGatheringPreparationResultContract);
-            } else {
-                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
-                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
-                const baseCanonical = [
-                    QuestionPreparationResultContract,
-                    ContextReadyPreparationResultContract,
-                    ContextLookupRequestContract,
-                ];
-                const baseWire = [
-                    deriveWireContract(QuestionPreparationResultContract),
-                    deriveWireContract(ContextReadyPreparationResultContract),
-                    deriveWireContract(ContextLookupRequestContract),
-                ];
-                canonicalContract = contract.union([
-                    ...probeCanonical,
-                    ...baseCanonical,
-                ] as any) as Contract<PreparationResult | AgentDecision>;
-                wireContract = contract.object({
-                    result: contract.union([
-                        ...probeWire,
-                        ...baseWire,
-                    ] as any),
-                });
-            }
-            break;
-        }
-        case "planning": {
-            name = "planning_preparation_result";
-            const sortedReadOnlyTools = validateAndSortAuthorizedTools(request.authorizedTools)
-                .filter(isReadOnlyToolContract);
-
-            if (sortedReadOnlyTools.length === 0) {
-                canonicalContract = NonProbePlanningPreparationResultContract as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = deriveWireEnvelopeContract(NonProbePlanningPreparationResultContract);
-            } else {
-                const probeCanonical = sortedReadOnlyTools.map(buildCanonicalProbeBranch);
-                const probeWire = sortedReadOnlyTools.map(buildWireProbeBranch);
-                const baseCanonical = [
-                    TaskProposalPreparationResultContract,
-                    ContextLookupRequestContract,
-                ];
-                const baseWire = [
-                    deriveWireContract(TaskProposalPreparationResultContract),
-                    deriveWireContract(ContextLookupRequestContract),
-                ];
-                canonicalContract = contract.union([
-                    ...probeCanonical,
-                    ...baseCanonical,
-                ] as any) as Contract<PreparationResult | AgentDecision>;
-                wireContract = contract.object({
-                    result: contract.union([
-                        ...probeWire,
-                        ...baseWire,
-                    ] as any),
-                });
-            }
-            break;
-        }
         case "executing": {
             const taskPresent = request.taskPresent !== false;
             name = taskPresent ? "executing_agent_decision" : "unapproved_executing_agent_decision";
@@ -350,7 +240,7 @@ export function createModelOutputContractBundle(
                 // 无授权工具时完全省略 tool_call 分支
                 canonicalContract = contract.union(
                     nonToolCanonicalBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                ) as unknown as Contract<PreparationResult | AgentDecision>;
+                ) as unknown as Contract<AgentDecision>;
                 wireContract = contract.object({
                     result: contract.union(
                         nonToolWireBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
@@ -367,7 +257,7 @@ export function createModelOutputContractBundle(
                 ];
                 canonicalContract = contract.union(
                     canonicalBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                ) as unknown as Contract<PreparationResult | AgentDecision>;
+                ) as unknown as Contract<AgentDecision>;
 
                 const wireResultBranches = [
                     ...toolWireBranches,
@@ -384,7 +274,7 @@ export function createModelOutputContractBundle(
         }
         case "checkpoint":
             name = "context_checkpoint_result";
-            canonicalContract = ModelContextCheckpointResultContract as unknown as Contract<PreparationResult | AgentDecision>;
+            canonicalContract = ModelContextCheckpointResultContract as unknown as Contract<AgentDecision>;
             wireContract = deriveWireEnvelopeContract(ModelContextCheckpointResultContract);
             break;
     }
@@ -398,7 +288,7 @@ export function createModelOutputContractBundle(
         canonicalContract,
         jsonSchema,
         shapeGuide,
-        decode(value: unknown): PreparationResult | AgentDecision {
+        decode(value: unknown): AgentDecision {
             const wireParsed = safeParse(wireContract, value);
             if (!wireParsed.success) {
                 throw new ContractValidationError(wireParsed.issues, wireParsed.truncated);

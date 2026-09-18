@@ -42,7 +42,7 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
      * 是否为只读工具。
      *
      * @remarks
-     * 声明为 `true` 的工具可在准备阶段由模型自主调用。该字段是能力分类的唯一
+     * 声明为 `true` 的工具可在任务批准前由模型自主调用。该字段是能力分类的唯一
      * 事实源；实现者仍须保证工具不会修改工作区、配置或外部可变状态。
      */
     readonly isReadOnly: boolean;
@@ -154,8 +154,8 @@ export function isReadOnlyTool(
     return tool.isReadOnly;
 }
 
-/** Tool Contract 与语义校验完成后的单次准备结果。 */
-export type ToolPreparationResult =
+/** Tool Contract 与语义校验完成后的单次可执行 Action。 */
+export type PreparedToolAction =
     | {
         readonly ok: true;
         /** Contract Parser 创建的、与原始输入隔离的 canonical 输入。 */
@@ -197,7 +197,7 @@ export interface ToolRegistration {
      * @throws Contract 定义、语义校验或中止检查异常；中止时传播
      *   `ExecutionAbortedError`。
      */
-    prepare(input: JsonValue, control?: ExecutionControl): ToolPreparationResult;
+    prepare(input: JsonValue, control?: ExecutionControl): PreparedToolAction;
 }
 
 /**

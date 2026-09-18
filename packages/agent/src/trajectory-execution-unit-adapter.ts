@@ -393,7 +393,7 @@ function completeExecutionUnit(
 
         const expectedTerminal = decision.kind === "complete"
             ? "run_completed"
-            : decision.kind === "wait"
+            : (decision.kind === "wait" || decision.kind === "ask_user" || decision.kind === "task_proposal")
                 ? "run_waiting"
                 : "run_failed";
         if (terminals[0]!.eventType !== expectedTerminal) {

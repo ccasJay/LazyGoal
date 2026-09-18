@@ -69,7 +69,7 @@ export type TrajectoryEventPayload =
         readonly type: "context_epoch_advanced";
         readonly closedEpoch: EpochRange;
         readonly openedEpoch: ModelContextEpochState;
-        readonly reason: "conversation_pruned" | "input_threshold" | "planning_approved";
+        readonly reason: "conversation_pruned" | "input_threshold" | "task_approved";
         readonly memoryRevisionEventId?: string;
     }
     | {
@@ -143,16 +143,6 @@ export type TrajectoryEventPayload =
 
 /** Domain Event 的稳定事件类型名称。 */
 export type TrajectoryEventType = TrajectoryEventPayload["type"];
-
-/** Preparation 用户输入在 Trajectory 中的可验证来源投影。 */
-export interface PreparationInputEvidence {
-    /** 记录该 provenance event 的 Trajectory sequence。 */
-    readonly sequence: number;
-    /** 指向 Goal Conversation 中原始 user 消息的数组索引。 */
-    readonly messageIndex: number;
-    /** 原始消息正文的 UTF-8 SHA-256 摘要。 */
-    readonly contentHash: `sha256:${string}`;
-}
 
 /**
  * 计算单条文本的 canonical UTF-8 SHA-256 content hash。
@@ -646,7 +636,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         if (!isRecord(payload.closedEpoch) || !isRecord(payload.openedEpoch)
             || (payload.reason !== "conversation_pruned"
                 && payload.reason !== "input_threshold"
-                && payload.reason !== "planning_approved")) {
+                && payload.reason !== "task_approved")) {
             throw new TrajectoryProtocolError("context_epoch_advanced payload is invalid");
         }
         assertEpochRange(payload.closedEpoch);

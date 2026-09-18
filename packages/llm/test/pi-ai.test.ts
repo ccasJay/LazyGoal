@@ -281,7 +281,7 @@ test("real SDK rejects length termination and stream errors", async () => {
     }
 });
 
-test("agent smoke exercises preparation, approval, one tool and completion in both modes", async () => {
+test("agent smoke exercises unified task approval, one tool and completion in both modes", async () => {
     const { runAgentSmoke } = await import("./agent-smoke-test");
     for (const mode of ["strict", "prompt_only"] as const) {
         const phases: string[] = [];
@@ -295,8 +295,12 @@ test("agent smoke exercises preparation, approval, one tool and completion in bo
                 assert.equal(body.response_format !== undefined, mode === "strict");
                 assert.equal(working.responseShapeGuide !== undefined, mode === "prompt_only");
                 let decision: unknown;
-                if (working.phase === "gathering_context") decision = { kind: "context_ready", memoryPatch: null };
-                else if (working.phase === "planning") decision = {
+                const taskApproved = body.messages.some(
+                    (message: { readonly role: string; readonly content: string }) =>
+                        message.role === "system"
+                        && message.content.includes("Approved Goal Task Contract:"),
+                );
+                if (!taskApproved) decision = {
                     kind: "task_proposal", task: { objective: "Verify smoke evidence", completionCriteria: [{ text: "Obtain the smoke observation", acceptance: null }] },
                     approvalRequest: "Approve the smoke test?", memoryPatch: null,
                 };
@@ -321,15 +325,14 @@ test("agent smoke exercises preparation, approval, one tool and completion in bo
                 LLM_BASE_URL: `${url}/v1`, LLM_STRUCTURED_OUTPUT_MODE: mode,
                 LLM_CONTEXT_WINDOW_TOKENS: "65536", LLM_MAX_OUTPUT_TOKENS: "4096",
             });
-            assert.equal(report.preparation, "passed");
-            assert.equal(report.execution, "passed");
+            assert.equal(report.unifiedExecution, "passed");
             assert.equal(report.toolCalls, 1);
         });
-        assert.deepEqual(phases, ["gathering_context", "planning", "executing", "executing"]);
+        assert.deepEqual(phases, ["executing", "executing", "executing"]);
     }
 });
 
-test("pi-ai preparation keeps local JSON and phase validation", async () => {
+test("pi-ai unified execution keeps local JSON and phase validation", async () => {
     const { runAgentSmoke } = await import("./agent-smoke-test");
     for (const content of ["", "not JSON", JSON.stringify({ result: { kind: "complete", summary: "wrong phase", completionEvidence: [], memoryPatch: null } })]) {
         let calls = 0;

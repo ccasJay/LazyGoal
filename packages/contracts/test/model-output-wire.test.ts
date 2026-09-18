@@ -8,14 +8,12 @@ import {
     decodeWireResult,
     deriveWireContract,
     deriveWireEnvelopeContract,
-    GatheringPreparationResultContract,
+    AgentDecisionContract,
+    AskUserAgentDecisionContract,
     GoalTaskContract,
     ModelContextCheckpointResultContract,
     ModelOutputContractDefinitionError,
     OrdinaryExecutingDecisionContract,
-    PlanningPreparationResultContract,
-    PreparationResultContract,
-    QuestionPreparationResultContract,
     safeParse,
 } from "../src/index";
 
@@ -61,13 +59,13 @@ test("deriveWireEnvelopeContract 严格要求顶层仅含必填 result envelope�
 });
 
 test("Wire 契约拒绝缺少必填字段、错误 null 以及额外字段（Req 2.2, Req 2.3）", () => {
-    const envelopeContract = deriveWireEnvelopeContract(QuestionPreparationResultContract);
+    const envelopeContract = deriveWireEnvelopeContract(AskUserAgentDecisionContract);
 
     // 必填字段传 null（错误 null）
     const nullQuestion = {
         result: {
-            kind: "question",
-            question: null,
+            kind: "ask_user",
+            questions: null,
         },
     };
     assert.equal(safeParse(envelopeContract, nullQuestion).success, false);
@@ -75,7 +73,7 @@ test("Wire 契约拒绝缺少必填字段、错误 null 以及额外字段（Req
     // 缺少必填字段
     const missingQuestion = {
         result: {
-            kind: "question",
+            kind: "ask_user",
         },
     };
     assert.equal(safeParse(envelopeContract, missingQuestion).success, false);
@@ -83,8 +81,8 @@ test("Wire 契约拒绝缺少必填字段、错误 null 以及额外字段（Req
     // 额外字段
     const extraField = {
         result: {
-            kind: "question",
-            question: "请问需要什么？",
+            kind: "ask_user",
+            questions: [],
             unexpectedField: "hack",
         },
     };
@@ -175,7 +173,13 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
     // 5. 业务合法 null（Fact value 为 null）：必须原样保留，不得被消除！
     const wireFactWithNull = {
         result: {
-            kind: "context_ready",
+            kind: "ask_user",
+            questions: [{
+                header: "数据库",
+                question: "使用哪种数据库？",
+                options: [{ label: "PostgreSQL" }, { label: "MySQL" }],
+                multiSelect: false,
+            }],
             memoryPatch: {
                 protocolVersion: 1,
                 operations: [
@@ -193,9 +197,9 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
             },
         },
     };
-    const decodedContextReady = decodeWireResult(wireFactWithNull, GatheringPreparationResultContract);
-    assert.equal(decodedContextReady.kind, "context_ready");
-    if (decodedContextReady.kind === "context_ready") {
+    const decodedContextReady = decodeWireResult(wireFactWithNull, OrdinaryExecutingDecisionContract);
+    assert.equal(decodedContextReady.kind, "ask_user");
+    if (decodedContextReady.kind === "ask_user") {
         const op = decodedContextReady.memoryPatch?.operations[0];
         assert.equal(op?.type, "upsert_fact");
         if (op?.type === "upsert_fact") {
@@ -249,61 +253,61 @@ test("派生器拒绝 optional(nullable(...)) 等不可逆或不可移植定义"
 test("decodeWireResult 生成稳定深复制并隔离输入引用", () => {
     const originalInput = {
         result: {
-            kind: "question",
-            question: "请确认方案",
+            kind: "ask_user",
+            questions: [{
+                header: "确认",
+                question: "请确认方案",
+                options: [{ label: "A" }, { label: "B" }],
+                multiSelect: false,
+            }],
         },
     };
 
-    const decoded = decodeWireResult(originalInput, PreparationResultContract);
-    assert.deepEqual(decoded, { kind: "question", question: "请确认方案" });
+    const decoded = decodeWireResult(originalInput, AgentDecisionContract);
+    assert.deepEqual(decoded, {
+        kind: "ask_user",
+        questions: [{
+            header: "确认",
+            question: "请确认方案",
+            options: [{ label: "A" }, { label: "B" }],
+            multiSelect: false,
+        }],
+    });
     assert.notStrictEqual(decoded, originalInput.result);
 
     // 修改输入对象，解码出的对象不受影响
-    (originalInput.result as Record<string, unknown>).question = "被修改的题目";
-    if (decoded.kind === "question") {
-        assert.equal(decoded.question, "请确认方案");
+    ((originalInput.result as Record<string, unknown>).questions as Array<Record<string, unknown>>)[0]!.question = "被修改的题目";
+    if (decoded.kind === "ask_user") {
+        assert.equal(decoded.questions[0]?.question, "请确认方案");
     }
 });
 
-test("createModelOutputContractBundle 支持四类请求并正确派生与解码（Req 1.1）", () => {
-    // 1. gathering
-    const gatheringBundle = createModelOutputContractBundle({ kind: "gathering" });
-    assert.equal(gatheringBundle.name, "gathering_preparation_result");
-    assert.equal("$schema" in gatheringBundle.jsonSchema, false);
-    assert(gatheringBundle.shapeGuide.includes("Respond with a JSON object conforming to the following schema:"));
+test("createModelOutputContractBundle 支持统一执行请求与上下文检查点", () => {
+    const unapprovedBundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false });
+    assert.equal(unapprovedBundle.name, "unapproved_executing_agent_decision");
+    assert.equal("$schema" in unapprovedBundle.jsonSchema, false);
+    assert(unapprovedBundle.shapeGuide.includes("Respond with a JSON object conforming to the following schema:"));
 
-    const gatheringDecoded = gatheringBundle.decode({
+    const unapprovedDecoded = unapprovedBundle.decode({
         result: {
-            kind: "question",
-            question: "需要分析哪个目录？",
+            kind: "ask_user",
+            questions: [{
+                header: "目录",
+                question: "需要分析哪个目录？",
+                options: [
+                    { label: "src", description: null },
+                    { label: "packages", description: null },
+                ],
+                multiSelect: false,
+            }],
             memoryPatch: null,
         },
     });
-    assert.equal(gatheringDecoded.kind, "question");
-    if (gatheringDecoded.kind === "question") {
-        assert.equal(gatheringDecoded.memoryPatch, undefined);
+    assert.equal(unapprovedDecoded.kind, "ask_user");
+    if (unapprovedDecoded.kind === "ask_user") {
+        assert.equal(unapprovedDecoded.memoryPatch, undefined);
     }
 
-    // 2. planning
-    const planningBundle = createModelOutputContractBundle({ kind: "planning" });
-    assert.equal(planningBundle.name, "planning_preparation_result");
-    const planningDecoded = planningBundle.decode({
-        result: {
-            kind: "task_proposal",
-            task: {
-                objective: "编写任务列表",
-                completionCriteria: [{ text: "任务分解完成", acceptance: null }],
-            },
-            approvalRequest: "请审批任务草案",
-            memoryPatch: null,
-        },
-    });
-    assert.equal(planningDecoded.kind, "task_proposal");
-    if (planningDecoded.kind === "task_proposal") {
-        assert.equal(planningDecoded.memoryPatch, undefined);
-    }
-
-    // 3. executing
     const executingBundle = createModelOutputContractBundle({ kind: "executing" });
     assert.equal(executingBundle.name, "executing_agent_decision");
     const executingDecoded = executingBundle.decode({
@@ -315,7 +319,7 @@ test("createModelOutputContractBundle 支持四类请求并正确派生与解码
     });
     assert.equal(executingDecoded.kind, "wait");
 
-    // 4. checkpoint
+    // checkpoint
     const checkpointBundle = createModelOutputContractBundle({ kind: "checkpoint" });
     assert.equal(checkpointBundle.name, "context_checkpoint_result");
     const checkpointDecoded = checkpointBundle.decode({
@@ -338,7 +342,7 @@ test("decodeWireResult 在解码后以 canonical Contract 复验并拦截非法�
         },
     };
     assert.throws(
-        () => decodeWireResult(invalidPayload, PreparationResultContract),
+        () => decodeWireResult(invalidPayload, AgentDecisionContract),
         (error: unknown) => {
             assert(error instanceof ContractValidationError);
             assert.equal(error.code, "CONTRACT_VALIDATION_FAILED");
@@ -368,4 +372,3 @@ test("无授权 Tool 时 executing 拒绝 tool_call 分支（Req 3.5）", () => 
         },
     );
 });
-

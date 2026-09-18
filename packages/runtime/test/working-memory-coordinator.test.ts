@@ -14,9 +14,6 @@ import type {
     AgentProfile,
     Goal,
     GoalStore,
-    PreparationExecutionInput,
-    PreparationExecutor,
-    PreparationResult,
     RunnerResult,
     RunRef,
     RunScheduler,
@@ -85,27 +82,6 @@ class FailingSnapshotStore implements GoalStore {
 
     async restore(goalId: string): Promise<Goal | undefined> {
         return this.delegate.restore(goalId);
-    }
-}
-
-class RecordingPreparationExecutor implements PreparationExecutor {
-    readonly inputs: PreparationExecutionInput[] = [];
-
-    constructor(
-        private readonly actions: readonly (PreparationResult | ((input: PreparationExecutionInput) => PreparationResult))[],
-    ) {}
-
-    async execute(input: PreparationExecutionInput): Promise<PreparationResult> {
-        this.inputs.push({
-            ...input,
-            authorizedTools: structuredClone([...input.authorizedTools]),
-            ...(input.workingMemory === undefined
-                ? {}
-                : { workingMemory: structuredClone(input.workingMemory) }),
-        });
-        const action = this.actions[this.inputs.length - 1];
-        if (action === undefined) throw new Error("unexpected preparation call");
-        return typeof action === "function" ? action(input) : action;
     }
 }
 
@@ -223,7 +199,9 @@ test("task proposal feedback clears pending interaction and resumes execution", 
                         },
                     });
                 }
-                return { ok: true, status: "waiting", reason: "task_approval" };
+                const saved = await store.restore(runRef.goalId);
+                if (saved === undefined) throw new Error("Goal disappeared during test scheduling");
+                return { ok: true, state: saved.state.run };
             },
         },
     });
@@ -295,7 +273,8 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
                         },
                     });
                 }
-                return { ok: true, status: "completed" };
+                if (scheduledWithGoal === undefined) throw new Error("Goal was not scheduled");
+                return { ok: true, state: scheduledWithGoal.state.run };
             },
         },
     });
@@ -313,4 +292,3 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
     });
     assert.equal(scheduledWithGoal.state.run.pendingInteraction, undefined);
 });
-

@@ -1,42 +1,40 @@
 # Contracts 模块
 
-## 摘要
+## 职责
 
-`@lazygoal/contracts` 是独立的结构契约基础包。调用方通过公开 builder 创建带品牌且不可变的
-Contract AST；同一份 AST 可用于 TypeScript 类型推导、严格 JSON 输入校验和 JSON Schema
-2020-12 编译。当前 Tool 输入契约与 Agent 模型输出响应契约（Preparation 与 Step Wire 响应）
-已全面基于不可变 Contract AST，其余 Snapshot、Trajectory、Profile 等业务协议仍使用各自既有校验入口。
+`@lazygoal/contracts` 提供零出站依赖的 Contract AST、运行时 Parser、JSON Schema 2020-12 编译器和 Agent 模型输出契约。它只描述输入/输出形状，不执行 Tool、不读取 Goal、不拥有审批或持久化状态。
 
-## 数据流
+## Tool 输入契约
 
-```mermaid
-flowchart LR
-    B[Contract builders] --> A[Immutable Contract AST]
-    A --> T[InferContract]
-    A --> P[safeParse / parse]
-    A --> C[compileJsonSchema]
-    C --> S[JSON Schema 2020-12]
-```
+每个 Tool 通过 `ToolDefinition.inputContract` 声明唯一输入事实源。Runtime 使用同一 AST 生成模型可见 Schema，并在执行前 `safeParse` 与领域 `validate`；模型不能通过输出额外字段或自报结果绕过校验。
 
-## 职责速查
+`isReadOnly` 是审批前能力过滤的显式声明。它只说明 Tool 是否可以在任务未批准时被模型调用，实际执行仍必须经过 Profile、Registry 和 Policy。
 
-| 组件 | 负责 | 不负责 |
-| --- | --- | --- |
-| [Contract builders 与 AST](../../packages/contracts/src/contract.ts) | 构造并冻结受支持节点、保存递归引用身份 | 执行回调规则、转换、默认值或协议 I/O |
-| [公共类型](../../packages/contracts/src/types.ts) | `Contract`、`InferContract` 与各节点的只读输出推导 | 运行时输入校验 |
-| [Definition checker](../../packages/contracts/src/definition.ts) | 在消费 AST 前检查节点、optional 位置和递归图完整性 | 把普通输入错误转换为 validation issue |
-| [Parser](../../packages/contracts/src/parser.ts) | 严格解析 JSON 值，生成隔离副本、稳定 issue，并限制循环/深度/issue 数量 | 修改输入、隐式转换或持久化 |
-| [Schema compiler](../../packages/contracts/src/json-schema.ts) | 从 AST 确定性生成独立的 JSON Schema 2020-12 数据 | 持有 validator 实例、缓存或第二份可编辑定义 |
-| [Model output contracts](../../packages/contracts/src/model-output/index.ts) | 构造阶段 Wire Contract AST、生成 Shape Guide 并编译模型原生 JSON Schema Bundle | 发起网络请求或解析具体响应 |
+## Agent 输出契约
 
-Preparation 的 Wire Contract 由当轮授权的只读 `ToolDefinition` 动态构造：存在可用工具且未达到探查上限时，`gathering_context` 与 `planning` 分别在既有阶段结果之外开放 `probe_action`；达到上限后该分支从 Shape Guide 与 strict JSON Schema 同时移除。Contracts 只描述模型输出结构，工具只读授权与实际执行仍由 Runtime 强制校验。
+[`createModelOutputContractBundle`](../../packages/contracts/src/model-output/factory.ts) 为每个请求生成不可变的 Canonical/Wire/strict Schema/Shape Guide/解码器组合。统一 `executing` 请求根据任务批准状态和授权 Tool 动态生成分支：
 
-## 边界与当前限制
+- 未批准任务：`ask_user`、`task_proposal`、`context_lookup` 和只读 `tool_call`；
+- 已批准任务：`ask_user`、`context_lookup`、全部授权 `tool_call`、`complete`、`wait` 和 `fail`；
+- Context Checkpoint 是独占的当前协议分支。
 
-- `packages/contracts/src/` 不依赖 LazyGoal 其它 package，也不依赖外部结构校验器；Ajv 仅存在于
-  [package devDependencies](../../packages/contracts/package.json) 和 [oracle 测试](../../packages/contracts/test/json-schema-oracle.test.ts) 中。
-- [依赖检查器](../../scripts/check-dependencies.mjs) 将 `contracts` 声明为零出站基础包，并允许其它
-  package 单向依赖它；当前 `runtime`、`tools`、`agent` 与 `benchmarks` 已单向依赖它处理 Tool
-  输入契约与模型输出契约，其余 Snapshot、Trajectory、Profile 和 Diagnostic Trace 协议保持原校验入口。
-- AST 是进程内定义，不是 wire protocol；Schema 是按次编译的派生产物。Parser 只接受有限 JSON 值，
-  optional 只能直接用于 object 字段，递归输入受固定深度和诊断数量上限约束。
+Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投影为 required-nullable，适配 strict Provider；解码器移除可逆的占位 null，再按原始输入 Contract 复验 Tool 输入。分支、工具 ID 和 Contract 定义错误在构造期失败。
+
+## 当前模型决策
+
+`AgentDecision` 的当前稳定分支为：
+
+- `ask_user`：带模式、问题、request ID 由 Runtime 生成的交互请求；
+- `task_proposal`：目标、完成条件、批准提示和可选 Memory Patch；
+- `tool_call`：带工具 ID 与 JSON 输入；
+- `context_lookup`：历史上下文查询；
+- `complete`、`wait`、`fail`：执行终态或等待。
+
+模型不能提交 Goal/Run/Step/Epoch/Action ID，也不能把用户回答或模型自述变成完成 Evidence。Runtime 负责最终语义校验和状态转换。
+
+## 相关入口
+
+- [AST 与 Parser](../../packages/contracts/src)：输入契约、递归 JSON 值和运行时错误。
+- [Canonical 输出](../../packages/contracts/src/model-output/canonical.ts)：领域决策与 Task/Memory 类型。
+- [Wire 输出](../../packages/contracts/src/model-output/wire.ts)：Provider 适配的 strict 形状。
+- [Factory](../../packages/contracts/src/model-output/factory.ts)：按当前请求生成契约包。

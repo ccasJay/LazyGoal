@@ -66,14 +66,23 @@ const targetSelection: GoalModelSelection = {
 };
 
 test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存模型选择", async () => {
-    // 1. question 等待点 (gathering_context / waiting_input)
+    // 1. ask_user 等待点
     const questionGoal: Goal = {
         ...createBaseTestGoal(),
         state: {
             ...createBaseTestGoal().state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
+            },
+            run: {
+                ...createBaseTestGoal().state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [],
+                },
             },
         },
     };
@@ -92,29 +101,35 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
         assert.deepEqual(store1.goal?.state.modelSelection, targetSelection);
     }
 
-    // 2. planning approval feedback 等待点 (planning / waiting_approval)
-    const planningGoal: Goal = {
+    // 2. task approval 等待点
+    const taskApprovalGoal: Goal = {
         ...createBaseTestGoal(),
         state: {
             ...createBaseTestGoal().state,
             workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
+                phase: "executing",
+            },
+            run: {
+                ...createBaseTestGoal().state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    requestId: "proposal-1",
                     proposal: {
                         objective: "测试目标",
                         completionCriteria: [{ text: "标准 1" }],
                     },
+                    approvalRequest: "请审批",
                 },
             },
         },
     };
-    assert.equal(isSafeWaitingPointForModelSwitching(planningGoal), true);
+    assert.equal(isSafeWaitingPointForModelSwitching(taskApprovalGoal), true);
 
-    const store2 = new FakeGoalStore(planningGoal);
+    const store2 = new FakeGoalStore(taskApprovalGoal);
     const coordinator2 = new DefaultGoalModelSelectionCoordinator({ store: store2 });
     const res2 = await coordinator2.updateModelSelection({
-        ref: { goalId: planningGoal.id, runId: planningGoal.state.run.id },
+        ref: { goalId: taskApprovalGoal.id, runId: taskApprovalGoal.state.run.id },
         selection: targetSelection,
     });
     assert.equal(res2.ok, true);
@@ -130,7 +145,6 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
             ...createBaseTestGoal().state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "执行中任务",
                     completionCriteria: [{ text: "标准 1" }],
@@ -158,14 +172,13 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
 });
 
 test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格拒绝换模", async () => {
-    // 1. active 准备阶段
+    // 1. active executing 阶段
     const activeGoal: Goal = {
         ...createBaseTestGoal(),
         state: {
             ...createBaseTestGoal().state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
+                phase: "executing",
             },
         },
     };
@@ -189,7 +202,6 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格
             ...createBaseTestGoal().state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: { objective: "t", completionCriteria: [] },
             },
             run: {
@@ -259,8 +271,17 @@ test("GoalModelSelectionCoordinator: Goal 不存在与 Run 不匹配明确失败
         state: {
             ...createBaseTestGoal("active-run-99").state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
+            },
+            run: {
+                ...createBaseTestGoal("active-run-99").state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [],
+                },
             },
         },
     };
@@ -283,8 +304,17 @@ test("GoalModelSelectionCoordinator: Store 保存失败返回旧 Goal，状态�
         state: {
             ...createBaseTestGoal().state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
+            },
+            run: {
+                ...createBaseTestGoal().state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [],
+                },
             },
         },
     };

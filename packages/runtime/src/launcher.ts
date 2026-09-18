@@ -24,7 +24,7 @@ import {
 } from "./trajectory";
 
 /**
- * 创建并启动一个准备工作流 Goal 的公开输入。
+ * 创建并启动一个统一执行 Goal 的公开输入。
  *
  * @remarks
  * `intent` 是创建后冻结的原始用户意图；`maxSteps` 只限制批准后 executing
@@ -89,9 +89,9 @@ export interface LauncherDependencies {
     readonly profiles: AgentProfileRegistry;
     /** 每次合法 launch 调用一次，用于生成当前 runId。 */
     readonly runIdGenerator: RunIdGenerator;
-    /** 在任何 Preparation 调用前保存初始完整 Goal。 */
+    /** 在首次统一执行推进前保存初始完整 Goal。 */
     readonly store: Pick<GoalStore, "save">;
-    /** 从已保存的 gathering Goal 推进到下一等待点或终态。 */
+    /** 从已保存的 executing Goal 推进到下一等待点或终态。 */
     readonly coordinator: Pick<GoalCoordinator, "advance">;
     /**
      * 在首次 Profile lookup、保存或模型调用前执行额外 Prompt/Memory 组合校验
@@ -105,11 +105,11 @@ export interface LauncherDependencies {
 }
 
 /**
- * 创建、保存并自动推进一个准备工作流 Goal。
+ * 创建、保存并自动推进一个统一执行 Goal。
  *
  * @remarks
  * 固定顺序为：输入校验 → Profile lookup → 生成 runId → 保存
- * `gathering_context/active` Goal → Coordinator.advance。intent 为空白或
+ * `executing/created` Goal → Coordinator.advance。intent 为空白或
  * maxSteps 非非负整数时返回 `INVALID_GOAL_INPUT`，且不会查找 Profile、生成
  * runId、保存或调用 Coordinator。初始快照未保存成功时同样不会推进。
  *

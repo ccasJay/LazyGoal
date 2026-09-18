@@ -91,7 +91,7 @@ export function parseJson(content: string): unknown {
  *
  * @example
  * ```ts
- * const bundle = createModelOutputContractBundle({ kind: "gathering" });
+ * const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false });
  * const result = parseModelOutput(response.content, bundle);
  * ```
  */

@@ -97,6 +97,7 @@ test("renderRequest 按 system → 真实会话 → Working Context 组装唯一
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
+        execution: { stepCount: 0 },
     };
     const view = buildView(workingContext);
     const request = renderRequest(view, renderer);
@@ -113,6 +114,7 @@ test("renderRequest 按 system → 真实会话 → Working Context 组装唯一
         JSON.parse(request.messages.at(-1)?.content ?? ""),
         {
             phase: "executing",
+            execution: { stepCount: 0 },
             workingMemory: view.workingMemory,
         },
     );
@@ -146,7 +148,7 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
 
 test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks 语法", () => {
     const view = buildView(
-        { phase: "executing", intent: "{% if true %}x{% endif %}" },
+        { phase: "executing", intent: "{% if true %}x{% endif %}", execution: { stepCount: 0 } },
         {
             conversation: [{
                 role: "user",
@@ -162,6 +164,7 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
         JSON.parse(request.messages.at(-1)?.content ?? ""),
         {
             phase: "executing",
+            execution: { stepCount: 0 },
             workingMemory: view.workingMemory,
         },
     );
@@ -169,7 +172,7 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
 
 test("未知 Prompt Bundle 版本在渲染时抛出且不产生任何请求", () => {
     const view = buildView(
-        { phase: "executing", intent: "完成示例任务" },
+        { phase: "executing", intent: "完成示例任务", execution: { stepCount: 0 } },
         { promptBundleVersion: 99 },
     );
 
@@ -183,11 +186,12 @@ test("renderWorkingContextMessage 逐字符固定为 JSON 控制的 user 消息"
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
+        execution: { stepCount: 0 },
     };
 
     assert.deepEqual(renderWorkingContextMessage(workingContext), {
         role: "user",
-        content: JSON.stringify({ phase: "executing" }, null, 2),
+        content: JSON.stringify({ phase: "executing", execution: { stepCount: 0 } }, null, 2),
     });
 });
 
@@ -195,6 +199,7 @@ test("structured 请求在控制消息中独立携带 Working Memory", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
+        execution: { stepCount: 0 },
     };
     const workingMemory = {
         protocolVersion: 1 as const,
@@ -208,6 +213,7 @@ test("structured 请求在控制消息中独立携带 Working Memory", () => {
 
     assert.deepEqual(JSON.parse(rendered.content), {
         phase: "executing",
+        execution: { stepCount: 0 },
         workingMemory,
     });
 });
@@ -354,4 +360,3 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
     assert.equal("intent" in parsed, false);
     assert.equal("task" in parsed, false);
 });
-

@@ -1,164 +1,34 @@
-# TUI Controller
+# TUI 模块
 
-## 摘要
+## 职责
 
-`packages/tui` 当前提供项目级 `lazygoal` CLI、Composition Root、SessionController
-与 React Ink 的首页、intent、Goal 选择、轨迹 Inspector、Preparation 和 executing Session 界面，并把
-Ctrl+C/SIGINT 接入受管关闭流程。Benchmark 沙箱可先挂载无 Controller 的初始化页，
-待容器和 Worker 准备完成后再切换到真实 SessionController。
-Controller 把一次进程内的用户交互限制为单 Goal 会话，组合
-Launcher、GoalCoordinator、GoalStore 和 GoalCatalog；CLI 只在环境变量校验通过后
-创建这一整组共享依赖，`TuiApp` 通过
-`useSyncExternalStore` 订阅不可变 `UiViewModel`，屏幕只提交语义化命令。
+TUI 负责输入、渲染和会话导航，不复制 Runtime 状态机，也不直接写 Snapshot。[`SessionController`](../../packages/tui/src/session-controller.ts) 是单 Goal 命令串行化入口；[`SessionScreen`](../../packages/tui/src/session-screen.tsx) 始终承载当前 Goal 会话，所有执行期内容进入同一时间线。
 
-## 职责速查
+## 页面与命令
 
-| 组件 | 负责 | 不负责 |
-| --- | --- | --- |
-| [cli.tsx](../../packages/tui/src/cli.tsx) | `parseArgs` 路由空参数、`-c`、`resume`，校验 LLM/Profile 环境，加载当前 Profile，创建单一 Composition Root（共享 Goal、Trajectory、Trace Store）并协调 SIGINT、Ink 卸载和退出码 130 | 领域状态转换、跨进程并发租约 |
-| [SessionController](../../packages/tui/src/session-controller.ts) | 串行 dispatch、单 Goal 约束、Runtime 命令映射、错误和快照通知 | React/Ink 渲染、CLI 参数、领域状态转换 |
-| [UiCommand/UiViewModel](../../packages/tui/src/types.ts) | 描述用户意图和可渲染状态；可恢复入口为 `resume`，另有针对中断 Preparation 的 `retryPreparation` | 自行推断 Runtime 可用操作 |
-| [TuiApp](../../packages/tui/src/app.tsx) | 订阅 Controller、按 screen 路由页面、记住最近检查的 Goal 以恢复列表焦点，并将退出回调交给 CLI | Runtime 编排和快照写入 |
-| [InspectorScreen](../../packages/tui/src/inspector-screen.tsx) | 只读切步、按终端尺寸换行和滚动、思考内容展开、外部 JSON 查看及终端画面恢复 | 推进 Goal、写入轨迹或快照 |
-| [IntentScreen](../../packages/tui/src/intent-screen.tsx) / [GoalSelectScreen](../../packages/tui/src/goal-select-screen.tsx) / [PreparationScreen](../../packages/tui/src/preparation-screen.tsx) / [SessionScreen](../../packages/tui/src/session-screen.tsx) | 英文 intent、Catalog 选择、Preparation、中断 Preparation 的重试入口、消息 scrollback、executing 状态、blocked 输入、Action 审批/拒绝和终态 | 生成 Goal ID、处理 Ctrl+C、直接调用 Runtime |
-| [CommandAwareTextInput](../../packages/tui/src/command-aware-text-input.tsx) | 命令感知单行文本输入、实时 Slash 候选展示、合法命令拦截派发与非法拒绝 | 终端布局、状态机转换、直接调用 Runtime |
-| [ModelSelector](../../packages/tui/src/model-selector.tsx) | 渲染模型目录三态（loading/list/error）、当前激活模型、上下文容量与不可选原因，处理上下导航、Enter 选择与 ESC 取消 | 异步模型拉取、原子快照持久化与 Binding 切换 |
-| [StreamingTranscriptController](../../packages/tui/src/streaming-transcript-controller.ts) | 校验流式事件生命周期、累积原始全文、驱动保守 Markdown 分块、管理 40ms 自适应 Tick 节流与同步 flush 屏障 | React/Ink 渲染、持久化、用户输入 |
-| [MarkdownRenderer](../../packages/tui/src/markdown-renderer.tsx) | 解析 Markdown Token 并映射为 Ink 渲染树，对未知 Token 回退为 raw 文本；统一服务历史 Block 与动态尾部 | 稳定边界判断、提交节流、状态持有 |
-| Runtime adapters | 启动、恢复、推进与 Catalog 查询 | UI 状态持有 |
+Launcher 仍负责 Home、Intent、Goal Select、Settings 和 Inspector 页面。创建或恢复 Goal 后直接进入 Session。Controller 将 `answerAskUser`、`approveTask`、`feedbackTask`、`approveAction`、`rejectAction` 和普通消息映射到 Coordinator；请求 ID、Action ID 和当前 Goal/Run 由 Controller 与 Runtime 共同校验。
 
-## 当前数据流
+Session 的 `ActiveDrawer` 按等待点选择交互：
 
-```mermaid
-flowchart LR
-    CLI[lazygoal / -c / resume] --> B[Composition Root]
-    CLI -->|仅显式 eval alfworld| E[benchmarks Evaluation CLI]
-    P[.lazygoal/profiles/default.json] --> B
-    B --> I[Intent or UI input]
-    I --> C[SessionController]
-    C -->|create| L[Launcher]
-    C -->|restore| S[CheckpointGate]
-    C -->|list| G[GoalCatalog]
-    C -->|advance/resume| K[GoalCoordinator]
-    L --> K
-    S --> C
-    G --> C
-    K --> C
-    C --> V[UiViewModel]
-    V --> I
-```
+- `AskUserPanel` 支持计划期/执行期模式、单选、多选和 `Other` 文本；
+- `TaskProposalPanel` 展示 objective、完成条件和批准提示，支持批准或反馈；
+- Action 审批抽屉展示 Tool 输入并支持批准/拒绝；
+- blocked、终态、错误和清理状态使用同一 Session 页面投影。
 
-Composition Root 以 `realpath(process.cwd())` 为 workspaceRoot，将 Goal 快照放在
-`.lazygoal/goals`，事实事件放在 `.lazygoal/trajectories`，诊断 Trace 放在
-`.lazygoal/traces`，Retrieval Index Sidecar 放在 `.lazygoal/context-sidecars`，只读取当前生效的 `.lazygoal/profiles/default.json`，共享一个
-`LLMAdapter`、Profile Registry、`ReadFileTool`、`WriteFileTool`、`EditFileTool`、
-`GrepTool`、`BashTool`、`JsonFileGoalStore`、`CheckpointGateGoalStore`、Coordinator、
-Scheduler、Runner、`JsonFileTrajectoryStore`、`JsonFileDiagnosticTraceSink`、根
-`AbortController` 和 SessionController；Coordinator 与 Runner 接收同一个 ToolRegistry、
-Trajectory Store 和 Trace Sink 实例。Runner 注入
-`createDefaultToolPolicy` 生成的 fail-closed 授权策略：只读 `read_file` 与 `grep`
-自动放行，`write_file`、`edit_file`、`bash` 与任何未识别 Tool 都需要用户逐次批准。缺失或非法 Profile、未注册 Tool，以及缺失或非法 [LLM 配置](./llm.md#配置)（包括 provider、模型目录及输出模式不匹配）时，在创建 Goal 或 Store 副作用前返回稳定非零错误；
-Profile 文件不会由程序自动生成，构造根本身也不会创建 `.lazygoal` 或 Goal。用户需要手工创建
-`.lazygoal/profiles/default.json`，其当前结构为：
+## 统一时间线与流式输出
 
-```json
-{
-  "schemaVersion": 1,
-  "id": "default",
-  "name": "Default",
-  "description": "通用 LazyGoal Agent",
-  "systemPrompt": "You are a focused coding agent...",
-  "instructions": ["Use only authorized tools."],
-  "toolIds": ["read_file", "write_file", "edit_file", "grep", "bash"]
-}
-```
+Controller 唯一持有单调不可变 `timeline`，元素包括已提交 User/System 消息、稳定 Assistant Markdown Block 和已提交执行步骤。`SessionScreen` 使用 Ink `Static` 渲染历史时间线，不维护 Screen-owned 历史副本。
 
-当前 Composition Root 只读取这个文件，不扫描或验证其它 Profile。Profile 只补充
-Prompt Bundle（Global Overview 与 Phase Protocol）未规定的角色和工作细节；Tool 权限
-仍由 Runtime 强制执行。`create` 校验非空 intent 后只生成一个 goalId，并委托 Launcher；
-Composition Root 同时创建一次共享的默认 Prompt Bundle v1 Renderer、
-`structured@1` + `trajectory-layered@1` + `bm25-lite@1` Protocol Validator、Working Memory 限制和
-`TrajectoryCheckpointCommitter`，并把同一组依赖注入 Launcher、Coordinator 与 Runner；
-模型上下文预算、Trajectory Assembler 和 Sidecar Store 则注入两个 Agent Executor。
-Launcher 创建的新 Goal 自动冻结上述唯一协议组合；恢复已有 Goal 时只接受当前 Snapshot
-与协议。`resume` 先查询
-按 Catalog 顺序返回的可恢复条目并显示 Goal 选择页，`continueLatest`（CLI 的 `-c`）
-直接恢复首项；确认后读取完整快照，再以 `{goalId, runId}` 调用 Coordinator。消息、任务批准、Action 批准
-和拒绝分别映射为 Coordinator 的 `resume` action。每次成功推进都用最新 Goal
-替换 session ViewModel；业务错误保留最近已知 Goal 或当前页面，并在 `error`
-中暴露稳定 code/message。
+新的 Assistant 消息由 `StreamingTranscriptController` 接收 `started`、`delta`、`completed` 事件。稳定 Block 按节流 Tick 进入时间线；未提交部分保留为 `streamingTail`。新用户消息、步骤提交、等待点和恢复都会触发 flush barrier，保证内容顺序；恢复时直接 hydrate 已提交消息，不重复播放旧流。
 
-若推进在产出等待点之前中断，快照会把瞬时态 `preparation.status === "active"`
-持久化为检查点：此时 Goal 不等待用户输入，Runtime 会拒绝 `resume`。Controller
-在这种情况下派生 `preparationStalled`，`PreparationScreen` 据此显示重试入口，
-用户确认后以 `retryPreparation` 对同一 `{goalId, runId}` 再调用一次
-`coordinator.advance()`，无需重启 CLI 或删除快照。该派生只看快照事实，
-是否展示入口由屏幕结合活字段 `busy` 判断，避免推进进行中误报。
+只读探查和普通 Tool 都通过 Runtime 的 `PlanProbeProgressEvent` 投影为活动抽屉/步骤摘要，使用稳定 `actionId` 去重。探查不会重新创建页面或第二条时间线。
 
-异步 `dispatch` 在操作开始同步置 `busy`；已有异步操作会拒绝新的业务命令。
-Inspector 的切步和思考展开同步替换内存 ViewModel，不占用异步命令锁；关闭页面拒绝所有命令。第一次
-Ctrl+C 会将 Controller 切换到 `shutting_down`，保留当前 Goal 的最近内存副本并
-拒绝后续命令，不写入 `cancelled`。Controller
-不启动后台 Worker、不创建第二个 Goal，也不在 UI 层写入快照。`TuiApp` 使用
-`useSyncExternalStore` 读取快照，并以 `exitOnCtrlC: false` 通过 raw-mode 回调
-通知 CLI；CLI 同时监听进程级 `SIGINT`。`IntentScreen`、`GoalSelectScreen` 与
-`PreparationScreen` 与 `SessionScreen` 只在提交非空文本、确认选择、批准或拒绝
-时发出一次语义化命令，busy 时停用输入控件。`GoalSelectScreen` 只展示 Catalog
-摘要，不在选择前恢复完整 Goal；`PreparationScreen` 使用 Ink `Static` 瀑布流累积固化真实对话消息与只读探查步骤。
-而在 `SessionScreen` 中，Controller 统一拥有单调不可变时间线 `timeline`（`UiTimelineItem[]`）与流式转录状态机 `StreamingTranscriptController`：
-新到达的完整 Assistant 消息经由合成流管道（`started`/`delta`/`completed`）驱动保守 Markdown 分块，只有未结束行、代码围栏、表格与 Setext 等结构闭合且确认稳定的 Block，才按约 40ms 自适应 Tick 节流迁移至不可变历史；未提交的 pending Block 与不稳定性尾部组合为 `streamingTail` 在底部动态呈现；
-恢复已有 Goal 或初次切入 executing 时，快照中的完整消息直接 hydrate 为 committed 历史项，不回放动画；
-新的用户消息到达或执行步骤提交前，触发同步 flush barrier 保证时间线顺序严格单调；
-`SessionScreen` 为纯展示组件，不再维护本地历史累积 ref；不可变历史通过 Ink `<Static>` 原生 scrollback 呈现，下方渲染统一 Markdown `streamingTail`，最下方为交互抽屉与输入 Composer；终端 resize 时仅由 Ink 重新计算动态尾部与抽屉，已进入原生 scrollback 的历史块既不清除也不重放；
-`MarkdownRenderer` 统一服务于历史 Block 与动态尾部，对未知 Token 平滑降级为 raw 文本，不丢失内容。Controller 只消费当前 Goal 的 Preparation 探查进度，以 Runtime 分配的稳定 `actionId` 去重；`started` 展示当前工具说明，`finished` 固化步骤，`failed` 清除活动 Spinner。恢复后新探查即使阶段内序号重新开始，也不会与既有步骤冲突。
+## 恢复、模型切换与关闭
 
-`GoalSelectScreen` 在 Catalog 摘要中按标题、ID、状态和阶段本地过滤，保持原始
-顺序；搜索与列表选择互斥，Enter 先结束搜索编辑，再确认目标。Esc 清除搜索，
-无搜索时返回主页。Inspector 的 Esc 重新打开历史目录，并聚焦最近选择的 Goal；
-q 使用与 Ctrl+C 相同的关闭流程。新目标输入页可用 Esc 放弃未提交文本返回主页。
-这些返回入口不应用于正在执行的 Goal 会话。
+Session 初始化从完整 Goal Snapshot hydrate 时间线、消息和已提交步骤。等待 `ask_user`、任务批准、blocked 或 Action 审批时可切换模型；Controller 通过 `GoalModelSelectionCoordinator` 先保存选择，再发布新的内存 Binding。模型请求、Tool 调用和 UI 命令共享 AbortSignal。
 
-Inspector 根据当前 Ink 输出流的 resize 事件调整正文宽高，按终端显示列换行后
-分页，固定显示标题、行号范围和快捷键。快捷键按完整操作提示换行，仅显示可用的
-思考与输出展开操作，并从正文高度中扣除实际提示行数。代码和工具输出先折行再添加
-槽线；历史列表分开展示标题与状态、ID、更新时间，按摘要实际高度限制可见条目。
-滚动限制在正文首尾，切步或折叠思考内容回到顶部。外部查看只生成临时 JSON 文件，返回后清理该文件，并通过 Ink 的
-输出恢复接口同步画面与帧缓存；编辑器启动失败显示在当前页。
-备用屏幕由挂载层管理，Inspector 切入时不重复清屏；背景继承终端主题。
+首次 Ctrl+C/SIGINT 进入统一关闭流程：停止新命令、冻结 Checkpoint Gate、abort 根信号、等待已进入的保存与受管资源清理，最后退出 130。Controller 本身只替换 UI 快照，不伪造 cancelled Goal。
 
-用户在文本输入框键入 `/model` 并回车触发 `open_model_selector` 命令时，
-Controller 仅允许在 `intent_input` 或安全文本等待点（question、approval、blocked）切换，
-否则留在原视图并反馈拒绝原因。进入选择界面后，Controller 派发带有单调 generation 与独立 AbortController
-的异步目录拉取；`ModelSelector` 渲染 loading、list 与 error 三态，支持上下键导航、容量展示与不可选项拦截。
-用户按 ESC 取消时中止请求并无缝恢复原页面；选择合法模型时调用协调器或原子更新会话，
-并展示瞬时 notice 提示，下一次交互命令自动清除。
+## 当前限制
 
-Composition Root 组装单一 `MutableModelBinding` 并注入给 `LLMPreparationExecutor` 与
-`LLMStepExecutor`，使两个 Executor 无需直接感知切换时机即可透明读取最新不可变 Binding；
-组装的 `modelSwitcher` 遵循三阶段原子切换：先离线通过 `createCandidate` 校验能力与预算并构建候选 Binding，
-再对活动 Goal 委托 `GoalModelSelectionCoordinator` 保存快照，快照写入成功后同步且无异常地 `publish` 候选 Binding，
-若保存失败则维持旧 Binding 不变；组装的 `modelRestorer` 在 Goal 恢复时校验快照内的模型选择与当前进程 Provider 的兼容性，
-若兼容则重建 Binding，若显式锁定不兼容 Provider 则拒绝推进并转入 `model_select` 错误态，防止模型错配。
-
-
-## 关闭流程
-
-- CLI bin shim 通过绝对解析的 `tsx/esm` loader 启动 TSX 源码，因此从其他
-  workspace 调用时仍保留当前项目根的依赖解析，而快照路径仍按调用方 cwd 隔离。
-  只有参数前缀严格为 `eval alfworld` 时才转发到 benchmarks 评测入口；普通 CLI
-  参数不会加载 ALFWorld Profile、Conda 或 sidecar。
-- 第一次 raw-mode Ctrl+C 或 SIGINT 进入同一个幂等流程：Controller 先切换
-  `shutting_down`，随后冻结 Checkpoint Gate、abort 根 signal、卸载 Ink 并等待
-  `waitUntilExit()`，最后由 `ShutdownCoordinator` 等待已进入的原子保存和受管
-  资源；超过 2 秒则强制关闭剩余资源，调用 `ExitPort(130)`。
-- `LLMAdapter`、Executor 和 Tool 共享根 signal；模型调用中断只传播
-  `ExecutionAbortedError`，不会生成 fail Step、`execution_error` 或新快照。
-- `SessionController` 只保证单进程内串行化；跨进程租约和历史快照仍由 Runtime
-  当前限制决定。
-- TUI 把 Trajectory/Trace、Warm Sidecar、Working Memory 限制、Model Context Assembler、
-  Protocol Validator 和共享提交器作为 Composition Root 依赖装配；
-  `CompositionRoot.readTrajectory` 提供按 Goal/Run 和序列范围的只读入口，并以最新 Snapshot
-  边界返回 committed/tail 分类。Inspector 通过
-  [Trajectory Projector](../../packages/tui/src/trajectory-projector.ts) 把已提交事件投影为
-  Preparation、按 executionUnitId 分组的执行步骤和终态区块；未提交尾部显示警告。
-  Inspector 不提供归约后的 Memory 视图；Sidecar 删除后下一轮由 committed Trajectory 重新派生。
+TUI 只保证单进程内命令串行化；跨进程租约、历史 Snapshot 查询和终端外部滚动由 Runtime/Ink 当前能力决定。Inspector 读取已提交 Trajectory，不从 UI 时间线反推 Working Memory。

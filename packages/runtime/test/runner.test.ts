@@ -139,7 +139,7 @@ function registerTool(tool: TestTool) {
     return createToolRegistration(tool);
 }
 
-function countPreparation(registration: ToolRegistration): {
+function countPrepareCalls(registration: ToolRegistration): {
     readonly registration: ToolRegistration;
     readonly prepareCalls: () => number;
 } {
@@ -1780,7 +1780,7 @@ test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评�
         assert.equal(actionId, action.actionId);
         return { kind: "success", output: "文件内容", summary: "读取完成" };
     });
-    const counted = countPreparation(registerTool(tool));
+    const counted = countPrepareCalls(registerTool(tool));
     const executor = new SequenceDecisionExecutor([
         { kind: "tool_call", action },
         { kind: "complete", completionEvidence: [], summary: "批准后完成" },
@@ -1814,11 +1814,6 @@ test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评�
     const coordinator = new GoalCoordinator({
         store,
         trajectoryStore: trajectory,
-        preparationExecutor: {
-            async execute() {
-                throw new Error("approval recovery must not enter preparation");
-            },
-        },
         scheduler: new InlineScheduler(runner),
     });
     const resumed = await coordinator.resume({
@@ -1968,7 +1963,7 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
         summary: "任务完成",
     }]);
 
-    const counted = countPreparation(registerTool(tool));
+    const counted = countPrepareCalls(registerTool(tool));
     const result = await new Runner({
         trajectoryStore: trajectory,
         store,
@@ -2047,7 +2042,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
         replayPolicy: "manual" as const,
     };
     const executor = new SequenceDecisionExecutor([]);
-    const counted = countPreparation(registerTool(tool));
+    const counted = countPrepareCalls(registerTool(tool));
 
     const result = await new Runner({
         trajectoryStore: trajectory,
@@ -2397,7 +2392,6 @@ function withExecutingTask(goal: Goal, task: GoalTask): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task,
             },
         },

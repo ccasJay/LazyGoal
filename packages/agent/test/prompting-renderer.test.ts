@@ -12,8 +12,7 @@ import type {
 const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "GLOBAL-OVERVIEW" },
     { id: "profile@1", source: "PROFILE {{ profile.systemPrompt }}" },
-    { id: "gathering-context@1", source: "GATHERING" },
-    { id: "planning@1", source: "PLANNING" },
+    { id: "executing@1", source: "EXECUTING" },
     { id: "agent-decision@1", source: "DECISION" },
     { id: "authorized-tools@1", source: "TOOLS {{ authorizedTools | stableJson }}" },
 ];
@@ -29,8 +28,6 @@ const manifest: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                gathering_context: "gathering-context@1",
-                planning: "planning@1",
                 executing: "agent-decision@1",
             },
         },
@@ -41,7 +38,7 @@ const manifest: PromptBundleManifest = {
 function buildContext(overrides: Partial<PromptContext> = {}): PromptContext {
     return {
         promptBundleVersion: 1,
-        phase: "gathering_context",
+        phase: "executing",
         profile: { id: "profile-1", systemPrompt: "base", instructions: [] },
         authorizedTools: [],
         memoryProtocol: { kind: "structured", version: 1 },
@@ -61,7 +58,7 @@ test("Renderer 对相同输入重复渲染产生字符级一致输出", () => {
     assert.equal(first, second);
     assert.equal(
         first,
-        "GLOBAL-OVERVIEW\n\nPROFILE base\n\nGATHERING\n\nTOOLS []",
+        "GLOBAL-OVERVIEW\n\nPROFILE base\n\nDECISION\n\nTOOLS []",
     );
 });
 
@@ -130,8 +127,7 @@ test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
     const crlfTemplates: readonly PromptTemplateDefinition[] = [
         { id: "global-overview@1", source: "LINE-A\r\nLINE-B\r\n" },
         { id: "profile@1", source: "P" },
-        { id: "gathering-context@1", source: "G" },
-        { id: "planning@1", source: "P2" },
+        { id: "executing@1", source: "E" },
         { id: "agent-decision@1", source: "D" },
         { id: "authorized-tools@1", source: "T" },
     ];
@@ -142,7 +138,7 @@ test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
 
     const output = renderer.render(buildContext());
 
-    assert.equal(output, "LINE-A\nLINE-B\n\nP\n\nG\n\nT");
+    assert.equal(output, "LINE-A\nLINE-B\n\nP\n\nD\n\nT");
     assert.ok(!output.endsWith("\n"));
     assert.ok(!output.includes("\r"));
 });
@@ -174,8 +170,6 @@ test("必需变量缺失时渲染失败且错误脱敏", () => {
                 {
                     slot: "phase_protocol",
                     templates: {
-                        gathering_context: "gathering-context@1",
-                        planning: "planning@1",
                         executing: "agent-decision@1",
                     },
                 },
@@ -204,8 +198,7 @@ test("模板语法错误在 Renderer 构造期即抛出配置错误", () => {
             templates: [
                 { id: "global-overview@1", source: "{% if %}" },
                 { id: "profile@1", source: "P" },
-                { id: "gathering-context@1", source: "G" },
-                { id: "planning@1", source: "P2" },
+                { id: "executing@1", source: "E" },
                 { id: "agent-decision@1", source: "D" },
                 { id: "authorized-tools@1", source: "T" },
             ],

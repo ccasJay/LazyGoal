@@ -180,7 +180,7 @@ export function deriveWireContract<Result>(
  *
  * @example
  * ```ts
- * const envelopeContract = deriveWireEnvelopeContract(PreparationResultContract);
+ * const envelopeContract = deriveWireEnvelopeContract(AgentDecisionContract);
  * ```
  */
 export function deriveWireEnvelopeContract<Result>(
@@ -344,7 +344,7 @@ function decodeNode(
  *
  * @example
  * ```ts
- * const result = decodeWireResult(wireJson, PreparationResultContract);
+ * const result = decodeWireResult(wireJson, AgentDecisionContract);
  * ```
  */
 export function decodeWireResult<Result>(

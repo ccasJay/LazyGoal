@@ -190,7 +190,7 @@ async function stepRequest(
     return plan.request;
 }
 
-async function preparationRequest(
+async function executingRequest(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
@@ -415,7 +415,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         ],
     );
 
-    const probeRequest = await preparationRequest(
+    const probeRequest = await executingRequest(
         createPlanProbeGoal(),
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
     );

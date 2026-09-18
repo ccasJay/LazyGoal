@@ -46,7 +46,7 @@ export interface GoalStore {
  *     goalId: "goal-1",
  *     runId: "run-1",
  *     intent: "实现恢复能力",
- *     workflowPhase: "planning",
+ *     workflowPhase: "executing",
  *     runStatus: "waiting",
  *     updatedAt: "2026-08-17T00:00:00.000Z",
  * };
@@ -59,7 +59,7 @@ export interface GoalCatalogEntry {
     readonly runId: string;
     /** Goal 创建时冻结的原始意图。 */
     readonly intent: string;
-    /** 当前 Preparation/Execution 工作流阶段。 */
+    /** 当前统一执行工作流阶段。 */
     readonly workflowPhase: Goal["state"]["workflow"]["phase"];
     /** 当前 Run 状态；该列表不会返回三个终态。 */
     readonly runStatus: RunStatus;

@@ -70,7 +70,6 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Test remote execution",
                     completionCriteria: [],

@@ -37,7 +37,7 @@ export class ContextDocumentSourceError extends Error {
 }
 
 /** Context Document 的来源类别。 */
-export type ContextDocumentKind = "execution" | "preparation";
+export type ContextDocumentKind = "execution";
 
 /** 当前 fielded-bm25-lite-v1 索引的权威来源引用。 */
 export type ContextDocumentSource =
@@ -148,7 +148,7 @@ export interface ContextSearchDocument {
     readonly goalId: string;
     /** 文档所属 Run。 */
     readonly runId: string;
-    /** 文档由执行单元还是准备阶段事实构成。 */
+    /** 文档由执行单元事实构成。 */
     readonly kind: ContextDocumentKind;
     /** 文档事件所属业务阶段。 */
     readonly phase: TrajectoryPhase;
@@ -254,16 +254,6 @@ const EXECUTION_EVENT_TYPES = new Set([
     "execution_error",
 ]);
 
-const PREPARATION_EVENT_TYPES = new Set([
-    "preparation_result",
-    "run_waiting",
-    "run_resumed",
-    "memory_patch_accepted",
-    "action_approved",
-    "action_rejected",
-    "action_recovered",
-]);
-
 const TERMINAL_EVENT_TYPES = new Set([
     "run_completed",
     "run_waiting",
@@ -274,10 +264,6 @@ const TERMINAL_EVENT_TYPES = new Set([
 
 type EventWithExecutionUnit = TrajectoryEvent & { readonly executionUnitId: string };
 
-interface PreparationSegment {
-    readonly events: readonly TrajectoryEvent[];
-}
-
 /**
  * 从 Snapshot committed Trajectory 构建稳定 Context Documents。
  *
@@ -285,8 +271,8 @@ interface PreparationSegment {
  * Builder 是无状态、无副作用组件。它再次按 boundary 过滤输入，严格校验
  * Goal/Run 身份与 sequence 顺序；`state_committed`、未提交 tail 和所有 lookup
  * 事件永远不会生成文档。带 `executionUnitId` 的执行事件跨 marker 聚合为一个
- * 完整文档；准备阶段事实按连续提交片段聚合，未闭合片段被忽略而不拆成孤立
- * 命中。结构矛盾会抛出 `CONTEXT_DOCUMENT_SOURCE_ERROR`。
+ * 完整文档；交互事件、Lookup 事件和未闭合执行单元不会被拆成孤立命中。
+ * 结构矛盾会抛出 `CONTEXT_DOCUMENT_SOURCE_ERROR`。
  *
  * @example
  * ```ts
@@ -542,57 +528,6 @@ function collectExecutionGroups(
     return Object.freeze(order.map((unitId) => Object.freeze(groups.get(unitId)!)));
 }
 
-function collectPreparationSegments(
-    events: readonly TrajectoryEvent[],
-): readonly PreparationSegment[] {
-    const segments: PreparationSegment[] = [];
-    let current: TrajectoryEvent[] = [];
-    let currentPhase: TrajectoryPhase | undefined;
-
-    const flush = (): void => {
-        if (current.length > 0) {
-            segments.push({ events: Object.freeze([...current]) });
-        }
-        current = [];
-        currentPhase = undefined;
-    };
-
-    for (const event of events) {
-        if (event.eventType === "preparation_input_recorded") continue;
-        if (
-            event.eventType === "state_committed"
-            || isLookupEvent(event)
-            || isExecutionEvent(event)
-        ) {
-            flush();
-            continue;
-        }
-        if (!PREPARATION_EVENT_TYPES.has(event.eventType) || event.phase === "executing") {
-            flush();
-            continue;
-        }
-
-        if (
-            event.eventType === "preparation_result"
-            && current.some((item) => item.eventType === "preparation_result")
-        ) {
-            flush();
-        } else if (
-            event.eventType === "run_resumed"
-            && current.length > 0
-        ) {
-            // marker 可能因写入失败而缺失；run_resumed 仍然是新的准备周期边界。
-            flush();
-        }
-
-        if (currentPhase !== undefined && currentPhase !== event.phase) flush();
-        currentPhase = event.phase;
-        current.push(event);
-    }
-    flush();
-    return Object.freeze(segments.map((segment) => Object.freeze(segment)));
-}
-
 function buildExecutionDocument(
     events: readonly EventWithExecutionUnit[],
     goalId: string,
@@ -686,40 +621,6 @@ function buildExecutionDocument(
         "execution",
         "executing",
         events[0]!.executionUnitId,
-    );
-}
-
-function buildPreparationDocument(
-    segment: PreparationSegment,
-    goalId: string,
-    runId: string,
-): ContextSearchDocument | undefined {
-    const events = segment.events;
-    const preparationResults = events.filter((event) => event.eventType === "preparation_result");
-    if (preparationResults.length > 1) {
-        throw new ContextDocumentSourceError("Preparation segment contains multiple results");
-    }
-    const hasPatch = events.some((event) => event.eventType === "memory_patch_accepted");
-    const hasResume = events.some((event) => event.eventType === "run_resumed");
-
-    if (preparationResults.length === 0) {
-        // run_resumed + accepted Patch 是一个可追溯的准备阶段生命周期；其它孤立
-        // 生命周期事实不提供可检索语义。
-        if (!hasResume || !hasPatch) return undefined;
-    } else {
-        const result = preparationResults[0]!.payload.result;
-        if (result === "context_lookup" || result === "context_checkpoint") return undefined;
-        if (result === "question" || result === "task_proposal") {
-            if (!events.some((event) => event.eventType === "run_waiting")) return undefined;
-        }
-    }
-
-    return createDocument(
-        events,
-        goalId,
-        runId,
-        "preparation",
-        events[0]!.phase,
     );
 }
 

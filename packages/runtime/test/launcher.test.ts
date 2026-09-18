@@ -140,8 +140,8 @@ function waitingResult(goal: Goal): GoalProgressResult {
     return {
         ok: true,
         kind: "waiting",
-        phase: "gathering_context",
-        waitingFor: "question",
+        phase: "executing",
+        waitingFor: "ask_user",
         goal,
     };
 }
@@ -164,7 +164,7 @@ async function assertRejectsWithSameError(
     });
 }
 
-test("launch saves an initial gathering Goal before Coordinator.advance", async () => {
+test("launch saves an initial executing Goal before Coordinator.advance", async () => {
     const events: string[] = [];
     const instructions = ["Prepare before execution."];
     const mutableProfile = {
@@ -448,7 +448,7 @@ test("launch returns Coordinator business failures unchanged", async () => {
         ok: false,
         error: {
             code: "INVALID_PHASE_RESULT",
-            message: "Invalid preparation result",
+            message: "Invalid agent decision",
         },
     };
     const coordinator = new FakeCoordinator(coordinatorResult);

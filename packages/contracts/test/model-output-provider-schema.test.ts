@@ -439,8 +439,7 @@ test("Schema 与 Shape Guide 字符稳定性（Req 5.1）", () => {
     };
 
     const requests = [
-        { kind: "gathering" as const },
-        { kind: "planning" as const },
+        { kind: "executing" as const, taskPresent: false },
         { kind: "executing" as const, authorizedTools: [tool] },
         { kind: "checkpoint" as const },
     ];

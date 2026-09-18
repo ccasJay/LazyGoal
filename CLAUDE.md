@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-LazyGoal is a goal-driven, resumable agent runtime. A user intent becomes a persisted Goal, passes through context gathering and task approval, and then advances through a controlled Action/Observation loop. The current implementation is TypeScript ESM with several private packages under `packages/`, launched through the `lazygoal` CLI shim in `bin/`.
+LazyGoal is a goal-driven, resumable agent runtime. A user intent becomes a persisted Goal, enters one unified executing lifecycle, and advances through task proposal/approval and a controlled Action/Observation loop. The current implementation is TypeScript ESM with several private packages under `packages/`, launched through the `lazygoal` CLI shim in `bin/`.
 
 ## Commands
 
@@ -54,9 +54,9 @@ The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_
 
 ## Architecture
 
-`runtime` is the control plane. It owns the Goal/Run domain model, state transitions, preparation workflow, scheduling, execution loop, persistence, cancellation, and shutdown. `Launcher` validates intent and freezes the selected Profile into a new Goal; `GoalCoordinator` advances preparation and approval; `Runner` restores and executes a Run; `JsonFileGoalStore` persists the latest complete snapshot using atomic replacement. `Transition` is pure state-transition logic. `InlineScheduler` currently dispatches in-process and does not provide queues, leases, or automatic restart scanning.
+`runtime` is the control plane. It owns the Goal/Run domain model, state transitions, task proposal/approval, scheduling, unified execution loop, persistence, cancellation, and shutdown. `Launcher` validates intent and freezes the selected Profile into a new Goal; `GoalCoordinator` advances the unified lifecycle and approval; `Runner` restores and executes a Run; `JsonFileGoalStore` persists the latest complete snapshot using atomic replacement. `Transition` is pure state-transition logic. `InlineScheduler` currently dispatches in-process and does not provide queues, leases, or automatic restart scanning.
 
-`agent` is the protocol boundary between runtime and an LLM adapter. `LLMPreparationExecutor` and `LLMStepExecutor` derive the phase-specific working context, build prompt plans with paired ModelOutputContractBundles, make one adapter call, and strictly decode and validate wire responses using immutable Contract ASTs. Agent executors do not persist Goals, execute tools, perform authorization, or run the loop.
+`agent` is the protocol boundary between runtime and an LLM adapter. `LLMStepExecutor` derives the current working context, builds prompt plans with paired ModelOutputContractBundles, makes one adapter call, and strictly decodes and validates wire responses using immutable Contract ASTs. Agent executors do not persist Goals, execute tools, perform authorization, or run the loop.
 
 `llm` isolates provider SDKs behind the `LLMAdapter.generate` contract. `OpenAICompatible` maps system/user/assistant messages to Chat Completions, while `Gemini` maps system instructions and model history to Gemini's API. Provider/network errors propagate upward; response protocol validation belongs to `agent`.
 
@@ -67,8 +67,8 @@ The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_
 ## State and lifecycle invariants
 
 - `goalId` identifies the persisted session; `runId` identifies its current execution instance.
-- Preparation does not consume execution Steps. Only an executing Goal with a determined task enters the Runner.
-- Coordinator owns preparation transitions; Runner owns Run transitions; executors do not save Goals.
+- The workflow phase is always `executing`; an executing Goal without `workflow.task` is gated to ask-user, task-proposal, Context Lookup, and read-only Tool decisions.
+- Coordinator owns interaction transitions and Runner owns Run transitions; executors do not save Goals.
 - A subsequent Step starts only after the preceding complete Goal snapshot has been saved.
 - Action authorization is based on the frozen Profile and registered tools. Automatically allowed Actions and approved one-time Actions are persisted around execution; approval waits and rejected observations are recoverable states.
 - Tool failures may leave `outcome_unknown`; do not invent a successful or failed Observation when the external outcome is uncertain.

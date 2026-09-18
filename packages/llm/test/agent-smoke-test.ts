@@ -11,14 +11,14 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import { InMemoryTrajectoryStore } from "../../runtime/test/current-fixtures";
 import {
     createDefaultPromptBundleRenderer, createDefaultModelContextBudgetPolicy,
-    DropOldestContextCompactor, LLMStepExecutor, LLMPreparationExecutor,
+    DropOldestContextCompactor, LLMStepExecutor,
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
 import { readLlmConfig } from "../src/config";
 import { createLlmAdapter } from "../src/factory";
 
 /**
- * 用显式模型配置验证真实 Preparation、审批及工具执行链；仅使用内存存储。
+ * 用显式模型配置验证统一执行、任务审批及工具执行链；仅使用内存存储。
  * @param env - 模型环境配置；不写回环境或工作区。
  * @param control - 可选取消控制，用于真实请求取消验收。
  * @returns 成功完成时的模型、模式、阶段和调用统计；失败或取消时抛出异常。
@@ -62,15 +62,13 @@ export async function runAgentSmoke(
     });
     const coordinator = new GoalCoordinator({
         store, trajectoryStore, checkpointCommitter, toolRegistry,
-        preparationExecutor: new LLMPreparationExecutor(dependencies),
         scheduler: new InlineScheduler(runner),
     });
     const profile: AgentProfile = {
         id: "live-llm-profile",
-        systemPrompt: "You verify the LazyGoal preparation and execution protocol.",
+        systemPrompt: "You verify the LazyGoal unified execution protocol.",
         instructions: [
-            "The request is fully specified. During gathering return context_ready without questions.",
-            "During planning propose one completion criterion: obtain the smoke_evidence observation.",
+            "Propose one completion criterion: obtain the smoke_evidence observation.",
             "During execution call smoke_evidence exactly once, then complete with the recorded observation as evidence.",
             "Do not request context lookups or user input. Leave memoryPatch null.",
         ],
@@ -78,7 +76,7 @@ export async function runAgentSmoke(
     };
     const ref = { goalId: "live-llm-goal", runId: "live-llm-run" };
     const startedAt = performance.now();
-    const preparation = await launch({
+    const started = await launch({
         goalId: ref.goalId, profileId: profile.id,
         intent: "Verify connectivity by calling smoke_evidence once and completing with its observation. No other work is needed.",
         maxSteps: 3,
@@ -86,11 +84,11 @@ export async function runAgentSmoke(
         profiles: { get: id => id === profile.id ? profile : undefined },
         runIdGenerator: () => ref.runId, store, coordinator, trajectoryStore,
     }, control);
-    if (!preparation.ok) throw new Error(`${preparation.error.code}: ${preparation.error.message}`);
-    if (preparation.kind !== "waiting" || preparation.phase !== "planning" || preparation.waitingFor !== "approval") {
-        throw new Error("Smoke preparation did not produce a task proposal awaiting approval");
+    if (!started.ok) throw new Error(`${started.error.code}: ${started.error.message}`);
+    if (started.kind !== "waiting" || started.phase !== "executing" || started.waitingFor !== "task_approval") {
+        throw new Error("Smoke execution did not produce a task proposal awaiting approval");
     }
-    const execution = await coordinator.resume({ ref, action: { kind: "approve" } }, control);
+    const execution = await coordinator.resume({ ref, action: { kind: "approve_task" } }, control);
     if (!execution.ok) throw new Error(`${execution.error.code}: ${execution.error.message}`);
     const goal = await store.restore(ref.goalId);
     if (goal?.state.run.status !== "completed" || toolCalls !== 1) {
@@ -98,12 +96,15 @@ export async function runAgentSmoke(
     }
     return {
         provider: config.provider, model: config.model, mode: adapter.structuredOutputMode,
-        preparation: "passed", execution: "passed", toolCalls,
+        unifiedExecution: "passed", toolCalls,
         durationMs: Math.round(performance.now() - startedAt),
     };
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const runningUnderNodeTest = process.env.NODE_TEST_CONTEXT !== undefined
+    || process.argv.includes("--test");
+
+if (!runningUnderNodeTest && process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
     const controller = new AbortController();
     const cancel = () => controller.abort();
     process.once("SIGINT", cancel);

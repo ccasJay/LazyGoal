@@ -55,9 +55,9 @@ import type { LLMToolDefinition } from "../../llm/src/core/types";
  */
 export interface LLMStepExecutorDependencies {
     readonly adapter?: LLMAdapter;
-    /** 由 Composition Root 创建、与 Preparation Executor 共享的 Prompt Bundle Renderer。 */
+    /** 由 Composition Root 创建、供统一执行流使用的 Prompt Bundle Renderer。 */
     readonly renderer: PromptBundleRenderer;
-    /** 由 Composition Root 创建、供所有 phase 共享的 Conversation 裁剪策略。 */
+    /** 由 Composition Root 创建、供模型请求共享的 Conversation 裁剪策略。 */
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;

@@ -16,7 +16,7 @@ import type {
     GoalTask,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
-    PreparationProbeProgressEvent,
+    PlanProbeProgressEvent,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -44,7 +44,7 @@ import type {
     ToolDefinition,
     ToolObservation,
     ToolPolicy,
-    ToolPreparationResult,
+    PreparedToolAction as PreparedToolResult,
     ToolRegistration,
     ToolRegistry,
 } from "./tool";
@@ -80,7 +80,7 @@ import {
 import {
     TrajectoryCheckpointCommitter,
     type AcceptedMemoryPatchInput,
-    type TrajectoryCheckpointCommitter as TrajectoryCheckpointCommitterPort,
+    type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 import {
     advanceContextEpoch,
@@ -280,7 +280,7 @@ function prepareToolAction(
         );
     }
 
-    let prepared: ToolPreparationResult;
+    let prepared: PreparedToolResult;
 
     try {
         prepared = registration.prepare(action.input, control);
@@ -510,7 +510,7 @@ export interface RunnerDependencies {
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
     /** 可选的计划期只读探查进度回调；Runner 在探查启动、完成或失败时通知。 */
-    readonly onProbeProgress?: (event: PreparationProbeProgressEvent) => void;
+    readonly onProbeProgress?: (event: PlanProbeProgressEvent) => void;
 }
 
 /**
@@ -545,7 +545,7 @@ export class Runner {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
-    private readonly onProbeProgress: ((event: PreparationProbeProgressEvent) => void) | undefined;
+    private readonly onProbeProgress: ((event: PlanProbeProgressEvent) => void) | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -578,8 +578,8 @@ export class Runner {
      *
      * @remarks
      * `created` 会先转换并保存为 `running`；`running` 会继续执行；waiting
-     * 和终态直接返回且不产生副作用。非 executing Goal 同样直接返回，
-     * Preparation 不会启动 Run 或消费 Step。Goal 不存在或 runId 不匹配时
+     * 和终态直接返回且不产生副作用。当前 workflow 只有 executing 阶段，
+     * 因此没有其它阶段需要启动 Run 或消费 Step。Goal 不存在或 runId 不匹配时
      * 返回 `RUN_NOT_FOUND`。
      *
      * @param ref - 目标 Goal 与 Run 的关联键。
@@ -1485,7 +1485,7 @@ export class Runner {
         return { kind: "observed", goal: checkpoint };
     }
 
-    private notifyProbeProgress(event: PreparationProbeProgressEvent): void {
+    private notifyProbeProgress(event: PlanProbeProgressEvent): void {
         try {
             this.onProbeProgress?.(event);
         } catch {
@@ -1524,7 +1524,7 @@ export class Runner {
         prepared: PreparedToolAction,
         executionUnitId: string,
         probeNumber: number,
-        acceptedPatch?: WorkingMemoryPatch,
+        acceptedPatch?: AcceptedMemoryPatchInput,
         control?: ExecutionControl,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
@@ -1813,6 +1813,19 @@ export class Runner {
                     }
                     if (error instanceof ContextLookupProtocolError) {
                         return this.invalidContextLookup(error.message);
+                    }
+
+                    // 未批准任务时，当前协议尚未允许 fail Decision 形成执行 Step。
+                    // 直接记录稳定执行错误，保持无任务快照仍满足 stepCount/lastStep 不变量。
+                    if (goal.state.workflow.task === undefined) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                error instanceof Error ? error.message : String(error),
+                            ),
+                            control,
+                        );
                     }
 
                     // 非协议 Executor 异常规范化为当前 fail Decision；错误文本保持

@@ -86,7 +86,6 @@ function createExecutingGoal(input: {
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "验证 Action/Observation 恢复",
                     completionCriteria: [],

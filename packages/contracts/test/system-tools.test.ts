@@ -5,14 +5,13 @@ import { ContractValidationError } from "../src/errors";
 import {
     createCheckpointToolDeclarations,
     createExecutingToolDeclarations,
-    createGatheringToolDeclarations,
-    createPlanningToolDeclarations,
+    createUnifiedToolDeclarations,
     decodePhaseToolCall,
     SystemCompleteTaskDeclaration,
     SystemWaitForInputDeclaration,
     SystemFailGoalDeclaration,
-    SystemAskClarificationDeclaration,
-    SystemContextReadyDeclaration,
+    SystemAskUserDeclaration,
+    SystemContextLookupDeclaration,
     SystemProposeTaskPlanDeclaration,
 } from "../src/index";
 
@@ -21,8 +20,8 @@ test("系统函数具有严格的参数 JSON Schema 定义", () => {
         SystemCompleteTaskDeclaration,
         SystemWaitForInputDeclaration,
         SystemFailGoalDeclaration,
-        SystemAskClarificationDeclaration,
-        SystemContextReadyDeclaration,
+        SystemAskUserDeclaration,
+        SystemContextLookupDeclaration,
         SystemProposeTaskPlanDeclaration,
     ]) {
         assert.equal(decl.parametersSchema.type, "object");
@@ -84,7 +83,7 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
     }
 });
 
-test("Gathering 阶段仅挂载只读探测工具与需求澄清系统工具", () => {
+test("任务批准前统一执行流仅挂载只读工具与交互系统工具", () => {
     const mixedTools = [
         {
             id: "read_file",
@@ -98,42 +97,47 @@ test("Gathering 阶段仅挂载只读探测工具与需求澄清系统工具", (
         },
     ];
 
-    const decls = createGatheringToolDeclarations(mixedTools);
+    const decls = createUnifiedToolDeclarations(mixedTools, false);
     const ids = decls.map(d => d.id);
 
     assert.ok(ids.includes("read_file"));
-    assert.ok(!ids.includes("write_file"), "写工具绝不可出现在 Gathering 阶段");
-    assert.ok(ids.includes("system_ask_clarification"));
-    assert.ok(ids.includes("system_context_ready"));
+    assert.ok(!ids.includes("write_file"), "写工具绝不可出现在任务批准前");
+    assert.ok(ids.includes("ask_user"));
+    assert.ok(ids.includes("system_propose_task_plan"));
     assert.ok(ids.includes("system_context_lookup"));
 
-    // 验证只读工具在准备阶段被解码为 probe_action
+    // 只读工具在统一执行流中仍然是普通 tool_call，Runner 再将其走 planProbe 路径。
     const probe = decodePhaseToolCall(decls, "read_file", { path: "README.md" });
-    assert.equal(probe.kind, "probe_action");
-    if (probe.kind === "probe_action") {
+    assert.equal(probe.kind, "tool_call");
+    if (probe.kind === "tool_call") {
         assert.equal(probe.action.toolId, "read_file");
         assert.deepEqual(probe.action.input, { path: "README.md" });
     }
 
-    // 验证提问被解码为 question
-    const q = decodePhaseToolCall(decls, "system_ask_clarification", {
-        question: "请确认需求范围？",
+    // 验证结构化提问被解码为 ask_user
+    const q = decodePhaseToolCall(decls, "ask_user", {
+        questions: [{
+            header: "范围",
+            question: "请确认需求范围？",
+            options: [{ label: "仓库" }, { label: "单包" }],
+            multiSelect: false,
+        }],
         memoryPatch: null,
     });
-    assert.equal(q.kind, "question");
-    if (q.kind === "question") {
-        assert.equal(q.question, "请确认需求范围？");
+    assert.equal(q.kind, "ask_user");
+    if (q.kind === "ask_user") {
+        assert.equal(q.questions[0]?.question, "请确认需求范围？");
     }
 });
 
-test("Planning 阶段挂载只读探测工具与任务提案工具", () => {
-    const decls = createPlanningToolDeclarations([
+test("任务批准前统一执行流挂载只读探查与任务提案工具", () => {
+    const decls = createUnifiedToolDeclarations([
         {
             id: "grep",
             inputContract: contract.object({ pattern: contract.string() }),
             isReadOnly: true,
         },
-    ]);
+    ], false);
     const ids = decls.map(d => d.id);
 
     assert.ok(ids.includes("grep"));

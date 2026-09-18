@@ -13,6 +13,7 @@ import {
 const testProfile: AgentProfile = {
     id: "test-agent",
     name: "Test Agent",
+    systemPrompt: "You are a test agent.",
     instructions: ["测试指令"],
     toolIds: ["read_file"],
 };

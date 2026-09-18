@@ -100,7 +100,6 @@ function executingGoal(id: string): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Read a file",
                     completionCriteria: [{ text: "A Tool observation confirms the read" }],
@@ -268,10 +267,13 @@ test("Runtime failure commits terminal phase cleanup with the failure boundary",
         memoryPatch: {
             protocolVersion: 1,
             operations: [{
-                type: "create_plan_item",
-                planItem: {
-                    description: "Keep reading files",
-                    status: "active",
+                type: "upsert_fact",
+                fact: {
+                    subject: "workspace",
+                    predicate: "read_started",
+                    value: true,
+                    stability: "last_observed",
+                    evidenceSequences: [5],
                 },
             }],
         },

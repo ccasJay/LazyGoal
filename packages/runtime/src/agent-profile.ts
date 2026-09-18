@@ -5,8 +5,8 @@
  * `systemPrompt` 和 `instructions` 共同约束模型行为；`toolIds` 只保存 Tool
  * 标识，不保存 Tool 实例。`name` 和 `description` 是可选的运行时元数据，
  * 允许旧 Goal 快照在新增文件字段后继续恢复；由持久化 Adapter 加载的新
- * Profile 会始终包含它们。当前 LLM Preparation/Step Executor 会消费冻结
- * Profile，但不负责读取文件或解析 Registry。
+ * Profile 会始终包含它们。当前统一 LLM Step Executor 会消费冻结 Profile，
+ * 但不负责读取文件或解析 Registry。
  *
  * @example
  * ```ts

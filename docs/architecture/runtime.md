@@ -2,115 +2,50 @@
 
 ## 摘要
 
-Runtime 是 Agent 的控制平面：拥有 Goal/Run 领域状态、状态机、启动和恢复流程、结构化 Working Memory 会话，以及持久化 Port（`GoalStore`、`GoalCatalog`、`AgentProfileStore`、`TrajectoryStore`）。它不构造 Prompt，也不知道模型供应商与文件格式。
+Runtime 是控制平面：拥有 Goal/Run 状态、统一推进循环、Trajectory、结构化 Working Memory 和持久化 Port。它不构造 Prompt、不解析供应商格式，也不读取文件系统。
 
 ## 职责速查
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Preparation、Run、Action/Observation 数据契约 | I/O 和模型调用 |
-| [PreparationExecutor](../../packages/runtime/src/preparation-executor.ts) | 定义准备阶段单轮结构化决策边界，并接收当前 committed Preparation provenance | 阶段推进、消息追加与持久化 |
-| [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 推进 Preparation、按阶段校验并规范化 Memory Patch、恢复输入、持久化等待点、委派 executing Goal | Step 执行 |
-| [GoalModelSelectionCoordinator](../../packages/runtime/src/goal-model-selection-coordinator.ts) | 在安全等待点（question、planning approval feedback、executing blocked）将新模型选择持久化到 Goal 快照 | 创建 Adapter、调用模型、追加 Trajectory 事件或改写 Run 状态 |
-| [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入、冻结 Profile、创建并保存 Goal、调用 Coordinator | 恢复已有 Goal |
-| [AgentProfile 契约](../../packages/runtime/src/agent-profile.ts) | `AgentProfile`、`AgentProfileRegistry` 与 `AgentProfileStore` Port | 文件读取、Schema 校验、Tool 实例与 Prompt |
-| [Runner](../../packages/runtime/src/runner.ts) | executing Run 循环、AgentDecision 运行时校验、Tool 授权边界、转换与逐步保存 | 外部输入恢复与模型供应商协议 |
-| [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 从 committed Trajectory 的 revision 链重建临时 Working Memory，恢复并隔离 Preparation provenance，执行 Patch/Evidence 校验 | Snapshot 内保存 Memory 内容、Runtime 控制状态转换 |
-| [Working Memory Core](../../packages/runtime/src/working-memory-core.ts) | 将 Fact proposal 规范化为 canonical identity，执行唯一的阶段准入、强化、supersede、生命周期与确定性容量淘汰 | I/O、模型调用、领域专属事实提炼 |
-| [ToolMemoryProjector](../../packages/runtime/src/tool-memory-projector.ts) | 为 Tool 注册同步、无 I/O 的 Action+Observation→Fact proposal 投影；默认 Registry 不产生 Patch | 接受 Patch、分配 ID、修改 Snapshot 或吞掉 Observation |
-| [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、accepted Patch、Snapshot 提交边界与 marker 顺序，并在保存前校验 provenance tail | 业务分支校验、模型调用与 Tool 执行 |
-| [Context Lookup 契约](../../packages/runtime/src/context-retrieval.ts) | 校验历史查询、生成稳定 lookupId、归一化有界 found/not_found/lookup_error 结果与 requested/outcome 事实 | 读取 Workspace/Environment、执行 Tool、持久化 Goal 或实现索引算法 |
-| [Context Lookup Result](../../packages/runtime/src/context-lookup-result.ts) | 将排名命中转换为带 query hash、索引版本和原始 source refs 的完整文档结果，并在预算/身份边界失败时 fail-closed | 改写 Trajectory 或把历史结果升级为 Evidence |
-| [ContextDocumentBuilder](../../packages/runtime/src/context-document.ts) | 按 Snapshot committed boundary 将完整 execution/preparation 事实构建为稳定字段和来源范围文档 | 读取未提交 tail、索引 lookup 事件、执行 BM25 或写入 Sidecar |
-| [FieldTokenizer/Index](../../packages/runtime/src/context-tokenizer.ts) | 对文档执行版本化 NFKC/标识拆分并建立确定性倒排、df 与字段长度统计 | 修改 Trajectory、执行查询排序或持久化 Sidecar |
-| [Fielded BM25-lite](../../packages/runtime/src/context-ranking.ts) | 按字段权重、精确标识加分、过滤、稳定 tie-break 和完整文档预算完成排名与相邻扩展 | 改写文档、使用 recency 替代相关性或跨边界查询 |
-| [Retrieval Index Session](../../packages/runtime/src/context-retrieval-index.ts) | 校验 Sidecar 来源前缀、在当前 committed boundary 重建或增量合并索引，并提供 64 项 boundary/version 隔离 LRU | 改写 Trajectory、越过 Snapshot boundary 读取、把索引缓存当作恢复权威 |
-| [Evidence Gate](../../packages/runtime/src/evidence-gate.ts) | 按 Preparation/Execution scope 接受 committed 原始 Observation/Tool 事件；Preparation Fact 可额外引用匹配的用户输入 provenance，并校验 Lookup source refs | 将查询结果、预览、查询文本或 Preparation provenance 直接视为 Plan/Completion Evidence |
-| [Transition](../../packages/runtime/src/transition.ts) | 纯函数式 Run 状态转换 | 持久化 |
-| [GoalStore 契约](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新完整 Goal 的 Port 与 `GoalCatalogEntry` 摘要；快照中的 `committedThroughSequence` 是轨迹恢复边界 | 历史与事件查询、文件格式 |
-| [Trajectory 契约](../../packages/runtime/src/trajectory.ts) | 追加事实型 Domain Event、记录 hash-only `preparation_input_recorded` 与提交 marker，并为只读消费者提供事件查询、Snapshot 边界分类和读取辅助函数 | Runtime State、Snapshot 恢复或 Diagnostic Trace |
-| [GoalCatalog 契约](../../packages/runtime/src/goal-store.ts) | 扫描并排序可恢复 Goal 摘要的 Port | 写入快照或返回历史版本 |
-| [CheckpointGateGoalStore](../../packages/runtime/src/checkpoint-gate.ts) | 关闭流程中冻结新快照写入并等待已进入保存 | 回滚快照或修改 Goal 状态 |
-| [Scheduler](../../packages/runtime/src/scheduler.ts) | 按 RunRef 发起执行 | 拥有 Goal 数据 |
-| [Tool contracts](../../packages/runtime/src/tool.ts) | 泛型 `Tool<C>`、不可变 Input Contract 事实源、`ToolRegistration` 绑定与执行闭包、重放声明、Registry 与 Policy 边界 | 具体 Tool 业务逻辑与 Goal 持久化 |
-| [ExecutionControl](../../packages/runtime/src/execution-control.ts) | 在一次调用链内传播 AbortSignal，并将中止规范化为控制流错误 | 改写 Goal 状态或决定进程退出 |
-| [ShutdownCoordinator](../../packages/runtime/src/shutdown.ts) | 幂等编排 Gate 冻结、根 abort、受管资源清理与退出码 130 | 领域取消或快照回滚 |
+| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Task、Run、Action/Observation 和交互等待契约 | I/O 和模型调用 |
+| [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
+| [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、用户回答/任务批准/反馈恢复、提交等待点并委派 Scheduler | 直接执行 Tool |
+| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读探查、Tool 授权、Action/Observation、Evidence 和 Run 转换 | 供应商协议和 UI |
+| [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
+| [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
+| [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
+| [Trajectory](../../packages/runtime/src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
+| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入 Contract、执行闭包、Registry 和 Policy 边界 | 具体 Tool 业务逻辑 |
+| [Context Retrieval](../../packages/runtime/src/context-retrieval.ts) | 校验历史查询、归一化 bounded result 和相关 Trajectory 事实 | 读取当前 Workspace/Environment |
 
-## 生命周期与保存顺序
+## 状态与推进
 
-Goal 将创建后冻结的 intent、`promptBundleVersion`、`structured@1` Memory、`trajectory-layered@1` Model Context、`bm25-lite@1` Cold Retrieval、Profile 和 executionPolicy 放在 `definition`，将 workflow、真实 messages、Run 以及可恢复的非敏感模型选择状态 `modelSelection: GoalModelSelection`（包含 provider、modelId、structuredOutputMode、容量上限与估算器契约；绝不包含凭据）放在 `state`。Runtime 只拥有这些协议的稳定标识，不持有或渲染文本；Composition Root 为新 Goal 固定唯一组合，并注入 `GoalProtocolValidator` 在保存或模型调用前校验组合。Run 保存最近 `lastStep`、当前 `pendingAction`、`committedThroughSequence`、Context Epoch 和可选 structured `memoryRevision`；Action/Observation 不进入真实消息历史。新 Goal 从 `gathering_context/active` 与 `created/0` 开始；Preparation 不消费 Step，只有拥有最终 task 的 `executing` workflow 可进入 Runner。
+Goal workflow 只有 `phase: "executing"`。Goal 创建时可以没有 `workflow.task`；这表示模型尚未提出或用户尚未批准任务。批准后 Task 固定在 workflow 中。Run 独立保存 `status`、`stepCount`、最新 Step、`pendingAction`、`pendingInteraction`、Context Epoch、Trajectory 提交边界和 Working Memory revision。
 
-Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileAgentProfileStore`
-按当前生效的 `profileId` 从 workspace 的 `.lazygoal/profiles/<profileId>.json`
-读取一个 Profile 文件；Runtime 自身只依赖 `AgentProfileStore` Port，不感知文件路径、
-文件格式或解码器状态。Profile 缺失、损坏或引用未注册 Tool 时，启动在 Goal Store 写入前
-失败。成功加载的 Profile 进入内存 Registry，之后由 Launcher lookup 并冻结到 Goal。
+统一 Runner 根据模型决策推进：
 
-Launcher 在 Profile lookup 和 runId 生成前校验 intent、maxSteps 与 Prompt/Memory 协议。structured Goal 缺少 Validator 或显式 `memoryProtocol`、以及未知或交叉组合，均在首次 Profile、Snapshot 或模型副作用前抛出 `GOAL_PROTOCOL_ERROR`。启用 Trajectory 时，Launcher 依次追加 `goal_created` 与只含 `messageIndex + contentHash` 的 `preparation_input_recorded`，保存初始 Snapshot 后再追加 `state_committed` marker；合法 Goal 随后才调用 Coordinator，不直接调用 Scheduler。
+- 未批准任务：允许 `ask_user`、`task_proposal`、历史 Context Lookup 和 `isReadOnly` Tool；副作用 Tool 不会进入可执行分支。
+- 已批准任务：允许普通 Tool、Context Lookup、`complete`、`wait`、`fail` 和执行期 `ask_user`。
+- 只读探查仍沿用 Tool Registry、Action ID、Tool Observation 和 Trajectory 提交路径，但不创建普通执行 Step，也不绕过 Runtime 授权。
+- `task_proposal` 进入 `task_approval` 等待点；反馈移除当前提案并重新请求；批准把提案复制为最终 Task。
+- `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 
-Composition Root 通过 [`@lazygoal/storage`](./storage.md) 的 `JsonFileGoalStore`
-组合 Goal 持久化；它同时实现 `GoalCatalog`，扫描语义（`.json` 过滤、终态过滤、
-`mtime` 倒序与 `goalId` 平局）详见 Storage 模块文档。Runtime 只依赖 `GoalStore` 与
-`GoalCatalog` Port，不感知文件路径、Schema 或解码器。
+每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
 
-Coordinator 对 active Preparation 每轮调用一次 Executor。Composition Root 向 Coordinator 与 Runner 注入同一个 ToolRegistry、TrajectoryStore、Working Memory 限制、Protocol Validator、`TrajectoryCheckpointCommitter` 和只读 `ContextLookupPort`，使 Preparation 看到的能力集合、Memory 恢复和执行边界一致。两种 Preparation phase 均按冻结 Profile 白名单与当前 ToolRegistry 的已注册交集解析独立 ToolDefinition 副本；Agent 只向模型展示其中 `isReadOnly: true` 的定义，Runtime 在实际探查前再次按同一元数据验证。探查成功后，Coordinator 以唯一 `actionId` 提交 `tool_started/tool_finished` 事实，取得 Observation 的 committed sequence，再把 `lastProbeResult` 作为下一轮瞬时输入；达到每次推进最多 5 次探查后，下一轮传入空工具集与 `probeLimitReached`，要求 Executor 产生合法阶段终态，自定义 Executor 仍返回探查时 fail-closed。进度事件在校验完成后发送 `started`，并在提交成功或失败时以同一 `actionId` 发送 `finished` 或 `failed`。Runtime 不根据 Prompt Bundle 版本筛选 ToolDefinition，是否展示由 Agent 决定。structured Goal 在模型调用或生命周期 Patch 前打开 `WorkingMemorySession`，只向 Preparation Executor 暴露 committed provenance；`StepExecutor` 不接收 Preparation 专用字段。`question` 保存为真实 assistant 消息并进入 `waiting_input`；`context_ready` 先保存 `planning/active`，再继续生成 task proposal；proposal 与完整批准文本一起保存为 `waiting_approval`。Preparation 返回合法 `context_lookup` 时，Coordinator 校验其属于规范化历史执行/决策理由需求后，直接调用 ContextLookupPort，不执行 Tool；它把 `preparation_result`、`context_lookup_requested` 与一个 outcome fact 按同一 Snapshot 边界提交，并把结果仅作为下一轮 Executor 的瞬时输入；一次 `advance` 最多连续处理三次 lookup，已提交结果可在重新启动时按最新事实恢复。PreparationResult 的 `memoryPatch` 经过阶段准入、Evidence scope 校验和 canonicalize 后，才作为 `memory_patch_accepted` 事实追加；原始结果和 Patch 不进入 Goal State。模型 Patch 与阶段生命周期失效操作在同一 accepted Patch 中提交，Snapshot 成功后才把本轮 Patch 应用于临时 Session。ContextDocumentBuilder 读取同一 committed boundary，将带 executionUnitId 的完整执行单元跨 marker 聚合，并把合法准备阶段提交片段作为单个文档；lookup、marker、tail 与未闭合单元不会成为检索语料。每个继续点都以保存成功为前提。解析失败发生在 Executor 调用与新状态保存前。executing Goal 委派给 Scheduler，并在调度结束后重新恢复最新 Goal。
+## 恢复与持久化
 
-Coordinator 的 `resume` 接受分阶段 user action：gathering message 保存原文回答、追加 `run_resumed` 与其 hash-only `preparation_input_recorded` 后恢复 active；planning message 移除当前 proposal、按同一顺序保存反馈 provenance 并重新规划；approve 不追加消息，将 proposal 复制为最终 task；executing blocked message 追加原文输入并把 Run 恢复为 running；`approve_action` 匹配 `awaiting_approval` 或 `outcome_unknown` 的 pendingAction，保存为 `approved` 后透传一次性 `authorizedActionId`；`reject_action` 保存 rejected Observation 后继续推进。以上状态均先保存再继续自动推进。
+Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是可见边界，`memoryRevision` 是 accepted Memory Patch 链头。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
-当前 Runner 主流程为 `created → running → (Action/Observation | Context Lookup)* → waiting | completed | failed`，`cancelled` 也是终态。当前 v1 Prompt 的 Working Memory 只含 `facts/hypotheses/plan/blockers`：Fact identity 由规范化的 `subject+predicate` 决定，Runtime 分配 ID，并按 evidence 新旧执行重复抑制、同值强化和异值 supersede。gathering 只允许 Fact、Hypothesis、Blocker，planning 可创建或更新 PlanItem，executing 只能更新已有 PlanItem；非法 Patch 整体拒绝。默认投影上限为 32 KiB、64 Fact、8 Hypothesis、16 Plan、8 Blocker；active Plan/Blocker 与 Plan 依赖不可淘汰，其余按类别、强化次数、最近证据、更新时间和 ID 确定性选择，淘汰作为 canonical `evict_entries` 写入轨迹，恢复不重新计算。
+`pendingInteraction` 保存问卷/任务提案的完整请求、模式和关联 ID；恢复时必须验证 Goal、Run、request ID 与当前等待状态。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 
-`WorkingMemorySession` 以 Goal Snapshot 的 `committedThroughSequence` 和 `memoryRevision` 为恢复边界，只沿可达的 accepted Patch revision 链归约四类 Memory，并从 committed 的 `preparation_input_recorded` 建立 provenance 索引。恢复时会检查 provenance 的 Goal/Run、原始消息索引、user 角色和 SHA-256；缺失消息、角色不符、hash 错配、revision 断链或 tail 事件都 fail-closed。Session 关闭后清除进程内投影；其 Memory 与 provenance getter 都返回隔离副本。
+## 关键错误边界
 
-模型 Patch 在关联 Action 执行前提交。Tool 返回后，Runner 用已分配的 Observation 事实 sequence 调用可选 `ToolMemoryProjector`；合法 proposal 仍由同一 Admission Core 接受，并和 `observation_recorded`、Snapshot 进入一个提交边界。Projector 缺失或返回 `no_op` 不写 Patch，抛错或非法结果只写 Diagnostic Trace，原始 Observation 仍提交。`stable` Fact 在更新证据出现前持续成立；`last_observed` 只表示证据序列处的最后观察，作为当前外部状态使用前必须重新观察。completed/failed 的 canonical lifecycle Patch 清理 executing phase 的 Hypothesis、Plan 与 Blocker。
+- AgentDecision 无法通过当前 Wire/Canonical Contract、Evidence 或当前 task 门控时，返回 `INVALID_AGENT_DECISION`，不执行副作用。
+- Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
+- Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
+- Context Lookup 只允许历史 Conversation、执行事实或决策理由；当前环境必须重新调用 Tool。
 
-StepExecutor 生成 AgentDecision 后，Runner 对返回值做严格协议和 Evidence 校验。`context_lookup` 是独占分支，只允许历史执行/决策理由；当前 Workspace/Environment/验证状态必须重新调用 Tool。新 `tool_call` Action 先通过 Profile 白名单授权并在 Registry 中找到对应的 `ToolRegistration`，随后立即通过其 Input Contract 执行单次结构解析（`safeParse`）与 Tool 领域语义校验（`validate`）；解析失败以 `INVALID_TOOL_INPUT` 拒绝，不调用 Policy、不写 pending 或决策事实。校验通过后生成瞬时的 `PreparedToolAction`（携带隔离后的 canonical Action、Registration 与执行闭包），供 Policy、pending Action 持久化与执行闭包共享，单次尝试中不再重复解析原始 JSON。自动放行 Action 持久化后直接执行闭包；需要批准时仅持久化 canonical Action 并保存等待点。safe 恢复将当前 Prepared 对象传入首轮执行，manual 恢复转为 `outcome_unknown` waiting；审批批准或恢复的新尝试中必须重新 prepare。`EvidenceGate` 的 Preparation scope 只允许匹配的 `preparation_input_recorded` 支持用户约束 Fact create/update；retire、Plan completion 和所有 Executing Fact/Completion evidence 均不接受该来源。structured `complete` 必须覆盖每个 completion criterion 的 committed Tool/Observation evidence；当条件携带验收声明（`expectToolId` 与 `expectOutcome`）时，Runner 追加声明匹配校验，引用证据中至少一条须经 `resolveEvidenceObservation` 解析为匹配的工具观察事实（支持 `tool_finished` 直接提取与 `observation_recorded` 配对解析），预期失败任务须引用 `failure` 结果，未满足声明时以 `INVALID_AGENT_DECISION` 拒绝 complete 并指出具体条件序号与缺口；无声明条件保持原有引用合法性校验。每个保存点成功后才进入下一步；`state_committed` marker 只用于审计，恢复以 Snapshot 的 `committedThroughSequence` 和 revision 为准。
+## 当前限制
 
-`TrajectoryCheckpointCommitter` 使用同一个 `TrajectoryStore` 追加事实并在 `GoalStore.save` 前读取边界 tail。候选 Snapshot 中存在的 Goal/Run、message index、user 角色和 hash 必须与 tail 内所有 `preparation_input_recorded` 匹配；任一不匹配或缺少边界读取能力都会在 Snapshot、marker 和下游调用前抛出 `TrajectoryAppendError`。普通执行 tail 保持原有处理语义；当前实现不提供 Outbox、原子双写或异步重试。
-
-Context Retrieval Index Session 在同一 boundary 上校验 Sidecar 的 Goal/Run、Tokenizer、`fielded-bm25-lite-v1` 排名版本和 committed 事件前缀摘要；Sidecar 落后时只复用已验证的旧闭合文档并加入新闭合文档，失配则从 committed Trajectory 重建。Session 内查询 LRU 固定 64 项，键包含规范化 query、filters、boundary 和 index version；索引与缓存都是可丢弃性能缓存，不属于 Goal、Trajectory 或 Working Memory 的恢复事实。
-
-Launcher、Coordinator、Scheduler、Runner、Preparation/Step Executor、LLM Adapter 和 Tool
-共享可选的 `ExecutionControl`。各层在外部调用前、异步返回后以及状态转换或保存前
-调用 `throwIfAborted`；中止原样传播 `ExecutionAbortedError`，不生成失败 Step、
-`execution_error`、`cancelled` 或新的领域快照。已经进入的 Store 保存仍由存储边界决定
-是否完成。
-
-关闭边界由 `CheckpointGateGoalStore`、`ManagedResourceRegistry` 和
-`ShutdownCoordinator` 组成。Gate 的 `freeze()` 是单向操作，只拒绝尚未进入的
-`save`，已经进入底层 Store 的保存继续完成；`restore` 始终可用。Coordinator 首次
-收到关闭请求时先冻结 Gate、abort 根控制器，再并发请求受管资源正常关闭，并在默认
-2 秒 grace period 内等待保存和资源归零。超时后强制处理剩余资源，最后通过可注入的
-`ExitPort` 请求退出码 130；重复请求复用同一个 Promise，不重复执行清理。
-
-Runner 从 Goal 冻结的 executionPolicy 读取累计上限：正数达到后写入 `max_steps_exceeded`，不覆盖最近 Step、不追加消息；`0` 不限制连续 Step 数量。
-
-Runtime 通过内存 `ToolRegistry` 提供 Tool 扩展边界。Tool 采用泛型 `Tool<C>` 接口定义，其 `definition.inputContract`（来自 `@lazygoal/contracts`）是输入 JSON 结构的唯一事实源，只读 TypeScript 类型、本地结构解析与模型 Schema 均由其派生；必填的 `definition.isReadOnly` 是工具能力分类的唯一事实源，Tool 实例不维护第二份副本。`InMemoryToolRegistry` 不直接保存泛型 Tool，而是由组合根通过 `createToolRegistration(tool)` 将具体输入类型封装为类型擦除的 `ToolRegistration` 绑定（在注册时预编译 JSON Schema 验证契约图完整性）。Runner 在 Action 尝试中通过 `ToolRegistration.prepare(input)` 完成单次结构解析与语义校验，产出瞬时 `PreparedToolAction`，避免同一尝试内重复解析原始 JSON；输入不经 trim、coerce 或 default 规范化。Agent 接收已注册的授权 ToolDefinition 并自行选择下一步，生成并校验严格 AgentDecision，Runner 自动执行允许的 Action。Runtime 不根据 Bash 命令文本改写或替换 Agent 的 Tool 选择；Profile 白名单、Registry、输入校验和 Policy 仍是实际授权边界。
-
-[`packages/tools`](../../packages/tools/src/index.ts) 提供五个 Tool：只读 `ReadFileTool`、写入 UTF-8 文本的 `WriteFileTool`（safe 重放，父目录须已存在，拒绝 `.lazygoal` 前缀）、执行唯一匹配字符串替换的 `EditFileTool`（safe 重放，`oldString` 须恰好出现一次，重放时 `newString` 已存在则幂等成功，拒绝 `.lazygoal` 前缀）、按正则递归搜索文本文件的只读 `GrepTool`（safe 重放，跳过符号链接、`.git`、`.lazygoal` 与 `node_modules`，扫描 2000 文件/返回 200 行匹配后截断）与 `BashTool`（manual 重放，非 Windows 以 `/bin/bash -c` 执行、cwd 为 workspaceRoot、默认 30 秒/上限 120 秒超时，使用 `spawn` 持续消费 stdout/stderr，各自有界保留尾部 10000 字符，输出超量不提前终止命令）。五者共享 workspaceRoot 沙箱：拒绝绝对路径、`..` 路径段和解析后越出 workspaceRoot 的符号链接；文件不存在等领域问题返回 `failure`，非零退出码与超时分别返回 `COMMAND_FAILED`/`COMMAND_TIMEOUT`，替换不匹配分别返回 `STRING_NOT_FOUND`/`STRING_NOT_UNIQUE` 领域失败。TUI 组合根的默认策略（`createDefaultToolPolicy`）只自动放行只读 Tool（`read_file` 与 `grep`），`write_file`、`edit_file` 与 `bash` 需逐次批准。Runner、Agent 与 Coordinator 支持自动允许/审批 Action 的授权、持久化执行编排、拒绝 Observation、瞬时授权和 safe/manual 中断恢复；跨进程重放依赖 JsonFileGoalStore，仍没有并发租约或 exactly-once 保证。
-
-## 错误与不变量
-
-- Goal 不存在或 `runId` 不匹配：返回 `RUN_NOT_FOUND`，不执行、不保存。
-- Goal 没有匹配等待点、文本为空或 action 不匹配：返回 `GOAL_NOT_WAITING` 或 `INVALID_GOAL_INPUT`，无副作用。
-- 未携带或携带错误 `authorizedActionId` 调度已批准 Action：返回 `ACTION_NOT_AUTHORIZED`，不调用 Tool。
-- PreparationResult 与当前 phase 不匹配：返回 `INVALID_PHASE_RESULT`，不追加消息、不保存。
-- Preparation 探查引用未授权、未注册或非只读 Tool，或自定义 Executor 在 5 次上限后的收敛轮仍返回探查：返回对应的准备阶段协议错误，不执行 Tool；探查执行或提交失败会发出 `failed` 进度终态，避免 TUI 保留陈旧 Spinner。
-- 非 `bm25-lite` Goal、非法 Context Lookup 请求或 Preparation 链超过三次：返回 `INVALID_CONTEXT_LOOKUP` 或 `CONTEXT_LOOKUP_CHAIN_LIMIT`，不调用检索端口、不追加 lookup 事实、不推进阶段。
-- 当前状态需求被伪装成 Context Lookup，或历史需求缺少有效问题/筛选条件：返回 `CONTEXT_SOURCE_ROUTE_REJECTED` 或 `INVALID_CONTEXT_SOURCE_ROUTE`，不访问检索端口、不执行 Tool、不追加 lookup 事实。
-- Context Lookup 端口不可用、抛错或返回非法结果：以 `lookup_error` 事实区分查询故障与 `not_found`；查询结果提交失败时不会发起下一轮模型调用。
-- Adapter 等非协议 Executor 异常：兼容转换为一次持久化的 `fail` Step；AgentDecision 协议错误、Tool 越权/缺失/输入错误与边界基础设施异常：保存稳定 `execution_error`，不消费 Step。Tool 抛错发生在 pendingAction 保存后时标记 `outcome_unknown`。
-- Preparation Fact 的阶段准入、Evidence scope 或 canonicalize 失败：整体拒绝 Memory Patch，不追加 `memory_patch_accepted`，也不改变当前 Working Memory；PlanItem 阶段越权和 Preparation provenance 用于 Plan/Executing completion 同样拒绝。
-- 验收声明不匹配：携带验收声明的完成条件，若引用的 committed 证据无法匹配声明的预期工具与结果（包括预期失败任务引用成功观察、引用无关工具或未引用匹配工具观察），Runner 抛出 `INVALID_AGENT_DECISION` 拒绝 complete 决策并返回具体缺口诊断，当前 Run 保持执行中，不消费 Step，允许 Agent 纠偏。
-- `preparation_input_recorded` 的字段、阶段、消息索引或 hash 无效：Trajectory 追加失败；恢复或 Snapshot 提交前发现 provenance 与候选 Goal 不匹配：以 `TrajectoryAppendError` fail-closed，不保存 Snapshot、不追加 marker、不继续下游调用。
-- Transition 非法组合：返回原状态与 `INVALID_TRANSITION`，不抛异常、不修改输入状态。
-- Action 状态不变量：pendingAction 必须与当前 Action 生命周期匹配；Observation/rejection 必须匹配 actionId；Action 暂存、取消和执行错误不消费 Step，只有完整 Observation、拒绝或终止决策消费一次 Step。
-- Tool 边界不变量：Profile 白名单先于 Registry 和输入校验；Registry 中的 Tool ID 必须唯一；Action input 由 Input Contract 严格解析，缺少必填字段、未声明字段或类型错误立即返回 `INVALID_TOOL_INPUT`，不调用 Policy 或 Tool，不写 pending 或决策事实；结构解析成功后由 Tool `validate` 执行跨字段、正则、沙箱与文件状态等领域语义校验；单次尝试中最多执行一次 Contract 解析并生成 canonical Action；审批只持久化 canonical Action，新尝试重新校验输入；`ReadFileTool` 只允许 workspaceRoot 内的相对文件路径，且不读取越界符号链接目标；`WriteFileTool` 同受 workspaceRoot 沙箱约束、父目录必须已存在且拒绝 `.lazygoal` 前缀写入；`EditFileTool` 要求 `oldString` 唯一匹配且与 `newString` 不同、拒绝 `.lazygoal` 前缀，未应用的重放返回 `STRING_NOT_FOUND`、已应用的重放幂等成功；`GrepTool` 跳过符号链接与 `.git`/`.lazygoal`/`node_modules` 目录、不读取含 NUL 字节的文件并在文件数或匹配数上限处截断；`BashTool` 在 workspaceRoot 内执行命令，超时终止与输出截断由 Tool 边界负责，命令内容本身不受限制；`ExecutionAbortedError` 在解析、语义校验与执行边界间原样传播。
-- Store I/O 或协议错误：原样向调用方传播；协议解码、迁移与并发覆盖语义由 [`@lazygoal/storage`](./storage.md) 拥有。Working Memory revision 链缺失、跨 Run、循环或越过 Snapshot 边界时，Session 抛出可识别的恢复错误并阻止模型继续；Session 不从原始 PreparationResult 或未提交 tail 恢复。
-- `AbortSignal` 已中止：传播独立的 `ExecutionAbortedError`，不落盘控制流产生的失败状态；LLM/Tool 边界负责将供应商中止对齐为该错误。
-- Retrieval Index Sidecar 缺失、损坏、领先 Snapshot、来源摘要不匹配或索引统计失配：Session 丢弃缓存并从 committed Trajectory 重建；查询缓存失效只影响性能，不改变 Goal、Trajectory 或 Working Memory。
-- Checkpoint Gate 冻结后新 `save` 抛出 `CHECKPOINT_GATE_FROZEN`；关闭流程不回滚快照、不写入 `cancelled`，已进入的底层保存仍可成为最新检查点。
-- ShutdownCoordinator 对受管资源先执行正常关闭，grace period 到期后执行强制关闭并只请求一次退出码 130；资源清理错误不会阻止其他资源处理。
-
-## 当前限制与背景
-
-一个 Goal 只有一个当前 Run；`InlineScheduler` 没有队列、租约或自动重启扫描。Runtime 已提供 ContextLookupPort、lookup 生命周期、committed ContextDocumentBuilder、版本化 FieldTokenizer、`fielded-bm25-lite-v1` 倒排与排名、有界 Result/source-ref 校验、可重建 Retrieval Index Sidecar 和 64 项查询 LRU；索引 Sidecar 仍是性能缓存，当前 Goal 统一冻结 `bm25-lite@1`，具体 ContextLookupPort 由组合调用方按需提供。模型上下文预算、Hot/Warm 选择与 Lookup Result 的 Prompt 投影由 Agent 负责，也不提供并发恢复保护；Tool 外部系统仍不承诺 exactly-once。
+Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快照查询、跨进程租约或 Outbox 双写。TUI/Benchmark 通过 Composition Root 注入 Store、Trajectory、Tool、Agent 和 LLM 适配器。

@@ -326,7 +326,6 @@ test("Assembler 默认 fixed input 按原始 Conversation 索引保留当前 Epo
             ...base.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: { objective: "执行", completionCriteria: [] },
             },
             run: {
@@ -424,7 +423,6 @@ function layeredExecutingGoal(committedThroughSequence: number): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: { objective: "layered", completionCriteria: [] },
             },
             run: {

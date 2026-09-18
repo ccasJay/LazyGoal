@@ -11,7 +11,6 @@ import {
     type AgentDecision,
     type AgentProfile,
     type Goal,
-    type PreparationExecutor,
     type StepExecutionInput,
     type StepExecutor,
 } from "../../packages/runtime/src/index.js";
@@ -76,7 +75,6 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Test policy execution",
                     completionCriteria: [],
@@ -85,18 +83,6 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
         },
     };
 }
-
-const noopPreparationExecutor: PreparationExecutor = {
-    async execute() {
-        return {
-            kind: "task_proposal",
-            proposal: {
-                objective: "Auto proposal",
-                completionCriteria: [],
-            },
-        };
-    },
-};
 
 test("auto 模式下自动放行合法授权动作，无需审批直接发往 Worker 执行", async (t) => {
     const workspace = await mkdtemp(join(tmpdir(), "policy-auto-"));
@@ -165,7 +151,6 @@ test("auto 模式下自动放行合法授权动作，无需审批直接发往 Wo
         store,
         trajectoryStore,
         scheduler,
-        preparationExecutor: noopPreparationExecutor,
     });
 
     const goal = createTestGoal("goal-auto", "run-auto", {
@@ -239,7 +224,6 @@ test("review 模式下自动放行只读工具（read_file），无需审批", a
         store,
         trajectoryStore,
         scheduler,
-        preparationExecutor: noopPreparationExecutor,
     });
 
     const goal = createTestGoal("goal-review-read", "run-review-read", {
@@ -340,7 +324,6 @@ test("review 模式拦截非只读动作（write_file），审批前 Worker 计�
         store,
         trajectoryStore,
         scheduler,
-        preparationExecutor: noopPreparationExecutor,
     });
 
     const goal = createTestGoal("goal-review-write", "run-review-write", {
@@ -464,7 +447,6 @@ test("review 模式下拒绝动作（reject_action），Worker 执行计数保�
         store,
         trajectoryStore,
         scheduler,
-        preparationExecutor: noopPreparationExecutor,
     });
 
     const goal = createTestGoal("goal-review-reject", "run-review-reject", {
@@ -579,7 +561,6 @@ test("GAIA review 模式自动放行 web_search 但拦截 submit_answer", async 
         store,
         trajectoryStore,
         scheduler,
-        preparationExecutor: noopPreparationExecutor,
     });
 
     const goal = createTestGoal("goal-gaia-review", "run-gaia-review", {

@@ -591,6 +591,7 @@ test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => 
     const encoded = goalSnapshotCodec.encode(goal);
     assert.equal(encoded.state.workflow.phase, "executing");
     if (encoded.state.workflow.phase === "executing") {
+        assert.ok(encoded.state.workflow.task);
         assert.deepEqual(
             encoded.state.workflow.task.completionCriteria,
             [
@@ -610,9 +611,10 @@ test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => 
     const restored = goalSnapshotCodec.decode(encoded);
     assert.equal(restored.state.workflow.phase, "executing");
     if (restored.state.workflow.phase === "executing") {
+        assert.ok(restored.state.workflow.task);
         assert.deepEqual(
             restored.state.workflow.task.completionCriteria,
-            goal.state.workflow.phase === "executing" ? goal.state.workflow.task.completionCriteria : [],
+            goal.state.workflow.task?.completionCriteria ?? [],
         );
     }
 });

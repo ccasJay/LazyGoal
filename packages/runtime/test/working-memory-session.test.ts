@@ -9,7 +9,6 @@ import {
     allocateImmutableEvent,
     createCanonicalFactId,
     createGoal,
-    computeContentHash,
     rebuildWorkingMemory,
 } from "../src/index";
 import type {
@@ -129,59 +128,6 @@ function events(): TrajectoryEvent[] {
         },
     }, 2, "patch-2");
     return [observation, accepted];
-}
-
-function preparationEvents(options: {
-    readonly messageIndex?: number;
-    readonly content?: string;
-    readonly acceptedEvidenceSequence?: number;
-    readonly acceptedPhase?: "executing";
-} = {}): TrajectoryEvent[] {
-    const messageIndex = options.messageIndex ?? 0;
-    const content = options.content ?? "Restore structured Memory";
-    const preparationInput = allocateImmutableEvent({
-        goalId: "goal-session",
-        runId: "run-session",
-        phase: "executing",
-        eventType: "preparation_input_recorded",
-        payload: {
-            type: "preparation_input_recorded",
-            messageIndex,
-            contentHash: computeContentHash(content),
-        },
-    }, 1, "preparation-input-1");
-    const factId = createCanonicalFactId("user", "requested_format");
-    const accepted = allocateImmutableEvent({
-        goalId: "goal-session",
-        runId: "run-session",
-        phase: options.acceptedPhase ?? "executing",
-        eventType: "memory_patch_accepted",
-        payload: {
-            type: "memory_patch_accepted",
-            protocolVersion: 1,
-            producers: ["model"],
-            operations: [{
-                type: "upsert_fact",
-                fact: {
-                    kind: "fact",
-                    id: factId,
-                    subject: "user",
-                    predicate: "requested_format",
-                    value: "json",
-                    stability: "stable",
-                    evidenceSequences: [options.acceptedEvidenceSequence ?? 1],
-                    reinforcementCount: 1,
-                    lastEvidenceSequence: options.acceptedEvidenceSequence ?? 1,
-                    source: "model",
-                    originPhase: options.acceptedPhase ?? "gathering_context",
-                    originSequence: 2,
-                    updatedAtSequence: 2,
-                    scope: "goal",
-                },
-            }],
-        },
-    }, 2, "preparation-patch-2");
-    return [preparationInput, accepted];
 }
 
 test("rebuild follows the selected revision and reproduces canonical Fact", async () => {

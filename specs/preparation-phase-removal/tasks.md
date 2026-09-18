@@ -35,14 +35,14 @@
   - 验证方式：待实现的 Agent Prompt、Projector、Parser、Provider schema 和 EvidenceGate 测试，覆盖两种任务状态与非法旧协议。
   - _Requirements: [1.2](./requirements.md#req-1-2), [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [5.1](./requirements.md#req-5-1), [8.1](./requirements.md#req-8-1), [8.2](./requirements.md#req-8-2)_
 
-- [ ] //TODO 6. 实现统一 TUI 时间线与 AskUserPanel
+- [x] //TODO 6. 实现统一 TUI 时间线与 AskUserPanel
 
   - 实现目标：删除 `PreparationScreen`、`preparationSteps` 和旧阶段派发，扩展 `UiSessionViewModel`/`UiCommand`，在 `SessionScreen` 的 `ActiveDrawer` 中实现计划问题、执行期问题、单选、多选、`Other` 和任务批准反馈。
   - 成功判据：启动/恢复只显示统一 Session；`AskUserPanel` 正确显示问题进度、选项和模式标签；键盘提交只发生一次，错误/忙碌保留输入；答案、提案、Observation 和步骤按提交顺序进入同一瀑布。
   - 验证方式：待实现的 `ink-testing-library` 组件测试、SessionController 测试和恢复 UI 测试，覆盖单选、多选、Other、重复提交和跨 Goal 事件。
   - _Requirements: [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 7. 完成跨包回归、架构文档和流式边界验证
+- [x] //TODO 7. 完成跨包回归、架构文档和流式边界验证
 
   - 实现目标：更新 Runtime、Agent、TUI 当前架构文档和全部受影响回归测试，覆盖统一交互链路、证据边界、旧协议失败和流式 transcript 切换。
   - 成功判据：完整链路可从初始意图进入 `ask_user`、只读探查、任务提案、批准和普通执行；完成声明拒绝用户回答作为证据；活动流冲刷后尾部保留且下一流可启动；所有已有非 Preparation 行为保持不变。
@@ -57,15 +57,15 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3)、[1.4](./requirements.md#req-1-4) | 新 Goal 直接进入统一执行；交互等待可恢复且不计 Step；批准后执行继续遵守 Step 不变量 | Runtime domain/Coordinator/Runner 集成测试（待实现） |
-| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3)、[2.4](./requirements.md#req-2-4) | 未批准提案阻止副作用；批准继续；反馈重提案；失配操作无副作用 | 任务批准门控与恢复测试（待实现） |
-| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3)、[3.4](./requirements.md#req-3-4) | 合法 1–3 题请求进入等待；非法请求拒绝；单/多选及自由输入答案规范化且只提交一次 | Contracts、Runtime 和 UI 测试（待实现） |
-| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3)、[4.4](./requirements.md#req-4-4)、[4.5](./requirements.md#req-4-5) | 统一活动抽屉显示计划/执行问题；键盘选择、Other、错误保留和模式标签符合约定 | Ink 组件测试 + 交互式 TUI 检查（待实现） |
-| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | 批准前只读 Tool 可审计且不计 Step；写 Tool 被拒绝；批准后复用既有 Action/YOLO 规则 | Tool Policy、Runner 和回归测试（待实现） |
-| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | 交互先保存后继续；重启恢复完整请求；失配和保存失败保持最后成功快照 | Storage codec、checkpoint 和恢复测试（待实现） |
-| [7.1](./requirements.md#req-7-1)、[7.2](./requirements.md#req-7-2)、[7.3](./requirements.md#req-7-3) | 无 Preparation 页面或 Step 1；所有内容按顺序进入单一时间线，恢复后不重复 | TUI Controller/Screen 测试与快照检查（待实现） |
-| [8.1](./requirements.md#req-8-1)、[8.2](./requirements.md#req-8-2)、[8.3](./requirements.md#req-8-3)、[8.4](./requirements.md#req-8-4) | 用户回答不能作为完成证据；旧协议 fail-closed；流式尾部保留并允许下一流；边界失败无伪造状态 | EvidenceGate、协议、stream barrier 定向测试和全量回归（待实现） |
+| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3)、[1.4](./requirements.md#req-1-4) | 新 Goal 直接进入统一执行；交互等待可恢复且不计 Step；批准后执行继续遵守 Step 不变量 | `packages/runtime/test/goal-coordinator-task-interaction.test.ts`、`unified-goal-state.test.ts`、`runner-plan-probe.test.ts` |
+| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3)、[2.4](./requirements.md#req-2-4) | 未批准提案阻止副作用；批准继续；反馈重提案；失配操作无副作用 | `goal-coordinator-task-interaction.test.ts`、`runner.test.ts`、`prompt-bundle-integration.test.ts` |
+| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3)、[3.4](./requirements.md#req-3-4) | 合法 1–3 题请求进入等待；非法请求拒绝；单/多选及自由输入答案规范化且只提交一次 | `packages/contracts/test/ask-user.test.ts`、`packages/tui/test/ask-user-panel.test.tsx`、Runtime 交互测试 |
+| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3)、[4.4](./requirements.md#req-4-4)、[4.5](./requirements.md#req-4-5) | 统一活动抽屉显示计划/执行问题；键盘选择、Other、错误保留和模式标签符合约定 | `ask-user-panel.test.tsx`、`session-screen.test.tsx`、`screens.test.tsx` |
+| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | 批准前只读 Tool 可审计且不计 Step；写 Tool 被拒绝；批准后复用既有 Action/YOLO 规则 | `runner-plan-probe.test.ts`、`tui-tool-policy.test.ts`、`runner.test.ts` |
+| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | 交互先保存后继续；重启恢复完整请求；失配和保存失败保持最后成功快照 | `goal-snapshot-interaction.test.ts`、`action-observation-recovery.test.ts`、`trajectory-lifecycle.test.ts` |
+| [7.1](./requirements.md#req-7-1)、[7.2](./requirements.md#req-7-2)、[7.3](./requirements.md#req-7-3) | 无 Preparation 页面或 Step 1；所有内容按顺序进入单一时间线，恢复后不重复 | `session-controller-timeline.test.ts`、`transcript-thinking-flow.test.ts`、`session-screen.test.tsx` |
+| [8.1](./requirements.md#req-8-1)、[8.2](./requirements.md#req-8-2)、[8.3](./requirements.md#req-8-3)、[8.4](./requirements.md#req-8-4) | 用户回答不能作为完成证据；旧协议 fail-closed；流式尾部保留并允许下一流；边界失败无伪造状态 | `evidence-gate`/协议拒绝测试、流式 Transcript 定向测试、`npm test` 全量回归 |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+已完成（2026-09-18）。`npx tsc --noEmit --pretty false` 通过；`npm test` 通过类型检查、依赖边界检查（149 个源文件）、1087 个 TypeScript 测试和 13 个脚本测试。统一交互、AskUserPanel、任务提案、只读探查、恢复、Evidence、Context Retrieval、TUI timeline/stream barrier、ALFWorld/SWE-bench Headless Root 均有定向或全量证据；旧 Preparation Snapshot/Event 仍由 Storage/Trajectory fail-closed 拒绝。TUI 手工检查以 `ink-testing-library` 的 AskUserPanel、SessionScreen、流式时间线和终端关闭回归覆盖，未启动需要外部 LLM 凭据的交互会话。

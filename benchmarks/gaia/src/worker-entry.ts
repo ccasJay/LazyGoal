@@ -271,8 +271,6 @@ export async function runGaiaAcpTask(
 export const GAIA_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
     "packages/agent/src/global-system-prompt/global-overview@1.njk",
     "packages/agent/src/prompting/profile@1.njk",
-    "packages/agent/src/preparation-prompt/gathering-context@1.njk",
-    "packages/agent/src/preparation-prompt/planning@1.njk",
     "packages/agent/src/step-prompt/agent-decision@1.njk",
     "packages/agent/src/prompting/authorized-tools@1.njk",
 ] as const);
@@ -281,8 +279,6 @@ export const GAIA_ACP_WORKER_PROMPT_ASSETS = Object.freeze([
 export const GAIA_ACP_WORKER_PROMPT_ASSET_IDS = Object.freeze([
     "global-overview@1",
     "profile@1",
-    "gathering-context@1",
-    "planning@1",
     "agent-decision@1",
     "authorized-tools@1",
 ] as const);
@@ -369,4 +365,3 @@ if (process.argv[1] !== undefined && (process.argv[1].endsWith("worker.mjs") || 
         process.exitCode = 1;
     });
 }
-

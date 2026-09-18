@@ -19,7 +19,7 @@ const dummySchema = {
     additionalProperties: false,
 };
 
-test("Gemini SDK preserves complete phase schemas and all five tool branches", async () => {
+test("Gemini SDK preserves unified executing and checkpoint schemas", async () => {
     const originalFetch = globalThis.fetch;
     const sent: any[] = [];
     globalThis.fetch = async (input, init) => {
@@ -30,16 +30,31 @@ test("Gemini SDK preserves complete phase schemas and all five tool branches", a
         });
     };
     try {
-        for (const kind of ["gathering", "planning", "executing", "checkpoint"] as const) {
-            const bundle = createModelOutputContractBundle(kind === "executing" ? {
-                kind, authorizedTools: [
+        for (const request of [
+            {
+                kind: "executing" as const,
+                taskPresent: false,
+                authorizedTools: [
                     { id: "bash", inputContract: BASH_INPUT_CONTRACT },
                     { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
                     { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
                     { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
                     { id: "grep", inputContract: GREP_INPUT_CONTRACT },
                 ],
-            } : { kind });
+            },
+            {
+                kind: "executing" as const,
+                authorizedTools: [
+                    { id: "bash", inputContract: BASH_INPUT_CONTRACT },
+                    { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
+                    { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
+                    { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
+                    { id: "grep", inputContract: GREP_INPUT_CONTRACT },
+                ],
+            },
+            { kind: "checkpoint" as const },
+        ]) {
+            const bundle = createModelOutputContractBundle(request);
             const before = JSON.stringify(bundle.jsonSchema);
             await createAdapter("strict").generate({ messages: [{ role: "user", content: "Return JSON" }], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
             assert.equal(JSON.stringify(bundle.jsonSchema), before, "conversion must not mutate the shared contract");
@@ -500,7 +515,7 @@ test("Gemini native adapter applies configured output limit unless request overr
 });
 
 
-test("Gemini preserves executing Working Memory updates and rejects planning-only operations", async () => {
+test("Gemini preserves executing Working Memory updates and rejects task-planning-only operations", async () => {
     const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [{ id: "bash", inputContract: BASH_INPUT_CONTRACT }] });
     const result = { kind: "tool_call", action: { actionId: "a", toolId: "bash", input: { command: "true", timeoutMs: null } },
         memoryPatch: { protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
@@ -661,9 +676,10 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
     assert.equal(decoded.memoryPatch, undefined);
 });
 
-test("Gemini preserves probe_action branch in gathering preparation without converting to tool_call", async () => {
+test("Gemini preserves unified read-only tool_call branch before task approval", async () => {
     const bundle = createModelOutputContractBundle({
-        kind: "gathering",
+        kind: "executing",
+        taskPresent: false,
         authorizedTools: [{
             id: "grep",
             inputContract: contract.object({
@@ -675,8 +691,8 @@ test("Gemini preserves probe_action branch in gathering preparation without conv
     });
     const text = JSON.stringify({
         result: {
-            kind: "probe_action",
-            action: { toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
+            kind: "tool_call",
+            action: { actionId: "probe-1", toolId: "grep", input: { pattern: "spec", ignoreCase: true } },
             memoryPatch: "__lazygoal_null__",
         },
     });
@@ -684,9 +700,9 @@ test("Gemini preserves probe_action branch in gathering preparation without conv
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(response.content);
-    assert.equal(wire.result.kind, "probe_action");
+    assert.equal(wire.result.kind, "tool_call");
     assert.equal(wire.result.memoryPatch, null);
     const decoded = bundle.decode(wire);
-    assert.equal(decoded.kind, "probe_action");
+    assert.equal(decoded.kind, "tool_call");
     assert.equal(decoded.memoryPatch, undefined);
 });

@@ -127,8 +127,6 @@ async function assembleTrajectoryContext(
                 view.contextLookupResult,
                 view.contextEpoch,
                 undefined,
-                view.lastProbeResult,
-                view.probeLimitReached,
             ),
         ],
     };

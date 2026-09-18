@@ -111,7 +111,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
     });
 
     // 2. plan probe - task_proposal (完整 fenced code block)
-    const planningRaw = `\`\`\`json\n${JSON.stringify({
+    const proposalRaw = `\`\`\`json\n${JSON.stringify({
         result: {
             kind: "task_proposal",
             task: {
@@ -122,8 +122,8 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
             memoryPatch: null,
         },
     })}\n\`\`\``;
-    const planningResult = parseModelOutput(planningRaw, planProbeBundle);
-    assert.deepEqual(planningResult, {
+    const proposalResult = parseModelOutput(proposalRaw, planProbeBundle);
+    assert.deepEqual(proposalResult, {
         kind: "task_proposal",
         task: {
             objective: "完成模块实现",

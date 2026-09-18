@@ -29,7 +29,6 @@ import {
     type GoalProgressResult,
     type GoalProtocolValidator,
     type GoalStore,
-    type PreparationExecutor,
     type RunIdGenerator,
     readTrajectoryAtSnapshot,
     type RunnerResult,
@@ -445,10 +444,10 @@ export interface HeadlessCompositionRootDependencies<TTask, TOutcome> {
  * 将一个 benchmark task 装配为完整 headless LazyGoal 执行。
  *
  * @remarks
- * Root 的边界是单 task、单次执行。它经过 Runtime 的 Preparation、Planning、
- * Approval 和 Executing 状态转换，但 Preparation 结果由 task descriptor 确定性
- * 提供，不触发交互式 LLM Preparation。所有 Runtime 组件共享 Persistence Adapter
- * 返回的 Port 实例；Root 不解析 Manifest、环境协议或 benchmark 评分。
+ * Root 的边界是单 task、单次执行。它从统一 executing 生命周期开始，由模型提交
+ * 任务提案，再由 headless 调用方自动批准并继续执行。所有 Runtime 组件共享
+ * Persistence Adapter 返回的 Port 实例；Root 不解析 Manifest、环境协议或 benchmark
+ * 评分。
  *
  * @example
  * ```ts
@@ -524,7 +523,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             validateEpisode(episode);
 
             const profileRegistry = createSingleProfileRegistry(this.dependencies.profile);
-            const preparationExecutor = createDescriptorPreparationExecutor(descriptor);
             const usageRecorder = new UsageRecordingLLMAdapter(this.dependencies.llmAdapter);
             const workingMemoryLimits = this.dependencies.workingMemoryLimits
                 ?? DEFAULT_WORKING_MEMORY_LIMITS;
@@ -567,7 +565,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
             });
             const coordinator = new GoalCoordinator({
                 store: bindings.goalStore,
-                preparationExecutor,
                 scheduler,
                 toolRegistry: episode.registry,
                 ...(bindings.traceSink === undefined ? {} : { traceSink: bindings.traceSink }),
@@ -599,7 +596,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 },
                 control,
             );
-            const progress = await this.approvePlanning(
+            const progress = await this.approveTaskProposal(
                 launched,
                 coordinator,
                 ref,
@@ -660,7 +657,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         return result;
     }
 
-    private async approvePlanning(
+    private async approveTaskProposal(
         launched: Awaited<ReturnType<typeof launch>>,
         coordinator: Pick<GoalCoordinator, "resume">,
         ref: { readonly goalId: string; readonly runId: string },
@@ -669,8 +666,8 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         if (
             !launched.ok
             || launched.kind !== "waiting"
-            || launched.phase !== "planning"
-            || launched.waitingFor !== "approval"
+            || launched.phase !== "executing"
+            || launched.waitingFor !== "task_approval"
         ) {
             if (launched.ok) return launched;
             throw new Error(`${launched.error.code}: ${launched.error.message}`);
@@ -679,7 +676,7 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         return coordinator.resume(
             {
                 ref,
-                action: { kind: "approve" },
+                action: { kind: "approve_task" },
             },
             toExecutionControl(signal),
         );
@@ -723,43 +720,6 @@ function createSingleProfileRegistry(profile: AgentProfile): AgentProfileRegistr
     return {
         get(profileId) {
             return profileId === profile.id ? profile : undefined;
-        },
-    };
-}
-
-function createDescriptorPreparationExecutor(
-    descriptor: Pick<NormalizedBenchmarkTaskDescriptor, "objective" | "completionCriteria">,
-): PreparationExecutor {
-    return {
-        async execute({ goal }) {
-            if (goal.state.workflow.phase === "gathering_context") {
-                return { kind: "context_ready" };
-            }
-
-            if (goal.state.workflow.phase === "planning") {
-                return {
-                    kind: "task_proposal",
-                    task: {
-                        objective: descriptor.objective,
-                        completionCriteria: descriptor.completionCriteria.map(
-                            (criterion) => ({
-                                text: criterion.text,
-                                ...(criterion.acceptance === undefined
-                                    ? {}
-                                    : {
-                                        acceptance: {
-                                            expectToolId: criterion.acceptance.expectToolId,
-                                            expectOutcome: criterion.acceptance.expectOutcome,
-                                        },
-                                    }),
-                            }),
-                        ),
-                    },
-                    approvalRequest: "Headless benchmark task is ready for execution.",
-                };
-            }
-
-            throw new Error("Headless preparation was called after executing began");
         },
     };
 }

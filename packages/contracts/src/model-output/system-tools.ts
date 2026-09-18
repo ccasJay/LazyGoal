@@ -9,17 +9,11 @@ import {
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
-    ContextReadyPreparationResultContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
     GoalTaskContract,
-    ModelContextCheckpointResultContract,
-    type PreparationResult,
-    QuestionPreparationResultContract,
-    TaskProposalPreparationResultContract,
-    WorkingMemoryPatchContract,
     AskUserQuestionInputContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
@@ -164,28 +158,17 @@ export const SystemContextLookupInputContract = contract.object({
     filters: contract.optional(ContextLookupFiltersContract),
 });
 
-/** Gathering 阶段向用户提问澄清工具参数契约。 */
-export const SystemAskClarificationInputContract = contract.object({
-    question: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/** Gathering 阶段上下文就绪工具参数契约。 */
-export const SystemContextReadyInputContract = contract.object({
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
-});
-
-/** Planning 阶段提交任务提案工具参数契约。 */
+/** 统一执行流提交任务提案工具参数契约。 */
 export const SystemProposeTaskPlanInputContract = contract.object({
     task: GoalTaskContract,
     approvalRequest: contract.string(),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/** Context Checkpoint 阶段检查点工具参数契约。 */
+/** 统一执行流上下文检查点工具参数契约。 */
 export const SystemContextCheckpointInputContract = contract.object({
     checkpointSummary: contract.optional(contract.string()),
-    memoryPatch: contract.optional(WorkingMemoryPatchContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
 /** 结构化提问工具参数契约。 */
@@ -232,7 +215,7 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
     }),
 );
 
-export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision | PreparationResult> = buildDeclaration(
+export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_lookup",
     "Search historical trajectory context or conversation records for needed evidence. Filters are optional; omit sequenceRange unless targeting specific known event sequences.",
     SystemContextLookupInputContract,
@@ -266,32 +249,11 @@ export const SystemAskUserDeclaration: SystemToolDeclaration<AgentDecision> = bu
     }),
 );
 
-export const SystemAskClarificationDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
-    "system_ask_clarification",
-    "In gathering phase, ask the user a clarification question when the goal or requirement is ambiguous.",
-    SystemAskClarificationInputContract,
-    (args: { question: string; memoryPatch?: unknown }): PreparationResult => ({
-        kind: "question",
-        question: args.question,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
-);
-
-export const SystemContextReadyDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
-    "system_context_ready",
-    "In gathering phase, confirm that sufficient context has been gathered to proceed to planning.",
-    SystemContextReadyInputContract,
-    (args: { memoryPatch?: unknown }): PreparationResult => ({
-        kind: "context_ready",
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
-);
-
-export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision & PreparationResult> = buildDeclaration(
+export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_propose_task_plan",
-    "In planning phase, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
+    "Before task approval, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
     SystemProposeTaskPlanInputContract,
-    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision & PreparationResult => ({
+    (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "task_proposal",
         task: args.task,
         approvalRequest: args.approvalRequest,
@@ -299,11 +261,11 @@ export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecisi
     }),
 );
 
-export const SystemContextCheckpointDeclaration: SystemToolDeclaration<PreparationResult> = buildDeclaration(
+export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_checkpoint",
     "Save current execution progress and memory patch when model context budget requires a checkpoint.",
     SystemContextCheckpointInputContract,
-    (args: { checkpointSummary?: string; memoryPatch?: unknown }): PreparationResult => ({
+    (args: { checkpointSummary?: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "context_checkpoint",
         ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
     }),
@@ -341,33 +303,6 @@ export function createExecutingBusinessToolDeclaration(
             kind: "tool_call",
             action: {
                 actionId: generateActionId(tool.id),
-                toolId: tool.id,
-                input: input as any,
-            },
-        }),
-    );
-}
-
-/**
- * 将只读业务工具包装为准备阶段的探查 Tool 声明。
- */
-export function createProbeBusinessToolDeclaration(
-    tool: AuthorizedToolContract,
-    description = `Inspect workspace or environment using read-only tool ${tool.id}`,
-): SystemToolDeclaration<PreparationResult> {
-    if (tool.inputContract.kind !== "object") {
-        throw new ModelOutputContractDefinitionError(
-            `Probe tool ${tool.id} inputContract must be an ObjectContract`,
-            [tool.id],
-        );
-    }
-    return buildDeclaration(
-        tool.id,
-        description,
-        tool.inputContract as ObjectContract<ObjectShape>,
-        (input): PreparationResult => ({
-            kind: "probe_action",
-            action: {
                 toolId: tool.id,
                 input: input as any,
             },
@@ -437,58 +372,9 @@ export function createUnifiedToolDeclarations(
 }
 
 /**
- * 构造 Gathering 阶段完整的工具声明集合。
- *
- * @param authorizedTools - 当前可用的业务工具（仅筛选 isReadOnly 为 true 的工具）。
- * @returns 包含只读探测工具与系统动作工具（clarification/ready/lookup）的完整声明列表。
- *
- * @example
- * ```ts
- * const tools = createGatheringToolDeclarations(tools);
- * ```
+ * 构造上下文检查点工具声明集合。
  */
-export function createGatheringToolDeclarations(
-    authorizedTools: readonly AuthorizedToolContract[] = [],
-): readonly SystemToolDeclaration<PreparationResult>[] {
-    const probeTools = authorizedTools
-        .filter(t => t.isReadOnly === true)
-        .map(t => createProbeBusinessToolDeclaration(t));
-    return [
-        ...probeTools,
-        SystemAskClarificationDeclaration,
-        SystemContextReadyDeclaration,
-        SystemContextLookupDeclaration as SystemToolDeclaration<PreparationResult>,
-    ];
-}
-
-/**
- * 构造 Planning 阶段完整的工具声明集合。
- *
- * @param authorizedTools - 当前可用的业务工具（仅筛选 isReadOnly 为 true 的工具）。
- * @returns 包含只读探测工具与系统动作工具（proposal/lookup）的完整声明列表。
- *
- * @example
- * ```ts
- * const tools = createPlanningToolDeclarations(tools);
- * ```
- */
-export function createPlanningToolDeclarations(
-    authorizedTools: readonly AuthorizedToolContract[] = [],
-): readonly SystemToolDeclaration<PreparationResult>[] {
-    const probeTools = authorizedTools
-        .filter(t => t.isReadOnly === true)
-        .map(t => createProbeBusinessToolDeclaration(t));
-    return [
-        ...probeTools,
-        SystemProposeTaskPlanDeclaration,
-        SystemContextLookupDeclaration as SystemToolDeclaration<PreparationResult>,
-    ];
-}
-
-/**
- * 构造 Context Checkpoint 阶段专属的工具声明集合。
- */
-export function createCheckpointToolDeclarations(): readonly SystemToolDeclaration<PreparationResult>[] {
+export function createCheckpointToolDeclarations(): readonly SystemToolDeclaration<AgentDecision>[] {
     return [SystemContextCheckpointDeclaration];
 }
 

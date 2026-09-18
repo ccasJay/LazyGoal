@@ -477,9 +477,7 @@ async function rebuild(
     let memory = createEmptyWorkingMemory();
     for (const event of chain.reverse()) {
         try {
-            const scope: EvidenceValidationScope = event.phase === "executing"
-                ? "execution"
-                : "preparation";
+            const scope: EvidenceValidationScope = "execution";
             validateCanonicalFactEvidence(event.payload.operations, evidenceIndex, scope);
             memory = reduceWorkingMemory(memory, event.payload.operations, {
                 derivedThroughSequence: event.sequence,
@@ -643,13 +641,13 @@ export class WorkingMemorySession {
      * 在当前 committed Snapshot 边界内校验模型提出的 Memory Patch。
      *
      * @param patch - 尚未接受的模型 Patch。
-     * @param scope - 当前 Preparation 或 Execution 证据范围。
+     * @param scope - 当前统一执行生命周期的证据范围。
      * @param workingMemory - 可选的校验起点；省略时使用 Session 当前投影。
      * @throws WorkingMemorySessionClosedError Session 已关闭；
      * WorkingMemoryPatchError 或 EvidenceGateError 当 Patch 或证据引用非法。
      * @example
      * ```ts
-     * session.validatePatch(result.memoryPatch, "preparation");
+     * session.validatePatch(result.memoryPatch, "execution");
      * ```
      */
     validatePatch(

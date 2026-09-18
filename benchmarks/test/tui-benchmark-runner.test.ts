@@ -68,21 +68,60 @@ class RecordingExitPort implements ExitPort {
     }
 }
 
+const mockAdapterCalls = new Map<string, number>();
 const mockAdapter: LLMAdapter = {
     structuredOutputMode: "strict",
-    async generate() {
+    async generate(request) {
+        const key = request.messages.find((message) => message.role === "user")?.content ?? "default";
+        const calls = (mockAdapterCalls.get(key) ?? 0) + 1;
+        mockAdapterCalls.set(key, calls);
         return {
             content: JSON.stringify({
-                result: {
-                    kind: "complete",
-                    summary: "Done",
-                    completionEvidence: [],
-                    memoryPatch: null,
-                },
+                result: calls === 1
+                    ? taskProposalWire("Fixed")
+                    : {
+                        kind: "complete",
+                        summary: "Done",
+                        completionEvidence: [],
+                        memoryPatch: null,
+                    },
             }),
         };
     },
 };
+
+function taskProposalWire(objective: string): Record<string, unknown> {
+    return {
+        kind: "task_proposal",
+        task: { objective, completionCriteria: [] },
+        approvalRequest: "Approve the benchmark task.",
+        memoryPatch: null,
+    };
+}
+
+function taskProposalDecision(objective: string): AgentDecision {
+    return {
+        kind: "task_proposal",
+        task: { objective, completionCriteria: [] },
+        approvalRequest: "Approve the benchmark task.",
+    };
+}
+
+function withTaskProposal(
+    next: (input: StepExecutionInput) => Promise<AgentDecision> | AgentDecision,
+    objective = "Fixed",
+): StepExecutor {
+    let proposed = false;
+    return {
+        async execute(input) {
+            if (!proposed) {
+                proposed = true;
+                return taskProposalDecision(objective);
+            }
+            return next(input);
+        },
+    };
+}
 
 test("默认 LLMStepExecutor 装配完整模型上下文依赖并完成单步执行", async (t) => {
     const outputDir = await mkdtemp(join(tmpdir(), "runner-default-executor-"));
@@ -185,7 +224,7 @@ test("参数校验：非法 mode 或空 outputDirectory 在容器创建前快速
     assert.equal(calls.length, 0);
 });
 
-test("正常完成：auto 模式下自动通过 Preparation，执行完成并收集产物，删除容器并返回退出码 0", async (t) => {
+test("正常完成：auto 模式下自动通过任务提案，执行完成并收集产物，删除容器并返回退出码 0", async (t) => {
     const outputDir = await mkdtemp(join(tmpdir(), "runner-normal-"));
     t.after(() => rm(outputDir, { recursive: true, force: true }));
 
@@ -204,15 +243,13 @@ test("正常完成：auto 模式下自动通过 Preparation，执行完成并收
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             return {
                 kind: "complete",
                 summary: "Task finished successfully",
                 completionEvidence: [],
             };
-        },
-    };
+        });
 
     const exitPort = new RecordingExitPort();
     const result = await runTuiWithSandbox({
@@ -263,8 +300,7 @@ test("Ctrl-C/SIGINT：执行中收到 SIGINT 冻结 Gate，中止执行，有界
     };
 
     // 模拟长时间执行中的 StepExecutor，在执行中触发 SIGINT
-    const mockExecutor: StepExecutor = {
-        async execute(input: StepExecutionInput): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async (input: StepExecutionInput) => {
             calls.push("executor:step");
             // 触发 SIGINT 模拟用户按 Ctrl-C
             process.emit("SIGINT");
@@ -278,8 +314,7 @@ test("Ctrl-C/SIGINT：执行中收到 SIGINT 冻结 Gate，中止执行，有界
                 }, 10);
             });
             throw new Error("Aborted by signal");
-        },
-    };
+        });
 
     const exitPort = new RecordingExitPort();
     const result = await runTuiWithSandbox({
@@ -329,15 +364,13 @@ test("清理失败：环境容器删除失败时返回退出码 1，status 为 i
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             return {
                 kind: "complete",
                 summary: "Done",
                 completionEvidence: [],
             };
-        },
-    };
+        });
 
     const errors: string[] = [];
     const result = await runTuiWithSandbox({
@@ -369,19 +402,9 @@ test("清理失败：环境容器删除失败时返回退出码 1，status 为 i
     assert.ok(result.errors.length > 0);
 });
 
-test("确定性 Preparation：仅创建唯一 Goal，配置正确传递，跳过人工意图与计划确认直接执行", async (t) => {
+test("统一执行流：模型任务提案获批后继续执行", async (t) => {
     const outputDir = await mkdtemp(join(tmpdir(), "runner-det-prep-"));
     t.after(() => rm(outputDir, { recursive: true, force: true }));
-
-    const savedGoals: string[] = [];
-    const customStore = {
-        async save(goal: any) {
-            savedGoals.push(goal.id);
-        },
-        async restore(goalId: string) {
-            return undefined;
-        },
-    };
 
     const calls: string[] = [];
     const container = customContainer(calls);
@@ -397,20 +420,17 @@ test("确定性 Preparation：仅创建唯一 Goal，配置正确传递，跳过
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(input: StepExecutionInput): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async (input: StepExecutionInput) => {
             calls.push("executor:step");
-            // 验证执行时已经处于 executing 状态，且 task 已被自动批准设置
+            // 验证任务提案获批后仍处于统一 executing 生命周期
             assert.equal(input.goal.state.workflow.phase, "executing");
-            assert.equal(input.goal.state.task?.objective, "Fix bug");
-            assert.equal(input.goal.state.task?.completionCriteria[0]?.text, "Criteria 1");
+            assert.equal(input.goal.state.workflow.task?.objective, "Fix bug");
             return {
                 kind: "complete",
                 summary: "Deterministic execution finished",
                 completionEvidence: [],
             };
-        },
-    };
+        }, "Fix bug");
 
     const result = await runTuiWithSandbox({
         benchmarkId: "swebench",
@@ -459,15 +479,13 @@ test("auto 模式遇用户输入阻塞时以未完成结果退出且返回退出
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             calls.push("executor:wait");
             return {
                 kind: "wait",
                 reason: "Which file should I edit?",
             };
-        },
-    };
+        });
 
     const result = await runTuiWithSandbox({
         benchmarkId: "swebench",
@@ -516,16 +534,14 @@ test("GAIA 错误答案：正常完成返回退出码 0，Attempt 与摘要显�
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             calls.push("executor:step");
             return {
                 kind: "complete",
                 summary: "Answer submitted",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+                completionEvidence: [],
             };
-        },
-    };
+        });
 
     const result = await runTuiWithSandbox({
         benchmarkId: "gaia",
@@ -600,16 +616,14 @@ test("SWE-bench 补丁导出：Attempt 与摘要显示 gradingStatus=pending 且
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             calls.push("executor:step");
             return {
                 kind: "complete",
                 summary: "Bug fixed",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+                completionEvidence: [],
             };
-        },
-    };
+        });
 
     const result = await runTuiWithSandbox({
         benchmarkId: "swebench",
@@ -674,15 +688,13 @@ test("必要产物缺失：requireArtifact 开启且未产生必要产物时返�
         },
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
+    const mockExecutor = withTaskProposal(async () => {
             return {
                 kind: "complete",
                 summary: "Done without submitting",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [1] }],
+                completionEvidence: [],
             };
-        },
-    };
+        });
 
     const result = await runTuiWithSandbox({
         benchmarkId: "gaia",

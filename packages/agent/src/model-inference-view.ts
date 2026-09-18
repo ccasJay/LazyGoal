@@ -343,7 +343,7 @@ export interface PromptContext {
      *
      * @remarks
      * 属于 Goal-stable 根前缀的一部分，确保任务目标与验收标准在整个执行生命周期内拥有
-     * 完全不变的确定性前缀渲染。在 Preparation 阶段未形成批准任务时为 `undefined`。
+     * 完全不变的确定性前缀渲染。在任务尚未批准时为 `undefined`。
      *
      * @example
      * ```ts

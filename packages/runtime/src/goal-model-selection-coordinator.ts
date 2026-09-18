@@ -43,8 +43,8 @@ export type GoalModelSelectionResult =
  *
  * @remarks
  * 负责在安全等待点将用户确认的新模型选择原子持久化到 Goal 快照中。
- * 仅允许在 question、planning approval feedback 和 executing blocked 三类等待点保存；
- * 在运行中、终态、Run 不匹配或非文本等待点拒绝保存，且不引发任何副作用。
+ * 仅允许在统一执行流的用户交互或 blocked 等待点保存；在运行中、终态、Run
+ * 不匹配或 Action 审批等待点拒绝保存，且不引发任何副作用。
  *
  * @example
  * ```ts
@@ -73,10 +73,8 @@ export interface GoalModelSelectionCoordinator {
  * 判断指定 Goal 是否处于允许切换模型的安全文本等待点。
  *
  * @remarks
- * 仅包含三类状态：
- * 1. question：`gathering_context` 且 `preparation.status === "waiting_input"`；
- * 2. planning approval feedback：`planning` 且 `preparation.status === "waiting_approval"`；
- * 3. executing blocked：`executing` 且 `run.status === "waiting"` 且无待批准的 pendingAction。
+ * 统一执行流中，只有 `run.status === "waiting"` 且不存在 pending Action 时可切换；
+ * 任务提案、AskUser 和 blocked 都是可恢复交互等待。
  *
  * @param goal - 当前目标 Goal 聚合。
  * @returns 是否为安全等待点。
@@ -89,7 +87,6 @@ export interface GoalModelSelectionCoordinator {
  * ```
  */
 export function isSafeWaitingPointForModelSwitching(goal: Goal): boolean {
-    const workflow = goal.state.workflow;
     const run = goal.state.run;
 
     // 终态一律拒绝
@@ -97,25 +94,8 @@ export function isSafeWaitingPointForModelSwitching(goal: Goal): boolean {
         return false;
     }
 
-    // 1. question: gathering_context 且 preparation waiting_input
+    // 统一执行流的交互或 blocked 等待：Action 审批/恢复期间不切换模型。
     if (
-        workflow.phase === "gathering_context" &&
-        workflow.preparation.status === "waiting_input"
-    ) {
-        return true;
-    }
-
-    // 2. planning approval feedback: planning 且 preparation waiting_approval
-    if (
-        workflow.phase === "planning" &&
-        workflow.preparation.status === "waiting_approval"
-    ) {
-        return true;
-    }
-
-    // 3. executing blocked: executing 且 run.status === "waiting" 且无 pendingAction
-    if (
-        workflow.phase === "executing" &&
         run.status === "waiting" &&
         run.pendingAction === undefined &&
         run.stopReason === undefined

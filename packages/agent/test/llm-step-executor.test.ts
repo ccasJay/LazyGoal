@@ -72,7 +72,6 @@ function createExecutingGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: runTask,
             },
             messages: [...messages],

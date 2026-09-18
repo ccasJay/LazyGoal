@@ -89,7 +89,7 @@ test("TaskProposalAgentDecisionContract 正确解析合法任务提案并要求�
     const validProposal = {
         kind: "task_proposal",
         task: {
-            objective: "重构并移除 Preparation",
+            objective: "重构并统一执行流程",
             completionCriteria: [{ text: "所有测试通过" }],
         },
         approvalRequest: "请审批任务计划",

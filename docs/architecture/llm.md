@@ -82,7 +82,7 @@ Goal Snapshot、Domain Event 或模型上下文。不保存认证头、完整 SD
 本期仅支持文本与显式 API Key，不支持原生 tool calling、流式 UI、多模态、OAuth、云身份、
 自动 JSON 修复或模型切换。自定义兼容服务必须支持 pi-ai 使用的流式 Chat Completions。
 
-`npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行 gathering、planning、
-批准测试任务、一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
+`npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行统一任务提案、任务批准、
+一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
 只使用内存存储；SIGINT 取消调用并返回 130。该命令会产生费用，不属于自动化回归。
 成功、失败或取消输出包含 provider、model 和 mode；凭据缺失时不代表已验证。

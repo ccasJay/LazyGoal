@@ -15,8 +15,6 @@ import type {
 const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "global v1" },
     { id: "profile@1", source: "profile v1" },
-    { id: "gathering-context@1", source: "gathering v1" },
-    { id: "planning@1", source: "planning v1" },
     { id: "agent-decision@1", source: "decision v1" },
     { id: "authorized-tools@1", source: "tools v1" },
 ];

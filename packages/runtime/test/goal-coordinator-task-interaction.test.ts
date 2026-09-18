@@ -48,7 +48,7 @@ function createMockTool(definition: ToolDefinition): Tool {
         async execute(input) {
             return {
                 kind: "success",
-                output: { executed: true, input },
+                output: { executed: true, actionId: input.actionId, input: input.input },
                 summary: `Executed ${definition.id}`,
             };
         },
@@ -326,7 +326,7 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
         ref,
         action: {
             kind: "feedback_task",
-            requestId: proposalReqId,
+            ...(proposalReqId === undefined ? {} : { requestId: proposalReqId }),
             feedback: "请不要使用外部依赖，改为原生实现",
         },
     });
@@ -386,7 +386,7 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
         ref,
         action: {
             kind: "approve_task",
-            requestId: proposalReqId,
+            ...(proposalReqId === undefined ? {} : { requestId: proposalReqId }),
         },
     });
 

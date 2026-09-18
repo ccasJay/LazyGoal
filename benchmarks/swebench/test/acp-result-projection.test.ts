@@ -204,7 +204,14 @@ function completionAdapter(): LLMAdapter {
         structuredOutputMode: "strict",
         generate: async (request) => {
             calls += 1;
-            if (calls === 1) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
+            if (calls === 1) {
+                return {
+                    content: JSON.stringify({
+                        result: taskProposalDecision(),
+                    }),
+                };
+            }
+            if (calls === 2) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
             const context = JSON.parse(request.messages.at(-1)?.content ?? "{}") as {
                 trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
             };
@@ -218,9 +225,32 @@ function completionAdapter(): LLMAdapter {
 }
 
 function oneToolAdapter(): LLMAdapter {
+    let calls = 0;
     return {
         structuredOutputMode: "strict",
-        generate: async () => ({ content: JSON.stringify({ result: toolDecision("write-max") }) }),
+        generate: async () => {
+            calls += 1;
+            return {
+                content: JSON.stringify({
+                    result: calls === 1 ? taskProposalDecision() : toolDecision("write-max"),
+                }),
+            };
+        },
+    };
+}
+
+function taskProposalDecision(): unknown {
+    return {
+        kind: "task_proposal",
+        task: {
+            objective: "Resolve the reported issue",
+            completionCriteria: [{
+                text: "The requested repository change is implemented and verified in /testbed.",
+                acceptance: null,
+            }],
+        },
+        approvalRequest: "Approve the repository task.",
+        memoryPatch: null,
     };
 }
 

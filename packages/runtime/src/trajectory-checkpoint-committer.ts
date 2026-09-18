@@ -113,6 +113,35 @@ export interface TrajectoryCheckpointCommitterDependencies {
     readonly traceSink?: DiagnosticTraceSink;
 }
 
+/**
+ * Runtime 共享的 Trajectory 与 Snapshot 提交端口。
+ *
+ * @remarks
+ * Coordinator、Runner 只依赖这个最小端口，以便在测试或组合根中替换提交实现；
+ * 调用者必须遵守 `commit` 的事实、accepted Patch、Snapshot、marker 顺序契约。
+ *
+ * @example
+ * ```ts
+ * const port: TrajectoryCheckpointCommitterPort = committer;
+ * await port.saveCheckpoint(goal);
+ * ```
+ */
+export interface TrajectoryCheckpointCommitterPort {
+    /** 追加一个事实事件；未启用 Trajectory 时返回 `undefined`。 */
+    append(
+        draft: TrajectoryEventDraft,
+        control?: ExecutionControl,
+        countAsFact?: boolean,
+    ): Promise<Readonly<TrajectoryEvent> | undefined>;
+    /** 按统一边界追加事实、Patch 并保存 Snapshot。 */
+    commit(
+        goal: Goal,
+        request?: TrajectoryCheckpointCommitRequest,
+    ): Promise<TrajectoryCheckpointCommitResult>;
+    /** 仅保存当前 Goal Snapshot。 */
+    saveCheckpoint(goal: Goal, control?: ExecutionControl): Promise<Goal>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object";
 }
@@ -187,7 +216,7 @@ function asMemoryPatchPayload(
  * const saved = await committer.commit(goal, { facts: [draft] });
  * ```
  */
-export class TrajectoryCheckpointCommitter {
+export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommitterPort {
     private readonly store: GoalStore;
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly trajectoryEnabled: boolean;
