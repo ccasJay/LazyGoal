@@ -125,6 +125,11 @@ export function projectTrajectoryEvents(
             if (event.payload.thought !== undefined) {
                 preparationReasoning = event.payload.thought;
             }
+        } else if (event.payload.type === "decision_received") {
+            prepDetails.push("Decision: " + event.payload.decision.kind);
+            if (event.payload.thought !== undefined) {
+                preparationReasoning = event.payload.thought;
+            }
         } else if (event.payload.type === "context_lookup_requested") {
             prepDetails.push("Context lookup requested: " + event.payload.lookupId);
         } else if (event.payload.type === "context_lookup_completed") {

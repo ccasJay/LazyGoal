@@ -2,10 +2,6 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { GLOBAL_OVERVIEW_TEMPLATE_V1 } from "../global-system-prompt/template";
-import {
-    GATHERING_CONTEXT_TEMPLATE_V1,
-    PLANNING_TEMPLATE_V1,
-} from "../preparation-prompt/template";
 import { AGENT_DECISION_TEMPLATE_V1 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
@@ -42,8 +38,6 @@ const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
 export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     PROFILE_TEMPLATE,
-    GATHERING_CONTEXT_TEMPLATE_V1,
-    PLANNING_TEMPLATE_V1,
     AGENT_DECISION_TEMPLATE_V1,
     AUTHORIZED_TOOLS_TEMPLATE,
 ];
@@ -66,8 +60,6 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                gathering_context: GATHERING_CONTEXT_TEMPLATE_V1.id,
-                planning: PLANNING_TEMPLATE_V1.id,
                 executing: AGENT_DECISION_TEMPLATE_V1.id,
             },
         },

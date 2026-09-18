@@ -48,7 +48,6 @@ function createPendingActionGoal(): Goal {
             ...initial.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task,
             },
             messages: [],

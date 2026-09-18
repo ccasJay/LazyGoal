@@ -12,7 +12,6 @@ import {
     parseAgentDecision,
     parseJson,
     parseModelOutput,
-    parsePreparationResult,
 } from "../src/index";
 
 const TEST_TOOL_INPUT_CONTRACT = contract.object({
@@ -32,12 +31,9 @@ const executingNoToolBundle = createModelOutputContractBundle({
     kind: "executing",
 });
 
-const gatheringBundle = createModelOutputContractBundle({
-    kind: "gathering",
-});
-
-const planningBundle = createModelOutputContractBundle({
-    kind: "planning",
+const planProbeBundle = createModelOutputContractBundle({
+    kind: "executing",
+    taskPresent: false,
 });
 
 const checkpointBundle = createModelOutputContractBundle({
@@ -82,22 +78,39 @@ test("extractJsonPayload 接受裸 JSON 与完整 fenced code block，严格拒�
     );
 });
 
-test("parseModelOutput 成功解析四类请求的合法结果并还原 optional 字段", () => {
-    // 1. gathering - question
-    const gatheringQuestionRaw = JSON.stringify({
+test("parseModelOutput 成功解析各类请求的合法结果并还原 optional 字段", () => {
+    // 1. plan probe - ask_user
+    const askUserRaw = JSON.stringify({
         result: {
-            kind: "question",
-            question: "使用哪个测试框架？",
+            kind: "ask_user",
+            questions: [
+                {
+                    header: "框架确认",
+                    question: "使用哪个测试框架？",
+                    options: [
+                        { label: "node:test", description: null },
+                        { label: "vitest", description: null },
+                    ],
+                    multiSelect: false,
+                },
+            ],
             memoryPatch: null,
         },
     });
-    const gatheringResult = parseModelOutput(gatheringQuestionRaw, gatheringBundle);
-    assert.deepEqual(gatheringResult, {
-        kind: "question",
-        question: "使用哪个测试框架？",
+    const askUserResult = parseModelOutput(askUserRaw, planProbeBundle);
+    assert.deepEqual(askUserResult, {
+        kind: "ask_user",
+        questions: [
+            {
+                header: "框架确认",
+                question: "使用哪个测试框架？",
+                options: [{ label: "node:test" }, { label: "vitest" }],
+                multiSelect: false,
+            },
+        ],
     });
 
-    // 2. planning - task_proposal (完整 fenced code block)
+    // 2. plan probe - task_proposal (完整 fenced code block)
     const planningRaw = `\`\`\`json\n${JSON.stringify({
         result: {
             kind: "task_proposal",
@@ -109,7 +122,7 @@ test("parseModelOutput 成功解析四类请求的合法结果并还原 optional
             memoryPatch: null,
         },
     })}\n\`\`\``;
-    const planningResult = parseModelOutput(planningRaw, planningBundle);
+    const planningResult = parseModelOutput(planningRaw, planProbeBundle);
     assert.deepEqual(planningResult, {
         kind: "task_proposal",
         task: {
@@ -386,7 +399,7 @@ test("parseModelOutput 拦截基础语义违规（空白字符串、反转范围
     );
 });
 
-test("parseAgentDecision 与 parsePreparationResult 兼容包装函数行为一致", () => {
+test("parseAgentDecision 成功解析合法决策", () => {
     const validDecisionRaw = JSON.stringify({
         result: {
             kind: "wait",
@@ -398,18 +411,5 @@ test("parseAgentDecision 与 parsePreparationResult 兼容包装函数行为一�
     assert.deepEqual(decision, {
         kind: "wait",
         reason: "等待用户回复",
-    });
-
-    const validPrepRaw = JSON.stringify({
-        result: {
-            kind: "question",
-            question: "输入是什么？",
-            memoryPatch: null,
-        },
-    });
-    const prep = parsePreparationResult(validPrepRaw, "gathering_context");
-    assert.deepEqual(prep, {
-        kind: "question",
-        question: "输入是什么？",
     });
 });

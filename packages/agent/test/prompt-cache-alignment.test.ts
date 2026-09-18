@@ -8,7 +8,7 @@ import type { Goal, StepRecord } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import { goalSnapshotCodec } from "../../storage/src/index";
 import { createDefaultPromptBundleRenderer } from "../src/prompting/default-bundles";
-import { buildStepRequest, buildPreparationRequest } from "../src/prompt";
+import { buildStepRequest } from "../src/prompt";
 import {
     currentProtocols,
     currentWorkingMemory,
@@ -79,7 +79,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: options.workflow ?? {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task,
             },
             run: {
@@ -309,21 +308,20 @@ test("从已持久化的 Goal Snapshot 恢复后生成的 LLM 请求完全幂等
     assert.equal(planBefore.bundle.name, planAfter.bundle.name);
 });
 
-test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中恢复连续哈希稳定性", async () => {
+test("任务批准前与任务批准后，前缀按需更新并在批准后恢复连续哈希稳定性", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const trajectoryStore = createInMemoryTrajectoryStore();
     const assembler = new TrajectoryModelContextAssembler({ trajectoryStore, policy });
 
-    // 1. Planning 阶段：无任务契约
-    const planningGoal = createExecutingGoal({
+    // 1. 未批准任务（计划探查期）：无任务契约
+    const unapprovedGoal = createExecutingGoal({
         stepCount: 0,
         workflow: {
-            phase: "planning",
-            preparation: { status: "active" },
+            phase: "executing",
         },
     });
-    const planningPlan = await buildPreparationRequest(
-        planningGoal,
+    const unapprovedPlan = await buildStepRequest(
+        unapprovedGoal,
         tools,
         renderer,
         contextCompactor,
@@ -331,10 +329,10 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(planningPlan.request.messages[0]!.content, /Active Phase Protocol: planning/);
-    assert.doesNotMatch(planningPlan.request.messages[0]!.content, /Approved Goal Task Contract:/);
+    assert.match(unapprovedPlan.request.messages[0]!.content, /Active Phase Protocol: executing/);
+    assert.doesNotMatch(unapprovedPlan.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
-    // 2. 进入 Executing 阶段后，注入 Task 契约
+    // 2. 进入任务已批准执行阶段后，注入 Task 契约
     const executingGoal1 = createExecutingGoal({ stepCount: 1 });
     const executingPlan1 = await buildStepRequest(
         executingGoal1,
@@ -348,7 +346,7 @@ test("阶段切换与跨 Epoch 演化时，前缀按需更新并在新阶段中�
     assert.match(executingPlan1.request.messages[0]!.content, /Active Phase Protocol: executing/);
     assert.match(executingPlan1.request.messages[0]!.content, /Approved Goal Task Contract:/);
 
-    // 3. 进入 Executing 阶段的后续步，哈希保持一致
+    // 3. 任务已批准执行阶段的后续步，哈希保持一致
     const executingGoal2 = createExecutingGoal({ stepCount: 2 });
     const executingPlan2 = await buildStepRequest(
         executingGoal2,

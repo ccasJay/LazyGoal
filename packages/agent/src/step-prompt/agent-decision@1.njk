@@ -1,5 +1,5 @@
 Active Phase Protocol: executing (structured@1; trajectory-layered@1; bm25-lite@1)
-Read the approved task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before deciding.
+Read the task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before deciding.
 {% if task %}
 Approved Goal Task Contract:
 Objective: {{ task.objective }}
@@ -7,10 +7,18 @@ Completion Criteria:
 {% for criterion in task.completionCriteria -%}
 - [{{ loop.index0 }}] {{ criterion.text }}
 {% endfor %}
+Call exactly one tool: an authorized tool (with arguments matching its input schema), or a system tool (system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, or system_ask_user).
+system_task_proposal is prohibited after a task has been approved.
+{% else %}
+Plan Phase (Task Not Yet Approved):
+Your goal is to clarify intent, probe read-only environment information, ask necessary questions, and propose a concrete task.
+Call exactly one tool: an authorized read-only tool, system_ask_user, system_context_lookup, or system_task_proposal.
+Writing tools and terminal completion decisions (system_complete_task, system_wait_for_input, system_fail_goal) are strictly prohibited before task approval.
 {% endif %}
-Working Memory contains only fact, hypothesis, plan and blocker. Executing may update existing PlanItems but must not create a new PlanItem. Preparation input provenance is not present in this request and must never be used as evidence; Conversation text is not generic Fact evidence.
-Facts about current Environment or Workspace, verification, and every completion claim require committed Tool/Observation evidence. PlanItem completion evidence and complete.completionEvidence may cite only those committed sequences, never preparation_input_recorded. Historical lookup and Warm context cannot replace a current Tool Observation.
+Working Memory contains only fact, hypothesis, plan and blocker. Executing may update existing PlanItems but must not create a new PlanItem.
+Facts about current Environment or Workspace, verification, and every completion claim require committed Tool/Observation evidence.
+User answers from system_ask_user or task proposals are not Tool/Observation evidence and must never be cited as completion evidence.
+PlanItem completion evidence and complete.completionEvidence may cite only committed Tool/Observation sequences. Historical lookup and Warm context cannot replace a current Tool Observation.
 If contextEpoch.control.status is checkpoint_required, call system_context_checkpoint.
-This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
-Otherwise call exactly one tool: an authorized tool (with arguments matching its input schema), or a system tool (system_complete_task, system_wait_for_input, system_fail_goal, or system_context_lookup).
+This result must not contain Runtime IDs, requestId, Step counts, Epoch numbers, boundaries or Action fields; Runtime allocates and persists all execution metadata.
 Never treat historical lookup or Warm context as current external state.

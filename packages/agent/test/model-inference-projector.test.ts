@@ -36,7 +36,6 @@ import type {
     WorkingMemory,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
-import { computeContentHash } from "../../runtime/src/trajectory";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
 
@@ -102,8 +101,7 @@ const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
 ];
 
-function createPreparationGoal(
-    phase: "gathering_context" | "planning" = "gathering_context",
+function createPlanProbeGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
@@ -116,15 +114,16 @@ function createPreparationGoal(
         runId: "run-1",
     });
 
-    if (phase === "gathering_context") return goal;
-
     return {
         ...goal,
         state: {
             ...goal.state,
             workflow: {
-                phase: "planning",
-                preparation: { status: "active" },
+                phase: "executing",
+            },
+            run: {
+                ...goal.state.run,
+                status: "running",
             },
         },
     };
@@ -154,7 +153,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task,
             },
             run: {
@@ -240,33 +238,31 @@ function assertPortableSchema(schema: Record<string, unknown>, path: string): vo
     }
 }
 
-test("Projector 按阶段投影当前 PromptContext、Conversation 与 Working Context", () => {
-    for (const phase of ["gathering_context", "planning"] as const) {
-        const view = project(createPreparationGoal(phase, [
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "已记录的问题",
-            },
-        ]));
+test("Projector 投影未批准计划探查的 PromptContext、Conversation 与 Working Context", () => {
+    const view = project(createPlanProbeGoal([
+        {
+            role: "assistant",
+            assistant: { profileId: "profile-1" },
+            content: "已记录的问题",
+        },
+    ]));
 
-        assert.deepEqual(Object.keys(view).sort(), [
-            "contextEpoch",
-            "conversation",
-            "prompt",
-            "workingContext",
-            "workingMemory",
-        ].sort());
-        assert.equal(view.prompt.promptBundleVersion, 1);
-        assert.deepEqual(view.prompt.memoryProtocol, currentProtocols.memoryProtocol);
-        assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
-        assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
-        assert.equal(view.prompt.phase, phase);
-        assert.equal(view.prompt.profile.id, "profile-1");
-        assert.deepEqual(view.workingContext, { phase, intent });
-        assert.deepEqual(view.workingMemory, currentWorkingMemory);
-        assert.equal(view.contextEpoch.epochNumber, 0);
-    }
+    assert.deepEqual(Object.keys(view).sort(), [
+        "contextEpoch",
+        "conversation",
+        "prompt",
+        "workingContext",
+        "workingMemory",
+    ].sort());
+    assert.equal(view.prompt.promptBundleVersion, 1);
+    assert.deepEqual(view.prompt.memoryProtocol, currentProtocols.memoryProtocol);
+    assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
+    assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
+    assert.equal(view.prompt.phase, "executing");
+    assert.equal(view.prompt.profile.id, "profile-1");
+    assert.deepEqual(view.workingContext, { phase: "executing", intent, execution: { stepCount: 0 } });
+    assert.deepEqual(view.workingMemory, currentWorkingMemory);
+    assert.equal(view.contextEpoch.epochNumber, 0);
 });
 
 test("Projector 只投影 executing 阶段的任务与有界执行记忆", () => {
@@ -511,19 +507,18 @@ test("Projector 不修改 Goal 且不泄漏 Snapshot 或瞬时资源字段", () 
 });
 
 test("Projector 对非可推理状态保持前置条件错误", () => {
-    const gathering = createPreparationGoal();
-    const waiting: Goal = {
-        ...gathering,
+    const executing = createExecutingGoal();
+    const wrongPhase: Goal = {
+        ...executing,
         state: {
-            ...gathering.state,
+            ...executing.state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                ...executing.state.workflow,
+                phase: "invalid_phase" as any,
             },
         },
     };
-    const executing = createExecutingGoal();
-    const created: Goal = {
+    const notRunning: Goal = {
         ...executing,
         state: {
             ...executing.state,
@@ -531,8 +526,8 @@ test("Projector 对非可推理状态保持前置条件错误", () => {
         },
     };
 
-    assert.throws(() => project(waiting), /active preparation/);
-    assert.throws(() => project(created), /running executing/);
+    assert.throws(() => project(wrongPhase), /Goal must be in executing phase/);
+    assert.throws(() => project(notRunning), /Step request requires a running executing Goal/);
 });
 
 test("Projector 投影并冻结 structured@1 Working Memory", () => {
@@ -549,25 +544,25 @@ test("Projector 投影并冻结 structured@1 Working Memory", () => {
             reinforcementCount: 1,
             lastEvidenceSequence: 10,
             source: "tool_projector",
-            originPhase: "gathering_context",
+            originPhase: "executing",
             originSequence: 12,
             scope: "goal",
             updatedAtSequence: 12,
         }],
     };
-    const view = project(createPreparationGoal(), [], memory);
+    const view = project(createPlanProbeGoal(), [], memory);
 
     assert.deepEqual(view.workingMemory, memory);
     assert.notStrictEqual(view.workingMemory, memory);
     assert.ok(Object.isFrozen(view.workingMemory));
     assert.throws(
-        () => projector.project(createPreparationGoal(), [], undefined),
+        () => projector.project(createPlanProbeGoal(), [], undefined),
         /requires a WorkingMemory projection/,
     );
 });
 
 test("Projector 投影当前 bm25-lite@1 的历史 Lookup Result", () => {
-    const goal = createPreparationGoal();
+    const goal = createExecutingGoal();
     const result = {
         status: "found" as const,
         lookupId: "lookup-1",
@@ -600,60 +595,6 @@ test("Projector 投影当前 bm25-lite@1 的历史 Lookup Result", () => {
     assert.equal(view.contextLookupResult?.freshness.kind, "historical");
     assert.ok(Object.isFrozen(view.contextLookupResult));
     assert.notStrictEqual(view.contextLookupResult, result);
-});
-
-test("Projector 保留 Conversation 原始索引并投影 Preparation provenance", () => {
-    const goal = createPreparationGoal("planning", [
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "已记录约束",
-        },
-        { role: "user", content: "只使用 PostgreSQL" },
-    ]);
-    const evidence = [{
-        sequence: 7,
-        messageIndex: 2,
-        contentHash: computeContentHash("只使用 PostgreSQL"),
-    }] as const;
-
-    const view = projector.project(
-        goal,
-        [],
-        currentWorkingMemory,
-        undefined,
-        undefined,
-        evidence,
-    );
-
-    assert.deepEqual(view.conversation, [
-        { role: "user", content: intent, sourceMessageIndex: 0 },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "已记录约束",
-            sourceMessageIndex: 1,
-        },
-        { role: "user", content: "只使用 PostgreSQL", sourceMessageIndex: 2 },
-    ]);
-    assert.deepEqual(view.preparationInputEvidence, evidence);
-    assert.notStrictEqual(view.preparationInputEvidence, evidence);
-    assert.ok(Object.isFrozen(view.preparationInputEvidence));
-    assert.equal("content" in (view.preparationInputEvidence?.[0] ?? {}), false);
-});
-
-test("Projector 在 executing 阶段拒绝任何 Preparation provenance 字段", () => {
-    assert.throws(
-        () => projector.project(
-            createExecutingGoal(),
-            [],
-            currentWorkingMemory,
-            undefined,
-            undefined,
-            [],
-        ),
-        /Preparation-only inputs require a preparation phase/,
-    );
 });
 
 test("Projector 在遇到无效 Tool Contract 时快速抛出异常", () => {

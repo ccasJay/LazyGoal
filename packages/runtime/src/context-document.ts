@@ -346,15 +346,10 @@ export class ContextDocumentBuilder {
         const normalized = normalizeBuildInput(input);
         const committed = normalizeCommittedEvents(normalized);
         const executionGroups = collectExecutionGroups(committed);
-        const preparationSegments = collectPreparationSegments(committed);
-        const documents = [
-            ...executionGroups
-                .map((group) => buildExecutionDocument(group, normalized.goalId, normalized.runId))
-                .filter((document): document is ContextSearchDocument => document !== undefined),
-            ...preparationSegments
-                .map((segment) => buildPreparationDocument(segment, normalized.goalId, normalized.runId))
-                .filter((document): document is ContextSearchDocument => document !== undefined),
-        ].sort(compareDocuments);
+        const documents = executionGroups
+            .map((group) => buildExecutionDocument(group, normalized.goalId, normalized.runId))
+            .filter((document): document is ContextSearchDocument => document !== undefined)
+            .sort(compareDocuments);
 
         return Object.freeze({
             goalId: normalized.goalId,

@@ -76,8 +76,6 @@ export type PromptBundleSection =
  *         {
  *             slot: "phase_protocol",
  *             templates: {
- *                 gathering_context: "gathering-context@1",
- *                 planning: "planning@1",
  *                 executing: "agent-decision@1",
  *             },
  *         },

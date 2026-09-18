@@ -45,8 +45,6 @@ test("默认 Prompt Bundle 只有当前 v1 组合", async () => {
                 {
                     slot: "phase_protocol",
                     templates: {
-                        gathering_context: "gathering-context@1",
-                        planning: "planning@1",
                         executing: "agent-decision@1",
                     },
                 },
@@ -59,8 +57,6 @@ test("默认 Prompt Bundle 只有当前 v1 组合", async () => {
         [
             "global-overview@1",
             "profile@1",
-            "gathering-context@1",
-            "planning@1",
             "agent-decision@1",
             "authorized-tools@1",
         ],
@@ -73,37 +69,36 @@ test("默认 Renderer 可编译当前模板并拒绝历史 Bundle", async () => 
 
     assert.match(rendered, /trajectory-layered@1/);
     assert.match(rendered, /bm25-lite@1/);
-    assert.deepEqual(renderer.render(context({ phase: "gathering_context" })), renderer.render(context({ phase: "gathering_context" })));
+    assert.deepEqual(renderer.render(context()), renderer.render(context()));
     assert.throws(
         () => renderer.render(context({ promptBundleVersion: 8 })),
         /不支持的 Prompt Bundle 版本|UnsupportedPromptBundleVersionError/,
     );
 });
 
-test("v1 Prompt 明确 Working Memory、provenance 和阶段证据边界", async () => {
+test("v1 Prompt 明确 Working Memory、交互边界与区分任务状态", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
-    const global = renderer.render(context({ phase: "gathering_context" }));
-    const gathering = global;
-    const planning = renderer.render(context({ phase: "planning" }));
-    const executing = renderer.render(context({ phase: "executing" }));
 
-    assert.match(global, /Working Memory contains only four kinds/);
-    assert.match(global, /Conversation history is context, not generic Fact evidence/);
-    assert.match(global, /Preparation input provenance is hash-only metadata/);
-    assert.match(global, /visibleConversationMessageMap/);
+    // 1. 无 task（计划期/未批准任务）
+    const unapproved = renderer.render(context({ task: undefined }));
+    assert.match(unapproved, /Plan Phase \(Task Not Yet Approved\)/);
+    assert.match(unapproved, /authorized read-only tool, system_ask_user, system_context_lookup, or system_task_proposal/);
+    assert.match(unapproved, /Writing tools and terminal completion decisions .* are strictly prohibited/);
+    assert.match(unapproved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
+    assert.match(unapproved, /must never be cited as completion evidence/);
 
-    assert.match(gathering, /must not create or update a PlanItem/);
-    assert.match(gathering, /matching preparation_input_recorded sequence/);
-    assert.match(gathering, /committed Tool Observation/);
-
-    assert.match(planning, /Planning may create or update PlanItems/);
-    assert.match(planning, /task_proposal is only a proposal/);
-    assert.match(planning, /committed Tool Observations/);
-
-    assert.match(executing, /must not create a new PlanItem/);
-    assert.match(executing, /Preparation input provenance is not present/);
-    assert.match(executing, /never preparation_input_recorded/);
-    assert.match(executing, /committed Tool\/Observation evidence/);
+    // 2. 有 task（已批准任务）
+    const approved = renderer.render(context({
+        task: {
+            objective: "实现目标",
+            completionCriteria: [{ text: "标准1" }],
+        },
+    }));
+    assert.match(approved, /Approved Goal Task Contract:/);
+    assert.match(approved, /Objective: 实现目标/);
+    assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, or system_ask_user/);
+    assert.match(approved, /system_task_proposal is prohibited after a task has been approved/);
+    assert.match(approved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
 });
 
 test("默认协议校验器只接受唯一当前组合", () => {

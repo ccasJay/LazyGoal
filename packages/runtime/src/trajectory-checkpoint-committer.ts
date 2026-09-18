@@ -322,11 +322,6 @@ export class TrajectoryCheckpointCommitter {
             },
         };
 
-        await this.validatePreparationInputTail(
-            goal,
-            priorBoundary,
-            request.control,
-        );
         await this.store.save(checkpoint);
         throwIfAborted(request.control);
         try {
@@ -354,90 +349,6 @@ export class TrajectoryCheckpointCommitter {
             events: Object.freeze(events),
             ...(memoryPatchEvent === undefined ? {} : { memoryPatchEvent }),
         };
-    }
-
-    private async validatePreparationInputTail(
-        goal: Goal,
-        committedThroughSequence: number,
-        control?: ExecutionControl,
-    ): Promise<void> {
-        const trajectoryStore = this.trajectoryStore;
-        if (trajectoryStore === undefined) return;
-
-        if (typeof trajectoryStore.readWithBoundary !== "function") {
-            throw new TrajectoryAppendError(
-                "TrajectoryStore.readWithBoundary is required to validate provenance",
-            );
-        }
-
-        throwIfAborted(control);
-        let raw: unknown;
-        try {
-            raw = await trajectoryStore.readWithBoundary(
-                { goalId: goal.id, runId: goal.state.run.id },
-                committedThroughSequence,
-            );
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            throw new TrajectoryAppendError(
-                error instanceof Error ? error.message : String(error),
-                { cause: error },
-            );
-        }
-        throwIfAborted(control);
-
-        if (!isRecord(raw) || !Array.isArray(raw.uncommittedTail)) {
-            throw new TrajectoryAppendError(
-                "TrajectoryStore.readWithBoundary returned an invalid result",
-            );
-        }
-
-        for (const value of raw.uncommittedTail) {
-            if (!isRecord(value) || value.eventType !== "preparation_input_recorded") {
-                continue;
-            }
-
-            if (
-                value.goalId !== goal.id
-                || value.runId !== goal.state.run.id
-                || (value.phase !== "gathering_context" && value.phase !== "planning")
-            ) {
-                throw new TrajectoryAppendError(
-                    "preparation_input_recorded provenance does not match Goal/Run",
-                );
-            }
-
-            const payload = value.payload;
-            const messageIndex = isRecord(payload)
-                ? payload.messageIndex
-                : undefined;
-            const contentHash = isRecord(payload)
-                ? payload.contentHash
-                : undefined;
-            if (
-                !isRecord(payload)
-                || payload.type !== "preparation_input_recorded"
-                || typeof messageIndex !== "number"
-                || !Number.isSafeInteger(messageIndex)
-                || messageIndex < 0
-                || typeof contentHash !== "string"
-            ) {
-                throw new TrajectoryAppendError(
-                    "preparation_input_recorded provenance payload is invalid",
-                );
-            }
-
-            const message = goal.state.messages[messageIndex];
-            if (
-                message === undefined
-                || message.role !== "user"
-                || computeContentHash(message.content) !== contentHash
-            ) {
-                throw new TrajectoryAppendError(
-                    "preparation_input_recorded provenance does not match Goal message",
-                );
-            }
-        }
     }
 
     /**

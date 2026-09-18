@@ -36,14 +36,13 @@ import type {
     ModelConversationMessage,
     ModelContextLookupResult,
     ModelInferenceView,
-    ModelPreparationInputEvidence,
     PromptContext,
 } from "../src/model-inference-view";
 
 const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 import type { ContextCompactor } from "../src/context-compactor";
 import type { PromptBundleRenderer } from "../src/prompting/types";
-import { buildPreparationRequest, buildStepRequest } from "../src/prompt";
+import { buildStepRequest } from "../src/prompt";
 import {
     createDefaultPromptBundleRenderer,
     createModelContextBudgetPolicy,
@@ -69,8 +68,7 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function createPreparationGoal(
-    phase: "gathering_context" | "planning" = "gathering_context",
+function createPlanProbeGoal(
     messages: readonly GoalMessage[] = [],
 ): Goal {
     const goal = createGoal({
@@ -83,15 +81,16 @@ function createPreparationGoal(
         runId: "run-1",
     });
 
-    if (phase === "gathering_context") return goal;
-
     return {
         ...goal,
         state: {
             ...goal.state,
             workflow: {
-                phase: "planning",
-                preparation: { status: "active" },
+                phase: "executing",
+            },
+            run: {
+                ...goal.state.run,
+                status: "running",
             },
         },
     };
@@ -121,7 +120,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task,
             },
             run: {
@@ -196,22 +194,8 @@ async function preparationRequest(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     requestRenderer: PromptBundleRenderer = renderer,
-    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
-    requestCompactor: ContextCompactor<ModelConversationMessage> = contextCompactor,
 ) {
-    const plan = await buildPreparationRequest(
-        goal,
-        tools,
-        requestRenderer,
-        requestCompactor,
-        undefined,
-        currentWorkingMemory,
-        trajectoryContextAssembler,
-        undefined,
-        undefined,
-        preparationInputEvidence,
-    );
-    return plan.request;
+    return stepRequest(goal, tools, requestRenderer);
 }
 
 test("请求顺序固定为 system、真实历史、当前 Working Context", async () => {
@@ -431,35 +415,19 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         ],
     );
 
-    const planningRequest = await preparationRequest(
-        createPreparationGoal("planning"),
+    const probeRequest = await preparationRequest(
+        createPlanProbeGoal(),
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
     );
-    const planningSystemContent = planningRequest.messages[0]?.content ?? "";
-    const planningToolsOffset = planningSystemContent.lastIndexOf(toolsMarker);
+    const probeSystemContent = probeRequest.messages[0]?.content ?? "";
+    const probeToolsOffset = probeSystemContent.lastIndexOf(toolsMarker);
 
-    assert.notEqual(planningToolsOffset, -1);
-    const planningProjectedTools = JSON.parse(
-        planningSystemContent.slice(planningToolsOffset + toolsMarker.length),
+    assert.notEqual(probeToolsOffset, -1);
+    const probeProjectedTools = JSON.parse(
+        probeSystemContent.slice(probeToolsOffset + toolsMarker.length),
     );
     assert.deepEqual(
-        planningProjectedTools.map((t: { id: string }) => t.id),
-        [GREP_TOOL_ID, READ_FILE_TOOL_ID],
-    );
-
-    const gatheringRequest = await preparationRequest(
-        createPreparationGoal("gathering_context"),
-        CURRENT_TOOL_DEFINITIONS,
-    );
-    const gatheringSystemContent = gatheringRequest.messages[0]?.content ?? "";
-    const gatheringToolsOffset = gatheringSystemContent.lastIndexOf(toolsMarker);
-
-    assert.notEqual(gatheringToolsOffset, -1);
-    const gatheringProjectedTools = JSON.parse(
-        gatheringSystemContent.slice(gatheringToolsOffset + toolsMarker.length),
-    );
-    assert.deepEqual(
-        gatheringProjectedTools.map((t: { id: string }) => t.id),
+        probeProjectedTools.map((t: { id: string }) => t.id),
         [GREP_TOOL_ID, READ_FILE_TOOL_ID],
     );
 });
@@ -524,83 +492,7 @@ test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后�
     ]);
 });
 
-test("Preparation 请求按当前 phase 选择协议并使用同一消息顺序", async () => {
-    for (const phase of ["gathering_context", "planning"] as const) {
-        const goal = createPreparationGoal(phase, [
-            {
-                role: "assistant",
-                assistant: { profileId: "profile-1" },
-                content: "已记录的真实问题",
-            },
-            { role: "user", content: "已记录的真实回答" },
-        ]);
-        const request = await preparationRequest(goal);
-        const systemContent = request.messages[0]?.content ?? "";
-
-        assert.ok(systemContent.includes(`Active Phase Protocol: ${phase}`));
-        assert.deepEqual(
-            request.messages.slice(1, -1),
-            goal.state.messages.map(({ role, content }) => ({ role, content })),
-        );
-        const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
-            readonly phase: string;
-            readonly intent: string;
-            readonly workingMemory: unknown;
-            readonly trajectoryContext: unknown;
-            readonly contextEpoch: unknown;
-        };
-        assert.deepEqual({ phase: control.phase, intent: control.intent }, { phase, intent });
-        assert.deepEqual(control.workingMemory, currentWorkingMemory);
-        assert.ok(control.trajectoryContext !== undefined);
-        assert.ok(control.contextEpoch !== undefined);
-    }
-});
-
-test("裁剪后的 Preparation 请求保留原始索引并过滤不可见 provenance", async () => {
-    const goal = createPreparationGoal("planning", [
-        { role: "user", content: "旧约束" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "旧响应",
-        },
-        { role: "user", content: "当前约束" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "当前响应",
-        },
-    ]);
-    const evidence: readonly ModelPreparationInputEvidence[] = [
-        { sequence: 3, messageIndex: 1, contentHash: "sha256:hidden" },
-        { sequence: 4, messageIndex: 3, contentHash: "sha256:visible" },
-    ];
-
-    const request = await preparationRequest(
-        goal,
-        [],
-        renderer,
-        evidence,
-        new DropOldestContextCompactor(8),
-    );
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "");
-
-    assert.deepEqual(request.messages.slice(1, -1), [
-        { role: "user", content: "当前约束" },
-        { role: "assistant", content: "当前响应" },
-    ]);
-    assert.deepEqual(control.visibleConversationMessageMap, [
-        { visibleIndex: 0, sourceMessageIndex: 3 },
-        { visibleIndex: 1, sourceMessageIndex: 4 },
-    ]);
-    assert.deepEqual(control.preparationInputEvidence, [{
-        sequence: 4,
-        messageIndex: 3,
-        contentHash: "sha256:visible",
-    }]);
-});
-
-test("Preparation 在 gathering 与 planning 阶段根据 isReadOnly 动态投影只读 ToolDefinition 并排除写工具", async () => {
+test("未批准任务时根据 isReadOnly 动态投影只读 ToolDefinition 并排除写工具", async () => {
     const readOnlyTool: ToolDefinition = {
         id: "read_file",
         description: "读取文件",
@@ -622,12 +514,8 @@ test("Preparation 在 gathering 与 planning 阶段根据 isReadOnly 动态投�
         },
     };
 
-    await preparationRequest(createPreparationGoal("gathering_context"), tools, capturingRenderer);
-    const gatheringContexts = contexts.splice(0);
-    await preparationRequest(createPreparationGoal("planning"), tools, capturingRenderer);
+    await stepRequest(createPlanProbeGoal(), tools, capturingRenderer);
 
-    assert.ok(gatheringContexts.length > 0);
-    assert.ok(gatheringContexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
     assert.ok(contexts.length > 0);
     assert.ok(contexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
     assert.notStrictEqual(contexts[0]?.authorizedTools[0], readOnlyTool);
@@ -698,48 +586,36 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
     );
 });
 
-test("Builder 拒绝 waiting Preparation 和非 running executing Goal", async () => {
-    const gathering = createPreparationGoal();
-    const waiting: Goal = {
-        ...gathering,
+test("Builder 拒绝非 executing 或非 running 的 Goal", async () => {
+    const wrongPhase: Goal = {
+        ...createExecutingGoal(),
         state: {
-            ...gathering.state,
+            ...createExecutingGoal().state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                ...createExecutingGoal().state.workflow,
+                phase: "invalid_phase" as any,
             },
         },
     };
-    const executing = createExecutingGoal();
     const created: Goal = {
-        ...executing,
+        ...createExecutingGoal(),
         state: {
-            ...executing.state,
-            run: { ...executing.state.run, status: "created" },
+            ...createExecutingGoal().state,
+            run: { ...createExecutingGoal().state.run, status: "created" },
         },
     };
 
-    await assert.rejects(preparationRequest(waiting), /active preparation/);
+    await assert.rejects(stepRequest(wrongPhase), /Goal must be in executing phase/);
     await assert.rejects(stepRequest(created), /running executing/);
 });
 
-test("请求构建返回成对的 request 与 bundle，且阶段分支严格独占", async () => {
-    const gatheringGoal = createPreparationGoal();
-    const planningGoal: Goal = {
-        ...gatheringGoal,
-        state: {
-            ...gatheringGoal.state,
-            workflow: {
-                phase: "planning",
-                preparation: { status: "active" },
-            },
-        },
-    };
+test("请求构建返回成对的 request 与 bundle，未批准与已批准状态分别匹配对应 Schema", async () => {
+    const unapprovedGoal = createPlanProbeGoal();
     const executingGoal = createExecutingGoal();
 
-    // 1. gathering 计划
-    const gatheringPlan = await buildPreparationRequest(
-        gatheringGoal,
+    // 1. 未批准任务（计划探查）
+    const unapprovedPlan = await buildStepRequest(
+        unapprovedGoal,
         [],
         renderer,
         contextCompactor,
@@ -747,22 +623,10 @@ test("请求构建返回成对的 request 与 bundle，且阶段分支严格独�
         currentWorkingMemory,
         trajectoryContextAssembler,
     );
-    assert.equal(gatheringPlan.bundle.name, "gathering_preparation_result");
-    assert.ok(gatheringPlan.request.messages.length > 0);
+    assert.equal(unapprovedPlan.bundle.name, "unapproved_executing_agent_decision");
+    assert.ok(unapprovedPlan.request.messages.length > 0);
 
-    // 2. planning 计划
-    const planningPlan = await buildPreparationRequest(
-        planningGoal,
-        [],
-        renderer,
-        contextCompactor,
-        undefined,
-        currentWorkingMemory,
-        trajectoryContextAssembler,
-    );
-    assert.equal(planningPlan.bundle.name, "planning_preparation_result");
-
-    // 3. executing 计划
+    // 2. 已批准执行
     const executingPlan = await buildStepRequest(
         executingGoal,
         [],
@@ -869,7 +733,7 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
     assert.match(lastPayload.responseShapeGuide, /checkpoint/);
 });
 
-test("buildStepRequest and buildPreparationRequest populate structuredOutput in strict mode and omit in prompt_only mode", async () => {
+test("buildStepRequest populates structuredOutput in strict mode and omits in prompt_only mode", async () => {
     const goal = createExecutingGoal();
     const strictStepPlan = await buildStepRequest(
         goal,
@@ -901,26 +765,25 @@ test("buildStepRequest and buildPreparationRequest populate structuredOutput in 
     );
     assert.equal(promptOnlyStepPlan.request.structuredOutput, undefined);
 
-    const prepGoal = createPreparationGoal("gathering_context");
-    const strictPrepPlan = await buildPreparationRequest(
-        prepGoal,
+    const unapprovedGoal = createPlanProbeGoal();
+    const strictProbePlan = await buildStepRequest(
+        unapprovedGoal,
         [],
         renderer,
         contextCompactor,
         undefined,
         currentWorkingMemory,
         trajectoryContextAssembler,
-        undefined,
         undefined,
         undefined,
         "strict",
     );
-    assert.ok(strictPrepPlan.request.structuredOutput !== undefined);
-    assert.equal(strictPrepPlan.request.structuredOutput.name, strictPrepPlan.bundle.name);
-    assert.deepEqual(strictPrepPlan.request.structuredOutput.schema, strictPrepPlan.bundle.jsonSchema);
+    assert.ok(strictProbePlan.request.structuredOutput !== undefined);
+    assert.equal(strictProbePlan.request.structuredOutput.name, strictProbePlan.bundle.name);
+    assert.deepEqual(strictProbePlan.request.structuredOutput.schema, strictProbePlan.bundle.jsonSchema);
 
-    const promptOnlyPrepPlan = await buildPreparationRequest(
-        prepGoal,
+    const promptOnlyProbePlan = await buildStepRequest(
+        unapprovedGoal,
         [],
         renderer,
         contextCompactor,
@@ -929,13 +792,12 @@ test("buildStepRequest and buildPreparationRequest populate structuredOutput in 
         trajectoryContextAssembler,
         undefined,
         undefined,
-        undefined,
         "prompt_only",
     );
-    assert.equal(promptOnlyPrepPlan.request.structuredOutput, undefined);
+    assert.equal(promptOnlyProbePlan.request.structuredOutput, undefined);
 });
 
-test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排除写操作与未知工具（gathering 与 planning 阶段）", async () => {
+test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读工具并排除写操作与未知工具", async () => {
     const mixedTools: readonly ToolDefinition[] = [
         // 1. 内置只读工具
         {
@@ -974,10 +836,9 @@ test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排�
         },
     ];
 
-    // 测试 gathering_context 阶段
-    const gatheringGoal = createPreparationGoal("gathering_context");
-    const gatheringPlan = await buildPreparationRequest(
-        gatheringGoal,
+    const unapprovedGoal = createPlanProbeGoal();
+    const plan = await buildStepRequest(
+        unapprovedGoal,
         mixedTools,
         renderer,
         contextCompactor,
@@ -986,32 +847,11 @@ test("buildPreparationRequest 根据 isReadOnly 动态筛选只读工具并排�
         trajectoryContextAssembler,
     );
 
-    // 检查提示词消息中注入的工具信息
-    const gatheringSystemMsg = gatheringPlan.request.messages.find(m => m.role === "system")?.content ?? "";
-    assert.ok(gatheringSystemMsg.includes("read_file"), "gathering 阶段应包含只读工具 read_file");
-    assert.ok(gatheringSystemMsg.includes("web_search"), "gathering 阶段应包含只读工具 web_search");
-    assert.ok(gatheringSystemMsg.includes("custom_doc_search"), "gathering 阶段应自动识别并包含扩展只读工具 custom_doc_search");
-    assert.ok(!gatheringSystemMsg.includes("write_file"), "gathering 阶段必须严格排除写操作工具 write_file");
-    assert.ok(!gatheringSystemMsg.includes("bash"), "gathering 阶段必须严格排除副作用工具 bash");
-    assert.ok(!gatheringSystemMsg.includes("unknown_side_effect_tool"), "gathering 阶段必须排除未声明只读性的工具");
-
-    // 测试 planning 阶段
-    const planningGoal = createPreparationGoal("planning");
-    const planningPlan = await buildPreparationRequest(
-        planningGoal,
-        mixedTools,
-        renderer,
-        contextCompactor,
-        undefined,
-        currentWorkingMemory,
-        trajectoryContextAssembler,
-    );
-
-    const planningSystemMsg = planningPlan.request.messages.find(m => m.role === "system")?.content ?? "";
-    assert.ok(planningSystemMsg.includes("read_file"), "planning 阶段应包含只读工具 read_file");
-    assert.ok(planningSystemMsg.includes("web_search"), "planning 阶段应包含只读工具 web_search");
-    assert.ok(planningSystemMsg.includes("custom_doc_search"), "planning 阶段应自动识别并包含扩展只读工具 custom_doc_search");
-    assert.ok(!planningSystemMsg.includes("write_file"), "planning 阶段必须严格排除写操作工具 write_file");
-    assert.ok(!planningSystemMsg.includes("bash"), "planning 阶段必须严格排除副作用工具 bash");
-    assert.ok(!planningSystemMsg.includes("unknown_side_effect_tool"), "planning 阶段必须排除未声明只读性的工具");
+    const systemMsg = plan.request.messages.find(m => m.role === "system")?.content ?? "";
+    assert.ok(systemMsg.includes("read_file"), "计划探查阶段应包含只读工具 read_file");
+    assert.ok(systemMsg.includes("web_search"), "计划探查阶段应包含只读工具 web_search");
+    assert.ok(systemMsg.includes("custom_doc_search"), "计划探查阶段应自动识别并包含扩展只读工具 custom_doc_search");
+    assert.ok(!systemMsg.includes("write_file"), "计划探查阶段必须严格排除写操作工具 write_file");
+    assert.ok(!systemMsg.includes("bash"), "计划探查阶段必须严格排除副作用工具 bash");
+    assert.ok(!systemMsg.includes("unknown_side_effect_tool"), "计划探查阶段必须排除未声明只读性的工具");
 });

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     GoalCoordinator,
     Runner,
+    TrajectoryCheckpointCommitter,
     allocateImmutableEvent,
     createGoal,
     createToolRegistration,
@@ -294,29 +295,70 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
     );
 });
 
-test("Coordinator records preparation and waiting facts before the committed Snapshot", async () => {
+test("Coordinator records waiting facts before the committed Snapshot when Run pauses for interaction", async () => {
     const store = new MemoryGoalStore();
     const sink = new RecordingTrajectorySink();
     const goal = createGoal({
         ...currentProtocols,
-        id: "goal-preparation-trajectory",
+        id: "goal-waiting-trajectory",
         intent: "gather",
         promptBundleVersion: 1,
         profile,
-        runId: "run-preparation-trajectory",
+        runId: "run-waiting-trajectory",
     });
     await store.save(goal);
     const coordinator = new GoalCoordinator({
         trajectoryStore: sink,
         store,
-        preparationExecutor: {
-            async execute() {
-                return { kind: "question", question: "需要什么信息？" };
-            },
-        },
         scheduler: {
-            async schedule() {
-                throw new Error("preparation should not schedule");
+            async schedule(ref) {
+                const current = await store.restore(ref.goalId);
+                if (current) {
+                    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore: sink });
+                    await committer.commit({
+                        ...current,
+                        state: {
+                            ...current.state,
+                            run: {
+                                ...current.state.run,
+                                status: "waiting",
+                                pendingInteraction: {
+                                    kind: "ask_user",
+                                    requestId: "ask-1",
+                                    questions: [{ id: "q1", prompt: "需要什么信息？" }],
+                                },
+                            },
+                        },
+                    }, {
+                        facts: [
+                            {
+                                goalId: current.id,
+                                runId: current.state.run.id,
+                                phase: "executing",
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: {
+                                        kind: "ask_user",
+                                        interactionId: "ask-1",
+                                        prompt: "需要什么信息？",
+                                    },
+                                },
+                            },
+                            {
+                                goalId: current.id,
+                                runId: current.state.run.id,
+                                phase: "executing",
+                                eventType: "run_waiting",
+                                payload: {
+                                    type: "run_waiting",
+                                    reason: "ask_user",
+                                },
+                            },
+                        ],
+                    });
+                }
+                return { ok: true, status: "waiting", reason: "ask_user" };
             },
         },
     });
@@ -327,7 +369,7 @@ test("Coordinator records preparation and waiting facts before the committed Sna
     });
     assert.equal(result.ok, true);
     assert.deepEqual(sink.events.map((event) => event.eventType), [
-        "preparation_result",
+        "decision_received",
         "run_waiting",
         "state_committed",
     ]);

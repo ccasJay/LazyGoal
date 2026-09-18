@@ -97,8 +97,8 @@ export interface ModelToolDefinition {
     readonly inputSchema: unknown;
 }
 
-/** Prompt Bundle 渲染时区分的三种业务阶段。 */
-export type PromptPhase = "gathering_context" | "planning" | "executing";
+/** Prompt Bundle 渲染时的业务阶段（统一为 executing）。 */
+export type PromptPhase = "executing";
 
 /** Agent 可消费的冻结 Memory 协议标识。 */
 export type ModelMemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
@@ -115,7 +115,7 @@ export type ModelContextRetrievalProtocol = { readonly kind: "bm25-lite"; readon
 /** 模型可见的 Memory 条目公共元数据。 */
 export interface ModelMemoryEntryBase {
     readonly id: string;
-    readonly originPhase: PromptPhase;
+    readonly originPhase: string;
     readonly originSequence: number;
     readonly scope: "goal" | "phase";
     readonly updatedAtSequence: number;
@@ -354,31 +354,24 @@ export interface PromptContext {
     readonly task?: ModelTask;
 }
 
-/** 与 GoalWorkflowState 对应的 Preparation 阶段。 */
-export type PreparationPhase = "gathering_context" | "planning";
-
 /**
- * 按阶段投影的 Working Context。
+ * 统一执行阶段的 Working Context 投影。
  *
  * @remarks
- * Preparation 只投影稳定 intent；Executing 额外投影已批准任务与有界执行记忆
- * （Step 预算、最近 Step 与 pending Action）。该视图不包含
- * Run 状态机字段（status、stopReason）或任何瞬时执行资源。
+ * 仅包含稳定 intent、可选的已批准任务与有界执行记忆（Step 预算、最近 Step 与 pending Action）。
+ * 当最终任务尚未批准时，`task` 为 `undefined`。
  */
-export type ModelWorkingContext =
-    | { readonly phase: "gathering_context"; readonly intent: string }
-    | { readonly phase: "planning"; readonly intent: string }
-    | {
-        readonly phase: "executing";
-        readonly intent: string;
-        readonly task: ModelTask;
-        readonly execution: {
-            readonly stepCount: number;
-            readonly maxSteps?: number;
-            readonly previousStep?: ModelStepRecord;
-            readonly pendingAction?: ModelPendingAction;
-        };
+export interface ModelWorkingContext {
+    readonly phase: "executing";
+    readonly intent: string;
+    readonly task?: ModelTask;
+    readonly execution: {
+        readonly stepCount: number;
+        readonly maxSteps?: number;
+        readonly previousStep?: ModelStepRecord;
+        readonly pendingAction?: ModelPendingAction;
     };
+}
 
 /**
  * Executing 阶段向模型发送的纯动态 Step 增量负载。
@@ -465,70 +458,6 @@ export interface ModelContextEpochView {
 }
 
 /**
- * Preparation 用户输入 provenance 的模型侧 hash-only 投影。
- *
- * @remarks
- * 该 DTO 只保留 committed sequence、Goal Conversation 原始索引和内容摘要，
- * 不携带用户正文；它只能为 Preparation Fact 提供可回查来源，不能证明 Plan
- * 完成或 Executing 完成。
- *
- * @example
- * ```ts
- * const evidence: ModelPreparationInputEvidence = {
- *     sequence: 2,
- *     messageIndex: 1,
- *     contentHash: "sha256:<64 hex characters>",
- * };
- * ```
- */
-export interface ModelPreparationInputEvidence {
-    /** `preparation_input_recorded` 事件的 committed sequence。 */
-    readonly sequence: number;
-    /** 对应真实用户消息在 Goal Conversation 中的原始索引。 */
-    readonly messageIndex: number;
-    /** 用户消息正文的 UTF-8 SHA-256 摘要；该 DTO 不携带正文。 */
-    readonly contentHash: `sha256:${string}`;
-}
-
-/**
- * 上一轮已提交只读探查的模型侧投影。
- *
- * @remarks
- * 该 DTO 只在紧邻的下一次 Preparation 推理中出现。`observationSequence` 可用于
- * 后续 Memory Patch 引用本次可信 Tool Observation；它不写入 Conversation。
- *
- * @example
- * ```ts
- * const result: ModelPreparationProbeResult = {
- *     actionId: "probe-goal-1-4",
- *     action: { toolId: "read_file", input: { path: "package.json" } },
- *     observation: { kind: "success", output: "{}", summary: "读取成功" },
- *     observationSequence: 4,
- * };
- * ```
- */
-export interface ModelPreparationProbeResult {
-    readonly actionId: string;
-    readonly action: {
-        readonly toolId: string;
-        readonly input: ModelJsonValue;
-    };
-    readonly observation:
-        | {
-            readonly kind: "success";
-            readonly output: ModelJsonValue;
-            readonly summary: string;
-          }
-        | {
-            readonly kind: "failure";
-            readonly code: string;
-            readonly message: string;
-            readonly retryable: boolean;
-          };
-    readonly observationSequence?: number;
-}
-
-/**
  * 最终模型可见 Conversation 位置到 Goal 原始消息位置的映射项。
  *
  * @remarks
@@ -569,12 +498,12 @@ export interface VisibleConversationMessageMapEntry {
  * const view: ModelInferenceView = {
  *     prompt: {
  *         promptBundleVersion: 1,
- *         phase: "gathering_context",
+ *         phase: "executing",
  *         profile,
  *         authorizedTools: [],
  *     },
  *     conversation: [],
- *     workingContext: { phase: "gathering_context", intent: "完成目标" },
+ *     workingContext: { phase: "executing", intent: "完成目标", execution: { stepCount: 0 } },
  * };
  * ```
  */
@@ -594,12 +523,6 @@ export interface ModelInferenceView {
      * Workspace/Environment 的授权 Tool Observation。
      */
     readonly contextLookupResult?: ModelContextLookupResult;
-    /** 已提交 Preparation 用户输入的 hash-only provenance；Executing 不得携带。 */
-    readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
-    /** 紧邻上一轮已提交只读探查的结果；Executing 不得携带。 */
-    readonly lastProbeResult?: ModelPreparationProbeResult;
-    /** 连续探查已达到上限，当前请求只能收敛为阶段终止结果。 */
-    readonly probeLimitReached?: true;
     /** `trajectory-layered@1` 的当前 Epoch 控制投影。 */
     readonly contextEpoch: ModelContextEpochView;
 }

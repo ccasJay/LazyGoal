@@ -78,7 +78,7 @@ test("computeContentHash 计算合法哈希，且旧 preparation_input_recorded 
         payload: {
             type: "ask_user_answered",
             requestId: "req-1",
-            answers: [{ questionId: "q-1", selectedOptionIds: ["opt-1"] }],
+            answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
         },
     };
 

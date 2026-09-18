@@ -127,23 +127,6 @@ function factDraft(): TrajectoryEventDraft {
     };
 }
 
-function preparationInputDraft(
-    goalValue: Goal,
-    contentHash = computeContentHash(goalValue.state.messages[0]!.content),
-): TrajectoryEventDraft {
-    return {
-        goalId: goalValue.id,
-        runId: goalValue.state.run.id,
-        phase: "gathering_context",
-        eventType: "preparation_input_recorded",
-        payload: {
-            type: "preparation_input_recorded",
-            messageIndex: 0,
-            contentHash,
-        },
-    };
-}
-
 test("committer appends facts then accepted Patch and saves revision only in Snapshot copy", async () => {
     const store = new RecordingStore();
     const sink = new RecordingSink();
@@ -240,69 +223,6 @@ test("marker failure keeps Snapshot boundary and memory revision authoritative",
     assert.equal(store.saved[0]?.state.run.memoryRevision?.sequence, 1);
 });
 
-test("committer accepts a matching provenance event in the uncommitted tail", async () => {
-    const store = new RecordingStore();
-    const sink = new RecordingSink();
-    const initial = goal();
-    await sink.append(preparationInputDraft(initial));
-    const committer = new TrajectoryCheckpointCommitter({
-        store,
-        trajectoryStore: sink,
-    });
-
-    const result = await committer.commit(initial, { facts: [factDraft()] });
-
-    assert.equal(store.saved.length, 1);
-    assert.equal(result.goal.state.run.committedThroughSequence, 2);
-    assert.deepEqual(sink.events.map((event) => event.eventType), [
-        "preparation_input_recorded",
-        "observation_recorded",
-        "state_committed",
-    ]);
-});
-
-test("committer rejects a mismatched provenance tail before Snapshot and marker side effects", async () => {
-    const store = new RecordingStore();
-    const sink = new RecordingSink();
-    const initial = goal();
-    await sink.append(preparationInputDraft(initial, computeContentHash("其它用户输入")));
-    const committer = new TrajectoryCheckpointCommitter({
-        store,
-        trajectoryStore: sink,
-    });
-
-    await assert.rejects(
-        committer.commit(initial, { facts: [factDraft()] }),
-        (error: unknown) => error instanceof TrajectoryAppendError
-            && error.code === "TRAJECTORY_APPEND_FAILED",
-    );
-    assert.equal(store.saved.length, 0);
-    assert.deepEqual(sink.events.map((event) => event.eventType), [
-        "preparation_input_recorded",
-        "observation_recorded",
-    ]);
-});
-
-test("committer fails closed when an enabled Trajectory has no boundary reader", async () => {
-    const store = new RecordingStore();
-    const sink = new RecordingSink();
-    const appendOnly = {
-        append: sink.append.bind(sink),
-    } as unknown as TrajectoryStore;
-    const committer = new TrajectoryCheckpointCommitter({
-        store,
-        trajectoryStore: appendOnly,
-    });
-
-    await assert.rejects(
-        committer.commit(goal(), { facts: [factDraft()] }),
-        (error: unknown) => error instanceof TrajectoryAppendError
-            && error.code === "TRAJECTORY_APPEND_FAILED",
-    );
-    assert.equal(store.saved.length, 0);
-    assert.deepEqual(sink.events.map((event) => event.eventType), ["observation_recorded"]);
-});
-
 test("committer preserves ordinary execution tail handling", async () => {
     const store = new RecordingStore();
     const sink = new RecordingSink();
@@ -334,7 +254,7 @@ test("committer preserves ordinary execution tail handling", async () => {
     ]);
 });
 
-test("committer 严格保证 facts -> validate tail -> save Snapshot -> append state_committed 顺序且无维护旁路", async () => {
+test("committer 严格保证 facts -> save Snapshot -> append state_committed 顺序且无维护旁路", async () => {
     const callOrder: string[] = [];
     class OrderTrackingStore implements GoalStore {
         saved: Goal[] = [];
@@ -382,7 +302,6 @@ test("committer 严格保证 facts -> validate tail -> save Snapshot -> append s
 
     assert.deepEqual(callOrder, [
         "trajectory.append:observation_recorded",
-        "trajectory.readWithBoundary",
         "store.save",
         "trajectory.append:state_committed",
     ]);

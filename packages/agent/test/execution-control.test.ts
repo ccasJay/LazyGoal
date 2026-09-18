@@ -19,7 +19,6 @@ import type { TrajectoryModelContextAssembler } from "../src/trajectory-model-co
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
-    LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
 import {
@@ -38,17 +37,6 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-function createPreparationGoal(): Goal {
-    return createGoal({
-        promptBundleVersion: 1,
-        id: "goal-1",
-        intent: "Test preparation cancellation",
-        ...currentProtocols,
-        profile,
-        runId: "run-1",
-    });
-}
-
 function createStepGoal(): Goal {
     const goal = createGoal({
         promptBundleVersion: 1,
@@ -65,7 +53,6 @@ function createStepGoal(): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: goal.definition.intent,
                     completionCriteria: [{ text: "The adapter receives the signal" }],
@@ -165,78 +152,4 @@ test("LLMStepExecutor passes the signal and rejects before parsing after abort",
         (adapter.controls[0] as { readonly signal?: AbortSignal }).signal,
         controller.signal,
     );
-});
-
-test("LLMPreparationExecutor rejects a pre-aborted signal without calling the Adapter", async () => {
-    const controller = new AbortController();
-    controller.abort();
-    let calls = 0;
-    const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
-        async generate(): Promise<LLMResponse> {
-            calls += 1;
-            return {
-                content: JSON.stringify({ kind: "context_ready" }),
-            };
-        },
-    };
-    const executor = new LLMPreparationExecutor({
-        adapter,
-        renderer,
-        contextCompactor,
-        trajectoryContextAssembler: createCurrentContextAssembler(),
-    });
-
-    await assert.rejects(
-        () => executor.execute({
-            goal: createPreparationGoal(),
-            authorizedTools: [],
-            workingMemory: currentWorkingMemory,
-            control: { signal: controller.signal },
-        }),
-        (error: unknown) => error instanceof ExecutionAbortedError,
-    );
-    assert.equal(calls, 0);
-});
-
-test("LLMPreparationExecutor awaits Context Assembler and passes the same signal", async () => {
-    const controller = new AbortController();
-    const assembler = new BlockingAssembler();
-    let calls = 0;
-    const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
-        async generate(): Promise<LLMResponse> {
-            calls += 1;
-            return {
-                content: JSON.stringify({
-                    result: {
-                        kind: "context_ready",
-                        memoryPatch: null,
-                    },
-                }),
-            };
-        },
-    };
-    const executor = new LLMPreparationExecutor({
-        adapter,
-        renderer,
-        contextCompactor,
-        trajectoryContextAssembler: assembler as unknown as TrajectoryModelContextAssembler,
-    });
-    const operation = executor.execute(
-        {
-            goal: createPreparationGoal(),
-            authorizedTools: [],
-            workingMemory: currentWorkingMemory,
-            control: { signal: controller.signal },
-        },
-    );
-
-    await assembler.started;
-    assert.equal(calls, 0);
-    assert.strictEqual(assembler.signals[0], controller.signal);
-
-    assembler.release();
-    assert.deepEqual(await operation, { kind: "context_ready" });
-    assert.equal(calls, 1);
 });

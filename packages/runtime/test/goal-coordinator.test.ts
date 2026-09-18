@@ -161,8 +161,7 @@ function createGatheringWaitingGoal(): Goal {
         state: {
             ...goal.state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
             },
             messages: [
                 ...goal.state.messages,
@@ -172,6 +171,24 @@ function createGatheringWaitingGoal(): Goal {
                     content: "Which database should be used?",
                 },
             ],
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [
+                        {
+                            id: "q-1",
+                            header: "选择数据库",
+                            question: "Which database should be used?",
+                            options: [{ id: "opt-1", label: "PostgreSQL" }, { id: "opt-2", label: "MySQL" }],
+                            multiSelect: false,
+                        },
+                    ],
+                },
+            },
         },
     };
 }
@@ -189,11 +206,7 @@ function createPlanningWaitingGoal(
         state: {
             ...goal.state,
             workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal,
-                },
+                phase: "executing",
             },
             messages: [
                 ...goal.state.messages,
@@ -203,6 +216,16 @@ function createPlanningWaitingGoal(
                     content: "Approve the persistence task?",
                 },
             ],
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    requestId: "prop-1",
+                    proposal,
+                    approvalRequest: "Approve the persistence task?",
+                },
+            },
         },
     };
 }
@@ -362,7 +385,6 @@ function createExecutingGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
@@ -372,324 +394,6 @@ function createExecutingGoal(
         },
     };
 }
-
-test("persists a gathering question as a real assistant message without consuming a Step", async () => {
-    const initial = createPreparationGoal();
-    const store = new RecordingGoalStore();
-    await store.seed(initial);
-    const executor = new FakePreparationExecutor([
-        { kind: "question", question: "Which database should be used?" },
-    ]);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-    });
-
-    const result = requireSuccess(await coordinator.advance({
-        goalId: initial.id,
-        runId: initial.state.run.id,
-    }));
-
-    assert.equal(result.kind, "waiting");
-    assert.equal(result.phase, "gathering_context");
-    assert.equal(result.waitingFor, "question");
-    assert.deepEqual(result.goal.state.workflow, {
-        phase: "gathering_context",
-        preparation: { status: "waiting_input" },
-    });
-    assert.equal(result.goal.state.run.status, initial.state.run.status);
-    assert.equal(result.goal.state.run.stepCount, initial.state.run.stepCount);
-    assert.deepEqual(result.goal.state.run.contextEpoch, initial.state.run.contextEpoch);
-    assert.ok(result.goal.state.run.committedThroughSequence > initial.state.run.committedThroughSequence);
-    assert.deepEqual(result.goal.state.messages, [
-        { role: "user", content: "Build a resumable workflow" },
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "Which database should be used?",
-        },
-    ]);
-    assert.deepEqual(store.savedGoals, [result.goal]);
-});
-
-test("saves planning before the next model call and persists the complete proposal", async () => {
-    const events: string[] = [];
-    const initial = createPreparationGoal();
-    const store = new RecordingGoalStore(events);
-    await store.seed(initial);
-    events.length = 0;
-    const task = {
-        objective: "Implement GoalCoordinator",
-        completionCriteria: [{ text: "Questions are persisted" }, { text: "Execution is delegated" }],
-    } as const;
-    const executor = new FakePreparationExecutor([
-        { kind: "context_ready" },
-        (goal) => {
-            assert.equal(goal.state.workflow.phase, "planning");
-            assert.equal(goal.state.run.stepCount, 0);
-            return {
-                kind: "task_proposal",
-                task,
-                approvalRequest: "Approve this task?",
-            };
-        },
-    ], events);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-    });
-
-    const result = requireSuccess(await coordinator.advance({
-        goalId: initial.id,
-        runId: initial.state.run.id,
-    }));
-
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "execute:gathering_context",
-        "save:planning",
-        "execute:planning",
-        "save:planning",
-    ]);
-    assert.equal(result.kind, "waiting");
-    assert.equal(result.phase, "planning");
-    assert.equal(result.waitingFor, "approval");
-    assert.deepEqual(result.goal.state.workflow, {
-        phase: "planning",
-        preparation: {
-            status: "waiting_approval",
-            proposal: task,
-        },
-    });
-    assert.deepEqual(result.goal.state.messages.at(-1), {
-        role: "assistant",
-        assistant: { profileId: "profile-1" },
-        content: [
-            "Objective: Implement GoalCoordinator",
-            "Completion criteria:",
-            "1. Questions are persisted",
-            "2. Execution is delegated",
-            "Approval request: Approve this task?",
-        ].join("\n"),
-    });
-    assert.equal(result.goal.state.run.status, initial.state.run.status);
-    assert.equal(result.goal.state.run.stepCount, initial.state.run.stepCount);
-    assert.deepEqual(result.goal.state.run.contextEpoch, initial.state.run.contextEpoch);
-    assert.ok(result.goal.state.run.committedThroughSequence > initial.state.run.committedThroughSequence);
-    assert.deepEqual(store.savedGoals.at(-1), result.goal);
-    assert.deepEqual(executor.receivedTools, [[], []]);
-});
-
-test("planning 只接收 Profile 授权且 Registry 已注册的 ToolDefinition 副本", async () => {
-    const initial = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "goal-planning-tools",
-        intent: "规划可验证任务",
-        profile: {
-            ...profile,
-            toolIds: ["write_file", "missing", "read_file"],
-        },
-        runId: "run-planning-tools",
-    });
-    const planning: Goal = {
-        ...initial,
-        state: {
-            ...initial.state,
-            workflow: {
-                phase: "planning",
-                preparation: { status: "active" },
-            },
-        },
-    };
-    const store = new RecordingGoalStore();
-    await store.seed(planning);
-    const readDefinition: ToolDefinition<typeof TEST_INPUT_CONTRACT> = {
-        id: "read_file",
-        description: "读取文件",
-        inputContract: TEST_INPUT_CONTRACT,
-        isReadOnly: true,
-    };
-    const writeDefinition: ToolDefinition<typeof TEST_INPUT_CONTRACT> = {
-        id: "write_file",
-        description: "写入文件",
-        inputContract: TEST_INPUT_CONTRACT,
-        isReadOnly: false,
-    };
-    const tools = new Map<string, Tool>([
-        ["read_file", createTool(readDefinition)],
-        ["write_file", createTool(writeDefinition)],
-        ["not_authorized", createTool({
-            id: "not_authorized",
-            description: "未授权",
-            inputContract: TEST_INPUT_CONTRACT,
-            isReadOnly: false,
-        })],
-    ]);
-    const executor = new FakePreparationExecutor([{
-        kind: "task_proposal",
-        task: { objective: "完成规划", completionCriteria: [{ text: "有可验证证据" }] },
-        approvalRequest: "Approve?",
-    }]);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-        toolRegistry: {
-            get: (toolId) => {
-                const tool = tools.get(toolId);
-                return tool === undefined ? undefined : createToolRegistration(tool);
-            },
-        },
-    });
-
-    await coordinator.advance({ goalId: planning.id, runId: planning.state.run.id });
-
-    assert.deepEqual(executor.receivedTools, [[writeDefinition, readDefinition]]);
-    assert.notStrictEqual(executor.receivedTools[0]?.[0], writeDefinition);
-    assert.strictEqual(
-        executor.receivedTools[0]?.[0]?.inputContract,
-        writeDefinition.inputContract,
-    );
-});
-
-test("planning ToolDefinition 解析失败时不调用 Executor、不追加消息或保存", async () => {
-    const initial = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "goal-planning-registry-error",
-        intent: "规划失败边界",
-        profile: { ...profile, toolIds: ["read_file"] },
-        runId: "run-planning-registry-error",
-    });
-    const planning: Goal = {
-        ...initial,
-        state: {
-            ...initial.state,
-            workflow: {
-                phase: "planning",
-                preparation: { status: "active" },
-            },
-        },
-    };
-    const store = new RecordingGoalStore();
-    await store.seed(planning);
-    const executor = new FakePreparationExecutor([]);
-    const registryError = new Error("registry unavailable");
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-        toolRegistry: { get: () => { throw registryError; } },
-    });
-
-    await assert.rejects(
-        coordinator.advance({ goalId: planning.id, runId: planning.state.run.id }),
-        (error: unknown) => error === registryError,
-    );
-    assert.deepEqual(executor.receivedGoals, []);
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual((await store.restore(planning.id))?.state.messages, planning.state.messages);
-});
-
-test("stops before the planning call when saving the phase transition fails", async () => {
-    const saveError = new Error("save failed");
-    const initial = createPreparationGoal();
-    const store = new RecordingGoalStore([], { call: 1, error: saveError });
-    await store.seed(initial);
-    const executor = new FakePreparationExecutor([
-        { kind: "context_ready" },
-        {
-            kind: "task_proposal",
-            task: { objective: "Must not run", completionCriteria: [] },
-            approvalRequest: "Must not run",
-        },
-    ]);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-    });
-
-    await assert.rejects(
-        () => coordinator.advance({ goalId: "goal-1", runId: "run-1" }),
-        (error: unknown) => {
-            assert.strictEqual(error, saveError);
-            return true;
-        },
-    );
-    assert.equal(executor.receivedGoals.length, 1);
-
-    const persisted = await store.restore(initial.id);
-    assert.deepEqual(persisted, initial);
-});
-
-test("rejects a Preparation result that does not match the current phase without saving", async () => {
-    const initial = createPreparationGoal();
-    const store = new RecordingGoalStore();
-    await store.seed(initial);
-    const invalidResult = {
-        kind: "task_proposal",
-        task: { objective: "Invalid", completionCriteria: [] },
-        approvalRequest: "Invalid",
-    } as const;
-    const executor = new FakePreparationExecutor([invalidResult]);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-    });
-
-    const result = requireFailure(await coordinator.advance({
-        goalId: initial.id,
-        runId: initial.state.run.id,
-    }));
-
-    assert.equal(result.error.code, "INVALID_PHASE_RESULT");
-    assert.deepEqual(store.savedGoals, []);
-    assert.deepEqual(await store.restore(initial.id), initial);
-});
-
-test("returns an existing preparation waiting point without executing or saving", async () => {
-    const initial = createPreparationGoal();
-    const waiting: Goal = {
-        ...initial,
-        state: {
-            ...initial.state,
-            workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
-            },
-        },
-    };
-    const store = new RecordingGoalStore();
-    await store.seed(waiting);
-    const executor = new FakePreparationExecutor([]);
-    const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
-    });
-
-    const result = requireSuccess(await coordinator.advance({
-        goalId: waiting.id,
-        runId: waiting.state.run.id,
-    }));
-
-    assert.equal(result.kind, "waiting");
-    assert.deepEqual(result.goal, waiting);
-    assert.deepEqual(executor.receivedGoals, []);
-    assert.deepEqual(store.savedGoals, []);
-});
 
 test("delegates an executing Goal and returns the latest persisted terminal snapshot", async () => {
     const executing = createExecutingGoal({
@@ -1119,65 +823,54 @@ test("saves a gathering answer before continuing and preserves its original text
     await store.seed(waiting);
     events.length = 0;
     const trajectory = trajectoryStoreFor(store);
-    const executor = new FakePreparationExecutor([
-        { kind: "question", question: "Which region should be used?" },
-    ], events);
+    const scheduler = new FakeScheduler(async (ref) => {
+        const current = await store.restore(ref.goalId);
+        assert.ok(current);
+        const next = {
+            ...current,
+            state: {
+                ...current.state,
+                workflow: {
+                    phase: "executing" as const,
+                    task: { objective: "Done", completionCriteria: [] },
+                },
+                run: {
+                    ...current.state.run,
+                    status: "completed" as const,
+                    lastStep: {
+                        kind: "decision" as const,
+                        result: { kind: "complete" as const, summary: "Done", completionEvidence: [] },
+                    },
+                    stepCount: 1,
+                },
+            },
+        };
+        await store.save(next);
+        return { ok: true, state: next.state.run };
+    }, events);
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectory,
         store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
+        scheduler,
     });
 
     const result = requireSuccess(await coordinator.resume({
         ref: { goalId: waiting.id, runId: waiting.state.run.id },
-        action: { kind: "message", content: "  PostgreSQL  " },
+        action: {
+            kind: "answer_ask_user",
+            requestId: "ask-1",
+            answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
+        },
     }));
 
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "save:gathering_context",
-        "restore:goal-1",
-        "execute:gathering_context",
-        "save:gathering_context",
-    ]);
-    assert.equal(result.kind, "waiting");
-    assert.equal(result.phase, "gathering_context");
-    assert.deepEqual(result.goal.state.messages.slice(-2), [
-        { role: "user", content: "  PostgreSQL  " },
-        {
-            role: "assistant",
-            assistant: { profileId: profile.id },
-            content: "Which region should be used?",
-        },
-    ]);
-    assert.equal(result.goal.state.run.status, waiting.state.run.status);
-    assert.equal(result.goal.state.run.stepCount, waiting.state.run.stepCount);
-    assert.deepEqual(result.goal.state.run.contextEpoch, waiting.state.run.contextEpoch);
-    assert.ok(result.goal.state.run.committedThroughSequence > waiting.state.run.committedThroughSequence);
-    assert.equal(executor.receivedGoals[0]?.state.workflow.phase, "gathering_context");
-    assert.deepEqual(executor.receivedGoals[0]?.state.messages.at(-1), {
-        role: "user",
-        content: "  PostgreSQL  ",
-    });
+    assert.equal(result.kind, "terminal");
+    assert.equal(result.phase, "executing");
+    assert.equal(result.goal.state.messages.at(-1)?.role, "user");
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_resumed",
-        "preparation_input_recorded",
-        "state_committed",
-        "preparation_result",
-        "run_waiting",
+        "ask_user_answered",
         "state_committed",
     ]);
-    assert.deepEqual(trajectory.events[1]?.payload, {
-        type: "preparation_input_recorded",
-        messageIndex: 2,
-        contentHash: computeContentHash("  PostgreSQL  "),
-    });
-    assert.deepEqual(executor.receivedPreparationInputEvidence, [[{
-        sequence: 2,
-        messageIndex: 2,
-        contentHash: computeContentHash("  PostgreSQL  "),
-    }]]);
 });
 
 test("saves planning feedback without the current proposal before replanning", async () => {
@@ -1187,32 +880,35 @@ test("saves planning feedback without the current proposal before replanning", a
     await store.seed(waiting);
     events.length = 0;
     const trajectory = trajectoryStoreFor(store);
-    const revisedTask = {
-        objective: "Implement encrypted persistence",
-        completionCriteria: [{ text: "Snapshots are encrypted and restorable" }],
-    } as const;
-    const executor = new FakePreparationExecutor([
-        (goal) => {
-            assert.deepEqual(goal.state.workflow, {
-                phase: "planning",
-                preparation: { status: "active" },
-            });
-            assert.deepEqual(goal.state.messages.at(-1), {
-                role: "user",
-                content: "Encrypt snapshots at rest",
-            });
-            return {
-                kind: "task_proposal",
-                task: revisedTask,
-                approvalRequest: "Approve the revised task?",
-            };
-        },
-    ], events);
+    const scheduler = new FakeScheduler(async (ref) => {
+        const current = await store.restore(ref.goalId);
+        assert.ok(current);
+        const next = {
+            ...current,
+            state: {
+                ...current.state,
+                run: {
+                    ...current.state.run,
+                    status: "waiting" as const,
+                    pendingInteraction: {
+                        kind: "task_approval" as const,
+                        requestId: "prop-2",
+                        proposal: {
+                            objective: "Implement encrypted persistence",
+                            completionCriteria: [],
+                        },
+                        approvalRequest: "Approve the revised task?",
+                    },
+                },
+            },
+        };
+        await store.save(next);
+        return { ok: true, state: next.state.run };
+    }, events);
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectory,
         store,
-        preparationExecutor: executor,
-        scheduler: createUnusedScheduler(),
+        scheduler,
     });
 
     const result = requireSuccess(await coordinator.resume({
@@ -1220,44 +916,14 @@ test("saves planning feedback without the current proposal before replanning", a
         action: { kind: "message", content: "Encrypt snapshots at rest" },
     }));
 
-    assert.deepEqual(events, [
-        "restore:goal-1",
-        "save:planning",
-        "restore:goal-1",
-        "execute:planning",
-        "save:planning",
-    ]);
     assert.equal(result.kind, "waiting");
-    assert.equal(result.phase, "planning");
-    assert.deepEqual(result.goal.state.workflow, {
-        phase: "planning",
-        preparation: {
-            status: "waiting_approval",
-            proposal: revisedTask,
-        },
-    });
-    assert.equal(result.goal.state.run.status, waiting.state.run.status);
-    assert.equal(result.goal.state.run.stepCount, waiting.state.run.stepCount);
-    assert.deepEqual(result.goal.state.run.contextEpoch, waiting.state.run.contextEpoch);
-    assert.ok(result.goal.state.run.committedThroughSequence > waiting.state.run.committedThroughSequence);
+    assert.equal(result.phase, "executing");
+    assert.equal(result.waitingFor, "task_approval");
+    assert.equal(result.goal.state.workflow.task, undefined);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_resumed",
-        "preparation_input_recorded",
-        "state_committed",
-        "preparation_result",
-        "run_waiting",
         "state_committed",
     ]);
-    assert.deepEqual(trajectory.events[1]?.payload, {
-        type: "preparation_input_recorded",
-        messageIndex: 2,
-        contentHash: computeContentHash("Encrypt snapshots at rest"),
-    });
-    assert.deepEqual(executor.receivedPreparationInputEvidence, [[{
-        sequence: 2,
-        messageIndex: 2,
-        contentHash: computeContentHash("Encrypt snapshots at rest"),
-    }]]);
 });
 
 test("saves an approved proposal as the final task before scheduling execution", async () => {
@@ -1275,22 +941,16 @@ test("saves an approved proposal as the final task before scheduling execution",
         assert.ok(approved);
         assert.deepEqual(approved.state.workflow, {
             phase: "executing",
-            preparation: { status: "completed" },
             task: proposal,
         });
-        assert.deepEqual(approved.state.messages, waiting.state.messages);
-
-        const completedRun = applyRunTransition(
-            applyRunTransition(approved.state.run, { kind: "start" }),
-            {
-                kind: "decision",
-                decision: {
-                    kind: "complete",
-                    completionEvidence: [],
-                    summary: "Done",
-                },
+        const completedRun = applyRunTransition(approved.state.run, {
+            kind: "decision",
+            decision: {
+                kind: "complete",
+                completionEvidence: [],
+                summary: "Done",
             },
-        );
+        });
         await store.save({
             ...approved,
             state: { ...approved.state, run: completedRun },
@@ -1300,7 +960,6 @@ test("saves an approved proposal as the final task before scheduling execution",
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
-        preparationExecutor: new FakePreparationExecutor([]),
         scheduler,
     });
 
@@ -1313,12 +972,6 @@ test("saves an approved proposal as the final task before scheduling execution",
     assert.equal(result.kind, "terminal");
     assert.equal(result.phase, "executing");
     assert.deepEqual(result.goal.state.messages, waiting.state.messages);
-    assert.notStrictEqual(
-        result.goal.state.workflow.phase === "executing"
-            ? result.goal.state.workflow.task
-            : undefined,
-        proposal,
-    );
 });
 
 test("rejects empty or mismatched preparation actions without side effects", async () => {
@@ -1339,16 +992,7 @@ test("rejects empty or mismatched preparation actions without side effects", asy
             code: "GOAL_NOT_WAITING",
         },
         {
-            goal: {
-                ...createPreparationGoal(),
-                state: {
-                    ...createPreparationGoal().state,
-                    workflow: {
-                        phase: "planning",
-                        preparation: { status: "active" },
-                    },
-                },
-            } as Goal,
+            goal: createPreparationGoal(),
             action: { kind: "approve" } as const,
             code: "GOAL_NOT_WAITING",
         },
@@ -1357,14 +1001,12 @@ test("rejects empty or mismatched preparation actions without side effects", asy
     for (const testCase of cases) {
         const store = new RecordingGoalStore();
         await store.seed(testCase.goal);
-        const executor = new FakePreparationExecutor([]);
         const scheduler = new FakeScheduler(async () => {
             throw new Error("Unexpected Scheduler call");
         });
         const coordinator = new GoalCoordinator({
-        trajectoryStore: trajectoryStoreFor(store),
+            trajectoryStore: trajectoryStoreFor(store),
             store,
-            preparationExecutor: executor,
             scheduler,
         });
 
@@ -1378,7 +1020,6 @@ test("rejects empty or mismatched preparation actions without side effects", asy
 
         assert.equal(result.error.code, testCase.code);
         assert.deepEqual(store.savedGoals, []);
-        assert.deepEqual(executor.receivedGoals, []);
         assert.deepEqual(scheduler.receivedRefs, []);
         assert.deepEqual(await store.restore(testCase.goal.id), testCase.goal);
     }
@@ -1389,25 +1030,26 @@ test("propagates a resume save failure without continuing preparation", async ()
     const saveError = new Error("resume save failed");
     const store = new RecordingGoalStore([], { call: 1, error: saveError });
     await store.seed(waiting);
-    const executor = new FakePreparationExecutor([]);
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
-        preparationExecutor: executor,
         scheduler: createUnusedScheduler(),
     });
 
     await assert.rejects(
         () => coordinator.resume({
             ref: { goalId: waiting.id, runId: waiting.state.run.id },
-            action: { kind: "message", content: "PostgreSQL" },
+            action: {
+                kind: "answer_ask_user",
+                requestId: "ask-1",
+                answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
+            },
         }),
         (error: unknown) => {
             assert.strictEqual(error, saveError);
             return true;
         },
     );
-    assert.deepEqual(executor.receivedGoals, []);
     assert.deepEqual(await store.restore(waiting.id), waiting);
 });
 

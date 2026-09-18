@@ -184,26 +184,14 @@ export async function launch(
     let initialGoal = goal;
     if (dependencies.trajectoryStore !== undefined) {
         throwIfAborted(control);
-        let preparationInput;
+        let goalCreatedEvent;
         try {
-            await dependencies.trajectoryStore.append({
+            goalCreatedEvent = await dependencies.trajectoryStore.append({
                 goalId: goal.id,
                 runId,
-                phase: "gathering_context",
+                phase: "executing",
                 eventType: "goal_created",
                 payload: { type: "goal_created", intent: request.intent },
-            });
-            throwIfAborted(control);
-            preparationInput = await dependencies.trajectoryStore.append({
-                goalId: goal.id,
-                runId,
-                phase: "gathering_context",
-                eventType: "preparation_input_recorded",
-                payload: {
-                    type: "preparation_input_recorded",
-                    messageIndex: 0,
-                    contentHash: computeContentHash(request.intent),
-                },
             });
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
@@ -218,7 +206,7 @@ export async function launch(
                 ...goal.state,
                 run: {
                     ...goal.state.run,
-                    committedThroughSequence: preparationInput.sequence,
+                    committedThroughSequence: goalCreatedEvent.sequence,
                 },
             },
         };
@@ -232,7 +220,7 @@ export async function launch(
             await dependencies.trajectoryStore.append({
                 goalId: initialGoal.id,
                 runId,
-                phase: "gathering_context",
+                phase: "executing",
                 eventType: "state_committed",
                 payload: {
                     type: "state_committed",

@@ -4,9 +4,7 @@ import {
     type StepRecord,
     type WorkingMemory,
 } from "../../runtime/src/domain";
-import type { PreparationInputEvidence } from "../../runtime/src/trajectory";
-import type { PreparationProbeResult } from "../../runtime/src/preparation-executor";
-import type { ToolDefinition } from "../../runtime/src/tool";
+import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
 import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
@@ -23,9 +21,6 @@ import type {
     ModelContextRetrievalProtocol,
     ModelTrajectoryContext,
     ModelContextLookupResult,
-    ModelPreparationInputEvidence,
-    ModelPreparationProbeResult,
-    PreparationPhase,
     PromptContext,
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
@@ -38,28 +33,23 @@ import { compareCodeUnits } from "./prompting/environment";
  * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
  * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
  * Snapshot；Run 状态字段、Storage schemaVersion 与瞬时执行资源不会被投影。
- * Goal 冻结的 Global System Prompt 版本属于模型契约选择，因此会被复制到 View。
+ * 任务未批准时，自动过滤业务工具仅暴露只读工具。
  *
  * @example
  * ```ts
- * const projector = new ModelInferenceProjector();
- * const view = projector.project(goal, authorizedTools);
+ * const view = new ModelInferenceProjector().project(goal, tools, workingMemory);
  * ```
  */
 export class ModelInferenceProjector {
     /**
-     * @param goal - 当前完整 Goal 快照。
-     * @param tools - 当前 Profile 已授权且由 Registry 解析出的 Tool 描述。
-     * @param workingMemory - structured@1 的即时 Working Memory 投影。
-     * @param trajectoryContext - trajectory-layered@1 的本轮 Hot/Warm 投影；由
-     * Assembler 在 Conversation 裁剪后提供。
-     * @param contextLookupResult - 上一轮已提交的历史查询结果；只在启用
-     * `bm25-lite@1` 时允许提供，且只存在于当前模型调用。
-     * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only
-     *   provenance；Executing 阶段提供该字段（包括空数组）会立即失败。
-     * @param lastProbeResult - 紧邻上一轮已提交只读探查的瞬时结果。
-     * @param probeLimitReached - 当前连续探查是否已达到硬上限。
-     * @returns 与当前 phase 对应的全新 ModelInferenceView。
+     * 将 Goal 完整投影为单轮推理所需的不可变输入视图。
+     *
+     * @param goal - 当前处于 running executing 的完整 Goal。
+     * @param tools - Profile 授权且由 Runtime 解析出的 Tool 描述列表。未批准任务时只暴露只读工具。
+     * @param workingMemory - 当前 Goal 的即时 Working Memory。
+     * @param trajectoryContext - 可选的分层历史轨迹上下文。
+     * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果。
+     * @returns 与当前状态对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
     project(
@@ -68,9 +58,6 @@ export class ModelInferenceProjector {
         workingMemory?: WorkingMemory,
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
-        preparationInputEvidence?: readonly PreparationInputEvidence[],
-        lastProbeResult?: PreparationProbeResult,
-        probeLimitReached?: true,
     ): ModelInferenceView {
         const memoryProtocol = goal.definition.memoryProtocol;
         const modelContextProtocol = goal.definition.modelContextProtocol;
@@ -96,35 +83,20 @@ export class ModelInferenceProjector {
             : projectContextLookupResult(contextLookupResult);
 
         const workingContext = this.projectWorkingContext(goal);
-        if (
-            (
-                preparationInputEvidence !== undefined
-                || lastProbeResult !== undefined
-                || probeLimitReached !== undefined
-            )
-            && workingContext.phase === "executing"
-        ) {
-            throw new Error(
-                "Preparation-only inputs require a preparation phase",
-            );
-        }
-        const projectedPreparationInputEvidence = preparationInputEvidence === undefined
-            ? undefined
-            : projectPreparationInputEvidence(preparationInputEvidence);
-        const projectedLastProbeResult = lastProbeResult === undefined
-            ? undefined
-            : projectPreparationProbeResult(lastProbeResult);
+
+        const effectiveTools = workingContext.task === undefined
+            ? tools.filter(isReadOnlyTool)
+            : tools;
 
         const prompt: PromptContext = deepFreeze({
-            promptBundleVersion:
-                goal.definition.promptBundleVersion,
-            phase: workingContext.phase,
+            promptBundleVersion: goal.definition.promptBundleVersion,
+            phase: "executing",
             profile: projectProfile(goal),
-            authorizedTools: projectTools(tools),
+            authorizedTools: projectTools(effectiveTools),
             memoryProtocol: projectMemoryProtocol(memoryProtocol),
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
-            ...(workingContext.phase === "executing" ? { task: workingContext.task } : {}),
+            ...(workingContext.task !== undefined ? { task: workingContext.task } : {}),
         });
 
         return {
@@ -138,13 +110,6 @@ export class ModelInferenceProjector {
             ...(projectedContextLookupResult === undefined
                 ? {}
                 : { contextLookupResult: projectedContextLookupResult }),
-            ...(projectedPreparationInputEvidence === undefined
-                ? {}
-                : { preparationInputEvidence: deepFreeze(projectedPreparationInputEvidence) }),
-            ...(projectedLastProbeResult === undefined
-                ? {}
-                : { lastProbeResult: deepFreeze(projectedLastProbeResult) }),
-            ...(probeLimitReached === undefined ? {} : { probeLimitReached }),
             contextEpoch: projectContextEpoch(goal.state.run.contextEpoch),
         };
     }
@@ -224,12 +189,7 @@ export class ModelInferenceProjector {
         const workflow = goal.state.workflow;
 
         if (workflow.phase !== "executing") {
-            const phase = assertActivePreparation(goal);
-
-            return {
-                phase,
-                intent: goal.definition.intent,
-            };
+            throw new Error("Goal must be in executing phase");
         }
 
         if (goal.state.run.status !== "running") {
@@ -241,22 +201,26 @@ export class ModelInferenceProjector {
         return {
             phase: "executing",
             intent: goal.definition.intent,
-            task: {
-                objective: workflow.task.objective,
-                completionCriteria: workflow.task.completionCriteria.map(
-                    (criterion) => ({
-                        text: criterion.text,
-                        ...(criterion.acceptance === undefined
-                            ? {}
-                            : {
-                                acceptance: {
-                                    expectToolId: criterion.acceptance.expectToolId,
-                                    expectOutcome: criterion.acceptance.expectOutcome,
-                                },
+            ...(workflow.task === undefined
+                ? {}
+                : {
+                    task: {
+                        objective: workflow.task.objective,
+                        completionCriteria: workflow.task.completionCriteria.map(
+                            (criterion) => ({
+                                text: criterion.text,
+                                ...(criterion.acceptance === undefined
+                                    ? {}
+                                    : {
+                                        acceptance: {
+                                            expectToolId: criterion.acceptance.expectToolId,
+                                            expectOutcome: criterion.acceptance.expectOutcome,
+                                        },
+                                    }),
                             }),
-                    }),
-                ),
-            },
+                        ),
+                    },
+                }),
             execution: {
                 stepCount: goal.state.run.stepCount,
                 ...(maxSteps > 0 ? { maxSteps } : {}),
@@ -301,19 +265,6 @@ function projectContextEpoch(
     });
 }
 
-function assertActivePreparation(goal: Goal): PreparationPhase {
-    const workflow = goal.state.workflow;
-
-    if (
-        workflow.phase === "executing"
-        || workflow.preparation.status !== "active"
-    ) {
-        throw new Error("Preparation request requires an active preparation Goal");
-    }
-
-    return workflow.phase;
-}
-
 function projectProfile(goal: Goal): ModelProfileView {
     const profile = goal.definition.profile;
 
@@ -339,22 +290,6 @@ function projectConversation(
             content: message.content,
             sourceMessageIndex,
         });
-}
-
-function projectPreparationInputEvidence(
-    evidence: readonly PreparationInputEvidence[],
-): readonly ModelPreparationInputEvidence[] {
-    return evidence.map((entry) => ({
-        sequence: entry.sequence,
-        messageIndex: entry.messageIndex,
-        contentHash: entry.contentHash,
-    }));
-}
-
-function projectPreparationProbeResult(
-    result: PreparationProbeResult,
-): ModelPreparationProbeResult {
-    return structuredClone(result);
 }
 
 function projectTools(

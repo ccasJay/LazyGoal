@@ -5,6 +5,7 @@ import type { JsonSchema202012 } from "../json-schema";
 import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
+    AskUserAgentDecisionContract,
     ContextLookupRequestContract,
     ContextReadyPreparationResultContract,
     ExecutingCompleteAgentDecisionContract,
@@ -19,6 +20,7 @@ import {
     PlanningPreparationResultContract,
     type PreparationResult,
     QuestionPreparationResultContract,
+    TaskProposalAgentDecisionContract,
     TaskProposalPreparationResultContract,
     WorkingMemoryPatchContract,
 } from "./canonical";
@@ -95,6 +97,7 @@ export type ModelOutputRequest =
     | {
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
+        readonly taskPresent?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -321,30 +324,42 @@ export function createModelOutputContractBundle(
             break;
         }
         case "executing": {
-            name = "executing_agent_decision";
+            const taskPresent = request.taskPresent !== false;
+            name = taskPresent ? "executing_agent_decision" : "unapproved_executing_agent_decision";
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);
+            const effectiveTools = taskPresent
+                ? sortedTools
+                : sortedTools.filter(isReadOnlyToolContract);
 
-            if (sortedTools.length === 0) {
-                // 无授权工具时完全省略 tool_call 分支
-                canonicalContract = NonToolExecutingDecisionContract as unknown as Contract<PreparationResult | AgentDecision>;
-                wireContract = deriveWireEnvelopeContract(NonToolExecutingDecisionContract);
-            } else {
-                // 动态组合 tool_call 分支与非 tool 分支
-                const toolCanonicalBranches = sortedTools.map(buildCanonicalToolBranch);
-                const toolWireBranches = sortedTools.map(buildWireToolBranch);
-
-                const nonToolCanonicalBranches = [
+            const nonToolCanonicalBranches: Contract<unknown>[] = taskPresent
+                ? [
                     ExecutingCompleteAgentDecisionContract,
                     ExecutingWaitAgentDecisionContract,
                     ExecutingFailAgentDecisionContract,
                     ContextLookupRequestContract,
+                    AskUserAgentDecisionContract,
+                ]
+                : [
+                    AskUserAgentDecisionContract,
+                    TaskProposalAgentDecisionContract,
+                    ContextLookupRequestContract,
                 ];
-                const nonToolWireBranches = [
-                    deriveWireContract(ExecutingCompleteAgentDecisionContract),
-                    deriveWireContract(ExecutingWaitAgentDecisionContract),
-                    deriveWireContract(ExecutingFailAgentDecisionContract),
-                    deriveWireContract(ContextLookupRequestContract),
-                ];
+            const nonToolWireBranches = nonToolCanonicalBranches.map((c) => deriveWireContract(c));
+
+            if (effectiveTools.length === 0) {
+                // 无授权工具时完全省略 tool_call 分支
+                canonicalContract = contract.union(
+                    nonToolCanonicalBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
+                ) as unknown as Contract<PreparationResult | AgentDecision>;
+                wireContract = contract.object({
+                    result: contract.union(
+                        nonToolWireBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
+                    ),
+                });
+            } else {
+                // 动态组合 tool_call 分支与非 tool 分支
+                const toolCanonicalBranches = effectiveTools.map(buildCanonicalToolBranch);
+                const toolWireBranches = effectiveTools.map(buildWireToolBranch);
 
                 const canonicalBranches = [
                     ...toolCanonicalBranches,

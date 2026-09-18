@@ -54,11 +54,16 @@ test("JsonFileTrajectoryStore 持久化并准确回读携带思考链的 Traject
         await store.append({
             goalId: "goal-cot-1",
             runId: "run-cot-1",
-            phase: "gathering_context",
-            eventType: "preparation_result",
+            phase: "executing",
+            executionUnitId: "exec-unit-0",
+            eventType: "decision_received",
             payload: {
-                type: "preparation_result",
-                result: "question",
+                type: "decision_received",
+                decision: {
+                    kind: "ask_user",
+                    interactionId: "ask-1",
+                    prompt: "需要向用户澄清测试范围与边界条件。",
+                },
                 thought: "需要向用户澄清测试范围与边界条件。",
             },
         });
@@ -82,10 +87,10 @@ test("JsonFileTrajectoryStore 持久化并准确回读携带思考链的 Traject
         const readResult = await store.readWithBoundary(query, 2);
         assert.equal(readResult.committed.length, 2);
 
-        const prepEvent = readResult.committed[0]!;
-        assert.equal(prepEvent.eventType, "preparation_result");
-        if (prepEvent.payload.type === "preparation_result") {
-            assert.equal(prepEvent.payload.thought, "需要向用户澄清测试范围与边界条件。");
+        const firstEvent = readResult.committed[0]!;
+        assert.equal(firstEvent.eventType, "decision_received");
+        if (firstEvent.payload.type === "decision_received") {
+            assert.equal(firstEvent.payload.thought, "需要向用户澄清测试范围与边界条件。");
         }
 
         const execEvent = readResult.committed[1]!;
@@ -109,12 +114,20 @@ test("projectTrajectoryEvents 准确将思考链投影至 UiInspectorStep.reason
             eventId: "evt-1",
             goalId,
             runId,
-            phase: "gathering_context",
-            eventType: "preparation_result",
+            phase: "executing",
+            eventType: "decision_received",
             occurredAt: "2026-09-12T00:00:00.000Z",
             payload: {
-                type: "preparation_result",
-                result: "context_ready",
+                type: "decision_received",
+                decision: {
+                    kind: "task_proposal",
+                    interactionId: "prop-1",
+                    task: {
+                        objective: "已收集足够上下文，准备制定计划。",
+                        completionCriteria: [{ text: "任务完成" }],
+                    },
+                    approvalRequest: "请批准计划",
+                },
                 thought: "已收集足够上下文，准备制定计划。",
             },
         }),

@@ -34,8 +34,6 @@ const SLOT_ORDER: readonly PromptBundleSection["slot"][] = [
 ];
 
 const PHASES: readonly PromptPhase[] = [
-    "gathering_context",
-    "planning",
     "executing",
 ];
 

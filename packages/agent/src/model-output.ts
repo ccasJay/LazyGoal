@@ -3,7 +3,6 @@ import type {
     AgentDecision,
     ContractValidationError,
     ModelOutputContractBundle,
-    PreparationResult,
 } from "../../contracts/src/index";
 import {
     createModelOutputContractBundle,
@@ -13,9 +12,6 @@ import {
     LLMResponseProtocolError,
     type LLMResponseProtocolIssue,
 } from "./errors";
-import type { PreparationPhase } from "./model-inference-view";
-
-export type { PreparationPhase } from "./model-inference-view";
 
 /**
  * 从模型输出文本中提取纯 JSON 字符串。
@@ -169,35 +165,6 @@ export function parseAgentDecision(
     const effectiveBundle = bundle ?? (createModelOutputContractBundle({
         kind: "executing",
     }) as unknown as ModelOutputContractBundle<AgentDecision>);
-
-    return parseModelOutput(content, effectiveBundle);
-}
-
-/**
- * 按阶段解析 PreparationResult。
- *
- * @remarks
- * 若未显式传入请求级契约包，则根据指定阶段构造对应契约包进行解析。
- *
- * @param content - Adapter 返回的原始模型文本。
- * @param phase - 当前准备阶段。
- * @param bundle - 可选的请求级契约包。
- * @returns 规范化的 PreparationResult。
- * @throws {@link LLMResponseProtocolError} 不符合协议时抛出。
- *
- * @example
- * ```ts
- * const result = parsePreparationResult(content, "gathering_context", bundle);
- * ```
- */
-export function parsePreparationResult(
-    content: string,
-    phase: PreparationPhase,
-    bundle?: ModelOutputContractBundle<PreparationResult>,
-): PreparationResult {
-    const effectiveBundle = bundle ?? (createModelOutputContractBundle({
-        kind: phase === "gathering_context" ? "gathering" : "planning",
-    }) as unknown as ModelOutputContractBundle<PreparationResult>);
 
     return parseModelOutput(content, effectiveBundle);
 }

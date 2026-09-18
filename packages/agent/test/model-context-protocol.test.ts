@@ -33,7 +33,7 @@ const currentProtocols = {
 };
 
 function currentGoal() {
-    return createGoal({
+    const goal = createGoal({
         id: "goal-current",
         intent: "验证当前模型上下文协议",
         promptBundleVersion: 1,
@@ -41,6 +41,16 @@ function currentGoal() {
         profile,
         runId: "run-current",
     });
+    return {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "running" as const,
+            },
+        },
+    };
 }
 
 test("默认 Prompt Bundle 只注册当前联合协议", async () => {
@@ -67,7 +77,7 @@ test("Projector 暴露唯一当前协议和 Context Epoch", () => {
 
     assert.deepEqual(view.prompt, {
         promptBundleVersion: 1,
-        phase: "gathering_context",
+        phase: "executing",
         profile: {
             id: profile.id,
             systemPrompt: profile.systemPrompt,

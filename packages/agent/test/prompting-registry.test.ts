@@ -32,8 +32,6 @@ const profileSection: PromptBundleSection = {
 const phaseSection: PromptBundleSection = {
     slot: "phase_protocol",
     templates: {
-        gathering_context: "gathering-context@1",
-        planning: "planning@1",
         executing: "agent-decision@1",
     },
 };
@@ -118,10 +116,7 @@ test("Registry 拒绝引用未注册模板的 Manifest", () => {
 test("Registry 拒绝缺少 Phase 映射的 Manifest", () => {
     const incomplete: PromptBundleSection = {
         slot: "phase_protocol",
-        templates: {
-            gathering_context: "gathering-context@1",
-            planning: "planning@1",
-        },
+        templates: {},
     } as unknown as PromptBundleSection;
     const invalid: PromptBundleManifest = {
         ...manifestV1,

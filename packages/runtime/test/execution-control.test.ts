@@ -58,7 +58,6 @@ function createExecutingGoal(
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: goal.definition.intent,
                     completionCriteria: [{ text: "Abort is not converted into a failure" }],
@@ -446,31 +445,19 @@ test("InlineScheduler forwards and checks the shared execution control", async (
     assert.deepEqual(receivedControl, { signal: controller.signal });
 });
 
-test("GoalCoordinator does not save a preparation result after abort", async () => {
+test("GoalCoordinator propagates abort from scheduler and preserves last snapshot", async () => {
     const controller = new AbortController();
-    const goal = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id: "goal-1",
-        intent: "Test preparation abort",
-        profile,
-        runId: "run-1",
-    });
+    const goal = createExecutingGoal();
     const store = new InMemoryGoalStore();
     await store.save(goal);
-    const preparationExecutor: PreparationExecutor = {
-        async execute({ control }) {
-            assert.strictEqual(control?.signal, controller.signal);
-            controller.abort();
-            return { kind: "context_ready" };
-        },
-    };
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
-        preparationExecutor,
         scheduler: {
-            async schedule(): Promise<RunnerResult> {
+            async schedule(_ref, _transient, control): Promise<RunnerResult> {
+                assert.strictEqual(control?.signal, controller.signal);
+                controller.abort();
+                throwIfAborted(control);
                 throw new Error("Scheduler must not be reached");
             },
         },

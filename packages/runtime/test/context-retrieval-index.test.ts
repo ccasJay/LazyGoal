@@ -93,8 +93,8 @@ test("查询 LRU 固定 64 项，命中提升到 MRU 且淘汰最旧项", () => 
     );
 });
 
-test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新准备文档", () => {
-    const events = preparationEvents();
+test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新文档", () => {
+    const events = executionEvents();
     const oldSidecar = buildContextRetrievalIndexSidecar({
         ...currentConversation,
         goalId,
@@ -132,7 +132,7 @@ test("Sidecar 来源摘要忽略 tail，落后 Sidecar 可增量加入新准备�
 });
 
 test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", () => {
-    const events = preparationEvents();
+    const events = executionEvents();
     const sidecar = buildContextRetrievalIndexSidecar({
         ...currentConversation,
         goalId,
@@ -167,27 +167,53 @@ test("损坏或领先 Sidecar fail-closed 后重建，不污染领域输入", ()
     assert.equal(leading.sidecar.derivedThroughSequence, 1);
 });
 
-function preparationEvents(): readonly TrajectoryEvent[] {
+function executionEvents(): readonly TrajectoryEvent[] {
     return [
         event(1, {
-            phase: "gathering_context",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "question" },
+            phase: "executing",
+            executionUnitId: "unit-1",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "tool_call",
+                    action: { actionId: "a-1", toolId: "read", input: {} },
+                },
+            },
         }),
         event(2, {
-            phase: "gathering_context",
-            eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "question" },
+            phase: "executing",
+            executionUnitId: "unit-1",
+            actionId: "a-1",
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: "a-1",
+                observation: { kind: "success", output: "ok", summary: "read ok" },
+            },
         }),
         event(3, {
-            phase: "planning",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "task_proposal" },
+            phase: "executing",
+            executionUnitId: "unit-2",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "tool_call",
+                    action: { actionId: "a-2", toolId: "write", input: {} },
+                },
+            },
         }),
         event(4, {
-            phase: "planning",
-            eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "approval" },
+            phase: "executing",
+            executionUnitId: "unit-2",
+            actionId: "a-2",
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: "a-2",
+                observation: { kind: "success", output: "ok", summary: "write ok" },
+            },
         }),
     ];
 }

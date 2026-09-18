@@ -6,12 +6,12 @@ import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
 import type {
     DiagnosticTraceSink,
     Goal,
+    AgentProfile,
 } from "../../runtime/src/index";
 import { createGoal } from "../../runtime/src/index";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
-    LLMPreparationExecutor,
     LLMStepExecutor,
 } from "../src/index";
 import {
@@ -23,26 +23,22 @@ import {
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
 
-const profile = {
+const profile: AgentProfile = {
     id: "profile-1",
-    systemPrompt: "You are a trace test agent.",
-    instructions: [],
+    systemPrompt: "系统助手",
+    instructions: ["按规范执行"],
     toolIds: [],
-} as const;
+};
 
-function createGoalForPhase(
-    phase: "gathering_context" | "executing" = "executing",
-): Goal {
+function createGoalForPhase(): Goal {
     const created = createGoal({
         id: "goal-trace",
-        intent: "验证诊断",
+        intent: "验证诊断 Trace",
         promptBundleVersion: 1,
         ...currentProtocols,
         profile,
         runId: "run-trace",
     });
-
-    if (phase === "gathering_context") return created;
 
     return {
         ...created,
@@ -50,7 +46,6 @@ function createGoalForPhase(
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "验证诊断",
                     completionCriteria: [{ text: "Trace 可读" }],
@@ -273,17 +268,17 @@ test("LLM diagnostics apply a total size bound and do not require a working Trac
     assert.equal(isolatedResult.kind, "complete");
 });
 
-test("LLMPreparationExecutor records response parse failures without changing the protocol error", async () => {
+test("LLMStepExecutor records response parse failures without changing the protocol error", async () => {
     const traceSink = new CaptureTraceSink();
     await assert.rejects(
-        new LLMPreparationExecutor({
+        new LLMStepExecutor({
             adapter: new ResponseAdapter({ content: "not-json" }),
             renderer,
             contextCompactor,
             traceSink,
             trajectoryContextAssembler: createCurrentContextAssembler(),
         }).execute({
-            goal: createGoalForPhase("gathering_context"),
+            goal: createGoalForPhase(),
             authorizedTools: [],
             workingMemory: currentWorkingMemory,
         }),

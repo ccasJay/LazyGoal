@@ -53,8 +53,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
         },
         state: {
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
+                phase: "executing",
             },
             messages: [
                 { role: "user", content: "完成最小 Runtime" },
@@ -76,7 +75,7 @@ test("createGoal creates an initial gathering snapshot with independent IDs", ()
         },
     });
     assert.notEqual(goal.id, goal.state.run.id);
-    assert.equal(goal.state.workflow.phase, "gathering_context");
+    assert.equal(goal.state.workflow.phase, "executing");
     assert.equal(goal.state.run.stepCount, 0);
     assert.equal(goal.state.run.lastStep, undefined);
 });
@@ -114,7 +113,7 @@ test("createGoal isolates frozen definition and real messages from input mutatio
     ]);
 });
 
-test("preparation workflow cannot represent executing without a final task", () => {
+test("createGoal initializes an executing workflow without initial task", () => {
     const goal = createGoal({
         ...currentProtocols,
         id: "goal-3",
@@ -124,8 +123,8 @@ test("preparation workflow cannot represent executing without a final task", () 
         runId: "run-3",
     });
 
-    assert.equal(goal.state.workflow.phase, "gathering_context");
-    assert.equal("task" in goal.state.workflow, false);
+    assert.equal(goal.state.workflow.phase, "executing");
+    assert.equal(goal.state.workflow.task, undefined);
     assert.deepEqual(goal.state.run, createRun("run-3"));
 });
 

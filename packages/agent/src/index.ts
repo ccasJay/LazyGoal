@@ -1,12 +1,7 @@
 export { LLMStepExecutor } from "./llm-step-executor";
 export type { LLMStepExecutorDependencies } from "./llm-step-executor";
-export { LLMPreparationExecutor } from "./llm-preparation-executor";
-export type {
-    LLMPreparationExecutorDependencies,
-} from "./llm-preparation-executor";
 
 export {
-    buildPreparationRequest,
     buildStepRequest,
 } from "./prompt";
 export type {
@@ -169,7 +164,6 @@ export type {
     ModelContextLookupFreshness,
     ModelContextLookupMatch,
     ModelContextLookupResult,
-    ModelPreparationInputEvidence,
     VisibleConversationMessageMapEntry,
     ModelContextControl,
     ModelContextEpochView,
@@ -193,11 +187,7 @@ export {
     parseJson,
     parseModelOutput,
     parseAgentDecision,
-    parsePreparationResult,
     requestRequiresContextCheckpoint,
-} from "./model-output";
-export type {
-    PreparationPhase,
 } from "./model-output";
 
 export {
@@ -260,7 +250,3 @@ export {
     throwIfAborted,
 } from "../../runtime/src/execution-control";
 export type { ToolDefinition } from "../../runtime/src/tool";
-export type {
-    PreparationExecutor,
-    PreparationResult,
-} from "../../runtime/src/preparation-executor";

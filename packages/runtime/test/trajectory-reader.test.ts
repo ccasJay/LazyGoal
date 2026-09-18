@@ -46,7 +46,7 @@ const events = [
     allocateImmutableEvent({
         goalId: "goal-reader",
         runId: "run-reader",
-        phase: "gathering_context",
+        phase: "executing",
         eventType: "run_started",
         payload: { type: "run_started" },
     }, 1),

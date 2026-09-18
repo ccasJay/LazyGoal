@@ -13,7 +13,6 @@ import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
     LLMStepExecutor,
-    LLMPreparationExecutor,
 } from "../src/index";
 import {
     createCurrentContextAssembler,
@@ -52,32 +51,7 @@ function createExecutingGoal(): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: mockTask,
-            },
-            run: { ...created.state.run, status: "running" },
-            messages: [],
-        },
-    };
-}
-
-function createGatheringGoal(): Goal {
-    const created = createGoal({
-        promptBundleVersion: 1,
-        id: "goal-native-2",
-        intent: "准备阶段需求澄清",
-        ...currentProtocols,
-        profile,
-        runId: "run-2",
-    });
-
-    return {
-        ...created,
-        state: {
-            ...created.state,
-            workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
             },
             run: { ...created.state.run, status: "running" },
             messages: [],
@@ -228,50 +202,4 @@ test("LLMStepExecutor 当模型缺失工具调用且非结构化文本时抛出 
             return true;
         },
     );
-});
-
-test("LLMPreparationExecutor 单步 1 RTT 原生工具调用解析 PreparationResult", async () => {
-    const goal = createGatheringGoal();
-    let callCount = 0;
-    const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
-        async generate(req: LLMRequest): Promise<LLMResponse> {
-            callCount++;
-            assert.ok(req.tools);
-            assert.equal(req.toolChoice, "required");
-            assert.ok(req.tools.some(t => t.id === "system_ask_clarification"));
-            assert.ok(req.tools.some(t => t.id === "system_context_ready"));
-
-            return {
-                content: "分析发现用户意图不完整，需要提问澄清。",
-                toolCalls: [
-                    {
-                        callId: "call-prep-1",
-                        toolId: "system_ask_clarification",
-                        argumentsJson: JSON.stringify({
-                            question: "请问具体的测试框架是哪一个？",
-                            memoryPatch: null,
-                        }),
-                    },
-                ],
-            };
-        },
-    };
-
-    const executor = new LLMPreparationExecutor({
-        adapter,
-        renderer,
-        contextCompactor,
-        trajectoryContextAssembler: createCurrentContextAssembler(),
-    });
-
-    const result = await executor.execute({
-        goal,
-        authorizedTools: [],
-        workingMemory: currentWorkingMemory,
-    });
-
-    assert.equal(callCount, 1, "准备阶段单步严格发起 1 次网络调用 (1 RTT)");
-    assert.equal(result.kind, "question");
-    assert.equal((result as any).question, "请问具体的测试框架是哪一个？");
 });

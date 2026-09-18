@@ -87,7 +87,6 @@ function createTestGoal(phase: "gathering_context" | "executing" = "gathering_co
                 ...created.state,
                 workflow: {
                     phase: "executing",
-                    preparation: { status: "completed" },
                     task: { objective: "测试任务", completionCriteria: [] },
                 },
                 run: {
@@ -186,65 +185,8 @@ test("非法结构、额外字段或空问题在检索前直接拒绝", () => {
     );
 });
 
-test("Coordinator 与 Runner 将规范化请求直接交给 invokeContextLookup", async () => {
-    const goal = createTestGoal("gathering_context");
+test("Runner 将规范化请求直接交给 invokeContextLookup", async () => {
     const store = new InMemoryGoalStore();
-    await store.save(goal);
-    const trajectory = new MemoryTrajectoryStore();
-
-    let lookedUpRequest: ContextLookupRequest | undefined;
-    const port: ContextLookupPort = {
-        async lookup(input) {
-            lookedUpRequest = input.request;
-            return {
-                status: "not_found",
-                lookupId: input.lookupId,
-                reason: "未找到历史记录",
-            };
-        },
-    };
-
-    let coordinatorPreparationCalls = 0;
-    const preparationExecutor: PreparationExecutor = {
-        async execute(input: PreparationExecutionInput) {
-            coordinatorPreparationCalls += 1;
-            if (coordinatorPreparationCalls === 1) {
-                return {
-                    kind: "context_lookup",
-                    need: "historical_execution",
-                    question: "之前的执行记录",
-                };
-            }
-            if (input.goal.state.workflow.phase === "gathering_context") {
-                return { kind: "context_ready" };
-            }
-            return {
-                kind: "task_proposal",
-                task: { objective: "规划目标", completionCriteria: [] },
-                approvalRequest: "请批准",
-            };
-        },
-    };
-
-    const coordinator = new GoalCoordinator({
-        store,
-        trajectoryStore: trajectory,
-        preparationExecutor,
-        contextLookupPort: port,
-        scheduler: { async schedule() { throw new Error("not scheduled"); } },
-    });
-
-    const coordinatorResult = await coordinator.advance({
-        goalId: goal.id,
-        runId: goal.state.run.id,
-    });
-
-    assert.ok(coordinatorResult.ok);
-    assert.ok(lookedUpRequest !== undefined);
-    assert.equal(lookedUpRequest.need, "historical_execution");
-    assert.equal(lookedUpRequest.question, "之前的执行记录");
-
-    // Runner 直接调用测试
     const executingGoal = createTestGoal("executing");
     await store.save(executingGoal);
     const runnerTrajectory = new MemoryTrajectoryStore();

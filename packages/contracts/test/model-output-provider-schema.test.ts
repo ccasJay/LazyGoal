@@ -49,8 +49,8 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     assert.ok(Array.isArray(resultProp.anyOf));
     const anyOf = resultProp.anyOf as Array<Record<string, unknown>>;
 
-    // 应该包含 3 个 tool 分支 + 4 个 non-tool 分支 = 7 个分支
-    assert.equal(anyOf.length, 7);
+    // 应该包含 3 个 tool 分支 + 5 个 non-tool 分支 (complete, wait, fail, context_lookup, ask_user) = 8 个分支
+    assert.equal(anyOf.length, 8);
 
     // 前 3 个分支必须严格按 Tool ID 码点序排序: edit_file < read_file < write_file
     const toolBranches = anyOf.filter((b) => {
@@ -76,13 +76,25 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     const emptySchema = emptyBundle.jsonSchema;
     const emptyResultProp = (emptySchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const emptyAnyOf = emptyResultProp.anyOf as Array<Record<string, unknown>>;
-    assert.equal(emptyAnyOf.length, 6); // complete, wait, fail, context_lookup, ask_user, task_proposal
+    assert.equal(emptyAnyOf.length, 5); // complete, wait, fail, context_lookup, ask_user
     const hasToolCall = emptyAnyOf.some((b) => {
         const props = b.properties as Record<string, unknown> | undefined;
         const kindProp = props?.kind as Record<string, unknown> | undefined;
         return Array.isArray(kindProp?.enum) && kindProp?.enum[0] === "tool_call";
     });
     assert.equal(hasToolCall, false);
+
+    // taskPresent 为 false（未批准任务/计划期）：只暴露只读工具 + ask_user, task_proposal, context_lookup
+    const readOnlyTool = { ...readFileTool, isReadOnly: true };
+    const unapprovedBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: false,
+        authorizedTools: [writeFileTool, readOnlyTool, editFileTool],
+    });
+    const unapprovedResultProp = (unapprovedBundle.jsonSchema.properties as Record<string, unknown>).result as Record<string, unknown>;
+    const unapprovedAnyOf = unapprovedResultProp.anyOf as Array<Record<string, unknown>>;
+    // 只有 1 个只读工具 (read_file) + 3 个 non-tool (ask_user, task_proposal, context_lookup) = 4 个分支
+    assert.equal(unapprovedAnyOf.length, 4);
 });
 
 test("Executing Schema、Shape Guide 与 decode 均拒绝 create_plan_item，并允许合法更新", () => {

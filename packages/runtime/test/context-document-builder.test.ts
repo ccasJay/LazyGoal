@@ -36,26 +36,6 @@ function event(
 function committedSource(): readonly TrajectoryEvent[] {
     return [
         event(1, {
-            phase: "gathering_context",
-            eventType: "goal_created",
-            payload: { type: "goal_created", intent: "检索历史" },
-        }),
-        event(2, {
-            phase: "gathering_context",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "question" },
-        }),
-        event(3, {
-            phase: "gathering_context",
-            eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "question" },
-        }),
-        event(4, {
-            phase: "gathering_context",
-            eventType: "state_committed",
-            payload: { type: "state_committed", committedThroughSequence: 3 },
-        }),
-        event(5, {
             phase: "executing",
             executionUnitId: "unit-tool",
             eventType: "decision_received",
@@ -71,7 +51,7 @@ function committedSource(): readonly TrajectoryEvent[] {
                 },
             },
         }),
-        event(6, {
+        event(2, {
             phase: "executing",
             executionUnitId: "unit-tool",
             actionId: "action-read",
@@ -86,12 +66,7 @@ function committedSource(): readonly TrajectoryEvent[] {
                 approvalStatus: "approved",
             },
         }),
-        event(7, {
-            phase: "executing",
-            eventType: "state_committed",
-            payload: { type: "state_committed", committedThroughSequence: 6 },
-        }),
-        event(8, {
+        event(3, {
             phase: "executing",
             executionUnitId: "unit-tool",
             actionId: "action-read",
@@ -103,7 +78,7 @@ function committedSource(): readonly TrajectoryEvent[] {
                 input: { filePath: "src/index.ts", objectId: "obj-7" },
             },
         }),
-        event(9, {
+        event(4, {
             phase: "executing",
             executionUnitId: "unit-tool",
             actionId: "action-read",
@@ -119,7 +94,7 @@ function committedSource(): readonly TrajectoryEvent[] {
                 },
             },
         }),
-        event(10, {
+        event(5, {
             phase: "executing",
             executionUnitId: "unit-tool",
             actionId: "action-read",
@@ -134,49 +109,12 @@ function committedSource(): readonly TrajectoryEvent[] {
                 },
             },
         }),
-        event(11, {
+        event(6, {
             phase: "executing",
             eventType: "state_committed",
-            payload: { type: "state_committed", committedThroughSequence: 10 },
+            payload: { type: "state_committed", committedThroughSequence: 5 },
         }),
-        event(12, {
-            phase: "planning",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "task_proposal" },
-        }),
-        event(13, {
-            phase: "planning",
-            eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "approval" },
-        }),
-        event(14, {
-            phase: "planning",
-            eventType: "memory_patch_accepted",
-            payload: {
-                type: "memory_patch_accepted",
-                protocolVersion: 1,
-                producers: ["model"],
-                operations: [{
-                    type: "upsert_hypothesis",
-                    hypothesis: {
-                        id: "hypothesis-1",
-                        kind: "hypothesis",
-                        originPhase: "planning",
-                        originSequence: 14,
-                        updatedAtSequence: 14,
-                        scope: "goal",
-                        status: "active",
-                        statement: "历史读取结果可复用",
-                    },
-                }],
-            },
-        }),
-        event(15, {
-            phase: "planning",
-            eventType: "state_committed",
-            payload: { type: "state_committed", committedThroughSequence: 14 },
-        }),
-        event(16, {
+        event(7, {
             phase: "executing",
             executionUnitId: "lookup-unit",
             eventType: "context_lookup_requested",
@@ -190,7 +128,12 @@ function committedSource(): readonly TrajectoryEvent[] {
                 },
             },
         }),
-        event(17, {
+        event(8, {
+            phase: "executing",
+            eventType: "state_committed",
+            payload: { type: "state_committed", committedThroughSequence: 7 },
+        }),
+        event(9, {
             phase: "executing",
             executionUnitId: "tail-unit",
             eventType: "decision_received",
@@ -202,7 +145,7 @@ function committedSource(): readonly TrajectoryEvent[] {
     ];
 }
 
-function input(events: readonly TrajectoryEvent[], boundary = 16): ContextDocumentBuildInput {
+function input(events: readonly TrajectoryEvent[], boundary = 7): ContextDocumentBuildInput {
     return {
         goalId,
         runId,
@@ -235,17 +178,15 @@ class MemoryTrajectoryStore implements TrajectoryStore {
     }
 }
 
-test("Builder 只从 committed 来源构建完整 execution/preparation 文档", () => {
+test("Builder 只从 committed 来源构建完整 execution 文档", () => {
     const source = committedSource();
     const result = new ContextDocumentBuilder().buildResult(input(source));
 
-    assert.equal(result.documents.length, 3);
+    assert.equal(result.documents.length, 1);
     assert.deepEqual(
         result.documents.map((document) => [document.kind, document.firstSequence, document.lastSequence]),
         [
-            ["preparation", 2, 3],
-            ["execution", 5, 10],
-            ["preparation", 12, 14],
+            ["execution", 1, 5],
         ],
     );
 
@@ -257,67 +198,18 @@ test("Builder 只从 committed 来源构建完整 execution/preparation 文档",
     assert.deepEqual(execution.fields.path, ["src/index.ts"]);
     assert.deepEqual(execution.fields.objectId, ["obj-7"]);
     assert.deepEqual(execution.sourceEventIds, [
-        "document-event-5",
-        "document-event-6",
-        "document-event-8",
-        "document-event-9",
-        "document-event-10",
-    ]);
-    assert.equal(execution.body, execution.fields.body);
-    assert.equal(execution.body.includes("context_lookup_requested"), false);
-    assert.equal(execution.body.includes("document-event-17"), false);
-    assert.equal(Object.isFrozen(result), true);
-    assert.equal(Object.isFrozen(result.documents), true);
-    assert.equal(Object.isFrozen(execution), true);
-});
-
-test("Builder 将 preparation input provenance 作为透明 metadata", () => {
-    const source = [
-        event(1, {
-            phase: "gathering_context",
-            eventType: "goal_created",
-            payload: { type: "goal_created", intent: "读取历史" },
-        }),
-        event(2, {
-            phase: "gathering_context",
-            eventType: "run_resumed",
-            payload: { type: "run_resumed" },
-        }),
-        event(3, {
-            phase: "gathering_context",
-            eventType: "preparation_input_recorded",
-            payload: {
-                type: "preparation_input_recorded",
-                messageIndex: 0,
-                contentHash: "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-            },
-        }),
-        event(4, {
-            phase: "gathering_context",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "question" },
-        }),
-        event(5, {
-            phase: "gathering_context",
-            eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "question" },
-        }),
-        event(6, {
-            phase: "gathering_context",
-            eventType: "state_committed",
-            payload: { type: "state_committed", committedThroughSequence: 5 },
-        }),
-    ];
-
-    const result = new ContextDocumentBuilder().buildResult(input(source, 5));
-    assert.equal(result.documents.length, 1);
-    assert.deepEqual(result.documents[0]!.sourceEventIds, [
+        "document-event-1",
         "document-event-2",
+        "document-event-3",
         "document-event-4",
         "document-event-5",
     ]);
-    assert.equal(result.documents[0]!.body.includes("preparation_input_recorded"), false);
-    assert.equal(result.documents[0]!.body.includes("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"), false);
+    assert.equal(execution.body, execution.fields.body);
+    assert.equal(execution.body.includes("context_lookup_requested"), false);
+    assert.equal(execution.body.includes("document-event-9"), false);
+    assert.equal(Object.isFrozen(result), true);
+    assert.equal(Object.isFrozen(result.documents), true);
+    assert.equal(Object.isFrozen(execution), true);
 });
 
 test("Builder 全量、位置参数和 Store 读取结果保持稳定等价", async () => {
@@ -327,22 +219,21 @@ test("Builder 全量、位置参数和 Store 读取结果保持稳定等价", as
     const second = builder.build(source, {
         goalId,
         runId,
-        committedThroughSequence: 16,
+        committedThroughSequence: 7,
     });
     const third = await builder.buildFromStore({
         trajectoryStore: new MemoryTrajectoryStore(source),
         goalId,
         runId,
-        committedThroughSequence: 16,
+        committedThroughSequence: 7,
     });
 
     assert.deepEqual(second, first);
     assert.deepEqual(third.documents, first);
     assert.deepEqual(buildCommittedContextDocuments(input(source)), first);
-    assert.deepEqual(buildCommittedContextDocuments(input(source)), first);
 });
 
-test("Builder 不把未闭合 execution/preparation 片段拆成文档", () => {
+test("Builder 不把未闭合 execution 片段拆成文档", () => {
     const incomplete = [
         event(1, {
             phase: "executing",
@@ -356,23 +247,23 @@ test("Builder 不把未闭合 execution/preparation 片段拆成文档", () => {
                 },
             },
         }),
-        event(2, {
-            phase: "gathering_context",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "question" },
-        }),
     ];
 
-    assert.deepEqual(new ContextDocumentBuilder().build(input(incomplete, 2)), []);
+    assert.deepEqual(new ContextDocumentBuilder().build(input(incomplete, 1)), []);
 });
 
 test("Builder 对 committed 身份、顺序和结构矛盾 fail-closed", () => {
     const source = committedSource();
     const foreign = event(2, {
         goalId: "foreign-goal",
-        phase: "gathering_context",
-        eventType: "preparation_result",
-        payload: { type: "preparation_result", result: "question" },
+        phase: "executing",
+        executionUnitId: "unit-tool",
+        eventType: "observation_recorded",
+        payload: {
+            type: "observation_recorded",
+            actionId: "action-read",
+            observation: { kind: "success", output: {}, summary: "ok" },
+        },
     });
     assert.throws(
         () => new ContextDocumentBuilder().build(input([source[0]!, foreign])),

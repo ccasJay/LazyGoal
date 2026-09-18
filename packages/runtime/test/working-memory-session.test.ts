@@ -135,14 +135,14 @@ function preparationEvents(options: {
     readonly messageIndex?: number;
     readonly content?: string;
     readonly acceptedEvidenceSequence?: number;
-    readonly acceptedPhase?: "gathering_context" | "executing";
+    readonly acceptedPhase?: "executing";
 } = {}): TrajectoryEvent[] {
     const messageIndex = options.messageIndex ?? 0;
     const content = options.content ?? "Restore structured Memory";
     const preparationInput = allocateImmutableEvent({
         goalId: "goal-session",
         runId: "run-session",
-        phase: "gathering_context",
+        phase: "executing",
         eventType: "preparation_input_recorded",
         payload: {
             type: "preparation_input_recorded",
@@ -154,7 +154,7 @@ function preparationEvents(options: {
     const accepted = allocateImmutableEvent({
         goalId: "goal-session",
         runId: "run-session",
-        phase: options.acceptedPhase ?? "gathering_context",
+        phase: options.acceptedPhase ?? "executing",
         eventType: "memory_patch_accepted",
         payload: {
             type: "memory_patch_accepted",
@@ -250,103 +250,4 @@ test("WorkingMemorySession discards its in-process projection on close", async (
     assert.equal(session.workingMemory.facts.length, 1);
     session.close();
     assert.throws(() => session.workingMemory, WorkingMemorySessionClosedError);
-    assert.throws(() => session.preparationInputEvidence, WorkingMemorySessionClosedError);
-});
-
-test("Session restores committed Preparation provenance and isolates its getter", async () => {
-    const session = await WorkingMemorySession.restore(
-        structuredGoal(2, { eventId: "preparation-patch-2", sequence: 2 }),
-        { trajectoryStore: new MemoryTrajectoryStore(preparationEvents()) },
-    );
-    assert.deepEqual(session.preparationInputEvidence, [{
-        sequence: 1,
-        messageIndex: 0,
-        contentHash: computeContentHash("Restore structured Memory"),
-    }]);
-    const exposed = session.preparationInputEvidence as Array<{
-        sequence: number;
-        messageIndex: number;
-        contentHash: string;
-    }>;
-    exposed[0]!.messageIndex = 99;
-    assert.equal(session.preparationInputEvidence[0]?.messageIndex, 0);
-});
-
-test("Session excludes Preparation provenance from the uncommitted tail", async () => {
-    const committed = preparationEvents();
-    const tail = allocateImmutableEvent({
-        goalId: "goal-session",
-        runId: "run-session",
-        phase: "planning",
-        eventType: "preparation_input_recorded",
-        payload: {
-            type: "preparation_input_recorded",
-            messageIndex: 0,
-            contentHash: computeContentHash("Restore structured Memory"),
-        },
-    }, 3, "preparation-input-tail");
-    const session = await WorkingMemorySession.restore(
-        structuredGoal(2, { eventId: "preparation-patch-2", sequence: 2 }),
-        { trajectoryStore: new MemoryTrajectoryStore([...committed, tail]) },
-    );
-    assert.deepEqual(session.preparationInputEvidence.map((item) => item.sequence), [1]);
-});
-
-test("Session applies execution scope to accepted Patches in the executing phase", async () => {
-    await assert.rejects(
-        rebuildWorkingMemory(
-            structuredGoal(2, { eventId: "preparation-patch-2", sequence: 2 }),
-            {
-                trajectoryStore: new MemoryTrajectoryStore(
-                    preparationEvents({ acceptedPhase: "executing" }),
-                ),
-            },
-        ),
-        (error: unknown) => error instanceof WorkingMemoryRecoveryError
-            && error.cause instanceof EvidenceGateError
-            && /preparation input provenance is not allowed in execution scope/.test(error.cause.message),
-    );
-});
-
-test("Session fails closed for invalid committed Preparation provenance", async () => {
-    const cases: readonly { readonly name: string; readonly goal: Goal; readonly events: TrajectoryEvent[]; readonly message: RegExp }[] = [
-        {
-            name: "missing message",
-            goal: structuredGoal(1),
-            events: [preparationEvents({ messageIndex: 9 })[0]!],
-            message: /messageIndex 9 is missing/,
-        },
-        {
-            name: "assistant message",
-            goal: {
-                ...structuredGoal(1),
-                state: {
-                    ...structuredGoal(1).state,
-                    messages: [{
-                        role: "assistant",
-                        assistant: { profileId: "session-profile" },
-                        content: "Restore structured Memory",
-                    }],
-                },
-            },
-            events: [preparationEvents()[0]!],
-            message: /is not a user message/,
-        },
-        {
-            name: "hash mismatch",
-            goal: structuredGoal(1),
-            events: [preparationEvents({ content: "other content" })[0]!],
-            message: /hash does not match/,
-        },
-    ];
-    for (const candidate of cases) {
-        await assert.rejects(
-            rebuildWorkingMemory(candidate.goal, {
-                trajectoryStore: new MemoryTrajectoryStore(candidate.events),
-            }),
-            (error: unknown) => error instanceof WorkingMemoryRecoveryError
-                && candidate.message.test(error.message),
-            candidate.name,
-        );
-    }
 });

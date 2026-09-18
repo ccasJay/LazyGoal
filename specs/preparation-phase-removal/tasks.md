@@ -28,7 +28,7 @@
   - 验证方式：待实现的 Tool Policy、Runner probe、Action 恢复和 step-count 测试，覆盖只读/写入/YOLO 三类路径。
   - _Requirements: [1.4](./requirements.md#req-1-4), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 5. 统一 Agent Prompt、Projector 与模型输出适配
+- [x] //TODO 5. 统一 Agent Prompt、Projector 与模型输出适配
 
   - 实现目标：删除 Preparation Prompt/Executor 和阶段类型，建立一个能区分“任务未批准/任务已批准”的统一 Step Prompt，接入 `ask_user`/`task_proposal` Contract、Memory Patch、Context Lookup 和 Provider Schema。
   - 成功判据：无 task 请求只暴露 `ask_user`、任务提案、lookup 和只读 Tool；有 task 请求允许普通执行决策；模型不能提交 Runtime ID、Step、Epoch 或旧 Preparation 输出；用户回答不能通过 Prompt 变成完成证据。

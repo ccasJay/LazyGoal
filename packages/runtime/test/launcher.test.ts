@@ -185,8 +185,7 @@ test("launch saves an initial gathering Goal before Coordinator.advance", async 
         },
         state: {
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
+                phase: "executing",
             },
             messages: [
                 { role: "user", content: "  Build a resumable workflow  " },
@@ -263,7 +262,6 @@ test("launch records the initial intent provenance before saving the Snapshot", 
 
     assert.deepEqual(sink.events.map((event) => event.eventType), [
         "goal_created",
-        "preparation_input_recorded",
         "state_committed",
     ]);
     assert.deepEqual(sink.events[0]?.payload, {
@@ -271,15 +269,10 @@ test("launch records the initial intent provenance before saving the Snapshot", 
         intent: "  Preserve the original intent  ",
     });
     assert.deepEqual(sink.events[1]?.payload, {
-        type: "preparation_input_recorded",
-        messageIndex: 0,
-        contentHash: computeContentHash("  Preserve the original intent  "),
-    });
-    assert.deepEqual(sink.events[2]?.payload, {
         type: "state_committed",
-        committedThroughSequence: 2,
+        committedThroughSequence: 1,
     });
-    assert.equal(store.savedGoals[0]?.state.run.committedThroughSequence, 2);
+    assert.equal(store.savedGoals[0]?.state.run.committedThroughSequence, 1);
     assert.deepEqual(events, [
         "save:goal-provenance",
         "advance:goal-provenance:run-provenance",
@@ -287,7 +280,7 @@ test("launch records the initial intent provenance before saving the Snapshot", 
 });
 
 test("launch stops before saving or advancing when initial provenance append fails", async () => {
-    const sink = new RecordingTrajectorySink("preparation_input_recorded");
+    const sink = new RecordingTrajectorySink("goal_created");
     const store = new RecordingGoalStore();
     const coordinator = new FakeCoordinator(unusedResult);
 
@@ -307,10 +300,10 @@ test("launch stops before saving or advancing when initial provenance append fai
             },
         ),
         (error: unknown) => error instanceof Error
-            && error.message.includes("failed to append preparation_input_recorded"),
+            && error.message.includes("failed to append goal_created"),
     );
 
-    assert.deepEqual(sink.events.map((event) => event.eventType), ["goal_created"]);
+    assert.deepEqual(sink.events.map((event) => event.eventType), []);
     assert.deepEqual(store.savedGoals, []);
     assert.deepEqual(coordinator.receivedRefs, []);
 });

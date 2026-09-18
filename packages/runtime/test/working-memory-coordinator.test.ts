@@ -173,139 +173,59 @@ function ref(goal: Goal): RunRef {
     return { goalId: goal.id, runId: goal.state.run.id };
 }
 
-test("Coordinator restores Memory once per preparation call and commits an optional Patch atomically", async () => {
-    const goal = structuredGoal("goal-memory-preparation", "run-memory-preparation", 1);
-    const trajectory = new MemoryTrajectoryStore([observation(goal.id, goal.state.run.id, 1)]);
-    const store = new InMemoryGoalStore();
-    await store.save(goal);
-
-    const findingPatch = {
-        protocolVersion: 1 as const,
-        operations: [{
-            type: "upsert_fact" as const,
-            fact: {
-                subject: "workspace",
-                predicate: "config_observed",
-                value: true,
-                stability: "stable" as const,
-                evidenceSequences: [1],
-            },
-        }],
-    };
-    const executor = new RecordingPreparationExecutor([
-        { kind: "context_ready", memoryPatch: findingPatch },
-        (input) => {
-            assert.equal(input.goal.state.workflow.phase, "planning");
-            assert.equal(input.workingMemory?.facts[0]?.predicate, "config_observed");
-            return {
-                kind: "task_proposal",
-                task: { objective: "执行任务", completionCriteria: [{ text: "完成" }] },
-                approvalRequest: "批准吗？",
-            };
-        },
-    ]);
-    const coordinator = new GoalCoordinator({
-        store,
-        trajectoryStore: trajectory,
-        preparationExecutor: executor,
-        scheduler: scheduler(),
-    });
-
-    const result = await coordinator.advance(ref(goal));
-    assert.equal(result.ok, true);
-    assert.equal(result.kind, "waiting");
-    assert.equal(executor.inputs.length, 2);
-    assert.equal(trajectory.events.filter((event) => event.eventType === "memory_patch_accepted").length, 1);
-    const persisted = await store.restore(goal.id);
-    assert.deepEqual(persisted?.state.run.memoryRevision, {
-        eventId: trajectory.events.find((event) => event.eventType === "memory_patch_accepted")?.eventId,
-        sequence: 3,
-    });
-});
-
-test("Coordinator does not create a placeholder Patch when model returns no Memory change", async () => {
-    const goal = structuredGoal("goal-memory-noop", "run-memory-noop");
-    const trajectory = new MemoryTrajectoryStore();
-    const store = new InMemoryGoalStore();
-    await store.save(goal);
-    const executor = new RecordingPreparationExecutor([{
-        kind: "question",
-        question: "需要更多信息",
-    }]);
-    const coordinator = new GoalCoordinator({
-        store,
-        trajectoryStore: trajectory,
-        preparationExecutor: executor,
-        scheduler: scheduler(),
-    });
-
-    const result = await coordinator.advance(ref(goal));
-    assert.equal(result.ok, true);
-    assert.equal(trajectory.events.some((event) => event.eventType === "memory_patch_accepted"), false);
-    assert.equal((await store.restore(goal.id))?.state.run.memoryRevision, undefined);
-});
-
-test("planning feedback commits lifecycle invalidation without promoting the proposal to Memory", async () => {
+test("task proposal feedback clears pending interaction and resumes execution", async () => {
     const goalId = "goal-memory-lifecycle";
     const runId = "run-memory-lifecycle";
-    const patchEvent = allocateImmutableEvent({
-        goalId,
-        runId,
-        phase: "planning",
-        eventType: "memory_patch_accepted",
-        payload: {
-            type: "memory_patch_accepted",
-            protocolVersion: 1,
-            producers: ["model"],
-            operations: [{
-                type: "upsert_plan_item",
-                planItem: {
-                    kind: "plan",
-                    id: "plan-old",
-                    originPhase: "planning",
-                    originSequence: 1,
-                    updatedAtSequence: 1,
-                    scope: "phase",
-                    status: "active",
-                    description: "旧方案",
-                    dependsOnFactIds: [],
-                    dependsOnPlanItemIds: [],
-                    completionEvidenceSequences: [],
-                },
-            }],
-        },
-    }, 1, "plan-patch");
-    const trajectory = new MemoryTrajectoryStore([patchEvent]);
     const base = structuredGoal(goalId, runId, 1);
     const waiting: Goal = {
         ...base,
         state: {
             ...base.state,
             workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal: { objective: "旧任务", completionCriteria: [] },
-                },
+                phase: "executing",
             },
             run: {
                 ...base.state.run,
-                memoryRevision: { eventId: patchEvent.eventId, sequence: 1 },
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    proposal: { objective: "旧任务", completionCriteria: [] },
+                    approvalRequest: "请批准",
+                },
             },
         },
     };
     const store = new InMemoryGoalStore();
     await store.save(waiting);
-    const executor = new RecordingPreparationExecutor([{
-        kind: "task_proposal",
-        task: { objective: "新任务", completionCriteria: [] },
-        approvalRequest: "批准新任务",
-    }]);
+    const trajectory = new MemoryTrajectoryStore();
+    let scheduled = false;
     const coordinator = new GoalCoordinator({
         store,
         trajectoryStore: trajectory,
-        preparationExecutor: executor,
-        scheduler: scheduler(),
+        scheduler: {
+            async schedule(runRef): Promise<RunnerResult> {
+                scheduled = true;
+                const current = await store.restore(runRef.goalId);
+                if (current) {
+                    await store.save({
+                        ...current,
+                        state: {
+                            ...current.state,
+                            run: {
+                                ...current.state.run,
+                                status: "waiting",
+                                pendingInteraction: {
+                                    kind: "task_approval",
+                                    proposal: { objective: "新任务方案", completionCriteria: [] },
+                                    approvalRequest: "新方案批准吗？",
+                                },
+                            },
+                        },
+                    });
+                }
+                return { ok: true, status: "waiting", reason: "task_approval" };
+            },
+        },
     });
 
     const result = await coordinator.resume({
@@ -313,158 +233,84 @@ test("planning feedback commits lifecycle invalidation without promoting the pro
         action: { kind: "message", content: "请换一个方案" },
     });
     assert.equal(result.ok, true);
-    assert.equal(result.kind, "waiting");
-    const lifecycleEvents = trajectory.events.filter((event) => event.eventType === "memory_patch_accepted");
-    assert.equal(lifecycleEvents.length, 2);
+    assert.equal(scheduled, true);
     const persisted = await store.restore(goalId);
     assert.ok(persisted);
-    const restored = await rebuildWorkingMemory(persisted, {
-        trajectoryStore: trajectory,
-    });
-    assert.deepEqual(restored.memory.plan, []);
-
-    const proposal = (await store.restore(goalId))?.state.workflow;
-    assert.ok(proposal);
-    assert.equal(proposal.phase, "planning");
+    assert.equal(persisted.state.workflow.phase, "executing");
+    assert.equal(persisted.state.workflow.task, undefined);
+    assert.equal(persisted.state.run.pendingInteraction?.kind, "task_approval");
+    assert.equal(persisted.state.messages.at(-1)?.content, "请换一个方案");
 });
 
-test("planning approval commits lifecycle invalidation before handing the approved task to Scheduler", async () => {
+test("task proposal approval promotes proposal to task and hands to Scheduler", async () => {
     const goalId = "goal-memory-approval";
     const runId = "run-memory-approval";
-    const patchEvent = allocateImmutableEvent({
-        goalId,
-        runId,
-        phase: "planning",
-        eventType: "memory_patch_accepted",
-        payload: {
-            type: "memory_patch_accepted",
-            protocolVersion: 1,
-            producers: ["model"],
-            operations: [{
-                type: "upsert_plan_item",
-                planItem: {
-                    kind: "plan",
-                    id: "plan-to-drop",
-                    originPhase: "planning",
-                    originSequence: 1,
-                    updatedAtSequence: 1,
-                    scope: "phase",
-                    status: "active",
-                    description: "未批准计划",
-                    dependsOnFactIds: [],
-                    dependsOnPlanItemIds: [],
-                    completionEvidenceSequences: [],
-                },
-            }],
-        },
-    }, 1, "approval-plan-patch");
-    const trajectory = new MemoryTrajectoryStore([patchEvent]);
     const base = structuredGoal(goalId, runId, 1);
     const waiting: Goal = {
         ...base,
         state: {
             ...base.state,
             workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal: { objective: "获批任务", completionCriteria: [] },
-                },
+                phase: "executing",
             },
             run: {
                 ...base.state.run,
-                memoryRevision: { eventId: patchEvent.eventId, sequence: 1 },
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    proposal: { objective: "获批任务", completionCriteria: [] },
+                    approvalRequest: "批准吗",
+                },
             },
         },
     };
     const store = new InMemoryGoalStore();
     await store.save(waiting);
+    const trajectory = new MemoryTrajectoryStore();
+    let scheduledWithGoal: Goal | undefined;
     const coordinator = new GoalCoordinator({
         store,
         trajectoryStore: trajectory,
-        preparationExecutor: new RecordingPreparationExecutor([]),
-        scheduler: scheduler({
-            ok: false,
-            error: { code: "ACTION_NOT_AUTHORIZED", message: "test stop" },
-        }),
+        scheduler: {
+            async schedule(runRef): Promise<RunnerResult> {
+                scheduledWithGoal = await store.restore(runRef.goalId);
+                if (scheduledWithGoal) {
+                    await store.save({
+                        ...scheduledWithGoal,
+                        state: {
+                            ...scheduledWithGoal.state,
+                            run: {
+                                ...scheduledWithGoal.state.run,
+                                status: "completed",
+                                stepCount: 1,
+                                lastStep: {
+                                    kind: "decision",
+                                    result: {
+                                        kind: "complete",
+                                        summary: "done",
+                                        completionEvidence: [],
+                                    },
+                                },
+                            },
+                        },
+                    });
+                }
+                return { ok: true, status: "completed" };
+            },
+        },
     });
 
     const result = await coordinator.resume({
         ref: ref(waiting),
-        action: { kind: "approve" },
+        action: { kind: "approve_task" },
     });
-    assert.equal(result.ok, false);
-    assert.equal(result.error.code, "ACTION_NOT_AUTHORIZED");
-    const persisted = await store.restore(goalId);
-    assert.equal(persisted?.state.workflow.phase, "executing");
-    const restored = await rebuildWorkingMemory(persisted!, { trajectoryStore: trajectory });
-    assert.deepEqual(restored.memory.plan, []);
-    assert.equal(
-        trajectory.events.filter((event) => event.eventType === "memory_patch_accepted").length,
-        2,
-    );
+    assert.equal(result.ok, true);
+    assert.ok(scheduledWithGoal);
+    assert.equal(scheduledWithGoal.state.workflow.phase, "executing");
+    assert.deepEqual(scheduledWithGoal.state.workflow.task, {
+        objective: "获批任务",
+        completionCriteria: [],
+    });
+    assert.equal(scheduledWithGoal.state.run.pendingInteraction, undefined);
 });
 
-test("structured Preparation fails closed before model call when Trajectory is unavailable", async () => {
-    const goal = structuredGoal("goal-memory-required", "run-memory-required");
-    const store = new InMemoryGoalStore();
-    await store.save(goal);
-    const persistedBefore = await store.restore(goal.id);
-    const executor = new RecordingPreparationExecutor([{ kind: "question", question: "不会调用" }]);
-    const coordinator = new GoalCoordinator({
-        store,
-        preparationExecutor: executor,
-        scheduler: scheduler(),
-    });
-
-    await assert.rejects(
-        coordinator.advance(ref(goal)),
-        (error: unknown) =>
-            error instanceof Error
-            && "code" in error
-            && error.code === "WORKING_MEMORY_TRAJECTORY_REQUIRED",
-    );
-    assert.equal(executor.inputs.length, 0);
-    assert.deepEqual(await store.restore(goal.id), persistedBefore);
-});
-
-test("Snapshot failure leaves accepted Patch in the tail and does not expose it to the next rebuild", async () => {
-    const goal = structuredGoal("goal-memory-save-failure", "run-memory-save-failure", 1);
-    const trajectory = new MemoryTrajectoryStore([observation(goal.id, goal.state.run.id, 1)]);
-    const store = new FailingSnapshotStore(new Error("snapshot failed"));
-    await store.save(goal);
-    const executor = new RecordingPreparationExecutor([{
-        kind: "question",
-        question: "继续",
-        memoryPatch: {
-            protocolVersion: 1,
-            operations: [{
-                type: "upsert_fact",
-                fact: {
-                    subject: "workspace",
-                    predicate: "orphan_fact",
-                    value: true,
-                    stability: "stable",
-                    evidenceSequences: [1],
-                },
-            }],
-        },
-    }]);
-    const coordinator = new GoalCoordinator({
-        store,
-        trajectoryStore: trajectory,
-        preparationExecutor: executor,
-        scheduler: scheduler(),
-    });
-
-    await assert.rejects(
-        coordinator.advance(ref(goal)),
-        /snapshot failed/,
-    );
-    assert.equal(trajectory.events.some((event) => event.eventType === "memory_patch_accepted"), true);
-    const persisted = await store.restore(goal.id);
-    assert.ok(persisted);
-    const rebuilt = await rebuildWorkingMemory(persisted, { trajectoryStore: trajectory });
-    assert.deepEqual(rebuilt.memory.facts, []);
-    assert.equal(persisted.state.run.memoryRevision, undefined);
-});

@@ -17,9 +17,6 @@ import type {
     GoalProgressResult,
     GoalStore,
     LaunchResult,
-    PreparationExecutionInput,
-    PreparationExecutor,
-    PreparationResult,
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
@@ -27,7 +24,7 @@ import type {
 const profile: AgentProfile = {
     id: "profile-1",
     systemPrompt: "You are a focused coding agent.",
-    instructions: ["Prepare, request approval, then execute continuously."],
+    instructions: ["Clarify with ask_user, propose task, then execute continuously."],
     toolIds: [],
 };
 
@@ -58,10 +55,22 @@ class WorkflowStore implements GoalStore {
     }
 }
 
-class WorkflowPreparationExecutor implements PreparationExecutor {
-    private readonly results: readonly PreparationResult[] = [
-        { kind: "question", question: "Which persistence backend should be used?" },
-        { kind: "context_ready" },
+class WorkflowStepExecutor implements StepExecutor {
+    private readonly decisions: readonly AgentDecision[] = [
+        {
+            kind: "ask_user",
+            questions: [
+                {
+                    header: "持久化后端",
+                    question: "Which persistence backend should be used?",
+                    options: [
+                        { label: "JSON" },
+                        { label: "SQLite" },
+                    ],
+                    multiSelect: false,
+                },
+            ],
+        },
         {
             kind: "task_proposal",
             task: {
@@ -70,26 +79,6 @@ class WorkflowPreparationExecutor implements PreparationExecutor {
             },
             approvalRequest: "Approve this implementation task?",
         },
-    ];
-    private callCount = 0;
-
-    constructor(private readonly events: string[]) {}
-
-    async execute({ goal }: PreparationExecutionInput): Promise<PreparationResult> {
-        this.events.push(`prepare:${goal.state.workflow.phase}`);
-        const result = this.results[this.callCount];
-        this.callCount += 1;
-
-        if (result === undefined) {
-            throw new Error("Unexpected PreparationExecutor call");
-        }
-
-        return result;
-    }
-}
-
-class WorkflowStepExecutor implements StepExecutor {
-    private readonly decisions: readonly AgentDecision[] = [
         {
             kind: "wait",
             reason: "Write permission required",
@@ -127,7 +116,7 @@ function requireSuccess(
     return result;
 }
 
-test("runs the complete preparation, approval, blocked resume, and execution flow", async () => {
+test("runs the complete plan-probe, ask_user, approval, blocked resume, and execution flow", async () => {
     const events: string[] = [];
     const store = new WorkflowStore(events);
     const runner = new Runner({
@@ -138,7 +127,6 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
-        preparationExecutor: new WorkflowPreparationExecutor(events),
         scheduler: new InlineScheduler(runner),
     });
     const ref = { goalId: "goal-e2e", runId: "run-e2e" };
@@ -158,36 +146,52 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
     ));
 
     assert.equal(launched.kind, "waiting");
-    assert.equal(launched.phase, "gathering_context");
-    assert.ok(
-        events.indexOf("save:gathering_context:created:0")
-        < events.indexOf("prepare:gathering_context"),
-    );
+    assert.equal(launched.phase, "executing");
+    assert.equal(launched.waitingFor, "ask_user");
+    assert.equal(launched.goal.state.run.stepCount, 0);
+    assert.equal(launched.goal.state.workflow.task, undefined);
+    assert.equal(launched.goal.state.run.pendingInteraction?.kind, "ask_user");
+
+    const askUserInteraction = launched.goal.state.run.pendingInteraction;
+    assert.equal(askUserInteraction.kind, "ask_user");
+    const question = askUserInteraction.questions[0]!;
+    const option = question.options[0]!;
 
     const proposed = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "message", content: "Use a JSON file" },
+        action: {
+            kind: "answer_ask_user",
+            requestId: askUserInteraction.requestId,
+            answers: [
+                {
+                    questionId: question.id,
+                    optionIds: [option.id],
+                },
+            ],
+        },
     }));
 
     assert.equal(proposed.kind, "waiting");
-    assert.equal(proposed.phase, "planning");
-    assert.equal(proposed.waitingFor, "approval");
+    assert.equal(proposed.phase, "executing");
+    assert.equal(proposed.waitingFor, "task_approval");
     assert.equal(proposed.goal.state.run.stepCount, 0);
+    assert.equal(proposed.goal.state.workflow.task, undefined);
+    assert.equal(proposed.goal.state.run.pendingInteraction?.kind, "task_approval");
 
     events.length = 0;
     const blocked = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "approve" },
+        action: { kind: "approve_task" },
     }));
 
     assert.equal(blocked.kind, "waiting");
     assert.equal(blocked.phase, "executing");
     assert.equal(blocked.waitingFor, "blocked");
-    assert.ok(
-        events.indexOf("save:executing:created:0")
-        < events.indexOf("step:0"),
-    );
     assert.equal(blocked.goal.state.run.stepCount, 1);
+    assert.deepEqual(blocked.goal.state.workflow.task, {
+        objective: "Implement JSON session persistence",
+        completionCriteria: [],
+    });
 
     events.length = 0;
     const completed = requireSuccess(await coordinator.resume({
@@ -199,38 +203,4 @@ test("runs the complete preparation, approval, blocked resume, and execution flo
     assert.equal(completed.phase, "executing");
     assert.equal(completed.goal.state.run.status, "completed");
     assert.equal(completed.goal.state.run.stepCount, 2);
-    assert.ok(
-        events.indexOf("save:executing:running:1")
-        < events.indexOf("step:1"),
-    );
-    assert.deepEqual(completed.goal.state.messages, [
-        { role: "user", content: "Build resumable persistence" },
-        {
-            role: "assistant",
-            assistant: { profileId: profile.id },
-            content: "Which persistence backend should be used?",
-        },
-        { role: "user", content: "Use a JSON file" },
-        {
-            role: "assistant",
-            assistant: { profileId: profile.id },
-            content: [
-                "Objective: Implement JSON session persistence",
-                "Completion criteria:",
-                "None",
-                "Approval request: Approve this implementation task?",
-            ].join("\n"),
-        },
-        {
-            role: "assistant",
-            assistant: { profileId: profile.id },
-            content: "Write permission required",
-        },
-        { role: "user", content: "Permission granted" },
-        {
-            role: "assistant",
-            assistant: { profileId: profile.id },
-            content: "Persistence implemented",
-        },
-    ]);
 });

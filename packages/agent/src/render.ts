@@ -6,9 +6,6 @@ import type {
     ModelWorkingContext,
     ModelContextLookupResult,
     ModelContextEpochView,
-    ModelPreparationInputEvidence,
-    ModelPreparationProbeResult,
-    VisibleConversationMessageMapEntry,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
 
@@ -31,8 +28,6 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @param contextEpoch - 可选的 Context Epoch 视图。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时完全省略。
- * @param lastProbeResult - 紧邻上一轮已提交的 Preparation Tool Observation。
- * @param probeLimitReached - 连续探查已达上限时的强制收敛标记。
  * @returns 只供本轮请求使用、绝不写入真实消息的 user 消息。
  */
 export function renderWorkingContextMessage(
@@ -42,8 +37,6 @@ export function renderWorkingContextMessage(
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
     responseShapeGuide?: string,
-    lastProbeResult?: ModelPreparationProbeResult,
-    probeLimitReached?: true,
 ): Extract<LLMMessage, { readonly role: "user" }> {
     return {
         role: "user",
@@ -53,10 +46,7 @@ export function renderWorkingContextMessage(
             trajectoryContext,
             contextLookupResult,
             contextEpoch,
-            undefined,
             responseShapeGuide,
-            lastProbeResult,
-            probeLimitReached,
         ), null, 2),
     };
 }
@@ -67,67 +57,32 @@ function createWorkingContextPayload(
     trajectoryContext?: ModelTrajectoryContext,
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
-    preparationMetadata?: {
-        readonly visibleConversationMessageMap: readonly VisibleConversationMessageMapEntry[];
-        readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
-    },
     responseShapeGuide?: string,
-    lastProbeResult?: ModelPreparationProbeResult,
-    probeLimitReached?: true,
 ): Record<string, unknown> {
-    if (context.phase === "executing") {
-        const payload: Record<string, unknown> = {
-            phase: "executing",
-            execution: context.execution,
-        };
+    const payload: Record<string, unknown> = {
+        phase: "executing",
+        execution: context.execution,
+    };
 
-        if (workingMemory !== undefined) {
-            payload.workingMemory = workingMemory;
-        }
-
-        if (trajectoryContext !== undefined) {
-            payload.trajectoryContext = {
-                hot: trajectoryContext.hot,
-                ...(trajectoryContext.warm.length > 0 ? { warm: trajectoryContext.warm } : {}),
-            };
-        }
-
-        if (contextLookupResult !== undefined) {
-            payload.contextLookupResult = contextLookupResult;
-        }
-
-        if (contextEpoch?.control.status === "checkpoint_required") {
-            payload.checkpointRequired = true;
-            payload.checkpointReason = contextEpoch.control.reason ?? "input_threshold";
-        }
-
-        if (responseShapeGuide !== undefined) {
-            payload.responseShapeGuide = responseShapeGuide;
-        }
-
-        return payload;
+    if (workingMemory !== undefined) {
+        payload.workingMemory = workingMemory;
     }
 
-    const payload: Record<string, unknown> = {
-        ...context,
-        ...(workingMemory === undefined ? {} : { workingMemory }),
-        ...(trajectoryContext === undefined ? {} : { trajectoryContext }),
-        ...(contextLookupResult === undefined ? {} : { contextLookupResult }),
-        ...(contextEpoch === undefined ? {} : {
-            contextEpoch,
-            ...(contextEpoch.control.status === "checkpoint_required" ? { checkpointRequired: true } : {}),
-        }),
-        ...(preparationMetadata === undefined
-            ? {}
-            : {
-                visibleConversationMessageMap: preparationMetadata.visibleConversationMessageMap,
-                ...(preparationMetadata.preparationInputEvidence === undefined
-                    ? {}
-                    : { preparationInputEvidence: preparationMetadata.preparationInputEvidence }),
-            }),
-        ...(lastProbeResult === undefined ? {} : { lastProbeResult }),
-        ...(probeLimitReached === undefined ? {} : { probeLimitReached }),
-    };
+    if (trajectoryContext !== undefined) {
+        payload.trajectoryContext = {
+            hot: trajectoryContext.hot,
+            ...(trajectoryContext.warm.length > 0 ? { warm: trajectoryContext.warm } : {}),
+        };
+    }
+
+    if (contextLookupResult !== undefined) {
+        payload.contextLookupResult = contextLookupResult;
+    }
+
+    if (contextEpoch?.control.status === "checkpoint_required") {
+        payload.checkpointRequired = true;
+        payload.checkpointReason = contextEpoch.control.reason ?? "input_threshold";
+    }
 
     if (responseShapeGuide !== undefined) {
         payload.responseShapeGuide = responseShapeGuide;
@@ -140,13 +95,6 @@ function renderViewWorkingContextMessage(
     view: ModelInferenceView,
     responseShapeGuide?: string,
 ): Extract<LLMMessage, { readonly role: "user" }> {
-    const preparationMetadata = view.workingContext.phase === "executing"
-        ? undefined
-        : createPreparationRenderMetadata(
-            view.conversation,
-            view.preparationInputEvidence,
-        );
-
     return {
         role: "user",
         content: JSON.stringify(createWorkingContextPayload(
@@ -155,43 +103,8 @@ function renderViewWorkingContextMessage(
             view.trajectoryContext,
             view.contextLookupResult,
             view.contextEpoch,
-            preparationMetadata,
             responseShapeGuide,
-            view.lastProbeResult,
-            view.probeLimitReached,
         ), null, 2),
-    };
-}
-
-function createPreparationRenderMetadata(
-    conversation: ModelInferenceView["conversation"],
-    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
-): {
-    readonly visibleConversationMessageMap: readonly VisibleConversationMessageMapEntry[];
-    readonly preparationInputEvidence?: readonly ModelPreparationInputEvidence[];
-} {
-    const visibleConversationMessageMap = conversation.map(
-        (message, visibleIndex) => ({
-            visibleIndex,
-            sourceMessageIndex: message.sourceMessageIndex,
-        }),
-    );
-    if (preparationInputEvidence === undefined) {
-        return { visibleConversationMessageMap };
-    }
-
-    const visibleSourceMessageIndexes = new Set(
-        visibleConversationMessageMap.map(({ sourceMessageIndex }) => sourceMessageIndex),
-    );
-    return {
-        visibleConversationMessageMap,
-        preparationInputEvidence: preparationInputEvidence
-            .filter((evidence) => visibleSourceMessageIndexes.has(evidence.messageIndex))
-            .map((evidence) => ({
-                sequence: evidence.sequence,
-                messageIndex: evidence.messageIndex,
-                contentHash: evidence.contentHash,
-            })),
     };
 }
 
@@ -199,36 +112,20 @@ function createPreparationRenderMetadata(
  * 将完整 View 渲染为一轮 LLM 请求。
  *
  * @remarks
- * 使用注入的 `PromptBundleRenderer` 依据 `view.prompt` 中的冻结 Bundle 版本与当前
- * Phase 生成唯一一条 system 消息；随后按原样追加真实 Conversation，最后追加 JSON
- * Working Context 控制消息。Conversation、Working Context 与分层 Trajectory
- * Context 中的任何 Nunjucks 语法都保持原始文本，不会被再次执行。
+ * 使用注入的 `PromptBundleRenderer` 依据 `view.prompt` 中的冻结 Bundle 版本生成唯一一条 system 消息；
+ * 随后按原样追加真实 Conversation，最后追加 JSON Working Context 控制消息。
  *
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时省略。
  * @returns 按 system → 真实会话 → Working Context 顺序组装的消息列表。
- * @throws 渲染失败（未知 Bundle 版本、缺失变量、模板错误等）时抛出，
- *   保证发生在 LLM Adapter 调用之前。
+ * @throws 渲染失败时抛出。
  */
 export function renderRequest(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     responseShapeGuide?: string,
 ): LLMRequest {
-    if (
-        view.workingContext.phase === "executing"
-        && (
-            view.preparationInputEvidence !== undefined
-            || view.lastProbeResult !== undefined
-            || view.probeLimitReached !== undefined
-        )
-    ) {
-        throw new Error(
-            "Executing request must not receive Preparation-only inputs",
-        );
-    }
-
     return {
         messages: [
             {

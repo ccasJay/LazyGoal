@@ -1,7 +1,6 @@
 import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
-import type { PreparationProbeResult } from "../../runtime/src/preparation-executor";
 import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
@@ -11,7 +10,6 @@ import {
 import type {
     ModelConversationMessage,
     ModelInferenceView,
-    ModelPreparationInputEvidence,
 } from "./model-inference-view";
 import { ModelInferenceProjector } from "./model-inference-projector";
 import type { PromptBundleRenderer } from "./prompting/types";
@@ -30,19 +28,16 @@ import type {
     AgentDecision,
     AuthorizedToolContract,
     ModelOutputContractBundle,
-    PreparationResult,
     SystemToolDeclaration,
 } from "../../contracts/src/index";
 import {
     createCheckpointToolDeclarations,
     createExecutingToolDeclarations,
-    createGatheringToolDeclarations,
-    createPlanningToolDeclarations,
+    createUnifiedToolDeclarations,
     createModelOutputContractBundle,
 } from "../../contracts/src/index";
 
 export type { ModelInferenceView } from "./model-inference-view";
-export type { PreparationPhase } from "./model-inference-view";
 export type { StructuredOutputMode } from "../../llm/src/core/types";
 
 /**
@@ -50,7 +45,7 @@ export type { StructuredOutputMode } from "../../llm/src/core/types";
  *
  * @remarks
  * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputContractBundle}，
- * 确保阶段分支、已授权工具以及 Context Checkpoint 在请求与解析两端保持绝对一致。
+ * 确保已授权工具以及 Context Checkpoint 在请求与解析两端保持绝对一致。
  *
  * @example
  * ```ts
@@ -59,7 +54,7 @@ export type { StructuredOutputMode } from "../../llm/src/core/types";
  * const decision = parseModelOutput(response.content, plan.bundle);
  * ```
  */
-export interface ModelOutputRequestPlan<Result = PreparationResult | AgentDecision> {
+export interface ModelOutputRequestPlan<Result = AgentDecision> {
     /** 渲染完成且计入预算的单轮 LLM 请求。 */
     readonly request: LLMRequest;
     /** 专门用于解析该响应的契约包。 */
@@ -73,9 +68,6 @@ function project(
     tools: readonly ToolDefinition[] = [],
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
-    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
-    lastProbeResult?: PreparationProbeResult,
-    probeLimitReached?: true,
 ): ModelInferenceView {
     return new ModelInferenceProjector().project(
         goal,
@@ -83,9 +75,6 @@ function project(
         workingMemory,
         undefined,
         contextLookupResult,
-        preparationInputEvidence,
-        lastProbeResult,
-        probeLimitReached,
     );
 }
 
@@ -217,113 +206,25 @@ export async function buildStepRequest(
     );
 
     const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
+    const taskPresent = !isInitialCheckpoint && goal.state.workflow.task !== undefined;
+    const effectiveTools = taskPresent ? tools : tools.filter(isReadOnlyTool);
+    const authorizedToolContracts = effectiveTools.map((t) => ({
+        id: t.id,
+        inputContract: t.inputContract,
+        isReadOnly: t.isReadOnly,
+    }));
+
     const initialBundle = isInitialCheckpoint
         ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<AgentDecision>)
         : (createModelOutputContractBundle({
             kind: "executing",
-            authorizedTools: tools.map((t) => ({ id: t.id, inputContract: t.inputContract })),
+            authorizedTools: authorizedToolContracts,
+            taskPresent,
         }) as unknown as ModelOutputContractBundle<AgentDecision>);
 
     const toolDeclarations = isInitialCheckpoint
         ? createCheckpointToolDeclarations()
-        : createExecutingToolDeclarations(tools);
-
-    return renderFinalRequest(
-        assembled,
-        renderer,
-        initialBundle,
-        toolDeclarations,
-        modelCapabilities,
-        structuredOutputMode,
-    );
-}
-
-/**
- * 构造 active Preparation Goal 的单轮 LLM 请求。
- *
- * @remarks
- * 生成的 Working Context 是最后一条 user 控制消息，只存在于当前请求，
- * 不会写入 Goal.messages。
- *
- * @param goal - active `gathering_context` 或 `planning` Goal。
- * @param tools - Runtime 已解析的授权 Tool 描述；当前 planning 阶段会投影，
- *   gathering_context 始终忽略该输入。
- * @param renderer - 与 Executor 共享的 Prompt Bundle Renderer。
- * @param contextCompactor - 与执行阶段共享的异步 Conversation 裁剪策略。
- * @param signal - 可选的调用级中止信号，原样传给 Compactor。
- * @param workingMemory - structured@1 的即时 Working Memory。
- * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
- * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
- * @param modelCapabilities - 模型能力配置。
- * @param preparationInputEvidence - 已提交 Preparation 用户输入的 hash-only provenance；
- *   只在 Preparation 请求中传递。
- * @param structuredOutputMode - 结构化输出模式。
- * @param lastProbeResult - 紧邻上一轮已提交只读探查的结果。
- * @param probeLimitReached - 当前连续探查是否已达到上限。
- * @returns 保持真实消息顺序并附带当前阶段控制消息的请求计划。
- * @throws Goal 不处于 active Preparation 阶段时抛出；渲染失败同样在调用前抛出。
- */
-export async function buildPreparationRequest(
-    goal: Goal,
-    tools: readonly ToolDefinition[],
-    renderer: PromptBundleRenderer,
-    contextCompactor: ContextCompactor<ModelConversationMessage>,
-    signal?: AbortSignal,
-    workingMemory?: WorkingMemory,
-    trajectoryContextAssembler?: TrajectoryModelContextAssembler,
-    contextLookupResult?: ContextLookupResult,
-    modelCapabilities?: ModelCapabilities,
-    preparationInputEvidence?: readonly ModelPreparationInputEvidence[],
-    structuredOutputMode: StructuredOutputMode = "strict",
-    lastProbeResult?: PreparationProbeResult,
-    probeLimitReached?: true,
-): Promise<ModelOutputRequestPlan<PreparationResult>> {
-    const readOnlyTools = probeLimitReached === true
-        ? []
-        : tools.filter((tool) => isReadOnlyTool(tool));
-    const projected = project(
-        goal,
-        readOnlyTools,
-        workingMemory,
-        contextLookupResult,
-        preparationInputEvidence,
-        lastProbeResult,
-        probeLimitReached,
-    );
-
-    if (projected.workingContext.phase === "executing") {
-        throw new Error("Preparation request requires an active preparation Goal");
-    }
-
-    const view = modelCapabilities === undefined
-        ? await compactConversation(projected, contextCompactor, signal)
-        : projected;
-
-    const assembled = await assembleTrajectoryContext(
-        goal,
-        view,
-        renderer,
-        signal,
-        trajectoryContextAssembler,
-    );
-
-    const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
-    const initialBundle = isInitialCheckpoint
-        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<PreparationResult>)
-        : (createModelOutputContractBundle({
-            kind: goal.state.workflow.phase === "gathering_context" ? "gathering" : "planning",
-            authorizedTools: readOnlyTools.map((tool) => ({
-                id: tool.id,
-                inputContract: tool.inputContract,
-                isReadOnly: true,
-            })),
-        }) as unknown as ModelOutputContractBundle<PreparationResult>);
-
-    const toolDeclarations = isInitialCheckpoint
-        ? createCheckpointToolDeclarations()
-        : goal.state.workflow.phase === "gathering_context"
-        ? createGatheringToolDeclarations(readOnlyTools)
-        : createPlanningToolDeclarations(readOnlyTools);
+        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent);
 
     return renderFinalRequest(
         assembled,
@@ -336,7 +237,7 @@ export async function buildPreparationRequest(
 }
 
 /** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
-function renderFinalRequest<Result extends PreparationResult | AgentDecision>(
+function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     initialBundle: ModelOutputContractBundle<Result>,
