@@ -52,7 +52,6 @@ function executingGoal(id = "goal-executing"): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Inspect the repository",
                     completionCriteria: [{ text: "Report the repository structure" }],
@@ -785,3 +784,135 @@ test("SessionScreen smoothly moves committed blocks into timeline without duplic
     assert.match(frame, /Second paragraph/);
 });
 
+test("SessionScreen renders AskUserPanel when waitingFor is ask_user and handles answer submission", async () => {
+    let answeredRequestId: string | undefined;
+    let submittedAnswers: readonly any[] | undefined;
+
+    const goal = executingGoal();
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                waitingFor: "ask_user",
+                askUser: {
+                    requestId: "ask-test-1",
+                    mode: "plan",
+                    questions: [
+                        {
+                            id: "q-1",
+                            header: "Select Framework",
+                            question: "Which web framework?",
+                            options: [
+                                { id: "opt-1", label: "Fastify" },
+                                { id: "opt-2", label: "Express" },
+                            ],
+                            multiSelect: false,
+                        },
+                    ],
+                },
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+            onAnswerAskUser={(reqId, answers) => {
+                answeredRequestId = reqId;
+                submittedAnswers = answers;
+            }}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /\[PLANNING\]/);
+    assert.match(frame, /Select Framework/);
+    assert.match(frame, /Fastify/);
+
+    // 回车直接选中 Fastify 并提交
+    instance.stdin.write("\r");
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.equal(answeredRequestId, "ask-test-1");
+    assert.ok(submittedAnswers !== undefined);
+    assert.deepEqual(submittedAnswers, [
+        {
+            questionId: "q-1",
+            optionIds: ["opt-1"],
+        },
+    ]);
+});
+
+test("SessionScreen renders TaskProposalPanel when waitingFor is task_approval and handles approval and feedback", async () => {
+    let approvedRequestId: string | undefined;
+    let feedbackResult: { requestId: string | undefined; feedback: string } | undefined;
+
+    const goal = executingGoal();
+    const proposalData = {
+        objective: "Build authentication module",
+        completionCriteria: [{ text: "JWT token validation passes" }],
+    };
+
+    // 1. 批准分支
+    const instance = render(
+        <SessionScreen
+            session={session(goal, {
+                waitingFor: "task_approval",
+                proposal: proposalData,
+                proposalRequestId: "prop-1",
+                approvalRequest: "Please approve the task plan",
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+            onApproveTask={(reqId) => {
+                approvedRequestId = reqId;
+            }}
+            onFeedbackTask={(reqId, feedback) => {
+                feedbackResult = { requestId: reqId, feedback };
+            }}
+        />,
+    );
+
+    let frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Task proposal/);
+    assert.match(frame, /Please approve the task plan/);
+    assert.match(frame, /Build authentication module/);
+    assert.match(frame, /JWT token validation passes/);
+
+    // 敲击 Y 批准
+    instance.stdin.write("y");
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(approvedRequestId, "prop-1");
+
+    // 2. 反馈分支
+    const instance2 = render(
+        <SessionScreen
+            session={session(goal, {
+                waitingFor: "task_approval",
+                proposal: proposalData,
+                proposalRequestId: "prop-2",
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+            onApproveTask={() => undefined}
+            onFeedbackTask={(reqId, feedback) => {
+                feedbackResult = { requestId: reqId, feedback };
+            }}
+        />,
+    );
+
+    // 敲击 N 进入反馈
+    instance2.stdin.write("n");
+    await new Promise((r) => setTimeout(r, 50));
+
+    frame = instance2.lastFrame() ?? "";
+    assert.match(frame, /Describe the changes you want:/);
+
+    // 输入反馈内容并回车
+    instance2.stdin.write("Please also add OAuth support");
+    await new Promise((r) => setTimeout(r, 50));
+    instance2.stdin.write("\r");
+    await new Promise((r) => setTimeout(r, 50));
+
+    assert.ok(feedbackResult !== undefined);
+    assert.equal(feedbackResult.requestId, "prop-2");
+    assert.equal(feedbackResult.feedback, "Please also add OAuth support");
+});

@@ -20,7 +20,6 @@ import {
     InMemoryToolRegistry,
     type AgentProfile,
     type ToolPolicy,
-    type PreparationExecutor,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures.js";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
@@ -428,16 +427,6 @@ test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profil
             usage: { inputTokens: 0, outputTokens: 0 },
         }),
     } as unknown as LLMAdapter;
-    const customExecutor: PreparationExecutor = {
-        prepare: async () => ({
-            ok: true,
-            proposal: {
-                intent: "test",
-                objective: "test",
-                completionCriteria: ["done"],
-            },
-        }),
-    } as unknown as PreparationExecutor;
 
     const root = await createCompositionRoot({
         cwd: workspace,
@@ -446,7 +435,6 @@ test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profil
         profile: customProfile,
         toolRegistry: customRegistry,
         toolPolicy: customPolicy,
-        preparationExecutor: customExecutor,
     });
 
     assert.equal(root.profile.id, "custom-sandbox");
@@ -454,7 +442,6 @@ test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profil
     assert.equal(root.toolRegistry.get(READ_FILE_TOOL_ID)?.definition.id, READ_FILE_TOOL_ID);
     assert.equal(root.toolRegistry.get("write_file"), undefined); // 宿主工具未混入
     assert.equal(root.toolPolicy, customPolicy);
-    assert.equal(root.preparationExecutor, customExecutor);
     assert.equal(root.adapter, customAdapter);
     // 验证未创建默认 profile
     await assert.rejects(access(join(workspace, ".lazygoal", "profiles", "default.json")));

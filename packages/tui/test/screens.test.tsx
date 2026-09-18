@@ -16,10 +16,8 @@ import {
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     IntentScreen,
-    PreparationScreen,
     SessionController,
     TuiApp,
-    type PreparationScreenProps,
     type SessionControllerDependencies,
     type SessionCoordinator,
     type SessionLauncher,
@@ -55,8 +53,25 @@ function questionGoal(id = "goal-question"): Goal {
         state: {
             ...goal.state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
+            },
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [
+                        {
+                            id: "q1",
+                            header: "数据库",
+                            question: "Which database should be used?",
+                            options: [{ id: "opt1", label: "SQLite" }, { id: "opt2", label: "PostgreSQL" }],
+                            multiSelect: false,
+                        },
+                    ],
+                },
             },
             messages: [
                 ...goal.state.messages,
@@ -70,96 +85,12 @@ function questionGoal(id = "goal-question"): Goal {
     };
 }
 
-function proposalGoal(id = "goal-proposal"): Goal {
-    const goal = createGoalSnapshot(id);
-    return {
-        ...goal,
-        state: {
-            ...goal.state,
-            workflow: {
-                phase: "planning",
-                preparation: {
-                    status: "waiting_approval",
-                    proposal: {
-                        objective: "Implement persistence",
-                        completionCriteria: [{ text: "Snapshots can be restored" }],
-                    },
-                },
-            },
-        },
-    };
-}
-
-function stalledGoal(id = "goal-stalled"): Goal {
-    const goal = createGoalSnapshot(id);
-    return {
-        ...goal,
-        state: {
-            ...goal.state,
-            workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
-            },
-        },
-    };
-}
-
-function stalledSession(
-    goal = stalledGoal(),
-    overrides: Partial<UiSessionViewModel> = {},
-): UiSessionViewModel {
-    return {
-        screen: "session",
-        busy: false,
-        goal,
-        phase: "gathering_context",
-        runStatus: goal.state.run.status,
-        stepCount: goal.state.run.stepCount,
-        messages: goal.state.messages,
-        preparationStalled: true,
-        ...overrides,
-    };
-}
-
-function questionSession(goal = questionGoal()): UiSessionViewModel {
-    return {
-        screen: "session",
-        busy: false,
-        goal,
-        phase: "gathering_context",
-        runStatus: goal.state.run.status,
-        stepCount: goal.state.run.stepCount,
-        messages: goal.state.messages,
-        waitingFor: "question",
-        question: "Which database should be used?",
-    };
-}
-
-function proposalSession(goal = proposalGoal()): UiSessionViewModel {
-    const proposal = goal.state.workflow.phase === "planning"
-        && goal.state.workflow.preparation.status === "waiting_approval"
-        ? goal.state.workflow.preparation.proposal
-        : undefined;
-
-    return {
-        screen: "session",
-        busy: false,
-        goal,
-        phase: "planning",
-        runStatus: goal.state.run.status,
-        stepCount: goal.state.run.stepCount,
-        messages: goal.state.messages,
-        waitingFor: "approval",
-        ...(proposal === undefined ? {} : { proposal }),
-    };
-}
-
 function waitingResult(goal: Goal): GoalProgressResult {
     return {
         ok: true,
         kind: "waiting",
-        phase: "gathering_context",
-        waitingFor: "question",
+        phase: "executing",
+        waitingFor: "ask_user",
         goal,
     };
 }
@@ -316,195 +247,6 @@ test("IntentScreen disables input and shows progress while busy", async () => {
     assert.deepEqual(submitted, []);
 });
 
-test("PreparationScreen displays an Agent question and submits a message", async () => {
-    const submitted: string[] = [];
-    const props: PreparationScreenProps = {
-        session: questionSession(),
-        onSubmitMessage: (content) => {
-            submitted.push(content);
-        },
-        onApproveTask: () => undefined,
-        onRetry: () => undefined,
-    };
-    const instance = render(<PreparationScreen {...props} />);
-
-    assert.match(instance.lastFrame() ?? "", /Agent question/);
-    assert.match(instance.lastFrame() ?? "", /Which database should be used/);
-    instance.stdin.write("Use SQLite");
-    await waitForFrame(instance, /Use SQLite/);
-    instance.stdin.write("\r");
-    await nextFrame();
-
-    assert.deepEqual(submitted, ["Use SQLite"]);
-    assert.match(instance.lastFrame() ?? "", /Type your answer/);
-});
-
-test("PreparationScreen shows phase-specific progress and business error format", () => {
-    const gathering = render(
-        <PreparationScreen
-            session={{
-                ...questionSession(),
-                busy: true,
-                error: { code: "PREPARATION_FAILED", message: "Context lookup failed" },
-            }}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => undefined}
-        />,
-    );
-    assert.match(gathering.lastFrame() ?? "", /Gathering context/);
-    assert.match(gathering.lastFrame() ?? "", /Error \[PREPARATION_FAILED\]: Context lookup failed/);
-
-    const planning = render(
-        <PreparationScreen
-            session={{ ...proposalSession(), busy: true }}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => undefined}
-        />,
-    );
-    assert.match(planning.lastFrame() ?? "", /Planning/);
-});
-
-test("PreparationScreen rejects blank question answers", async () => {
-    const submitted: string[] = [];
-    const instance = render(
-        <PreparationScreen
-            session={questionSession()}
-            onSubmitMessage={(content) => {
-                submitted.push(content);
-            }}
-            onApproveTask={() => undefined}
-            onRetry={() => undefined}
-        />,
-    );
-
-    instance.stdin.write("\r");
-    await waitForFrame(instance, /Error: Message must not be empty/);
-
-    assert.deepEqual(submitted, []);
-});
-
-test("PreparationScreen supports proposal approval and non-empty feedback", async () => {
-    const submitted: string[] = [];
-    let approved = 0;
-    const instance = render(
-        <PreparationScreen
-            session={proposalSession()}
-            onSubmitMessage={(content) => {
-                submitted.push(content);
-            }}
-            onApproveTask={() => {
-                approved += 1;
-            }}
-            onRetry={() => undefined}
-        />,
-    );
-
-    assert.match(instance.lastFrame() ?? "", /Task proposal/);
-    assert.match(instance.lastFrame() ?? "", /Implement persistence/);
-    instance.stdin.write("\r");
-    await nextFrame();
-    assert.equal(approved, 0);
-    instance.stdin.write("y");
-    await nextFrame();
-    assert.equal(approved, 1);
-
-    const feedbackInstance = render(
-        <PreparationScreen
-            session={proposalSession(proposalGoal("goal-feedback"))}
-            onSubmitMessage={(content) => {
-                submitted.push(content);
-            }}
-            onApproveTask={() => {
-                approved += 1;
-            }}
-            onRetry={() => undefined}
-        />,
-    );
-    feedbackInstance.stdin.write("n");
-    await waitForFrame(feedbackInstance, /Describe the changes/);
-    feedbackInstance.stdin.write("Add a migration test");
-    await waitForFrame(feedbackInstance, /Add a migration test/);
-    feedbackInstance.stdin.write("\r");
-    await nextFrame();
-
-    assert.deepEqual(submitted, ["Add a migration test"]);
-    assert.match(feedbackInstance.lastFrame() ?? "", /Provide non-empty feedback/);
-    assert.equal(approved, 1);
-});
-
-test("PreparationScreen offers a retry entry point when preparation is stalled", async () => {
-    let retried = 0;
-    const instance = render(
-        <PreparationScreen
-            session={stalledSession()}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => {
-                retried += 1;
-            }}
-        />,
-    );
-
-    assert.match(instance.lastFrame() ?? "", /Preparation was interrupted/);
-    assert.match(instance.lastFrame() ?? "", /Press Y to retry/);
-    instance.stdin.write("y");
-    await nextFrame();
-
-    assert.equal(retried, 1);
-});
-
-test("PreparationScreen ignores other keys in the stalled panel", async () => {
-    let retried = 0;
-    const idle = render(
-        <PreparationScreen
-            session={stalledSession()}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => {
-                retried += 1;
-            }}
-        />,
-    );
-    idle.stdin.write("n");
-    await nextFrame();
-
-    assert.equal(retried, 0);
-});
-
-test("PreparationScreen hides the stalled panel while a retry is in flight", async () => {
-    let retried = 0;
-    const busy = render(
-        <PreparationScreen
-            session={stalledSession(stalledGoal("goal-stalled-busy"), { busy: true })}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => {
-                retried += 1;
-            }}
-        />,
-    );
-    busy.stdin.write("y");
-    await nextFrame();
-
-    assert.doesNotMatch(busy.lastFrame() ?? "", /Press Y to retry/);
-    assert.equal(retried, 0);
-});
-
-test("PreparationScreen hides the stalled panel for waiting states", () => {
-    const instance = render(
-        <PreparationScreen
-            session={questionSession()}
-            onSubmitMessage={() => undefined}
-            onApproveTask={() => undefined}
-            onRetry={() => undefined}
-        />,
-    );
-
-    assert.doesNotMatch(instance.lastFrame() ?? "", /Preparation was interrupted/);
-});
-
 test("TuiApp subscribes to Controller and moves from intent to question", async () => {
     const goal = questionGoal("goal-app");
     const { controller, launcherRequests } = controllerForApp(goal);
@@ -514,7 +256,7 @@ test("TuiApp subscribes to Controller and moves from intent to question", async 
     instance.stdin.write("Start a session");
     await waitForFrame(instance, /Start a session/);
     instance.stdin.write("\r");
-    await waitForFrame(instance, /Agent question/);
+    await waitForFrame(instance, /\[PLANNING\] Question 1 of 1/);
     await waitForFrame(instance, /Which database should be used/);
 
     assert.deepEqual(launcherRequests, [{

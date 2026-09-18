@@ -36,7 +36,7 @@ export interface ProjectTrajectoryOptions {
  * 将底层 Trajectory 事件流投影为供 TUI Inspector 复盘浏览的结构化单步视图模型。
  *
  * @remarks
- * - 将前置生命周期与上下文探索事件独立归入 Step 1: Preparation & Planning；
+ * - 将 Goal 生命周期与上下文探索事件归入统一的初始化步骤；
  * - 针对执行期事件，严格以 `executionUnitId` 划分单步，提取 Decision、Action、Tool、Observation 与 Result；
  * - 终态事件归入尾部步骤的 Result 区块；
  * - 若存在 `uncommittedTail`，在最终步骤附加醒目的未提交警告；
@@ -63,9 +63,9 @@ export function projectTrajectoryEvents(
             {
                 index: 0,
                 totalSteps: 1,
-                title: "Step 1: Preparation & Planning",
-                phase: "gathering_context",
-                preparationDetails: ["No trajectory events recorded."],
+                title: "Step 1: Goal Initialized",
+                phase: "executing",
+                lifecycleDetails: ["No trajectory events recorded."],
                 rawJson: JSON.stringify(
                     {
                         goalId,
@@ -79,7 +79,7 @@ export function projectTrajectoryEvents(
         ];
     }
 
-    const preparationEvents: TrajectoryEvent[] = [];
+    const lifecycleEvents: TrajectoryEvent[] = [];
     const executionUnitMap = new Map<string, TrajectoryEvent[]>();
     const executionUnitOrder: string[] = [];
     const terminalEvents: TrajectoryEvent[] = [];
@@ -101,66 +101,70 @@ export function projectTrajectoryEvents(
         ) {
             terminalEvents.push(event);
         } else {
-            preparationEvents.push(event);
+            lifecycleEvents.push(event);
         }
     }
 
     const steps: UiInspectorStep[] = [];
 
-    // 1. 构建 Step 1: Preparation & Planning
-    const prepDetails: string[] = [];
+    // 1. 构建 Step 1: Goal Initialized
+    const initDetails: string[] = [];
     let initialIntent = options.goal?.definition.intent;
-    let preparationReasoning: string | undefined;
+    let initialReasoning: string | undefined;
 
-    for (const event of preparationEvents) {
+    for (const event of lifecycleEvents) {
         if (event.payload.type === "goal_created") {
             initialIntent = initialIntent ?? event.payload.intent;
-            prepDetails.push("Goal created: " + event.payload.intent);
+            initDetails.push("Goal created: " + event.payload.intent);
         } else if (event.payload.type === "run_started") {
-            prepDetails.push("Run started");
+            initDetails.push("Run started");
         } else if (event.payload.type === "run_resumed") {
-            prepDetails.push("Run resumed");
-        } else if (event.payload.type === "preparation_result") {
-            prepDetails.push("Preparation result: " + event.payload.result);
-            if (event.payload.thought !== undefined) {
-                preparationReasoning = event.payload.thought;
-            }
+            initDetails.push("Run resumed");
+        } else if (event.payload.type === "task_approved") {
+            initDetails.push("Task proposal approved");
+        } else if (event.payload.type === "ask_user_answered") {
+            initDetails.push("Ask user answered");
         } else if (event.payload.type === "decision_received") {
-            prepDetails.push("Decision: " + event.payload.decision.kind);
+            initDetails.push("Decision: " + event.payload.decision.kind);
+            if (event.payload.decision.kind === "task_proposal") {
+                initDetails.push("Task proposal: " + event.payload.decision.task.objective);
+            } else if (event.payload.decision.kind === "ask_user") {
+                initDetails.push("Ask user requested: " + event.payload.decision.questions.length + " questions");
+            }
             if (event.payload.thought !== undefined) {
-                preparationReasoning = event.payload.thought;
+                initialReasoning = event.payload.thought;
             }
         } else if (event.payload.type === "context_lookup_requested") {
-            prepDetails.push("Context lookup requested: " + event.payload.lookupId);
+            initDetails.push("Context lookup requested: " + event.payload.lookupId);
         } else if (event.payload.type === "context_lookup_completed") {
-            prepDetails.push("Context lookup completed (" + event.payload.lookupId + ")");
+            initDetails.push("Context lookup completed (" + event.payload.lookupId + ")");
         } else if (event.payload.type === "context_epoch_advanced") {
-            prepDetails.push("Context epoch advanced (reason: " + event.payload.reason + ")");
+            initDetails.push("Context epoch advanced (reason: " + event.payload.reason + ")");
         }
     }
 
-    if (initialIntent !== undefined && prepDetails.length === 0) {
-        prepDetails.push("Intent: " + initialIntent);
+    if (initialIntent !== undefined && initDetails.length === 0) {
+        initDetails.push("Intent: " + initialIntent);
     }
 
-    const preparationStep: UiInspectorStep = {
+    const initStep: UiInspectorStep = {
         index: 0,
         totalSteps: 1, // 后续统一回填
-        title: "Step 1: Preparation & Planning",
-        phase: "planning",
-        preparationDetails: prepDetails.length > 0 ? prepDetails : ["Initialized"],
-        ...(preparationReasoning !== undefined ? { reasoning: preparationReasoning } : {}),
+        title: "Step 1: Goal Initialized",
+        phase: "executing",
+        lifecycleDetails: initDetails.length > 0 ? initDetails : ["Initialized"],
+        ...(initialReasoning !== undefined ? { reasoning: initialReasoning } : {}),
         rawJson: JSON.stringify(
             {
-                step: "Preparation",
+                step: "Initialized",
                 goalId,
-                events: preparationEvents,
+                events: lifecycleEvents,
             },
             null,
             2,
         ),
     };
-    steps.push(preparationStep);
+    steps.push(initStep);
 
     // 2. 构建 Execution Steps
     for (let i = 0; i < executionUnitOrder.length; i++) {

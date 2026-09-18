@@ -19,7 +19,7 @@ function entry(
         goalId,
         runId: `run-${goalId}`,
         intent,
-        workflowPhase: "planning",
+        workflowPhase: "executing",
         runStatus: "waiting",
         updatedAt,
     };
@@ -75,7 +75,7 @@ test("GoalSelectScreen preserves Catalog order and renders every summary field",
     assert.match(frame, /goal-new…/);
     assert.match(frame, /goal-old…/);
     assert.match(frame, /Newest resumable workflow/);
-    assert.match(frame, /phase=planning/);
+    assert.match(frame, /phase=executing/);
     assert.match(frame, /run=waiting/);
     assert.match(frame, /2026-08-17T02:00:00\.000Z/);
 });

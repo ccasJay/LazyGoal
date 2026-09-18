@@ -10,7 +10,6 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
     type AgentProfile,
-    type PreparationExecutor,
     type ToolPolicy,
 } from "../../runtime/src/index";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
@@ -43,24 +42,22 @@ async function computeDirectoryFingerprint(dir: string): Promise<string> {
 
 function createMockAdapter(): LLMAdapter {
     return {
-        chat: async () => ({
-            content: "mock-response",
+        structuredOutputMode: "prompt_only",
+        generate: async () => ({
+            content: JSON.stringify({
+                result: {
+                    kind: "task_proposal",
+                    task: {
+                        objective: "Run the sandbox persistence attempt",
+                        completionCriteria: [],
+                    },
+                    approvalRequest: "Approve the sandbox persistence attempt.",
+                    memoryPatch: null,
+                },
+            }),
             usage: { inputTokens: 10, outputTokens: 10 },
         }),
-    } as unknown as LLMAdapter;
-}
-
-function createMockExecutor(): PreparationExecutor {
-    return {
-        prepare: async () => ({
-            ok: true,
-            proposal: {
-                intent: "Test sandbox goal",
-                objective: "Verify virtual workspace persistence",
-                completionCriteria: ["criteria 1"],
-            },
-        }),
-    } as unknown as PreparationExecutor;
+    };
 }
 
 test("虚拟工作区持久化将 Store/Trace/Sidecar 隔离到 dataDirectory 且不污染原工作区", async () => {
@@ -89,8 +86,6 @@ test("虚拟工作区持久化将 Store/Trace/Sidecar 隔离到 dataDirectory �
     };
     const policy: ToolPolicy = { evaluate: () => "allow" };
     const adapter = createMockAdapter();
-    const executor = createMockExecutor();
-
     // 3. 执行 Attempt 1
     const root1 = await createCompositionRoot({
         cwd: workspaceDir,
@@ -99,7 +94,6 @@ test("虚拟工作区持久化将 Store/Trace/Sidecar 隔离到 dataDirectory �
         profile,
         toolRegistry: customRegistry,
         toolPolicy: policy,
-        preparationExecutor: executor,
         goalIdGenerator: () => "goal-attempt-1",
         runIdGenerator: () => "run-attempt-1",
     });
@@ -138,7 +132,6 @@ test("虚拟工作区持久化将 Store/Trace/Sidecar 隔离到 dataDirectory �
         profile,
         toolRegistry: customRegistry,
         toolPolicy: policy,
-        preparationExecutor: executor,
         goalIdGenerator: () => "goal-attempt-2",
         runIdGenerator: () => "run-attempt-2",
     });

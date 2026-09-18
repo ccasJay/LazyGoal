@@ -28,52 +28,62 @@ test("projectTrajectoryEvents handles empty committed events gracefully", () => 
     });
 
     assert.equal(steps.length, 1);
-    assert.equal(steps[0]?.title, "Step 1: Preparation & Planning");
+    assert.equal(steps[0]?.title, "Step 1: Goal Initialized");
     assert.equal(steps[0]?.totalSteps, 1);
-    assert.deepEqual(steps[0]?.preparationDetails, ["No trajectory events recorded."]);
+    assert.deepEqual(steps[0]?.lifecycleDetails, ["No trajectory events recorded."]);
 });
 
-test("projectTrajectoryEvents groups preparation events into Step 1", () => {
+test("projectTrajectoryEvents groups initialization events into Step 1", () => {
     const events: TrajectoryEvent[] = [
         createEvent({
             sequence: 1,
-            phase: "gathering_context",
+            phase: "executing",
             eventType: "goal_created",
             payload: { type: "goal_created", intent: "Inspect codebase" },
         }),
         createEvent({
             sequence: 2,
-            phase: "gathering_context",
+            phase: "executing",
             eventType: "run_started",
             payload: { type: "run_started" },
         }),
         createEvent({
             sequence: 3,
-            phase: "planning",
-            eventType: "preparation_result",
-            payload: { type: "preparation_result", result: "task_proposal" },
+            phase: "executing",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "task_proposal",
+                    task: {
+                        objective: "Inspect codebase",
+                        completionCriteria: [{ text: "Inspect done" }],
+                    },
+                    approvalRequest: "Approve the task",
+                },
+            },
         }),
     ];
 
     const steps = projectTrajectoryEvents({
-        goalId: "goal-prep",
+        goalId: "goal-execution",
         committedEvents: events,
     });
 
     assert.equal(steps.length, 1);
     assert.equal(steps[0]?.index, 0);
     assert.equal(steps[0]?.totalSteps, 1);
-    assert.equal(steps[0]?.title, "Step 1: Preparation & Planning");
-    assert.ok(steps[0]?.preparationDetails?.includes("Goal created: Inspect codebase"));
-    assert.ok(steps[0]?.preparationDetails?.includes("Run started"));
-    assert.ok(steps[0]?.preparationDetails?.includes("Preparation result: task_proposal"));
+    assert.equal(steps[0]?.title, "Step 1: Goal Initialized");
+    assert.ok(steps[0]?.lifecycleDetails?.includes("Goal created: Inspect codebase"));
+    assert.ok(steps[0]?.lifecycleDetails?.includes("Run started"));
+    assert.ok(steps[0]?.lifecycleDetails?.includes("Task proposal: Inspect codebase"));
 });
 
 test("projectTrajectoryEvents projects executionUnitId into discrete execution steps", () => {
     const events: TrajectoryEvent[] = [
         createEvent({
             sequence: 1,
-            phase: "planning",
+            phase: "executing",
             eventType: "goal_created",
             payload: { type: "goal_created", intent: "Run test" },
         }),
@@ -136,10 +146,10 @@ test("projectTrajectoryEvents projects executionUnitId into discrete execution s
     });
 
     assert.equal(steps.length, 2);
-    // Step 1: Preparation
+    // Step 1: Initialized
     assert.equal(steps[0]?.index, 0);
     assert.equal(steps[0]?.totalSteps, 2);
-    assert.equal(steps[0]?.title, "Step 1: Preparation & Planning");
+    assert.equal(steps[0]?.title, "Step 1: Goal Initialized");
 
     // Step 2: Execution eu-1
     const execStep = steps[1]!;

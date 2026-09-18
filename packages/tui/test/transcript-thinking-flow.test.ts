@@ -98,7 +98,6 @@ function createExecutingGoal(id = "goal-thinking-1"): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Execute task with thinking flow",
                     completionCriteria: [],

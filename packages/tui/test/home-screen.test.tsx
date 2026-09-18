@@ -146,8 +146,8 @@ test("TuiApp with initialScreen: home renders HomeScreen and transitions to inte
     const progress: GoalProgressResult = {
         ok: true,
         kind: "waiting",
-        phase: "gathering_context",
-        waitingFor: "question",
+        phase: "executing",
+        waitingFor: "ask_user",
         goal,
     };
     const controller = new SessionController({

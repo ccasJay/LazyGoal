@@ -42,7 +42,6 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
             },
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: intent,
                     completionCriteria: [{ text: "done" }],

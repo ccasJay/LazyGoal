@@ -30,7 +30,6 @@ import {
     type GoalModelSelectionCoordinator,
     type ExitPort,
     type GoalProtocolValidator,
-    type PreparationExecutor,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
     type TrajectoryStore,
@@ -54,7 +53,6 @@ import {
     createModelContextBudgetPolicy,
     DEFAULT_LLM_CONVERSATION_CHAR_BUDGET,
     DropOldestContextCompactor,
-    LLMPreparationExecutor,
     LLMStepExecutor,
     MutableModelBinding,
     resolveModelInputEstimator,
@@ -392,18 +390,6 @@ export interface CompositionRootOptions {
      */
     readonly toolPolicy?: ToolPolicy;
     /**
-     * 显式注入的 Preparation 执行器。
-     *
-     * @remarks
-     * 省略时使用默认的 `LLMPreparationExecutor`。
-     *
-     * @example
-     * ```ts
-     * const root = await createCompositionRoot({ preparationExecutor: customExecutor });
-     * ```
-     */
-    readonly preparationExecutor?: PreparationExecutor;
-    /**
      * 显式注入的根中止控制器。
      *
      * @remarks
@@ -476,7 +462,7 @@ export interface CompositionRoot {
     readonly llmConfig?: LlmConfig;
     /** 启动期解析并由共享 Compactor 使用的 Conversation 字符预算。 */
     readonly conversationCharBudget: number;
-    /** Preparation 与 Step Executor 共享的无状态上下文裁剪实例。 */
+    /** 统一 Step Executor 使用的无状态上下文裁剪实例。 */
     readonly contextCompactor: DropOldestContextCompactor;
     /** 本轮 Hot/Warm 组装使用的只读输入计量器。 */
     readonly modelInputEstimator: ModelInputEstimator;
@@ -486,7 +472,7 @@ export interface CompositionRoot {
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     /** 从 committed Trajectory/Sidecar 组装分层模型上下文的无状态组件。 */
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
-    /** Preparation 与执行阶段共享的供应商无关 Adapter；构造时固定输出模式。 */
+    /** 统一执行流使用的供应商无关 Adapter；构造时固定输出模式。 */
     readonly adapter: LLMAdapter;
     /** 从当前 workspace Profile 文件或显式注入加载的生效 Agent Profile。 */
     readonly profile: AgentProfile;
@@ -498,8 +484,6 @@ export interface CompositionRoot {
     readonly toolRegistry: InMemoryToolRegistry;
     /** 当前生效的 Tool 授权策略。 */
     readonly toolPolicy: ToolPolicy;
-    /** 当前生效的 Preparation 执行器。 */
-    readonly preparationExecutor: PreparationExecutor;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: GoalStore & GoalCatalog;
     /** 持久化 GoalStore 的提交通知包装器，供 TUI 实时刷新已提交步骤。 */
@@ -793,14 +777,6 @@ export async function createCompositionRoot(
             customEstimator: modelInputEstimator,
         }),
     );
-    const preparationExecutor = options.preparationExecutor ?? new LLMPreparationExecutor({
-        bindingProvider: modelBinding,
-        renderer,
-        contextCompactor,
-        traceSink,
-        trajectoryContextAssembler,
-        ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
-    });
     const runner = new Runner({
         store: checkpointStore,
         executor: new LLMStepExecutor({
@@ -823,7 +799,6 @@ export async function createCompositionRoot(
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
         store: checkpointStore,
-        preparationExecutor,
         scheduler,
         toolRegistry,
         traceSink,
@@ -985,7 +960,6 @@ export async function createCompositionRoot(
         ...(readFileTool === undefined ? {} : { readFileTool }),
         toolRegistry,
         toolPolicy,
-        preparationExecutor,
         store,
         notifyingStore,
         trajectoryStore,

@@ -11,6 +11,9 @@ import { ErrorLine } from "./error-line";
 import type { ModelCommandEffect } from "../../slash-command/src/index.js";
 import { CommandAwareTextInput } from "./command-aware-text-input";
 import { MarkdownRenderer } from "./markdown-renderer";
+import type { AskUserAnswer } from "../../contracts/src/index";
+import { AskUserPanel } from "./ask-user-panel";
+import { TaskProposalPanel } from "./task-proposal-panel";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -76,6 +79,12 @@ export interface SessionScreenProps {
     readonly onToggleExecutionMode?: () => void | Promise<void>;
     /** Slash 命令派发产生的领域副作用回调。 */
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
+    /** 回答 Agent 发起的 ask_user 结构化问卷。 */
+    readonly onAnswerAskUser?: (requestId: string, answers: readonly AskUserAnswer[]) => void | Promise<void>;
+    /** 批准任务提案并推进执行。 */
+    readonly onApproveTask?: (requestId?: string) => void | Promise<void>;
+    /** 对任务提案提出反馈。 */
+    readonly onFeedbackTask?: (requestId: string | undefined, feedback: string) => void | Promise<void>;
 }
 
 /**
@@ -91,6 +100,9 @@ export function SessionScreen({
     onRejectAction,
     onToggleExecutionMode,
     onCommandEffect,
+    onAnswerAskUser,
+    onApproveTask,
+    onFeedbackTask,
 }: SessionScreenProps): React.JSX.Element {
     const timelineItems = [...resolveTimelineItems(session)];
     useInput((_input, key) => {
@@ -138,6 +150,9 @@ export function SessionScreen({
                 onRejectAction={onRejectAction}
                 {...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })}
                 {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
+                {...(onAnswerAskUser === undefined ? {} : { onAnswerAskUser })}
+                {...(onApproveTask === undefined ? {} : { onApproveTask })}
+                {...(onFeedbackTask === undefined ? {} : { onFeedbackTask })}
             />
         </Box>
     );
@@ -172,6 +187,12 @@ export interface ActiveDrawerProps {
     /** 切换 YOLO / Confirm 协同模式的回调。 */
     readonly onToggleExecutionMode?: () => void | Promise<void>;
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
+    /** 回答 Agent 发起的 ask_user 结构化问卷。 */
+    readonly onAnswerAskUser?: (requestId: string, answers: readonly AskUserAnswer[]) => void | Promise<void>;
+    /** 批准任务提案并推进执行。 */
+    readonly onApproveTask?: (requestId?: string) => void | Promise<void>;
+    /** 对任务提案提出反馈。 */
+    readonly onFeedbackTask?: (requestId: string | undefined, feedback: string) => void | Promise<void>;
 }
 
 /**
@@ -187,6 +208,9 @@ export function ActiveDrawer({
     onRejectAction,
     onToggleExecutionMode,
     onCommandEffect,
+    onAnswerAskUser,
+    onApproveTask,
+    onFeedbackTask,
 }: ActiveDrawerProps): React.JSX.Element {
     const terminal = terminalFor(session);
 
@@ -205,6 +229,9 @@ export function ActiveDrawer({
                     onApproveAction={onApproveAction}
                     onRejectAction={onRejectAction}
                     {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
+                    {...(onAnswerAskUser === undefined ? {} : { onAnswerAskUser })}
+                    {...(onApproveTask === undefined ? {} : { onApproveTask })}
+                    {...(onFeedbackTask === undefined ? {} : { onFeedbackTask })}
                 />
             )}
         </Box>
@@ -285,11 +312,19 @@ function isActiveRun(session: UiSessionViewModel): boolean {
 }
 
 function sessionSpinnerLabel(session: UiSessionViewModel): string {
+    if (session.activeProbeDescription !== undefined) {
+        return session.activeProbeDescription;
+    }
+
     if (session.runStatus === "running") {
         return "Executing step...";
     }
 
     switch (session.waitingFor) {
+        case "ask_user":
+            return "Waiting for user input...";
+        case "task_approval":
+            return "Waiting for task approval...";
         case "action_approval":
         case "action_recovery":
             return "Advancing...";
@@ -310,7 +345,37 @@ function SessionInteraction({
     onApproveAction,
     onRejectAction,
     onCommandEffect,
+    onAnswerAskUser,
+    onApproveTask,
+    onFeedbackTask,
 }: SessionInteractionProps): React.JSX.Element {
+    if (session.waitingFor === "ask_user" && session.askUser !== undefined) {
+        return (
+            <AskUserPanel
+                requestId={session.askUser.requestId}
+                mode={session.askUser.mode}
+                questions={session.askUser.questions}
+                busy={session.busy}
+                onSubmit={(answers) => onAnswerAskUser?.(session.askUser!.requestId, answers)}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
+            />
+        );
+    }
+
+    if (session.waitingFor === "task_approval" && session.proposal !== undefined) {
+        return (
+            <TaskProposalPanel
+                proposal={session.proposal}
+                {...(session.proposalRequestId !== undefined ? { requestId: session.proposalRequestId } : {})}
+                {...(session.approvalRequest !== undefined ? { approvalRequest: session.approvalRequest } : {})}
+                busy={session.busy}
+                onApprove={(reqId) => onApproveTask?.(reqId)}
+                onFeedback={(reqId, feedback) => onFeedbackTask?.(reqId, feedback)}
+                {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
+            />
+        );
+    }
+
     if (session.waitingFor === "blocked") {
         return (
             <BlockedPanel

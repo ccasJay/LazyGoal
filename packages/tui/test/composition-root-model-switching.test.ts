@@ -29,8 +29,18 @@ class FakeAdapter implements LLMAdapter {
         return {
             content: JSON.stringify({
                 result: {
-                    kind: "question",
-                    question: "What feature should be built?",
+                    kind: "ask_user",
+                    questions: [
+                        {
+                            header: "Database Selection",
+                            question: "What feature should be built?",
+                            options: [
+                                { label: "Postgres", description: null },
+                                { label: "SQLite", description: null },
+                            ],
+                            multiSelect: false,
+                        },
+                    ],
                     memoryPatch: null,
                 },
             }),
@@ -168,7 +178,7 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
 
         const initialSession = root.controller.getSnapshot();
         assert.equal(initialSession.screen, "session");
-        assert.equal(initialSession.waitingFor, "question");
+        assert.equal(initialSession.waitingFor, "ask_user");
         const initialGen = root.modelBinding.current().generation;
 
         // 打开模型选择器并切换模型
@@ -186,10 +196,19 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
         const savedGoal = await root.store.restore(root.controller.getSnapshot().screen === "session" ? (root.controller.getSnapshot() as any).goal.id : "");
         assert.equal(savedGoal?.state.modelSelection?.modelId, "model-switched");
 
-        // 提交后续交互消息，推进下一步
+        // 提交后续交互回答，推进下一步
+        const sessionView = root.controller.getSnapshot();
+        assert.equal(sessionView.screen, "session");
+        assert.ok(sessionView.askUser !== undefined);
         await root.controller.dispatch({
-            kind: "submitMessage",
-            content: "Use Postgres",
+            kind: "answerAskUser",
+            requestId: sessionView.askUser.requestId,
+            answers: [
+                {
+                    questionId: sessionView.askUser.questions[0]!.id,
+                    optionIds: [sessionView.askUser.questions[0]!.options[0]!.id],
+                },
+            ],
         });
 
         // 验证第二代适配器收到了模型调用
@@ -242,7 +261,7 @@ test("活动 Goal 保存失败时维持旧选择与旧 Binding", async () => {
 
         const initialSession = root.controller.getSnapshot();
         assert.equal(initialSession.screen, "session");
-        assert.equal(initialSession.waitingFor, "question");
+        assert.equal(initialSession.waitingFor, "ask_user");
 
         const preBinding = root.modelBinding.current();
 

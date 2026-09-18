@@ -99,7 +99,6 @@ function createExecutingGoal(id = "goal-1"): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Execute task",
                     completionCriteria: [],
@@ -222,8 +221,8 @@ describe("SessionController Timeline & Streaming Transcript Integration", () => 
                 return {
                     ok: true,
                     kind: "waiting",
-                    phase: "gathering_context",
-                    waitingFor: "question",
+                    phase: "executing",
+                    waitingFor: "ask_user",
                     goal: currentGoal,
                 };
             },
@@ -341,8 +340,8 @@ describe("SessionController Timeline & Streaming Transcript Integration", () => 
                 return {
                     ok: true,
                     kind: "waiting",
-                    phase: "gathering_context",
-                    waitingFor: "question",
+                    phase: "executing",
+                    waitingFor: "ask_user",
                     goal: currentGoal,
                 };
             },
@@ -476,8 +475,8 @@ describe("SessionController Timeline & Streaming Transcript Integration", () => 
                 return {
                     ok: true,
                     kind: "waiting",
-                    phase: "gathering_context",
-                    waitingFor: "question",
+                    phase: "executing",
+                    waitingFor: "ask_user",
                     goal: currentGoal,
                 };
             },

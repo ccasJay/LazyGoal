@@ -139,13 +139,13 @@ export function InspectorScreen({
             lines.push("");
         }
 
-        // 2.1 准备阶段详情（Step 1: Preparation & Planning）
-        if (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0) {
-            lines.push(formatSectionDivider("Preparation & context", contentWidth, {
+        // 2.1 Goal 生命周期详情
+        if (currentStep.lifecycleDetails !== undefined && currentStep.lifecycleDetails.length > 0) {
+            lines.push(formatSectionDivider("Goal lifecycle", contentWidth, {
                 icon: "◈",
                 color: ansi.cyan,
             }));
-            for (const detail of currentStep.preparationDetails) {
+            for (const detail of currentStep.lifecycleDetails) {
                 lines.push(ansi.gray("  • ") + detail);
             }
             lines.push("");
@@ -267,7 +267,7 @@ export function InspectorScreen({
             || currentStep.action !== undefined
             || currentStep.observation !== undefined
             || currentStep.result !== undefined
-            || (currentStep.preparationDetails !== undefined && currentStep.preparationDetails.length > 0);
+            || (currentStep.lifecycleDetails !== undefined && currentStep.lifecycleDetails.length > 0);
 
         const messages = currentStep.messages ?? [];
         if (!hasStructuredBlocks && messages.length > 0) {

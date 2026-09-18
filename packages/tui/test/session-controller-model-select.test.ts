@@ -48,7 +48,7 @@ function createModel(
     };
 }
 
-function createWaitingGoal(id = "goal-1", waitingFor: "question" | "approval" = "question"): Goal {
+function createWaitingGoal(id = "goal-1", waitingFor: "ask_user" | "task_approval" = "ask_user"): Goal {
     const goal = createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
@@ -63,8 +63,7 @@ function createWaitingGoal(id = "goal-1", waitingFor: "question" | "approval" = 
         state: {
             ...goal.state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
             },
             messages: [
                 ...goal.state.messages,
@@ -98,7 +97,6 @@ function createRunningGoal(id = "goal-running"): Goal {
             },
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: {
                     objective: "Test task",
                     completionCriteria: [],
@@ -108,21 +106,21 @@ function createRunningGoal(id = "goal-running"): Goal {
     };
 }
 
-function waitingResult(goal: Goal, waitingFor: "question" | "approval" = "question"): GoalProgressResult {
-    if (waitingFor === "approval") {
+function waitingResult(goal: Goal, waitingFor: "ask_user" | "task_approval" = "ask_user"): GoalProgressResult {
+    if (waitingFor === "task_approval") {
         return {
             ok: true,
             kind: "waiting",
-            phase: "planning",
-            waitingFor: "approval",
+            phase: "executing",
+            waitingFor: "task_approval",
             goal,
         };
     }
     return {
         ok: true,
         kind: "waiting",
-        phase: "gathering_context",
-        waitingFor: "question",
+        phase: "executing",
+        waitingFor: "ask_user",
         goal,
     };
 }
@@ -212,12 +210,12 @@ test("openModelSelector from intent_input screen transitions to model_select scr
     }
 });
 
-test("openModelSelector from session screen at question safe point succeeds", async () => {
-    const goal = createWaitingGoal("goal-1", "question");
+test("openModelSelector from session screen at ask_user safe point succeeds", async () => {
+    const goal = createWaitingGoal("goal-1", "ask_user");
     const models = [createModel("claude-3-5-sonnet", "Claude 3.5 Sonnet")];
     const controller = new SessionController(
         baseDeps({
-            launcher: new FakeLauncher(waitingResult(goal, "question")),
+            launcher: new FakeLauncher(waitingResult(goal, "ask_user")),
             modelCatalog: new FakeModelCatalog(async () => models),
         }),
     );
@@ -231,7 +229,7 @@ test("openModelSelector from session screen at question safe point succeeds", as
     const view = controller.getSnapshot();
     assert.equal(view.screen, "model_select");
     if (view.screen === "model_select") {
-        assert.equal(view.origin, "question");
+        assert.equal(view.origin, "ask_user");
     }
 });
 

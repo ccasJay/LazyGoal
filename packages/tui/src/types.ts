@@ -11,11 +11,12 @@ import type {
     LaunchRequest,
     LaunchResult,
     PendingAction,
-    PreparationProbeProgressEvent,
+    PlanProbeProgressEvent,
     ResumeGoalRequest,
     RunRef,
     RunStatus,
 } from "../../runtime/src/index";
+import type { AskUserAnswer, AskUserQuestion } from "../../contracts/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
 
@@ -69,27 +70,18 @@ export type UiCommand =
     | { readonly kind: "continueLatest" }
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }
-    | { readonly kind: "approveTask" }
+    | { readonly kind: "approveTask"; readonly requestId?: string }
+    | {
+        readonly kind: "feedbackTask";
+        readonly requestId?: string;
+        readonly feedback: string;
+    }
+    | {
+        readonly kind: "answerAskUser";
+        readonly requestId: string;
+        readonly answers: readonly AskUserAnswer[];
+    }
     | { readonly kind: "approveAction"; readonly actionId: string }
-    /**
-     * 重新推进一个停滞在中间态的 Preparation 阶段。
-     *
-     * @remarks
-     * 仅在当前存在活动 Goal Session 时可用。命令等价于对最新快照再执行一次
-     * `advance()`，由 Runtime 重跑 preparation executor 并推进到下一个等待点、
-     * 终态或稳定业务错误。它不携带 Goal 状态、不写入快照，也不改变 Runtime
-     * 的状态转换语义。
-     *
-     * 典型场景是 Goal 在上一次推进中被中断（例如进程退出或 executor 失败），
-     * 快照停留在 `preparation.status === "active"`：此时 Goal 不属于任何
-     * 等待用户输入的状态，`resume` 会被拒绝，只有本命令能恢复。
-     *
-     * @example
-     * ```ts
-     * await controller.dispatch({ kind: "retryPreparation" });
-     * ```
-     */
-    | { readonly kind: "retryPreparation" }
     | {
         readonly kind: "rejectAction";
         readonly actionId: string;
@@ -133,13 +125,34 @@ export interface UiNotice {
     readonly message: string;
 }
 
+/**
+ * TUI 中规范化的 AskUser 交互请求视图模型。
+ *
+ * @remarks
+ * 包含当前问卷请求的稳定标识、生命周期模式与规范化问题列表。
+ *
+ * @example
+ * ```ts
+ * const req: UiAskUserRequest = {
+ *     requestId: "ask-1",
+ *     mode: "plan",
+ *     questions: [],
+ * };
+ * ```
+ */
+export interface UiAskUserRequest {
+    readonly requestId: string;
+    readonly mode: "plan" | "execution";
+    readonly questions: readonly AskUserQuestion[];
+}
+
 /** Session 等待用户输入的细分类型。 */
 export type UiWaitingFor =
-    | "question"
-    | "approval"
-    | "blocked"
+    | "ask_user"
+    | "task_approval"
     | "action_approval"
-    | "action_recovery";
+    | "action_recovery"
+    | "blocked";
 
 /**
  * Session 终态在 ViewModel 中的有界摘要。
@@ -340,8 +353,8 @@ export interface UiStepResultBlock {
  *     index: 0,
  *     totalSteps: 1,
  *     messages: [],
- *     title: "Step 1: Preparation & Planning",
- *     phase: "planning",
+ *     title: "Step 1: Execution",
+ *     phase: "executing",
  *     rawJson: "{}",
  * };
  * ```
@@ -351,8 +364,9 @@ export interface UiInspectorStep {
     readonly totalSteps: number;
     readonly title?: string;
     readonly executionUnitId?: string;
-    readonly phase?: "gathering_context" | "planning" | "executing";
-    readonly preparationDetails?: readonly string[];
+    readonly phase?: "executing";
+    /** Goal 生命周期事件与初始化上下文的简要详情。 */
+    readonly lifecycleDetails?: readonly string[];
     readonly decision?: UiStepDecisionBlock;
     readonly action?: UiStepActionBlock;
     readonly observation?: UiStepObservationBlock;
@@ -402,8 +416,8 @@ export interface UiInspectorViewModel {
  *
  * @example
  * ```ts
- * if (view.screen === "session" && view.waitingFor === "question") {
- *   console.log(view.question);
+ * if (view.screen === "session" && view.waitingFor === "ask_user") {
+ *   console.log(view.askUser);
  * }
  * ```
  */
@@ -418,26 +432,15 @@ export interface UiSessionViewModel {
     readonly waitingFor?: UiWaitingFor;
     /** 执行期人机协同模式（"confirm" 逐项确认 / "yolo" 自动放行）。 */
     readonly executionMode?: ExecutionMode;
-    /**
-     * 当前 Goal 的 Preparation 阶段是否已停滞在无法自行推进的中间态。
-     *
-     * @remarks
-     * 只在「非 `executing` 阶段 + `preparation.status` 为 `active` + 不存在
-     * 等待用户输入的等待点 + 当前没有进行中的异步推进」时由 Controller 置为
-     * `true`。`active` 在一次正常 `advance()` 进行期间同样是合法的瞬时态，
-     * 因此必须叠加 busy 判断，否则正常推进过程中会误报中断。
-     *
-     * 该状态表示 Goal **不**在等待用户输入，因此不进入 `UiWaitingFor`；
-     * 此时 `resume` 会被 Runtime 拒绝，用户只能通过 `retryPreparation` 恢复。
-     *
-     * @example
-     * ```ts
-     * if (view.preparationStalled === true) render(<StalledPanel onRetry={retry} />);
-     * ```
-     */
-    readonly preparationStalled?: boolean;
-    readonly question?: string;
+    /** 当前挂起的 AskUser 问卷请求（当 waitingFor 为 "ask_user" 时有效）。 */
+    readonly askUser?: UiAskUserRequest;
+    /** 问卷所属任务模式（"plan" 任务批准前 / "execution" 任务批准后）。 */
+    readonly interactionMode?: "plan" | "execution";
     readonly proposal?: GoalTask;
+    /** 当前任务提案的稳定关联请求标识。 */
+    readonly proposalRequestId?: string;
+    /** Agent 发起的任务审批提示文案。 */
+    readonly approvalRequest?: string;
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
@@ -467,17 +470,10 @@ export interface UiSessionViewModel {
      */
     readonly committedSteps?: readonly UiStepSummary[];
     /**
-     * 准备阶段已完成并提交的只读探查步骤时间线。
+     * 当前正在执行的只读探查或工具操作描述。
      *
      * @remarks
-     * PreparationScreen 瀑布流展示的数据源。未执行任何探查时为空数组或未定义。
-     */
-    readonly preparationSteps?: readonly UiStepSummary[];
-    /**
-     * 准备阶段当前正在执行的只读探查操作描述。
-     *
-     * @remarks
-     * 仅在探查进行中时有效，用于在底部活动抽屉 Spinner 呈现操作文案。
+     * 仅在操作进行中时有效，用于在底部活动抽屉 Spinner 呈现操作文案。
      */
     readonly activeProbeDescription?: string;
     /** 是否处于沙箱资源清理阶段。 */
@@ -599,8 +595,8 @@ export interface UiStepSummary {
 /** 触发打开模型选择界面的原始页面语义位置。 */
 export type UiModelSelectOrigin =
     | "intent"
-    | "question"
-    | "proposal_feedback"
+    | "ask_user"
+    | "task_approval"
     | "blocked";
 
 /** 模型选择界面的三态异步状态。 */
@@ -714,13 +710,13 @@ export interface SessionCoordinator {
         control?: ExecutionControl,
     ): Promise<GoalProgressResult>;
     /**
-     * 注册准备阶段只读探查生命周期事件监听器。
+     * 注册任务批准前只读探查生命周期事件监听器。
      *
      * @param listener - 接收只读探查生命周期事件的监听回调。
      * @returns 幂等注销该监听器的清理函数。
      */
     readonly onProbeProgress?: (
-        listener: (event: PreparationProbeProgressEvent) => void,
+        listener: (event: PlanProbeProgressEvent) => void,
     ) => () => void;
 }
 

@@ -5,7 +5,7 @@ import type {
     GoalTask,
     LaunchResult,
     TrajectoryReadResult,
-    PreparationProbeProgressEvent,
+    PlanProbeProgressEvent,
 } from "../../runtime/src/index";
 import {
     UI_BUSY_CODE,
@@ -68,7 +68,6 @@ export class SessionController {
     private storeUnsubscribe: (() => void) | undefined;
     private probeUnsubscribe: (() => void) | undefined;
     private committedSteps: UiStepSummary[] = [];
-    private preparationSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
     private modelCatalogGeneration = 0;
     private modelCatalogAbortController: AbortController | undefined;
@@ -415,10 +414,24 @@ export class SessionController {
                 });
                 return;
             case "approveTask":
-                await this.resumeSession({ kind: "approve" });
+                await this.resumeSession({
+                    kind: "approve_task",
+                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                });
                 return;
-            case "retryPreparation":
-                await this.retryPreparation();
+            case "feedbackTask":
+                await this.resumeSession({
+                    kind: "feedback_task",
+                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                    feedback: command.feedback,
+                });
+                return;
+            case "answerAskUser":
+                await this.resumeSession({
+                    kind: "answer_ask_user",
+                    requestId: command.requestId,
+                    answers: command.answers,
+                });
                 return;
             case "approveAction":
                 await this.resumeSession({
@@ -800,40 +813,6 @@ export class SessionController {
         await this.applyProgress(result);
     }
 
-    /**
-     * 重新推进一个停滞在 Preparation 中间态的当前 Goal Session。
-     *
-     * @remarks
-     * 只依赖内存中最新的 Session 快照，不再从 Store 恢复：进入本方法前页面
-     * 已处于 `session`，快照即代表用户当前正在观察的 Goal。推进等价于对
-     * 最新快照再执行一次 `advance()`，由 Runtime 重跑 preparation executor。
-     * 该方法本身不写入快照，也不改变 Runtime 的状态转换语义；成功与失败
-     * 都通过 `applyProgress` 反映到 ViewModel。
-     *
-     * @returns 推进完成；无活动 Session 时写入 `NO_ACTIVE_SESSION` 业务错误。
-     * @throws Coordinator 或 Store 失败时传播原始异常，由 `dispatch` 统一转换。
-     * @example
-     * ```ts
-     * await controller.dispatch({ kind: "retryPreparation" });
-     * ```
-     */
-    private async retryPreparation(): Promise<void> {
-        if (this.snapshot.screen !== "session") {
-            this.setError({
-                code: "NO_ACTIVE_SESSION",
-                message: "There is no active Goal session",
-            });
-            return;
-        }
-
-        const goal = this.snapshot.goal;
-        const result = await this.dependencies.coordinator.advance(
-            { goalId: goal.id, runId: goal.state.run.id },
-            this.dependencies.control,
-        );
-        await this.applyProgress(result);
-    }
-
     private async applyProgress(result: ProgressResult): Promise<void> {
         while (!this.shuttingDown) {
             if (!result.ok) {
@@ -988,7 +967,6 @@ export class SessionController {
         this.activeAssistantStream = null;
         this.streamingTail = undefined;
         this.committedSteps = [];
-        this.preparationSteps = [];
 
         // 需求 4.2：恢复已有 Goal 或初次进入时，把快照中的完整消息直接初始化为 committed history，不回放动画
         for (let i = 0; i < goal.state.messages.length; i++) {
@@ -1140,16 +1118,19 @@ export class SessionController {
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
             ? progress.waitingFor
             : deriveWaitingFor(snapshot);
-        const question = waitingFor === "question"
-            ? deriveQuestion(snapshot)
-            : undefined;
-        const proposal = waitingFor === "approval"
-            ? deriveProposal(snapshot)
-            : undefined;
+        const interaction = snapshot.state.run.pendingInteraction;
+        const askUser = interaction?.kind === "ask_user" ? {
+            requestId: interaction.requestId,
+            mode: interaction.mode,
+            questions: interaction.questions,
+        } : undefined;
+        const interactionMode = askUser?.mode;
+        const proposal = interaction?.kind === "task_approval" ? interaction.proposal : deriveProposal(snapshot);
+        const proposalRequestId = interaction?.kind === "task_approval" ? interaction.requestId : undefined;
+        const approvalRequest = interaction?.kind === "task_approval" ? interaction.approvalRequest : undefined;
         const blockedReason = waitingFor === "blocked"
             ? deriveBlockedReason(snapshot)
             : undefined;
-        const preparationStalled = isStalledPreparation(snapshot, waitingFor);
         const terminal = deriveTerminalSummary(snapshot);
 
         const currentSession = this.snapshot?.screen === "session" ? this.snapshot : undefined;
@@ -1168,9 +1149,6 @@ export class SessionController {
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
-            ...(this.preparationSteps.length > 0
-                ? { preparationSteps: this.preparationSteps.slice() }
-                : {}),
             ...(currentSession?.activeProbeDescription !== undefined
                 ? { activeProbeDescription: currentSession.activeProbeDescription }
                 : {}),
@@ -1184,9 +1162,11 @@ export class SessionController {
                 : {}),
             ...(currentSession?.cleaning !== undefined ? { cleaning: currentSession.cleaning } : {}),
             ...(waitingFor === undefined ? {} : { waitingFor }),
-            ...(preparationStalled ? { preparationStalled } : {}),
-            ...(question === undefined ? {} : { question }),
+            ...(askUser !== undefined ? { askUser } : {}),
+            ...(interactionMode !== undefined ? { interactionMode } : {}),
             ...(proposal === undefined ? {} : { proposal }),
+            ...(proposalRequestId === undefined ? {} : { proposalRequestId }),
+            ...(approvalRequest === undefined ? {} : { approvalRequest }),
             ...(blockedReason === undefined ? {} : { blockedReason }),
             ...(snapshot.state.run.pendingAction === undefined
                 ? {}
@@ -1285,9 +1265,6 @@ export class SessionController {
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             committedSteps: this.committedSteps.slice(),
-            ...(this.preparationSteps.length > 0
-                ? { preparationSteps: this.preparationSteps.slice() }
-                : {}),
             ...(this.snapshot.activeProbeDescription !== undefined
                 ? { activeProbeDescription: this.snapshot.activeProbeDescription }
                 : {}),
@@ -1298,7 +1275,7 @@ export class SessionController {
         });
     }
 
-    private handleProbeProgress(event: PreparationProbeProgressEvent): void {
+    private handleProbeProgress(event: PlanProbeProgressEvent): void {
         if (
             this.shuttingDown
             || this.snapshot.screen !== "session"
@@ -1328,20 +1305,26 @@ export class SessionController {
                 ? event.observation.message
                 : undefined;
         const step: UiStepSummary = {
-            stepNumber: this.preparationSteps.length + 1,
+            stepNumber: this.committedSteps.length + 1,
             toolId: event.toolId,
             actionId: event.actionId,
             status: event.observation.kind === "success" ? "success" : "failure",
             ...(inputSummary === undefined ? {} : { inputSummary }),
             ...(outputSummary === undefined ? {} : { outputSummary }),
         };
-        if (!this.preparationSteps.some((item) => item.actionId === step.actionId)) {
-            this.preparationSteps.push(step);
+        if (!this.committedSteps.some((item) => item.actionId === step.actionId)) {
+            this.committedSteps.push(step);
+            this.timeline.push({
+                kind: "step",
+                id: `step-${this.currentGoalId ?? "probe"}-${step.actionId || step.stepNumber}`,
+                step,
+            });
         }
         const { activeProbeDescription: _activeProbeDescription, ...rest } = this.snapshot;
         this.setSnapshot({
             ...rest,
-            preparationSteps: this.preparationSteps.slice(),
+            committedSteps: this.committedSteps.slice(),
+            timeline: this.timeline.slice(),
         });
     }
 
@@ -1378,8 +1361,8 @@ export class SessionController {
                 ?? "unknown";
         } else if (this.snapshot.screen === "session") {
             const waitingFor = this.snapshot.waitingFor;
-            if (waitingFor === "question") origin = "question";
-            else if (waitingFor === "approval") origin = "proposal_feedback";
+            if (waitingFor === "ask_user") origin = "ask_user";
+            else if (waitingFor === "task_approval") origin = "task_approval";
             else if (waitingFor === "blocked") origin = "blocked";
             else {
                 this.setError({ code: "MODEL_SWITCH_NOT_ALLOWED", message: "Model switching is only allowed at a text waiting point" });
@@ -1688,24 +1671,18 @@ function toUiError(error: unknown): UiError {
 }
 
 function deriveWaitingFor(goal: Goal): WaitingProgress["waitingFor"] | undefined {
-    const workflow = goal.state.workflow;
-
-    if (
-        workflow.phase === "gathering_context"
-        && workflow.preparation.status === "waiting_input"
-    ) {
-        return "question";
-    }
-
-    if (
-        workflow.phase === "planning"
-        && workflow.preparation.status === "waiting_approval"
-    ) {
-        return "approval";
-    }
-
-    if (workflow.phase !== "executing" || goal.state.run.status !== "waiting") {
+    if (goal.state.run.status !== "waiting") {
         return undefined;
+    }
+
+    const interaction = goal.state.run.pendingInteraction;
+    if (interaction !== undefined) {
+        if (interaction.kind === "ask_user") {
+            return "ask_user";
+        }
+        if (interaction.kind === "task_approval") {
+            return "task_approval";
+        }
     }
 
     switch (goal.state.run.pendingAction?.status) {
@@ -1718,58 +1695,12 @@ function deriveWaitingFor(goal: Goal): WaitingProgress["waitingFor"] | undefined
     }
 }
 
-/**
- * 判断 Goal 的 Preparation 阶段是否停滞在无法自行推进的中间态。
- *
- * @remarks
- * `preparation.status === "active"` 表示一次推进已经开始但尚未产出等待点。
- * 若该瞬时态被持久化为检查点（例如推进被中断或 executor 失败），Goal 既不
- * 在等待用户输入，`resume` 也会被 Runtime 拒绝，用户将无从恢复；本函数用于
- * 识别这种状态并交给 UI 提供重试入口。
- *
- * 领域类型保证 `active` 只出现在 `gathering_context` 与 `planning`，
- * `executing` 阶段的 preparation 恒为 `completed`，因此无需另行排除
- * executing 阶段。
- *
- * 本函数只反映快照自身的事实，不感知是否正在异步推进中：`busy` 是快照上
- * 的活字段，会在推进开始与结束时被原地覆盖，而派生字段不会随之重算，因此
- * 把 `busy` 固化进本函数的结果会让一次推进失败后得到的快照永远停留在
- * 「推进中」。是否展示重试入口由 UI 结合当前 `busy` 实时判断。
- *
- * @param goal - 最新完整 Goal 快照。
- * @param waitingFor - 从同一次推进结果或快照派生的等待点；存在等待点时 Goal
- *   正在等待用户输入，不算停滞。
- * @returns Preparation 阶段开始但未产出等待点时返回 `true`，否则返回 `false`。
- * @example
- * ```ts
- * const stalled = isStalledPreparation(goal, waitingFor);
- * ```
- */
-function isStalledPreparation(
-    goal: Goal,
-    waitingFor: WaitingProgress["waitingFor"] | undefined,
-): boolean {
-    return waitingFor === undefined
-        && goal.state.workflow.preparation.status === "active";
-}
-
-function deriveQuestion(goal: Goal): string | undefined {
-    for (let index = goal.state.messages.length - 1; index >= 0; index -= 1) {
-        const message = goal.state.messages[index];
-        if (message?.role === "assistant") {
-            return message.content;
-        }
-    }
-
-    return undefined;
-}
-
 function deriveProposal(goal: Goal): GoalTask | undefined {
-    const workflow = goal.state.workflow;
-    return workflow.phase === "planning"
-        && workflow.preparation.status === "waiting_approval"
-        ? workflow.preparation.proposal
-        : undefined;
+    const interaction = goal.state.run.pendingInteraction;
+    if (interaction?.kind === "task_approval") {
+        return interaction.proposal;
+    }
+    return goal.state.workflow.task;
 }
 
 function deriveBlockedReason(goal: Goal): string | undefined {
@@ -1851,7 +1782,7 @@ function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
 }
 
 /**
- * 依据工具和输入格式化准备阶段探查的进行中提示。
+ * 依据工具和输入格式化任务批准前只读探查的进行中提示。
  *
  * @param toolId - 只读工具标识。
  * @param input - 工具输入。

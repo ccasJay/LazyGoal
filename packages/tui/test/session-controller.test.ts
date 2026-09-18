@@ -12,7 +12,7 @@ import {
     type LaunchResult,
     type ResumeGoalRequest,
     type TrajectoryEvent,
-    type PreparationProbeProgressEvent,
+    type PlanProbeProgressEvent,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
@@ -46,8 +46,28 @@ function createWaitingGoal(id = "goal-1"): Goal {
         state: {
             ...goal.state,
             workflow: {
-                phase: "gathering_context",
-                preparation: { status: "waiting_input" },
+                phase: "executing",
+            },
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "ask_user",
+                    requestId: "ask-1",
+                    mode: "plan",
+                    questions: [
+                        {
+                            id: "q-1",
+                            header: "Database Choice",
+                            question: "Which database should be used?",
+                            options: [
+                                { id: "opt-1", label: "PostgreSQL" },
+                                { id: "opt-2", label: "SQLite" },
+                            ],
+                            multiSelect: false,
+                        },
+                    ],
+                },
             },
             messages: [
                 ...goal.state.messages,
@@ -61,34 +81,12 @@ function createWaitingGoal(id = "goal-1"): Goal {
     };
 }
 
-function createStalledGoal(id = "goal-stalled"): Goal {
-    const goal = createGoal({
-        ...currentProtocols,
-        promptBundleVersion: 1,
-        id,
-        intent: "Build a resumable workflow",
-        profile,
-        runId: `run-${id}`,
-    });
-
-    return {
-        ...goal,
-        state: {
-            ...goal.state,
-            workflow: {
-                phase: "gathering_context",
-                preparation: { status: "active" },
-            },
-        },
-    };
-}
-
 function waitingResult(goal: Goal): GoalProgressResult {
     return {
         ok: true,
         kind: "waiting",
-        phase: "gathering_context",
-        waitingFor: "question",
+        phase: "executing",
+        waitingFor: "ask_user",
         goal,
     };
 }
@@ -107,14 +105,14 @@ class FakeLauncher implements SessionLauncher {
 class FakeCoordinator implements SessionCoordinator {
     readonly advanceRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
     readonly resumeRequests: ResumeGoalRequest[] = [];
-    private probeListeners = new Set<(event: PreparationProbeProgressEvent) => void>();
+    private probeListeners = new Set<(event: PlanProbeProgressEvent) => void>();
 
-    readonly onProbeProgress = (listener: (event: PreparationProbeProgressEvent) => void): (() => void) => {
+    readonly onProbeProgress = (listener: (event: PlanProbeProgressEvent) => void): (() => void) => {
         this.probeListeners.add(listener);
         return () => this.probeListeners.delete(listener);
     };
 
-    emitProbeProgress(event: PreparationProbeProgressEvent): void {
+    emitProbeProgress(event: PlanProbeProgressEvent): void {
         for (const listener of this.probeListeners) listener(event);
     }
 
@@ -214,13 +212,13 @@ test("create maps Launcher result into a session ViewModel", async () => {
     }]);
     const view = sessionView(controller);
     assert.equal(view.goal.id, "goal-created");
-    assert.equal(view.waitingFor, "question");
-    assert.equal(view.question, "Which database should be used?");
+    assert.equal(view.waitingFor, "ask_user");
+    assert.equal(view.askUser?.questions[0]?.question, "Which database should be used?");
     assert.equal(view.busy, false);
     assert.ok(notifications.length >= 2);
 });
 
-test("preparation 探查进度会显示 Spinner、固化步骤并过滤其他 Goal", async () => {
+test("任务批准前探查进度会显示 Spinner、固化步骤并过滤其他 Goal", async () => {
     const goal = createWaitingGoal("goal-probe-tracking");
     const coordinator = new FakeCoordinator(waitingResult(goal));
     const controller = new SessionController({
@@ -254,8 +252,8 @@ test("preparation 探查进度会显示 Spinner、固化步骤并过滤其他 Go
     });
     let view = sessionView(controller);
     assert.equal(view.activeProbeDescription, undefined);
-    assert.equal(view.preparationSteps?.[0]?.actionId, "probe-1");
-    assert.equal(view.preparationSteps?.[0]?.outputSummary, "Read 120 lines");
+    assert.equal(view.committedSteps?.[0]?.actionId, "probe-1");
+    assert.equal(view.committedSteps?.[0]?.outputSummary, "Read 120 lines");
 
     coordinator.emitProbeProgress({
         kind: "started",
@@ -276,7 +274,7 @@ test("continueLatest lists candidates, restores the newest Goal, and advances it
         goalId: goal.id,
         runId: goal.state.run.id,
         intent: goal.definition.intent,
-        workflowPhase: "gathering_context",
+        workflowPhase: "executing",
         runStatus: "waiting",
         updatedAt: "2026-08-17T00:00:00.000Z",
     };
@@ -306,7 +304,7 @@ test("resume opens the ordered Goal selector without restoring or creating a Goa
         goalId: "goal-newest",
         runId: "run-newest",
         intent: "Newest resumable Goal",
-        workflowPhase: "planning",
+        workflowPhase: "executing",
         runStatus: "waiting",
         updatedAt: "2026-08-17T02:00:00.000Z",
     };
@@ -314,7 +312,7 @@ test("resume opens the ordered Goal selector without restoring or creating a Goa
         goalId: "goal-older",
         runId: "run-older",
         intent: "Older resumable Goal",
-        workflowPhase: "gathering_context",
+        workflowPhase: "executing",
         runStatus: "running",
         updatedAt: "2026-08-17T01:00:00.000Z",
     };
@@ -387,7 +385,7 @@ test("continueLatest selects the first Catalog entry for -c semantics", async ()
         goalId: first.id,
         runId: first.state.run.id,
         intent: first.definition.intent,
-        workflowPhase: "gathering_context",
+        workflowPhase: "executing",
         runStatus: "waiting",
         updatedAt: "2026-08-17T02:00:00.000Z",
     };
@@ -395,7 +393,7 @@ test("continueLatest selects the first Catalog entry for -c semantics", async ()
         goalId: second.id,
         runId: second.state.run.id,
         intent: second.definition.intent,
-        workflowPhase: "gathering_context",
+        workflowPhase: "executing",
         runStatus: "waiting",
         updatedAt: "2026-08-17T01:00:00.000Z",
     };
@@ -483,7 +481,13 @@ test("session commands map to Coordinator resume actions", async () => {
     await controller.dispatch({ kind: "create", intent: "Start" });
 
     await controller.dispatch({ kind: "submitMessage", content: "Use SQLite" });
-    await controller.dispatch({ kind: "approveTask" });
+    await controller.dispatch({ kind: "approveTask", requestId: "prop-1" });
+    await controller.dispatch({ kind: "feedbackTask", requestId: "prop-1", feedback: "Modify criteria" });
+    await controller.dispatch({
+        kind: "answerAskUser",
+        requestId: "ask-1",
+        answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
+    });
     await controller.dispatch({ kind: "approveAction", actionId: "action-1" });
     await controller.dispatch({
         kind: "rejectAction",
@@ -501,7 +505,19 @@ test("session commands map to Coordinator resume actions", async () => {
         },
         {
             ref: { goalId: goal.id, runId: goal.state.run.id },
-            action: { kind: "approve" },
+            action: { kind: "approve_task", requestId: "prop-1" },
+        },
+        {
+            ref: { goalId: goal.id, runId: goal.state.run.id },
+            action: { kind: "feedback_task", requestId: "prop-1", feedback: "Modify criteria" },
+        },
+        {
+            ref: { goalId: goal.id, runId: goal.state.run.id },
+            action: {
+                kind: "answer_ask_user",
+                requestId: "ask-1",
+                answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
+            },
         },
         {
             ref: { goalId: goal.id, runId: goal.state.run.id },
@@ -572,7 +588,7 @@ test("a launch failure after persistence keeps the claimed Goal active", async (
         ok: false,
         error: {
             code: "INVALID_PHASE_RESULT",
-            message: "Preparation result did not match the current phase",
+            message: "Agent decision did not match the current execution lifecycle",
         },
     });
     const controller = new SessionController(
@@ -690,132 +706,72 @@ test("a result that races with shutdown cannot resurrect the session screen", as
     assert.equal(controller.getSnapshot().screen, "shutting_down");
 });
 
-test("retryPreparation recovers an interrupted preparation without restoring from the store", async () => {
-    const stalled = createStalledGoal("goal-created");
-    const recovered = createWaitingGoal("goal-created");
-    const coordinator = new FakeCoordinator(waitingResult(recovered));
-    const store = new FakeStore([stalled]);
+test("session derives askUser request and mode from pendingInteraction", async () => {
+    const goal = createWaitingGoal("goal-ask-derive");
+    const coordinator = new FakeCoordinator(waitingResult(goal));
+    const store = new FakeStore([goal]);
     const controller = new SessionController(
         dependencies(
-            new FakeLauncher({
-                ok: false,
-                error: {
-                    code: "INVALID_CONTEXT_LOOKUP",
-                    message: "Preparation was interrupted",
-                },
-            }),
+            new FakeLauncher(waitingResult(goal)),
             coordinator,
             store,
             new FakeCatalog([]),
         ),
     );
     await controller.dispatch({ kind: "create", intent: "Start" });
-    store.requestedGoalIds.length = 0;
-    assert.equal(sessionView(controller).preparationStalled, true);
-
-    await controller.dispatch({ kind: "retryPreparation" });
-
-    assert.deepEqual(coordinator.advanceRefs, [{
-        goalId: stalled.id,
-        runId: stalled.state.run.id,
-    }]);
-    assert.deepEqual(store.requestedGoalIds, []);
-    const view = sessionView(controller);
-    assert.equal(view.waitingFor, "question");
-    assert.equal(view.preparationStalled, undefined);
-    assert.equal(view.error, undefined);
-});
-
-test("an interrupted preparation is exposed as a retryable session state", async () => {
-    const goal = createStalledGoal("goal-created");
-    const controller = new SessionController(
-        dependencies(
-            new FakeLauncher({
-                ok: false,
-                error: {
-                    code: "INVALID_CONTEXT_LOOKUP",
-                    message: "Preparation was interrupted",
-                },
-            }),
-            new FakeCoordinator(waitingResult(goal)),
-            new FakeStore([goal]),
-            new FakeCatalog([]),
-        ),
-    );
-
-    await controller.dispatch({ kind: "create", intent: "Start" });
 
     const view = sessionView(controller);
-    assert.equal(view.preparationStalled, true);
-    assert.equal(view.waitingFor, undefined);
-    assert.equal(view.error?.code, "INVALID_CONTEXT_LOOKUP");
-    assert.equal(view.busy, false);
+    assert.equal(view.waitingFor, "ask_user");
+    assert.equal(view.interactionMode, "plan");
+    assert.equal(view.askUser?.requestId, "ask-1");
+    assert.equal(view.askUser?.questions.length, 1);
+    assert.equal(view.askUser?.questions[0]?.header, "Database Choice");
 });
 
-test("a planning goal interrupted before a proposal is also retryable", async () => {
-    const base = createStalledGoal("goal-created");
-    const planning: Goal = {
+test("session derives proposal and approvalRequest from task_approval pendingInteraction", async () => {
+    const base = createWaitingGoal("goal-prop-derive");
+    const proposalGoal: Goal = {
         ...base,
         state: {
             ...base.state,
-            workflow: { phase: "planning", preparation: { status: "active" } },
+            run: {
+                ...base.state.run,
+                status: "waiting",
+                pendingInteraction: {
+                    kind: "task_approval",
+                    requestId: "prop-99",
+                    proposal: {
+                        objective: "Deploy service to staging",
+                        completionCriteria: [{ text: "Service healthcheck is 200" }],
+                    },
+                    approvalRequest: "Please approve deployment plan",
+                },
+            },
         },
+    };
+    const progressResult: GoalProgressResult = {
+        ok: true,
+        kind: "waiting",
+        phase: "executing",
+        waitingFor: "task_approval",
+        goal: proposalGoal,
     };
     const controller = new SessionController(
         dependencies(
-            new FakeLauncher({
-                ok: false,
-                error: {
-                    code: "INVALID_CONTEXT_LOOKUP",
-                    message: "Preparation was interrupted",
-                },
-            }),
-            new FakeCoordinator(waitingResult(planning)),
-            new FakeStore([planning]),
+            new FakeLauncher(progressResult),
+            new FakeCoordinator(progressResult),
+            new FakeStore([proposalGoal]),
             new FakeCatalog([]),
         ),
     );
 
     await controller.dispatch({ kind: "create", intent: "Start" });
 
-    assert.equal(sessionView(controller).preparationStalled, true);
-});
-
-test("a goal waiting for user input is never marked as stalled", async () => {
-    const waiting = createWaitingGoal("goal-not-stalled");
-    const controller = new SessionController(
-        dependencies(
-            new FakeLauncher(waitingResult(waiting)),
-            new FakeCoordinator(waitingResult(waiting)),
-            new FakeStore([]),
-            new FakeCatalog([]),
-        ),
-    );
-
-    await controller.dispatch({ kind: "create", intent: "Start" });
-
-    assert.equal(sessionView(controller).preparationStalled, undefined);
-    assert.equal(sessionView(controller).waitingFor, "question");
-});
-
-test("retryPreparation reports a stable error without an active session", async () => {
-    const goal = createWaitingGoal("goal-retry-no-session");
-    const coordinator = new FakeCoordinator(waitingResult(goal));
-    const controller = new SessionController(
-        dependencies(
-            new FakeLauncher(waitingResult(goal)),
-            coordinator,
-            new FakeStore([]),
-            new FakeCatalog([]),
-        ),
-    );
-
-    await controller.dispatch({ kind: "retryPreparation" });
-
-    const view = controller.getSnapshot();
-    assert.equal(view.screen, "intent_input");
-    assert.equal(view.error?.code, "NO_ACTIVE_SESSION");
-    assert.deepEqual(coordinator.advanceRefs, []);
+    const view = sessionView(controller);
+    assert.equal(view.waitingFor, "task_approval");
+    assert.equal(view.proposal?.objective, "Deploy service to staging");
+    assert.equal(view.proposalRequestId, "prop-99");
+    assert.equal(view.approvalRequest, "Please approve deployment plan");
 });
 
 test("initialScreen: home initializes snapshot with home screen and environment summary", () => {
@@ -953,7 +909,6 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
             ...pendingGoal.state,
             workflow: {
                 phase: "executing",
-                preparation: { status: "completed" },
                 task: { objective: "Execute", completionCriteria: [] },
             },
             run: {
@@ -1021,10 +976,11 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
 
 test("YOLO keeps advancement serialized and switches to Confirm during an in-flight action", async () => {
     const base = createWaitingGoal("goal-live-mode");
+    const { pendingInteraction: _pendingInteraction, ...runWithoutPendingInteraction } = base.state.run;
     const goal: Goal = { ...base, state: { ...base.state,
-        workflow: { phase: "executing", preparation: { status: "completed" },
+        workflow: { phase: "executing",
             task: { objective: "Review files", completionCriteria: [] } },
-        run: { ...base.state.run, status: "waiting", pendingAction: {
+        run: { ...runWithoutPendingInteraction, status: "waiting", pendingAction: {
             status: "awaiting_approval",
             action: { actionId: "act-1", toolId: "bash", input: {} },
         } },
@@ -1073,7 +1029,7 @@ test("YOLO publishes busy snapshots throughout consecutive approvals", async () 
     const resultAt = (index: number): GoalProgressResult => ({
         ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
         goal: { ...base, state: { ...base.state,
-            workflow: { phase: "executing", preparation: { status: "completed" },
+            workflow: { phase: "executing",
                 task: { objective: "Review files", completionCriteria: [] } },
             run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
                 status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
@@ -1242,7 +1198,7 @@ test("inspect mode selectGoal orchestrates trajectory loading and event projecti
     if (view.screen === "inspector") {
         assert.equal(view.goalId, "goal-inspect-ok");
         assert.equal(view.totalSteps, 2);
-        assert.equal(view.steps[0]?.title, "Step 1: Preparation & Planning");
+        assert.equal(view.steps[0]?.title, "Step 1: Goal Initialized");
         assert.equal(view.steps[1]?.title, "Step 2: Execution (unit-1)");
         assert.equal(view.steps[1]?.decision?.summary, "Inspection done");
     }

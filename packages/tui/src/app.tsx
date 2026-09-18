@@ -5,7 +5,6 @@ import { SessionController } from "./session-controller";
 import { HomeScreen } from "./home-screen";
 import { SettingsScreen } from "./settings-screen";
 import { IntentScreen } from "./intent-screen";
-import { PreparationScreen } from "./preparation-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
 import { InspectorScreen } from "./inspector-screen";
@@ -121,7 +120,7 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                 />
             );
         case "session":
-            return snapshot.phase === "executing" ? (
+            return (
                 <SessionScreen
                     session={snapshot}
                     onSubmitMessage={(content) => dispatch({
@@ -139,17 +138,20 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     })}
                     onToggleExecutionMode={() => dispatch({ kind: "toggleExecutionMode" })}
                     onCommandEffect={handleCommandEffect}
-                />
-            ) : (
-                <PreparationScreen
-                    session={snapshot}
-                    onSubmitMessage={(content) => dispatch({
-                        kind: "submitMessage",
-                        content,
+                    onAnswerAskUser={(requestId, answers) => dispatch({
+                        kind: "answerAskUser",
+                        requestId,
+                        answers,
                     })}
-                    onApproveTask={() => dispatch({ kind: "approveTask" })}
-                    onRetry={() => dispatch({ kind: "retryPreparation" })}
-                    onCommandEffect={handleCommandEffect}
+                    onApproveTask={(requestId) => dispatch({
+                        kind: "approveTask",
+                        ...(requestId !== undefined ? { requestId } : {}),
+                    })}
+                    onFeedbackTask={(requestId, feedback) => dispatch({
+                        kind: "feedbackTask",
+                        ...(requestId !== undefined ? { requestId } : {}),
+                        feedback,
+                    })}
                 />
             );
         case "model_select":
