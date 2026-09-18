@@ -68,4 +68,4 @@
 
 ### Latest Result
 
-已完成（2026-09-18）。`npx tsc --noEmit --pretty false` 通过；`npm test` 通过类型检查、依赖边界检查（149 个源文件）、1087 个 TypeScript 测试和 13 个脚本测试。统一交互、AskUserPanel、任务提案、只读探查、恢复、Evidence、Context Retrieval、TUI timeline/stream barrier、ALFWorld/SWE-bench Headless Root 均有定向或全量证据；旧 Preparation Snapshot/Event 仍由 Storage/Trajectory fail-closed 拒绝。TUI 手工检查以 `ink-testing-library` 的 AskUserPanel、SessionScreen、流式时间线和终端关闭回归覆盖，未启动需要外部 LLM 凭据的交互会话。
+已完成（2026-09-18）。`npx tsc --noEmit --pretty false` 通过；`npm test` 通过类型检查、依赖边界检查（149 个源文件）、1087 个 TypeScript 测试和 13 个脚本测试。统一交互、AskUserPanel、任务提案、只读探查、恢复、Evidence、Context Retrieval、TUI timeline/stream barrier、ALFWorld/SWE-bench Headless Root 均有定向或全量证据；旧 Preparation Snapshot/Event 仍由 Storage/Trajectory fail-closed 拒绝。另以注入确定性 Adapter 启动真实 Ink TTY，手工完成“输入目标 → 计划问题方向键/回车选择 → 任务提案 → Y 批准 → 完成态 → Ctrl-C 退出”链路，并确认选择结果、统一 Session 时间线和安全退出行为；未启动需要外部 LLM 凭据的交互会话。

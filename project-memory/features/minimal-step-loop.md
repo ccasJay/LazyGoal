@@ -4,7 +4,7 @@ status: active
 summary: "Launcher 的 Profile 冻结、首次保存与 Coordinator 委派边界"
 source_spec: specs/minimal-step-loop/
 distilled_at: 2026-08-16
-reviewed_at: 2026-08-18
+reviewed_at: 2026-09-18
 tags: [launcher, profile, initial-snapshot, coordinator]
 authorities: [docs/architecture/runtime.md, packages/runtime/src/launcher.ts]
 ---
@@ -19,7 +19,7 @@ authorities: [docs/architecture/runtime.md, packages/runtime/src/launcher.ts]
 
 - D1 — Launcher 必须在生成 Goal 身份和首次保存前解析并冻结显式选择的 Profile；启动后的 Registry 变化不得改变该 Goal。 [S1, S2, S3, S4]
 - D2 — 初始完整快照必须先于任何下游推进保存；保存成功后，Launcher 才将 Goal 交给 Coordinator。 [S1, S2, S3, S4]
-- D3 — Launcher 负责创建和启动边界，不直接提交 Scheduler、执行 Step 或调用 Tool；Preparation 与 Executing 的推进由 Coordinator 协调。 [S3, S4, S5, S6]
+- D3 — Launcher 负责创建、首次保存和启动边界，不直接提交 Scheduler、执行 Step 或调用 Tool；后续统一 executing 推进、交互等待和恢复由 Coordinator 协调。 [S3, S4, S5, S6]
 
 ## Guardrails
 

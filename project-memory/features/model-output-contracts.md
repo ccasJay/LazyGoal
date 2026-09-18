@@ -4,7 +4,7 @@ status: active
 summary: "基于 Contract AST 统一构建模型输出 Wire 契约、Shape Guide 与共用 Schema，消除 Zod 依赖并支持固定结构化输出模式"
 source_spec: specs/model-output-contracts/
 distilled_at: 2026-09-05
-reviewed_at: 2026-09-05
+reviewed_at: 2026-09-18
 tags: [agent, contracts, model-output, structured-output, request-plan, wire-envelope, llm-adapter]
 authorities: [docs/architecture/agent.md, docs/architecture/llm.md, packages/contracts/src/model-output/wire.ts, packages/contracts/src/model-output/factory.ts, packages/agent/src/model-output.ts, packages/agent/src/prompt.ts, packages/llm/src/core/adapter.ts, packages/llm/src/openai-compatible.ts, packages/llm/src/gemini.ts, packages/tui/src/cli.tsx, benchmarks/alfworld/src/cli.ts]
 ---
@@ -18,7 +18,7 @@ authorities: [docs/architecture/agent.md, docs/architecture/llm.md, packages/con
 ## Durable Decisions
 
 - D1 — 统一 Wire 响应结构与 `result` Envelope：模型输出必须使用外层 `{ result: ... }` envelope 包裹，内部可选字段定义为必填可空（如 `memoryPatch: MemoryPatch | null`），以兼容严格模式与 prompt-only 模式共用一份 JSON Schema。 [S1, S3]
-- D2 — 成对绑定的请求计划与阶段独占分支：`buildPreparationRequest` 与 `buildStepRequest` 成对返回 `LLMRequest` 与 `ModelOutputContractBundle`，严格按阶段限制允许分支（gathering 只允许 question/context_ready；planning 只允许 task_proposal；executing 允许 Tool/complete 等；预算超限时单向切换为独占 context_checkpoint Bundle）。 [S1, S5]
+- D2 — `buildStepRequest` 与 `ModelOutputContractBundle` 成对绑定，按 task 是否已批准限制统一 executing 分支：未批准只暴露 ask_user/task_proposal/context_lookup/只读 Tool，已批准才暴露完整 Tool/complete/wait/fail；预算超限时单向切换为独占 context_checkpoint Bundle。 [S1, S5, S10, S11]
 - D3 — 双模式对齐与 Token 预算感知：`prompt_only` 模式下将 Shape Guide 注入动态控制消息末尾并计入 `TokenBudgetPlanner`；`strict` 模式下不注入 Guide，直接向 `LLMRequest` 挂载原生 JSON Schema。 [S1, S5]
 - D4 — LLM Adapter 固定模式与原生 Schema 映射：Adapter 在构造时显式固定 `structuredOutputMode: "strict" | "prompt_only"`，网络请求前校验模式一致性；`OpenAICompatible` 映射为 `response_format.json_schema`，`Gemini` 映射为 `responseJsonSchema` 与 `responseMimeType`，SDK 拒绝直接抛出，严禁隐式降级重试。 [S1, S6, S7]
 - D5 — TUI 与 Benchmark 配置显式化：`LLM_STRUCTURED_OUTPUT_MODE` 成为 TUI 与 ALFWorld CLI 的必填环境变量，只接受 `strict` 或 `prompt_only`，在产生 Store 或 Goal 副作用前快速失败。 [S1, S8]
@@ -48,3 +48,4 @@ authorities: [docs/architecture/agent.md, docs/architecture/llm.md, packages/con
 - S8: `packages/tui/src/cli.tsx`
 - S9: `packages/agent/test/model-output.test.ts`
 - S10: `packages/tui/test/prompt-bundle-integration.test.ts`
+- S11: `specs/preparation-phase-removal/design.md`

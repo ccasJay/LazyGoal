@@ -4,7 +4,7 @@ status: active
 summary: "提供无头单任务基准组合根，解耦环境适配与通用 Goal 生命周期"
 source_spec: specs/headless-benchmark-composition/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-09-18
 tags: [benchmark, headless, composition-root, architecture, runner]
 authorities: [docs/architecture/README.md, benchmarks/src/headless-composition-root.ts, benchmarks/src/file-persistence-adapter.ts]
 ---
@@ -17,7 +17,7 @@ authorities: [docs/architecture/README.md, benchmarks/src/headless-composition-r
 
 ## Durable Decisions
 
-- D1 — 通用 Headless 组合根独立编排单个任务的完整生命周期（Preparation、Planning、Approval、Executing），不引入人工 TUI 交互或交互式 stdin 阻塞。 [S1, S2, S3]
+- D1 — 通用 Headless 组合根独立编排单个任务的统一 executing 生命周期，包括 task proposal/approval、Tool/Observation、恢复和终态；不引入人工 TUI 交互或交互式 stdin 阻塞。 [S1, S2, S3, S4, S5]
 - D2 — Benchmark Adapter 职责高度可替换且与领域解耦，通用运行入口不解析任何特定基准环境的评分规则或专有协议字段。 [S1, S2, S3]
 - D3 — 每个任务必须使用独立隔离的环境会话、Tool Registry 与持久化状态，杜绝跨任务隐藏状态污染。 [S1, S2, S3, S5]
 - D4 — 严格复用现有 Runtime/Agent 边界与持久化语义，Snapshot、Action/Observation 和 Trajectory 提交边界行为与标准 Goal 保持一致。 [S1, S2, S4]

@@ -1,11 +1,10 @@
 ---
 feature: three-view-architecture
-status: needs-review
-status_reason: "当前 Snapshot Codec 已从 v5 扩展为 v6，并新增 committedThroughSequence；原 D2 仍描述 v5，需后续维护审查。"
+status: active
 summary: "Runtime/Storage/LLM 三视图分层、Codec/Projector 转换边界与 Legacy 删除"
 source_spec: specs/three-view-architecture/
 distilled_at: 2026-08-19
-reviewed_at: 2026-08-26
+reviewed_at: 2026-09-18
 tags: [three-view, codec, projector, dependency-boundary, storage, agent, legacy-removal]
 authorities: [docs/architecture/README.md, docs/architecture/runtime.md, docs/architecture/storage.md, docs/architecture/agent.md, packages/storage/src/goal-snapshot-codec.ts, packages/agent/src/model-inference-projector.ts, scripts/check-dependencies.mjs]
 supersedes: [project-memory/features/goal-session-persistence.md]
@@ -21,7 +20,7 @@ supersedes: [project-memory/features/goal-session-persistence.md]
 ## Durable Decisions
 
 - D1 — Runtime `Goal` 不再携带 `metadata.schemaVersion`；`RunState` 只保留当前 Action/Observation 协议所需的 `checkpoint`、`lastStep`、`pendingAction`、`stopReason`，其余旧运行状态类型删除。 [S1, S2, S5]
-- D2 — Goal Codec 当前只接受严格 v5：decode 校验后构造不含 Snapshot metadata 的 Goal，encode 补入当前 schema version 并执行跨字段校验；v1–v4、缺失版本和未知版本统一以稳定协议错误拒绝，绝不迁移或回写原文件。 [S2, S3, S8, S9, S10]
+- D2 — Goal Codec 当前只接受严格 Snapshot v1：decode 校验后构造不含 Snapshot metadata 的 Goal，encode 补入当前 schema version 并执行跨字段校验；旧版本、缺失版本、未知版本和旧 Preparation 字段统一以稳定协议错误拒绝，绝不迁移或回写原文件。 [S2, S3, S8, S9, S10]
 - D3 — `ModelInferenceView`（DTO 文件不导入 Runtime）由独立 Projector 逐字段复制生成新对象，覆盖 Profile 指令、完整真实会话、阶段化 Working Context 与已授权 Tool 描述，排除 Snapshot 版本、迁移标记与瞬时执行资源。 [S1, S2, S4]
 - D4 — `StepResult`、`LegacyStepExecutor`、`legacy StepRecord`、旧 `RunInput.step` 及其 overload 全部删除；Runner 统一为单一 `AgentDecision` 路径，非协议 Executor 异常规范化为当前 `fail` Decision 并保持失败、计步和用户可见错误语义。 [S1, S2, S5]
 - D5 — 源码依赖固定：`packages/runtime` 不导入 `storage`/`agent`；`storage` 与 `agent` 各自依赖 `runtime` 且互不依赖；只有 Codec 与 Projector 允许同时看到两侧类型；`tui` 作为 Composition Root 组合具体实现。 [S1, S2, S6]

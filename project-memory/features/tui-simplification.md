@@ -4,7 +4,7 @@ status: active
 summary: "TUI 状态面收窄、流程去重与统一提交闸门"
 source_spec: specs/tui-simplification/
 distilled_at: 2026-08-25
-reviewed_at: 2026-08-25
+reviewed_at: 2026-09-18
 tags: [tui, simplification, submit-gate, controller, lifecycle]
 authorities: [docs/architecture/tui.md, packages/tui/src/session-controller.ts, packages/tui/src/use-submit-gate.ts]
 ---
@@ -19,7 +19,7 @@ authorities: [docs/architecture/tui.md, packages/tui/src/session-controller.ts, 
 
 - D1 — `fatal` 屏幕和 `openGoalSelect` 命令不属于当前生产状态空间；Catalog 读取与 SIGINT 清理分别收敛为单一实现。 [S1, S2, S3, S4, S6]
 - D2 — Session ViewModel 对 Goal 只做一次隔离克隆，派生字段直接使用该克隆；该规则保持快照隔离而不引入重复深克隆。 [S1, S2, S4, S7]
-- D3 — intent、goal-select、preparation、blocked 和 action 五处交互统一使用包内私有 `useSubmitGate`，集中处理 busy、锁、防重复提交和本地空值校验。 [S1, S2, S5, S7]
+- D3 — intent、goal-select、ask_user/task_approval、blocked 和 action 交互统一使用包内私有 `useSubmitGate`，集中处理 busy、锁、防重复提交和本地空值校验。 [S1, S2, S5, S7]
 
 ## Guardrails
 

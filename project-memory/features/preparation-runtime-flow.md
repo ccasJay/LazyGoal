@@ -1,10 +1,12 @@
 ---
 feature: preparation-runtime-flow
-status: active
+status: superseded
 summary: "规范 Preparation 结构化增量、用户输入溯源与 Working Memory 阶段提交边界"
 source_spec: specs/preparation-runtime-flow/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-09-18
+status_reason: "Preparation 专属数据流已由 preparation-phase-removal 的统一 executing、pendingInteraction 与 Evidence 边界替代。"
+superseded_by: [project-memory/features/preparation-phase-removal.md]
 tags: [preparation, runtime, working-memory, provenance, evidence-gate]
 authorities: [docs/architecture/runtime.md, docs/architecture/agent.md, packages/runtime/src/evidence-gate.ts, packages/runtime/src/working-memory-core.ts, packages/runtime/src/trajectory-checkpoint-committer.ts]
 ---

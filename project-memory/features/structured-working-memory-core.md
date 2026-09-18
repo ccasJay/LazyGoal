@@ -4,7 +4,7 @@ status: active
 summary: "提供跨阶段可恢复、基于 Patch 提议与 Snapshot 提交边界的结构化工作记忆核心"
 source_spec: specs/structured-working-memory-core/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-09-18
 tags: [working-memory, memory-patch, state-separation, restoration, runtime]
 authorities: [docs/architecture/runtime.md, packages/runtime/src/working-memory-core.ts, packages/runtime/src/working-memory-session.ts, packages/runtime/src/domain.ts]
 ---
@@ -13,7 +13,7 @@ authorities: [docs/architecture/runtime.md, packages/runtime/src/working-memory-
 
 ## Purpose
 
-- 为 Goal 提供跨准备与执行阶段可用、可从已提交 Trajectory 确定性重建的结构化 Working Memory，并确保模型提出的增量必须经业务校验与 Snapshot 边界提交后才生效。 [S1, S2]
+- 为统一 executing 生命周期提供可恢复、可从已提交 Trajectory 确定性重建的结构化 Working Memory；模型提出的增量必须经业务校验与 Snapshot 边界提交后才生效。 [S1, S2, S3, S4]
 
 ## Durable Decisions
 

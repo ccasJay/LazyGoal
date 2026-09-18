@@ -1,10 +1,12 @@
 ---
 feature: goal-preparation-workflow
-status: active
+status: superseded
 summary: "Preparation 阶段所有权、真实消息与显式批准边界"
 source_spec: specs/goal-preparation-workflow/
 distilled_at: 2026-08-16
-reviewed_at: 2026-08-18
+reviewed_at: 2026-09-18
+status_reason: "Preparation 生命周期已由 preparation-phase-removal 统一收敛到 executing 交互；原有协调与批准边界仅作为历史决策保留。"
+superseded_by: [project-memory/features/preparation-phase-removal.md]
 tags: [coordinator, preparation, working-context, approval]
 authorities: [docs/architecture/runtime.md, packages/runtime/src/goal-coordinator.ts, docs/architecture/agent.md]
 ---

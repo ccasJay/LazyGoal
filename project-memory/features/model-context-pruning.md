@@ -4,7 +4,7 @@ status: active
 summary: "按完整执行单元和字符预算裁剪单轮模型 Conversation，同时保留完整 Goal 历史"
 source_spec: specs/model-context-pruning/
 distilled_at: 2026-08-23
-reviewed_at: 2026-08-23
+reviewed_at: 2026-09-18
 tags: [context-pruning, context-unit, conversation, compactor, agent, recovery]
 authorities: [docs/architecture/agent.md, packages/agent/src/context-unit.ts, packages/agent/src/conversation-context-unit-adapter.ts, packages/agent/src/context-compactor.ts, packages/agent/src/prompt.ts, packages/tui/src/cli.tsx]
 ---
@@ -21,7 +21,7 @@ authorities: [docs/architecture/agent.md, packages/agent/src/context-unit.ts, pa
 
 - D1 — `ContextUnit` 是来源无关的完整裁剪单元，只暴露有序 `items` 和 Adapter 预先计算的 `characterCount`；当前 Conversation Adapter 将每条 user 消息及之后连续的 assistant 消息组成一个单元，开头连续的 assistant 消息组成前缀单元，字符数按消息 `content.length` 的 UTF-16 code unit 之和计算。 [S1, S2, S3, S4, S8]
 - D2 — 默认 `DropOldestContextCompactor` 无状态且确定性地保留连续最新后缀：从最新单元向旧单元累计，遇到首个无法完整容纳的单元即停止，不拆分、不跳选；最新单元即使单独超限也始终完整保留，因此预算是软上限。 [S1, S2, S5, S9]
-- D3 — 每次模型调用统一执行 Projector → Conversation Adapter → await Compactor → Renderer；只在新 View 中替换 Conversation，system prompt、PromptContext、Authorized Tools、Working Context 和 pendingAction 保持不变。Preparation 与 Step Executor 共享同一异步 Compactor、透传 `AbortSignal`，裁剪失败或中止时不得调用 LLM Adapter。 [S1, S2, S6, S10, S11]
+- D3 — 每次统一 executing 模型调用执行 Projector → Conversation Adapter → await Compactor → Renderer；只在新 View 中替换 Conversation，system prompt、PromptContext、Authorized Tools、Working Context 和 pendingAction 保持不变。所有 executing 交互共用同一异步 Compactor，裁剪失败或中止时不得调用 LLM Adapter。 [S1, S2, S6, S10, S11]
 - D4 — 裁剪只作用于单次 LLM Input View，不回写 Goal、不删除 Snapshot 消息、不升级 Snapshot Schema；每轮调用及跨进程恢复后都从完整历史重新投影并重新裁剪。 [S1, S2, S6, S10, S13, S14]
 - D5 — 默认 Conversation 字符预算固定为 `196608`，可通过 `LLM_CONVERSATION_CHAR_BUDGET` 覆盖；缺失或空白使用默认值，非正安全整数产生稳定配置错误，并在工作区、Store、Goal 或 LLM 操作前失败。Composition Root 只创建一个无状态默认 Compactor，并共享注入所有模型阶段。 [S1, S2, S5, S7, S12]
 
