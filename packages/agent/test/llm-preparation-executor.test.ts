@@ -109,9 +109,9 @@ function assertPreparationSystemContent(
     assert.ok(content.includes("Active Phase Protocol:"));
 
     if (phase === "gathering_context") {
-        assert.ok(content.includes("return exactly one question, context_ready, context_lookup, or allowed probe_action result"));
+        assert.ok(content.includes("system_ask_clarification, system_context_ready, system_context_lookup, or an authorized read-only tool for probe action"));
     } else {
-        assert.ok(content.includes("return exactly one task_proposal, context_lookup, or allowed probe_action result"));
+        assert.ok(content.includes("system_propose_task_plan, system_context_lookup, or an authorized read-only tool for probe action"));
     }
 
     assert.ok(content.includes("Authorized Tool definitions (only these Tool IDs may be requested):"));
@@ -332,7 +332,7 @@ test("Preparation Executor 将上一轮只读 Observation 与证据序号投影�
         adapter.requests[0]?.messages.at(-1)?.content ?? "",
     ) as Record<string, unknown>;
     assert.deepEqual(workingContext.lastProbeResult, lastProbeResult);
-    assert.match(adapter.requests[0]?.messages[0]?.content ?? "", /allowed probe_action/);
+    assert.match(adapter.requests[0]?.messages[0]?.content ?? "", /probe action/);
 });
 
 test("Preparation 探查达到上限时移除 probe_action 契约并注入收敛标记", async () => {

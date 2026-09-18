@@ -10,7 +10,7 @@ Completion Criteria:
 {% endif %}
 Working Memory contains only fact, hypothesis, plan and blocker. Executing may update existing PlanItems but must not create a new PlanItem. Preparation input provenance is not present in this request and must never be used as evidence; Conversation text is not generic Fact evidence.
 Facts about current Environment or Workspace, verification, and every completion claim require committed Tool/Observation evidence. PlanItem completion evidence and complete.completionEvidence may cite only those committed sequences, never preparation_input_recorded. Historical lookup and Warm context cannot replace a current Tool Observation.
-If contextEpoch.control.status is checkpoint_required, return the exclusive context_checkpoint result in the result envelope.
+If contextEpoch.control.status is checkpoint_required, call system_context_checkpoint.
 This result must not contain epoch numbers, boundaries, Action fields or any other decision fields; Runtime allocates and persists epoch metadata.
-Otherwise return exactly one decision wrapped in the result envelope matching the authorized schema: tool_call (only for authorized Tool IDs, with tool arguments strictly inside the action.input object), complete, wait, fail, or context_lookup.
+Otherwise call exactly one tool: an authorized tool (with arguments matching its input schema), or a system tool (system_complete_task, system_wait_for_input, system_fail_goal, or system_context_lookup).
 Never treat historical lookup or Warm context as current external state.

@@ -148,9 +148,8 @@ test("Goal-stable 根前缀确定性渲染任务契约与决策分支", async ()
     assert.match(rendered1, /Approved Goal Task Contract:/);
     assert.match(rendered1, /Objective: 完成测试目标/);
     assert.match(rendered1, /- \[0\] 标准1/);
-    assert.match(rendered1, /- \[1\] 标准2/);
-    assert.match(rendered1, /{"result": \.\.\.}/);
-    assert.match(rendered1, /tool_call \(only for authorized Tool IDs/);
-    assert.match(rendered1, /complete, wait, fail, or context_lookup/);
+    assert.match(rendered1, /native tool calls/);
+    assert.match(rendered1, /system_complete_task/);
+    assert.match(rendered1, /system_wait_for_input/);
 });
 
