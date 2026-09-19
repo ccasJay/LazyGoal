@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 定义并验证 Prompt Evaluation 当前版本协议
+- [x] //TODO 1. 定义并验证 Prompt Evaluation 当前版本协议
 
   - 实现目标：在 `benchmarks/src/` 定义请求、事件、结果与稳定错误/退出分类，并实现严格 JSON 解析、未知字段拒绝、路径和 benchmark ID 预检。
   - 成功判据：有效单候选请求可规范化；旧版本、未知字段、无效路径、多候选形状和未注册 benchmark 在任何模型或容器调用前失败。

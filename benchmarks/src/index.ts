@@ -140,5 +140,26 @@ export type {
     TuiSandboxRunOptions,
     TuiSandboxRunResult,
 } from "./tui-benchmark-runner.js";
-
+export {
+    PROMPT_EVALUATION_EXIT_CODES,
+    PROMPT_EVALUATION_PROTOCOL,
+    PromptEvaluationRequestError,
+    parsePromptEvaluationRequest,
+    readPromptEvaluationRequest,
+} from "./prompt-evaluation-protocol.js";
+export type {
+    PromptEvaluationBenchmarkId,
+    PromptEvaluationBenchmarkReference,
+    PromptEvaluationCandidate,
+    PromptEvaluationEventStage,
+    PromptEvaluationEventV1,
+    PromptEvaluationModelReference,
+    PromptEvaluationRequestErrorCode,
+    PromptEvaluationRequestParseOptions,
+    PromptEvaluationRequestV1,
+    PromptEvaluationResultV1,
+    PromptEvaluationStatus,
+    PromptEvaluationTaskResult,
+    PromptEvaluationTaskStatus,
+} from "./prompt-evaluation-protocol.js";
 
