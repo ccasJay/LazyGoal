@@ -273,6 +273,9 @@ export class PromptEvaluationRunner {
             benchmarkId: request.benchmark.id,
             manifestPath: request.benchmark.manifestPath,
             candidateId: request.candidate.id,
+            baseProfileId: request.candidate.baseProfileId,
+            promptSha256: fingerprint.promptSha256,
+            promptSummary: fingerprint.promptSummary,
             modelConfigId: request.model.configId,
             modelId: request.model.modelId,
             generatedAt: this.now(),
@@ -344,6 +347,7 @@ async function runAdapterTask(
             status: "infrastructure_error",
             domainResult: null,
             attemptPath: null,
+            artifactLocator: null,
             errors: [{ stage: "prompt_evaluation_runner", message: boundedErrorMessage(error) }],
         };
     }
@@ -366,6 +370,7 @@ function cancelledTask(taskId: string): PromptEvaluationTaskResult {
         status: "cancelled",
         domainResult: null,
         attemptPath: null,
+        artifactLocator: null,
         errors: [],
     };
 }

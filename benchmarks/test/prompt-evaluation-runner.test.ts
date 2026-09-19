@@ -51,6 +51,7 @@ function createAdapter(
         readonly status: "passed" | "failed" | "infrastructure_error" | "cancelled";
         readonly domainResult: { readonly won: boolean } | null;
         readonly attemptPath: string | null;
+        readonly artifactLocator: null;
         readonly errors: readonly [];
     }>,
 ): PromptEvaluationBenchmarkAdapter<FixtureTask, { readonly won: boolean }> {
@@ -80,6 +81,7 @@ test("PromptEvaluationRunner preserves adapter domain judgments and creates isol
             status: input.task.passed ? "passed" : "failed",
             domainResult: { won: input.task.passed },
             attemptPath: `/tmp/${input.task.id}.json`,
+            artifactLocator: null,
             errors: [],
         };
     });
@@ -130,6 +132,7 @@ test("PromptEvaluationRunner stops starting tasks after cancellation and lists t
             status: "cancelled",
             domainResult: null,
             attemptPath: null,
+            artifactLocator: null,
             errors: [],
         };
     });
@@ -155,6 +158,7 @@ test("PromptEvaluationBenchmarkRegistry rejects duplicate and missing adapters",
         status: "passed",
         domainResult: { won: true },
         attemptPath: null,
+        artifactLocator: null,
         errors: [],
     }));
     assert.throws(

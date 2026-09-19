@@ -104,6 +104,7 @@ export type PromptEvaluationTaskStatus =
  *   status: "failed",
  *   domainResult: { won: false },
  *   attemptPath: "/tmp/attempt.json",
+ *   artifactLocator: null,
  *   errors: [],
  * };
  * ```
@@ -117,8 +118,17 @@ export interface PromptEvaluationTaskResult<TDomain = unknown> {
     readonly domainResult: TDomain | null;
     /** 已提交 Attempt 的绝对路径；尚未提交时为 `null`。 */
     readonly attemptPath: string | null;
+    /** Goal Snapshot、Trajectory 与可选 Trace 的稳定定位。 */
+    readonly artifactLocator: PromptEvaluationArtifactLocator | null;
     /** 执行链记录的有界阶段错误。 */
     readonly errors: readonly BenchmarkAttemptError[];
+}
+
+/** Prompt Evaluation 汇总中保留的 LazyGoal 产物定位。 */
+export interface PromptEvaluationArtifactLocator {
+    readonly goalSnapshot: string;
+    readonly trajectory: string;
+    readonly diagnosticTrace?: string;
 }
 
 /** Prompt Evaluation 汇总的稳定终态。 */
@@ -139,6 +149,13 @@ export type PromptEvaluationStatus =
  *   benchmarkId: "alfworld",
  *   manifestPath: "/tmp/smoke.json",
  *   candidateId: "candidate-1",
+ *   baseProfileId: "alfworld-profile",
+ *   promptSha256: "a".repeat(64),
+ *   promptSummary: {
+ *     systemPromptCharacters: 20,
+ *     instructionCount: 1,
+ *     instructionCharacters: 30,
+ *   },
  *   modelConfigId: "default",
  *   modelId: "model-1",
  *   generatedAt: new Date().toISOString(),
@@ -153,6 +170,13 @@ export interface PromptEvaluationResultV1 {
     readonly benchmarkId: PromptEvaluationBenchmarkId;
     readonly manifestPath: string;
     readonly candidateId: string;
+    readonly baseProfileId: string;
+    readonly promptSha256: string;
+    readonly promptSummary: {
+        readonly systemPromptCharacters: number;
+        readonly instructionCount: number;
+        readonly instructionCharacters: number;
+    };
     readonly modelConfigId: string;
     readonly modelId: string;
     readonly generatedAt: string;

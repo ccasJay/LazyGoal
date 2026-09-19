@@ -83,6 +83,7 @@ export type {
     BenchmarkAttemptError,
     BenchmarkAttemptRecord,
     BenchmarkAttemptStatus,
+    PromptEvaluationAttemptMetadata,
 } from "./attempt-recorder.js";
 export type {
     EnvironmentHandle,
@@ -170,6 +171,7 @@ export type {
     PromptEvaluationTaskInput,
 } from "./prompt-evaluation-runner.js";
 export type {
+    PromptEvaluationArtifactLocator,
     PromptEvaluationBenchmarkId,
     PromptEvaluationBenchmarkReference,
     PromptEvaluationCandidate,
@@ -184,3 +186,8 @@ export type {
     PromptEvaluationTaskResult,
     PromptEvaluationTaskStatus,
 } from "./prompt-evaluation-protocol.js";
+export {
+    PromptEvaluationResultRecorder,
+    parsePromptEvaluationResult,
+    readPromptEvaluationResult,
+} from "./prompt-evaluation-result-recorder.js";

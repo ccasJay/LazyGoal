@@ -7,6 +7,44 @@ import type { HeadlessModelUsage, BenchmarkPersistenceLocator } from "./headless
 export type BenchmarkAttemptStatus = "completed" | "failed" | "cancelled" | "infrastructure_error";
 
 /**
+ * Prompt Evaluation 写入公共 Attempt 的候选与模型身份。
+ *
+ * @remarks
+ * 元数据不重复保存 Prompt 原文；完整候选 Profile 已冻结在 Goal Snapshot 中。
+ * 该对象一经首次提交便属于 Attempt 身份，后续阶段更新不得改变。
+ *
+ * @example
+ * ```ts
+ * const metadata: PromptEvaluationAttemptMetadata = {
+ *   evaluationId: "eval-1",
+ *   candidateId: "candidate-1",
+ *   baseProfileId: "alfworld-profile",
+ *   promptSha256: "a".repeat(64),
+ *   promptSummary: {
+ *     systemPromptCharacters: 20,
+ *     instructionCount: 2,
+ *     instructionCharacters: 40,
+ *   },
+ *   modelConfigId: "default",
+ *   modelId: "model-1",
+ * };
+ * ```
+ */
+export interface PromptEvaluationAttemptMetadata {
+    readonly evaluationId: string;
+    readonly candidateId: string;
+    readonly baseProfileId: string;
+    readonly promptSha256: string;
+    readonly promptSummary: {
+        readonly systemPromptCharacters: number;
+        readonly instructionCount: number;
+        readonly instructionCharacters: number;
+    };
+    readonly modelConfigId: string;
+    readonly modelId: string;
+}
+
+/**
  * 可跨 benchmark 持久化的 Attempt 公共事实；`domainResult` 保留领域专属结果。
  *
  * @remarks
@@ -41,6 +79,8 @@ export interface BenchmarkAttemptRecord<TDomain = unknown> {
     readonly worker?: Readonly<Record<string, unknown>>;
     /** 最近一次已提交的领域阶段；用于中断后的审计。 */
     readonly lastStage?: string;
+    /** 由 Prompt Evaluation 发起时附加的不可变候选与模型身份。 */
+    readonly promptEvaluation?: PromptEvaluationAttemptMetadata;
 }
 
 /**
@@ -190,7 +230,8 @@ export function parseBenchmarkAttemptRecord<TDomain = unknown>(value: unknown): 
         || !isLocator(value.artifactLocator)
         || (value.environment !== undefined && !isRecord(value.environment))
         || (value.worker !== undefined && !isRecord(value.worker))
-        || (value.lastStage !== undefined && typeof value.lastStage !== "string")) {
+        || (value.lastStage !== undefined && typeof value.lastStage !== "string")
+        || (value.promptEvaluation !== undefined && !isPromptEvaluationMetadata(value.promptEvaluation))) {
         throw new TypeError("Invalid BenchmarkAttemptRecord");
     }
     const errors: BenchmarkAttemptError[] = [];
@@ -214,6 +255,9 @@ export function parseBenchmarkAttemptRecord<TDomain = unknown>(value: unknown): 
         ...(value.environment === undefined ? {} : { environment: value.environment as Readonly<Record<string, unknown>> }),
         ...(value.worker === undefined ? {} : { worker: value.worker as Readonly<Record<string, unknown>> }),
         ...(value.lastStage === undefined ? {} : { lastStage: value.lastStage }),
+        ...(value.promptEvaluation === undefined
+            ? {}
+            : { promptEvaluation: value.promptEvaluation as unknown as PromptEvaluationAttemptMetadata }),
     };
 }
 
@@ -236,7 +280,16 @@ function validateRecord<TDomain>(record: BenchmarkAttemptRecord<TDomain>): void 
 
 function sameIdentity<TDomain>(a: BenchmarkAttemptRecord<TDomain>, b: BenchmarkAttemptRecord<TDomain>): boolean {
     return a.benchmarkId === b.benchmarkId && a.taskId === b.taskId && a.goalId === b.goalId
-        && a.runId === b.runId && a.attempt === b.attempt;
+        && a.runId === b.runId && a.attempt === b.attempt
+        && samePromptEvaluationMetadata(a.promptEvaluation, b.promptEvaluation);
+}
+
+function samePromptEvaluationMetadata(
+    left: PromptEvaluationAttemptMetadata | undefined,
+    right: PromptEvaluationAttemptMetadata | undefined,
+): boolean {
+    if (left === undefined || right === undefined) return left === right;
+    return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function isAttemptStatus(value: unknown): value is BenchmarkAttemptStatus {
@@ -257,6 +310,44 @@ function isLocator(value: unknown): value is BenchmarkPersistenceLocator | null 
         && typeof value.goalSnapshot === "string"
         && typeof value.trajectory === "string"
         && (value.diagnosticTrace === undefined || typeof value.diagnosticTrace === "string");
+}
+
+function isPromptEvaluationMetadata(value: unknown): value is PromptEvaluationAttemptMetadata {
+    if (!isRecord(value)
+        || !isNonEmptyString(value.evaluationId)
+        || !isNonEmptyString(value.candidateId)
+        || !isNonEmptyString(value.baseProfileId)
+        || typeof value.promptSha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.promptSha256)
+        || !isRecord(value.promptSummary)
+        || !isNonNegativeInteger(value.promptSummary.systemPromptCharacters)
+        || !isNonNegativeInteger(value.promptSummary.instructionCount)
+        || !isNonNegativeInteger(value.promptSummary.instructionCharacters)
+        || !isNonEmptyString(value.modelConfigId)
+        || !isNonEmptyString(value.modelId)) {
+        return false;
+    }
+    return Object.keys(value).every((key) => [
+        "evaluationId",
+        "candidateId",
+        "baseProfileId",
+        "promptSha256",
+        "promptSummary",
+        "modelConfigId",
+        "modelId",
+    ].includes(key))
+        && Object.keys(value.promptSummary).every((key) => [
+            "systemPromptCharacters",
+            "instructionCount",
+            "instructionCharacters",
+        ].includes(key));
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === "string" && value.trim() !== "";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

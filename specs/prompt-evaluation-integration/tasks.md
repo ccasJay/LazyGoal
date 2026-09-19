@@ -21,7 +21,7 @@
   - 验证方式：待实现的 registry 与 runner 集成测试；`npm run check:dependencies`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [4.1](./requirements.md#req-4-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 4. 扩展 Attempt 与汇总结果持久化
+- [x] //TODO 4. 扩展 Attempt 与汇总结果持久化
 
   - 实现目标：为 `BenchmarkAttemptRecord` 增加可选 Prompt 评测元数据，保持原子校验与读写；实现只基于已提交事实生成并原子提交 `result.json`。
   - 成功判据：Attempt 可读取候选、模型和 Prompt 哈希摘要；中断不损坏已提交记录；汇总明确列出已完成、失败、取消和未完成任务及产物定位器。
