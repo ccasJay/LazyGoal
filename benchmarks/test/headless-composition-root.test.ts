@@ -231,7 +231,12 @@ test("runs a task through unified proposal approval and execution", async () => 
     assert.equal(result.progress.ok, true);
     assert.equal(result.progress.kind, "terminal");
     assert.equal(result.goal.state.workflow.phase, "executing");
+    assert.equal(result.goal.state.run.id, "run-fake");
     assert.equal(result.goal.state.run.status, "completed");
+    assert.equal(result.goal.state.mode, "normal");
+    assert.equal(result.goal.state.goalPlan, undefined);
+    assert.deepEqual(result.goal.state.completedRuns, []);
+    assert.deepEqual(new Set(trajectoryStore.events.map((event) => event.runId)), new Set(["run-fake"]));
     assert.equal(result.model.completed, true);
     assert.equal(result.model.runStatus, "completed");
     assert.deepEqual(result.outcome, { answer: 42 });

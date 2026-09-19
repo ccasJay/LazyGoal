@@ -60,7 +60,7 @@
   - 验证方式：扩展 `packages/tui/test/session-controller.test.ts`、`session-controller-timeline.test.ts`、`session-screen.test.tsx`、`trajectory-projector.test.ts` 与 `slash-command-model-e2e.test.ts`；执行这些测试文件。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 9. 覆盖持久化故障、重启恢复与 Headless 边界
+- [x] //TODO 9. 覆盖持久化故障、重启恢复与 Headless 边界
 
   - 实现目标：在真实临时 JSON Store、Checkpoint、Trajectory 和 Scheduler 组合根中注入提交前/提交后/marker/调度失败；补齐恢复流程和 Headless/Benchmark 的显式单 Run 返回。
   - 成功判据：提交前失败不调用模型且保留草稿；提交后失败恢复已保存新 Run；孤立文件不回放；Plan Mode pending Todo 不自动启动，normal mode 不自动创建 GoalPlan，权限和安全关闭回归通过。

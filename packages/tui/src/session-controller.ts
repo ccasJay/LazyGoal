@@ -50,7 +50,8 @@ type WaitingProgress = Extract<
  * dispatch 会以 `UI_BUSY` 拒绝；Inspector 的本地浏览和执行模式切换只替换
  * 内存 ViewModel，不被该锁阻塞。模式切换不取消已经发出的操作，下一等待点
  * 使用最新模式决定是否自动批准。业务错误会保留当前
- * Goal/最近快照并显示稳定错误。
+ * Goal/最近快照并显示稳定错误。已提交后继 Run 的通知会在消息区间和
+ * `completedRuns` 证明其来源后刷新当前会话；旧 Run 的迟到通知仍会被丢弃。
  *
  * @example
  * ```ts
@@ -1217,6 +1218,7 @@ export class SessionController {
         const terminal = deriveTerminalSummary(snapshot);
 
         const currentSession = this.snapshot?.screen === "session" ? this.snapshot : undefined;
+        const sameRun = currentSession?.goal.state.run.id === snapshot.state.run.id;
         const mode = this.dependencies.mode ?? currentSession?.mode;
         const taskTitle = this.dependencies.taskTitle ?? currentSession?.taskTitle;
 
@@ -1234,10 +1236,10 @@ export class SessionController {
             committedSteps: this.committedSteps.slice(),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
-            ...(currentSession?.lastCommittedAction !== undefined
+            ...(sameRun && currentSession?.lastCommittedAction !== undefined
                 ? { lastCommittedAction: currentSession.lastCommittedAction }
                 : {}),
-            ...(currentSession?.lastCommittedObservation !== undefined
+            ...(sameRun && currentSession?.lastCommittedObservation !== undefined
                 ? { lastCommittedObservation: currentSession.lastCommittedObservation }
                 : {}),
             ...(currentSession?.cleaning !== undefined ? { cleaning: currentSession.cleaning } : {}),
@@ -1263,7 +1265,7 @@ export class SessionController {
      *
      * @remarks
      * 对应 req-5-2、req-5-3：
-     * 1. 过滤已关闭（shuttingDown）与非当前 Goal/Run 的迟到事件；
+     * 1. 过滤已关闭（shuttingDown）、非当前 Goal 与无法证明为后继 Run 的迟到事件；
      * 2. 按 stepCount 单调递增去重，拒绝迟到的旧读取结果；
      * 3. 提取已提交的 Action/Observation 事实；
      * 4. 严守契约：绝不修改当前的 busy 状态（保证在途 dispatch 的锁不受污染）；
@@ -1286,18 +1288,23 @@ export class SessionController {
         }
 
         const currentGoal = this.snapshot.goal;
-        if (savedGoal.id !== currentGoal.id || savedGoal.state.run.id !== currentGoal.state.run.id) {
+        if (savedGoal.id !== currentGoal.id) {
+            return;
+        }
+
+        const isCurrentRun = savedGoal.state.run.id === currentGoal.state.run.id;
+        if (!isCurrentRun && !isForwardRunSnapshot(currentGoal, savedGoal)) {
             return;
         }
 
         const committedStep = savedGoal.state.run.stepCount;
-        if (committedStep < this.lastCommittedStepCount) {
+        if (isCurrentRun && committedStep < this.lastCommittedStepCount) {
             return;
         }
         this.lastCommittedStepCount = committedStep;
 
-        let lastAction = this.snapshot.lastCommittedAction;
-        let lastObservation = this.snapshot.lastCommittedObservation;
+        let lastAction = isCurrentRun ? this.snapshot.lastCommittedAction : undefined;
+        let lastObservation = isCurrentRun ? this.snapshot.lastCommittedObservation : undefined;
         const lastStep = savedGoal.state.run.lastStep;
         if (lastStep !== undefined && lastStep.kind === "action") {
             lastAction = {
@@ -1793,4 +1800,17 @@ function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
 
 function stepKey(goal: Goal, step: UiStepSummary): string {
     return `${goal.id}:${goal.state.run.id}:${step.stepNumber}`;
+}
+
+function isForwardRunSnapshot(current: Goal, candidate: Goal): boolean {
+    if (candidate.state.run.id === current.state.run.id) {
+        return false;
+    }
+    if (candidate.state.messages.length <= current.state.messages.length) {
+        return false;
+    }
+    return (candidate.state.completedRuns ?? []).some((record) =>
+        record.runId === current.state.run.id
+        && record.messageRange.end <= candidate.state.messages.length,
+    );
 }
