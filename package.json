@@ -8,6 +8,7 @@
     "lazygoal": "bin/lazygoal.cjs"
   },
   "scripts": {
+    "llm:decision-eval": "tsx packages/agent/test/decision-guidance-eval.ts",
     "llm:agent-smoke": "tsx packages/llm/test/agent-smoke-test.ts",
     "check:dependencies": "node scripts/check-dependencies.mjs",
     "memory:check": "node scripts/project-memory.mjs check",

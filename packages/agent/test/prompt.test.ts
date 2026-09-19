@@ -329,7 +329,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     );
 
     const toolsMarker = [
-        "Authorized Tool definitions (only these Tool IDs may be requested):",
+        "Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):",
         "",
     ].join("\n");
     const toolsOffset = firstSystemContent.lastIndexOf(toolsMarker);
@@ -466,7 +466,7 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
     assert.deepEqual(control.contextLookupResult, lookupResult);
     assert.match(
         request.messages[0]?.content ?? "",
-        /Historical execution and rationale may use Context Lookup/,
+        /Use system_context_lookup for missing historical execution, user decisions or rationale, not to establish current external state/,
     );
 });
 

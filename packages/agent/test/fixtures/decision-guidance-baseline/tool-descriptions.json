@@ -1,0 +1,10 @@
+{
+  "system_complete_task": "Declare the goal task successfully completed. Provide completion summary, evidence, and optional memory updates.",
+  "system_wait_for_input": "Pause execution and wait for user input or approval.",
+  "system_fail_goal": "Declare that the goal cannot be completed due to an unrecoverable failure.",
+  "system_context_lookup": "Search historical trajectory context or conversation records for needed evidence. Filters are optional; omit sequenceRange unless targeting specific known event sequences.",
+  "ask_user": "Ask the user 1 to 3 structured questions with discrete options. Users can choose options or provide free-form Other text.",
+  "system_propose_task_plan": "Before task approval, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
+  "system_context_checkpoint": "Save current execution progress and memory patch when model context budget requires a checkpoint.",
+  "system_update_goal_plan": "Update the GoalPlan in Plan Mode with an atomic revisioned patch. Runtime allocates Todo IDs and validates all transitions."
+}

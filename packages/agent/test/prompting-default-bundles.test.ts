@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createCheckpointToolDeclarations, createUnifiedToolDeclarations } from "../../contracts/src/index";
+import { renderWorkingContextMessage } from "../src/render";
 
 import {
     CURRENT_PROMPT_BUNDLE_VERSION,
@@ -15,6 +17,43 @@ const currentProtocols = {
     modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
     contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
 };
+
+test("决策模板允许列表与真实系统工具声明一致，禁止列表不授予能力", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    for (const taskPresent of [false, true]) {
+        for (const planMode of [false, true]) {
+            const text = renderer.render(context({
+                ...(taskPresent ? { task: { objective: "Test", completionCriteria: [{ text: "Verified" }] } } : {}),
+                ...(planMode ? { goalPlan: { revision: 2, items: [] } } : {}),
+            }));
+            const allowed = text.match(/^Outside checkpoint, allowed system tools: (.+)\.$/m);
+            assert.ok(allowed);
+            assert.deepEqual(allowed[1]!.split(", ").sort(),
+                createUnifiedToolDeclarations([], taskPresent, planMode).map(tool => tool.id).sort());
+            assert.doesNotMatch(text, /system_ask_user|system_task_proposal|contextEpoch\.control|control\.status/);
+            if (taskPresent) assert.match(text, /system_propose_task_plan is prohibited/);
+            else assert.match(text, /terminal completion decisions .* strictly prohibited/);
+        }
+    }
+});
+
+test("Checkpoint 指令引用实际控制字段并优先于普通决策", async () => {
+    const text = (await createDefaultPromptBundleRenderer()).render(context());
+    const message = renderWorkingContextMessage(
+        { phase: "executing", intent: "Test", execution: { stepCount: 1 } },
+        undefined, undefined, undefined,
+        { protocolVersion: 1, epochNumber: 0, conversationStartIndex: 0, openedAtSequence: 0,
+            control: { status: "checkpoint_required", reason: "input_threshold" } },
+    );
+    assert.equal(JSON.parse(message.content).checkpointRequired, true);
+    const checkpoint = text.match(/Checkpoint takes precedence[^\n]+call only ([a-z_]+)\./);
+    assert.ok(checkpoint);
+    assert.deepEqual([checkpoint[1]], createCheckpointToolDeclarations().map(tool => tool.id));
+    assert.match(text, /Do not emit an Action, completion, wait, question, proposal or GoalPlan update/);
+    assert.match(text, /do not create a new PlanItem during executing/);
+    assert.match(text, /may cite only committed Tool\/Observation sequences/);
+    assert.match(text, /Runtime allocates and persists execution metadata/);
+});
 
 function context(overrides: Record<string, unknown> = {}) {
     return {
@@ -82,11 +121,11 @@ test("v1 Prompt 明确统一执行循环、证据边界与任务状态投影", a
     // 1. 无 task（仍在收集事实并等待任务批准）
     const unapproved = renderer.render(context({ task: undefined }));
     assert.match(unapproved, /No Goal Task is approved yet/);
-    assert.match(unapproved, /authorized read-only tool, system_ask_user, system_context_lookup, or system_task_proposal/);
+    assert.match(unapproved, /Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan/);
     assert.match(unapproved, /Every authorized read-only Tool call is an ordinary Action/);
     assert.match(unapproved, /Writing tools and terminal completion decisions .* are strictly prohibited/);
     assert.match(unapproved, /Committed Tool\/Observation evidence has priority/);
-    assert.match(unapproved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
+    assert.match(unapproved, /User answers from ask_user or task proposals are not Tool\/Observation evidence/);
     assert.match(unapproved, /must never be cited as completion evidence/);
     assert.doesNotMatch(unapproved, /Plan Phase|probe/i);
 
@@ -99,10 +138,10 @@ test("v1 Prompt 明确统一执行循环、证据边界与任务状态投影", a
     }));
     assert.match(approved, /Approved Goal Task Contract:/);
     assert.match(approved, /Objective: 实现目标/);
-    assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, or system_ask_user/);
+    assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user/);
     assert.match(approved, /Continue from the latest committed Tool\/Observation evidence/);
-    assert.match(approved, /system_task_proposal is prohibited after a task has been approved/);
-    assert.match(approved, /User answers from system_ask_user or task proposals are not Tool\/Observation evidence/);
+    assert.match(approved, /system_propose_task_plan is prohibited after a task has been approved/);
+    assert.match(approved, /User answers from ask_user or task proposals are not Tool\/Observation evidence/);
     assert.doesNotMatch(approved, /Plan Phase|probe/i);
 });
 

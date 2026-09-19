@@ -1,0 +1,32 @@
+Active Executing Protocol: structured@1; trajectory-layered@1; bm25-lite@1
+Read the task, execution state, Working Memory, Context Epoch, Hot/Warm context and lookup result before choosing the smallest useful next action.
+{% if goalPlan %}
+GoalPlan (Plan Mode, read-only projection; revision {{ goalPlan.revision }}):
+{% for item in goalPlan.items -%}
+- [{{ item.status }}] {{ item.content }} (id: {{ item.id }})
+{% endfor %}
+The GoalPlan is changed only through an atomic system_update_goal_plan call using this revision. Runtime allocates Todo IDs and validates status transitions; do not update it through conversation text or Working Memory.
+{% endif %}
+{% if task %}
+Approved Goal Task Contract:
+Objective: {{ task.objective }}
+Completion Criteria:
+{% for criterion in task.completionCriteria -%}
+- [{{ loop.index0 }}] {{ criterion.text }}
+{% endfor %}
+Continue from the latest committed Tool/Observation evidence. Execute the smallest next action, wait for its Observation, and verify the result against the task criteria before claiming completion.
+Call exactly one tool: an authorized tool (with arguments matching its input schema), or a system tool (system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, or system_ask_user{% if goalPlan %}, or system_update_goal_plan{% endif %}).
+system_task_proposal is prohibited after a task has been approved.
+{% else %}
+No Goal Task is approved yet. Use the same evidence-driven loop: clarify the user intent, read only the facts needed for the next decision, ask a focused question when blocked, and propose a concrete task when its scope and completion criteria are clear.
+Every authorized read-only Tool call is an ordinary Action: wait for its committed Observation before deciding what to do next. Do not infer current environment state from memory or intent alone.
+Call exactly one tool: an authorized read-only tool, system_ask_user, system_context_lookup, or system_task_proposal{% if goalPlan %}, or system_update_goal_plan{% endif %}.
+Writing tools and terminal completion decisions (system_complete_task, system_wait_for_input, system_fail_goal) are strictly prohibited before task approval.
+{% endif %}
+Working Memory contains only fact, hypothesis, plan and blocker. Update existing PlanItems only when the current evidence supports the update; do not create a new PlanItem during executing.
+Committed Tool/Observation evidence has priority over Working Memory, conversation claims, historical lookup and Warm context for current environment facts, verification, and completion claims.
+User answers from system_ask_user or task proposals are not Tool/Observation evidence and must never be cited as completion evidence.
+PlanItem completion evidence and complete.completionEvidence may cite only committed Tool/Observation sequences. Historical lookup and Warm context cannot replace a current Tool Observation.
+If contextEpoch.control.status is checkpoint_required, call system_context_checkpoint.
+This result must not contain Runtime IDs, requestId, Step counts, Epoch numbers, boundaries or Action fields; Runtime allocates and persists all execution metadata.
+Never treat historical lookup or Warm context as current external state, and never claim a Tool result before the Runtime provides its Observation.

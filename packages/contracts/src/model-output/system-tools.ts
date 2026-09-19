@@ -223,7 +223,7 @@ export const SystemUpdateGoalPlanInputContract = contract.object({
 
 export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_complete_task",
-    "Declare the goal task successfully completed. Provide completion summary, evidence, and optional memory updates.",
+    "Declare completion only after every approved criterion is satisfied. Provide a summary and committed Tool/Observation evidence; partial progress or unverified results are not completion.",
     SystemCompleteTaskInputContract,
     (args: { summary: string; completionEvidence: CompletionEvidence[]; memoryPatch?: unknown }): AgentDecision => ({
         kind: "complete",
@@ -235,7 +235,7 @@ export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision>
 
 export const SystemWaitForInputDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_wait_for_input",
-    "Pause execution and wait for user input or approval.",
+    "Pause when external intervention or an authorization change is required and no useful authorized work can proceed. State the blocker and what must change to resume. This does not schedule polling or wakeups; use ask_user for a concrete question.",
     SystemWaitForInputInputContract,
     (args: { reason: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "wait",
@@ -246,7 +246,7 @@ export const SystemWaitForInputDeclaration: SystemToolDeclaration<AgentDecision>
 
 export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_fail_goal",
-    "Declare that the goal cannot be completed due to an unrecoverable failure.",
+    "Declare failure only when observed evidence establishes that the task cannot be completed and no reasonable recovery path remains. A single tool failure, missing information or a temporary dependency is insufficient.",
     SystemFailGoalInputContract,
     (args: { error: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "fail",
@@ -257,7 +257,7 @@ export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = b
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_lookup",
-    "Search historical trajectory context or conversation records for needed evidence. Filters are optional; omit sequenceRange unless targeting specific known event sequences.",
+    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
     SystemContextLookupInputContract,
     (args: { need: any; question: string; filters?: any }) => ({
         kind: "context_lookup" as const,
@@ -280,7 +280,7 @@ export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision
  */
 export const SystemAskUserDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "ask_user",
-    "Ask the user 1 to 3 structured questions with discrete options. Users can choose options or provide free-form Other text.",
+    "Ask 1 to 3 focused structured questions when information must come from the user and materially affects scope, correctness or authorization. Do not ask for routine confirmation or facts available through tools. Users can choose options or provide free-form Other text.",
     SystemAskUserInputContract,
     (args: { questions: any; memoryPatch?: unknown }): AgentDecision => ({
         kind: "ask_user",
@@ -291,7 +291,7 @@ export const SystemAskUserDeclaration: SystemToolDeclaration<AgentDecision> = bu
 
 export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_propose_task_plan",
-    "Before task approval, propose the goal task objective and verifiable completion criteria for user approval. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
+    "Before task approval, propose the goal task objective and verifiable completion criteria for user approval once its scope is clear; do not add routine confirmation questions. Note: acceptance is optional; only specify acceptance for criteria verifiable by an authorized execution tool (e.g. bash, read_file). NEVER use system functions (like system_complete_task) as expectToolId. For analysis or summary criteria, omit acceptance.",
     SystemProposeTaskPlanInputContract,
     (args: { task: any; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "task_proposal",
@@ -303,7 +303,7 @@ export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecisi
 
 export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_context_checkpoint",
-    "Save current execution progress and memory patch when model context budget requires a checkpoint.",
+    "When checkpointRequired is true, make this the only call, ahead of all ordinary actions and system decisions. Preserve supported durable memory updates; Runtime owns checkpoint metadata.",
     SystemContextCheckpointInputContract,
     (args: { checkpointSummary?: string; memoryPatch?: unknown }): AgentDecision => ({
         kind: "context_checkpoint",
@@ -328,7 +328,7 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDeci
  */
 export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_update_goal_plan",
-    "Update the GoalPlan in Plan Mode with an atomic revisioned patch. Runtime allocates Todo IDs and validates all transitions.",
+    "Update the GoalPlan only in Plan Mode using an atomic patch with the current revision. Runtime allocates Todo IDs and validates all transitions. Plan updates do not replace execution or verification.",
     SystemUpdateGoalPlanInputContract,
     (args: { baseRevision: number; operations: GoalPlanPatchOperation[]; memoryPatch?: unknown }): AgentDecision => ({
         kind: "goal_plan_update",

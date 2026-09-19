@@ -202,7 +202,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /native tool calls/);
     assert.match(
         systemContent,
-        /Authorized Tool definitions \(only these Tool IDs may be requested\):\n\[\]/,
+        /Authorized business Tool definitions \(only these business Tool IDs may be requested; system tools are declared separately for this request\):\n\[\]/,
     );
     assert.match(systemContent, /Approved Goal Task Contract:/);
     assert.match(systemContent, /Objective: 完成单步执行/);
