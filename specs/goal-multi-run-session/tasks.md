@@ -39,7 +39,7 @@
   - 验证方式：新增 `packages/runtime/test/goal-plan-run.test.ts`（待实现），扩展 `runner.test.ts`、`evidence-gate.test.ts` 和 `trajectory-checkpoint-committer.test.ts`；执行这些测试文件。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 6. 实现 waiting resume 与 completed continue 的会话分流
+- [x] //TODO 6. 实现 waiting resume 与 completed continue 的会话分流
 
   - 实现目标：在 `GoalCoordinator` 增加 `continue(ref, newInput)`，加入 completed Run 归档、消息索引、新 Run 建立、Plan Mode pending Todo 选择和按 Goal 串行闸门；保留 `resume` 只恢复 waiting Run。
   - 成功判据：waiting 输入不产生新 Run；completed 输入先保存历史与新 Run 再调度；Plan Mode 无合法 Todo、空输入、错误状态和重复并发请求均不写入，normal mode 继续不 materialize GoalPlan。
