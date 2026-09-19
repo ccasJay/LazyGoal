@@ -392,6 +392,7 @@ export type {
     ToolExecutionRequest,
     ToolInputContract,
     ToolObservation,
+    ToolStreamEvent,
     ToolPolicy,
     ToolPolicyContext,
     PreparedToolAction,

@@ -35,4 +35,6 @@ Contracts 根据 `workflow.task` 和后端 `planMode` 动态生成 Wire Schema�
 
 模型原始文本由 LLM Adapter 返回，Agent 使用当前请求绑定的 Wire Contract 严格解析，再解码为 Canonical `AgentDecision`。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。非法 JSON、Schema、分支或工具输入以稳定协议错误失败；不自动修复、不重试、不把模型自述当成 Observation。原始响应可进入独立诊断 Trace，但不进入 Goal messages、Snapshot 或 Domain Event。
 
-Agent 不提供流式 UI；TUI 的 Assistant 流式展示由 Controller 的 Transcript 管理。Agent 只负责单轮完整响应与确定性 Prompt/Contract 组合。
+Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
+`@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter
+继续调用 `generate()` 并发布一次性模型事件；实时显示由 TUI 或未来 WebUI 的适配器管理。

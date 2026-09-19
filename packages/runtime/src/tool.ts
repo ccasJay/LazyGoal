@@ -51,6 +51,18 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
 /** Tool 实际返回的成功或领域失败 Observation；拒绝由 Runtime 状态机生成。 */
 export type ToolObservation = Exclude<Observation, { readonly kind: "rejected" }>;
 
+/** Tool 流式执行过程中可观察的输出或最终结算。 */
+export type ToolStreamEvent =
+    | {
+        readonly kind: "output";
+        readonly channel: "stdout" | "stderr";
+        readonly text: string;
+    }
+    | {
+        readonly kind: "completed";
+        readonly observation: ToolObservation;
+    };
+
 /**
  * 一次 Tool 调用的执行请求。
  *
@@ -135,6 +147,18 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
         request: ToolExecutionRequest<InferContract<C>>,
         control?: ExecutionControl,
     ): Promise<ToolObservation>;
+    /**
+     * 可选的单次执行流；实现该方法时它承担与 `execute` 相同的一次外部调用。
+     *
+     * @param request - Action ID 与已解析的结构化输入。
+     * @param control - 当前 Run 推进调用共享的中止控制。
+     * @returns 输出分片以及恰好一个 `completed` 结算事件。
+     * @throws 基础设施异常或中止错误；调用方不得把异常伪装成 Observation。
+     */
+    readonly stream?: (
+        request: ToolExecutionRequest<InferContract<C>>,
+        control?: ExecutionControl,
+    ) => AsyncIterable<ToolStreamEvent>;
 }
 
 /**
@@ -165,6 +189,11 @@ export type PreparedToolAction =
             actionId: string,
             control?: ExecutionControl,
         ): Promise<ToolObservation>;
+        /** 使用相同 canonical 输入执行一次可选流式 Tool。 */
+        stream?(
+            actionId: string,
+            control?: ExecutionControl,
+        ): AsyncIterable<ToolStreamEvent>;
     }
     | Extract<ToolValidationResult, { readonly ok: false }>;
 
@@ -279,6 +308,13 @@ export function createToolRegistration<C extends ToolInputContract>(
                 execute(actionId, executeControl) {
                     return tool.execute({ actionId, input: parsed.data }, executeControl);
                 },
+                ...(tool.stream === undefined
+                    ? {}
+                    : {
+                        stream(actionId: string, executeControl?: ExecutionControl) {
+                            return tool.stream!({ actionId, input: parsed.data }, executeControl);
+                        },
+                    }),
             };
         },
     };

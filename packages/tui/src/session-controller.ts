@@ -14,6 +14,7 @@ import {
     type SessionControllerDependencies,
     type UiCommand,
     type UiError,
+    type UiExecutionActivity,
     type UiInspectorStep,
     type UiModelSelectOrigin,
     type UiModelSelectViewModel,
@@ -28,6 +29,11 @@ import {
 } from "./types";
 import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
+import type {
+    ExecutionStreamEvent,
+    ExecutionStreamSubscription,
+    StreamJsonValue,
+} from "../../execution-stream/src/index";
 import { projectTrajectoryEvents } from "./trajectory-projector";
 import {
     StreamingTranscriptController,
@@ -66,6 +72,7 @@ export class SessionController {
     private shuttingDown = false;
     private lastCommittedStepCount = -1;
     private storeUnsubscribe: (() => void) | undefined;
+    private executionStreamSubscription: ExecutionStreamSubscription | undefined;
     private committedSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
     private modelCatalogGeneration = 0;
@@ -76,6 +83,7 @@ export class SessionController {
     private readonly transcriptController: StreamingTranscriptController;
     private readonly transcriptUnsubscribe: () => void;
     private timeline: UiTimelineItem[] = [];
+    private liveActivity: UiExecutionActivity | undefined;
     private activeAssistantStream: {
         readonly streamId: string;
         readonly messageId: string;
@@ -88,6 +96,8 @@ export class SessionController {
     private streamingTail: UiStreamingTail | undefined = undefined;
     private currentGoalId: string | null = null;
     private currentRunId: string | null = null;
+    /** 当前正在创建、但 Launcher 尚未返回最终推进结果的 Goal。 */
+    private pendingLaunchGoalId: string | null = null;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -153,6 +163,9 @@ export class SessionController {
                 this.onGoalCommitted(goal);
             });
         }
+        if (this.snapshot.screen === "session") {
+            this.ensureExecutionStreamSubscription(this.snapshot.goal);
+        }
     }
 
     /**
@@ -201,9 +214,12 @@ export class SessionController {
         this.shuttingDown = true;
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.executionStreamSubscription?.close();
+        this.executionStreamSubscription = undefined;
         this.transcriptController.dispose();
         this.activeAssistantStream = null;
         this.streamingTail = undefined;
+        this.liveActivity = undefined;
         const goal = this.snapshot.screen === "session"
             ? structuredClone(this.snapshot.goal)
             : undefined;
@@ -229,10 +245,13 @@ export class SessionController {
     dispose(): void {
         this.storeUnsubscribe?.();
         this.storeUnsubscribe = undefined;
+        this.executionStreamSubscription?.close();
+        this.executionStreamSubscription = undefined;
         this.transcriptController.dispose();
         this.transcriptUnsubscribe?.();
         this.activeAssistantStream = null;
         this.streamingTail = undefined;
+        this.liveActivity = undefined;
         this.subscribers.clear();
     }
 
@@ -524,36 +543,43 @@ export class SessionController {
                     ? { modelSelection: this.dependencies.defaultModelSelection }
                     : {}),
         };
-        let result: LaunchResult;
+        this.pendingLaunchGoalId = request.goalId;
         try {
-            result = await this.dependencies.launcher.launch(
-                request,
-                this.dependencies.control,
-            );
-        } catch (error: unknown) {
-            const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
-            if (savedGoal !== undefined) {
-                this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
-                this.setError(toUiError(error));
-                return;
+            let result: LaunchResult;
+            try {
+                result = await this.dependencies.launcher.launch(
+                    request,
+                    this.dependencies.control,
+                );
+            } catch (error: unknown) {
+                const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
+                if (savedGoal !== undefined) {
+                    this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
+                    this.setError(toUiError(error));
+                    return;
+                }
+                throw error;
             }
-            throw error;
-        }
 
-        if (!result.ok) {
-            const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
-            if (savedGoal !== undefined) {
-                this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
-                this.setError(result.error);
-                return;
+            if (!result.ok) {
+                const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
+                if (savedGoal !== undefined) {
+                    this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
+                    this.setError(result.error);
+                    return;
+                }
+            }
+
+            if (result.ok) {
+                this.pendingLaunchMode = "normal";
+            }
+
+            await this.applyProgress(result);
+        } finally {
+            if (this.pendingLaunchGoalId === request.goalId) {
+                this.pendingLaunchGoalId = null;
             }
         }
-
-        if (result.ok) {
-            this.pendingLaunchMode = "normal";
-        }
-
-        await this.applyProgress(result);
     }
 
     private async enterPlanMode(): Promise<void> {
@@ -1181,6 +1207,113 @@ export class SessionController {
         }
     }
 
+    private ensureExecutionStreamSubscription(goal: Goal): void {
+        const publisher = this.dependencies.executionStream;
+        if (publisher === undefined) return;
+        if (
+            this.executionStreamSubscription !== undefined
+            && this.currentGoalId === goal.id
+            && this.currentRunId === goal.state.run.id
+        ) {
+            return;
+        }
+        this.executionStreamSubscription?.close();
+        this.liveActivity = undefined;
+        const subscription = publisher.subscribe(
+            { goalId: goal.id, runId: goal.state.run.id },
+            { minimumVisibility: "restricted", includeReasoning: true, maxQueueSize: 256 },
+        );
+        this.executionStreamSubscription = subscription;
+        subscription.onEvent((event) => this.onExecutionStreamEvent(event));
+    }
+
+    private onExecutionStreamEvent(event: ExecutionStreamEvent): void {
+        if (this.shuttingDown || this.snapshot.screen !== "session") return;
+        const executionUnitId = event.executionUnitId ?? this.currentRunId ?? "run";
+        const payload = isExecutionPayloadRecord(event.payload) ? event.payload : undefined;
+        switch (event.kind) {
+            case "step_started":
+                this.setLiveActivity({
+                    kind: "step",
+                    executionUnitId,
+                    label: payload?.stepCount === undefined
+                        ? "Starting step..."
+                        : `Starting step ${String(payload.stepCount)}`,
+                });
+                return;
+            case "model_started":
+                this.setLiveActivity({ kind: "model", executionUnitId, label: "Generating response..." });
+                return;
+            case "assistant_text_delta":
+            case "reasoning_delta": {
+                const text = typeof payload?.text === "string" ? payload.text : undefined;
+                if (text === undefined || text.length === 0) return;
+                this.feedThinkingDelta(executionUnitId, text, `thought-${executionUnitId}`);
+                this.setLiveActivity({ kind: "model", executionUnitId, label: "Generating response..." });
+                return;
+            }
+            case "tool_started": {
+                const toolId = typeof payload?.toolId === "string" ? payload.toolId : "tool";
+                const actionId = event.actionId
+                    ?? (typeof payload?.actionId === "string" ? payload.actionId : undefined);
+                this.setLiveActivity({
+                    kind: "tool",
+                    executionUnitId,
+                    label: `Running ${toolId}...`,
+                    toolId,
+                    ...(actionId === undefined ? {} : { actionId }),
+                });
+                return;
+            }
+            case "tool_output_delta": {
+                const text = typeof payload?.text === "string" ? payload.text : "";
+                const current = this.liveActivity;
+                if (current === undefined || current.executionUnitId !== executionUnitId) return;
+                const output = `${current.output ?? ""}${text}`;
+                this.setLiveActivity({
+                    ...current,
+                    output: output.length > 4000 ? output.slice(-4000) : output,
+                });
+                return;
+            }
+            case "tool_finished":
+                if (this.liveActivity?.executionUnitId === executionUnitId) {
+                    this.setLiveActivity({ ...this.liveActivity, label: "Tool completed" });
+                }
+                return;
+            case "model_completed":
+                this.completeThinking(executionUnitId);
+                if (this.liveActivity?.executionUnitId === executionUnitId) {
+                    this.setLiveActivity({ ...this.liveActivity, label: "Model response received" });
+                }
+                return;
+            case "step_committed":
+                this.completeThinking(executionUnitId);
+                this.setLiveActivity(undefined);
+                return;
+            case "run_waiting":
+            case "run_completed":
+            case "run_failed":
+            case "run_cancelled":
+                this.completeThinking(executionUnitId);
+                this.setLiveActivity(undefined);
+                return;
+            default:
+                return;
+        }
+    }
+
+    private setLiveActivity(activity: UiExecutionActivity | undefined): void {
+        this.liveActivity = activity;
+        if (this.snapshot.screen !== "session") return;
+        if (activity === undefined) {
+            const { liveActivity: _liveActivity, ...rest } = this.snapshot;
+            this.setSnapshot(rest as UiSessionViewModel);
+            return;
+        }
+        this.setSnapshot({ ...this.snapshot, liveActivity: activity });
+    }
+
     private toSessionView(
         goal: Goal,
         progress: ProgressResult | undefined,
@@ -1199,6 +1332,7 @@ export class SessionController {
             this.syncTimelineWithGoal(goal);
         }
         const snapshot = structuredClone(goal);
+        this.ensureExecutionStreamSubscription(snapshot);
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
             ? progress.waitingFor
             : deriveWaitingFor(snapshot);
@@ -1233,6 +1367,7 @@ export class SessionController {
             executionMode: this.executionMode,
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
+            ...(sameRun && this.liveActivity !== undefined ? { liveActivity: this.liveActivity } : {}),
             committedSteps: this.committedSteps.slice(),
             ...(mode !== undefined ? { mode } : {}),
             ...(taskTitle !== undefined ? { taskTitle } : {}),
@@ -1266,10 +1401,11 @@ export class SessionController {
      * @remarks
      * 对应 req-5-2、req-5-3：
      * 1. 过滤已关闭（shuttingDown）、非当前 Goal 与无法证明为后继 Run 的迟到事件；
-     * 2. 按 stepCount 单调递增去重，拒绝迟到的旧读取结果；
-     * 3. 提取已提交的 Action/Observation 事实；
-     * 4. 严守契约：绝不修改当前的 busy 状态（保证在途 dispatch 的锁不受污染）；
-     * 5. 立即通知 UI 订阅者渲染增量帧。
+     * 2. 对当前创建请求的首个匹配快照建立 Session 页面，再持续接收该 Goal 的提交通知；
+     * 3. 按 stepCount 单调递增去重，拒绝迟到的旧读取结果；
+     * 4. 提取已提交的 Action/Observation 事实；
+     * 5. 严守契约：绝不修改当前的 busy 状态（保证在途 dispatch 的锁不受污染）；
+     * 6. 立即通知 UI 订阅者渲染增量帧。
      *
      * @param savedGoal - 成功保存到持久化存储的不可变 Goal 快照。
      *
@@ -1281,6 +1417,17 @@ export class SessionController {
     onGoalCommitted(savedGoal: Goal): void {
         if (this.shuttingDown) {
             return;
+        }
+
+        if (
+            this.snapshot.screen !== "session"
+            && this.snapshot.busy
+            && this.pendingLaunchGoalId === savedGoal.id
+        ) {
+            // Launcher 先保存初始快照，再等待 Coordinator.advance 返回。
+            // 首次提交是 UI 从 intent_input 进入 session 的边界；后续提交
+            // 将沿用下面的同一条单调投影路径，持续显示执行中的每个 Step。
+            this.setSnapshot(this.toSessionView(savedGoal, undefined, true));
         }
 
         if (this.snapshot.screen !== "session") {
@@ -1623,6 +1770,12 @@ export class SessionController {
             subscriber();
         }
     }
+}
+
+function isExecutionPayloadRecord(
+    value: ExecutionStreamEvent["payload"],
+): value is { readonly [key: string]: StreamJsonValue } {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function validateUserAction(

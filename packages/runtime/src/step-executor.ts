@@ -6,6 +6,7 @@ import type {
 import type { ContextLookupResult } from "./context-retrieval";
 import type { ToolDefinition } from "./tool";
 import type { ExecutionControl } from "./execution-control";
+import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 
 /**
  * Step Executor 的单轮对象式输入。
@@ -35,6 +36,10 @@ export interface StepExecutionInput {
     readonly control?: ExecutionControl;
     /** 上一轮已提交 lookup 的瞬时结果；调用结束后由 Runtime 丢弃。 */
     readonly contextLookupResult?: ContextLookupResult;
+    /** 当前 Step 的稳定执行单元标识，供流式事件关联。 */
+    readonly executionUnitId?: string;
+    /** 当前 Goal/Run 的实时执行流发布端口。 */
+    readonly executionStream?: ExecutionStreamPublisher;
 }
 
 /**

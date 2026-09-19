@@ -7,6 +7,7 @@ import type {
     ToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
+    ToolStreamEvent,
     ToolValidationResult,
 } from "../../runtime/src/index";
 import {
@@ -124,6 +125,70 @@ interface CommandOutcome {
     readonly signal: NodeJS.Signals | null;
 }
 
+/** 将子进程回调转为 AsyncIterable 所需的有界内存队列。 */
+class AsyncPushQueue<T> implements AsyncIterable<T>, AsyncIterator<T> {
+    private readonly values: T[] = [];
+    private readonly waiters: Array<{
+        readonly resolve: (result: IteratorResult<T>) => void;
+        readonly reject: (error: unknown) => void;
+    }> = [];
+    private closed = false;
+    private failure: unknown;
+
+    push(value: T): void {
+        if (this.closed) return;
+        const waiter = this.waiters.shift();
+        if (waiter !== undefined) {
+            waiter.resolve({ value, done: false });
+            return;
+        }
+        this.values.push(value);
+    }
+
+    close(): void {
+        if (this.closed) return;
+        this.closed = true;
+        this.flush();
+    }
+
+    fail(error: unknown): void {
+        if (this.closed) return;
+        this.failure = error;
+        this.closed = true;
+        this.flush();
+    }
+
+    next(): Promise<IteratorResult<T>> {
+        const value = this.values.shift();
+        if (value !== undefined) {
+            return Promise.resolve({ value, done: false });
+        }
+        if (this.closed) {
+            return this.failure === undefined
+                ? Promise.resolve({ value: undefined, done: true })
+                : Promise.reject(this.failure);
+        }
+        return new Promise<IteratorResult<T>>((resolvePromise, rejectPromise) => {
+            this.waiters.push({ resolve: resolvePromise, reject: rejectPromise });
+        });
+    }
+
+    [Symbol.asyncIterator](): AsyncIterator<T> {
+        return this;
+    }
+
+    private flush(): void {
+        while (this.waiters.length > 0) {
+            const waiter = this.waiters.shift()!;
+            if (this.failure !== undefined) {
+                waiter.reject(this.failure);
+            } else {
+                waiter.resolve({ value: undefined, done: true });
+            }
+        }
+    }
+}
+
 function runShellCommand(
     command: string,
     options: {
@@ -132,6 +197,7 @@ function runShellCommand(
         readonly signal?: AbortSignal;
         readonly stdout: TailCollector;
         readonly stderr: TailCollector;
+        readonly onOutput?: (channel: "stdout" | "stderr", text: string) => void;
     },
 ): Promise<CommandOutcome> {
     return new Promise((resolvePromise, rejectPromise) => {
@@ -209,9 +275,11 @@ function runShellCommand(
         child.stderr.setEncoding("utf8");
         child.stdout.on("data", (chunk: string) => {
             options.stdout.push(chunk);
+            options.onOutput?.("stdout", chunk);
         });
         child.stderr.on("data", (chunk: string) => {
             options.stderr.push(chunk);
+            options.onOutput?.("stderr", chunk);
         });
         child.on("error", (error: Error) => {
             settle(() => {
@@ -314,6 +382,41 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         request: ToolExecutionRequest<BashInput>,
         control?: ExecutionControl,
     ): Promise<ToolObservation> {
+        return this.executeInternal(request, control);
+    }
+
+    /**
+     * 流式执行一次 bash 命令，并在最终 Observation 前产出 stdout/stderr 分片。
+     *
+     * @param request - Action ID 与已解析的命令输入。
+     * @param control - 当前 Run 的中止控制；中止仍传播 `ExecutionAbortedError`。
+     * @returns 输出分片以及恰好一个 completed Observation；分片不改变最终截断规则。
+     * @throws 与 `execute` 相同的校验、基础设施和中止异常。
+     */
+    async *stream(
+        request: ToolExecutionRequest<BashInput>,
+        control?: ExecutionControl,
+    ): AsyncIterable<ToolStreamEvent> {
+        const queue = new AsyncPushQueue<ToolStreamEvent>();
+        void this.executeInternal(
+            request,
+            control,
+            (channel, text) => queue.push({ kind: "output", channel, text }),
+        ).then(
+            (observation) => queue.push({ kind: "completed", observation }),
+            (error) => queue.fail(error),
+        ).finally(() => queue.close());
+
+        for await (const event of queue) {
+            yield event;
+        }
+    }
+
+    private async executeInternal(
+        request: ToolExecutionRequest<BashInput>,
+        control?: ExecutionControl,
+        onOutput?: (channel: "stdout" | "stderr", text: string) => void,
+    ): Promise<ToolObservation> {
         throwIfAborted(control);
         const input = request.input;
         const timeoutMs = input.timeoutMs ?? BASH_DEFAULT_TIMEOUT_MS;
@@ -330,6 +433,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
                 : { signal: control.signal }),
             stdout,
             stderr,
+            ...(onOutput === undefined ? {} : { onOutput }),
         });
 
         throwIfAborted(control);

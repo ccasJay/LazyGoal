@@ -1,4 +1,9 @@
-import type { LLMRequest, LLMResponse, StructuredOutputMode } from "./types";
+import type {
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+    StructuredOutputMode,
+} from "./types";
 import type { ExecutionControl } from "../../../runtime/src/execution-control";
 
 /**
@@ -38,4 +43,17 @@ export interface LLMAdapter {
         request: LLMRequest,
         control?: ExecutionControl,
     ): Promise<LLMResponse>;
+
+    /**
+     * 可选的模型生成流；实现时必须最终产生一个与 `generate()` 兼容的 completed 事件。
+     *
+     * @param request - 与 `generate()` 相同的供应商无关请求。
+     * @param control - 当前 Goal 推进调用共享的中止控制。
+     * @returns Provider 归一化的生成事件序列。
+     * @throws Provider 或中止异常；部分增量不会被伪装成完整响应。
+     */
+    readonly stream?: (
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ) => AsyncIterable<LLMStreamEvent>;
 }

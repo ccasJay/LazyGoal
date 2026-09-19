@@ -3,7 +3,8 @@
 ## 职责与调用
 
 LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本消息，返回原始文本及
-诊断 metadata；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
+诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
+适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
 CLI、ALFWorld 和 smoke 共用 [配置解析](../../packages/llm/src/config.ts) 与
 [工厂](../../packages/llm/src/factory.ts)，在创建 Goal、Store 或 sidecar 前完成模型解析。
 Adapter 构造时固定输出模式，不自动降级或切换 provider。
@@ -15,7 +16,7 @@ Adapter 构造时固定输出模式，不自动降级或切换 provider。
 | `anthropic`、`openrouter`、`deepseek` | pi-ai 对应 provider | 配置错误 |
 | `openai-compatible` | pi-ai Chat Completions | 原生 OpenAI-compatible |
 
-[PiAiAdapter](../../packages/llm/src/pi-ai.ts) 使用锁定版本的目录，内部聚合 SDK 流式结果。
+[PiAiAdapter](../../packages/llm/src/pi-ai.ts) 使用锁定版本的目录，并将 SDK 的 text/thinking/tool-call 增量转换为统一流事件；`generate()` 仍只返回完整响应。
 前置 system 消息按顺序合并，user/assistant 顺序不变；中途 system 消息被拒绝。
 只返回正常结束的文本，隔离 thinking，拒绝截断、错误、意外工具调用及其它非完成状态。
 空文本仍交给 Agent 拒绝；不修复 JSON，不增加应用层重试，SDK 传输策略沿用其默认值。
@@ -79,7 +80,7 @@ pi-ai 不能证明计数是否真实上报，故只写非权威 `piUsage` 数值
 benchmark 将这些调用计入 `missingCalls`。Trace 对 metadata 脱敏限长；metadata 不进入
 Goal Snapshot、Domain Event 或模型上下文。不保存认证头、完整 SDK 响应或 thinking。
 
-本期仅支持文本与显式 API Key，不支持原生 tool calling、流式 UI、多模态、OAuth、云身份、
+本期仅支持文本与显式 API Key，不支持原生 tool calling、多模态、OAuth、云身份、
 自动 JSON 修复或模型切换。自定义兼容服务必须支持 pi-ai 使用的流式 Chat Completions。
 
 `npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行统一任务提案、任务批准、

@@ -13,6 +13,11 @@ import type {
 import { bindGoalPlanTodo, createEmptyGoalPlan } from "./goal-plan";
 import { createRun } from "./domain";
 import type { GoalStore } from "./goal-store";
+import type {
+    ExecutionStreamEventDraft,
+    ExecutionStreamPublisher,
+    StreamJsonValue,
+} from "../../execution-stream/src/index";
 import { validateAskUserAnswers } from "../../contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
 import type { RunScheduler } from "./scheduler";
@@ -29,6 +34,7 @@ import { transition } from "./transition";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
+    type TrajectoryEvent,
     type TrajectoryStore,
 } from "./trajectory";
 import {
@@ -39,8 +45,21 @@ import {
 import type { WorkingMemoryLimitsInput } from "./working-memory-core";
 import {
     TrajectoryCheckpointCommitter,
+    type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+
+function isStreamDeltaKind(kind: string): boolean {
+    return kind.endsWith("_delta");
+}
+
+function streamCoalescingKey(
+    executionUnitId: string | undefined,
+    actionId: string | undefined,
+    kind: string,
+): string {
+    return `${kind}:${executionUnitId ?? actionId ?? "run"}`;
+}
 
 function cloneCriterion(criterion: GoalTask["completionCriteria"][number]): GoalTask["completionCriteria"][number] {
     return {
@@ -245,6 +264,8 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
+    readonly executionStream?: ExecutionStreamPublisher;
 }
 
 /**
@@ -273,6 +294,7 @@ export class GoalCoordinator {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly continuationGates = new Map<string, Promise<void>>();
 
     /** @param dependencies - GoalCoordinatorDependencies。 */
@@ -285,6 +307,7 @@ export class GoalCoordinator {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
+        this.executionStream = dependencies.executionStream;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -546,7 +569,7 @@ export class GoalCoordinator {
             };
 
             throwIfAborted(control);
-            await this.checkpointCommitter.commit(nextGoal, {
+            const committed = await this.checkpointCommitter.commit(nextGoal, {
                 facts: [
                     {
                         goalId: goal.id,
@@ -562,6 +585,7 @@ export class GoalCoordinator {
                 ],
                 ...(control === undefined ? {} : { control }),
             });
+            this.publishCommittedEvents(committed, committed.events);
             throwIfAborted(control);
 
             const nextRef = { goalId: goal.id, runId };
@@ -1074,8 +1098,71 @@ export class GoalCoordinator {
         draft: TrajectoryEventDraft,
         control?: ExecutionControl,
         countAsFact = true,
-    ): Promise<void> {
-        await this.checkpointCommitter.append(draft, control, countAsFact);
+    ): Promise<Readonly<TrajectoryEvent> | undefined> {
+        const event = await this.checkpointCommitter.append(draft, control, countAsFact);
+        this.publishTrajectoryEvent(
+            draft,
+            event,
+            event?.payload.type ?? draft.eventType,
+        );
+        return event;
+    }
+
+    private publishExecutionEvent(
+        target: Goal | { readonly goalId: string; readonly runId: string },
+        event: Omit<ExecutionStreamEventDraft, "goalId" | "runId">,
+    ): void {
+        if (this.executionStream === undefined) return;
+        const goalId = "goalId" in target ? target.goalId : target.id;
+        const runId = "runId" in target ? target.runId : target.state.run.id;
+        try {
+            this.executionStream.publish({ goalId, runId, ...event });
+        } catch {
+            // Stream 是旁路观察面，发布故障不得改变 Coordinator 语义。
+        }
+    }
+
+    private publishTrajectoryEvent(
+        draft: TrajectoryEventDraft,
+        event: Readonly<TrajectoryEvent> | undefined,
+        kind: string,
+    ): void {
+        const executionUnitId = event?.executionUnitId ?? draft.executionUnitId;
+        const actionId = event?.actionId ?? draft.actionId;
+        this.publishExecutionEvent(draft, {
+            ...(executionUnitId === undefined ? {} : { executionUnitId }),
+            ...(actionId === undefined ? {} : { actionId }),
+            kind,
+            visibility: "public",
+            durability: event === undefined ? "live" : "trajectory",
+            delivery: isStreamDeltaKind(kind) ? "delta" : "control",
+            ...(isStreamDeltaKind(kind)
+                ? { coalescingKey: streamCoalescingKey(executionUnitId, actionId, kind) }
+                : {}),
+            payload: (event?.payload ?? draft.payload) as unknown as StreamJsonValue,
+        });
+    }
+
+    private publishCommittedEvents(
+        result: TrajectoryCheckpointCommitResult,
+        events: readonly TrajectoryEvent[],
+    ): void {
+        for (const event of events) {
+            const executionUnitId = event.executionUnitId;
+            const actionId = event.actionId;
+            this.publishExecutionEvent(result.goal, {
+                ...(executionUnitId === undefined ? {} : { executionUnitId }),
+                ...(actionId === undefined ? {} : { actionId }),
+                kind: event.eventType,
+                visibility: "public",
+                durability: "checkpoint",
+                delivery: isStreamDeltaKind(event.eventType) ? "delta" : "control",
+                ...(isStreamDeltaKind(event.eventType)
+                    ? { coalescingKey: streamCoalescingKey(executionUnitId, actionId, event.eventType) }
+                    : {}),
+                payload: event.payload as unknown as StreamJsonValue,
+            });
+        }
     }
 
     private async afterSchedule(
