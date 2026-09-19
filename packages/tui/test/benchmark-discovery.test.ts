@@ -34,6 +34,7 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
             executionPolicy: { maxSteps: 30 },
         },
         state: {
+            mode: "normal",
             modelSelection: {
                 provider: "openai",
                 modelId: "gpt-4o",
@@ -75,6 +76,7 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
                     openedAtSequence: 1,
                 },
             },
+            completedRuns: [],
         },
     };
     return JSON.stringify(snapshot, null, 2);

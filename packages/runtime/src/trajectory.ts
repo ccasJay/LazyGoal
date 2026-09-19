@@ -11,6 +11,7 @@ import type {
     MemoryPatchAcceptedPayload,
     ModelContextEpochState,
 } from "./domain";
+import type { GoalPlanPatchOperation } from "./goal-plan";
 import type {
     ContextLookupRequest,
     ContextLookupResult,
@@ -28,7 +29,17 @@ export type TrajectoryEventPayload =
         readonly intent: string;
     }
     | { readonly type: "run_started" }
+    | {
+        readonly type: "run_created";
+        readonly todoId?: string;
+    }
     | { readonly type: "run_resumed" }
+    | { readonly type: "plan_mode_entered" }
+    | {
+        readonly type: "goal_plan_updated";
+        readonly revision: number;
+        readonly operations: readonly GoalPlanPatchOperation[];
+    }
     | {
         readonly type: "ask_user_answered";
         readonly requestId: string;
@@ -366,7 +377,8 @@ export interface TrajectoryReadResult {
  * @param goalStore - 提供恢复权威 Snapshot 的只读 Port。
  * @param trajectoryStore - 提供事件读取的只读/追加 Port；本函数不会追加事件。
  * @param query - Goal/Run 标识和可选序列范围。
- * @returns 已提交事件与未提交 tail；缺少 Snapshot 或 Run 不匹配时全部事件归入 tail。
+ * @returns 已提交事件与未提交 tail；当前 Run 使用当前边界，已完成 Run 使用其
+ *   `completedRuns` 记录的边界，未知 Run 或缺少 Snapshot 时全部事件归入 tail。
  * @throws 底层 Snapshot 或 Trajectory 读取失败时拒绝。
  * @example
  * ```ts
@@ -383,9 +395,12 @@ export async function readTrajectoryAtSnapshot(
     query: TrajectoryReadQuery,
 ): Promise<Readonly<TrajectoryReadResult>> {
     const goal = await goalStore.restore(query.goalId);
-    const committedThroughSequence = goal?.state.run.id === query.runId
-        ? goal.state.run.committedThroughSequence ?? 0
-        : 0;
+    const committedThroughSequence = goal === undefined
+        ? 0
+        : goal.state.run.id === query.runId
+            ? goal.state.run.committedThroughSequence ?? 0
+            : goal.state.completedRuns?.find((record) => record.runId === query.runId)
+                ?.committedThroughSequence ?? 0;
 
     return trajectoryStore.readWithBoundary(query, committedThroughSequence);
 }
@@ -523,7 +538,10 @@ export class TrajectoryCommitMarkerError extends Error {
 const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
+    "run_created",
     "run_resumed",
+    "plan_mode_entered",
+    "goal_plan_updated",
     "ask_user_answered",
     "task_approved",
     "decision_received",
@@ -589,6 +607,28 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "decision_received") {
         if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
             throw new TrajectoryProtocolError("thought must be a string");
+        }
+    }
+    if (eventType === "run_created") {
+        if (Object.keys(payload).some((key) => !["type", "todoId"].includes(key))) {
+            throw new TrajectoryProtocolError("run_created contains unknown fields");
+        }
+        assertOptionalNonEmptyString(payload.todoId, "run_created.todoId");
+    }
+    if (eventType === "plan_mode_entered") {
+        if (Object.keys(payload).some((key) => key !== "type")) {
+            throw new TrajectoryProtocolError("plan_mode_entered contains unknown fields");
+        }
+    }
+    if (eventType === "goal_plan_updated") {
+        if (Object.keys(payload).some((key) => !["type", "revision", "operations"].includes(key))) {
+            throw new TrajectoryProtocolError("goal_plan_updated contains unknown fields");
+        }
+        if (typeof payload.revision !== "number" || !Number.isInteger(payload.revision) || payload.revision < 1) {
+            throw new TrajectoryProtocolError("goal_plan_updated revision is invalid");
+        }
+        if (!Array.isArray(payload.operations)) {
+            throw new TrajectoryProtocolError("goal_plan_updated operations must be an array");
         }
     }
     if (eventType === "ask_user_answered") {
@@ -833,10 +873,14 @@ export function classifyTrajectoryEvent(
     switch (event.eventType) {
         case "goal_created":
         case "run_started":
+        case "run_created":
         case "run_resumed":
+        case "plan_mode_entered":
         case "ask_user_answered":
         case "task_approved":
             return "lifecycle";
+        case "goal_plan_updated":
+            return "decision";
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":

@@ -56,6 +56,13 @@ export {
     FactStabilityContract,
     FactValueContract,
     FailAgentDecisionContract,
+    GoalPlanStatusContract,
+    GoalPlanAddOperationContract,
+    GoalPlanUpdateOperationContract,
+    GoalPlanReorderOperationContract,
+    GoalPlanCancelOperationContract,
+    GoalPlanPatchOperationContract,
+    GoalPlanUpdateAgentDecisionContract,
     GoalTaskContract,
     HypothesisCreateContract,
     HypothesisUpdateContract,
@@ -66,6 +73,7 @@ export {
     ModelContextCheckpointResultContract,
     NonToolExecutingDecisionContract,
     OrdinaryExecutingDecisionContract,
+    PlanModeExecutingDecisionContract,
     PlanItemCreateContract,
     PlanItemCreateStatusContract,
     PlanItemStatusContract,
@@ -104,6 +112,9 @@ export type {
     FactStability,
     FactValue,
     GoalTask,
+    GoalPlanStatus,
+    GoalPlanPatchOperation,
+    GoalPlanUpdateAgentDecision,
     HypothesisCreate,
     HypothesisUpdate,
     MemoryEntryScope,
@@ -118,6 +129,7 @@ export type {
     PlanItemUpdate,
     RetireFactProposal,
     StructuredAgentDecision,
+    PlanModeExecutingDecision,
     ToolCallAction,
     WorkingMemoryPatch,
     AskUserOptionInput,
@@ -156,6 +168,7 @@ export {
     SystemProposeTaskPlanDeclaration,
     SystemContextCheckpointDeclaration,
     SystemAskUserDeclaration,
+    SystemUpdateGoalPlanDeclaration,
     createExecutingToolDeclarations,
     createUnifiedToolDeclarations,
     createCheckpointToolDeclarations,
@@ -163,4 +176,7 @@ export {
 } from "./model-output/system-tools";
 export type {
     SystemToolDeclaration,
+} from "./model-output/system-tools";
+export {
+    SystemUpdateGoalPlanInputContract,
 } from "./model-output/system-tools";

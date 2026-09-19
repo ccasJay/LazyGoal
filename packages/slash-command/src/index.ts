@@ -1,4 +1,5 @@
 export { modelCommandDefinition } from "./commands/model.js";
+export { planCommandDefinition } from "./commands/plan.js";
 export {
     SLASH_COMMAND_ERROR_CODES,
     SlashCommandError,
@@ -6,6 +7,7 @@ export {
 export { createSlashCommandRegistry } from "./registry.js";
 export type {
     ModelCommandEffect,
+    SlashCommandEffect,
     SlashCommandDefinition,
     SlashCommandDispatchResult,
     SlashCommandInvocation,

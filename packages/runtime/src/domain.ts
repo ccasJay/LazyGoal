@@ -30,6 +30,8 @@ import type {
     ContextLookupResult,
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
+import { createEmptyGoalPlan } from "./goal-plan";
+import type { GoalMode, GoalPlan } from "./goal-plan";
 
 export type {
     CompletionAcceptance,
@@ -40,6 +42,7 @@ export type {
     AskUserAnswer,
     ToolObservation,
 };
+export type { GoalMode, GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
 
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
@@ -817,6 +820,8 @@ export type RunStopReason =
  */
 export interface RunState {
     readonly id: string;
+    /** Plan Mode 下当前 Run 承接的 GoalPlan Todo；普通 Run 省略。 */
+    readonly todoId?: string;
     readonly status: RunStatus;
     readonly stepCount: number;
     /**
@@ -918,10 +923,30 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
 });
 
 export interface GoalState {
+    /** 后端控制的会话模式；缺省值仅用于恢复旧的开发期内存 fixture，生产创建值为 `normal`。 */
+    readonly mode?: GoalMode;
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;
     readonly modelSelection: GoalModelSelection;
+    /** Plan Mode 的唯一计划状态源；普通模式不得 materialize。 */
+    readonly goalPlan?: GoalPlan;
+    /** 已完成 Run 的只读摘要；初始 Goal 为空。 */
+    readonly completedRuns?: readonly CompletedRunRecord[];
+}
+
+/** 已完成 Run 的跨会话历史摘要。 */
+export interface CompletedRunRecord {
+    /** 已完成 Run 的稳定 ID。 */
+    readonly runId: string;
+    /** 该 Run 承接的 Todo；普通模式省略。 */
+    readonly todoId?: string;
+    /** 完成时的 Step 数量。 */
+    readonly stepCount: number;
+    /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */
+    readonly committedThroughSequence: number;
+    /** 该 Run 在 Goal.messages 中占用的半开区间。 */
+    readonly messageRange: { readonly start: number; readonly end: number };
 }
 
 /**
@@ -1029,6 +1054,11 @@ export type RunInput =
         >;
     }
     | {
+        /** 完成一次 Plan Mode 的 GoalPlan 更新 Step；不改变 Run 的终态。 */
+        readonly kind: "plan_update";
+        readonly decision: Extract<AgentDecision, { readonly kind: "goal_plan_update" }>;
+    }
+    | {
         /** 完成一个 Context Lookup Step，但保持 Run running。 */
         readonly kind: "context_lookup";
         readonly request: ContextLookupRequest;
@@ -1103,6 +1133,8 @@ export interface GoalCreationInput {
     readonly contextRetrievalProtocol: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
+    /** 新 Goal 的后端模式；Plan Mode 创建时同时 materialize 空 GoalPlan。 */
+    readonly mode?: GoalMode;
     readonly maxSteps?: number;
     readonly messages?: readonly GoalMessage[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
@@ -1148,6 +1180,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
  */
 export function createGoal(input: GoalCreationInput): Goal {
     const maxSteps = input.maxSteps ?? 0;
+    const mode = input.mode ?? "normal";
 
     if (!Number.isInteger(maxSteps) || maxSteps < 0) {
         throw new Error("maxSteps must be a non-negative integer");
@@ -1155,6 +1188,10 @@ export function createGoal(input: GoalCreationInput): Goal {
 
     if (input.promptBundleVersion !== 1) {
         throw new Error("promptBundleVersion must be 1");
+    }
+
+    if (mode !== "normal" && mode !== "plan") {
+        throw new Error("mode must be normal or plan");
     }
 
     if (
@@ -1186,14 +1223,27 @@ export function createGoal(input: GoalCreationInput): Goal {
             ]),
             run: createRun(input.runId),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
+            ...(mode === "plan" ? { mode, goalPlan: createEmptyGoalPlan() } : { mode }),
+            completedRuns: [],
         },
     };
 }
 
-/** 创建只包含 Run 自身字段的初始状态。 */
-export function createRun(runId: string): RunState {
+/**
+ * 创建只包含 Run 自身字段的初始状态。
+ *
+ * @param runId - Runtime 分配的 Run 稳定 ID。
+ * @param todoId - Plan Mode 下可选的唯一承接 Todo；普通 Run 省略。
+ * @returns 处于 created 状态且尚未消费 Step 的 Run。
+ * @example
+ * ```ts
+ * const run = createRun("run-2", "todo-1");
+ * ```
+ */
+export function createRun(runId: string, todoId?: string): RunState {
     return {
         id: runId,
+        ...(todoId === undefined ? {} : { todoId }),
         status: "created",
         stepCount: 0,
         committedThroughSequence: 0,

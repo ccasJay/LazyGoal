@@ -21,6 +21,7 @@ import type {
     ModelContextRetrievalProtocol,
     ModelTrajectoryContext,
     ModelContextLookupResult,
+    ModelGoalPlan,
     PromptContext,
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
@@ -84,6 +85,10 @@ export class ModelInferenceProjector {
 
         const workingContext = this.projectWorkingContext(goal);
 
+        const projectedGoalPlan = (goal.state.mode ?? "normal") === "plan"
+            ? projectGoalPlan(goal.state.goalPlan)
+            : undefined;
+
         const effectiveTools = workingContext.task === undefined
             ? tools.filter(isReadOnlyTool)
             : tools;
@@ -97,6 +102,7 @@ export class ModelInferenceProjector {
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
             ...(workingContext.task !== undefined ? { task: workingContext.task } : {}),
+            ...(projectedGoalPlan === undefined ? {} : { goalPlan: projectedGoalPlan }),
         });
 
         return {
@@ -317,6 +323,25 @@ function projectTools(
     projected.sort((a, b) => compareCodeUnits(a.id, b.id));
 
     return projected;
+}
+
+function projectGoalPlan(
+    plan: Goal["state"]["goalPlan"],
+): ModelGoalPlan {
+    if (plan === undefined) {
+        throw new Error("Plan Mode requires a GoalPlan projection");
+    }
+
+    return {
+        revision: plan.revision,
+        items: plan.items.map((item) => ({
+            id: item.id,
+            content: item.content,
+            position: item.position,
+            status: item.status,
+            ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
+        })),
+    };
 }
 
 /**

@@ -1,4 +1,7 @@
+import { randomUUID } from "node:crypto";
+
 import type {
+    CompletedRunRecord,
     Goal,
     GoalTask,
     GoalProtocolValidator,
@@ -7,6 +10,8 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
+import { bindGoalPlanTodo, createEmptyGoalPlan } from "./goal-plan";
+import { createRun } from "./domain";
 import type { GoalStore } from "./goal-store";
 import { validateAskUserAnswers } from "../../contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
@@ -92,11 +97,13 @@ function formatAskUserAnswers(
 export type GoalProgressErrorCode =
     | "RUN_NOT_FOUND"
     | "GOAL_NOT_WAITING"
+    | "GOAL_NOT_COMPLETED"
     | "INVALID_GOAL_INPUT"
     | "INVALID_PHASE_RESULT"
     | "ACTION_NOT_AUTHORIZED"
     | "INVALID_CONTEXT_LOOKUP"
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
+    | "PLAN_MODE_BUSY"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
     | "INVALID_TOOL_INPUT"
@@ -222,6 +229,8 @@ export interface GoalCoordinatorDependencies {
     readonly store: GoalStore;
     /** 运行 executing Goal，直到 blocked、waiting 或终态。 */
     readonly scheduler: RunScheduler;
+    /** 创建 completed continue 的新 Run ID；省略时使用随机 UUID。 */
+    readonly runIdGenerator?: () => string;
     /** 工具注册表；省略时按空 InMemoryToolRegistry 处理。 */
     readonly toolRegistry?: ToolRegistry;
     /** 可选 Domain Event 追加与 Snapshot 边界读取端口；省略时只保存 Snapshot。 */
@@ -257,17 +266,20 @@ export interface GoalCoordinatorDependencies {
 export class GoalCoordinator {
     private readonly store: GoalStore;
     private readonly scheduler: RunScheduler;
+    private readonly runIdGenerator: () => string;
     private readonly toolRegistry: ToolRegistry;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly continuationGates = new Map<string, Promise<void>>();
 
     /** @param dependencies - GoalCoordinatorDependencies。 */
     constructor(dependencies: GoalCoordinatorDependencies) {
         this.store = dependencies.store;
         this.scheduler = dependencies.scheduler;
+        this.runIdGenerator = dependencies.runIdGenerator ?? randomUUID;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
@@ -283,6 +295,78 @@ export class GoalCoordinator {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
+    }
+
+    /**
+     * 在安全输入边界把现有 Goal 切换到后端 Plan Mode。
+     *
+     * @remarks
+     * 模式和空 GoalPlan 由 Coordinator 在同一 Snapshot 提交边界写入；命令文本
+     * 不会成为 Goal 消息或 Run Step。重复调用是幂等的。模型/Tool 正在执行的
+     * `running` Run 会被拒绝，避免在执行中改变模型契约。
+     *
+     * @param ref - Goal 与当前 Run 的关联键。
+     * @param control - 当前调用共享的可选中止控制。
+     * @returns 当前等待点、终态或稳定业务错误。
+     * @example
+     * ```ts
+     * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    async enterPlanMode(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        throwIfAborted(control);
+        const goal = await this.restore(ref, control);
+        throwIfAborted(control);
+        if (goal === undefined) return this.runNotFound(ref);
+        this.validateGoalProtocol(goal);
+        if (goal.state.run.status === "running") {
+            return {
+                ok: false,
+                error: {
+                    code: "PLAN_MODE_BUSY",
+                    message: "Plan Mode cannot be entered while the current Run is executing",
+                },
+            };
+        }
+        if ((goal.state.mode ?? "normal") === "plan" && goal.state.goalPlan !== undefined) {
+            return goal.state.run.status === "waiting"
+                ? this.executingWaitingResult(goal)
+                : goal.state.run.status === "created"
+                    ? {
+                        ok: true,
+                        kind: "terminal",
+                        phase: "executing",
+                        goal,
+                    }
+                    : {
+                        ok: true,
+                        kind: "terminal",
+                        phase: "executing",
+                        goal,
+                    };
+        }
+
+        const planGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                mode: "plan",
+                goalPlan: goal.state.goalPlan ?? createEmptyGoalPlan(),
+            },
+        };
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "plan_mode_entered",
+            payload: { type: "plan_mode_entered" },
+        }, control);
+        const saved = await this.saveCheckpoint(planGoal, control);
+        if (saved.state.run.status === "waiting") return this.executingWaitingResult(saved);
+        return { ok: true, kind: "terminal", phase: "executing", goal: saved };
     }
 
     /**
@@ -346,6 +430,145 @@ export class GoalCoordinator {
                 message: `Scheduler left Run "${ref.runId}" in ${goal.state.run.status}`,
             },
         };
+    }
+
+    /**
+     * 为已完成 Run 创建并推进一个新的会话 Run。
+     *
+     * @remarks
+     * `continue` 只接受当前 `completed` Run 和非空输入。它在同一个 Goal 内先
+     * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并在 Plan Mode
+     * 绑定 position 最前的 pending Todo；完整 Snapshot 成功后才调用 Scheduler。
+     * waiting Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个
+     * Coordinator 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被
+     * 两次消费。
+     *
+     * @param ref - 当前已完成 Run 的 Goal/Run 关联键。
+     * @param newInput - 要追加到 Goal.messages 的非空用户输入。
+     * @param control - 当前会话调用共享的可选中止控制。
+     * @returns 新 Run 调度到 waiting 或终态后的结果；输入或状态非法时返回稳定错误。
+     * @throws GoalStore、Trajectory 或 Scheduler 基础设施失败时传播原始异常。
+     * @example
+     * ```ts
+     * const result = await coordinator.continue(
+     *   { goalId: "goal-1", runId: "run-1" },
+     *   "继续处理下一个计划项",
+     * );
+     * ```
+     */
+    async continue(
+        ref: RunRef,
+        newInput: string,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        return this.withContinuationGate(ref.goalId, async () => {
+            throwIfAborted(control);
+            if (newInput.trim().length === 0) {
+                return this.invalidGoalInput("Continuation input must not be empty");
+            }
+
+            const goal = await this.restore(ref, control);
+            throwIfAborted(control);
+            if (goal === undefined) return this.runNotFound(ref);
+            this.validateGoalProtocol(goal);
+
+            if (goal.state.run.status !== "completed") {
+                return this.goalNotCompleted(ref);
+            }
+
+            const runId = this.runIdGenerator();
+            if (
+                typeof runId !== "string"
+                || runId.trim().length === 0
+                || runId === goal.state.run.id
+                || (goal.state.completedRuns ?? []).some((record) => record.runId === runId)
+            ) {
+                return this.invalidGoalInput("Run ID generator returned a duplicate or empty ID");
+            }
+
+            const priorMessages = goal.state.messages;
+            const priorHistory = goal.state.completedRuns ?? [];
+            const historyEnd = priorMessages.length;
+            const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
+            const history: CompletedRunRecord = {
+                runId: goal.state.run.id,
+                ...(goal.state.run.todoId === undefined ? {} : { todoId: goal.state.run.todoId }),
+                stepCount: goal.state.run.stepCount,
+                committedThroughSequence: goal.state.run.committedThroughSequence,
+                messageRange: {
+                    start: previousRangeEnd,
+                    end: historyEnd,
+                },
+            };
+
+            const mode = goal.state.mode ?? "normal";
+            let nextPlan = goal.state.goalPlan;
+            let todoId: string | undefined;
+            let planFact: TrajectoryEventDraft | undefined;
+            if (mode === "plan") {
+                if (nextPlan === undefined) {
+                    return this.invalidGoalInput("Plan Mode Goal is missing its GoalPlan");
+                }
+                const pendingTodo = nextPlan.items.find((item) => item.status === "pending");
+                if (pendingTodo === undefined) {
+                    return this.invalidGoalInput("Plan Mode has no pending Todo to continue");
+                }
+                todoId = pendingTodo.id;
+                nextPlan = bindGoalPlanTodo(nextPlan, todoId, runId);
+                planFact = {
+                    goalId: goal.id,
+                    runId,
+                    phase: goal.state.workflow.phase,
+                    eventType: "goal_plan_updated",
+                    payload: {
+                        type: "goal_plan_updated",
+                        revision: nextPlan.revision,
+                        operations: [{ type: "update", id: todoId, status: "in_progress" }],
+                    },
+                };
+            } else if (nextPlan !== undefined) {
+                return this.invalidGoalInput("Normal Mode Goal cannot contain a GoalPlan");
+            }
+
+            const nextRun = createRun(runId, todoId);
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    messages: [
+                        ...priorMessages,
+                        { role: "user", content: newInput },
+                    ],
+                    run: nextRun,
+                    ...(nextPlan === undefined ? {} : { goalPlan: nextPlan }),
+                    completedRuns: [...priorHistory, history],
+                },
+            };
+
+            throwIfAborted(control);
+            await this.checkpointCommitter.commit(nextGoal, {
+                facts: [
+                    {
+                        goalId: goal.id,
+                        runId,
+                        phase: goal.state.workflow.phase,
+                        eventType: "run_created",
+                        payload: {
+                            type: "run_created",
+                            ...(todoId === undefined ? {} : { todoId }),
+                        },
+                    },
+                    ...(planFact === undefined ? [] : [planFact]),
+                ],
+                ...(control === undefined ? {} : { control }),
+            });
+            throwIfAborted(control);
+
+            const nextRef = { goalId: goal.id, runId };
+            const scheduled = await this.scheduler.schedule(nextRef, undefined, control);
+            throwIfAborted(control);
+            return this.afterSchedule(nextRef, scheduled, control);
+        });
     }
 
     /**
@@ -960,5 +1183,36 @@ export class GoalCoordinator {
                 message: `Run "${ref.runId}" for Goal "${ref.goalId}" was not found`,
             },
         };
+    }
+
+    private goalNotCompleted(ref: RunRef): GoalProgressResult {
+        return {
+            ok: false,
+            error: {
+                code: "GOAL_NOT_COMPLETED",
+                message: `Goal "${ref.goalId}" is not completed for continuation`,
+            },
+        };
+    }
+
+    private async withContinuationGate<T>(
+        goalId: string,
+        operation: () => Promise<T>,
+    ): Promise<T> {
+        const previous = this.continuationGates.get(goalId) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        this.continuationGates.set(goalId, current);
+        await previous;
+        try {
+            return await operation();
+        } finally {
+            release();
+            if (this.continuationGates.get(goalId) === current) {
+                this.continuationGates.delete(goalId);
+            }
+        }
     }
 }

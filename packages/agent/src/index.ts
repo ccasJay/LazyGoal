@@ -174,6 +174,8 @@ export type {
     ModelProfileView,
     ModelStepRecord,
     ModelTask,
+    ModelGoalPlan,
+    ModelGoalPlanItem,
     ModelToolCallAction,
     ModelToolDefinition,
     ModelWorkingContext,

@@ -2,6 +2,7 @@ import type {
     ContextLookupMatchedField,
     ContextLookupRequest,
     ContextLookupResult,
+    ContextLookupRunBoundary,
 } from "./context-retrieval";
 import {
     CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
@@ -29,6 +30,10 @@ export const CONTEXT_LOOKUP_RESULT_BUDGET_CODE = "CONTEXT_LOOKUP_RESULT_BUDGET_E
 
 /**
  * 将 Fielded BM25-lite 排名结果转换为 Runtime Context Lookup Result 的输入。
+ *
+ * @remarks
+ * 省略 `runBoundaries` 时构建器只接受当前 `runId` 的文档；跨 Run 构建必须提供
+ * 每个可读 Run 的提交边界，结果会保留这些边界以便恢复时再次执行来源校验。
  *
  * @example
  * ```ts
@@ -61,6 +66,11 @@ export interface ContextLookupResultBuildInput {
     readonly resultBudgetBytes?: number;
     /** 产生排名结果的索引版本；省略时使用 bm25-lite v1。 */
     readonly indexVersion?: string;
+    /**
+     * 排名结果可引用的 Goal Run 边界；省略时只允许 `runId` 对应的当前 Run。
+     * 每个历史命中仍会在结果中携带其 Run 身份，不能依靠局部 sequence 推断来源。
+     */
+    readonly runBoundaries?: readonly ContextLookupRunBoundary[];
 }
 
 /**
@@ -140,6 +150,11 @@ export function buildContextLookupResultFromRanking(
     assertNonEmpty(indexVersion, "indexVersion");
     const sourceDocuments = new Set<string>();
     const sourceEvents = new Set<string>();
+    const runBoundaries = normalizeRunBoundaries(
+        input.runBoundaries,
+        input.runId,
+        input.committedThroughSequence,
+    );
     const matches: ContextLookupResultBuildMatch[] = [];
     let truncated = input.ranking.truncated
         || input.ranking.matches.length > CONTEXT_LOOKUP_MAX_MATCHES;
@@ -150,6 +165,7 @@ export function buildContextLookupResultFromRanking(
             input.goalId,
             input.runId,
             input.committedThroughSequence,
+            runBoundaries,
             previewLimit,
             sourceDocuments,
             sourceEvents,
@@ -162,6 +178,7 @@ export function buildContextLookupResultFromRanking(
             indexVersion,
             matches: [...matches, candidate],
             truncated,
+            ...(runBoundaries === undefined ? {} : { sourceRunBoundaries: runBoundaries }),
         };
         if (utf8Bytes(projected) > resultBudgetBytes) {
             truncated = true;
@@ -191,6 +208,7 @@ export function buildContextLookupResultFromRanking(
             indexVersion,
             matches,
             truncated,
+            ...(runBoundaries === undefined ? {} : { sourceRunBoundaries: runBoundaries }),
         }, input.lookupId, input.committedThroughSequence, request);
     } catch (error) {
         throw new ContextLookupResultError(
@@ -227,6 +245,7 @@ function buildMatch(
     goalId: string,
     runId: string,
     boundary: number,
+    runBoundaries: readonly ContextLookupRunBoundary[] | undefined,
     previewLimit: number,
     sourceDocuments: Set<string>,
     sourceEvents: Set<string>,
@@ -235,7 +254,13 @@ function buildMatch(
     if (ranked.documentId !== document.documentId) {
         throw new ContextLookupResultError("ranked document ID does not match its document");
     }
-    if (document.goalId !== goalId || document.runId !== runId) {
+    const sourceBoundary = runBoundaries?.find((source) => source.runId === document.runId);
+    if (
+        document.goalId !== goalId
+        || (runBoundaries === undefined
+            ? document.runId !== runId
+            : sourceBoundary === undefined)
+    ) {
         throw new ContextLookupResultError("ranked document belongs to a different Goal/Run");
     }
     if (
@@ -243,7 +268,8 @@ function buildMatch(
         || !Number.isSafeInteger(document.lastSequence)
         || (document.source?.kind === "conversation" ? document.firstSequence < 0 : document.firstSequence <= 0)
         || document.lastSequence < document.firstSequence
-        || (document.source?.kind !== "conversation" && document.lastSequence > boundary)
+        || (document.source?.kind !== "conversation"
+            && document.lastSequence > (sourceBoundary?.committedThroughSequence ?? boundary))
     ) {
         throw new ContextLookupResultError("ranked document is outside committed boundary");
     }
@@ -269,7 +295,7 @@ function buildMatch(
     return Object.freeze({
         documentId: document.documentId,
         goalId,
-        runId,
+        runId: document.runId,
         firstSequence: document.firstSequence,
         lastSequence: document.lastSequence,
         matchedFields: Object.freeze(matchedFields),
@@ -281,6 +307,38 @@ function buildMatch(
         sourceEventIds: Object.freeze(eventIds),
         ...(document.source === undefined ? {} : { source: structuredClone(document.source) }),
     });
+}
+
+function normalizeRunBoundaries(
+    value: readonly ContextLookupRunBoundary[] | undefined,
+    currentRunId: string,
+    currentBoundary: number,
+): readonly ContextLookupRunBoundary[] | undefined {
+    if (value === undefined) return undefined;
+    const seen = new Set<string>();
+    const boundaries = value.map((source) => {
+        if (
+            typeof source.runId !== "string"
+            || source.runId.trim().length === 0
+            || !Number.isSafeInteger(source.committedThroughSequence)
+            || source.committedThroughSequence < 0
+            || seen.has(source.runId)
+        ) {
+            throw new ContextLookupResultError("run boundaries are invalid");
+        }
+        seen.add(source.runId);
+        return Object.freeze({
+            runId: source.runId,
+            committedThroughSequence: source.committedThroughSequence,
+        });
+    });
+    if (boundaries.find((source) => source.runId === currentRunId) === undefined) {
+        boundaries.push(Object.freeze({
+            runId: currentRunId,
+            committedThroughSequence: currentBoundary,
+        }));
+    }
+    return Object.freeze(boundaries);
 }
 
 function createPreview(body: string, limit: number): { readonly text: string; readonly truncated: boolean } {

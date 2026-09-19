@@ -3,7 +3,7 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-通用单 task Headless Composition Root，以及 ALFWorld TextWorld 和 SWE-bench Verified
+通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld 和 SWE-bench Verified
 的显式评测适配；ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL sidecar、专用
 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
 [`benchmarks/src/`](../../benchmarks/src/)，具体 benchmark 只声明环境和评分适配。
@@ -63,6 +63,8 @@ Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory
 不自动创建 Cold Trajectory 索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
 任务描述符 `BenchmarkTaskDescriptor.completionCriteria` 支持纯文本与携带验收声明的结构化条件；Root 在启动前执行结构校验与 Profile 工具白名单授权检查，将声明注入 Goal Task。基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
 `won=true`，模型 `complete` 与验收声明不能覆盖环境失败。
+通用 Headless Root 为每个 task 创建一个 Goal 和一个 Run，自动批准首轮任务提案后在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。当前 benchmark descriptor 仍创建 normal Goal，因此不会隐式 materialize GoalPlan。
+
 容器内 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
 归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。
 TextWorld 不提供部分目标完成率时，sidecar 以 `won` 生成二值完成率。

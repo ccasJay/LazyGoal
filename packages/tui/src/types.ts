@@ -69,6 +69,7 @@ export type UiCommand =
     | { readonly kind: "continueLatest" }
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }
+    | { readonly kind: "enterPlanMode" }
     | { readonly kind: "approveTask"; readonly requestId?: string }
     | {
         readonly kind: "feedbackTask";
@@ -443,6 +444,8 @@ export interface UiSessionViewModel {
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
+    /** Plan Mode 下由 Goal Snapshot 投影的当前计划；普通模式始终省略。 */
+    readonly goalPlan?: Goal["state"]["goalPlan"];
     readonly error?: UiError;
     readonly notice?: UiNotice;
     /** 可选执行模式（"auto" 或 "review"）。 */
@@ -701,6 +704,35 @@ export interface SessionCoordinator {
         request: ResumeGoalRequest,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult>;
+    /**
+     * 在已完成 Run 上保存新输入并创建下一个 Run；等待中的 Run 不使用此入口。
+     *
+     * @param ref - 当前已完成 Run 的 Goal/Run 关联键。
+     * @param newInput - 要追加到 Goal messages 的非空用户输入。
+     * @param control - 可选的共享中止控制。
+     * @returns 新 Run 的等待点、终态或稳定错误。
+     * @example
+     * ```ts
+     * await coordinator.continue?.({ goalId: "goal-1", runId: "run-1" }, "继续");
+     * ```
+     */
+    readonly continue?: (
+        ref: RunRef,
+        newInput: string,
+        control?: ExecutionControl,
+    ) => Promise<GoalProgressResult>;
+    /**
+     * 在安全等待边界进入后端 Plan Mode。
+     *
+     * @param ref - 当前 Goal 与 Run 的关联键。
+     * @param control - 可选调用级中止控制。
+     * @returns 模式切换后的等待点、终态或稳定错误。
+     * @example
+     * ```ts
+     * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    readonly enterPlanMode?: (ref: RunRef, control?: ExecutionControl) => Promise<GoalProgressResult>;
 }
 
 /**

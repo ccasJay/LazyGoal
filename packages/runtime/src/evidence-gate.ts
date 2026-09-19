@@ -106,6 +106,8 @@ export interface CommittedEvidenceIndex {
  *
  * @param result - 已通过 Result DTO 结构校验的 found 结果。
  * @param index - 当前 Goal/Run 的 committed 事件索引。
+ * @param additionalIndexes - 可选的同一 Goal 历史 Run 索引；只用于验证历史来源，
+ *   不会使这些事件进入当前 Run 的 Fact 证据范围。
  * @throws EvidenceGateError 当来源缺失、越界、跨身份、重复或属于 lookup 事件时。
  * @example
  * ```ts
@@ -115,35 +117,62 @@ export interface CommittedEvidenceIndex {
 export function validateContextLookupSourceReferences(
     result: Extract<ContextLookupResult, { readonly status: "found" }>,
     index: CommittedEvidenceIndex,
+    additionalIndexes: readonly CommittedEvidenceIndex[] = [],
 ): void {
-    if (result.committedThroughSequence > index.committedThroughSequence) {
-        throw new EvidenceGateError(
-            "Context Lookup result boundary exceeds committed evidence boundary",
-        );
+    const indexes = [index, ...additionalIndexes];
+    const indexByRun = new Map<string, CommittedEvidenceIndex>();
+    for (const candidate of indexes) {
+        if (candidate.goalId !== index.goalId) {
+            throw new EvidenceGateError("Context Lookup source index belongs to a different Goal");
+        }
+        if (indexByRun.has(candidate.runId)) {
+            throw new EvidenceGateError("Context Lookup source indexes contain duplicate Run");
+        }
+        indexByRun.set(candidate.runId, candidate);
     }
     const seenEventIds = new Set<string>();
-    const knownEventIds = new Map<string, Readonly<TrajectoryEvent>>();
-    for (const event of index.events.values()) {
-        if (knownEventIds.has(event.eventId)) {
-            throw new EvidenceGateError("Trajectory contains duplicate event ID");
+    const knownEventIdsByRun = new Map<string, Map<string, Readonly<TrajectoryEvent>>>();
+    for (const candidate of indexes) {
+        const knownEventIds = new Map<string, Readonly<TrajectoryEvent>>();
+        for (const event of candidate.events.values()) {
+            if (knownEventIds.has(event.eventId)) {
+                throw new EvidenceGateError("Trajectory contains duplicate event ID");
+            }
+            knownEventIds.set(event.eventId, event);
         }
-        knownEventIds.set(event.eventId, event);
+        knownEventIdsByRun.set(candidate.runId, knownEventIds);
+    }
+
+    for (const source of result.sourceRunBoundaries ?? []) {
+        const sourceIndex = indexByRun.get(source.runId);
+        if (sourceIndex === undefined || source.committedThroughSequence > sourceIndex.committedThroughSequence) {
+            throw new EvidenceGateError("Context Lookup source boundary is unknown or uncommitted");
+        }
     }
 
     for (const match of result.matches) {
-        if (match.goalId !== index.goalId || match.runId !== index.runId) {
+        const sourceIndex = indexByRun.get(match.runId);
+        if (match.goalId !== index.goalId || sourceIndex === undefined) {
             throw new EvidenceGateError(
-                "Context Lookup source ref belongs to a different Goal/Run",
+                "Context Lookup source ref belongs to a different or unknown Goal/Run",
             );
         }
-        if (match.lastSequence > result.committedThroughSequence) {
+        if (
+            match.source?.kind !== "conversation"
+            && match.lastSequence > sourceIndex.committedThroughSequence
+        ) {
             throw new EvidenceGateError("Context Lookup source range exceeds result boundary");
         }
+        // Conversation Documents bind to Snapshot messages rather than Trajectory events;
+        // their synthetic sourceEventIds must never be interpreted as execution evidence.
+        if (match.source?.kind === "conversation") continue;
+        const knownEventIds = knownEventIdsByRun.get(match.runId)!;
         for (const eventId of match.sourceEventIds) {
-            if (seenEventIds.has(eventId)) {
+            const eventKey = `${match.runId}:${eventId}`;
+            if (seenEventIds.has(eventKey)) {
                 throw new EvidenceGateError("Context Lookup contains duplicate source ref");
             }
-            seenEventIds.add(eventId);
+            seenEventIds.add(eventKey);
             const event = knownEventIds.get(eventId);
             if (event === undefined) {
                 throw new EvidenceGateError("Context Lookup source ref is not committed");

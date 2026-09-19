@@ -205,6 +205,7 @@ export async function buildStepRequest(
 
     const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
     const taskPresent = !isInitialCheckpoint && goal.state.workflow.task !== undefined;
+    const planMode = !isInitialCheckpoint && (goal.state.mode ?? "normal") === "plan";
     const effectiveTools = taskPresent ? tools : tools.filter(isReadOnlyTool);
     const authorizedToolContracts = effectiveTools.map((t) => ({
         id: t.id,
@@ -218,11 +219,12 @@ export async function buildStepRequest(
             kind: "executing",
             authorizedTools: authorizedToolContracts,
             taskPresent,
+            planMode,
         }) as unknown as ModelOutputContractBundle<AgentDecision>);
 
     const toolDeclarations = isInitialCheckpoint
         ? createCheckpointToolDeclarations()
-        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent);
+        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent, planMode);
 
     return renderFinalRequest(
         assembled,

@@ -13,6 +13,8 @@ import {
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
+    GoalPlanPatchOperationContract,
+    type GoalPlanPatchOperation,
     GoalTaskContract,
     AskUserQuestionInputContract,
 } from "./canonical";
@@ -66,7 +68,38 @@ function decodeArgumentsNode(
         return value;
     }
 
-    const node = canonicalNode as { kind?: string; shape?: ObjectShape; inner?: unknown };
+    const node = canonicalNode as {
+        kind?: string;
+        shape?: ObjectShape;
+        inner?: unknown;
+        items?: unknown;
+        discriminator?: string;
+        branches?: readonly { shape?: ObjectShape }[];
+    };
+
+    if (node.kind === "array" && Array.isArray(value)) {
+        return value.map((entry) => decodeArgumentsNode(node.items, entry));
+    }
+
+    if (
+        node.kind === "discriminatedUnion"
+        && typeof node.discriminator === "string"
+        && typeof value === "object"
+        && value !== null
+        && !Array.isArray(value)
+    ) {
+        const discriminatorValue = (value as Record<string, unknown>)[node.discriminator];
+        const branch = node.branches?.find((candidate) => {
+            const discriminator = candidate.shape?.[node.discriminator!];
+            return typeof discriminator === "object"
+                && discriminator !== null
+                && (discriminator as { kind?: string }).kind === "literal"
+                && (discriminator as { value?: unknown }).value === discriminatorValue;
+        });
+        return branch === undefined
+            ? value
+            : decodeArgumentsNode({ kind: "object", shape: branch.shape }, value);
+    }
 
     if (node.kind === "object" && typeof value === "object" && value !== null && !Array.isArray(value)) {
         const decoded: Record<string, unknown> = {};
@@ -177,6 +210,13 @@ export const SystemAskUserInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
+/** Plan Mode GoalPlan 增量更新工具参数契约。 */
+export const SystemUpdateGoalPlanInputContract = contract.object({
+    baseRevision: contract.integer({ minimum: 0 }),
+    operations: contract.array(GoalPlanPatchOperationContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
 // =========================================================================
 // 2. 独立系统函数声明实例
 // =========================================================================
@@ -271,6 +311,33 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDeci
     }),
 );
 
+/**
+ * Plan Mode GoalPlan 更新工具声明。
+ *
+ * @remarks
+ * 工具只解码模型提出的结构化 Patch；Runtime 仍负责检查当前模式、revision、Todo
+ * ID、状态转换和原子持久化，工具本身不授予业务 Tool 权限。
+ *
+ * @example
+ * ```ts
+ * const decision = SystemUpdateGoalPlanDeclaration.decode({
+ *     baseRevision: 0,
+ *     operations: [{ type: "add", content: "检查实现" }],
+ * });
+ * ```
+ */
+export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_update_goal_plan",
+    "Update the GoalPlan in Plan Mode with an atomic revisioned patch. Runtime allocates Todo IDs and validates all transitions.",
+    SystemUpdateGoalPlanInputContract,
+    (args: { baseRevision: number; operations: GoalPlanPatchOperation[]; memoryPatch?: unknown }): AgentDecision => ({
+        kind: "goal_plan_update",
+        baseRevision: args.baseRevision,
+        operations: args.operations,
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
 // =========================================================================
 // 3. 业务工具适配与各阶段工具包构造
 // =========================================================================
@@ -345,6 +412,7 @@ export function createExecutingToolDeclarations(
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
  * @param taskPresent - 是否已批准固定 GoalTask。
+ * @param planMode - 是否处于后端控制的 Plan Mode；为 true 时额外暴露 GoalPlan 更新工具。
  * @returns 对应状态下的工具声明列表。
  *
  * @example
@@ -355,6 +423,7 @@ export function createExecutingToolDeclarations(
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
     taskPresent: boolean,
+    planMode = false,
 ): readonly SystemToolDeclaration<AgentDecision>[] {
     if (!taskPresent) {
         const readOnlyTools = authorizedTools
@@ -365,10 +434,14 @@ export function createUnifiedToolDeclarations(
             SystemAskUserDeclaration,
             SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+            ...(planMode ? [SystemUpdateGoalPlanDeclaration] : []),
         ];
     }
 
-    return createExecutingToolDeclarations(authorizedTools);
+    return [
+        ...createExecutingToolDeclarations(authorizedTools),
+        ...(planMode ? [SystemUpdateGoalPlanDeclaration] : []),
+    ];
 }
 
 /**

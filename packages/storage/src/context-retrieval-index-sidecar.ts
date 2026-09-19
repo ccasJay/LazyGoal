@@ -178,6 +178,11 @@ const ContextLookupMatchSchema = z.object({
     ]).optional(),
 }).strict();
 
+const ContextLookupRunBoundarySchema = z.object({
+    runId: z.string().trim().min(1),
+    committedThroughSequence: z.number().int().nonnegative().safe(),
+}).strict();
+
 const ContextLookupResultSchema = z.discriminatedUnion("status", [
     z.object({
         status: z.literal("found"),
@@ -187,6 +192,7 @@ const ContextLookupResultSchema = z.discriminatedUnion("status", [
         indexVersion: z.string().trim().min(1).optional(),
         matches: z.array(ContextLookupMatchSchema),
         truncated: z.boolean(),
+        sourceRunBoundaries: z.array(ContextLookupRunBoundarySchema).min(1).optional(),
     }).strict(),
     z.object({
         status: z.literal("not_found"),

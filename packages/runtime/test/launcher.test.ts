@@ -184,6 +184,7 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
             executionPolicy: { maxSteps: 7 },
         },
         state: {
+            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -203,6 +204,7 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
                 },
             },
             modelSelection: DEFAULT_GOAL_MODEL_SELECTION,
+            completedRuns: [],
         },
     };
     const coordinator = new FakeCoordinator(waitingResult(expectedGoal), events);

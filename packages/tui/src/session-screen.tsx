@@ -14,6 +14,7 @@ import { MarkdownRenderer } from "./markdown-renderer";
 import type { AskUserAnswer } from "../../contracts/src/index";
 import { AskUserPanel } from "./ask-user-panel";
 import { TaskProposalPanel } from "./task-proposal-panel";
+import { PlanPanel } from "./plan-panel";
 
 const MAX_ACTION_JSON_CHARS = 500;
 
@@ -69,7 +70,7 @@ function resolveTimelineItems(session: UiSessionViewModel): readonly UiTimelineI
 export interface SessionScreenProps {
     /** 当前单 Goal 会话的不可变 ViewModel。 */
     readonly session: UiSessionViewModel;
-    /** blocked 等待点提交非空文本的恢复回调。 */
+    /** blocked 等待点恢复当前 Run，或 completed Run 创建下一 Run 的非空输入回调。 */
     readonly onSubmitMessage: (content: string) => void | Promise<void>;
     /** 批准当前 pending Action 的回调；参数必须来自快照中的 actionId。 */
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
@@ -143,6 +144,14 @@ export function SessionScreen({
                     <MarkdownRenderer content={session.streamingTail.content} />
                 </Box>
             ) : null}
+            {session.goal.state.mode === "plan" && session.goal.state.goalPlan !== undefined ? (
+                <PlanPanel
+                    plan={session.goal.state.goalPlan}
+                    {...(session.goal.state.run.todoId === undefined
+                        ? {}
+                        : { activeRunTodoId: session.goal.state.run.todoId })}
+                />
+            ) : null}
             <ActiveDrawer
                 session={session}
                 onSubmitMessage={onSubmitMessage}
@@ -178,7 +187,7 @@ export function SessionScreen({
 export interface ActiveDrawerProps {
     /** 当前单 Goal 会话的不可变 ViewModel。 */
     readonly session: UiSessionViewModel;
-    /** blocked 等待点提交非空文本的恢复回调。 */
+    /** blocked 等待点恢复当前 Run，或 completed Run 创建下一 Run 的非空输入回调。 */
     readonly onSubmitMessage: (content: string) => void | Promise<void>;
     /** 批准当前 pending Action 的回调；参数必须来自快照中的 actionId。 */
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
@@ -221,7 +230,11 @@ export function ActiveDrawer({
                 {...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })}
             />
             {terminal !== undefined ? (
-                <TerminalPanel terminal={terminal} />
+                <TerminalPanel
+                    terminal={terminal}
+                    busy={session.busy}
+                    onSubmitMessage={onSubmitMessage}
+                />
             ) : (
                 <SessionInteraction
                     session={session}
@@ -565,9 +578,11 @@ function formatJson(value: JsonValue): string {
 
 interface TerminalPanelProps {
     readonly terminal: NonNullable<UiSessionViewModel["terminal"]>;
+    readonly busy: boolean;
+    readonly onSubmitMessage: (content: string) => void | Promise<void>;
 }
 
-function TerminalPanel({ terminal }: TerminalPanelProps): React.JSX.Element {
+function TerminalPanel({ terminal, busy, onSubmitMessage }: TerminalPanelProps): React.JSX.Element {
     return (
         <Box flexDirection="column" gap={1}>
             <Text bold color={terminal.status === "completed" ? "green" : "red"}>
@@ -575,7 +590,50 @@ function TerminalPanel({ terminal }: TerminalPanelProps): React.JSX.Element {
             </Text>
             {terminal.summary === undefined ? null : <Text>Summary: {terminal.summary}</Text>}
             {terminal.reason === undefined ? null : <Text>Reason: {terminal.reason}</Text>}
-            <Text dimColor>No further input is accepted for this Goal.</Text>
+            {terminal.status === "completed" ? (
+                <CompletedRunInput busy={busy} onSubmit={onSubmitMessage} />
+            ) : (
+                <Text dimColor>No further input is accepted for this Run.</Text>
+            )}
+        </Box>
+    );
+}
+
+interface CompletedRunInputProps {
+    readonly busy: boolean;
+    readonly onSubmit: (content: string) => void | Promise<void>;
+}
+
+function CompletedRunInput({ busy, onSubmit }: CompletedRunInputProps): React.JSX.Element {
+    const [value, setValue] = useState("");
+    const [inputKey, setInputKey] = useState(0);
+    const submitGate = useSubmitGate(busy, true);
+
+    const handleSubmit = useCallback((content: string) => {
+        submitGate.attempt(() => {
+            void onSubmit(content);
+            setValue("");
+            setInputKey((key) => key + 1);
+        }, {
+            value: content,
+            emptyMessage: "Message must not be empty",
+        });
+    }, [onSubmit, submitGate]);
+
+    return (
+        <Box flexDirection="column" gap={1}>
+            <Text bold color="green">Run completed. Start the next Run:</Text>
+            {submitGate.validationError === undefined ? null : (
+                <Text color="red">Error: {submitGate.validationError}</Text>
+            )}
+            <CommandAwareTextInput
+                key={inputKey}
+                isDisabled={busy}
+                defaultValue={value}
+                placeholder="Type a message to continue the Goal..."
+                onChange={setValue}
+                onSubmit={handleSubmit}
+            />
         </Box>
     );
 }

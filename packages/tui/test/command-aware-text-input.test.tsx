@@ -80,6 +80,7 @@ test("CommandAwareTextInput: 输入 / 实时展示候选列表与前缀过滤", 
     instance.stdin.write("/");
     await waitForFrame(instance, /Available commands/);
     await waitForFrame(instance, /\/model/);
+    await waitForFrame(instance, /\/plan/);
 
     // 输入 m 继续匹配
     instance.stdin.write("m");
@@ -113,6 +114,30 @@ test("CommandAwareTextInput: 提交 /model 派发 effect 且不调用 onSubmit",
 
     assert.equal(submittedText, undefined);
     assert.deepEqual(dispatchedEffect, { kind: "open_model_selector" });
+});
+
+test("CommandAwareTextInput: 提交 /plan 派发 Plan Mode effect 且不进入 Goal 消息", async () => {
+    let submittedText: string | undefined;
+    let dispatchedEffect: ModelCommandEffect | undefined;
+
+    const instance = render(
+        <CommandAwareTextInput
+            onSubmit={(text) => {
+                submittedText = text;
+            }}
+            onCommandEffect={(effect) => {
+                dispatchedEffect = effect;
+            }}
+        />,
+    );
+
+    instance.stdin.write("/plan");
+    await waitForFrame(instance, /\/plan/);
+    instance.stdin.write("\r");
+    await nextFrame();
+
+    assert.equal(submittedText, undefined);
+    assert.deepEqual(dispatchedEffect, { kind: "enter_plan_mode" });
 });
 
 test("CommandAwareTextInput: 提交未知命令或非法参数渲染错误且阻止 onSubmit", async () => {

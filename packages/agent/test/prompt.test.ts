@@ -190,6 +190,24 @@ async function stepRequest(
     return plan.request;
 }
 
+async function stepPlan(
+    goal: Goal,
+    tools: readonly ToolDefinition[] = [],
+    requestRenderer: PromptBundleRenderer = renderer,
+    lookupResult?: ModelContextLookupResult,
+) {
+    return buildStepRequest(
+        goal,
+        tools,
+        requestRenderer,
+        contextCompactor,
+        undefined,
+        currentWorkingMemory,
+        trajectoryContextAssembler,
+        lookupResult,
+    );
+}
+
 async function executingRequest(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
@@ -854,4 +872,45 @@ test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读
     assert.ok(!systemMsg.includes("write_file"), "未批准任务时必须严格排除写操作工具 write_file");
     assert.ok(!systemMsg.includes("bash"), "未批准任务时必须严格排除副作用工具 bash");
     assert.ok(!systemMsg.includes("unknown_side_effect_tool"), "未批准任务时必须排除未声明只读性的工具");
+});
+
+test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划投影", async () => {
+    const created = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-plan-1",
+        intent,
+        profile,
+        runId: "run-plan-1",
+        mode: "plan",
+    });
+    const goal: Goal = {
+        ...created,
+        state: {
+            ...created.state,
+            workflow: {
+                phase: "executing",
+                task,
+            },
+            goalPlan: {
+                revision: 1,
+                items: [{
+                    id: "todo-1",
+                    content: "检查现有实现",
+                    position: 0,
+                    status: "pending",
+                }],
+            },
+            run: { ...created.state.run, status: "running" },
+        },
+    };
+
+    const plan = await stepPlan(goal);
+    assert.ok(plan.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"));
+    assert.match(plan.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
+    assert.match(plan.request.messages[0]?.content ?? "", /todo-1/);
+
+    const normal = await stepPlan(createExecutingGoal());
+    assert.equal(normal.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"), false);
+    assert.doesNotMatch(normal.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
 });

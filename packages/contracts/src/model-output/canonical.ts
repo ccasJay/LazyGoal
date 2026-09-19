@@ -113,6 +113,56 @@ export const GoalTaskContract = contract.object({
 /** Goal 任务公开类型。 */
 export type GoalTask = InferContract<typeof GoalTaskContract>;
 
+/** GoalPlan Todo 的生命周期状态契约。 */
+export const GoalPlanStatusContract = contract.enum([
+    "pending",
+    "in_progress",
+    "completed",
+    "cancelled",
+] as const);
+
+/** GoalPlan Todo 的生命周期状态。 */
+export type GoalPlanStatus = InferContract<typeof GoalPlanStatusContract>;
+
+/** 新增 GoalPlan Todo 操作契约；Todo ID 与位置由 Runtime 最终分配和规范化。 */
+export const GoalPlanAddOperationContract = contract.object({
+    type: contract.literal("add"),
+    content: contract.string(),
+    position: contract.optional(contract.integer({ minimum: 0 })),
+});
+
+/** 更新 GoalPlan Todo 内容或状态操作契约。 */
+export const GoalPlanUpdateOperationContract = contract.object({
+    type: contract.literal("update"),
+    id: contract.string(),
+    content: contract.optional(contract.string()),
+    status: contract.optional(GoalPlanStatusContract),
+});
+
+/** 重排 GoalPlan Todo 操作契约。 */
+export const GoalPlanReorderOperationContract = contract.object({
+    type: contract.literal("reorder"),
+    id: contract.string(),
+    position: contract.integer({ minimum: 0 }),
+});
+
+/** 取消 GoalPlan Todo 操作契约。 */
+export const GoalPlanCancelOperationContract = contract.object({
+    type: contract.literal("cancel"),
+    id: contract.string(),
+});
+
+/** GoalPlan Patch 的单项操作契约。 */
+export const GoalPlanPatchOperationContract = contract.discriminatedUnion("type", [
+    GoalPlanAddOperationContract,
+    GoalPlanUpdateOperationContract,
+    GoalPlanReorderOperationContract,
+    GoalPlanCancelOperationContract,
+]);
+
+/** GoalPlan Patch 单项操作公开类型。 */
+export type GoalPlanPatchOperation = InferContract<typeof GoalPlanPatchOperationContract>;
+
 /**
  * Context Lookup 支持的历史需求类别契约。
  *
@@ -616,6 +666,33 @@ export const ExecutingWorkingMemoryPatchContract = contract.object({
 export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingMemoryPatchContract>;
 
 /**
+ * Plan Mode 更新 GoalPlan 的模型决策契约。
+ *
+ * @remarks
+ * `baseRevision` 与操作列表由 Runtime 的 GoalPlan reducer 原子校验；模型只能引用
+ * 已投影的 Todo ID，不能提交新增 ID、activeRunId 或完成证据。可选 Working Memory
+ * Patch 仍属于当前 Run，与 GoalPlan 更新保持独立。
+ *
+ * @example
+ * ```ts
+ * const decision: GoalPlanUpdateAgentDecision = {
+ *     kind: "goal_plan_update",
+ *     baseRevision: 0,
+ *     operations: [{ type: "add", content: "检查现有实现" }],
+ * };
+ * ```
+ */
+export const GoalPlanUpdateAgentDecisionContract = contract.object({
+    kind: contract.literal("goal_plan_update"),
+    baseRevision: contract.integer({ minimum: 0 }),
+    operations: contract.array(GoalPlanPatchOperationContract),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
+/** Plan Mode 更新 GoalPlan 的模型决策公开类型。 */
+export type GoalPlanUpdateAgentDecision = InferContract<typeof GoalPlanUpdateAgentDecisionContract>;
+
+/**
  * Model Context Checkpoint 检查点结果契约。
  *
  * @example
@@ -1056,6 +1133,36 @@ export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kin
 ]);
 
 /**
+ * Plan Mode Executing 决策契约。
+ *
+ * @remarks
+ * 在普通 Executing 分支之外允许 `goal_plan_update`；普通模式的契约包不会引用
+ * 此分支，因此不能通过普通模型输出修改 GoalPlan。
+ *
+ * @example
+ * ```ts
+ * const parsed = safeParse(PlanModeExecutingDecisionContract, {
+ *     kind: "goal_plan_update",
+ *     baseRevision: 0,
+ *     operations: [{ type: "add", content: "实现接口" }],
+ * });
+ * ```
+ */
+export const PlanModeExecutingDecisionContract = contract.discriminatedUnion("kind", [
+    ExecutingToolCallAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
+    ExecutingWaitAgentDecisionContract,
+    ExecutingFailAgentDecisionContract,
+    ContextLookupRequestContract,
+    AskUserAgentDecisionContract,
+    TaskProposalAgentDecisionContract,
+    GoalPlanUpdateAgentDecisionContract,
+]);
+
+/** Plan Mode Executing 决策公开类型。 */
+export type PlanModeExecutingDecision = InferContract<typeof PlanModeExecutingDecisionContract>;
+
+/**
  * 完整 Agent 决策契约。
  *
  * @remarks
@@ -1076,6 +1183,7 @@ export const AgentDecisionContract = contract.discriminatedUnion("kind", [
     ContextLookupRequestContract,
     AskUserAgentDecisionContract,
     TaskProposalAgentDecisionContract,
+    GoalPlanUpdateAgentDecisionContract,
 ]);
 
 /** Agent 决策公开类型。 */
@@ -1317,6 +1425,56 @@ function validateMemoryPatchSemantics(
     });
 }
 
+function validateGoalPlanPatchSemantics(
+    value: Record<string, unknown>,
+    parentPath: readonly (string | number)[],
+    issues: ModelOutputSemanticIssue[],
+): void {
+    if (typeof value.baseRevision === "number" && value.baseRevision < 0) {
+        issues.push({
+            code: "invalid_sequence_range",
+            path: [...parentPath, "baseRevision"],
+            message: "baseRevision must be non-negative",
+        });
+    }
+    if (!Array.isArray(value.operations)) return;
+
+    if (value.operations.length === 0) {
+        issues.push({
+            code: "empty_update",
+            path: [...parentPath, "operations"],
+            message: "goal_plan_update must contain at least one operation",
+        });
+    }
+
+    value.operations.forEach((operation, index) => {
+        if (!isRecord(operation) || typeof operation.type !== "string") return;
+        const path = [...parentPath, "operations", index];
+        switch (operation.type) {
+            case "add":
+                checkNonBlank(operation.content, [...path, "content"], issues, "Todo content");
+                break;
+            case "update":
+                checkNonBlank(operation.id, [...path, "id"], issues, "Todo id");
+                if (operation.content !== undefined) {
+                    checkNonBlank(operation.content, [...path, "content"], issues, "Todo content");
+                }
+                if (operation.content === undefined && operation.status === undefined) {
+                    issues.push({
+                        code: "empty_update",
+                        path,
+                        message: "GoalPlan update must change content or status",
+                    });
+                }
+                break;
+            case "reorder":
+            case "cancel":
+                checkNonBlank(operation.id, [...path, "id"], issues, "Todo id");
+                break;
+        }
+    });
+}
+
 /**
  * 校验模型输出的协议基础语义。
  *
@@ -1431,6 +1589,10 @@ export function validateModelOutputSemantics(
             }
             case "fail": {
                 checkNonBlank(value.error, [...basePath, "error"], issues, "error");
+                break;
+            }
+            case "goal_plan_update": {
+                validateGoalPlanPatchSemantics(value, basePath, issues);
                 break;
             }
         }

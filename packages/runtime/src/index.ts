@@ -10,6 +10,29 @@ export {
     isContextRetrievalProtocol,
 } from "./domain";
 export {
+    applyGoalPlanPatch,
+    assertValidGoalPlan,
+    bindGoalPlanTodo,
+    completeGoalPlanTodo,
+    createEmptyGoalPlan,
+    DEFAULT_GOAL_PLAN_MAX_ITEMS,
+    GOAL_PLAN_MAX_IN_PROGRESS,
+    GOAL_PLAN_PATCH_ERROR_CODE,
+    GoalPlanPatchError,
+    releaseGoalPlanTodo,
+    reduceGoalPlan,
+} from "./goal-plan";
+export type {
+    GoalMode,
+    GoalPlan,
+    GoalPlanItem,
+    GoalPlanPatch,
+    GoalPlanPatchOperation,
+    GoalPlanReducerOptions,
+    GoalPlanReducerResult,
+    GoalPlanStatus,
+} from "./goal-plan";
+export {
     EXECUTION_ABORTED_ERROR_CODE,
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -61,6 +84,7 @@ export type {
     GoalDefinition,
     GoalMessage,
     GoalModelSelection,
+    CompletedRunRecord,
     GoalState,
     GoalTask,
     GoalWorkflowState,
@@ -171,6 +195,7 @@ export {
     createContextLookupId,
     createContextLookupQueryHash,
     createContextLookupFacts,
+    getCommittedRunBoundaries,
     invokeContextLookup,
     isContextLookupRequest,
     normalizeContextLookupResult,
@@ -188,6 +213,7 @@ export type {
     ContextLookupPort,
     ContextLookupRequest,
     ContextLookupResult,
+    ContextLookupRunBoundary,
 } from "./context-retrieval";
 export {
     CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,

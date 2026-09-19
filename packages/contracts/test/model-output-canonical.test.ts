@@ -7,6 +7,8 @@ import {
     ExecutingWorkingMemoryPatchContract,
     FactProposalContract,
     GoalTaskContract,
+    PlanModeExecutingDecisionContract,
+    GoalPlanUpdateAgentDecisionContract,
     StructuredAgentDecisionContract,
     ToolCallActionContract,
     WorkingMemoryPatchContract,
@@ -452,4 +454,52 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
         },
     });
     assert.equal(decodedExecuting.kind, "complete");
+});
+
+test("GoalPlan 更新只属于 Plan Mode，且保留独立 Working Memory Patch", () => {
+    const decision = {
+        kind: "goal_plan_update" as const,
+        baseRevision: 0,
+        operations: [{ type: "add" as const, content: "检查实现" }],
+        memoryPatch: {
+            protocolVersion: 1 as const,
+            operations: [{
+                type: "create_hypothesis" as const,
+                hypothesis: { statement: "需要先确认入口" },
+            }],
+        },
+    };
+
+    assert.equal(safeParse(GoalPlanUpdateAgentDecisionContract, {
+        ...decision,
+        operations: [{ type: "add", content: "检查实现" }],
+    }).success, true);
+    assert.equal(safeParse(PlanModeExecutingDecisionContract, decision).success, true);
+
+    const normalBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: false,
+    });
+    assert.equal(JSON.stringify(normalBundle.jsonSchema).includes("goal_plan_update"), false);
+    assert.throws(() => normalBundle.decode({ result: decision }));
+
+    const planBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: true,
+    });
+    assert.equal(JSON.stringify(planBundle.jsonSchema).includes("goal_plan_update"), true);
+    const decoded = planBundle.decode({
+        result: {
+            ...decision,
+            operations: [{ type: "add", content: "检查实现", position: null }],
+            memoryPatch: null,
+        },
+    });
+    assert.equal(decoded.kind, "goal_plan_update");
+    if (decoded.kind === "goal_plan_update") {
+        assert.equal(decoded.baseRevision, 0);
+        assert.deepEqual(decoded.operations, [{ type: "add", content: "检查实现" }]);
+    }
 });

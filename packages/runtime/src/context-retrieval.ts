@@ -35,6 +35,28 @@ export type ContextLookupMatchedField =
     | "objectId"
     | "body";
 
+/**
+ * 一个可作为历史读取来源的 Goal/Run 提交边界。
+ *
+ * @remarks
+ * `committedThroughSequence` 只在该 `runId` 的局部 Trajectory 内有效；跨 Run
+ * 查询必须同时携带两者，不能把相同的局部 sequence 当作同一条事实。
+ *
+ * @example
+ * ```ts
+ * const source: ContextLookupRunBoundary = {
+ *     runId: "run-1",
+ *     committedThroughSequence: 12,
+ * };
+ * ```
+ */
+export interface ContextLookupRunBoundary {
+    /** 来源 Run 的稳定 ID。 */
+    readonly runId: string;
+    /** 该 Run 最新有效 Snapshot 的 committed sequence。 */
+    readonly committedThroughSequence: number;
+}
+
 /** 一条完整 Context Document 的有界历史命中。 */
 export interface ContextLookupMatch {
     /** Context Document 的稳定 ID。 */
@@ -75,6 +97,8 @@ export type ContextLookupResult =
         readonly indexVersion?: string;
         readonly matches: readonly ContextLookupMatch[];
         readonly truncated: boolean;
+        /** found 命中涉及的全部 Run 边界；缺省表示仅当前 Run。 */
+        readonly sourceRunBoundaries?: readonly ContextLookupRunBoundary[];
     }
     | {
         readonly status: "not_found";
@@ -98,16 +122,65 @@ export interface ContextLookupExecutionInput {
     readonly request: ContextLookupRequest;
     /** Runtime 为该请求计算的跨进程稳定 ID。 */
     readonly lookupId: string;
-    /** 查询允许看到的 Snapshot committed boundary。 */
+    /** 查询允许看到的最大 Snapshot committed boundary；各 Run 的局部边界从 Goal 读取。 */
     readonly committedThroughSequence: number;
     /** 当前调用的瞬时中止控制，不得写入结果。 */
     readonly control?: ExecutionControl;
 }
 
+/**
+ * 从 Goal Snapshot 构造当前与已完成 Run 的读取边界。
+ *
+ * @param goal - 当前 Goal Snapshot。
+ * @returns 按历史顺序再到当前 Run 排列的唯一边界。
+ * @throws ContextLookupProtocolError 当历史 Run ID 或 boundary 损坏时。
+ * @example
+ * ```ts
+ * const boundaries = getCommittedRunBoundaries(goal);
+ * ```
+ */
+export function getCommittedRunBoundaries(
+    goal: Pick<Goal, "id" | "state">,
+): readonly ContextLookupRunBoundary[] {
+    const boundaries: ContextLookupRunBoundary[] = [];
+    const seen = new Set<string>();
+    for (const record of goal.state.completedRuns ?? []) {
+        if (
+            typeof record.runId !== "string"
+            || record.runId.trim().length === 0
+            || !Number.isSafeInteger(record.committedThroughSequence)
+            || record.committedThroughSequence < 0
+            || seen.has(record.runId)
+        ) {
+            throw new ContextLookupProtocolError("completed Run history boundary is invalid");
+        }
+        seen.add(record.runId);
+        boundaries.push({
+            runId: record.runId,
+            committedThroughSequence: record.committedThroughSequence,
+        });
+    }
+    const currentRunId = goal.state.run.id;
+    if (
+        typeof currentRunId !== "string"
+        || currentRunId.trim().length === 0
+        || !Number.isSafeInteger(goal.state.run.committedThroughSequence)
+        || goal.state.run.committedThroughSequence < 0
+        || seen.has(currentRunId)
+    ) {
+        throw new ContextLookupProtocolError("current Run boundary is invalid or duplicated");
+    }
+    boundaries.push({
+        runId: currentRunId,
+        committedThroughSequence: goal.state.run.committedThroughSequence,
+    });
+    return Object.freeze(boundaries);
+}
+
 /** Runtime 使用的只读 Cold Trajectory 检索端口。 */
 export interface ContextLookupPort {
     /**
-     * 在当前 Goal/Run 的 committed Trajectory 内执行一次查询。
+     * 在当前 Goal 的当前及已完成 Run 的 committed 历史内执行一次查询。
      *
      * @param input - Goal 身份、规范化请求、稳定 lookupId 和提交边界。
      * @returns found、not_found 或 lookup_error；实现不得执行 Tool 或修改 Goal。
@@ -376,6 +449,7 @@ export function validateContextLookupResult(
         "indexVersion",
         "matches",
         "truncated",
+        "sourceRunBoundaries",
     ]);
     assertNonNegativeSafeInteger(value.committedThroughSequence, "result boundary");
     if (value.committedThroughSequence > boundary) {
@@ -398,7 +472,17 @@ export function validateContextLookupResult(
     if (value.indexVersion !== undefined) {
         assertBoundedString(value.indexVersion, "indexVersion", 128);
     }
-    const matches = value.matches.map((match, index) => validateContextLookupMatch(match, boundary, index));
+    const sourceRunBoundaries = value.sourceRunBoundaries === undefined
+        ? undefined
+        : normalizeSourceRunBoundaries(value.sourceRunBoundaries, boundary);
+    const boundaryByRun = new Map(
+        (sourceRunBoundaries ?? []).map((source) => [source.runId, source.committedThroughSequence]),
+    );
+    const matches = value.matches.map((match, index) => validateContextLookupMatch(
+        match,
+        boundaryByRun.get(isRecord(match) && typeof match.runId === "string" ? match.runId : "") ?? boundary,
+        index,
+    ));
     const documentIds = new Set<string>();
     const sourceEventIds = new Set<string>();
     for (const match of matches) {
@@ -430,6 +514,7 @@ export function validateContextLookupResult(
         ...(value.indexVersion === undefined ? {} : { indexVersion: value.indexVersion }),
         matches,
         truncated: value.truncated,
+        ...(sourceRunBoundaries === undefined ? {} : { sourceRunBoundaries }),
     } as const;
     if (Buffer.byteLength(JSON.stringify(result), "utf8") > CONTEXT_LOOKUP_MAX_RESULT_BYTES) {
         throw new ContextLookupProtocolError(
@@ -471,6 +556,9 @@ export function normalizeContextLookupResult(
                 }),
             indexVersion: result.indexVersion
                 ?? CONTEXT_LOOKUP_DEFAULT_INDEX_VERSION,
+            ...(result.sourceRunBoundaries === undefined
+                ? {}
+                : { sourceRunBoundaries: Object.freeze(result.sourceRunBoundaries.map((source) => Object.freeze({ ...source }))) }),
             matches: Object.freeze(result.matches.map((match) => Object.freeze({
                 ...match,
                 ...(match.adjacent === undefined ? {} : { adjacent: match.adjacent }),
@@ -491,8 +579,8 @@ export function normalizeContextLookupResult(
 /**
  * 校验 found 结果的 Goal/Run 所有权。
  *
- * @remarks Context Lookup 只能引用当前 Goal/Run 的 committed 文档；该校验不把
- * 历史命中升级为当前事实，也不接受来自其它 Session 的 source ref。
+ * @remarks Context Lookup 可以引用同一 Goal 已知 Run 的 committed 文档；该校验
+ * 不把历史命中升级为当前事实，也不接受来自其它 Session 或未知 Run 的 source ref。
  *
  * @param result - 已通过结构和预算校验的 found 结果。
  * @param goalId - 当前 Goal ID。
@@ -507,13 +595,39 @@ export function assertContextLookupResultOwnership(
     result: Extract<ContextLookupResult, { readonly status: "found" }>,
     goalId: string,
     runId: string,
+    allowedRuns?: readonly ContextLookupRunBoundary[],
 ): void {
     assertNonEmptyString(goalId, "goalId");
     assertNonEmptyString(runId, "runId");
-    for (const match of result.matches) {
-        if (match.goalId !== goalId || match.runId !== runId) {
+    const currentBoundary = result.sourceRunBoundaries?.find((source) => source.runId === runId)?.committedThroughSequence
+        ?? Number.MAX_SAFE_INTEGER;
+    const boundaries = new Map<string, number>([[runId, currentBoundary]]);
+    for (const source of allowedRuns ?? []) {
+        if (boundaries.has(source.runId)) {
+            if (boundaries.get(source.runId)! > source.committedThroughSequence) {
+                boundaries.set(source.runId, source.committedThroughSequence);
+            }
+            continue;
+        }
+        boundaries.set(source.runId, source.committedThroughSequence);
+    }
+    for (const source of result.sourceRunBoundaries ?? []) {
+        const allowedBoundary = boundaries.get(source.runId);
+        if (allowedBoundary === undefined || source.committedThroughSequence > allowedBoundary) {
             throw new ContextLookupProtocolError(
-                "found result references a different Goal/Run",
+                "found result references an unknown or uncommitted Run boundary",
+            );
+        }
+    }
+    for (const match of result.matches) {
+        const boundary = boundaries.get(match.runId);
+        if (
+            match.goalId !== goalId
+            || boundary === undefined
+            || (match.source?.kind !== "conversation" && match.lastSequence > boundary)
+        ) {
+            throw new ContextLookupProtocolError(
+                "found result references an unknown or uncommitted Goal/Run",
             );
         }
     }
@@ -571,6 +685,8 @@ export async function invokeContextLookup(
 ): Promise<ContextLookupInvocation> {
     throwIfAborted(input.control);
     const request = normalizeContextLookupRequest(input.request);
+    const runBoundaries = getCommittedRunBoundaries(input.goal);
+    const lookupBoundary = Math.max(...runBoundaries.map((source) => source.committedThroughSequence));
     const lookupId = createContextLookupId(
         input.goal.id,
         input.goal.state.run.id,
@@ -587,8 +703,8 @@ export async function invokeContextLookup(
     let effectiveRequest = request;
     if (
         sequenceRange !== undefined
-        && sequenceRange.from <= committedThroughSequence
-        && sequenceRange.to > committedThroughSequence
+        && sequenceRange.from <= lookupBoundary
+        && sequenceRange.to > lookupBoundary
     ) {
         effectiveRequest = {
             ...request,
@@ -596,7 +712,7 @@ export async function invokeContextLookup(
                 ...request.filters,
                 sequenceRange: {
                     from: sequenceRange.from,
-                    to: committedThroughSequence,
+                    to: lookupBoundary,
                 },
             },
         };
@@ -613,7 +729,7 @@ export async function invokeContextLookup(
         };
     } else if (
         sequenceRange !== undefined
-        && (committedThroughSequence < 1 || sequenceRange.from > committedThroughSequence)
+        && (lookupBoundary < 1 || sequenceRange.from > lookupBoundary)
     ) {
         result = {
             status: "not_found",
@@ -627,14 +743,14 @@ export async function invokeContextLookup(
                 goal: input.goal,
                 request: effectiveRequest,
                 lookupId,
-                committedThroughSequence,
+                committedThroughSequence: lookupBoundary,
                 ...(input.control === undefined ? {} : { control: input.control }),
             });
             throwIfAborted(input.control);
             result = normalizeContextLookupResult(
                 rawResult,
                 lookupId,
-                committedThroughSequence,
+                lookupBoundary,
                 effectiveRequest,
             );
             if (result.status === "found") {
@@ -642,6 +758,7 @@ export async function invokeContextLookup(
                     result,
                     input.goal.id,
                     input.goal.state.run.id,
+                    runBoundaries,
                 );
             }
             if (
@@ -941,6 +1058,36 @@ function validateContextLookupMatch(
         sourceEventIds,
         ...(source === undefined ? {} : { source: structuredClone(source) as ContextDocumentSource }),
     };
+}
+
+function normalizeSourceRunBoundaries(
+    value: unknown,
+    maximumBoundary: number,
+): readonly ContextLookupRunBoundary[] {
+    if (!Array.isArray(value) || value.length === 0) {
+        throw new ContextLookupProtocolError("sourceRunBoundaries must be a non-empty array");
+    }
+    const seen = new Set<string>();
+    const boundaries = value.map((entry, index) => {
+        if (
+            !isRecord(entry)
+            || Object.keys(entry).some((key) => key !== "runId" && key !== "committedThroughSequence")
+            || typeof entry.runId !== "string"
+            || entry.runId.trim().length === 0
+            || !Number.isSafeInteger(entry.committedThroughSequence)
+            || (entry.committedThroughSequence as number) < 0
+            || (entry.committedThroughSequence as number) > maximumBoundary
+            || seen.has(entry.runId)
+        ) {
+            throw new ContextLookupProtocolError(`sourceRunBoundaries[${index}] is invalid`);
+        }
+        seen.add(entry.runId);
+        return {
+            runId: entry.runId,
+            committedThroughSequence: entry.committedThroughSequence as number,
+        };
+    });
+    return Object.freeze(boundaries);
 }
 
 function roundScore(value: number): number {

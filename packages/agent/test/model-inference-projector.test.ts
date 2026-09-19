@@ -265,6 +265,53 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.equal(view.contextEpoch.epochNumber, 0);
 });
 
+test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory plan", () => {
+    const goal = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-plan-1",
+        intent,
+        profile,
+        runId: "run-plan-1",
+        mode: "plan",
+    });
+    const planGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            workflow: { phase: "executing" },
+            goalPlan: {
+                revision: 2,
+                items: [{
+                    id: "todo-1",
+                    content: "检查现有实现",
+                    position: 0,
+                    status: "in_progress",
+                    activeRunId: "run-plan-1",
+                }],
+            },
+            run: { ...goal.state.run, status: "running", todoId: "todo-1" },
+        },
+    };
+
+    const view = project(planGoal, [], currentWorkingMemory);
+    assert.deepEqual(view.prompt.goalPlan, {
+        revision: 2,
+        items: [{
+            id: "todo-1",
+            content: "检查现有实现",
+            position: 0,
+            status: "in_progress",
+            activeRunId: "run-plan-1",
+        }],
+    });
+    assert.deepEqual(view.workingMemory.plan, currentWorkingMemory.plan);
+    assert.equal(Object.isFrozen(view.prompt.goalPlan), true);
+
+    const normalView = project(createExecutingGoal(), [], currentWorkingMemory);
+    assert.equal("goalPlan" in normalView.prompt, false);
+});
+
 test("Projector 只投影 executing 阶段的任务与有界执行记忆", () => {
     const previousStep: StepRecord = {
         kind: "action",

@@ -14,6 +14,7 @@ type TerminalDecision = Exclude<
     { readonly kind: "tool_call" }
         | { readonly kind: "context_lookup" }
         | { readonly kind: "context_checkpoint" }
+        | { readonly kind: "goal_plan_update" }
 >;
 
 type ActionObservation = Exclude<
@@ -102,7 +103,8 @@ function completeAction(
  * 函数不会修改传入状态。Action 的 `stage_action` 只保存 pendingAction，不增加
  * Step；`recover_action` 只将 approved Action 转为
  * `outcome_unknown` waiting；`observe_action`、`reject_action`、Context Lookup
- * 和非 Tool `decision` 完成一个 Step。`execution_error` 进入 failed 且不增加 Step，
+ * 和非 Tool `decision` 完成一个 Step；Plan Mode 的 `plan_update` 也完成一个保持
+ * running 的 Step。`execution_error` 进入 failed 且不增加 Step，
  * 如果已有 pendingAction，会将其标记为 `outcome_unknown`。
  *
  * 合法转换返回新状态；非法转换返回原对象和 `INVALID_TRANSITION`，由上层
@@ -367,6 +369,29 @@ export function transition(
                     state: {
                         ...currentState,
                         status,
+                        stepCount: currentState.stepCount + 1,
+                        lastStep: {
+                            kind: "decision",
+                            result: input.decision,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "plan_update") {
+                if (currentState.pendingAction !== undefined || currentState.pendingInteraction !== undefined) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Cannot apply a GoalPlan update while an Action or interaction is pending",
+                    );
+                }
+
+                return {
+                    ok: true,
+                    state: {
+                        ...currentState,
+                        status: "running",
                         stepCount: currentState.stepCount + 1,
                         lastStep: {
                             kind: "decision",

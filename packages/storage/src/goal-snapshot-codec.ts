@@ -5,7 +5,11 @@ import type {
     AgentProfile,
     CompletionAcceptance,
     CompletionCriterion,
+    CompletedRunRecord,
     Goal,
+    GoalPlan,
+    GoalPlanItem,
+    GoalPlanPatchOperation,
     GoalMessage,
     GoalModelSelection,
     GoalTask,
@@ -21,7 +25,11 @@ import {
     GoalSnapshotV1Schema,
     type GoalSnapshotCompletionAcceptanceV1,
     type GoalSnapshotCompletionCriterionV1,
+    type GoalSnapshotCompletedRunV1,
     type GoalSnapshotDecisionResultV1,
+    type GoalSnapshotGoalPlanItemV1,
+    type GoalSnapshotGoalPlanPatchOperationV1,
+    type GoalSnapshotGoalPlanV1,
     type GoalSnapshotMessageV1,
     type GoalSnapshotModelSelectionV1,
     type GoalSnapshotObservationV1,
@@ -224,6 +232,15 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
                     ? {}
                     : { filters: structuredClone(result.filters) }),
             };
+        case "goal_plan_update":
+            return {
+                kind: "goal_plan_update",
+                baseRevision: result.baseRevision,
+                operations: result.operations.map(encodeGoalPlanOperation),
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) }),
+            };
     }
 }
 
@@ -257,6 +274,57 @@ function encodeModelSelection(selection: GoalModelSelection): GoalSnapshotModelS
         inputEstimator: selection.inputEstimator.kind === "character-v1"
             ? { kind: "character-v1" }
             : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },
+    };
+}
+
+function encodeGoalPlanItem(item: GoalPlanItem): GoalSnapshotGoalPlanItemV1 {
+    return {
+        id: item.id,
+        content: item.content,
+        position: item.position,
+        status: item.status,
+        ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
+    };
+}
+
+function encodeGoalPlanOperation(
+    operation: GoalPlanPatchOperation,
+): GoalSnapshotGoalPlanPatchOperationV1 {
+    switch (operation.type) {
+        case "add":
+            return {
+                type: "add",
+                content: operation.content,
+                ...(operation.position === undefined ? {} : { position: operation.position }),
+            };
+        case "update":
+            return {
+                type: "update",
+                id: operation.id,
+                ...(operation.content === undefined ? {} : { content: operation.content }),
+                ...(operation.status === undefined ? {} : { status: operation.status }),
+            };
+        case "reorder":
+            return { type: "reorder", id: operation.id, position: operation.position };
+        case "cancel":
+            return { type: "cancel", id: operation.id };
+    }
+}
+
+function encodeGoalPlan(plan: GoalPlan): GoalSnapshotGoalPlanV1 {
+    return {
+        revision: plan.revision,
+        items: plan.items.map(encodeGoalPlanItem),
+    };
+}
+
+function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRunV1 {
+    return {
+        runId: record.runId,
+        ...(record.todoId === undefined ? {} : { todoId: record.todoId }),
+        stepCount: record.stepCount,
+        committedThroughSequence: record.committedThroughSequence,
+        messageRange: { ...record.messageRange },
     };
 }
 
@@ -297,10 +365,12 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
             executionPolicy: { maxSteps: goal.definition.executionPolicy.maxSteps },
         },
         state: {
+            mode: goal.state.mode ?? "normal",
             workflow: encodeWorkflow(goal.state.workflow),
             messages: goal.state.messages.map(encodeMessage),
             run: {
                 id: run.id,
+                ...(run.todoId === undefined ? {} : { todoId: run.todoId }),
                 status: run.status,
                 stepCount: run.stepCount,
                 committedThroughSequence: run.committedThroughSequence,
@@ -328,6 +398,8 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 contextEpoch: structuredClone(run.contextEpoch),
             },
             modelSelection: encodeModelSelection(goal.state.modelSelection),
+            ...(goal.state.goalPlan === undefined ? {} : { goalPlan: encodeGoalPlan(goal.state.goalPlan) }),
+            completedRuns: (goal.state.completedRuns ?? []).map(encodeCompletedRun),
         },
     };
 
@@ -482,6 +554,17 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                     ? {}
                     : { filters: structuredClone(result.filters) }),
             };
+        case "goal_plan_update":
+            return {
+                kind: "goal_plan_update",
+                baseRevision: result.baseRevision,
+                operations: result.operations.map((operation) => ({
+                    ...operation,
+                })) as GoalPlanPatchOperation[],
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
+            };
     }
 }
 
@@ -515,6 +598,33 @@ function decodeModelSelection(selection: GoalSnapshotModelSelectionV1): GoalMode
     };
 }
 
+function decodeGoalPlanItem(item: GoalSnapshotGoalPlanItemV1): GoalPlanItem {
+    return {
+        id: item.id,
+        content: item.content,
+        position: item.position,
+        status: item.status,
+        ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
+    };
+}
+
+function decodeGoalPlan(plan: GoalSnapshotGoalPlanV1): GoalPlan {
+    return {
+        revision: plan.revision,
+        items: plan.items.map(decodeGoalPlanItem),
+    };
+}
+
+function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRecord {
+    return {
+        runId: record.runId,
+        ...(record.todoId === undefined ? {} : { todoId: record.todoId }),
+        stepCount: record.stepCount,
+        committedThroughSequence: record.committedThroughSequence,
+        messageRange: { ...record.messageRange },
+    };
+}
+
 function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     const run = snapshot.state.run;
     return {
@@ -529,6 +639,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
             executionPolicy: { maxSteps: snapshot.definition.executionPolicy.maxSteps },
         },
         state: {
+            mode: snapshot.state.mode,
             workflow: decodeWorkflow(snapshot.state.workflow),
             messages: snapshot.state.messages.map((message): GoalMessage =>
                 message.role === "user"
@@ -541,6 +652,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
             ),
             run: {
                 id: run.id,
+                ...(run.todoId === undefined ? {} : { todoId: run.todoId }),
                 status: run.status,
                 stepCount: run.stepCount,
                 committedThroughSequence: run.committedThroughSequence,
@@ -563,6 +675,8 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 contextEpoch: structuredClone(run.contextEpoch),
             },
             modelSelection: decodeModelSelection(snapshot.state.modelSelection),
+            ...(snapshot.state.goalPlan === undefined ? {} : { goalPlan: decodeGoalPlan(snapshot.state.goalPlan) }),
+            completedRuns: snapshot.state.completedRuns.map(decodeCompletedRun),
         },
     };
 }

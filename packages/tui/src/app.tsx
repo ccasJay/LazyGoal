@@ -78,6 +78,8 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
     const handleCommandEffect = useCallback((effect: ModelCommandEffect) => {
         if (effect.kind === "open_model_selector") {
             dispatch({ kind: "openModelSelector" });
+        } else if (effect.kind === "enter_plan_mode") {
+            dispatch({ kind: "enterPlanMode" });
         }
     }, [dispatch]);
 

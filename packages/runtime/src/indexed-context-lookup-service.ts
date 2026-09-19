@@ -1,5 +1,9 @@
 import type { Goal } from "./domain";
-import type { ContextSearchDocument } from "./context-document";
+import {
+    ContextDocumentBuilder,
+    type ContextSearchDocument,
+} from "./context-document";
+import { buildConversationContextDocuments } from "./conversation-context-document";
 import { buildContextInvertedIndex } from "./context-tokenizer";
 import { FieldedBm25LiteRanker } from "./context-ranking";
 import { buildContextLookupResultFromRanking } from "./context-lookup-result";
@@ -14,7 +18,9 @@ import type {
     ContextLookupExecutionInput,
     ContextLookupPort,
     ContextLookupResult,
+    ContextLookupRunBoundary,
 } from "./context-retrieval";
+import { getCommittedRunBoundaries } from "./context-retrieval";
 
 /** Indexed Lookup 服务的只读依赖。 */
 export interface IndexedContextLookupServiceOptions {
@@ -44,6 +50,10 @@ export class IndexedContextLookupService implements ContextLookupPort {
     }
 
     async lookup(input: ContextLookupExecutionInput): Promise<ContextLookupResult> {
+        const runBoundaries = getCommittedRunBoundaries(input.goal);
+        if (runBoundaries.length > 1) {
+            return this.lookupAcrossRuns(input, runBoundaries);
+        }
         const boundary = input.committedThroughSequence;
         const trajectory = this.options.trajectoryStore === undefined
             ? []
@@ -122,6 +132,72 @@ export class IndexedContextLookupService implements ContextLookupPort {
         session.queryCache.set(query, result);
         await saveSidecar(this.options.indexStore, session.sidecar, session.queryCache);
         return result;
+    }
+
+    /**
+     * 在同一 Goal 的已完成 Run 与当前 Run 上构建临时联合索引。
+     *
+     * @remarks
+     * 多 Run 查询不复用单 Run Sidecar：每个 Run 的局部 sequence 必须先按自身
+     * Snapshot boundary 校验，再以 `(goalId, runId, sequence)` 共同参与排名与结果
+     * 来源。该路径只读 Trajectory 和 Goal messages，不保存领域状态。
+     */
+    private async lookupAcrossRuns(
+        input: ContextLookupExecutionInput,
+        runBoundaries: readonly ContextLookupRunBoundary[],
+    ): Promise<ContextLookupResult> {
+        const documents: ContextSearchDocument[] = [];
+        const builder = new ContextDocumentBuilder();
+        for (const source of runBoundaries) {
+            const raw = this.options.trajectoryStore === undefined
+                ? { committed: [] as const }
+                : await this.options.trajectoryStore.readWithBoundary(
+                    { goalId: input.goal.id, runId: source.runId },
+                    source.committedThroughSequence,
+                );
+            documents.push(...builder.build({
+                goalId: input.goal.id,
+                runId: source.runId,
+                committedThroughSequence: source.committedThroughSequence,
+                events: raw.committed,
+            }));
+        }
+
+        for (const history of input.goal.state.completedRuns ?? []) {
+            documents.push(...buildConversationContextDocuments({
+                goalId: input.goal.id,
+                runId: history.runId,
+                messages: input.goal.state.messages,
+                messageStartIndex: history.messageRange.start,
+                messageEndIndexExclusive: history.messageRange.end,
+            }));
+        }
+
+        const filtered = filterDocuments(Object.freeze(documents), input.request.need);
+        const boundary = Math.max(...runBoundaries.map((source) => source.committedThroughSequence));
+        if (filtered.length === 0) {
+            return {
+                status: "not_found",
+                lookupId: input.lookupId,
+                committedThroughSequence: boundary,
+                reason: "no_context_match",
+            };
+        }
+        const index = buildContextInvertedIndex(filtered);
+        const ranking = new FieldedBm25LiteRanker(index, {
+            topK: this.options.topK ?? 5,
+            minimumScore: this.options.minimumScore ?? 0,
+        }).rank(input.request);
+        return buildContextLookupResultFromRanking({
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            lookupId: input.lookupId,
+            request: input.request,
+            committedThroughSequence: boundary,
+            ranking,
+            indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
+            runBoundaries,
+        });
     }
 }
 

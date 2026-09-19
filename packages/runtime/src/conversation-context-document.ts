@@ -7,25 +7,54 @@ import type {
 } from "./context-document";
 import { computeContentHash } from "./trajectory";
 
-/** Conversation 文档构建输入。 */
+/**
+ * Conversation 文档构建输入。
+ *
+ * @remarks
+ * 默认只把 `[0, conversationStartIndex)` 视为当前 Run 之前的冷消息；提供显式
+ * 消息范围时，范围内每条消息都归属于传入的 `runId`，不会与其它 Run 的局部
+ * Trajectory sequence 混合。该输入只读，不修改 Goal 消息。
+ *
+ * @example
+ * ```ts
+ * const input: ConversationContextDocumentInput = {
+ *     goalId: "goal-1",
+ *     runId: "run-1",
+ *     messages,
+ *     messageStartIndex: 0,
+ *     messageEndIndexExclusive: 2,
+ * };
+ * ```
+ */
 export interface ConversationContextDocumentInput {
     readonly goalId: string;
     readonly runId: string;
     readonly messages: readonly GoalMessage[];
     /** 当前 Epoch 起点；更早消息才进入 Cold。 */
     readonly conversationStartIndex?: number;
+    /** 可选的消息范围起点；用于把归档消息绑定到其所属 Run。 */
+    readonly messageStartIndex?: number;
+    /** 可选的消息范围结束位置（半开）；缺省为 `conversationStartIndex`。 */
+    readonly messageEndIndexExclusive?: number;
 }
 
 /** 从 Snapshot 权威消息生成统一检索索引中的 Conversation Documents。 */
 export function buildConversationContextDocuments(
     input: ConversationContextDocumentInput,
 ): readonly ContextSearchDocument[] {
-    const start = input.conversationStartIndex ?? 0;
-    if (!Number.isSafeInteger(start) || start < 0 || start > input.messages.length) {
-        throw new RangeError("conversationStartIndex is invalid");
+    const start = input.messageStartIndex ?? 0;
+    const end = input.messageEndIndexExclusive ?? input.conversationStartIndex ?? 0;
+    if (
+        !Number.isSafeInteger(start)
+        || !Number.isSafeInteger(end)
+        || start < 0
+        || end < start
+        || end > input.messages.length
+    ) {
+        throw new RangeError("conversation message range is invalid");
     }
     const documents: ContextSearchDocument[] = [];
-    for (let index = 0; index < start; index += 1) {
+    for (let index = start; index < end; index += 1) {
         const message = input.messages[index]!;
         const source: ContextDocumentSource = {
             kind: "conversation",

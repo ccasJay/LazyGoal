@@ -52,6 +52,7 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
             executionPolicy: { maxSteps: 0 },
         },
         state: {
+            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -72,6 +73,7 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
                 },
             },
             modelSelection: DEFAULT_GOAL_MODEL_SELECTION,
+            completedRuns: [],
         },
     });
     assert.notEqual(goal.id, goal.state.run.id);
