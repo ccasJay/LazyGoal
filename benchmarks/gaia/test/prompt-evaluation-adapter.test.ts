@@ -8,7 +8,7 @@ import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
 import type { IsolatedEnvironment } from "../../src/isolated-environment.js";
-import { fingerprintPromptEvaluationCandidate } from "../../src/prompt-evaluation-profile.js";
+import { fingerprintPromptEvaluationCandidate } from "../../src/prompt-evaluation/profile.js";
 import {
     GAIA_WORKER_PROFILE,
     parseGaiaAcpTaskMetadata,

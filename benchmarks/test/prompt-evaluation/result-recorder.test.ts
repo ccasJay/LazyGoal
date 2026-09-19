@@ -4,11 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { PromptEvaluationResultV1 } from "../src/prompt-evaluation-protocol.js";
+import type { PromptEvaluationResultV1 } from "../../src/prompt-evaluation/protocol.js";
 import {
     PromptEvaluationResultRecorder,
     readPromptEvaluationResult,
-} from "../src/prompt-evaluation-result-recorder.js";
+} from "../../src/prompt-evaluation/result-recorder.js";
 
 function result(evaluationId: string): PromptEvaluationResultV1 {
     return {

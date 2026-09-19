@@ -84,12 +84,12 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 
 ## Prompt Evaluation
 
-[`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation-cli.ts) 接受当前版本的单候选
+[`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation/cli.ts) 接受当前版本的单候选
 JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
 派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
-[`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation-runner.ts) 按 Manifest 顺序为每个
+[`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
 任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
 只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
 `0`，基础设施失败、请求校验失败和取消分别返回 `1`、`2`、`130`。

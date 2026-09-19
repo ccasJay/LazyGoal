@@ -13,7 +13,7 @@ const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const isGaiaGrade = argv[0] === "grade" && argv[1] === "gaia";
 const isGaiaLoad = (argv[0] === "load" && argv[1] === "gaia") || (argv[0] === "gaia" && argv[1] === "load");
 const source = isPromptEval
-    ? resolve(__dirname, "../benchmarks/src/prompt-evaluation-cli.ts")
+    ? resolve(__dirname, "../benchmarks/src/prompt-evaluation/cli.ts")
     : isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
     : isSwebenchEval

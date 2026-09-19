@@ -9,7 +9,7 @@ import {
     PromptEvaluationRequestError,
     parsePromptEvaluationRequest,
     readPromptEvaluationRequest,
-} from "../src/prompt-evaluation-protocol.js";
+} from "../../src/prompt-evaluation/protocol.js";
 
 async function fixture(): Promise<{
     readonly root: string;

@@ -147,29 +147,29 @@ export {
     PromptEvaluationRequestError,
     parsePromptEvaluationRequest,
     readPromptEvaluationRequest,
-} from "./prompt-evaluation-protocol.js";
+} from "./prompt-evaluation/index.js";
 export {
     PromptEvaluationProfileError,
     derivePromptEvaluationProfile,
     fingerprintPromptEvaluationCandidate,
     validatePromptEvaluationProfile,
-} from "./prompt-evaluation-profile.js";
+} from "./prompt-evaluation/index.js";
 export type {
     PromptEvaluationProfileErrorCode,
     PromptEvaluationPromptFingerprint,
-} from "./prompt-evaluation-profile.js";
+} from "./prompt-evaluation/index.js";
 export {
     PromptEvaluationBenchmarkRegistry,
     PromptEvaluationRunner,
     PromptEvaluationRunnerError,
-} from "./prompt-evaluation-runner.js";
+} from "./prompt-evaluation/index.js";
 export type {
     PromptEvaluationBenchmarkAdapter,
     PromptEvaluationRunOptions,
     PromptEvaluationRunnerDependencies,
     PromptEvaluationRunnerErrorCode,
     PromptEvaluationTaskInput,
-} from "./prompt-evaluation-runner.js";
+} from "./prompt-evaluation/index.js";
 export type {
     PromptEvaluationArtifactLocator,
     PromptEvaluationBenchmarkId,
@@ -185,13 +185,13 @@ export type {
     PromptEvaluationStatus,
     PromptEvaluationTaskResult,
     PromptEvaluationTaskStatus,
-} from "./prompt-evaluation-protocol.js";
+} from "./prompt-evaluation/index.js";
 export {
     PromptEvaluationResultRecorder,
     parsePromptEvaluationResult,
     readPromptEvaluationResult,
-} from "./prompt-evaluation-result-recorder.js";
+} from "./prompt-evaluation/index.js";
 export {
     runPromptEvaluationCli,
     type PromptEvaluationCliOptions,
-} from "./prompt-evaluation-cli.js";
+} from "./prompt-evaluation/index.js";

@@ -25,7 +25,7 @@ import {
     HeadlessCompositionRoot,
     type HeadlessEpisodeResult,
 } from "../../src/headless-composition-root.js";
-import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation-profile.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import {
     ALFWORLD_CONTAINER_DATA_ROOT,

@@ -4,13 +4,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
-import { runPromptEvaluationCli } from "../../src/prompt-evaluation-cli.js";
-import type { PromptEvaluationEventV1 } from "../../src/prompt-evaluation-protocol.js";
-import { readPromptEvaluationResult } from "../../src/prompt-evaluation-result-recorder.js";
+import { runPromptEvaluationCli } from "../../src/prompt-evaluation/cli.js";
+import type { PromptEvaluationEventV1 } from "../../src/prompt-evaluation/protocol.js";
+import { readPromptEvaluationResult } from "../../src/prompt-evaluation/result-recorder.js";
 import {
     PromptEvaluationBenchmarkRegistry,
     type PromptEvaluationBenchmarkAdapter,
-} from "../../src/prompt-evaluation-runner.js";
+} from "../../src/prompt-evaluation/runner.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import {
     loadAlfworldEnvironmentFile,

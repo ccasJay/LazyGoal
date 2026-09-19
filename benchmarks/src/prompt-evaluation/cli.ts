@@ -2,33 +2,33 @@ import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
-import { readLlmConfig } from "../../packages/llm/src/config.js";
-import { createLlmAdapter } from "../../packages/llm/src/factory.js";
-import { AlfworldPromptEvaluationAdapter } from "../alfworld/src/prompt-evaluation-adapter.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { AlfworldPromptEvaluationAdapter } from "../../alfworld/src/prompt-evaluation-adapter.js";
 import {
     loadAlfworldEnvironmentFile,
     resolveAlfworldContainerEnvironment,
-} from "../alfworld/src/environment-config.js";
+} from "../../alfworld/src/environment-config.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
     ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
-} from "../alfworld/src/worker-config.js";
-import { GaiaPromptEvaluationAdapter } from "../gaia/src/prompt-evaluation-adapter.js";
-import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../gaia/src/worker-entry.js";
-import { buildBenchmarkWorker } from "./worker-builder.js";
+} from "../../alfworld/src/worker-config.js";
+import { GaiaPromptEvaluationAdapter } from "../../gaia/src/prompt-evaluation-adapter.js";
+import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../../gaia/src/worker-entry.js";
+import { buildBenchmarkWorker } from "../worker-builder.js";
 import {
     PROMPT_EVALUATION_EXIT_CODES,
     PROMPT_EVALUATION_PROTOCOL,
     readPromptEvaluationRequest,
     type PromptEvaluationEventV1,
     type PromptEvaluationRequestV1,
-} from "./prompt-evaluation-protocol.js";
+} from "./protocol.js";
 import {
     PromptEvaluationBenchmarkRegistry,
     PromptEvaluationRunner,
-} from "./prompt-evaluation-runner.js";
-import { PromptEvaluationResultRecorder } from "./prompt-evaluation-result-recorder.js";
+} from "./runner.js";
+import { PromptEvaluationResultRecorder } from "./result-recorder.js";
 
 /** `eval prompt` CLI 的可注入边界。 */
 export interface PromptEvaluationCliOptions {
@@ -231,7 +231,7 @@ function registryFor(
     adapter: GaiaPromptEvaluationAdapter | AlfworldPromptEvaluationAdapter,
 ): PromptEvaluationBenchmarkRegistry {
     return new PromptEvaluationBenchmarkRegistry([
-        adapter as unknown as import("./prompt-evaluation-runner.js").PromptEvaluationBenchmarkAdapter<unknown, unknown>,
+        adapter as unknown as import("./runner.js").PromptEvaluationBenchmarkAdapter<unknown, unknown>,
     ]);
 }
 

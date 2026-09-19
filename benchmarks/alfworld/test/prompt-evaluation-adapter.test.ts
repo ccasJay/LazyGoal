@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
-import { fingerprintPromptEvaluationCandidate } from "../../src/prompt-evaluation-profile.js";
+import { fingerprintPromptEvaluationCandidate } from "../../src/prompt-evaluation/profile.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";
 import type { AlfworldContainerEnvironmentConfig } from "../src/environment-config.js";
 import type { AlfworldManifestTask } from "../src/manifest.js";

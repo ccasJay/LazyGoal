@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { AgentProfile } from "../../packages/runtime/src/agent-profile.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import {
     PromptEvaluationProfileError,
     derivePromptEvaluationProfile,
     fingerprintPromptEvaluationCandidate,
     validatePromptEvaluationProfile,
-} from "../src/prompt-evaluation-profile.js";
+} from "../../src/prompt-evaluation/profile.js";
 
 const baseProfile: AgentProfile = Object.freeze({
     id: "fixture-profile",

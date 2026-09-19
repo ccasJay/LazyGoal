@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
-import type { AgentProfile } from "../../packages/runtime/src/agent-profile.js";
-import type { PromptEvaluationRequestV1 } from "../src/prompt-evaluation-protocol.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
+import type { PromptEvaluationRequestV1 } from "../../src/prompt-evaluation/protocol.js";
 import {
     PromptEvaluationBenchmarkRegistry,
     PromptEvaluationRunner,
     PromptEvaluationRunnerError,
     type PromptEvaluationBenchmarkAdapter,
     type PromptEvaluationTaskInput,
-} from "../src/prompt-evaluation-runner.js";
+} from "../../src/prompt-evaluation/runner.js";
 
 interface FixtureTask {
     readonly id: string;

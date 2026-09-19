@@ -3,8 +3,8 @@ import type { PromptEvaluationAttemptMetadata } from "../../src/attempt-recorder
 import type {
     PromptEvaluationBenchmarkAdapter,
     PromptEvaluationTaskInput,
-} from "../../src/prompt-evaluation-runner.js";
-import type { PromptEvaluationTaskResult } from "../../src/prompt-evaluation-protocol.js";
+} from "../../src/prompt-evaluation/runner.js";
+import type { PromptEvaluationTaskResult } from "../../src/prompt-evaluation/protocol.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";
 import { loadGaiaManifest } from "./manifest.js";
 import {

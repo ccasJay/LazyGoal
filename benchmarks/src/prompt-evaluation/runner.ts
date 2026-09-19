@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 
-import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
-import type { AgentProfile } from "../../packages/runtime/src/agent-profile.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 import {
     derivePromptEvaluationProfile,
     fingerprintPromptEvaluationCandidate,
     validatePromptEvaluationProfile,
     type PromptEvaluationPromptFingerprint,
-} from "./prompt-evaluation-profile.js";
+} from "./profile.js";
 import {
     PROMPT_EVALUATION_PROTOCOL,
     type PromptEvaluationBenchmarkId,
@@ -16,7 +16,7 @@ import {
     type PromptEvaluationRequestV1,
     type PromptEvaluationResultV1,
     type PromptEvaluationTaskResult,
-} from "./prompt-evaluation-protocol.js";
+} from "./protocol.js";
 
 /** 单个 benchmark 任务执行时收到的完整 Prompt Evaluation 上下文。 */
 export interface PromptEvaluationTaskInput<TTask> {

@@ -4,17 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
-import type { LLMAdapter } from "../../packages/llm/src/core/adapter.js";
-import type { AgentProfile } from "../../packages/runtime/src/agent-profile.js";
-import { runPromptEvaluationCli } from "../src/prompt-evaluation-cli.js";
+import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
+import { runPromptEvaluationCli } from "../../src/prompt-evaluation/cli.js";
 import {
     PromptEvaluationBenchmarkRegistry,
     type PromptEvaluationBenchmarkAdapter,
-} from "../src/prompt-evaluation-runner.js";
+} from "../../src/prompt-evaluation/runner.js";
 import type {
     PromptEvaluationEventV1,
     PromptEvaluationTaskStatus,
-} from "../src/prompt-evaluation-protocol.js";
+} from "../../src/prompt-evaluation/protocol.js";
 
 const profile: AgentProfile = {
     id: "gaia-worker-profile",

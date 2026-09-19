@@ -42,7 +42,7 @@ import {
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import { createAcpMuxStream, MultiplexedConnection } from "../../src/multiplex.js";
 import { RpcLlmAdapter } from "../../src/llm-rpc.js";
-import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation-profile.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
 import type { GaiaManifestTask } from "./types.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
 

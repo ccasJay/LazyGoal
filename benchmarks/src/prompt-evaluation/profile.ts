@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import type { AgentProfile } from "../../packages/runtime/src/agent-profile.js";
-import type { PromptEvaluationCandidate } from "./prompt-evaluation-protocol.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
+import type { PromptEvaluationCandidate } from "./protocol.js";
 
 /** 候选 Prompt 的可审计指纹与有界摘要。 */
 export interface PromptEvaluationPromptFingerprint {

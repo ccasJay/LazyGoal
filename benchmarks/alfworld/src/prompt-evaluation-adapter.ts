@@ -9,8 +9,8 @@ import {
 import type {
     PromptEvaluationBenchmarkAdapter,
     PromptEvaluationTaskInput,
-} from "../../src/prompt-evaluation-runner.js";
-import type { PromptEvaluationTaskResult } from "../../src/prompt-evaluation-protocol.js";
+} from "../../src/prompt-evaluation/runner.js";
+import type { PromptEvaluationTaskResult } from "../../src/prompt-evaluation/protocol.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";
 import type { AlfworldContainerEnvironmentConfig } from "./environment-config.js";
 import {

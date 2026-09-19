@@ -7,7 +7,7 @@ import {
     type PromptEvaluationArtifactLocator,
     type PromptEvaluationResultV1,
     type PromptEvaluationTaskResult,
-} from "./prompt-evaluation-protocol.js";
+} from "./protocol.js";
 
 /**
  * 以临时文件和 rename 原子发布一次 Prompt Evaluation 汇总。

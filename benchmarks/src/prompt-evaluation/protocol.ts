@@ -3,7 +3,7 @@ import { isAbsolute, resolve } from "node:path";
 
 import type {
     BenchmarkAttemptError,
-} from "./attempt-recorder.js";
+} from "../attempt-recorder.js";
 
 /** Prompt Evaluation 当前唯一受支持的线协议标识。 */
 export const PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1" as const;
