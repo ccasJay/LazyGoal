@@ -42,7 +42,7 @@
   - 验证方式：待实现的 GAIA adapter/Worker 测试；现有 GAIA CLI 与 benchmark 回归；`npm run check:dependencies`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [4.1](./requirements.md#req-4-1), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 7. 实现 `lazygoal eval prompt` CLI 与事件流
+- [x] //TODO 7. 实现 `lazygoal eval prompt` CLI 与事件流
 
   - 实现目标：增加 CLI 路由、请求装配、NDJSON 进度/终态投影、信号处理和 `0/1/2/130` 退出码映射。
   - 成功判据：领域失败仍以 `0` 返回；基础设施失败、校验失败和取消分别返回约定退出码；事件包含评测/任务/阶段/时间且标记非权威；重复调用不复用旧会话。

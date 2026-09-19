@@ -191,3 +191,7 @@ export {
     parsePromptEvaluationResult,
     readPromptEvaluationResult,
 } from "./prompt-evaluation-result-recorder.js";
+export {
+    runPromptEvaluationCli,
+    type PromptEvaluationCliOptions,
+} from "./prompt-evaluation-cli.js";
