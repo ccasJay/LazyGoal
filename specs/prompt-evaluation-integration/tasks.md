@@ -14,7 +14,7 @@
   - 验证方式：待实现的 Profile 派生、哈希稳定性、冻结字段和 Worker 重验测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [5.1](./requirements.md#req-5-1)_
 
-- [ ] //TODO 3. 建立公共 Benchmark 注册与单候选 Runner
+- [x] //TODO 3. 建立公共 Benchmark 注册与单候选 Runner
 
   - 实现目标：定义窄 `PromptEvaluationBenchmarkAdapter`、注入式 registry 和顺序任务 runner，隔离公共编排与领域 Manifest、环境及评分逻辑。
   - 成功判据：伪 adapter 的多个任务各自获得独立执行上下文；runner 只聚合 adapter 判定，不解释领域结果；取消后不再启动新任务。

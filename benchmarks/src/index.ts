@@ -157,6 +157,18 @@ export type {
     PromptEvaluationProfileErrorCode,
     PromptEvaluationPromptFingerprint,
 } from "./prompt-evaluation-profile.js";
+export {
+    PromptEvaluationBenchmarkRegistry,
+    PromptEvaluationRunner,
+    PromptEvaluationRunnerError,
+} from "./prompt-evaluation-runner.js";
+export type {
+    PromptEvaluationBenchmarkAdapter,
+    PromptEvaluationRunOptions,
+    PromptEvaluationRunnerDependencies,
+    PromptEvaluationRunnerErrorCode,
+    PromptEvaluationTaskInput,
+} from "./prompt-evaluation-runner.js";
 export type {
     PromptEvaluationBenchmarkId,
     PromptEvaluationBenchmarkReference,
