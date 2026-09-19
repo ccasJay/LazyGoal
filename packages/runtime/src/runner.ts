@@ -2079,6 +2079,17 @@ export class Runner {
                     continue;
                 }
 
+                if (normalized.decision.kind === "goal_plan_update") {
+                    return this.stopWithExecutionError(
+                        goal,
+                        new RunnerExecutionError(
+                            "INVALID_AGENT_DECISION",
+                            "goal_plan_update requires Plan Mode handling",
+                        ),
+                        control,
+                    );
+                }
+
                 await this.appendTrajectory({
                     goalId: goal.id,
                     runId: goal.state.run.id,
@@ -2132,7 +2143,7 @@ export class Runner {
                         eventType: "run_waiting",
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
-                } else {
+                } else if (normalized.decision.kind === "fail") {
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2145,6 +2156,15 @@ export class Runner {
                             message: normalized.decision.error,
                         },
                     };
+                } else {
+                    return this.stopWithExecutionError(
+                        goal,
+                        new RunnerExecutionError(
+                            "INVALID_AGENT_DECISION",
+                            "goal_plan_update requires Plan Mode handling",
+                        ),
+                        control,
+                    );
                 }
                 goal = await this.commitDecision(
                     nextGoal,
@@ -2224,6 +2244,7 @@ export class Runner {
                 | { readonly kind: "context_checkpoint" }
                 | { readonly kind: "ask_user" }
                 | { readonly kind: "task_proposal" }
+                | { readonly kind: "goal_plan_update" }
         >,
     ): Goal {
         const content = decision.kind === "complete"

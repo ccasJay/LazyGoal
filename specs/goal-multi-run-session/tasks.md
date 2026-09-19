@@ -25,7 +25,7 @@
   - 验证方式：扩展 `packages/slash-command/test/slash-command.test.ts`、`packages/tui/test/command-aware-text-input.test.tsx`、`packages/runtime/test/goal-coordinator.test.ts`；执行三组测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 4. 增加 GoalPlan 模型契约、系统工具与 Prompt 投影
+- [x] //TODO 4. 增加 GoalPlan 模型契约、系统工具与 Prompt 投影
 
   - 实现目标：在 `packages/contracts/src/model-output` 增加 GoalPlan patch 与 `goal_plan_update` 契约；在 `system-tools.ts`、`factory.ts`、Agent projector 和 Prompt 中只为 `planMode=true` 暴露 `system_update_goal_plan`，并保留现有 Working Memory Patch 分支。
   - 成功判据：Plan Mode 的 provider schema、wire 解码和 Prompt 包含计划操作；normal mode 完全没有该分支；模型提交文本、Memory Patch 或伪造 ID 不能直接改变 GoalPlan。

@@ -785,6 +785,7 @@ export type StepRecord =
             | { readonly kind: "context_checkpoint" }
             | { readonly kind: "ask_user" }
             | { readonly kind: "task_proposal" }
+            | { readonly kind: "goal_plan_update" }
         >;
     };
 

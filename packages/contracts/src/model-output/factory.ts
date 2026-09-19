@@ -11,6 +11,7 @@ import {
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
+    GoalPlanUpdateAgentDecisionContract,
     ModelContextCheckpointResultContract,
     NonToolExecutingDecisionContract,
     TaskProposalAgentDecisionContract,
@@ -81,6 +82,8 @@ export type ModelOutputRequest =
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
         readonly taskPresent?: boolean;
+        /** 只有 Plan Mode 才允许模型提交 GoalPlan Patch。 */
+        readonly planMode?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -215,7 +218,12 @@ export function createModelOutputContractBundle(
     switch (request.kind) {
         case "executing": {
             const taskPresent = request.taskPresent !== false;
-            name = taskPresent ? "executing_agent_decision" : "unapproved_executing_agent_decision";
+            const planMode = request.planMode === true;
+            name = planMode
+                ? "plan_mode_executing_agent_decision"
+                : taskPresent
+                    ? "executing_agent_decision"
+                    : "unapproved_executing_agent_decision";
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);
             const effectiveTools = taskPresent
                 ? sortedTools
@@ -234,6 +242,9 @@ export function createModelOutputContractBundle(
                     TaskProposalAgentDecisionContract,
                     ContextLookupRequestContract,
                 ];
+            if (planMode) {
+                nonToolCanonicalBranches.push(GoalPlanUpdateAgentDecisionContract);
+            }
             const nonToolWireBranches = nonToolCanonicalBranches.map((c) => deriveWireContract(c));
 
             if (effectiveTools.length === 0) {

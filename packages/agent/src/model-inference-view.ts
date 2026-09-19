@@ -52,6 +52,54 @@ export interface ModelTask {
     readonly completionCriteria: readonly ModelCompletionCriterion[];
 }
 
+/**
+ * Plan Mode 下模型可见的单个 GoalPlan Todo 投影。
+ *
+ * @example
+ * ```ts
+ * const item: ModelGoalPlanItem = {
+ *     id: "todo-1",
+ *     content: "检查实现",
+ *     position: 0,
+ *     status: "pending",
+ * };
+ * ```
+ */
+export interface ModelGoalPlanItem {
+    /** Runtime 分配的稳定 Todo ID；模型只能引用该 ID，不能创建伪造 ID。 */
+    readonly id: string;
+    /** 用户可见的 Todo 内容。 */
+    readonly content: string;
+    /** Runtime 规范化后的显示顺序。 */
+    readonly position: number;
+    /** Todo 当前生命周期状态。 */
+    readonly status: "pending" | "in_progress" | "completed" | "cancelled";
+    /** 当前承接 Todo 的 Run；只有 in_progress Todo 可能有该字段。 */
+    readonly activeRunId?: string;
+}
+
+/**
+ * Plan Mode 下 GoalPlan 的只读模型投影。
+ *
+ * @remarks
+ * 此对象只用于帮助模型构造带 `baseRevision` 的 Patch；GoalPlan 的状态变更仍由
+ * Runtime reducer 原子提交，Working Memory 的 `plan` 不会混入此对象。
+ *
+ * @example
+ * ```ts
+ * const plan: ModelGoalPlan = {
+ *     revision: 1,
+ *     items: [{ id: "todo-1", content: "检查实现", position: 0, status: "pending" }],
+ * };
+ * ```
+ */
+export interface ModelGoalPlan {
+    /** 模型提交 Patch 时必须回传的当前 revision。 */
+    readonly revision: number;
+    /** 按 position 排序的完整 Todo 列表。 */
+    readonly items: readonly ModelGoalPlanItem[];
+}
+
 /** 模型可见的单个 Tool Action 投影。 */
 export interface ModelToolCallAction {
     readonly actionId: string;
@@ -352,6 +400,8 @@ export interface PromptContext {
      * ```
      */
     readonly task?: ModelTask;
+    /** Plan Mode 下 Goal 级结构化计划的只读投影；普通模式省略。 */
+    readonly goalPlan?: ModelGoalPlan;
 }
 
 /**

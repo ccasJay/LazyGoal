@@ -13,6 +13,7 @@ import {
     SystemAskUserDeclaration,
     SystemContextLookupDeclaration,
     SystemProposeTaskPlanDeclaration,
+    SystemUpdateGoalPlanDeclaration,
 } from "../src/index";
 
 test("系统函数具有严格的参数 JSON Schema 定义", () => {
@@ -156,6 +157,31 @@ test("任务批准前统一执行流挂载只读读取与任务提案工具", ()
     if (proposal.kind === "task_proposal") {
         assert.equal(proposal.task.objective, "构建新特性");
         assert.equal(proposal.approvalRequest, "是否批准计划？");
+    }
+});
+
+test("system_update_goal_plan 只在 Plan Mode 工具包中出现并保留 Memory Patch", () => {
+    const normal = createUnifiedToolDeclarations([], true, false);
+    assert.equal(normal.some((decl) => decl.id === "system_update_goal_plan"), false);
+
+    const plan = createUnifiedToolDeclarations([], true, true);
+    assert.equal(plan.some((decl) => decl.id === "system_update_goal_plan"), true);
+
+    const decision = decodePhaseToolCall(plan, "system_update_goal_plan", {
+        baseRevision: 0,
+        operations: [{ type: "add", content: "检查现有实现", position: null }],
+        memoryPatch: {
+            protocolVersion: 1,
+            operations: [{
+                type: "create_hypothesis",
+                hypothesis: { statement: "入口可能在 src/index.ts" },
+            }],
+        },
+    });
+    assert.equal(decision.kind, "goal_plan_update");
+    if (decision.kind === "goal_plan_update") {
+        assert.deepEqual(decision.operations, [{ type: "add", content: "检查现有实现" }]);
+        assert.equal(decision.memoryPatch?.operations.length, 1);
     }
 });
 

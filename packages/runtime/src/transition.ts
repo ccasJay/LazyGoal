@@ -14,6 +14,7 @@ type TerminalDecision = Exclude<
     { readonly kind: "tool_call" }
         | { readonly kind: "context_lookup" }
         | { readonly kind: "context_checkpoint" }
+        | { readonly kind: "goal_plan_update" }
 >;
 
 type ActionObservation = Exclude<
