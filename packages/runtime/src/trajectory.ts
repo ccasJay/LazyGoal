@@ -377,7 +377,8 @@ export interface TrajectoryReadResult {
  * @param goalStore - 提供恢复权威 Snapshot 的只读 Port。
  * @param trajectoryStore - 提供事件读取的只读/追加 Port；本函数不会追加事件。
  * @param query - Goal/Run 标识和可选序列范围。
- * @returns 已提交事件与未提交 tail；缺少 Snapshot 或 Run 不匹配时全部事件归入 tail。
+ * @returns 已提交事件与未提交 tail；当前 Run 使用当前边界，已完成 Run 使用其
+ *   `completedRuns` 记录的边界，未知 Run 或缺少 Snapshot 时全部事件归入 tail。
  * @throws 底层 Snapshot 或 Trajectory 读取失败时拒绝。
  * @example
  * ```ts
@@ -394,9 +395,12 @@ export async function readTrajectoryAtSnapshot(
     query: TrajectoryReadQuery,
 ): Promise<Readonly<TrajectoryReadResult>> {
     const goal = await goalStore.restore(query.goalId);
-    const committedThroughSequence = goal?.state.run.id === query.runId
-        ? goal.state.run.committedThroughSequence ?? 0
-        : 0;
+    const committedThroughSequence = goal === undefined
+        ? 0
+        : goal.state.run.id === query.runId
+            ? goal.state.run.committedThroughSequence ?? 0
+            : goal.state.completedRuns?.find((record) => record.runId === query.runId)
+                ?.committedThroughSequence ?? 0;
 
     return trajectoryStore.readWithBoundary(query, committedThroughSequence);
 }

@@ -26,6 +26,7 @@ import {
     ContextLookupProtocolError,
     assertContextLookupResultOwnership,
     createContextLookupId,
+    getCommittedRunBoundaries,
     invokeContextLookup,
     normalizeContextLookupRequest,
     normalizeContextLookupResult,
@@ -77,6 +78,11 @@ import {
 } from "./working-memory-core";
 import { WorkingMemorySession } from "./working-memory-session";
 import { resolveEvidenceObservation } from "./evidence-gate";
+import {
+    buildCommittedEvidenceIndex,
+    validateContextLookupSourceReferences,
+} from "./evidence-gate";
+import type { CommittedEvidenceIndex } from "./evidence-gate";
 import {
     createNoopToolMemoryProjectorRegistry,
     normalizeToolMemoryProjectionResult,
@@ -720,6 +726,29 @@ export class Runner {
         const lastFact = committed.find((event) => event.eventType !== "state_committed");
         if (lastFact === undefined) return undefined;
 
+        const runBoundaries = getCommittedRunBoundaries(goal);
+        const currentEvidenceIndex = buildCommittedEvidenceIndex({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            committedThroughSequence: boundary,
+            events: raw.committed,
+        });
+        const historicalEvidenceIndexes: CommittedEvidenceIndex[] = [];
+        for (const source of runBoundaries) {
+            if (source.runId === goal.state.run.id) continue;
+            const sourceRaw = await trajectoryStore.readWithBoundary(
+                { goalId: goal.id, runId: source.runId },
+                source.committedThroughSequence,
+            );
+            historicalEvidenceIndexes.push(buildCommittedEvidenceIndex({
+                goalId: goal.id,
+                runId: source.runId,
+                committedThroughSequence: source.committedThroughSequence,
+                events: sourceRaw.committed,
+            }));
+        }
+        const lookupBoundary = Math.max(...runBoundaries.map((source) => source.committedThroughSequence));
+
         const request = normalizeContextLookupRequest(lastStep.result);
         const expectedLookupId = createContextLookupId(
             goal.id,
@@ -730,7 +759,7 @@ export class Runner {
             const result = normalizeContextLookupResult(
                 value,
                 expectedLookupId,
-                boundary,
+                lookupBoundary,
                 request,
             );
             if (result.status === "found") {
@@ -738,6 +767,12 @@ export class Runner {
                     result,
                     goal.id,
                     goal.state.run.id,
+                    runBoundaries,
+                );
+                validateContextLookupSourceReferences(
+                    result,
+                    currentEvidenceIndex,
+                    historicalEvidenceIndexes,
                 );
             }
             return result;

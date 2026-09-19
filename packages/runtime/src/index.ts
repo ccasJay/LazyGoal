@@ -195,6 +195,7 @@ export {
     createContextLookupId,
     createContextLookupQueryHash,
     createContextLookupFacts,
+    getCommittedRunBoundaries,
     invokeContextLookup,
     isContextLookupRequest,
     normalizeContextLookupResult,
@@ -212,6 +213,7 @@ export type {
     ContextLookupPort,
     ContextLookupRequest,
     ContextLookupResult,
+    ContextLookupRunBoundary,
 } from "./context-retrieval";
 export {
     CONTEXT_LOOKUP_DEFAULT_PREVIEW_LENGTH,

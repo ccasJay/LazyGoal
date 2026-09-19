@@ -46,7 +46,7 @@
   - 验证方式：新增 `packages/runtime/test/goal-multi-run-session.test.ts`（待实现），扩展 `goal-coordinator.test.ts`、`goal-coordinator-task-interaction.test.ts`；执行这些测试文件。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 7. 隔离跨 Run 历史来源与当前 Run Evidence
+- [x] //TODO 7. 隔离跨 Run 历史来源与当前 Run Evidence
 
   - 实现目标：调整 Context Lookup、Trajectory reader、Evidence Gate 和 Working Memory 恢复，使历史读取携带完整 Run 身份，但完成证据只接受当前 Run 的已提交事实；禁止把旧 Lookup 结果洗成当前 Observation。
   - 成功判据：可读取合法旧 Run 事实；未知 Run、跨 Goal、越过 Snapshot boundary、损坏来源和旧 Run Evidence 均被拒绝；相同局部 sequence 在不同 Run 中不会串联。
