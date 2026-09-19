@@ -7,7 +7,7 @@
   - 验证方式：待实现的协议解析与副作用隔离测试；执行仓库发现的 TypeScript 与 benchmark 测试入口。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 2. 实现候选 Profile 派生与冻结校验
+- [x] //TODO 2. 实现候选 Profile 派生与冻结校验
 
   - 实现目标：从 benchmark 基准 Profile 只覆盖 `systemPrompt`、`instructions`，计算规范化哈希和摘要，并提供宿主与 Worker 共用的不变量校验。
   - 成功判据：派生 Profile 保持 `id`、`toolIds` 及全部非 Prompt 字段；非法 Prompt 返回字段级稳定错误；有效 Profile 在 Goal 中冻结候选文本。

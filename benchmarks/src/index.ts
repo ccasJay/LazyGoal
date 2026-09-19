@@ -147,6 +147,16 @@ export {
     parsePromptEvaluationRequest,
     readPromptEvaluationRequest,
 } from "./prompt-evaluation-protocol.js";
+export {
+    PromptEvaluationProfileError,
+    derivePromptEvaluationProfile,
+    fingerprintPromptEvaluationCandidate,
+    validatePromptEvaluationProfile,
+} from "./prompt-evaluation-profile.js";
+export type {
+    PromptEvaluationProfileErrorCode,
+    PromptEvaluationPromptFingerprint,
+} from "./prompt-evaluation-profile.js";
 export type {
     PromptEvaluationBenchmarkId,
     PromptEvaluationBenchmarkReference,
@@ -162,4 +172,3 @@ export type {
     PromptEvaluationTaskResult,
     PromptEvaluationTaskStatus,
 } from "./prompt-evaluation-protocol.js";
-
