@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     createSlashCommandRegistry,
     modelCommandDefinition,
+    planCommandDefinition,
     SLASH_COMMAND_ERROR_CODES,
     SlashCommandError,
 } from "../src/index.js";
@@ -220,5 +221,20 @@ test("SlashCommandRegistry: modelCommandDefinition 执行与参数拒绝", async
         kind: "rejected",
         code: SLASH_COMMAND_ERROR_CODES.INVALID_ARGS,
         message: "Command '/model' does not accept arguments.",
+    });
+});
+
+test("SlashCommandRegistry: /plan 只产生进入 Plan Mode 的控制 effect", async () => {
+    const registry = createSlashCommandRegistry<ModelCommandEffect>();
+    registry.register(planCommandDefinition);
+
+    assert.deepEqual(await registry.dispatch("/plan"), {
+        kind: "executed",
+        effect: { kind: "enter_plan_mode" },
+    });
+    assert.deepEqual(await registry.dispatch("/plan extra"), {
+        kind: "rejected",
+        code: SLASH_COMMAND_ERROR_CODES.INVALID_ARGS,
+        message: "Command '/plan' does not accept arguments.",
     });
 });

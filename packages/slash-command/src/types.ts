@@ -187,6 +187,9 @@ export interface SlashCommandRegistry<TEffect> {
  * const effect: ModelCommandEffect = { kind: "open_model_selector" };
  * ```
  */
-export interface ModelCommandEffect {
-    readonly kind: "open_model_selector";
-}
+export type ModelCommandEffect =
+    | { readonly kind: "open_model_selector" }
+    | { readonly kind: "enter_plan_mode" };
+
+/** Slash 命令产生的 UI/Runtime 控制副作用。 */
+export type SlashCommandEffect = ModelCommandEffect;

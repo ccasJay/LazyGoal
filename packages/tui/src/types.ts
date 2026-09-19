@@ -69,6 +69,7 @@ export type UiCommand =
     | { readonly kind: "continueLatest" }
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }
+    | { readonly kind: "enterPlanMode" }
     | { readonly kind: "approveTask"; readonly requestId?: string }
     | {
         readonly kind: "feedbackTask";
@@ -701,6 +702,18 @@ export interface SessionCoordinator {
         request: ResumeGoalRequest,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult>;
+    /**
+     * 在安全等待边界进入后端 Plan Mode。
+     *
+     * @param ref - 当前 Goal 与 Run 的关联键。
+     * @param control - 可选调用级中止控制。
+     * @returns 模式切换后的等待点、终态或稳定错误。
+     * @example
+     * ```ts
+     * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    readonly enterPlanMode?: (ref: RunRef, control?: ExecutionControl) => Promise<GoalProgressResult>;
 }
 
 /**

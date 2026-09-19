@@ -5,6 +5,7 @@ import { TextInput } from "@inkjs/ui";
 import {
     createSlashCommandRegistry,
     modelCommandDefinition,
+    planCommandDefinition,
     type ModelCommandEffect,
     type SlashCommandRegistry,
 } from "../../slash-command/src/index.js";
@@ -80,6 +81,7 @@ export function CommandAwareTextInput({
     const defaultRegistry = useMemo(() => {
         const reg = createSlashCommandRegistry<ModelCommandEffect>();
         reg.register(modelCommandDefinition);
+        reg.register(planCommandDefinition);
         return reg;
     }, []);
 

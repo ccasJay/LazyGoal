@@ -71,11 +71,17 @@ test("GoalPlan、mode、completedRuns 和 todoId 可以完整 round-trip", () =>
 test("Snapshot 拒绝 normal Goal 携带 GoalPlan、重复 Todo ID 和非法 in_progress 数量", () => {
     const encoded = goalSnapshotCodec.encode(createPlanGoal());
     const normalWithPlan = structuredClone(encoded);
-    normalWithPlan.state.mode = "normal";
+    (normalWithPlan.state as { mode: "normal" | "plan" }).mode = "normal";
     assert.throws(() => goalSnapshotCodec.decode(normalWithPlan), GoalSnapshotProtocolError);
 
     const duplicate = structuredClone(encoded);
-    duplicate.state.goalPlan!.items[1] = {
+    const duplicateItems = duplicate.state.goalPlan!.items as unknown as Array<{
+        readonly id: string;
+        readonly content: string;
+        readonly position: number;
+        readonly status: "pending" | "in_progress" | "completed" | "cancelled";
+    }>;
+    duplicateItems[1] = {
         ...duplicate.state.goalPlan!.items[1]!,
         id: duplicate.state.goalPlan!.items[0]!.id,
     };

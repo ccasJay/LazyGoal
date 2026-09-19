@@ -18,7 +18,7 @@
   - 验证方式：扩展 `packages/storage/test/goal-snapshot-current.test.ts`、`packages/storage/test/goal-store.test.ts`、`packages/runtime/test/trajectory.test.ts`；执行对应测试文件。
   - _Requirements: [2.3](./requirements.md#req-2-3), [6.1](./requirements.md#req-6-1), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 3. 接通 `/plan` Slash Command 与 Runtime 模式入口
+- [x] //TODO 3. 接通 `/plan` Slash Command 与 Runtime 模式入口
 
   - 实现目标：在 `packages/slash-command` 增加无参数 `planCommandDefinition` 和 `enter_plan_mode` Effect；扩展 TUI 命令注册与 `GoalCoordinator.enterPlanMode`，并为尚无 Goal 的 intent 流保存一次性启动模式。
   - 成功判据：`/plan` 不进入 Goal.messages，安全边界下原子进入 plan 并初始化/恢复 GoalPlan；带参数、未知命令、busy 或模型/Tool 执行中均无持久化副作用；普通文本和模型输出不能切换模式。

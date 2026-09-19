@@ -7,6 +7,7 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
+import { createEmptyGoalPlan } from "./goal-plan";
 import type { GoalStore } from "./goal-store";
 import { validateAskUserAnswers } from "../../contracts/src/index";
 import type { ContextLookupPort } from "./context-retrieval";
@@ -97,6 +98,7 @@ export type GoalProgressErrorCode =
     | "ACTION_NOT_AUTHORIZED"
     | "INVALID_CONTEXT_LOOKUP"
     | "CONTEXT_LOOKUP_CHAIN_LIMIT"
+    | "PLAN_MODE_BUSY"
     | "TOOL_NOT_AUTHORIZED"
     | "TOOL_NOT_FOUND"
     | "INVALID_TOOL_INPUT"
@@ -283,6 +285,78 @@ export class GoalCoordinator {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
+    }
+
+    /**
+     * 在安全输入边界把现有 Goal 切换到后端 Plan Mode。
+     *
+     * @remarks
+     * 模式和空 GoalPlan 由 Coordinator 在同一 Snapshot 提交边界写入；命令文本
+     * 不会成为 Goal 消息或 Run Step。重复调用是幂等的。模型/Tool 正在执行的
+     * `running` Run 会被拒绝，避免在执行中改变模型契约。
+     *
+     * @param ref - Goal 与当前 Run 的关联键。
+     * @param control - 当前调用共享的可选中止控制。
+     * @returns 当前等待点、终态或稳定业务错误。
+     * @example
+     * ```ts
+     * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    async enterPlanMode(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
+        throwIfAborted(control);
+        const goal = await this.restore(ref, control);
+        throwIfAborted(control);
+        if (goal === undefined) return this.runNotFound(ref);
+        this.validateGoalProtocol(goal);
+        if (goal.state.run.status === "running") {
+            return {
+                ok: false,
+                error: {
+                    code: "PLAN_MODE_BUSY",
+                    message: "Plan Mode cannot be entered while the current Run is executing",
+                },
+            };
+        }
+        if ((goal.state.mode ?? "normal") === "plan" && goal.state.goalPlan !== undefined) {
+            return goal.state.run.status === "waiting"
+                ? this.executingWaitingResult(goal)
+                : goal.state.run.status === "created"
+                    ? {
+                        ok: true,
+                        kind: "terminal",
+                        phase: "executing",
+                        goal,
+                    }
+                    : {
+                        ok: true,
+                        kind: "terminal",
+                        phase: "executing",
+                        goal,
+                    };
+        }
+
+        const planGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                mode: "plan",
+                goalPlan: goal.state.goalPlan ?? createEmptyGoalPlan(),
+            },
+        };
+        await this.appendTrajectory({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "plan_mode_entered",
+            payload: { type: "plan_mode_entered" },
+        }, control);
+        const saved = await this.saveCheckpoint(planGoal, control);
+        if (saved.state.run.status === "waiting") return this.executingWaitingResult(saved);
+        return { ok: true, kind: "terminal", phase: "executing", goal: saved };
     }
 
     /**

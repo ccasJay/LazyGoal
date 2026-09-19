@@ -71,6 +71,7 @@ export class SessionController {
     private modelCatalogAbortController: AbortController | undefined;
     private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
     private selectedModelId: string | undefined;
+    private pendingLaunchMode: "normal" | "plan" = "normal";
     private readonly transcriptController: StreamingTranscriptController;
     private readonly transcriptUnsubscribe: () => void;
     private timeline: UiTimelineItem[] = [];
@@ -404,6 +405,9 @@ export class SessionController {
                     content: command.content,
                 });
                 return;
+            case "enterPlanMode":
+                await this.enterPlanMode();
+                return;
             case "approveTask":
                 await this.resumeSession({
                     kind: "approve_task",
@@ -500,6 +504,7 @@ export class SessionController {
             goalId: this.dependencies.goalIdGenerator(),
             intent,
             profileId: this.dependencies.profileId,
+            ...(this.pendingLaunchMode === "normal" ? {} : { mode: this.pendingLaunchMode }),
             ...(this.dependencies.maxSteps === undefined
                 ? {}
                 : { maxSteps: this.dependencies.maxSteps }),
@@ -545,6 +550,46 @@ export class SessionController {
             }
         }
 
+        if (result.ok) {
+            this.pendingLaunchMode = "normal";
+        }
+
+        await this.applyProgress(result);
+    }
+
+    private async enterPlanMode(): Promise<void> {
+        if (this.snapshot.screen === "intent_input") {
+            this.pendingLaunchMode = "plan";
+            this.setSnapshot({
+                ...this.snapshot,
+                notice: { kind: "info", message: "Plan Mode will be enabled for the next Goal." },
+            });
+            return;
+        }
+        if (this.snapshot.screen === "home") {
+            this.pendingLaunchMode = "plan";
+            this.openIntentInput();
+            return;
+        }
+        if (this.snapshot.screen !== "session") {
+            this.setError({
+                code: "PLAN_MODE_NOT_ALLOWED",
+                message: "Plan Mode can only be entered from a Goal session or intent input",
+            });
+            return;
+        }
+        const enterPlanMode = this.dependencies.coordinator.enterPlanMode;
+        if (enterPlanMode === undefined) {
+            this.setError({
+                code: "PLAN_MODE_NOT_CONFIGURED",
+                message: "Plan Mode is not configured for this session",
+            });
+            return;
+        }
+        const result = await enterPlanMode.call(this.dependencies.coordinator, {
+            goalId: this.snapshot.goal.id,
+            runId: this.snapshot.goal.state.run.id,
+        }, this.dependencies.control);
         await this.applyProgress(result);
     }
 

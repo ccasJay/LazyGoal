@@ -30,6 +30,7 @@ import type {
     ContextLookupResult,
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
+import { createEmptyGoalPlan } from "./goal-plan";
 import type { GoalMode, GoalPlan } from "./goal-plan";
 
 export type {
@@ -1127,6 +1128,8 @@ export interface GoalCreationInput {
     readonly contextRetrievalProtocol: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
+    /** 新 Goal 的后端模式；Plan Mode 创建时同时 materialize 空 GoalPlan。 */
+    readonly mode?: GoalMode;
     readonly maxSteps?: number;
     readonly messages?: readonly GoalMessage[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
@@ -1172,6 +1175,7 @@ function cloneMessages(messages: readonly GoalMessage[]): readonly GoalMessage[]
  */
 export function createGoal(input: GoalCreationInput): Goal {
     const maxSteps = input.maxSteps ?? 0;
+    const mode = input.mode ?? "normal";
 
     if (!Number.isInteger(maxSteps) || maxSteps < 0) {
         throw new Error("maxSteps must be a non-negative integer");
@@ -1179,6 +1183,10 @@ export function createGoal(input: GoalCreationInput): Goal {
 
     if (input.promptBundleVersion !== 1) {
         throw new Error("promptBundleVersion must be 1");
+    }
+
+    if (mode !== "normal" && mode !== "plan") {
+        throw new Error("mode must be normal or plan");
     }
 
     if (
@@ -1201,7 +1209,6 @@ export function createGoal(input: GoalCreationInput): Goal {
             executionPolicy: { maxSteps },
         },
         state: {
-            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -1211,6 +1218,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             ]),
             run: createRun(input.runId),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
+            ...(mode === "plan" ? { mode, goalPlan: createEmptyGoalPlan() } : { mode }),
             completedRuns: [],
         },
     };
