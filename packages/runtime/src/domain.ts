@@ -785,7 +785,6 @@ export type StepRecord =
             | { readonly kind: "context_checkpoint" }
             | { readonly kind: "ask_user" }
             | { readonly kind: "task_proposal" }
-            | { readonly kind: "goal_plan_update" }
         >;
     };
 
@@ -1055,6 +1054,11 @@ export type RunInput =
         >;
     }
     | {
+        /** 完成一次 Plan Mode 的 GoalPlan 更新 Step；不改变 Run 的终态。 */
+        readonly kind: "plan_update";
+        readonly decision: Extract<AgentDecision, { readonly kind: "goal_plan_update" }>;
+    }
+    | {
         /** 完成一个 Context Lookup Step，但保持 Run running。 */
         readonly kind: "context_lookup";
         readonly request: ContextLookupRequest;
@@ -1225,10 +1229,21 @@ export function createGoal(input: GoalCreationInput): Goal {
     };
 }
 
-/** 创建只包含 Run 自身字段的初始状态。 */
-export function createRun(runId: string): RunState {
+/**
+ * 创建只包含 Run 自身字段的初始状态。
+ *
+ * @param runId - Runtime 分配的 Run 稳定 ID。
+ * @param todoId - Plan Mode 下可选的唯一承接 Todo；普通 Run 省略。
+ * @returns 处于 created 状态且尚未消费 Step 的 Run。
+ * @example
+ * ```ts
+ * const run = createRun("run-2", "todo-1");
+ * ```
+ */
+export function createRun(runId: string, todoId?: string): RunState {
     return {
         id: runId,
+        ...(todoId === undefined ? {} : { todoId }),
         status: "created",
         stepCount: 0,
         committedThroughSequence: 0,

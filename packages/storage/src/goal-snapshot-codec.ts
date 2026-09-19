@@ -9,6 +9,7 @@ import type {
     Goal,
     GoalPlan,
     GoalPlanItem,
+    GoalPlanPatchOperation,
     GoalMessage,
     GoalModelSelection,
     GoalTask,
@@ -27,6 +28,7 @@ import {
     type GoalSnapshotCompletedRunV1,
     type GoalSnapshotDecisionResultV1,
     type GoalSnapshotGoalPlanItemV1,
+    type GoalSnapshotGoalPlanPatchOperationV1,
     type GoalSnapshotGoalPlanV1,
     type GoalSnapshotMessageV1,
     type GoalSnapshotModelSelectionV1,
@@ -230,6 +232,15 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
                     ? {}
                     : { filters: structuredClone(result.filters) }),
             };
+        case "goal_plan_update":
+            return {
+                kind: "goal_plan_update",
+                baseRevision: result.baseRevision,
+                operations: result.operations.map(encodeGoalPlanOperation),
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) }),
+            };
     }
 }
 
@@ -274,6 +285,30 @@ function encodeGoalPlanItem(item: GoalPlanItem): GoalSnapshotGoalPlanItemV1 {
         status: item.status,
         ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
     };
+}
+
+function encodeGoalPlanOperation(
+    operation: GoalPlanPatchOperation,
+): GoalSnapshotGoalPlanPatchOperationV1 {
+    switch (operation.type) {
+        case "add":
+            return {
+                type: "add",
+                content: operation.content,
+                ...(operation.position === undefined ? {} : { position: operation.position }),
+            };
+        case "update":
+            return {
+                type: "update",
+                id: operation.id,
+                ...(operation.content === undefined ? {} : { content: operation.content }),
+                ...(operation.status === undefined ? {} : { status: operation.status }),
+            };
+        case "reorder":
+            return { type: "reorder", id: operation.id, position: operation.position };
+        case "cancel":
+            return { type: "cancel", id: operation.id };
+    }
 }
 
 function encodeGoalPlan(plan: GoalPlan): GoalSnapshotGoalPlanV1 {
@@ -518,6 +553,17 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
                 ...(result.filters === undefined
                     ? {}
                     : { filters: structuredClone(result.filters) }),
+            };
+        case "goal_plan_update":
+            return {
+                kind: "goal_plan_update",
+                baseRevision: result.baseRevision,
+                operations: result.operations.map((operation) => ({
+                    ...operation,
+                })) as GoalPlanPatchOperation[],
+                ...(result.memoryPatch === undefined
+                    ? {}
+                    : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),
             };
     }
 }

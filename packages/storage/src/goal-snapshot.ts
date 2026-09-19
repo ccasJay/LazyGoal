@@ -107,6 +107,29 @@ export interface GoalSnapshotCompletionEvidenceV1 {
     readonly evidenceSequences: readonly number[];
 }
 
+/** Snapshot 中可回放的 GoalPlan 增量操作。 */
+export type GoalSnapshotGoalPlanPatchOperationV1 =
+    | {
+        readonly type: "add";
+        readonly content: string;
+        readonly position?: number | undefined;
+    }
+    | {
+        readonly type: "update";
+        readonly id: string;
+        readonly content?: string | undefined;
+        readonly status?: "pending" | "in_progress" | "completed" | "cancelled" | undefined;
+    }
+    | {
+        readonly type: "reorder";
+        readonly id: string;
+        readonly position: number;
+    }
+    | {
+        readonly type: "cancel";
+        readonly id: string;
+    };
+
 /** Snapshot 中 Context Lookup Decision 的过滤器。 */
 export interface GoalSnapshotContextLookupFiltersV1 {
     readonly eventTypes?: readonly string[];
@@ -142,6 +165,12 @@ export type GoalSnapshotStructuredDecisionResultV1 =
         readonly need: SnapshotContextLookupNeed;
         readonly question: string;
         readonly filters?: GoalSnapshotContextLookupFiltersV1 | undefined;
+    }
+    | {
+        readonly kind: "goal_plan_update";
+        readonly baseRevision: number;
+        readonly operations: readonly GoalSnapshotGoalPlanPatchOperationV1[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
     };
 
 /** Snapshot 中最近一次完成 Step 的 Decision 结果。 */
@@ -534,6 +563,32 @@ const ContextLookupDecisionResultSchema = z.object({
     filters: ContextLookupFiltersSchema.optional(),
 }).strict();
 
+const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
+    z.object({
+        type: z.literal("add"),
+        content: NonEmptyStringSchema,
+        position: z.number().int().nonnegative().optional(),
+    }).strict(),
+    z.object({
+        type: z.literal("update"),
+        id: NonEmptyStringSchema,
+        content: NonEmptyStringSchema.optional(),
+        status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
+    }).strict().refine(
+        (operation) => operation.content !== undefined || operation.status !== undefined,
+        { message: "update operation must change content or status" },
+    ),
+    z.object({
+        type: z.literal("reorder"),
+        id: NonEmptyStringSchema,
+        position: z.number().int().nonnegative(),
+    }).strict(),
+    z.object({
+        type: z.literal("cancel"),
+        id: NonEmptyStringSchema,
+    }).strict(),
+]);
+
 const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("complete"),
@@ -552,6 +607,12 @@ const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
         memoryPatch: MemoryPatchSchema.optional(),
     }).strict(),
     ContextLookupDecisionResultSchema,
+    z.object({
+        kind: z.literal("goal_plan_update"),
+        baseRevision: z.number().int().nonnegative(),
+        operations: z.array(GoalPlanPatchOperationSchema).min(1),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
 ]);
 
 const StepRecordSchema = z.discriminatedUnion("kind", [
@@ -790,6 +851,14 @@ function validateSnapshotInvariants(
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
 
+    if (result?.kind === "goal_plan_update" && goal.state.mode !== "plan") {
+        addInvariantIssue(
+            context,
+            "goal_plan_update requires Plan Mode",
+            ["state", "run", "lastStep", "result"],
+        );
+    }
+
     if (run.contextEpoch.conversationStartIndex > goal.state.messages.length) {
         addInvariantIssue(
             context,
@@ -928,6 +997,7 @@ function validateSnapshotInvariants(
         && step?.kind === "decision"
         && result?.kind !== "wait"
         && result?.kind !== "context_lookup"
+        && result?.kind !== "goal_plan_update"
     ) {
         addInvariantIssue(
             context,

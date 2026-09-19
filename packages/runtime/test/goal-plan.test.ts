@@ -3,8 +3,11 @@ import { test } from "node:test";
 
 import {
     assertValidGoalPlan,
+    bindGoalPlanTodo,
+    completeGoalPlanTodo,
     createEmptyGoalPlan,
     GoalPlanPatchError,
+    releaseGoalPlanTodo,
     reduceGoalPlan,
 } from "../src/index";
 
@@ -121,4 +124,45 @@ test("GoalPlan reducer exposes a stable domain error for malformed persisted sta
         }] }),
         (error: unknown) => error instanceof GoalPlanPatchError,
     );
+});
+
+test("Runtime binds, completes and releases one Todo with an exact Run identity", () => {
+    const initial = reduceGoalPlan(createEmptyGoalPlan(), {
+        baseRevision: 0,
+        operations: [{ type: "add", content: "执行一个 Todo" }],
+    }, { idFactory: () => "todo-1" });
+    assert.equal(initial.ok, true);
+    if (!initial.ok) return;
+
+    const bound = bindGoalPlanTodo(initial.plan, "todo-1", "run-1");
+    assert.deepEqual(bound.items, [{
+        id: "todo-1",
+        content: "执行一个 Todo",
+        position: 0,
+        status: "in_progress",
+        activeRunId: "run-1",
+    }]);
+    assert.equal(bound.revision, 2);
+
+    const completed = completeGoalPlanTodo(bound, "todo-1", "run-1");
+    assert.deepEqual(completed.items, [{
+        id: "todo-1",
+        content: "执行一个 Todo",
+        position: 0,
+        status: "completed",
+    }]);
+    assert.equal(completed.revision, 3);
+
+    assert.throws(
+        () => completeGoalPlanTodo(bound, "todo-1", "old-run"),
+        GoalPlanPatchError,
+    );
+
+    const retried = releaseGoalPlanTodo(bound, "todo-1", "run-1");
+    assert.deepEqual(retried.items, [{
+        id: "todo-1",
+        content: "执行一个 Todo",
+        position: 0,
+        status: "pending",
+    }]);
 });

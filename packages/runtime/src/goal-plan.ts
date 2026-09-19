@@ -214,6 +214,145 @@ function clearActiveRunId(item: GoalPlanItem): GoalPlanItem {
     return withoutActiveRunId;
 }
 
+function requireRunBindingId(value: string, label: string): void {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new GoalPlanPatchError(`${label} must be non-empty`);
+    }
+}
+
+function reduceRuntimePlanStatus(
+    plan: GoalPlan,
+    todoId: string,
+    status: Extract<GoalPlanStatus, "in_progress" | "completed" | "pending">,
+): GoalPlan {
+    const result = reduceGoalPlan(plan, {
+        baseRevision: plan.revision,
+        operations: [{ type: "update", id: todoId, status }],
+    });
+    if (!result.ok) {
+        throw new GoalPlanPatchError(result.error.message);
+    }
+    return result.plan;
+}
+
+/**
+ * 把一个待处理 Todo 绑定到当前执行 Run。
+ *
+ * @remarks
+ * 绑定由 Runtime 创建 Run 时调用，不接受模型提供的 `activeRunId`。该操作要求
+ * Todo 仍为 `pending`，并递增一次 plan revision；返回的计划只会把目标项置为
+ * `in_progress` 并写入当前 Run ID。
+ *
+ * @param plan - 当前已提交的 GoalPlan。
+ * @param todoId - Runtime 选择的 Todo ID。
+ * @param runId - 新建 Run 的稳定 ID。
+ * @returns 绑定后的新计划。
+ * @throws GoalPlanPatchError 当 Todo 不存在、状态不是 pending、Run ID 为空或计划不合法时。
+ * @example
+ * ```ts
+ * const plan = bindGoalPlanTodo(currentPlan, "todo-1", "run-2");
+ * ```
+ */
+export function bindGoalPlanTodo(
+    plan: GoalPlan,
+    todoId: string,
+    runId: string,
+): GoalPlan {
+    requireRunBindingId(todoId, "todoId");
+    requireRunBindingId(runId, "runId");
+    assertValidGoalPlan(plan);
+    const item = plan.items.find((candidate) => candidate.id === todoId);
+    if (item === undefined) {
+        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
+    }
+    if (item.status !== "pending") {
+        throw new GoalPlanPatchError(`Todo ${todoId} must be pending before Run binding`);
+    }
+    if (plan.items.some((candidate) => candidate.status === "in_progress")) {
+        throw new GoalPlanPatchError("GoalPlan already has an in_progress Todo");
+    }
+    const nextPlan = reduceRuntimePlanStatus(plan, todoId, "in_progress");
+    const boundPlan: GoalPlan = {
+        ...nextPlan,
+        items: nextPlan.items.map((candidate) => candidate.id === todoId
+            ? { ...candidate, activeRunId: runId }
+            : candidate),
+    };
+    assertValidGoalPlan(boundPlan);
+    return boundPlan;
+}
+
+/**
+ * 以当前 Run 的完成证据为前置条件，把绑定 Todo 标记为 completed。
+ *
+ * @remarks
+ * 该函数只负责校验并生成计划状态；证据校验由 Runner 在调用前完成。Todo 必须
+ * 仍为 `in_progress` 且 `activeRunId` 与当前 Run 完全匹配，防止旧 Run 或跨 Goal
+ * 的完成声明勾选计划。
+ *
+ * @param plan - 当前已提交的 GoalPlan。
+ * @param todoId - 当前 Run 承接的 Todo ID。
+ * @param runId - 提交完成声明的当前 Run ID。
+ * @returns 清除 activeRunId 并置为 completed 的新计划。
+ * @throws GoalPlanPatchError 当绑定不存在、状态不匹配或计划不合法时。
+ * @example
+ * ```ts
+ * const plan = completeGoalPlanTodo(currentPlan, "todo-1", "run-2");
+ * ```
+ */
+export function completeGoalPlanTodo(
+    plan: GoalPlan,
+    todoId: string,
+    runId: string,
+): GoalPlan {
+    requireRunBindingId(todoId, "todoId");
+    requireRunBindingId(runId, "runId");
+    assertValidGoalPlan(plan);
+    const item = plan.items.find((candidate) => candidate.id === todoId);
+    if (item === undefined) {
+        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
+    }
+    if (item.status !== "in_progress" || item.activeRunId !== runId) {
+        throw new GoalPlanPatchError(`Todo ${todoId} is not bound to Run ${runId}`);
+    }
+    const completedPlan = reduceRuntimePlanStatus(plan, todoId, "completed");
+    assertValidGoalPlan(completedPlan);
+    return completedPlan;
+}
+
+/**
+ * 释放失败或取消 Run 对 Todo 的占用，使该 Todo 可以被后续 Run 重试。
+ *
+ * @param plan - 当前已提交的 GoalPlan。
+ * @param todoId - 失败 Run 承接的 Todo ID。
+ * @param runId - 失败或取消的当前 Run ID。
+ * @returns 清除绑定并恢复为 pending 的新计划。
+ * @throws GoalPlanPatchError 当 Todo 不再由该 Run 承接时。
+ * @example
+ * ```ts
+ * const plan = releaseGoalPlanTodo(currentPlan, "todo-1", "run-2");
+ * ```
+ */
+export function releaseGoalPlanTodo(
+    plan: GoalPlan,
+    todoId: string,
+    runId: string,
+): GoalPlan {
+    requireRunBindingId(todoId, "todoId");
+    requireRunBindingId(runId, "runId");
+    assertValidGoalPlan(plan);
+    const item = plan.items.find((candidate) => candidate.id === todoId);
+    if (item === undefined) {
+        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
+    }
+    if (item.status !== "in_progress" || item.activeRunId !== runId) {
+        throw new GoalPlanPatchError(`Todo ${todoId} is not bound to Run ${runId}`);
+    }
+    const pendingPlan = reduceRuntimePlanStatus(plan, todoId, "pending");
+    assertValidGoalPlan(pendingPlan);
+    return pendingPlan;
+}
+
 /**
  * 原子应用一批 GoalPlan Patch。
  *

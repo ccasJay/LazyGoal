@@ -55,6 +55,12 @@ import {
 } from "./execution-control";
 import { transition } from "./transition";
 import {
+    completeGoalPlanTodo,
+    reduceGoalPlan,
+    releaseGoalPlanTodo,
+} from "./goal-plan";
+import type { GoalPlan } from "./goal-plan";
+import {
     TrajectoryAppendError,
     allocateDiagnosticTraceRecord,
     type DiagnosticTraceSink,
@@ -1309,46 +1315,91 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         throwIfAborted(control);
+        const released = this.releaseBoundPlanTodo(goal);
         const lifecyclePatch = await this.createTerminalLifecyclePatch(
-            goal,
-            1,
+            released.goal,
+            released.planFact === undefined ? 1 : 2,
             control,
         );
         const executionErrorFact: TrajectoryEventDraft = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: goal.state.workflow.phase,
-            ...(goal.state.run.pendingAction === undefined
+            goalId: released.goal.id,
+            runId: released.goal.state.run.id,
+            phase: released.goal.state.workflow.phase,
+            ...(released.goal.state.run.pendingAction === undefined
                 ? {}
-                : { actionId: goal.state.run.pendingAction.action.actionId }),
+                : { actionId: released.goal.state.run.pendingAction.action.actionId }),
             eventType: "execution_error",
             payload: {
                 type: "execution_error",
                 code: error.code,
                 message: error.message,
-                ...(goal.state.run.pendingAction === undefined
+                ...(released.goal.state.run.pendingAction === undefined
                     ? {}
-                    : { actionId: goal.state.run.pendingAction.action.actionId }),
+                    : { actionId: released.goal.state.run.pendingAction.action.actionId }),
             },
         };
-        const failedRun = this.applyTransition(goal.state.run, {
+        const failedRun = this.applyTransition(released.goal.state.run, {
             kind: "execution_error",
             code: error.code,
             message: error.message,
         });
-        const failedGoal = this.withRun(goal, failedRun);
+        const failedGoal = this.withRun(released.goal, failedRun);
         const closedEpochFact = this.contextEpochClosedFact(failedGoal, "run_failed");
 
         const checkpoint = await this.commitDecision(
             failedGoal,
             [
                 executionErrorFact,
+                ...(released.planFact === undefined ? [] : [released.planFact]),
                 ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
             ],
             lifecyclePatch,
             control,
         );
         return { ok: true, state: checkpoint.state.run };
+    }
+
+    private releaseBoundPlanTodo(
+        goal: Goal,
+    ): { readonly goal: Goal; readonly planFact?: TrajectoryEventDraft } {
+        if (
+            (goal.state.mode ?? "normal") !== "plan"
+            || goal.state.goalPlan === undefined
+            || goal.state.run.todoId === undefined
+        ) {
+            return { goal };
+        }
+
+        const nextPlan = releaseGoalPlanTodo(
+            goal.state.goalPlan,
+            goal.state.run.todoId,
+            goal.state.run.id,
+        );
+        const nextGoal: Goal = {
+            ...goal,
+            state: {
+                ...goal.state,
+                goalPlan: nextPlan,
+            },
+        };
+        return {
+            goal: nextGoal,
+            planFact: {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: goal.state.workflow.phase,
+                eventType: "goal_plan_updated",
+                payload: {
+                    type: "goal_plan_updated",
+                    revision: nextPlan.revision,
+                    operations: [{
+                        type: "update",
+                        id: goal.state.run.todoId,
+                        status: "pending",
+                    }],
+                },
+            },
+        };
     }
 
     private contextEpochClosedFact(
@@ -1557,13 +1608,14 @@ export class Runner {
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
+                const released = this.releaseBoundPlanTodo(goal);
                 const lifecyclePatch = await this.createTerminalLifecyclePatch(
-                    goal,
-                    1,
+                    released.goal,
+                    released.planFact === undefined ? 1 : 2,
                     control,
                 );
-                const failedGoal = this.withRun(goal, {
-                    ...goal.state.run,
+                const failedGoal = this.withRun(released.goal, {
+                    ...released.goal.state.run,
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
@@ -1572,8 +1624,8 @@ export class Runner {
                     failedGoal,
                     [
                         {
-                            goalId: goal.id,
-                            runId: goal.state.run.id,
+                            goalId: released.goal.id,
+                            runId: released.goal.state.run.id,
                             phase: "executing",
                             eventType: "run_failed",
                             payload: {
@@ -1582,6 +1634,7 @@ export class Runner {
                                 message: "The configured maximum step count was exceeded",
                             },
                         },
+                        ...(released.planFact === undefined ? [] : [released.planFact]),
                         ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
                     ],
                     lifecyclePatch,
@@ -1672,15 +1725,19 @@ export class Runner {
                         kind: "decision",
                         decision,
                     });
+                    const released = this.releaseBoundPlanTodo(goal);
                     const nextGoal = this.appendDecisionMessage(
-                        this.withRun(goal, nextRun),
+                        this.withRun(released.goal, nextRun),
                         decision,
                     );
 
                     const closedEpochFact = this.contextEpochClosedFact(nextGoal, "run_failed");
                     goal = await this.commitDecision(
                         nextGoal,
-                        closedEpochFact === undefined ? [] : [closedEpochFact],
+                        [
+                            ...(released.planFact === undefined ? [] : [released.planFact]),
+                            ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
+                        ],
                         undefined,
                         control,
                     );
@@ -2080,14 +2137,101 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "goal_plan_update") {
-                    return this.stopWithExecutionError(
-                        goal,
-                        new RunnerExecutionError(
-                            "INVALID_AGENT_DECISION",
-                            "goal_plan_update requires Plan Mode handling",
-                        ),
+                    if (
+                        (goal.state.mode ?? "normal") !== "plan"
+                        || goal.state.goalPlan === undefined
+                    ) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "goal_plan_update requires Plan Mode",
+                            ),
+                            control,
+                        );
+                    }
+
+                    if (normalized.decision.operations.some((operation) =>
+                        operation.type === "update" && operation.status === "completed"
+                    )) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                "Todo completion requires the current Run completion evidence",
+                            ),
+                            control,
+                        );
+                    }
+
+                    const reduced = reduceGoalPlan(
+                        goal.state.goalPlan,
+                        {
+                            baseRevision: normalized.decision.baseRevision,
+                            operations: normalized.decision.operations,
+                        },
+                        { mode: "plan" },
+                    );
+                    if (!reduced.ok) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                reduced.error.message,
+                            ),
+                            control,
+                        );
+                    }
+
+                    const nextRun = this.applyTransition(goal.state.run, {
+                        kind: "plan_update",
+                        decision: normalized.decision,
+                    });
+                    const nextGoal = this.withRun(
+                        {
+                            ...goal,
+                            state: {
+                                ...goal.state,
+                                goalPlan: reduced.plan,
+                            },
+                        },
+                        nextRun,
+                    );
+
+                    goal = await this.commitDecision(
+                        nextGoal,
+                        [
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "decision_received",
+                                payload: {
+                                    type: "decision_received",
+                                    decision: normalized.decision,
+                                    ...(normalized.thought !== undefined ? { thought: normalized.thought } : {}),
+                                },
+                            },
+                            {
+                                goalId: goal.id,
+                                runId: goal.state.run.id,
+                                phase: "executing",
+                                executionUnitId,
+                                eventType: "goal_plan_updated",
+                                payload: {
+                                    type: "goal_plan_updated",
+                                    revision: reduced.plan.revision,
+                                    operations: normalized.decision.operations,
+                                },
+                            },
+                        ],
+                        acceptedPatch,
                         control,
                     );
+                    contextLookupResult = undefined;
+                    contextLookupChainCount = 0;
+                    continue;
                 }
 
                 await this.appendTrajectory({
@@ -2108,13 +2252,13 @@ export class Runner {
                     kind: "decision",
                     decision: normalized.decision,
                 });
-                const transitionedGoal = this.withRun(goal, nextRun);
-                const nextGoal = this.appendDecisionMessage(
-                    transitionedGoal,
+                let nextGoal = this.appendDecisionMessage(
+                    this.withRun(goal, nextRun),
                     normalized.decision,
                 );
 
                 let terminalFact: TrajectoryEventDraft;
+                let planTerminalFact: TrajectoryEventDraft | undefined;
                 if (normalized.decision.kind === "complete") {
                     if (goal.state.workflow.task === undefined) {
                         return this.stopWithExecutionError(
@@ -2125,6 +2269,58 @@ export class Runner {
                             ),
                             control,
                         );
+                    }
+                    if ((goal.state.mode ?? "normal") === "plan") {
+                        if (goal.state.goalPlan === undefined || goal.state.run.todoId === undefined) {
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    "Plan Mode complete requires a Run-bound Todo",
+                                ),
+                                control,
+                            );
+                        }
+                        let completedPlan: GoalPlan;
+                        try {
+                            completedPlan = completeGoalPlanTodo(
+                                goal.state.goalPlan,
+                                goal.state.run.todoId,
+                                goal.state.run.id,
+                            );
+                        } catch (error) {
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                        nextGoal = {
+                            ...nextGoal,
+                            state: {
+                                ...nextGoal.state,
+                                goalPlan: completedPlan,
+                            },
+                        };
+                        planTerminalFact = {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            executionUnitId,
+                            eventType: "goal_plan_updated",
+                            payload: {
+                                type: "goal_plan_updated",
+                                revision: completedPlan.revision,
+                                operations: [{
+                                    type: "update",
+                                    id: goal.state.run.todoId,
+                                    status: "completed",
+                                }],
+                            },
+                        };
                     }
                     terminalFact = {
                         goalId: goal.id,
@@ -2144,6 +2340,12 @@ export class Runner {
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
                 } else if (normalized.decision.kind === "fail") {
+                    const released = this.releaseBoundPlanTodo(goal);
+                    nextGoal = this.appendDecisionMessage(
+                        this.withRun(released.goal, nextRun),
+                        normalized.decision,
+                    );
+                    planTerminalFact = released.planFact;
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2161,7 +2363,7 @@ export class Runner {
                         goal,
                         new RunnerExecutionError(
                             "INVALID_AGENT_DECISION",
-                            "goal_plan_update requires Plan Mode handling",
+                            "Unsupported non-terminal AgentDecision",
                         ),
                         control,
                     );
@@ -2170,6 +2372,7 @@ export class Runner {
                     nextGoal,
                     [
                         terminalFact,
+                        ...(planTerminalFact === undefined ? [] : [planTerminalFact]),
                         ...(normalized.decision.kind === "complete" || normalized.decision.kind === "fail"
                             ? (() => {
                                 const closed = this.contextEpochClosedFact(

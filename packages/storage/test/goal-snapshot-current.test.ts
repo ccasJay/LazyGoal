@@ -283,3 +283,36 @@ test("无最终任务的普通只读 Action 可以保存为可恢复 pendingActi
     assert.deepEqual(decoded.state.run.pendingAction, waiting.state.pendingAction);
     assert.equal(decoded.state.run.stepCount, 0);
 });
+
+test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码", () => {
+    const created = createGoal({
+        ...currentProtocols,
+        id: "goal-plan-step-roundtrip",
+        intent: "验证计划更新 Step",
+        promptBundleVersion: 1,
+        profile,
+        runId: "run-plan-step-roundtrip",
+        mode: "plan",
+    });
+    const running = transition(created.state.run, { kind: "start" });
+    assert.equal(running.ok, true);
+    if (!running.ok) return;
+    const progressed = transition(running.state, {
+        kind: "plan_update",
+        decision: {
+            kind: "goal_plan_update",
+            baseRevision: 0,
+            operations: [{ type: "add", content: "保留计划更新" }],
+        },
+    });
+    assert.equal(progressed.ok, true);
+    if (!progressed.ok) return;
+
+    const encoded = goalSnapshotCodec.encode({
+        ...created,
+        state: { ...created.state, run: progressed.state },
+    });
+    const decoded = goalSnapshotCodec.decode(encoded);
+    assert.equal(decoded.state.mode, "plan");
+    assert.deepEqual(decoded.state.run.lastStep, progressed.state.lastStep);
+});

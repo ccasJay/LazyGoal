@@ -129,6 +129,16 @@ export type ModelStepRecord =
                 readonly need: "conversation_history" | "historical_execution" | "decision_rationale";
                 readonly question: string;
                 readonly filters?: import("../../runtime/src/context-retrieval").ContextLookupFilters;
+            }
+            | {
+                readonly kind: "goal_plan_update";
+                readonly baseRevision: number;
+                readonly operations: readonly (
+                    | { readonly type: "add"; readonly content: string; readonly position?: number }
+                    | { readonly type: "update"; readonly id: string; readonly content?: string; readonly status?: "pending" | "in_progress" | "completed" | "cancelled" }
+                    | { readonly type: "reorder"; readonly id: string; readonly position: number }
+                    | { readonly type: "cancel"; readonly id: string }
+                )[];
             };
     };
 

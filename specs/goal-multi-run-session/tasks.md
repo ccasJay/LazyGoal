@@ -32,7 +32,7 @@
   - 验证方式：新增/扩展 `packages/contracts/test/model-output-canonical.test.ts`、`model-output-wire.test.ts`、`system-tools.test.ts`、`packages/agent/test/model-inference-projector.test.ts` 与 `prompt.test.ts`；执行这些测试文件。
   - _Requirements: [3.3](./requirements.md#req-3-3), [8.2](./requirements.md#req-8-2), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 5. 绑定 Todo Run 并原子提交完成状态
+- [x] //TODO 5. 绑定 Todo Run 并原子提交完成状态
 
   - 实现目标：扩展 Runner、终态提交器和 Coordinator 的 Run 创建路径；Plan Mode 执行 Run 写入 `todoId`/`activeRunId`，完成时把当前 Run Evidence、Run completed 与 Todo completed 放进同一 Checkpoint，失败/取消保持可重试状态。
   - 成功判据：一个 Run 只能绑定一个 Todo；waiting/Action approval 恢复同一关联；完成证据缺失、引用旧 Run 或跨 Goal 时拒绝勾选，失败和取消不产生 completed Todo。

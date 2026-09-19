@@ -36,6 +36,7 @@ export type {
     GoalSnapshotMemoryPatchV1,
     GoalSnapshotCompletionEvidenceV1,
     GoalSnapshotCompletedRunV1,
+    GoalSnapshotGoalPlanPatchOperationV1,
     GoalSnapshotStructuredDecisionResultV1,
     GoalSnapshotContextLookupFiltersV1,
     GoalSnapshotContextEpochV1,

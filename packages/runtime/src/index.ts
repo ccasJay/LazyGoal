@@ -12,11 +12,14 @@ export {
 export {
     applyGoalPlanPatch,
     assertValidGoalPlan,
+    bindGoalPlanTodo,
+    completeGoalPlanTodo,
     createEmptyGoalPlan,
     DEFAULT_GOAL_PLAN_MAX_ITEMS,
     GOAL_PLAN_MAX_IN_PROGRESS,
     GOAL_PLAN_PATCH_ERROR_CODE,
     GoalPlanPatchError,
+    releaseGoalPlanTodo,
     reduceGoalPlan,
 } from "./goal-plan";
 export type {
