@@ -10,6 +10,26 @@ export {
     isContextRetrievalProtocol,
 } from "./domain";
 export {
+    applyGoalPlanPatch,
+    assertValidGoalPlan,
+    createEmptyGoalPlan,
+    DEFAULT_GOAL_PLAN_MAX_ITEMS,
+    GOAL_PLAN_MAX_IN_PROGRESS,
+    GOAL_PLAN_PATCH_ERROR_CODE,
+    GoalPlanPatchError,
+    reduceGoalPlan,
+} from "./goal-plan";
+export type {
+    GoalMode,
+    GoalPlan,
+    GoalPlanItem,
+    GoalPlanPatch,
+    GoalPlanPatchOperation,
+    GoalPlanReducerOptions,
+    GoalPlanReducerResult,
+    GoalPlanStatus,
+} from "./goal-plan";
+export {
     EXECUTION_ABORTED_ERROR_CODE,
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -61,6 +81,7 @@ export type {
     GoalDefinition,
     GoalMessage,
     GoalModelSelection,
+    CompletedRunRecord,
     GoalState,
     GoalTask,
     GoalWorkflowState,

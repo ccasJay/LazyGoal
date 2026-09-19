@@ -30,6 +30,7 @@ import type {
     ContextLookupResult,
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
+import type { GoalMode, GoalPlan } from "./goal-plan";
 
 export type {
     CompletionAcceptance,
@@ -40,6 +41,7 @@ export type {
     AskUserAnswer,
     ToolObservation,
 };
+export type { GoalMode, GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
 
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
@@ -817,6 +819,8 @@ export type RunStopReason =
  */
 export interface RunState {
     readonly id: string;
+    /** Plan Mode 下当前 Run 承接的 GoalPlan Todo；普通 Run 省略。 */
+    readonly todoId?: string;
     readonly status: RunStatus;
     readonly stepCount: number;
     /**
@@ -918,10 +922,30 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
 });
 
 export interface GoalState {
+    /** 后端控制的会话模式；缺省值仅用于恢复旧的开发期内存 fixture，生产创建值为 `normal`。 */
+    readonly mode?: GoalMode;
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;
     readonly modelSelection: GoalModelSelection;
+    /** Plan Mode 的唯一计划状态源；普通模式不得 materialize。 */
+    readonly goalPlan?: GoalPlan;
+    /** 已完成 Run 的只读摘要；初始 Goal 为空。 */
+    readonly completedRuns?: readonly CompletedRunRecord[];
+}
+
+/** 已完成 Run 的跨会话历史摘要。 */
+export interface CompletedRunRecord {
+    /** 已完成 Run 的稳定 ID。 */
+    readonly runId: string;
+    /** 该 Run 承接的 Todo；普通模式省略。 */
+    readonly todoId?: string;
+    /** 完成时的 Step 数量。 */
+    readonly stepCount: number;
+    /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */
+    readonly committedThroughSequence: number;
+    /** 该 Run 在 Goal.messages 中占用的半开区间。 */
+    readonly messageRange: { readonly start: number; readonly end: number };
 }
 
 /**
@@ -1177,6 +1201,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             executionPolicy: { maxSteps },
         },
         state: {
+            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -1186,6 +1211,7 @@ export function createGoal(input: GoalCreationInput): Goal {
             ]),
             run: createRun(input.runId),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
+            completedRuns: [],
         },
     };
 }

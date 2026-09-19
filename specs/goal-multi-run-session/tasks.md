@@ -4,7 +4,7 @@
 
 每项代码变更同时补齐公共接口的中文契约 TSDoc；涉及架构所有权的实现同步更新 Design 指定的架构文档。保留全部 `//TODO` 文本，完成时仅修改复选框。
 
-- [ ] //TODO 1. 建立 GoalPlan 领域模型与原子 reducer
+- [x] //TODO 1. 建立 GoalPlan 领域模型与原子 reducer
 
   - 实现目标：在 `packages/runtime/src` 增加 `GoalMode`、`GoalPlan`、`GoalPlanItem`、`GoalPlanPatch` 与 reducer；扩展 `GoalState`/`RunState` 的当前字段，并实现 ID、position、状态转换、容量和单个 `in_progress` 校验。
   - 成功判据：有效增量 patch 只改变被引用项并递增 revision；Runtime 分配新增 ID；未知 ID、旧 revision、非法转换、重复进行中项和超容量 patch 整批保持原状态。
