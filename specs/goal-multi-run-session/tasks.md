@@ -11,7 +11,7 @@
   - 验证方式：新增 `packages/runtime/test/goal-plan.test.ts`（待实现），扩展 `packages/runtime/test/domain.test.ts`；执行 `npx tsx --test packages/runtime/test/goal-plan.test.ts packages/runtime/test/domain.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 2. 扩展 Snapshot、Trajectory 与恢复边界
+- [x] //TODO 2. 扩展 Snapshot、Trajectory 与恢复边界
 
   - 实现目标：更新 `packages/storage/src/goal-snapshot.ts`、`goal-snapshot-codec.ts` 与 Runtime Trajectory 类型，持久化 `mode`、GoalPlan、`completedRuns`、`todoId`，并增加 `plan_mode_entered`、`goal_plan_updated`、`run_created` 事实及其校验。
   - 成功判据：normal/plan 两种 Snapshot、两轮消息区间和 Run/todo 关联均可 round-trip；重复 ID、非法模式/状态、断裂消息区间、跨 Goal 轨迹和不支持结构全部 fail closed。

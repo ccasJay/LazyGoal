@@ -35,9 +35,12 @@ export type {
     GoalSnapshotMemoryRevisionV1,
     GoalSnapshotMemoryPatchV1,
     GoalSnapshotCompletionEvidenceV1,
+    GoalSnapshotCompletedRunV1,
     GoalSnapshotStructuredDecisionResultV1,
     GoalSnapshotContextLookupFiltersV1,
     GoalSnapshotContextEpochV1,
+    GoalSnapshotGoalPlanItemV1,
+    GoalSnapshotGoalPlanV1,
     GoalSnapshotWorkflowV1,
     SnapshotJsonValue,
 } from "./goal-snapshot";

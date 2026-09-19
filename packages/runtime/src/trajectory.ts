@@ -11,6 +11,7 @@ import type {
     MemoryPatchAcceptedPayload,
     ModelContextEpochState,
 } from "./domain";
+import type { GoalPlanPatchOperation } from "./goal-plan";
 import type {
     ContextLookupRequest,
     ContextLookupResult,
@@ -28,7 +29,17 @@ export type TrajectoryEventPayload =
         readonly intent: string;
     }
     | { readonly type: "run_started" }
+    | {
+        readonly type: "run_created";
+        readonly todoId?: string;
+    }
     | { readonly type: "run_resumed" }
+    | { readonly type: "plan_mode_entered" }
+    | {
+        readonly type: "goal_plan_updated";
+        readonly revision: number;
+        readonly operations: readonly GoalPlanPatchOperation[];
+    }
     | {
         readonly type: "ask_user_answered";
         readonly requestId: string;
@@ -523,7 +534,10 @@ export class TrajectoryCommitMarkerError extends Error {
 const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_created",
     "run_started",
+    "run_created",
     "run_resumed",
+    "plan_mode_entered",
+    "goal_plan_updated",
     "ask_user_answered",
     "task_approved",
     "decision_received",
@@ -589,6 +603,28 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "decision_received") {
         if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
             throw new TrajectoryProtocolError("thought must be a string");
+        }
+    }
+    if (eventType === "run_created") {
+        if (Object.keys(payload).some((key) => !["type", "todoId"].includes(key))) {
+            throw new TrajectoryProtocolError("run_created contains unknown fields");
+        }
+        assertOptionalNonEmptyString(payload.todoId, "run_created.todoId");
+    }
+    if (eventType === "plan_mode_entered") {
+        if (Object.keys(payload).some((key) => key !== "type")) {
+            throw new TrajectoryProtocolError("plan_mode_entered contains unknown fields");
+        }
+    }
+    if (eventType === "goal_plan_updated") {
+        if (Object.keys(payload).some((key) => !["type", "revision", "operations"].includes(key))) {
+            throw new TrajectoryProtocolError("goal_plan_updated contains unknown fields");
+        }
+        if (typeof payload.revision !== "number" || !Number.isInteger(payload.revision) || payload.revision < 1) {
+            throw new TrajectoryProtocolError("goal_plan_updated revision is invalid");
+        }
+        if (!Array.isArray(payload.operations)) {
+            throw new TrajectoryProtocolError("goal_plan_updated operations must be an array");
         }
     }
     if (eventType === "ask_user_answered") {
@@ -833,10 +869,14 @@ export function classifyTrajectoryEvent(
     switch (event.eventType) {
         case "goal_created":
         case "run_started":
+        case "run_created":
         case "run_resumed":
+        case "plan_mode_entered":
         case "ask_user_answered":
         case "task_approved":
             return "lifecycle";
+        case "goal_plan_updated":
+            return "decision";
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":

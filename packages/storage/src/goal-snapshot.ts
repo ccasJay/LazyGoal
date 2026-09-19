@@ -197,6 +197,8 @@ export interface GoalSnapshotContextEpochV1 {
 /** Snapshot 中的 Run 状态。 */
 export interface GoalSnapshotRunStateV1 {
     readonly id: string;
+    /** Plan Mode 下承接的 GoalPlan Todo；普通 Run 省略。 */
+    readonly todoId?: string | undefined;
     readonly status:
         | "created"
         | "running"
@@ -212,6 +214,30 @@ export interface GoalSnapshotRunStateV1 {
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
+}
+
+/** Snapshot 中的 GoalPlan Todo。 */
+export interface GoalSnapshotGoalPlanItemV1 {
+    readonly id: string;
+    readonly content: string;
+    readonly position: number;
+    readonly status: "pending" | "in_progress" | "completed" | "cancelled";
+    readonly activeRunId?: string | undefined;
+}
+
+/** Snapshot 中的 GoalPlan。 */
+export interface GoalSnapshotGoalPlanV1 {
+    readonly revision: number;
+    readonly items: readonly GoalSnapshotGoalPlanItemV1[];
+}
+
+/** Snapshot 中已归档 completed Run 的最小历史摘要。 */
+export interface GoalSnapshotCompletedRunV1 {
+    readonly runId: string;
+    readonly todoId?: string | undefined;
+    readonly stepCount: number;
+    readonly committedThroughSequence: number;
+    readonly messageRange: { readonly start: number; readonly end: number };
 }
 
 /**
@@ -318,10 +344,13 @@ export interface GoalSnapshotModelSelectionV1 {
 
 /** Snapshot 中的 Goal 状态。 */
 export interface GoalSnapshotStateV1 {
+    readonly mode: "normal" | "plan";
     readonly workflow: GoalSnapshotWorkflowV1;
     readonly messages: readonly GoalSnapshotMessageV1[];
     readonly run: GoalSnapshotRunStateV1;
     readonly modelSelection: GoalSnapshotModelSelectionV1;
+    readonly goalPlan?: GoalSnapshotGoalPlanV1 | undefined;
+    readonly completedRuns: readonly GoalSnapshotCompletedRunV1[];
 }
 
 /** 当前唯一支持的 Goal Snapshot DTO。 */
@@ -628,6 +657,30 @@ const ModelSelectionSchema = z.object({
     }
 });
 
+const GoalPlanItemSchema = z.object({
+    id: NonEmptyStringSchema,
+    content: NonEmptyStringSchema,
+    position: z.number().int().nonnegative(),
+    status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
+    activeRunId: NonEmptyStringSchema.optional(),
+}).strict();
+
+const GoalPlanSchema = z.object({
+    revision: z.number().int().nonnegative(),
+    items: z.array(GoalPlanItemSchema),
+}).strict();
+
+const CompletedRunSchema = z.object({
+    runId: NonEmptyStringSchema,
+    todoId: NonEmptyStringSchema.optional(),
+    stepCount: z.number().int().nonnegative(),
+    committedThroughSequence: z.number().int().nonnegative(),
+    messageRange: z.object({
+        start: z.number().int().nonnegative(),
+        end: z.number().int().nonnegative(),
+    }).strict(),
+}).strict();
+
 const GoalSnapshotV1BaseSchema = z.object({
     id: NonEmptyStringSchema,
     metadata: z.object({ schemaVersion: z.literal(1) }).strict(),
@@ -652,10 +705,12 @@ const GoalSnapshotV1BaseSchema = z.object({
         }).strict(),
     }).strict(),
     state: z.object({
+        mode: z.enum(["normal", "plan"]),
         workflow: WorkflowSchema,
         messages: z.array(GoalSnapshotMessageSchema),
         run: z.object({
             id: NonEmptyStringSchema,
+            todoId: NonEmptyStringSchema.optional(),
             status: z.enum([
                 "created",
                 "running",
@@ -677,6 +732,8 @@ const GoalSnapshotV1BaseSchema = z.object({
             contextEpoch: ContextEpochSchema,
         }).strict(),
         modelSelection: ModelSelectionSchema,
+        goalPlan: GoalPlanSchema.optional(),
+        completedRuns: z.array(CompletedRunSchema),
     }).strict(),
 }).strict();
 
@@ -693,6 +750,43 @@ function validateSnapshotInvariants(
     context: z.RefinementCtx,
 ): void {
     const { run, workflow } = goal.state;
+    if (goal.state.mode === "normal" && goal.state.goalPlan !== undefined) {
+        addInvariantIssue(context, "normal Goal cannot contain a GoalPlan", ["state", "goalPlan"]);
+    }
+    if (goal.state.mode === "plan" && goal.state.goalPlan === undefined) {
+        addInvariantIssue(context, "Plan Mode Goal requires a GoalPlan", ["state", "goalPlan"]);
+    }
+    if (goal.state.goalPlan !== undefined) {
+        const ids = new Set<string>();
+        let inProgress = 0;
+        for (const [index, item] of goal.state.goalPlan.items.entries()) {
+            if (ids.has(item.id)) addInvariantIssue(context, "GoalPlan contains duplicate Todo ID", ["state", "goalPlan", "items", index, "id"]);
+            ids.add(item.id);
+            if (item.position !== index) addInvariantIssue(context, "GoalPlan positions must be contiguous", ["state", "goalPlan", "items", index, "position"]);
+            if (item.status === "in_progress") inProgress += 1;
+            if (item.status !== "in_progress" && item.activeRunId !== undefined) {
+                addInvariantIssue(context, "Only in_progress Todo may have activeRunId", ["state", "goalPlan", "items", index, "activeRunId"]);
+            }
+        }
+        if (inProgress > 1) addInvariantIssue(context, "GoalPlan allows at most one in_progress Todo", ["state", "goalPlan", "items"]);
+        if (run.todoId !== undefined) {
+            const bound = goal.state.goalPlan.items.find((item) => item.id === run.todoId);
+            if (bound === undefined) addInvariantIssue(context, "Run.todoId must reference a GoalPlan Todo", ["state", "run", "todoId"]);
+            if (bound?.activeRunId !== undefined && bound.activeRunId !== run.id) {
+                addInvariantIssue(context, "GoalPlan activeRunId must match current Run", ["state", "goalPlan"]);
+            }
+        }
+    } else if (run.todoId !== undefined) {
+        addInvariantIssue(context, "normal Run cannot contain todoId", ["state", "run", "todoId"]);
+    }
+    let previousRunEnd = 0;
+    for (const [index, history] of goal.state.completedRuns.entries()) {
+        if (history.runId === run.id) addInvariantIssue(context, "completedRuns cannot contain current Run", ["state", "completedRuns", index, "runId"]);
+        if (history.messageRange.end < history.messageRange.start || history.messageRange.start < previousRunEnd) {
+            addInvariantIssue(context, "completedRuns message ranges must be ordered and non-overlapping", ["state", "completedRuns", index, "messageRange"]);
+        }
+        previousRunEnd = Math.max(previousRunEnd, history.messageRange.end);
+    }
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
 
