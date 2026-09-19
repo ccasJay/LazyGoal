@@ -1,6 +1,6 @@
 # Goal 计划模式与多 Run 会话实施任务
 
-状态：规划草稿，整包待审查；尚未实施。执行依据为 [Requirements](./requirements.md) 与 [Design](./design.md)，本文件不授予实现权限。
+状态：已实施并完成回归。执行依据为 [Requirements](./requirements.md) 与 [Design](./design.md)；本文件记录实施任务与验证证据。
 
 每项代码变更同时补齐公共接口的中文契约 TSDoc；涉及架构所有权的实现同步更新 Design 指定的架构文档。保留全部 `//TODO` 文本，完成时仅修改复选框。
 
@@ -67,7 +67,7 @@
   - 验证方式：新增 `packages/runtime/test/goal-multi-run-recovery.test.ts`、`packages/tui/test/multi-run-recovery.test.ts`（待实现），扩展 `packages/runtime/test/launcher.test.ts`、`packages/tui/test/cli.integration.test.ts` 与 `benchmarks/test/headless-composition-root.test.ts`；执行这些测试文件。
   - _Requirements: [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4), [8.1](./requirements.md#req-8-1), [8.4](./requirements.md#req-8-4)_
 
-- [ ] //TODO 10. 完成组合根接线并执行全量回归
+- [x] //TODO 10. 完成组合根接线并执行全量回归
 
   - 实现目标：把新的 Coordinator、Launcher、Slash Registry、Agent Contract、Storage Codec 和 TUI 依赖接入所有生产组合根，补齐公共接口 TSDoc 与实现后架构文档。
   - 成功判据：首轮正常执行、`/plan` 进入规划、Todo Run 完成、completed 后继续、normal 多 Run 和现有 waiting/Action approval 均能从同一组合根工作；所有测试文件被回归入口发现。
@@ -76,22 +76,22 @@
 
 ## Feature Verification
 
-风险依据：[Design 风险与待确认](./design.md#风险与待确认)。以下 Planned Checks 随整包审查，不因已有测试文件存在而视为通过；所有新增场景均待实现。
+风险依据：[Design 风险与待确认](./design.md#风险与待确认)。以下验证证据对应当前实现与回归结果。
 
-### Planned Checks
+### Verification Evidence
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3)、[1.4](./requirements.md#req-1-4) | `/plan` 只在安全边界进入并持久化 plan；参数、未知命令、busy 和普通模式计划操作均无 Goal 写入；重启恢复模式 | Slash Registry、Coordinator、Launcher 与 Snapshot recovery 测试（待实现） |
-| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3) | GoalPlan 包含稳定 ID、顺序、状态和 revision；非法 Snapshot 不恢复 | Goal domain/reducer 与 Storage Codec round-trip 测试（待实现） |
-| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3)、[3.4](./requirements.md#req-3-4) | 新增项由 Runtime 分配 ID；增量 patch 保留其他项；计划工具仅 Plan Mode 暴露；无效批次原子拒绝 | Contract schema/wire、system tool、Prompt 和 reducer 测试（待实现） |
-| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3)、[4.4](./requirements.md#req-4-4) | 一个 Todo 只绑定一个 Run；waiting/approval 恢复同一关系；完成证据与勾选同一提交；失败/取消不完成 | Runner、Coordinator、Evidence Gate 与 Checkpoint 集成测试（待实现） |
-| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3)、[5.4](./requirements.md#req-5-4) | waiting 输入走 resume；completed 输入走 continue；normal/plan 分支正确；空输入、错误状态和并发重复请求无写入 | Coordinator 状态分流、Promise barrier 与故障路径测试（待实现） |
-| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | Todo 事实写入 Snapshot；完成仅接受当前 Run Evidence；重启保留计划/Run/步骤；损坏或跨 Goal 来源 fail closed | JSON Store、Trajectory、Evidence 和 recovery 测试（待实现） |
-| [7.1](./requirements.md#req-7-1)、[7.2](./requirements.md#req-7-2)、[7.3](./requirements.md#req-7-3) | PlanPanel 只投影 Snapshot；状态可区分；完成后输入可继续；迟到旧 Run 通知不倒退 UI | Ink/Controller、命令 E2E、timeline/projector 测试（待实现） |
-| [8.1](./requirements.md#req-8-1)、[8.2](./requirements.md#req-8-2)、[8.3](./requirements.md#req-8-3)、[8.4](./requirements.md#req-8-4) | Headless 不自动串行 pending Todo；计划不扩权；旧 Run 结果不能成为当前 Evidence；不支持协议拒绝推进 | Headless/Benchmark、Tool Policy、Lookup 来源和协议回归测试（待实现） |
-| 整体集成与契约同步 | 首轮单 Run、Plan Mode 多 Run、普通模式多 Run、现有问答/Action approval 和安全关闭共同通过；架构文档与实现一致 | `npm test`、`npm run check:dependencies`、`git diff --check` 与源码/文档审查 |
+| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3)、[1.4](./requirements.md#req-1-4) | `/plan` 只在安全边界进入并持久化 plan；参数、未知命令、busy 和普通模式计划操作均无 Goal 写入；重启恢复模式 | 通过：`packages/slash-command/test/slash-command.test.ts`、`packages/runtime/test/goal-plan-mode.test.ts`、`packages/tui/test/command-aware-text-input.test.tsx` |
+| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3) | GoalPlan 包含稳定 ID、顺序、状态和 revision；非法 Snapshot 不恢复 | 通过：`packages/runtime/test/goal-plan.test.ts`、`packages/storage/test/goal-snapshot-current.test.ts`、`packages/storage/test/goal-store.test.ts` |
+| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3)、[3.4](./requirements.md#req-3-4) | 新增项由 Runtime 分配 ID；增量 patch 保留其他项；计划工具仅 Plan Mode 暴露；无效批次原子拒绝 | 通过：`packages/contracts/test/model-output-canonical.test.ts`、`packages/contracts/test/system-tools.test.ts`、`packages/agent/test/model-inference-projector.test.ts`、`packages/agent/test/prompt.test.ts` |
+| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3)、[4.4](./requirements.md#req-4-4) | 一个 Todo 只绑定一个 Run；waiting/approval 恢复同一关系；完成证据与勾选同一提交；失败/取消不完成 | 通过：`packages/runtime/test/goal-plan-run.test.ts`、`packages/runtime/test/runner.test.ts`、`packages/runtime/test/evidence-gate.test.ts`、`packages/runtime/test/trajectory-checkpoint-committer.test.ts` |
+| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3)、[5.4](./requirements.md#req-5-4) | waiting 输入走 resume；completed 输入走 continue；normal/plan 分支正确；空输入、错误状态和并发重复请求无写入 | 通过：`packages/runtime/test/goal-multi-run-session.test.ts`、`packages/runtime/test/goal-coordinator.test.ts`、`packages/runtime/test/goal-coordinator-task-interaction.test.ts` |
+| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | Todo 事实写入 Snapshot；完成仅接受当前 Run Evidence；重启保留计划/Run/步骤；损坏或跨 Goal 来源 fail closed | 通过：`packages/runtime/test/goal-multi-run-recovery.test.ts`、`packages/runtime/test/multi-run-context-lookup.test.ts`、`packages/runtime/test/context-retrieval-lifecycle.test.ts`、`packages/runtime/test/context-lookup-result.test.ts`、`packages/runtime/test/working-memory-session.test.ts`、`packages/runtime/test/evidence-gate.test.ts` |
+| [7.1](./requirements.md#req-7-1)、[7.2](./requirements.md#req-7-2)、[7.3](./requirements.md#req-7-3) | PlanPanel 只投影 Snapshot；状态可区分；完成后输入可继续；迟到旧 Run 通知不倒退 UI | 通过：`packages/tui/test/session-controller.test.ts`、`packages/tui/test/session-controller-timeline.test.ts`、`packages/tui/test/session-screen.test.tsx`、`packages/tui/test/trajectory-projector.test.ts`、`packages/tui/test/slash-command-model-e2e.test.ts`、`packages/tui/test/multi-run-recovery.test.ts` |
+| [8.1](./requirements.md#req-8-1)、[8.2](./requirements.md#req-8-2)、[8.3](./requirements.md#req-8-3)、[8.4](./requirements.md#req-8-4) | Headless 不自动串行 pending Todo；计划不扩权；旧 Run 结果不能成为当前 Evidence；不支持协议拒绝推进 | 通过：`benchmarks/test/headless-composition-root.test.ts`、`benchmarks/test/tui-tool-policy.test.ts`、`packages/runtime/test/multi-run-context-lookup.test.ts`、`packages/contracts/test/model-output-wire.test.ts` |
+| 整体集成与契约同步 | 首轮单 Run、Plan Mode 多 Run、普通模式多 Run、现有问答/Action approval 和安全关闭共同通过；架构文档与实现一致 | 通过：`npm test`（1132 个 TypeScript/TSX 测试、13 个脚本测试）、`npm run check:dependencies`、`git diff --check` |
 
 ### Latest Result
 
-未执行。当前仅生成 Spec，未运行功能测试，TODO 完成数为 0/10。执行后按 delivery-loop.md 记录每项实际结果、证据位置、验证时间、Git commit（或明确无提交）、相关未提交文件及内容指纹、对应 Spec 指纹；整体状态使用 `passed`/`failed`/`blocked`/`pending-human`，时效使用 `current`/`stale`。Spec 文档校验不作为功能通过证据。
+状态：`passed`；时效：`current`。2026-09-19 在 `feature/goal-multi-run-session` 分支、`/Users/sawyerlau/Project/LazyGoal-goal-multi-run-session` worktree 完成 TODO 1–10。`npm test` 通过：类型检查、依赖边界检查（152 个源文件）、178 个 TypeScript/TSX 测试文件共 1132 个测试、2 个脚本测试文件共 13 个测试全部通过；`git diff --check` 通过。关键恢复、Plan Mode、GoalPlan、completed continue、TUI 后继 Run 和 Headless 单 Run 证据分别位于各 TODO 对应的 Runtime、Storage、Agent、Slash Command、TUI 和 Benchmark 测试文件；提交序列从 `218ec73` 到 TODO10 最终提交。Spec 文档校验不作为功能通过证据。

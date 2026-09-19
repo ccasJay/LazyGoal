@@ -12,10 +12,11 @@
 
 ## Agent 输出契约
 
-[`createModelOutputContractBundle`](../../packages/contracts/src/model-output/factory.ts) 为每个请求生成不可变的 Canonical/Wire/strict Schema/Shape Guide/解码器组合。统一 `executing` 请求根据任务批准状态和授权 Tool 动态生成分支：
+[`createModelOutputContractBundle`](../../packages/contracts/src/model-output/factory.ts) 为每个请求生成不可变的 Canonical/Wire/strict Schema/Shape Guide/解码器组合。统一 `executing` 请求根据任务批准状态、后端 Plan Mode 和授权 Tool 动态生成分支：
 
 - 未批准任务：`ask_user`、`task_proposal`、`context_lookup` 和只读 `tool_call`；
 - 已批准任务：`ask_user`、`context_lookup`、全部授权 `tool_call`、`complete`、`wait` 和 `fail`；
+- Plan Mode：在对应任务分支额外加入 `goal_plan_update`；普通模式不暴露该分支；
 - Context Checkpoint 是独占的当前协议分支。
 
 Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投影为 required-nullable，适配 strict Provider；解码器移除可逆的占位 null，再按原始输入 Contract 复验 Tool 输入。分支、工具 ID 和 Contract 定义错误在构造期失败。
@@ -29,8 +30,9 @@ Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投�
 - `tool_call`：带工具 ID 与 JSON 输入；
 - `context_lookup`：历史上下文查询；
 - `complete`、`wait`、`fail`：执行终态或等待。
+- `goal_plan_update`：Plan Mode 下的结构化 GoalPlan 增量提案；Runtime reducer 负责 ID、revision、状态转换和原子持久化。
 
-模型不能提交 Goal/Run/Step/Epoch/Action ID，也不能把用户回答或模型自述变成完成 Evidence。Runtime 负责最终语义校验和状态转换。
+模型不能提交 Goal/Run/Step/Epoch/Action ID 或自行分配新 Todo ID，也不能把用户回答或模型自述变成完成 Evidence。Runtime 负责最终语义校验和状态转换。
 
 ## 相关入口
 
