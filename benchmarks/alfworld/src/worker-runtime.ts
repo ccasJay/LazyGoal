@@ -25,6 +25,7 @@ import {
     HeadlessCompositionRoot,
     type HeadlessEpisodeResult,
 } from "../../src/headless-composition-root.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation-profile.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import {
     ALFWORLD_CONTAINER_DATA_ROOT,
@@ -35,8 +36,12 @@ import {
 import { AlfworldBenchmarkAdapter } from "./alfworld-adapter.js";
 import { SidecarClient } from "./sidecar-client.js";
 import type { AlfworldManifestTask } from "./manifest.js";
-import { ALFWORLD_PROFILE_TOOL_IDS } from "./profile.js";
+import {
+    ALFWORLD_PROFILE_TOOL_IDS,
+    validateAlfworldPromptEvaluationProfile,
+} from "./profile.js";
 import type { EpisodeEnvironmentFacts } from "./report.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 
 type EmbeddedPromptAssets = Readonly<Record<string, string>>;
 
@@ -63,6 +68,10 @@ export interface AlfworldAcpTaskMetadata extends AlfworldManifestTask {
     readonly dataRoot?: string;
     readonly pythonExecutable?: string;
     readonly sidecarPath?: string;
+    /** Prompt Evaluation 提供时用于校验冻结字段的基准 Profile。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 提供时实际冻结到 Goal 的候选 Profile。 */
+    readonly profile?: AgentProfile;
 }
 
 /**
@@ -97,6 +106,7 @@ export function parseAlfworldAcpTaskMetadata(value: unknown): AlfworldAcpTaskMet
     const order = value.order as number;
     const seed = value.seed as number;
     const maxSteps = value.maxSteps as number;
+    const promptProfiles = parsePromptEvaluationProfiles(value);
     return {
         order,
         taskId: value.taskId,
@@ -111,6 +121,7 @@ export function parseAlfworldAcpTaskMetadata(value: unknown): AlfworldAcpTaskMet
         ...(value.dataRoot === undefined ? {} : { dataRoot: value.dataRoot }),
         ...(value.pythonExecutable === undefined ? {} : { pythonExecutable: value.pythonExecutable }),
         ...(value.sidecarPath === undefined ? {} : { sidecarPath: value.sidecarPath }),
+        ...promptProfiles,
     };
 }
 
@@ -166,7 +177,7 @@ export async function runAlfworldAcpTask(
     const root = new HeadlessCompositionRoot<AlfworldManifestTask, EpisodeEnvironmentFacts>({
         benchmarkId: "alfworld",
         workspaceRoot,
-        profile: ALFWORLD_WORKER_PROFILE,
+        profile: metadata.profile ?? ALFWORLD_WORKER_PROFILE,
         llmAdapter: options.llmAdapter,
         renderer: options.renderer,
         contextCompactor: options.contextCompactor,
@@ -309,6 +320,22 @@ function isAlfworldSplit(value: unknown): value is AlfworldManifestTask["split"]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parsePromptEvaluationProfiles(
+    value: Record<string, unknown>,
+): Pick<AlfworldAcpTaskMetadata, "baseProfile" | "profile"> {
+    if (value.baseProfile === undefined && value.profile === undefined) return {};
+    if (value.baseProfile === undefined || value.profile === undefined) {
+        throw new TypeError("ALFWorld Prompt Evaluation metadata requires baseProfile and profile together");
+    }
+    const parsedBaseProfile = validateAlfworldPromptEvaluationProfile(value.baseProfile);
+    const baseProfile = validatePromptEvaluationProfile(parsedBaseProfile, parsedBaseProfile);
+    const profile = validatePromptEvaluationProfile(
+        validateAlfworldPromptEvaluationProfile(value.profile),
+        baseProfile,
+    );
+    return { baseProfile, profile };
 }
 
 /** 该模块由 WorkerBuilder 打包后以 `worker.mjs` 作为直接入口。 */

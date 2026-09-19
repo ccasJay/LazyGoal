@@ -22,10 +22,18 @@ import {
 export interface PromptEvaluationTaskInput<TTask> {
     /** 本次评测生成的唯一身份。 */
     readonly evaluationId: string;
+    /** 外部优化器分配的候选身份。 */
+    readonly candidateId: string;
+    /** 本地模型配置身份。 */
+    readonly modelConfigId: string;
+    /** 本次请求声明的模型身份。 */
+    readonly modelId: string;
     /** 当前 Manifest 任务。 */
     readonly task: TTask;
     /** 已由公共层验证并冻结的候选 Profile。 */
     readonly profile: AgentProfile;
+    /** Worker 重验冻结字段时使用的 benchmark 基准 Profile。 */
+    readonly baseProfile: AgentProfile;
     /** 候选 Prompt 的稳定指纹。 */
     readonly fingerprint: PromptEvaluationPromptFingerprint;
     /** 当前任务独占的宿主输出目录。 */
@@ -228,8 +236,12 @@ export class PromptEvaluationRunner {
             ));
             const result = await runAdapterTask(adapter, {
                 evaluationId,
+                candidateId: request.candidate.id,
+                modelConfigId: request.model.configId,
+                modelId: request.model.modelId,
                 task,
                 profile,
+                baseProfile,
                 fingerprint,
                 outputDirectory: join(
                     request.outputDirectory,

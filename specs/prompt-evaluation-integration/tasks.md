@@ -28,7 +28,7 @@
   - 验证方式：扩展 `benchmarks/test/attempt-recorder.test.ts`；待实现的汇总原子写入与部分完成测试。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 5. 接入 ALFWorld Prompt Evaluation Adapter
+- [x] //TODO 5. 接入 ALFWorld Prompt Evaluation Adapter
 
   - 实现目标：复用 ALFWorld Manifest、Profile 校验、Supervisor 与评分，将候选 Profile 经 ACP metadata 传入 Worker 并在 Headless Root 创建前重验。
   - 成功判据：同一 Manifest 使用默认 Profile 与候选 Profile 时分别冻结对应 Prompt；领域 `won` 决定 passed/failed；现有 `eval alfworld` 行为不变。
