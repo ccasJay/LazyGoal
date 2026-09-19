@@ -50,6 +50,20 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
                 calls += 1;
                 if (calls === 1) {
                     return { content: JSON.stringify({ result: {
+                        kind: "task_proposal",
+                        task: {
+                            objective: `Complete ALFWorld task ${task.taskId}`,
+                            completionCriteria: [{
+                                text: "The environment reports won=true",
+                                acceptance: null,
+                            }],
+                        },
+                        approvalRequest: "Approve the ALFWorld smoke task.",
+                        memoryPatch: null,
+                    } }) };
+                }
+                if (calls === 2) {
+                    return { content: JSON.stringify({ result: {
                         kind: "tool_call",
                         action: { actionId: "container-smoke-reset", toolId: "alfworld_reset", input: {} },
                         memoryPatch: null,
@@ -79,7 +93,7 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
             taskTimeoutMs: 900_000,
         });
         if (result.errors.length > 0) throw new Error(result.errors.map((error) => `${error.stage}: ${error.message}`).join("; "));
-        if (calls !== 2) throw new Error(`ALFWorld smoke expected reset and completion calls, got ${calls}`);
+        if (calls !== 3) throw new Error(`ALFWorld smoke expected proposal, reset and completion calls, got ${calls}`);
         process.stdout.write(JSON.stringify({ status: "passed", taskId: task.taskId, modelCalls: calls, won: result.environment.won }) + "\n");
     } finally {
         await rm(outputDirectory, { recursive: true, force: true });

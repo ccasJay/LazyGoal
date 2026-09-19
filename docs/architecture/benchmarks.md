@@ -3,14 +3,15 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld 和 SWE-bench Verified
-的显式评测适配；ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL sidecar、专用
-Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
+通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA 和 SWE-bench
+Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
+sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
 [`benchmarks/src/`](../../benchmarks/src/)，具体 benchmark 只声明环境和评分适配。
 
 ## Entry point
 
-`bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld`、`eval swebench` 或 `eval gaia` 时分别转发到
+`bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld`、`eval swebench`、`eval gaia` 或
+`eval prompt` 时分别转发到
 对应 benchmark CLI（`grade` 和 `load` 亦按相同前缀分发），其它参数仍
 进入 [`packages/tui/src/cli.tsx`](../../packages/tui/src/cli.tsx)。评测入口要求固定
 Manifest：
@@ -20,6 +21,7 @@ lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
   [--report <path>] [--min-success-rate <0..1>]
   [--max-infrastructure-retries <n>]
 lazygoal eval gaia --manifest <path> [--output <dir>]
+lazygoal eval prompt --request <request.json>
 ```
 
 单任务 TUI 入口在 `eval gaia` 与 `eval swebench` 下使用
@@ -76,9 +78,27 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 配置标识、重试序号和失败类别；完整 Goal Snapshot、事实 Trajectory 和可选诊断 Trace
 由 Root 的持久化绑定单独保存，不混入报告 JSON，也不保存模型凭据。共享
 [`AttemptRecorder`](../../benchmarks/src/attempt-recorder.ts) 在每个任务阶段结束后原子写入
-`attempts/<taskId>/attempt-<n>.json`，领域字段仍由 ALFWorld 自己解释。未来 benchmark
-只需实现通用 adapter，并将 task 映射到自己的持久化 namespace；不应复制 Storage
-编解码或 Runtime 提交语义。
+`attempts/<taskId>/attempt-<n>.json`，领域字段仍由 ALFWorld 自己解释。新的 benchmark
+应实现通用 adapter，并将 task 映射到自己的持久化 namespace；不应复制 Storage 编解码
+或 Runtime 提交语义。
+
+## Prompt Evaluation
+
+[`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation-cli.ts) 接受当前版本的单候选
+JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
+派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
+外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
+
+[`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation-runner.ts) 按 Manifest 顺序为每个
+任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
+只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
+`0`，基础设施失败、请求校验失败和取消分别返回 `1`、`2`、`130`。
+
+每个任务原子提交带候选哈希与模型身份的 Attempt；整次评测在
+`<outputDirectory>/evaluations/<evaluationId>/result.json` 原子提交汇总。stdout JSON Lines 事件
+明确标记为非权威，终态事件只在汇总提交后携带 `resultPath`。显式
+`prompt-evaluation:smoke` 使用确定性模型替身验证 CLI、容器、ACP、LLM RPC、领域评分和产物
+回收，不进入默认回归。
 
 模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
 `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，

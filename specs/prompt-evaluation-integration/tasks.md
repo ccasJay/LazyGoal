@@ -49,7 +49,7 @@
   - 验证方式：待实现的 CLI 集成测试，使用伪 registry、模型和隔离环境覆盖全部终态及重复调用。
   - _Requirements: [1.1](./requirements.md#req-1-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 8. 完成回归与显式隔离 smoke
+- [x] //TODO 8. 完成回归与显式隔离 smoke
 
   - 实现目标：补齐公共协议、两种 adapter、状态映射、取消、持久化和兼容性回归，并增加小型 ALFWorld Prompt Evaluation 容器 smoke 入口。
   - 成功判据：默认回归不启动 Docker 或真实模型；现有 TUI、ALFWorld 与 GAIA CLI 语义不变；显式 smoke 完成 CLI 到领域评分及产物回收全链路。
@@ -75,4 +75,14 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+- **整体状态**：功能与显式容器链验证通过（PASS）。
+- **验证时间**：2026-09-20 01:18（Asia/Shanghai）。
+- **被测代码状态**：分支 `feature/prompt-evaluation-integration`；TODO 1–8 均已勾选，验证在当前 worktree 完成。
+- **确定性回归证据**：
+  - `npm test`：类型检查、依赖边界、1163 个 TypeScript/TSX 测试和 13 个脚本测试全部通过；默认回归未启动 Docker 或真实模型。
+  - `npm --prefix benchmarks test`：221/221 通过，覆盖公共协议、Profile 冻结、两个 adapter、CLI 状态映射、取消、重复调用和持久化。
+  - `npm --prefix benchmarks run alfworld:test-python`：4/4 通过；`npm run check:dependencies`：152 个源文件边界验证通过。
+  - `npm --prefix benchmarks run typecheck` 仍命中 `dev` 已存在的 GAIA、Tool RPC、TUI benchmark 等类型错误；本功能新增和修改文件无该命令报告的错误，根级类型检查已随 `npm test` 通过。
+- **容器 smoke**：
+  - `npm --prefix benchmarks run alfworld:worker-smoke` 通过；固定任务完成 task proposal、reset、complete 三次模型 RPC，容器内 sidecar、ACP 与产物回收正常。
+  - `npm --prefix benchmarks run prompt-evaluation:smoke` 通过；同一固定任务经 CLI、Docker、ACP、LLM RPC、领域评分、Attempt、Goal Snapshot、Trajectory 和汇总结果全链路完成，`modelCalls=3`。确定性替身未解题，领域状态为 `failed`，CLI 按协议返回 `0`。

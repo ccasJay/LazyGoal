@@ -59,9 +59,13 @@ sidecar 文件和 TextWorld-only 能力。预检失败时不会开始作答。
 npm --prefix benchmarks run alfworld:smoke
 npm --prefix benchmarks run alfworld:regression
 npm --prefix benchmarks run alfworld:worker-smoke
+npm --prefix benchmarks run prompt-evaluation:smoke
 npm --prefix benchmarks run alfworld:eval -- eval alfworld \
   --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 1
 ```
+
+`prompt-evaluation:smoke` 使用确定性模型替身，经 `eval prompt` 编排层跑通容器、ACP、
+LLM RPC、ALFWorld 评分、Attempt 与 Runtime 产物回收；它只验证接线，不要求烟雾任务获胜。
 
 清单位于 `alfworld/manifests/smoke.json` 和 `alfworld/manifests/regression.json`，
 只引用 `valid_seen` 下固定的 `game.tw-pddl` 路径，不在运行时抽样或重排任务。

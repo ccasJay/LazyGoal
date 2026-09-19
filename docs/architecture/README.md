@@ -63,4 +63,4 @@ flowchart LR
 - [Contracts](./contracts.md)：Canonical/Wire 模型输出契约和 Tool 输入契约。
 - [LLM](./llm.md)：供应商无关 Adapter、配置与取消语义。
 - [TUI](./tui.md)：Session Controller、统一时间线和交互抽屉。
-- [Benchmark Evaluation](./benchmarks.md)：Headless Root、ALFWorld 与 SWE-bench 评测入口。
+- [Benchmark Evaluation](./benchmarks.md)：Headless Root、隔离 benchmark 与 Prompt Evaluation 入口。
