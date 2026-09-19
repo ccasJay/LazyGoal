@@ -83,9 +83,10 @@ export class SessionController {
         committedBlockCount: number;
     } | null = null;
     private processedMessageCount = 0;
-    private committedStepNumbers = new Set<number>();
+    private committedStepKeys = new Set<string>();
     private streamingTail: UiStreamingTail | undefined = undefined;
     private currentGoalId: string | null = null;
+    private currentRunId: string | null = null;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -400,10 +401,7 @@ export class SessionController {
                 await this.selectGoal(command.goalId);
                 return;
             case "submitMessage":
-                await this.resumeSession({
-                    kind: "message",
-                    content: command.content,
-                });
+                await this.submitSessionMessage(command.content);
                 return;
             case "enterPlanMode":
                 await this.enterPlanMode();
@@ -849,6 +847,53 @@ export class SessionController {
         await this.applyProgress(result);
     }
 
+    private async submitSessionMessage(content: string): Promise<void> {
+        if (this.snapshot.screen !== "session") {
+            this.setError({
+                code: "NO_ACTIVE_SESSION",
+                message: "There is no active Goal session",
+            });
+            return;
+        }
+        if (content.trim().length === 0) {
+            this.setError({
+                code: "INVALID_GOAL_INPUT",
+                message: "Message must not be empty",
+            });
+            return;
+        }
+
+        const ref = {
+            goalId: this.snapshot.goal.id,
+            runId: this.snapshot.goal.state.run.id,
+        };
+        if (this.snapshot.goal.state.run.status === "waiting") {
+            await this.resumeSession({ kind: "message", content });
+            return;
+        }
+        if (this.snapshot.goal.state.run.status !== "completed") {
+            // 保留旧的 Controller 适配语义：真实交互面板只会在 waiting 显示输入，
+            // 但测试/宿主可能在安全的外部等待点直接提交 message。
+            await this.resumeSession({ kind: "message", content });
+            return;
+        }
+        const continueGoal = this.dependencies.coordinator.continue;
+        if (continueGoal === undefined) {
+            this.setError({
+                code: "CONTINUE_NOT_CONFIGURED",
+                message: "Continuing a completed Run is not configured for this session",
+            });
+            return;
+        }
+        const result = await continueGoal.call(
+            this.dependencies.coordinator,
+            ref,
+            content,
+            this.dependencies.control,
+        );
+        await this.applyProgress(result);
+    }
+
     private async applyProgress(result: ProgressResult): Promise<void> {
         while (!this.shuttingDown) {
             if (!result.ok) {
@@ -999,7 +1044,7 @@ export class SessionController {
     private hydrateInitialGoal(goal: Goal): void {
         this.currentGoalId = goal.id;
         this.timeline = [];
-        this.committedStepNumbers.clear();
+        this.committedStepKeys.clear();
         this.activeAssistantStream = null;
         this.streamingTail = undefined;
         this.committedSteps = [];
@@ -1018,7 +1063,7 @@ export class SessionController {
         const initialStep = deriveStepSummary(goal);
         if (initialStep !== undefined) {
             this.committedSteps = [initialStep];
-            this.committedStepNumbers.add(initialStep.stepNumber);
+            this.committedStepKeys.add(stepKey(goal, initialStep));
             this.timeline.push({
                 kind: "step",
                 id: `step-${initialStep.stepNumber}-${initialStep.actionId}`,
@@ -1073,9 +1118,10 @@ export class SessionController {
 
         // 检查新增步骤
         const newStep = deriveStepSummary(goal);
-        if (newStep !== undefined && !this.committedStepNumbers.has(newStep.stepNumber)) {
+        if (newStep !== undefined && !this.committedStepKeys.has(stepKey(goal, newStep))) {
             this.flushActiveStreamBarrier();
-            this.committedStepNumbers.add(newStep.stepNumber);
+            this.committedStepKeys.add(stepKey(goal, newStep));
+            this.committedSteps.push(newStep);
             this.timeline.push({
                 kind: "step",
                 id: `step-${newStep.stepNumber}-${newStep.actionId}`,
@@ -1139,16 +1185,17 @@ export class SessionController {
         progress: ProgressResult | undefined,
         busy: boolean,
     ): UiSessionViewModel {
-        this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
+        if (this.currentRunId !== goal.state.run.id) {
+            this.currentRunId = goal.state.run.id;
+            this.lastCommittedStepCount = goal.state.run.stepCount;
+        } else {
+            this.lastCommittedStepCount = Math.max(this.lastCommittedStepCount, goal.state.run.stepCount);
+        }
         if (this.currentGoalId === null || (this.snapshot.screen === "session" && this.snapshot.goal.id !== goal.id)) {
             this.transcriptController.reset();
             this.hydrateInitialGoal(goal);
         } else {
             this.syncTimelineWithGoal(goal);
-        }
-        const newStep = deriveStepSummary(goal);
-        if (newStep !== undefined && !this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
-            this.committedSteps.push(newStep);
         }
         const snapshot = structuredClone(goal);
         const waitingFor = progress?.ok === true && progress.kind === "waiting"
@@ -1205,6 +1252,9 @@ export class SessionController {
                 ? {}
                 : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
+            ...(snapshot.state.mode === "plan" && snapshot.state.goalPlan !== undefined
+                ? { goalPlan: snapshot.state.goalPlan }
+                : {}),
         };
     }
 
@@ -1269,37 +1319,20 @@ export class SessionController {
         }
 
         const newStep = deriveStepSummary(savedGoal);
-        if (newStep !== undefined) {
-            if (!this.committedSteps.some((step) => step.stepNumber === newStep.stepNumber)) {
-                this.committedSteps.push(newStep);
-            }
-            if (!this.committedStepNumbers.has(newStep.stepNumber)) {
-                this.flushActiveStreamBarrier();
-                this.committedStepNumbers.add(newStep.stepNumber);
-                this.timeline.push({
-                    kind: "step",
-                    id: `step-${newStep.stepNumber}-${newStep.actionId}`,
-                    step: newStep,
-                });
-            }
+        if (newStep !== undefined && !this.committedStepKeys.has(stepKey(savedGoal, newStep))) {
+            this.flushActiveStreamBarrier();
+            this.committedStepKeys.add(stepKey(savedGoal, newStep));
+            this.committedSteps.push(newStep);
+            this.timeline.push({
+                kind: "step",
+                id: `step-${newStep.stepNumber}-${newStep.actionId}`,
+                step: newStep,
+            });
         }
 
-        const mode = this.dependencies.mode ?? this.snapshot.mode;
-        const taskTitle = this.dependencies.taskTitle ?? this.snapshot.taskTitle;
-
+        const projected = this.toSessionView(savedGoal, undefined, this.snapshot.busy);
         this.setSnapshot({
-            ...this.snapshot,
-            goal: structuredClone(savedGoal),
-            phase: savedGoal.state.workflow.phase,
-            runStatus: savedGoal.state.run.status,
-            stepCount: committedStep,
-            messages: savedGoal.state.messages.slice(),
-            executionMode: this.executionMode,
-            timeline: this.timeline.slice(),
-            ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
-            committedSteps: this.committedSteps.slice(),
-            ...(mode !== undefined ? { mode } : {}),
-            ...(taskTitle !== undefined ? { taskTitle } : {}),
+            ...projected,
             ...(lastAction !== undefined ? { lastCommittedAction: lastAction } : {}),
             ...(lastObservation !== undefined ? { lastCommittedObservation: lastObservation } : {}),
         });
@@ -1756,4 +1789,8 @@ function deriveStepSummary(goal: Goal): UiStepSummary | undefined {
                 ? { outputSummary: observation.message }
                 : { outputSummary: observation.reason }),
     };
+}
+
+function stepKey(goal: Goal, step: UiStepSummary): string {
+    return `${goal.id}:${goal.state.run.id}:${step.stepNumber}`;
 }

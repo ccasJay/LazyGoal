@@ -441,7 +441,7 @@ test("SessionScreen listens for Shift+Tab and triggers onToggleExecutionMode", a
     assert.equal(toggleCalled, 1);
 });
 
-test("SessionScreen renders terminal summary and accepts no further input", async () => {
+test("SessionScreen renders terminal summary and accepts input for the next Run", async () => {
     const goal = executingGoal("goal-terminal");
     const currentGoal: Goal = {
         ...goal,
@@ -486,13 +486,57 @@ test("SessionScreen renders terminal summary and accepts no further input", asyn
     const frame = instance.lastFrame() ?? "";
     assert.match(frame, /Run completed/);
     assert.match(frame, /Summary: The repository structure was documented/);
-    assert.match(frame, /No further input is accepted/);
-    instance.stdin.write("y");
-    instance.stdin.write("\r");
+    assert.match(frame, /Start the next Run/);
     instance.stdin.write("continue");
     await nextFrame();
+    instance.stdin.write("\r");
+    await nextFrame();
 
-    assert.deepEqual(events, []);
+    assert.deepEqual(events, ["message"]);
+});
+
+test("SessionScreen projects GoalPlan only in Plan Mode and marks the current Todo Run", () => {
+    const goal = executingGoal("goal-plan-panel");
+    const planGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            mode: "plan",
+            goalPlan: {
+                revision: 2,
+                items: [
+                    { id: "todo-1", content: "Inspect sources", position: 0, status: "in_progress", activeRunId: goal.state.run.id },
+                    { id: "todo-2", content: "Write report", position: 1, status: "pending" },
+                ],
+            },
+            run: { ...goal.state.run, todoId: "todo-1" },
+        },
+    };
+    const planFrame = render(
+        <SessionScreen
+            session={session(planGoal)}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    ).lastFrame() ?? "";
+    assert.match(planFrame, /Plan/);
+    assert.match(planFrame, /Inspect sources/);
+    assert.match(planFrame, /current Run/);
+
+    const normalGoal: Goal = {
+        ...planGoal,
+        state: { ...planGoal.state, mode: "normal" },
+    };
+    const normalFrame = render(
+        <SessionScreen
+            session={session(normalGoal)}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    ).lastFrame() ?? "";
+    assert.doesNotMatch(normalFrame, /Inspect sources/);
 });
 
 const step1: UiStepSummary = {

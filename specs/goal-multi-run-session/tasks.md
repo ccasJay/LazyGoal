@@ -53,7 +53,7 @@
   - 验证方式：新增 `packages/runtime/test/multi-run-context-lookup.test.ts`（待实现），扩展 `context-retrieval-lifecycle.test.ts`、`context-lookup-result.test.ts`、`working-memory-session.test.ts` 和 `evidence-gate.test.ts`；执行这些测试文件。
   - _Requirements: [6.4](./requirements.md#req-6-4), [8.3](./requirements.md#req-8-3)_
 
-- [ ] //TODO 8. 接入 TUI PlanPanel、终态输入与 Run 身份去重
+- [x] //TODO 8. 接入 TUI PlanPanel、终态输入与 Run 身份去重
 
   - 实现目标：扩展 `SessionController`、`SessionScreen`、`UiSessionViewModel` 和 App 命令路由；Plan Mode 从 Goal Snapshot 投影 Todo，completed terminal 保留输入并调用 continue，waiting 仍调用 resume，消息/步骤/流通知按 Run 身份隔离。
   - 成功判据：普通模式不显示猜测的 GoalPlan；Plan Mode 状态稳定区分；完成后可提交下一条输入；旧 Run 的迟到保存和流不会覆盖新 Run 的低序号 Step，恢复历史不重复。

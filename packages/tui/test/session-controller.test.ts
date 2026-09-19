@@ -90,6 +90,22 @@ function waitingResult(goal: Goal): GoalProgressResult {
     };
 }
 
+function completedGoal(id = "goal-completed"): Goal {
+    const waiting = createWaitingGoal(id);
+    const { pendingInteraction: _pendingInteraction, ...runWithoutInteraction } = waiting.state.run;
+    return {
+        ...waiting,
+        state: {
+            ...waiting.state,
+            run: {
+                ...runWithoutInteraction,
+                status: "completed",
+                stepCount: 2,
+            },
+        },
+    };
+}
+
 class FakeLauncher implements SessionLauncher {
     readonly requests: LaunchRequest[] = [];
 
@@ -104,10 +120,15 @@ class FakeLauncher implements SessionLauncher {
 class FakeCoordinator implements SessionCoordinator {
     readonly advanceRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
     readonly resumeRequests: ResumeGoalRequest[] = [];
+    readonly continueRequests: Array<{
+        readonly ref: { readonly goalId: string; readonly runId: string };
+        readonly newInput: string;
+    }> = [];
 
     constructor(
         private readonly advanceResult: GoalProgressResult,
         private readonly resumeResult: GoalProgressResult = advanceResult,
+        private readonly continueResult: GoalProgressResult = advanceResult,
     ) {}
 
     async advance(
@@ -120,6 +141,14 @@ class FakeCoordinator implements SessionCoordinator {
     async resume(request: ResumeGoalRequest): Promise<GoalProgressResult> {
         this.resumeRequests.push(request);
         return this.resumeResult;
+    }
+
+    async continue(
+        ref: { readonly goalId: string; readonly runId: string },
+        newInput: string,
+    ): Promise<GoalProgressResult> {
+        this.continueRequests.push({ ref, newInput });
+        return this.continueResult;
     }
 }
 
@@ -513,6 +542,137 @@ test("session commands map to Coordinator resume actions", async () => {
             },
         },
     ]);
+});
+
+test("completed Run message routes to Coordinator continue and keeps the new Run identity", async () => {
+    const completed = completedGoal("goal-completed-session");
+    const nextGoal: Goal = {
+        ...completed,
+        state: {
+            ...completed.state,
+            messages: [...completed.state.messages, { role: "user", content: "下一项工作" }],
+            run: {
+                ...completed.state.run,
+                id: "run-next",
+                status: "running",
+                stepCount: 0,
+            },
+        },
+    };
+    const continueResult: GoalProgressResult = {
+        ok: true,
+        kind: "terminal",
+        phase: "executing",
+        goal: {
+            ...nextGoal,
+            state: {
+                ...nextGoal.state,
+                run: { ...nextGoal.state.run, status: "completed" },
+            },
+        },
+    };
+    const coordinator = new FakeCoordinator(
+        continueResult,
+        continueResult,
+        continueResult,
+    );
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(continueResult),
+            coordinator,
+            new FakeStore([completed]),
+            new FakeCatalog([]),
+        ),
+        initialGoal: completed,
+    });
+
+    await controller.dispatch({ kind: "submitMessage", content: "下一项工作" });
+
+    assert.deepEqual(coordinator.continueRequests, [{
+        ref: { goalId: completed.id, runId: completed.state.run.id },
+        newInput: "下一项工作",
+    }]);
+    const view = sessionView(controller);
+    assert.equal(view.goal.state.run.id, "run-next");
+    assert.equal(view.goal.state.run.status, "completed");
+});
+
+test("new Run resets local step ordering while late old Run commits are ignored", async () => {
+    const completed = completedGoal("goal-run-identity");
+    const oldRun: Goal = {
+        ...completed,
+        state: {
+            ...completed.state,
+            run: {
+                ...completed.state.run,
+                stepCount: 1,
+                lastStep: {
+                    kind: "action",
+                    action: {
+                        actionId: "old-action",
+                        toolId: "read_file",
+                        input: { path: "old.ts" },
+                    },
+                    observation: {
+                        kind: "success",
+                        output: "old",
+                        summary: "old run",
+                    },
+                },
+            },
+        },
+    };
+    const nextRun: Goal = {
+        ...oldRun,
+        state: {
+            ...oldRun.state,
+            messages: [...oldRun.state.messages, { role: "user", content: "new run" }],
+            run: {
+                ...oldRun.state.run,
+                id: "run-new-identity",
+                status: "completed",
+                stepCount: 1,
+                lastStep: {
+                    kind: "action",
+                    action: {
+                        actionId: "new-action",
+                        toolId: "write_file",
+                        input: { path: "new.ts" },
+                    },
+                    observation: {
+                        kind: "success",
+                        output: "new",
+                        summary: "new run",
+                    },
+                },
+            },
+        },
+    };
+    const coordinator = new FakeCoordinator({
+        ok: true,
+        kind: "terminal",
+        phase: "executing",
+        goal: nextRun,
+    });
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher({ ok: true, kind: "terminal", phase: "executing", goal: nextRun }),
+            coordinator,
+            new FakeStore([oldRun]),
+            new FakeCatalog([]),
+        ),
+        initialGoal: oldRun,
+    });
+
+    await controller.dispatch({ kind: "submitMessage", content: "new run" });
+    let view = sessionView(controller);
+    assert.equal(view.goal.state.run.id, "run-new-identity");
+    assert.equal(view.committedSteps?.filter((step) => step.stepNumber === 1).length, 2);
+
+    controller.onGoalCommitted(oldRun);
+    view = sessionView(controller);
+    assert.equal(view.goal.state.run.id, "run-new-identity");
+    assert.equal(view.committedSteps?.filter((step) => step.stepNumber === 1).length, 2);
 });
 
 test("invalid session input is visible and does not call Runtime", async () => {
