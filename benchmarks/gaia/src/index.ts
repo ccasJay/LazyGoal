@@ -51,11 +51,16 @@ export {
     runGaiaWorker,
     runGaiaAcpTask,
     parseGaiaAcpTaskMetadata,
+    validateGaiaPromptEvaluationProfile,
     type GaiaWorkerToolOptions,
     type GaiaEpisodeOutcome,
     type GaiaAcpTaskMetadata,
     type GaiaAcpRuntimeOptions,
 } from "./worker-entry";
+export {
+    GaiaPromptEvaluationAdapter,
+    type GaiaPromptEvaluationAdapterOptions,
+} from "./prompt-evaluation-adapter";
 export {
     normalizeGaiaAnswer,
     scoreGaiaAnswer,

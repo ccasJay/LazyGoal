@@ -35,7 +35,7 @@
   - 验证方式：待实现的 ALFWorld adapter/Worker 测试；现有 ALFWorld CLI 与 benchmark 回归。
   - _Requirements: [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 6. 接入 GAIA Prompt Evaluation Adapter
+- [x] //TODO 6. 接入 GAIA Prompt Evaluation Adapter
 
   - 实现目标：复用 GAIA Manifest、Supervisor 与评分，为 GAIA 基准 Profile 增加候选派生校验和 Worker 注入，不改变领域答案评分。
   - 成功判据：GAIA 与 ALFWorld 消费同一公共 runner 且无横向导入；GAIA 领域评分生成 passed/failed；现有 `eval gaia` 行为不变。

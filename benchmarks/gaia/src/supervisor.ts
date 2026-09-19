@@ -4,6 +4,7 @@ import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import {
     AttemptRecorder,
     type BenchmarkAttemptRecord,
+    type PromptEvaluationAttemptMetadata,
 } from "../../src/attempt-recorder.js";
 import {
     IsolatedEnvironment,
@@ -18,6 +19,7 @@ import {
 } from "./environment-spec.js";
 import { scoreGaiaAnswer } from "./grading.js";
 import type { WebFetchHandler, WebSearchBackend } from "../../../packages/tools/src/index.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 
 /** GAIA Supervisor 单次评测执行结果。 */
 export interface GaiaSupervisorResult {
@@ -29,6 +31,7 @@ export interface GaiaSupervisorResult {
     readonly domainResult: GaiaDomainResult;
     readonly persistence: GaiaCollectedArtifacts["persistence"];
     readonly errors: readonly IsolatedEnvironmentError[];
+    readonly attemptPath: string;
 }
 
 /** GAIA Supervisor 配置选项。 */
@@ -47,6 +50,12 @@ export interface GaiaSupervisorOptions {
     readonly runId?: string;
     readonly searchBackend?: WebSearchBackend;
     readonly fetchHandler?: WebFetchHandler;
+    /** Prompt Evaluation 候选所基于的固定 GAIA Profile。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 实际执行的候选 Profile。 */
+    readonly profile?: AgentProfile;
+    /** Prompt Evaluation 写入 Attempt 的候选与模型身份。 */
+    readonly promptEvaluation?: PromptEvaluationAttemptMetadata;
 }
 
 /**
@@ -104,6 +113,8 @@ export async function runGaiaSupervisor(
                 goalId,
                 runId,
                 structuredOutputMode: options.llmAdapter.structuredOutputMode,
+                ...(options.baseProfile === undefined ? {} : { baseProfile: options.baseProfile }),
+                ...(options.profile === undefined ? {} : { profile: options.profile }),
             },
         },
     });
@@ -135,6 +146,9 @@ export async function runGaiaSupervisor(
         errors: envResult.errors,
         artifactLocator: envResult.artifact?.persistence ?? null,
         domainResult,
+        ...(options.promptEvaluation === undefined
+            ? {}
+            : { promptEvaluation: options.promptEvaluation }),
     };
 
     await recorder.commit(attemptRecord);
@@ -148,6 +162,6 @@ export async function runGaiaSupervisor(
         domainResult,
         persistence: envResult.artifact?.persistence ?? null,
         errors: envResult.errors,
+        attemptPath: recorder.path,
     };
 }
-
