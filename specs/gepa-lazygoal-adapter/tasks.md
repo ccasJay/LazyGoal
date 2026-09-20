@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 建立独立 Python package 与官方 GEPA 兼容边界
+- [x] //TODO 1. 建立独立 Python package 与官方 GEPA 兼容边界
 
   - 实现目标：在根目录 `prompt-evaluation/gepa/` 创建 `lazygoal_gepa` package，精确固定 `gepa==0.1.4`，实现启动预检与测试入口。
   - 成功判据：正确版本及公开符号通过预检；错误版本或缺失接口在任何 LazyGoal 子进程启动前产生分类明确的兼容性错误；package 不含上游算法副本。

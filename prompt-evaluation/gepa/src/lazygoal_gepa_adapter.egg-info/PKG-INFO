@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: lazygoal-gepa-adapter
+Version: 0.1.0
+Summary: Official GEPA adapter for LazyGoal Prompt Evaluation
+Requires-Python: <3.15,>=3.10
+Requires-Dist: gepa==0.1.4
