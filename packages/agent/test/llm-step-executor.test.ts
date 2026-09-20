@@ -3,12 +3,13 @@ import { test } from "node:test";
 
 import { contract } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
-import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
 import {
     createGoal,
     Runner,
 } from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type {
     Goal,
@@ -142,6 +143,35 @@ class SequenceAdapter implements LLMAdapter {
     }
 }
 
+class StreamingAdapter implements LLMAdapter {
+    readonly structuredOutputMode = "strict" as const;
+    generateCalls = 0;
+
+    async generate(): Promise<LLMResponse> {
+        this.generateCalls += 1;
+        throw new Error("stream adapter should not call generate");
+    }
+
+    async *stream(): AsyncIterable<LLMStreamEvent> {
+        yield { kind: "started" };
+        yield { kind: "reasoning_delta", text: "Checking context..." };
+        yield { kind: "assistant_text_delta", text: "{\"result\":" };
+        yield {
+            kind: "completed",
+            response: {
+                content: JSON.stringify({
+                    result: {
+                        kind: "complete",
+                        summary: "streamed",
+                        completionEvidence: [],
+                        memoryPatch: null,
+                    },
+                }),
+            },
+        };
+    }
+}
+
 function createExecutor(adapter: LLMAdapter): LLMStepExecutor {
     return new LLMStepExecutor({
         adapter,
@@ -216,6 +246,65 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.deepEqual(workingContext.execution, { stepCount: 0 });
     assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
     assert.equal(typeof workingContext.trajectoryContext, "object");
+});
+
+test("LLMStepExecutor 归一化 Provider 流并按可见性发布模型事件", async () => {
+    const currentGoal = createTestGoal("run-stream", profile);
+    const adapter = new StreamingAdapter();
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const subscription = publisher.subscribe(
+        { goalId: currentGoal.id, runId: currentGoal.state.run.id },
+        { minimumVisibility: "restricted", includeReasoning: true },
+    );
+    const events: string[] = [];
+    subscription.onEvent((event) => events.push(`${event.kind}:${event.visibility}`));
+    const executor = createExecutor(adapter);
+
+    const result = await executor.execute({
+        goal: currentGoal,
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+        executionUnitId: "execution-unit-stream",
+        executionStream: publisher,
+    });
+
+    assert.equal(result.kind, "complete");
+    assert.equal(adapter.generateCalls, 0);
+    assert.ok(events.includes("model_started:public"));
+    assert.ok(events.includes("reasoning_delta:restricted"));
+    assert.ok(events.includes("assistant_text_delta:public"));
+    assert.ok(events.includes("model_completed:public"));
+});
+
+test("LLMStepExecutor 对不支持流式的 Adapter 保留 generate 回退并发布一次性事件", async () => {
+    const currentGoal = createTestGoal("run-fallback", profile);
+    const responseContent = JSON.stringify({
+        result: {
+            kind: "complete",
+            summary: "fallback",
+            completionEvidence: [],
+            memoryPatch: null,
+        },
+    });
+    const adapter = new FakeAdapter(responseContent);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const subscription = publisher.subscribe(
+        { goalId: currentGoal.id, runId: currentGoal.state.run.id },
+    );
+    const events: string[] = [];
+    subscription.onEvent((event) => events.push(event.kind));
+
+    const result = await createExecutor(adapter).execute({
+        goal: currentGoal,
+        authorizedTools: [],
+        workingMemory: currentWorkingMemory,
+        executionUnitId: "execution-unit-fallback",
+        executionStream: publisher,
+    });
+
+    assert.equal(result.kind, "complete");
+    assert.equal(adapter.requests.length, 1);
+    assert.deepEqual(events, ["model_started", "assistant_text_delta", "model_completed"]);
 });
 
 test("LLMStepExecutor 不修改传入的 Goal", async () => {

@@ -15,6 +15,8 @@ benchmarks/      Explicit headless benchmark evaluation
   src/            Shared Headless Composition Root and persistence wiring
   alfworld/       ALFWorld TextWorld tasks, sidecar, tools, and reports
   swebench/       SWE-bench ACP Worker, Verified containers, patch export, and official grading
+prompt-evaluation/ External prompt optimization integrations
+  gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   agent/         Agent prompts, response schemas, and the unified LLM step executor

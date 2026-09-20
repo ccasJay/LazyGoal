@@ -235,6 +235,106 @@ test("实时提交投影：阻塞下一次模型响应时上一已提交 Action 
     controller.dispose();
 });
 
+test("创建 Goal 时从首次提交开始渲染后续每个 Step", async () => {
+    const baseStore = new InMemoryGoalStore();
+    const notifyingStore = new NotifyingGoalStore(baseStore);
+    const goalId = "goal-progress-during-create";
+    const initialGoal = createTestGoal(goalId, 0);
+
+    let resolveLaunch!: (result: LaunchResult) => void;
+    const launchResult = new Promise<LaunchResult>((resolve) => {
+        resolveLaunch = resolve;
+    });
+    const launcher: SessionLauncher = {
+        async launch(): Promise<LaunchResult> {
+            // 模拟生产 Launcher：初始快照先提交，然后在 Coordinator 推进期间保持未完成。
+            await notifyingStore.save(initialGoal);
+            return launchResult;
+        },
+    };
+    const coordinator: SessionCoordinator = {
+        async advance() {
+            return {
+                ok: true,
+                kind: "waiting",
+                phase: "executing",
+                waitingFor: "blocked",
+                goal: initialGoal,
+            } satisfies GoalProgressResult;
+        },
+        async resume() {
+            return {
+                ok: true,
+                kind: "waiting",
+                phase: "executing",
+                waitingFor: "blocked",
+                goal: initialGoal,
+            } satisfies GoalProgressResult;
+        },
+    };
+    const controller = new SessionController({
+        launcher,
+        coordinator,
+        store: notifyingStore,
+        catalog: { listResumable: async () => [] },
+        notifyingStore,
+        profileId: profile.id,
+        goalIdGenerator: () => goalId,
+    });
+
+    const createPromise = controller.dispatch({ kind: "create", intent: "Test intent" });
+    for (let attempt = 0; attempt < 20 && controller.getSnapshot().screen !== "session"; attempt++) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+
+    let snapshot = controller.getSnapshot() as UiSessionViewModel;
+    assert.equal(snapshot.screen, "session");
+    assert.equal(snapshot.busy, true);
+    assert.equal(snapshot.stepCount, 0);
+
+    const committedGoal = createTestGoal(goalId, 1);
+    await notifyingStore.save(committedGoal);
+
+    snapshot = controller.getSnapshot() as UiSessionViewModel;
+    assert.equal(snapshot.busy, true);
+    assert.equal(snapshot.stepCount, 1);
+    const lastTimelineItem = snapshot.timeline?.at(-1);
+    assert.equal(lastTimelineItem?.kind, "step");
+    if (lastTimelineItem?.kind === "step") {
+        assert.equal(lastTimelineItem.step.stepNumber, 1);
+    }
+
+    const instance = render(
+        <SessionScreen
+            session={snapshot}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+    assert.match(instance.lastFrame() ?? "", /Step 1:\s*\[bash\]/);
+
+    resolveLaunch({
+        ok: true,
+        kind: "waiting",
+        phase: "executing",
+        waitingFor: "blocked",
+        goal: {
+            ...committedGoal,
+            state: {
+                ...committedGoal.state,
+                run: {
+                    ...committedGoal.state.run,
+                    status: "waiting",
+                },
+            },
+        },
+    });
+    await createPromise;
+    assert.equal((controller.getSnapshot() as UiSessionViewModel).busy, false);
+    controller.dispose();
+});
+
 test("实时提交投影：单调递增去重拒绝迟到的旧快照", async () => {
     const baseStore = new InMemoryGoalStore();
     const notifyingStore = new NotifyingGoalStore(baseStore);

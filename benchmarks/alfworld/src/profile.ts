@@ -154,6 +154,32 @@ export function validateAlfworldProfile(value: unknown): AgentProfile {
 }
 
 /**
+ * 校验已派生候选仍满足 ALFWorld 的固定身份、Tool 与指令契约。
+ *
+ * @param profile - 公共 Prompt Evaluation 层派生的候选 Profile。
+ * @returns 经 ALFWorld 规则重新构造的 Profile。
+ * @throws 候选删除环境工具约束、修改固定字段或 Prompt 为空时抛出错误。
+ * @example
+ * ```ts
+ * const candidate = validateAlfworldPromptEvaluationProfile(profile);
+ * ```
+ */
+export function validateAlfworldPromptEvaluationProfile(profile: unknown): AgentProfile {
+    if (!isRecord(profile)) {
+        throw new AlfworldProfileError("PROFILE_INVALID_SCHEMA", "ALFWorld candidate Profile must be an object");
+    }
+    return validateAlfworldProfile({
+        schemaVersion: ALFWORLD_PROFILE_SCHEMA_VERSION,
+        id: profile.id,
+        name: profile.name,
+        description: profile.description,
+        systemPrompt: profile.systemPrompt,
+        instructions: profile.instructions,
+        toolIds: profile.toolIds,
+    });
+}
+
+/**
  * 从 workspace 的 `.lazygoal/profiles` 加载固定 ALFWorld Profile。
  *
  * @param workspaceRoot - workspace 绝对或相对根目录。

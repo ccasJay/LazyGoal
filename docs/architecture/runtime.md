@@ -16,7 +16,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Goal 级 Plan Mode 与 G
 | [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
 | [Trajectory](../../packages/runtime/src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
-| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入 Contract、执行闭包、Registry 和 Policy 边界 | 具体 Tool 业务逻辑 |
+| [Tool contracts](../../packages/runtime/src/tool.ts) | Tool 描述、输入 Contract、执行闭包、可选流能力、Registry 和 Policy 边界 | 具体 Tool 业务逻辑 |
 | [Context Retrieval](../../packages/runtime/src/context-retrieval.ts) | 校验历史查询、归一化 bounded result 和相关 Trajectory 事实 | 读取当前 Workspace/Environment |
 
 ## 状态与推进
@@ -36,6 +36,8 @@ waiting 输入调用 `resume` 并保留当前 Run；completed 输入调用 `cont
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 
 每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
+
+Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-stream.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，Tool 生命周期由 Runner 发出，事实提交成功后发出 Trajectory 事件和 `step_committed`；发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
 
 ## 恢复与持久化
 

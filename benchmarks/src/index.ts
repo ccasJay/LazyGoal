@@ -83,6 +83,7 @@ export type {
     BenchmarkAttemptError,
     BenchmarkAttemptRecord,
     BenchmarkAttemptStatus,
+    PromptEvaluationAttemptMetadata,
 } from "./attempt-recorder.js";
 export type {
     EnvironmentHandle,
@@ -140,5 +141,57 @@ export type {
     TuiSandboxRunOptions,
     TuiSandboxRunResult,
 } from "./tui-benchmark-runner.js";
-
-
+export {
+    PROMPT_EVALUATION_EXIT_CODES,
+    PROMPT_EVALUATION_PROTOCOL,
+    PromptEvaluationRequestError,
+    parsePromptEvaluationRequest,
+    readPromptEvaluationRequest,
+} from "./prompt-evaluation/index.js";
+export {
+    PromptEvaluationProfileError,
+    derivePromptEvaluationProfile,
+    fingerprintPromptEvaluationCandidate,
+    validatePromptEvaluationProfile,
+} from "./prompt-evaluation/index.js";
+export type {
+    PromptEvaluationProfileErrorCode,
+    PromptEvaluationPromptFingerprint,
+} from "./prompt-evaluation/index.js";
+export {
+    PromptEvaluationBenchmarkRegistry,
+    PromptEvaluationRunner,
+    PromptEvaluationRunnerError,
+} from "./prompt-evaluation/index.js";
+export type {
+    PromptEvaluationBenchmarkAdapter,
+    PromptEvaluationRunOptions,
+    PromptEvaluationRunnerDependencies,
+    PromptEvaluationRunnerErrorCode,
+    PromptEvaluationTaskInput,
+} from "./prompt-evaluation/index.js";
+export type {
+    PromptEvaluationArtifactLocator,
+    PromptEvaluationBenchmarkId,
+    PromptEvaluationBenchmarkReference,
+    PromptEvaluationCandidate,
+    PromptEvaluationEventStage,
+    PromptEvaluationEventV1,
+    PromptEvaluationModelReference,
+    PromptEvaluationRequestErrorCode,
+    PromptEvaluationRequestParseOptions,
+    PromptEvaluationRequestV1,
+    PromptEvaluationResultV1,
+    PromptEvaluationStatus,
+    PromptEvaluationTaskResult,
+    PromptEvaluationTaskStatus,
+} from "./prompt-evaluation/index.js";
+export {
+    PromptEvaluationResultRecorder,
+    parsePromptEvaluationResult,
+    readPromptEvaluationResult,
+} from "./prompt-evaluation/index.js";
+export {
+    runPromptEvaluationCli,
+    type PromptEvaluationCliOptions,
+} from "./prompt-evaluation/index.js";

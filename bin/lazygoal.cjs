@@ -7,11 +7,14 @@ const argv = process.argv.slice(2);
 const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
 const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
 const isGaiaEval = argv[0] === "eval" && argv[1] === "gaia";
+const isPromptEval = argv[0] === "eval" && argv[1] === "prompt";
 const isAlfworldGrade = argv[0] === "grade" && argv[1] === "alfworld";
 const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const isGaiaGrade = argv[0] === "grade" && argv[1] === "gaia";
 const isGaiaLoad = (argv[0] === "load" && argv[1] === "gaia") || (argv[0] === "gaia" && argv[1] === "load");
-const source = isAlfworldEval
+const source = isPromptEval
+    ? resolve(__dirname, "../benchmarks/src/prompt-evaluation/cli.ts")
+    : isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")
     : isSwebenchEval
         ? resolve(__dirname, "../benchmarks/swebench/src/cli.ts")

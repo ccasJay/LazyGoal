@@ -5,21 +5,22 @@ import { pathToFileURL } from "node:url";
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
- * contracts 是无出站依赖的基础包；其它 package 可以单向依赖它。runtime 当前
- * 不导入其它实现包；llm 仅复用 runtime 的 ExecutionControl 中止原语；
- * storage/agent/tools 只依赖 runtime；agent 额外依赖 llm 的供应商无关消息类型；
- * tui 是组合根，可导入全部实现。
+ * contracts 与 execution-stream 是无出站依赖的基础包；其它 package 可以单向依赖它们。
+ * runtime 只依赖 contracts 和 execution-stream；llm 复用 runtime 的中止原语并可
+ * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
+ * runtime、llm（agent）和 execution-stream；tui 是组合根，可导入全部实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
+    "execution-stream": [],
     "slash-command": [],
     acp: [],
-    runtime: ["contracts"],
-    llm: ["runtime", "contracts"],
+    runtime: ["contracts", "execution-stream"],
+    llm: ["runtime", "contracts", "execution-stream"],
     storage: ["runtime", "contracts"],
-    agent: ["runtime", "llm", "contracts"],
-    tools: ["runtime", "contracts"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command"],
+    agent: ["runtime", "llm", "contracts", "execution-stream"],
+    tools: ["runtime", "contracts", "execution-stream"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

@@ -240,6 +240,7 @@ export type {
     LLMMessage,
     LLMRequest,
     LLMResponse,
+    LLMStreamEvent,
 } from "../../llm/src/core/types";
 export type {
     AgentDecision,

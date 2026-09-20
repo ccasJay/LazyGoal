@@ -11,6 +11,7 @@ import type { AlfworldManifestTask } from "./manifest.js";
 import { AlfworldEnvironmentSpec, type AlfworldCollectedArtifacts } from "./environment-spec.js";
 import { ALFWORLD_CONTAINER_DATA_ROOT, ALFWORLD_CONTAINER_SIDECAR_PATH } from "./worker-config.js";
 import type { EpisodeEnvironmentFacts, EpisodeModelFacts } from "./report.js";
+import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 
 /**
  * 一次 ALFWorld 容器作答的共享隔离结果。
@@ -108,6 +109,8 @@ export async function runAlfworldSupervisor(
                 dataRoot: ALFWORLD_CONTAINER_DATA_ROOT,
                 pythonExecutable: options.environment.pythonExecutable,
                 sidecarPath: ALFWORLD_CONTAINER_SIDECAR_PATH,
+                ...(options.baseProfile === undefined ? {} : { baseProfile: options.baseProfile }),
+                ...(options.profile === undefined ? {} : { profile: options.profile }),
             },
             ...(options.onUpdate === undefined ? {} : { onUpdate: options.onUpdate }),
         },
@@ -155,6 +158,10 @@ export interface AlfworldSupervisorOptions {
     readonly baseImage?: string;
     readonly installCommands?: readonly string[];
     readonly onUpdate?: (update: AcpSessionUpdate) => void | Promise<void>;
+    /** Prompt Evaluation 候选所基于的已校验 Profile；必须与 `profile` 同时提供。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 实际执行的候选 Profile；普通 ALFWorld CLI 省略。 */
+    readonly profile?: AgentProfile;
 }
 
 function mapError(error: IsolatedEnvironmentError): AlfworldSupervisorError {

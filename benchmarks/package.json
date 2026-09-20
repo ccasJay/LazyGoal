@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts",
+    "test": "tsx --test test/*.test.ts test/prompt-evaluation/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts",
     "gaia:worker-smoke": "cd .. && tsx benchmarks/gaia/src/worker-smoke.ts",
     "gaia:eval": "cd .. && tsx benchmarks/gaia/src/cli.ts eval gaia",
     "gaia:load": "cd .. && tsx benchmarks/gaia/src/cli.ts load gaia",
@@ -23,6 +23,7 @@
     "alfworld:download": "tsx alfworld/scripts/download-alfworld.ts",
     "alfworld:preflight": "tsx alfworld/scripts/preflight-alfworld.ts",
     "alfworld:worker-smoke": "cd .. && tsx benchmarks/alfworld/src/worker-smoke.ts",
+    "prompt-evaluation:smoke": "cd .. && tsx benchmarks/alfworld/src/prompt-evaluation-smoke.ts",
     "alfworld:eval": "cd .. && tsx benchmarks/alfworld/src/cli.ts",
     "alfworld:smoke": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/smoke.json --min-success-rate 0",
     "alfworld:regression": "cd .. && tsx benchmarks/alfworld/src/cli.ts eval alfworld --manifest benchmarks/alfworld/manifests/regression.json --min-success-rate 0"

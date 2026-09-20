@@ -5,7 +5,8 @@
  * 按固定顺序执行三段检查,任一段失败即停止并透传其退出码:
  *   1. 类型检查(npx tsc --noEmit)
  *   2. 依赖边界检查(npm run check:dependencies)
- *   3. 测试段(一次 tsx --test 跑全部发现的 .ts/.tsx 测试 + node --test 跑 scripts 的 .mjs 测试)
+ *   3. Python GEPA adapter 的无外部依赖测试
+ *   4. 测试段(一次 tsx --test 跑全部发现的 .ts/.tsx 测试 + node --test 跑 scripts 的 .mjs 测试)
  *
  * 测试文件按目录约定递归发现,新增确定性测试文件零配置纳入:
  *   - packages/<pkg>/test/ 下的全部 *.test.ts / *.test.tsx
@@ -80,6 +81,7 @@ console.log(`[regression] 发现测试文件:${tsFiles.length} 个 .ts/.tsx,${mj
 const stages = [
     { label: "类型检查", command: "npx", args: ["tsc", "--noEmit"] },
     { label: "依赖边界检查", command: "npm", args: ["run", "check:dependencies"] },
+    { label: "GEPA adapter 测试", command: "npm", args: ["run", "test:gepa-adapter"] },
     { label: "测试", command: "npx", args: ["tsx", "--test", ...tsFiles] },
 ];
 if (mjsFiles.length > 0) {

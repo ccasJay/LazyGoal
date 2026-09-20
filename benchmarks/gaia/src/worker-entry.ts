@@ -42,6 +42,7 @@ import {
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import { createAcpMuxStream, MultiplexedConnection } from "../../src/multiplex.js";
 import { RpcLlmAdapter } from "../../src/llm-rpc.js";
+import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
 import type { GaiaManifestTask } from "./types.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
 
@@ -174,6 +175,10 @@ export interface GaiaAcpTaskMetadata extends GaiaManifestTask {
     readonly runId: string;
     readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     readonly problemStatement?: string;
+    /** Prompt Evaluation 提供时用于校验宿主基准身份。 */
+    readonly baseProfile?: AgentProfile;
+    /** Prompt Evaluation 实际冻结到 Goal 的候选 Profile。 */
+    readonly profile?: AgentProfile;
 }
 
 /**
@@ -204,6 +209,7 @@ export function parseGaiaAcpTaskMetadata(value: unknown): GaiaAcpTaskMetadata {
         throw new TypeError("Invalid GAIA ACP session metadata: invalid structuredOutputMode");
     }
 
+    const promptProfiles = parseGaiaPromptEvaluationProfiles(record);
     return {
         taskId: record.taskId,
         question: record.question,
@@ -215,6 +221,7 @@ export function parseGaiaAcpTaskMetadata(value: unknown): GaiaAcpTaskMetadata {
         runId: record.runId,
         structuredOutputMode: mode,
         problemStatement: typeof record.problemStatement === "string" ? record.problemStatement : record.question,
+        ...promptProfiles,
     };
 }
 
@@ -248,7 +255,7 @@ export async function runGaiaAcpTask(
     const root = new HeadlessCompositionRoot<GaiaManifestTask, GaiaEpisodeOutcome>({
         benchmarkId: "gaia",
         workspaceRoot,
-        profile: GAIA_WORKER_PROFILE,
+        profile: options.metadata.profile ?? GAIA_WORKER_PROFILE,
         llmAdapter: options.llmAdapter,
         renderer: options.renderer,
         contextCompactor: options.contextCompactor,
@@ -263,6 +270,48 @@ export async function runGaiaAcpTask(
         options.metadata,
         options.signal === undefined ? {} : { signal: options.signal },
     );
+}
+
+/**
+ * 校验候选 Profile 保持 GAIA 固定 Tool 白名单和提交协议。
+ *
+ * @param profile - 公共层派生或 ACP metadata 反序列化的候选。
+ * @returns 深冻结且可交给 Headless Root 的候选 Profile。
+ * @throws 冻结字段变化或指令删除 GAIA 必需工具协议时抛出。
+ * @example
+ * ```ts
+ * const candidate = validateGaiaPromptEvaluationProfile(profile);
+ * ```
+ */
+export function validateGaiaPromptEvaluationProfile(profile: unknown): AgentProfile {
+    const validated = validatePromptEvaluationProfile(profile, GAIA_WORKER_PROFILE);
+    const instructions = validated.instructions.join("\n");
+    for (const toolId of GAIA_PROFILE_TOOL_IDS) {
+        if (!instructions.includes(toolId)) {
+            throw new TypeError(`GAIA candidate instructions must reference ${toolId}`);
+        }
+    }
+    return validated;
+}
+
+function parseGaiaPromptEvaluationProfiles(
+    record: Record<string, unknown>,
+): Pick<GaiaAcpTaskMetadata, "baseProfile" | "profile"> {
+    if (record.baseProfile === undefined && record.profile === undefined) return {};
+    if (record.baseProfile === undefined || record.profile === undefined) {
+        throw new TypeError("GAIA Prompt Evaluation metadata requires baseProfile and profile together");
+    }
+    const baseProfile = validatePromptEvaluationProfile(record.baseProfile, GAIA_WORKER_PROFILE);
+    if (baseProfile.systemPrompt !== GAIA_WORKER_PROFILE.systemPrompt
+        || !sameStrings(baseProfile.instructions, GAIA_WORKER_PROFILE.instructions)) {
+        throw new TypeError("GAIA Prompt Evaluation baseProfile must match the Worker base Profile");
+    }
+    const profile = validateGaiaPromptEvaluationProfile(record.profile);
+    return { baseProfile, profile };
+}
+
+function sameStrings(left: readonly string[], right: readonly string[]): boolean {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /**

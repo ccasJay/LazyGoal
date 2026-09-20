@@ -2,7 +2,7 @@
 
 > 本目录只描述当前实现；功能设计、历史决策和迁移说明保留在 `specs/`。
 
-LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`llm` 隔离供应商；`storage` 保存当前 Snapshot；`tui` 渲染同一个 Session 时间线。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
+LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`llm` 隔离供应商；`execution-stream` 只提供进程内 JSON-safe 实时事件与有界订阅；`storage` 保存当前 Snapshot；`tui` 渲染同一个 Session 时间线。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -13,6 +13,7 @@ LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal
 | Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
 | Working Memory | 从已提交 Trajectory 的 accepted Patch 临时归约出的上下文 |
 | Timeline | TUI Controller 按提交顺序维护的不可变消息、Markdown Block 与步骤列表 |
+| Execution Stream | 按 Goal/Run 隔离的实时事件旁路；不写 Snapshot 或 Trajectory |
 
 ## 模块关系
 
@@ -31,6 +32,11 @@ flowchart LR
     A --> M[模型供应商]
     S --> ST[Storage: Snapshot Codec / Store]
     R --> T[Tool Registry / Policy]
+    R --> X[Execution Stream Core]
+    E --> X
+    T --> X
+    X --> U[TUI Stream Adapter]
+    X --> W[Future WebUI Adapter]
 ```
 
 ## 主流程
@@ -41,6 +47,8 @@ flowchart LR
 4. `ask_user` 与 `task_proposal` 都保存为可恢复的 `pendingInteraction`。用户回答、批准或反馈后，Coordinator 先保存再继续；waiting 输入恢复同一 Run，completed 输入先归档历史并提交新 Run。
 5. 任务批准后，Runner 继续处理普通 Tool、Lookup、完成、等待和失败决策；Tool 权限、输入、Policy 与 Evidence 由 Runtime 再次校验。Plan Mode 下一个执行 Run 只承接一个 Todo，完成证据与 Todo completed 在同一提交边界写入。
 6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 通过 Store 提交通知和流式转录构造统一时间线。
+
+实时事件通过独立的 `execution-stream` Core 旁路发送：它只分配 Goal/Run 内 cursor、执行可见性过滤、增量合并和慢订阅者关闭，不拥有 Goal 状态转换、Trajectory 写入、Provider/Tool 调用或 UI 渲染。Runtime 负责把生命周期和提交边界映射成领域事件；Agent/LLM 负责把模型流归一化后发布；Tool 可选地发布输出分片；TUI 订阅这些通用事件并维护瞬时活动视图，恢复仍以 Snapshot/Trajectory 为准。
 
 ## 跨模块不变量
 
@@ -62,5 +70,6 @@ flowchart LR
 - [Agent](./agent.md)：模型视图、Prompt Bundle、请求组装与决策解析。
 - [Contracts](./contracts.md)：Canonical/Wire 模型输出契约和 Tool 输入契约。
 - [LLM](./llm.md)：供应商无关 Adapter、配置与取消语义。
+- [Execution Stream](./execution-stream.md)：Goal/Run 实时事件 Envelope、可见性策略和进程内订阅。
 - [TUI](./tui.md)：Session Controller、统一时间线和交互抽屉。
-- [Benchmark Evaluation](./benchmarks.md)：Headless Root、ALFWorld 与 SWE-bench 评测入口。
+- [Benchmark Evaluation](./benchmarks.md)：Headless Root、隔离 benchmark 与 Prompt Evaluation 入口。
