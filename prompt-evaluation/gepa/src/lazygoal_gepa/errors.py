@@ -13,5 +13,9 @@ class DatasetValidationError(LazyGoalGEPAError):
     """Raised before evaluation when a batch or Manifest violates its contract."""
 
 
+class CandidateValidationError(LazyGoalGEPAError):
+    """Raised before request creation when GEPA candidate components are invalid."""
+
+
 class GEPACompatibilityError(LazyGoalGEPAError):
     """Raised before evaluation when the supported GEPA contract is unavailable."""

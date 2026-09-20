@@ -14,7 +14,7 @@
   - 验证方式：待实现的配置、数据集校验与进程启动副作用隔离测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 3. 实现 CandidateCodec 与隔离运行目录
+- [x] //TODO 3. 实现 CandidateCodec 与隔离运行目录
 
   - 实现目标：完成固定组件映射、规范化候选身份、安全文件名和每次调用隔离的样本目录。
   - 成功判据：有效多组件候选字符级 round-trip；未知键、断号和非字符串组件在请求创建前失败；相同候选哈希稳定但调用目录不同。
