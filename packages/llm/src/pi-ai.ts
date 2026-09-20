@@ -1,4 +1,4 @@
-import { createModels, createProvider, type Model, type Api, type Context, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createModels, createProvider, type Model, type Api, type Context, type AssistantMessage, type AssistantMessageEvent } from "@earendil-works/pi-ai";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
@@ -6,7 +6,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import type { LLMAdapter } from "./core/adapter";
-import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMToolCall } from "./core/types";
+import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
 import { LlmConfigurationError, type LlmConfig } from "./config";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../runtime/src/execution-control";
 
@@ -108,6 +108,75 @@ export class PiAiAdapter implements LLMAdapter {
             throw error;
         }
         if (response.stopReason === "aborted") throw new ExecutionAbortedError();
+        return this.toResponse(request, response);
+    }
+
+    /**
+     * 将 pi-ai 的 AssistantMessage 流转换为供应商无关的事件。
+     *
+     * @param request - 当前模型请求，用于保持与 `generate()` 相同的校验和工具语义。
+     * @param control - 当前执行调用的中止控制。
+     * @returns 归一化的增量和最终响应。
+     */
+    async *stream(
+        request: LLMRequest,
+        control?: ExecutionControl,
+    ): AsyncIterable<LLMStreamEvent> {
+        throwIfAborted(control);
+        if (request.structuredOutput !== undefined) {
+            throw new LLMRequestModeMismatchError("PiAiAdapter uses prompt_only, but LLMRequest provides structuredOutput");
+        }
+        const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
+        this.checkOutputLimit(maxTokens);
+        const context = this.toContext(request);
+        yield { kind: "started" };
+
+        let completed = false;
+        try {
+            const stream = this.models.streamSimple(this.model, context, {
+                apiKey: this.config.apiKey,
+                ...(maxTokens === undefined ? {} : { maxTokens }),
+                ...(control?.signal === undefined ? {} : { signal: control.signal }),
+            });
+            for await (const event of stream as AsyncIterable<AssistantMessageEvent>) {
+                throwIfAborted(control);
+                if (event.type === "text_delta" && event.delta.length > 0) {
+                    yield { kind: "assistant_text_delta", text: event.delta };
+                } else if (event.type === "thinking_delta" && event.delta.length > 0) {
+                    yield { kind: "reasoning_delta", text: event.delta };
+                } else if (event.type === "toolcall_delta" && event.delta.length > 0) {
+                    yield {
+                        kind: "model_tool_call_delta",
+                        delta: event.delta,
+                        contentIndex: event.contentIndex,
+                    };
+                } else if (event.type === "done") {
+                    completed = true;
+                    yield { kind: "completed", response: this.toResponse(request, event.message) };
+                } else if (event.type === "error") {
+                    if (event.reason === "aborted") throw new ExecutionAbortedError();
+                    throw new PiAiProviderError(
+                        this.config.provider,
+                        event.reason,
+                        `Provider "${this.config.provider}" did not complete a text response (${event.reason})`,
+                    );
+                }
+            }
+            throwIfAborted(control);
+            if (!completed) {
+                throw new PiAiProviderError(
+                    this.config.provider,
+                    "error",
+                    `Provider "${this.config.provider}" ended a stream without a completed response`,
+                );
+            }
+        } catch (error) {
+            throwIfAborted(control);
+            throw error;
+        }
+    }
+
+    private toResponse(request: LLMRequest, response: AssistantMessage): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         if (!hasTools) {
             if (response.stopReason !== "stop" || response.content.some(block => block.type === "toolCall")) {

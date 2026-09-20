@@ -20,6 +20,11 @@ import type {
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { StepExecutor } from "./step-executor";
+import type {
+    ExecutionStreamEventDraft,
+    ExecutionStreamPublisher,
+    StreamJsonValue,
+} from "../../execution-stream/src/index";
 import {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
@@ -43,6 +48,7 @@ import {
 import type {
     ToolDefinition,
     ToolObservation,
+    ToolStreamEvent,
     ToolPolicy,
     PreparedToolAction as PreparedToolResult,
     ToolRegistration,
@@ -91,6 +97,7 @@ import {
 import {
     TrajectoryCheckpointCommitter,
     type AcceptedMemoryPatchInput,
+    type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 import {
@@ -127,6 +134,18 @@ let executionUnitCounter = 0;
 function createExecutionUnitId(): string {
     executionUnitCounter += 1;
     return `execution-unit-${Date.now().toString(36)}-${executionUnitCounter.toString(36)}`;
+}
+
+function isStreamDeltaKind(kind: string): boolean {
+    return kind.endsWith("_delta");
+}
+
+function streamCoalescingKey(
+    executionUnitId: string | undefined,
+    actionId: string | undefined,
+    kind: string,
+): string {
+    return `${kind}:${executionUnitId ?? actionId ?? "run"}`;
 }
 
 function resolveExecutionControl(
@@ -240,6 +259,7 @@ interface PreparedToolAction {
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
     execute(control?: ExecutionControl): Promise<ToolObservation>;
+    stream?(control?: ExecutionControl): AsyncIterable<ToolStreamEvent>;
 }
 
 function prepareToolAction(
@@ -334,7 +354,11 @@ function prepareToolAction(
         );
     }
 
-    if (!isJsonValue(prepared.input) || typeof prepared.execute !== "function") {
+    if (
+        !isJsonValue(prepared.input)
+        || typeof prepared.execute !== "function"
+        || (prepared.stream !== undefined && typeof prepared.stream !== "function")
+    ) {
         throw new RunnerExecutionError(
             "TOOL_EXECUTION_ERROR",
             "Tool prepare returned an invalid success result",
@@ -352,6 +376,12 @@ function prepareToolAction(
             action: canonicalAction,
             policy: "allow",
             execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+            ...(prepared.stream === undefined
+                ? {}
+                : {
+                    stream: (executeControl?: ExecutionControl) =>
+                        prepared.stream!(canonicalAction.actionId, executeControl),
+                }),
         };
     }
 
@@ -389,6 +419,12 @@ function prepareToolAction(
         action: canonicalAction,
         policy: policyResult,
         execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+        ...(prepared.stream === undefined
+            ? {}
+            : {
+                stream: (executeControl?: ExecutionControl) =>
+                    prepared.stream!(canonicalAction.actionId, executeControl),
+            }),
     };
 }
 
@@ -520,6 +556,8 @@ export interface RunnerDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
+    readonly executionStream?: ExecutionStreamPublisher;
 }
 
 /**
@@ -552,6 +590,7 @@ export class Runner {
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
+    private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
 
@@ -565,6 +604,7 @@ export class Runner {
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
+        this.executionStream = dependencies.executionStream;
         this.traceSink = dependencies.traceSink;
         this.toolMemoryProjectors = dependencies.toolMemoryProjectors
             ?? createNoopToolMemoryProjectorRegistry();
@@ -578,6 +618,25 @@ export class Runner {
                     ? {}
                     : { traceSink: dependencies.traceSink }),
             });
+    }
+
+    /** 发布一次旁路执行事件；发布端故障不得覆盖 Runtime 结果。 */
+    private publishExecutionEvent(
+        target: Goal | { readonly goalId: string; readonly runId: string },
+        event: Omit<ExecutionStreamEventDraft, "goalId" | "runId">,
+    ): void {
+        if (this.executionStream === undefined) return;
+        const goalId = "goalId" in target ? target.goalId : target.id;
+        const runId = "runId" in target ? target.runId : target.state.run.id;
+        try {
+            this.executionStream.publish({
+                goalId,
+                runId,
+                ...event,
+            });
+        } catch {
+            // Stream 是旁路观察面，不能改变 Goal 状态机或持久化语义。
+        }
     }
 
     /**
@@ -880,7 +939,31 @@ export class Runner {
         control?: ExecutionControl,
         countAsFact = true,
     ): Promise<Readonly<TrajectoryEvent> | undefined> {
-        return this.checkpointCommitter.append(draft, control, countAsFact);
+        const event = await this.checkpointCommitter.append(draft, control, countAsFact);
+        this.publishExecutionEvent(
+            draft,
+            {
+                ...(event?.executionUnitId ?? draft.executionUnitId) === undefined
+                    ? {}
+                    : { executionUnitId: event?.executionUnitId ?? draft.executionUnitId },
+                ...(event?.actionId ?? draft.actionId) === undefined
+                    ? {}
+                    : { actionId: event?.actionId ?? draft.actionId },
+                kind: event?.payload.type ?? draft.eventType,
+                visibility: "public",
+                durability: event?.payload.type === "state_committed"
+                    ? "checkpoint"
+                    : event === undefined ? "live" : "trajectory",
+                delivery: isStreamDeltaKind(event?.payload.type ?? draft.eventType)
+                    ? "delta"
+                    : "control",
+                ...(isStreamDeltaKind(event?.payload.type ?? draft.eventType)
+                    ? { coalescingKey: streamCoalescingKey(event?.executionUnitId ?? draft.executionUnitId, event?.actionId ?? draft.actionId, event?.payload.type ?? draft.eventType) }
+                    : {}),
+                payload: (event?.payload ?? draft.payload) as unknown as StreamJsonValue,
+            },
+        );
+        return event;
     }
 
     private async recordToolProjectorDiagnostic(
@@ -1194,7 +1277,49 @@ export class Runner {
             ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
             ...(control === undefined ? {} : { control }),
         });
+        this.publishCommittedEvents(result);
+        this.publishCheckpointCommitted(result, facts);
         return result.goal;
+    }
+
+    private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
+        for (const event of result.events) {
+            const executionUnitId = event.executionUnitId;
+            const actionId = event.actionId;
+            this.publishExecutionEvent(result.goal, {
+                ...(executionUnitId === undefined ? {} : { executionUnitId }),
+                ...(actionId === undefined ? {} : { actionId }),
+                kind: event.eventType,
+                visibility: "public",
+                durability: "checkpoint",
+                delivery: isStreamDeltaKind(event.eventType) ? "delta" : "control",
+                ...(isStreamDeltaKind(event.eventType)
+                    ? { coalescingKey: streamCoalescingKey(executionUnitId, actionId, event.eventType) }
+                    : {}),
+                payload: event.payload as unknown as StreamJsonValue,
+            });
+        }
+    }
+
+    private publishCheckpointCommitted(
+        result: TrajectoryCheckpointCommitResult,
+        facts: readonly TrajectoryEventDraft[],
+    ): void {
+        const firstFact = facts.find((fact) => fact.executionUnitId !== undefined);
+        if (firstFact === undefined) return;
+        this.publishExecutionEvent(result.goal, {
+            ...(firstFact.executionUnitId === undefined ? {} : { executionUnitId: firstFact.executionUnitId }),
+            ...(firstFact.actionId === undefined ? {} : { actionId: firstFact.actionId }),
+            kind: "step_committed",
+            visibility: "public",
+            durability: "checkpoint",
+            delivery: "control",
+            payload: {
+                committedThroughSequence: result.goal.state.run.committedThroughSequence,
+                eventIds: result.events.map((event) => event.eventId),
+                eventTypes: result.events.map((event) => event.eventType),
+            },
+        });
     }
 
     private runNotFound(ref: RunRef): RunnerResult {
@@ -1486,7 +1611,9 @@ export class Runner {
                     input: prepared.action.input,
                 },
             }, control);
-            const rawObservation = await prepared.execute(control);
+            const rawObservation = prepared.stream === undefined
+                ? await prepared.execute(control)
+                : await this.consumeToolStream(goal, prepared, executionUnitId, control);
             throwIfAborted(control);
             observation = validateToolObservation(rawObservation);
         } catch (error) {
@@ -1562,8 +1689,72 @@ export class Runner {
             ...(projectorPatch === undefined ? {} : { acceptedPatch: projectorPatch }),
             ...(control === undefined ? {} : { control }),
         });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [{
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId,
+            actionId: prepared.action.actionId,
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId: prepared.action.actionId,
+                observation,
+            },
+        }]);
         const checkpoint = committed.goal;
         return { kind: "observed", goal: checkpoint };
+    }
+
+    private async consumeToolStream(
+        goal: Goal,
+        prepared: PreparedToolAction,
+        executionUnitId: string,
+        control?: ExecutionControl,
+    ): Promise<ToolObservation> {
+        const stream = prepared.stream;
+        if (stream === undefined) {
+            return prepared.execute(control);
+        }
+
+        let observation: ToolObservation | undefined;
+        for await (const event of stream(control)) {
+            throwIfAborted(control);
+            if (event.kind === "output") {
+                if (event.text.length === 0) continue;
+                this.publishExecutionEvent(goal, {
+                    executionUnitId,
+                    actionId: prepared.action.actionId,
+                    kind: "tool_output_delta",
+                    visibility: "diagnostic",
+                    durability: "live",
+                    delivery: "delta",
+                    coalescingKey: `tool:${prepared.action.actionId}:${event.channel}`,
+                    payload: {
+                        channel: event.channel,
+                        text: event.text,
+                    },
+                });
+                continue;
+            }
+
+            if (observation !== undefined) {
+                throw new RunnerExecutionError(
+                    "TOOL_EXECUTION_ERROR",
+                    "Tool stream returned more than one completed Observation",
+                );
+            }
+            observation = validateToolObservation(event.observation);
+        }
+
+        if (observation === undefined) {
+            throw new RunnerExecutionError(
+                "TOOL_EXECUTION_ERROR",
+                "Tool stream completed without an Observation",
+            );
+        }
+        return observation;
     }
 
     private async runLoop(
@@ -1681,6 +1872,17 @@ export class Runner {
             const executionUnitId = createExecutionUnitId();
             const session = await this.openWorkingMemorySession(goal, control);
 
+            this.publishExecutionEvent(goal, {
+                executionUnitId,
+                kind: "step_started",
+                visibility: "public",
+                durability: "live",
+                delivery: "control",
+                payload: {
+                    stepCount: goal.state.run.stepCount + 1,
+                },
+            });
+
             try {
                 let normalized: NormalizedExecution;
                 try {
@@ -1696,6 +1898,10 @@ export class Runner {
                         ...(contextLookupResult === undefined
                             ? {}
                             : { contextLookupResult }),
+                        executionUnitId,
+                        ...(this.executionStream === undefined
+                            ? {}
+                            : { executionStream: this.executionStream }),
                     });
                     throwIfAborted(control);
                     const isResultObject = typeof execution === "object"

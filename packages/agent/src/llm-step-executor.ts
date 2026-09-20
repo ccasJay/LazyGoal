@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
+import type { LLMStreamEvent } from "../../llm/src/core/types";
 import type {
     AgentDecision,
 } from "../../runtime/src/domain";
@@ -39,7 +40,8 @@ import {
     type SystemToolDeclaration,
 } from "../../contracts/src/index";
 import { ContractValidationError } from "../../contracts/src/errors";
-import type { LLMToolDefinition } from "../../llm/src/core/types";
+import type { LLMResponse, LLMToolDefinition } from "../../llm/src/core/types";
+import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -157,7 +159,17 @@ export class LLMStepExecutor implements StepExecutor {
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
 
         try {
-            response = await adapter.generate(providerRequest, control);
+            if (adapter.stream === undefined) {
+                response = await adapter.generate(providerRequest, control);
+                this.publishFallbackModelEvents(input, response);
+            } else {
+                response = await this.consumeModelStream(
+                    adapter,
+                    providerRequest,
+                    input,
+                    control,
+                );
+            }
         } catch (error) {
             await recordLlmError(
                 this.traceSink,
@@ -255,5 +267,135 @@ export class LLMStepExecutor implements StepExecutor {
         }
 
         return decision;
+    }
+
+    private async consumeModelStream(
+        adapter: LLMAdapter,
+        request: Parameters<LLMAdapter["generate"]>[0],
+        input: StepExecutionInput,
+        control: StepExecutionInput["control"],
+    ): Promise<LLMResponse> {
+        if (adapter.stream === undefined) {
+            const response = await adapter.generate(request, control);
+            this.publishFallbackModelEvents(input, response);
+            return response;
+        }
+
+        let response: LLMResponse | undefined;
+        for await (const event of adapter.stream.call(adapter, request, control)) {
+            throwIfAborted(control);
+            this.publishModelStreamEvent(input, event);
+            if (event.kind !== "completed") continue;
+            if (response !== undefined) {
+                throw new LLMResponseProtocolError("LLM stream produced multiple completed responses");
+            }
+            response = event.response;
+        }
+
+        if (response === undefined) {
+            throw new LLMResponseProtocolError("LLM stream ended without a completed response");
+        }
+        return response;
+    }
+
+    private publishFallbackModelEvents(input: StepExecutionInput, response: LLMResponse): void {
+        this.publishExecutionEvent(input, {
+            kind: "model_started",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: {},
+        });
+        if (response.content.length > 0) {
+            this.publishExecutionEvent(input, {
+                kind: "assistant_text_delta",
+                visibility: "public",
+                durability: "live",
+                delivery: "delta",
+                coalescingKey: `assistant:${input.executionUnitId ?? "run"}`,
+                payload: { text: response.content },
+            });
+        }
+        this.publishExecutionEvent(input, {
+            kind: "model_completed",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { hasToolCalls: (response.toolCalls?.length ?? 0) > 0 },
+        });
+    }
+
+    private publishModelStreamEvent(input: StepExecutionInput, event: LLMStreamEvent): void {
+        switch (event.kind) {
+            case "started":
+                this.publishExecutionEvent(input, {
+                    kind: "model_started",
+                    visibility: "public",
+                    durability: "live",
+                    delivery: "control",
+                    payload: {},
+                });
+                return;
+            case "assistant_text_delta":
+                this.publishExecutionEvent(input, {
+                    kind: event.kind,
+                    visibility: "public",
+                    durability: "live",
+                    delivery: "delta",
+                    coalescingKey: `assistant:${input.executionUnitId ?? "run"}`,
+                    payload: { text: event.text },
+                });
+                return;
+            case "reasoning_delta":
+                this.publishExecutionEvent(input, {
+                    kind: event.kind,
+                    visibility: "restricted",
+                    durability: "live",
+                    delivery: "delta",
+                    coalescingKey: `reasoning:${input.executionUnitId ?? "run"}`,
+                    payload: { text: event.text },
+                });
+                return;
+            case "model_tool_call_delta":
+                this.publishExecutionEvent(input, {
+                    kind: event.kind,
+                    visibility: "diagnostic",
+                    durability: "live",
+                    delivery: "delta",
+                    coalescingKey: `model-tool-call:${input.executionUnitId ?? "run"}`,
+                    payload: {
+                        delta: event.delta,
+                        ...(event.contentIndex === undefined ? {} : { contentIndex: event.contentIndex }),
+                    },
+                });
+                return;
+            case "completed":
+                this.publishExecutionEvent(input, {
+                    kind: "model_completed",
+                    visibility: "public",
+                    durability: "live",
+                    delivery: "control",
+                    payload: { hasToolCalls: (event.response.toolCalls?.length ?? 0) > 0 },
+                });
+                return;
+        }
+    }
+
+    private publishExecutionEvent(
+        input: StepExecutionInput,
+        event: Omit<ExecutionStreamEventDraft, "goalId" | "runId">,
+    ): void {
+        const publisher = input.executionStream;
+        if (publisher === undefined) return;
+        try {
+            publisher.publish({
+                goalId: input.goal.id,
+                runId: input.goal.state.run.id,
+                ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+                ...event,
+            });
+        } catch {
+            // 流是观察通道；发布故障不得改变 Agent 决策语义。
+        }
     }
 }

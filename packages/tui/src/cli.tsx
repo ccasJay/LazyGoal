@@ -96,6 +96,10 @@ import {
 } from "./index";
 import { StatusSpinner } from "./status-spinner";
 import type { SessionLauncher, UiError, UiScreen } from "./types";
+import {
+    InMemoryExecutionStreamPublisher,
+    type ExecutionStreamPublisher,
+} from "../../execution-stream/src/index";
 
 /** 默认 Profile 的稳定标识。 */
 const DEFAULT_PROFILE_ID = "default";
@@ -510,6 +514,8 @@ export interface CompositionRoot {
     readonly workingMemoryLimits: WorkingMemoryLimits;
     /** Coordinator 与 Runner 共享的 Trajectory/Snapshot 提交器。 */
     readonly checkpointCommitter: TrajectoryCheckpointCommitter;
+    /** 当前进程内 Goal/Run 执行事件的通用发布器。 */
+    readonly executionStream: ExecutionStreamPublisher;
     /**
      * 只读读取指定 Goal/Run 的轨迹，并以最新 Snapshot 边界分类 committed/tail。
      * @param query - Goal、Run 与可选序列范围。
@@ -753,6 +759,8 @@ export async function createCompositionRoot(
         trajectoryStore,
         traceSink,
     });
+    const executionStream = new InMemoryExecutionStreamPublisher();
+    resources.register({ close: () => executionStream.dispose() });
     const toolPolicy = options.toolPolicy ?? createDefaultToolPolicy();
     const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
@@ -795,6 +803,7 @@ export async function createCompositionRoot(
         protocolValidator,
         checkpointCommitter,
         contextLookupPort: contextLookupService,
+        executionStream,
     });
     const scheduler = new InlineScheduler(runner);
     const coordinator = new GoalCoordinator({
@@ -807,6 +816,7 @@ export async function createCompositionRoot(
         protocolValidator,
         checkpointCommitter,
         contextLookupPort: contextLookupService,
+        executionStream,
     });
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -929,6 +939,7 @@ export async function createCompositionRoot(
         modelRestorer,
         defaultModelId: defaultModelSelection.modelId,
         defaultModelSelection,
+        executionStream,
     });
     const shutdownCoordinator = new ShutdownCoordinator({
         checkpointStore,
@@ -969,6 +980,7 @@ export async function createCompositionRoot(
         protocolValidator,
         workingMemoryLimits,
         checkpointCommitter,
+        executionStream,
         readTrajectory,
         checkpointStore,
         resources,

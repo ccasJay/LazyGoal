@@ -12,6 +12,7 @@ import {
     type ResumeGoalRequest,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
+import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import {
     SessionController,
     type SessionControllerDependencies,
@@ -121,6 +122,7 @@ function createDependencies(options: {
     readonly initialGoal?: Goal;
     readonly scheduler: FakeScheduler;
     readonly stepResult?: (goal: Goal) => GoalProgressResult;
+    readonly executionStream?: InMemoryExecutionStreamPublisher;
 }): {
     readonly dependencies: SessionControllerDependencies;
     readonly goals: Map<string, Goal>;
@@ -182,12 +184,90 @@ function createDependencies(options: {
         goalIdGenerator: () => "goal-thinking-generated",
         transcriptScheduler: options.scheduler,
         ...(options.initialGoal !== undefined ? { initialGoal: options.initialGoal } : {}),
+        ...(options.executionStream === undefined ? {} : { executionStream: options.executionStream }),
     };
 
     return { dependencies, goals };
 }
 
 describe("思考推演流实时接入 TUI 与审批抽屉联动", () => {
+    it("通用 ExecutionStream 事件即时更新模型尾部、Tool 活动和提交清理", () => {
+        const scheduler = new FakeScheduler();
+        const goal = createExecutingGoal("goal-execution-stream");
+        const publisher = new InMemoryExecutionStreamPublisher();
+        const { dependencies } = createDependencies({
+            initialGoal: goal,
+            scheduler,
+            executionStream: publisher,
+        });
+        const controller = new SessionController(dependencies);
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        publisher.publish({
+            ...ref,
+            executionUnitId: "step-1",
+            kind: "step_started",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { stepCount: 1 },
+        });
+        let vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.liveActivity?.label, "Starting step 1");
+
+        publisher.publish({
+            ...ref,
+            executionUnitId: "step-1",
+            kind: "assistant_text_delta",
+            visibility: "public",
+            durability: "live",
+            delivery: "delta",
+            coalescingKey: "assistant:step-1",
+            payload: { text: "Inspecting files..." },
+        });
+        vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.streamingTail?.content, "Inspecting files...");
+        assert.equal(vm.liveActivity?.kind, "model");
+
+        publisher.publish({
+            ...ref,
+            executionUnitId: "step-1",
+            actionId: "action-1",
+            kind: "tool_started",
+            visibility: "public",
+            durability: "trajectory",
+            delivery: "control",
+            payload: { toolId: "bash", actionId: "action-1" },
+        });
+        publisher.publish({
+            ...ref,
+            executionUnitId: "step-1",
+            actionId: "action-1",
+            kind: "tool_output_delta",
+            visibility: "diagnostic",
+            durability: "live",
+            delivery: "delta",
+            coalescingKey: "tool:action-1:stdout",
+            payload: { channel: "stdout", text: "hello\n" },
+        });
+        vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.liveActivity?.toolId, "bash");
+        assert.equal(vm.liveActivity?.output, "hello\n");
+
+        publisher.publish({
+            ...ref,
+            executionUnitId: "step-1",
+            kind: "step_committed",
+            visibility: "public",
+            durability: "checkpoint",
+            delivery: "control",
+            payload: { committedThroughSequence: 1 },
+        });
+        vm = controller.getSnapshot() as UiSessionViewModel;
+        assert.equal(vm.liveActivity, undefined);
+        controller.dispose();
+    });
+
     it("需求 4.1: 模型思考增量实时同步至 Transcript 并驱动动态 streamingTail 渲染", () => {
         const scheduler = new FakeScheduler();
         const initialGoal = createExecutingGoal("goal-stream-thinking");

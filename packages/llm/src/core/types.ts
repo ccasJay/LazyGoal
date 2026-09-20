@@ -170,3 +170,30 @@ export interface LLMResponse {
     /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */
     readonly providerMetadata?: JsonValue;
 }
+
+/**
+ * 供应商无关的模型流事件。
+ *
+ * @remarks
+ * `completed` 携带与 `generate()` 相同的最终响应；其它事件只描述生成过程，
+ * 不参与 AgentDecision 解析。工具调用参数可能是不完整 JSON，调用方不得直接
+ * 将其作为可执行 Action 使用。
+ *
+ * @example
+ * ```ts
+ * const event: LLMStreamEvent = {
+ *     kind: "assistant_text_delta",
+ *     text: "正在检查文件...",
+ * };
+ * ```
+ */
+export type LLMStreamEvent =
+    | { readonly kind: "started" }
+    | { readonly kind: "assistant_text_delta"; readonly text: string }
+    | { readonly kind: "reasoning_delta"; readonly text: string }
+    | {
+        readonly kind: "model_tool_call_delta";
+        readonly delta: string;
+        readonly contentIndex?: number;
+    }
+    | { readonly kind: "completed"; readonly response: LLMResponse };

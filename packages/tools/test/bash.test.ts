@@ -80,6 +80,41 @@ test("BashTool 执行成功命令并声明 manual replay", async () => {
     }
 });
 
+test("BashTool 流式产出 stdout/stderr 分片并以 Observation 结算", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
+
+    try {
+        const events = [] as Awaited<ReturnType<AsyncIterator<unknown>["next"]>>[];
+        const stream = new BashTool(workspaceRoot).stream({
+            actionId: "action-stream",
+            input: { command: "printf out; printf err >&2" },
+        });
+        for await (const event of stream) events.push({ value: event, done: false });
+
+        const values = events.map((entry) => entry.value as {
+            kind: "output" | "completed";
+            channel?: "stdout" | "stderr";
+            text?: string;
+            observation?: { kind: string };
+        });
+        const output = values.filter((event) => event.kind === "output");
+        assert.deepEqual(
+            output.reduce<Record<string, string>>((result, event) => {
+                if (event.channel !== undefined && event.text !== undefined) {
+                    result[event.channel] = (result[event.channel] ?? "") + event.text;
+                }
+                return result;
+            }, {}),
+            { stdout: "out", stderr: "err" },
+        );
+        const completed = values.filter((event) => event.kind === "completed");
+        assert.equal(completed.length, 1);
+        assert.equal(completed[0]?.observation?.kind, "success");
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
+    }
+});
+
 test("BashTool 以 workspaceRoot 真实路径作为 cwd", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-bash-"));
 

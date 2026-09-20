@@ -308,6 +308,17 @@ function SessionStatus({ session, onToggleExecutionMode }: SessionStatusProps): 
                     Last Observation: [{session.lastCommittedObservation.toolId}] {session.lastCommittedObservation.status}
                 </Text>
             ) : null}
+            {session.liveActivity !== undefined ? (
+                <Box flexDirection="column">
+                    <Text color="yellow">
+                        {session.liveActivity.label}
+                        {session.liveActivity.toolId === undefined ? "" : ` [${session.liveActivity.toolId}]`}
+                    </Text>
+                    {session.liveActivity.output === undefined || session.liveActivity.output.length === 0
+                        ? null
+                        : <Text color="gray">{session.liveActivity.output}</Text>}
+                </Box>
+            ) : null}
             {isActiveRun(session)
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}

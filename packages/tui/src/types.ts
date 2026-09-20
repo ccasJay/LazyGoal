@@ -18,6 +18,7 @@ import type {
 import type { AskUserAnswer, AskUserQuestion } from "../../contracts/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
+import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 
 /** Controller 在已有异步操作期间拒绝新命令时使用的稳定错误码。 */
 export const UI_BUSY_CODE = "UI_BUSY" as const;
@@ -503,6 +504,40 @@ export interface UiSessionViewModel {
      * ```
      */
     readonly streamingTail?: UiStreamingTail;
+    /** 当前执行流正在发生的 Step/模型/Tool 活动，用于动态尾部渲染。 */
+    readonly liveActivity?: UiExecutionActivity;
+}
+
+/**
+ * 执行流适配器向 Session 页面提供的瞬时活动摘要。
+ *
+ * @remarks
+ * 该摘要只来自实时事件，不作为 Goal Snapshot 或 Trajectory 的恢复事实；重新
+ * 打开会话时由已提交快照重新建立历史，新的实时事件再建立活动摘要。
+ *
+ * @example
+ * ```ts
+ * const activity: UiExecutionActivity = {
+ *   kind: "tool",
+ *   executionUnitId: "step-1",
+ *   label: "Running bash",
+ *   toolId: "bash",
+ * };
+ * ```
+ */
+export interface UiExecutionActivity {
+    /** 当前活动属于 Step、模型生成还是 Tool 执行。 */
+    readonly kind: "step" | "model" | "tool";
+    /** 关联 Runtime Step 的稳定标识。 */
+    readonly executionUnitId: string;
+    /** 面向 UI 的当前阶段标签。 */
+    readonly label: string;
+    /** Tool 标识；仅 Tool 活动提供。 */
+    readonly toolId?: string;
+    /** Action 标识；若事件携带则提供。 */
+    readonly actionId?: string;
+    /** 最近收到的 Tool 输出尾部，受 Controller 的固定字符上限约束。 */
+    readonly output?: string;
 }
 
 /**
@@ -828,6 +863,8 @@ export interface SessionControllerDependencies {
      * ```
      */
     readonly transcriptScheduler?: import("./streaming-transcript-controller.js").TranscriptScheduler | undefined;
+    /** 可选的 Goal/Run 通用执行流；TUI 只消费事件，不拥有 Runtime 语义。 */
+    readonly executionStream?: ExecutionStreamPublisher;
 }
 
 /**
