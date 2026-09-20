@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `benchmarks/tua-bench/test/environment-spec.test.ts`（伪 EnvironmentHandle）；待实现的 `benchmarks/src/test/isolated-environment-network.test.ts` 验证网络模式默认值和新 Spec 的查询分发
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 实现 TUA-Bench Worker 入口与 bash_exec 工具
+- [x] //TODO 3. 实现 TUA-Bench Worker 入口与 bash_exec 工具
 
   - 实现目标：在 `benchmarks/tua-bench/src/` 下创建 `worker-entry.ts` 和 `bash-exec-tool.ts`；Worker 注册 `bash_exec` 工具，Agent 通过 shell 命令与容器终端交互
   - 成功判据：`bash_exec` 接收命令字符串，返回 stdout、stderr 和 exitCode；输出超过 100KB 自动截断；超时命令返回超时错误和已收集的部分输出；Worker 使用共享 WorkerBuilder 构建，与现有 benchmark Worker 独立
