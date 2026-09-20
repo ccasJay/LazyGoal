@@ -7,7 +7,7 @@
   - 验证方式：待实现的依赖元数据、公开接口和启动副作用隔离测试；运行 package 声明的 Python 测试入口。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 2. 实现配置与单任务数据集校验
+- [x] //TODO 2. 实现配置与单任务数据集校验
 
   - 实现目标：定义无秘密配置和单任务样本模型，完成 ALFWorld/GAIA batch 的身份、benchmark、路径与公共 Manifest envelope 预检。
   - 成功判据：有效单任务样本通过；重复样本/task、跨基准、缺失文件、多任务或 task ID 不匹配在评测子进程前失败。

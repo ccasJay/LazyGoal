@@ -13,6 +13,7 @@
 | 官方 GEPA 直接依赖 | 精确锁定 `gepa==0.1.4` 并实现其公开 adapter 接口，不复制优化算法 | GEPA 负责完整进化循环；升级必须先通过兼容性测试 |
 | CLI 协议隔离 | Python 只调用 `lazygoal eval prompt` 并读取 `prompt-evaluation@1`，不导入 TypeScript 内部模块 | adapter 与 LazyGoal 内部结构解耦，依赖前置 Prompt Evaluation Spec |
 | 单样本单任务 | 每个 GEPA 样本引用一个单任务 Manifest，一次子进程只评测一个样本 | score、结果和 Attempt 可一一对应；首版执行成本较高但边界确定 |
+| 显式 benchmark 身份 | 每个样本携带 benchmark ID，且必须与运行配置一致 | 跨 benchmark 输入在读取 Manifest 后、启动评测前明确失败 |
 | 固定组件编码 | `system_prompt` 加连续 `instruction_NNN` 无损映射 Profile Prompt | 支持独立进化多条 instruction，并拒绝含糊候选形状 |
 | 故障不计分 | 只有 `passed/failed` 转换为 `1.0/0.0`；协议、基础设施和取消抛异常 | 运行故障不会污染 Pareto 选择，但会终止当前 batch |
 | 权威摘要反思 | 反思仅使用 `result.json`、`domainResult` 与 Attempt/产物摘要，不解析原始 Trajectory | 反馈可审计且不复制 Runtime 提交语义；首版反思粒度受结果协议限制 |
@@ -80,11 +81,12 @@ class LazyGoalGEPAConfig:
 @dataclass(frozen=True)
 class LazyGoalEvaluationExample:
     sample_id: str
+    benchmark_id: Literal["alfworld", "gaia"]
     task_id: str
     manifest_path: Path
 ```
 
-配置不接受 token、API key 或环境变量内容。`DatasetValidator` 在 batch 执行前检查身份唯一性、benchmark 一致性和 Manifest 存在性，并只解析 ALFWorld/GAIA 共有的 JSON 顶层 `tasks` 数组与 task ID 字段，以确认恰有一个匹配任务；领域字段仍由 Prompt Evaluation 的 benchmark parser 校验。adapter 不复制领域 parser，也不导入 TypeScript 模块。（需求 2）
+配置不接受 token、API key 或环境变量内容。`DatasetValidator` 在 batch 执行前检查身份唯一性、样本 benchmark ID 与运行配置一致、Manifest 存在性，并只解析 ALFWorld/GAIA 共有的 JSON 顶层 `tasks` 数组与 task ID 字段，以确认恰有一个匹配任务；领域字段仍由 Prompt Evaluation 的 benchmark parser 校验。adapter 不复制领域 parser，也不导入 TypeScript 模块。（需求 2）
 
 ### CandidateCodec
 

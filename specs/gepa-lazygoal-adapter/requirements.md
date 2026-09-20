@@ -15,6 +15,7 @@
 
 - 官方 GEPA 拥有候选池、反思变异、选择和优化循环；adapter 只负责把 GEPA 样本及候选转换为 LazyGoal Prompt Evaluation 调用。
 - 一次优化运行只使用一个 benchmark；每个 GEPA 样本引用只包含一个任务的 Manifest，并与一个 LazyGoal task 结果一一对应。
+- 每个 GEPA 样本显式携带 benchmark ID，且必须与本次运行配置一致。
 - GEPA 候选以 `system_prompt` 和连续的 `instruction_000`、`instruction_001` 等组件无损映射为 LazyGoal 的 `systemPrompt` 与 `instructions[]`，未知或断号组件在启动评测前拒绝。
 - adapter 仅把权威 `result.json` 中的 `passed` 映射为 `1.0`、`failed` 映射为 `0.0`；协议、基础设施、取消及结果损坏必须终止当前 batch，不得伪造分数。
 - 开启 trace 时，adapter 使用权威 task 结果、`domainResult`、错误、用量和 Attempt/产物定位信息构造轻量轨迹；反思数据必须 JSON 可序列化且按请求更新的组件分组。
@@ -49,7 +50,7 @@
 #### 验收标准
 
 1. <a id="req-2-1"></a> 当创建一次 adapter 运行时，配置必须指定一个受支持的 benchmark、基准 Profile、模型配置身份、LazyGoal 可执行入口和输出目录，且不得包含模型密钥。
-2. <a id="req-2-2"></a> 当加载 ALFWorld 或 GAIA 数据集时，每个 GEPA 样本必须包含稳定样本 ID、task ID 和一个只描述该任务的 Manifest 路径。
+2. <a id="req-2-2"></a> 当加载 ALFWorld 或 GAIA 数据集时，每个 GEPA 样本必须包含稳定样本 ID、benchmark ID、task ID 和一个只描述该任务的 Manifest 路径。
 3. <a id="req-2-3"></a> 当 batch 中出现重复样本 ID、重复 task ID、跨 benchmark 样本、缺失 Manifest 或多任务 Manifest 时，adapter 必须在启动对应评测前拒绝该 batch。
 
 ### 需求 3：无损转换候选 Prompt
