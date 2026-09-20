@@ -11,9 +11,11 @@ dependencies = [
     "gepa==0.1.4",
 ]
 
+[project.scripts]
+lazygoal-gepa-smoke = "lazygoal_gepa.smoke:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.uv]
 package = true
-

@@ -104,6 +104,25 @@ class PromptEvaluationClientTests(unittest.TestCase):
         self.assertEqual(len(stdout_files), 1)
         self.assertEqual(stdout_files[0].stat().st_size, 64)
 
+    def test_redacts_inherited_secrets_and_records_safe_metadata(self) -> None:
+        secret = "provider-secret-that-must-not-be-persisted"
+        with patch.dict(os.environ, {"FAKE_PROVIDER_SECRET": secret}):
+            record = self._evaluate("echo_secret")
+
+        sample_directory = record.result_path.parents[2]
+        stderr = (sample_directory / "stderr.log").read_text(encoding="utf-8")
+        self.assertNotIn(secret, stderr)
+        self.assertIn("[REDACTED]", stderr)
+        metadata = json.loads(
+            (sample_directory.parent / "metadata.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(metadata["candidateId"], self.prompt.candidate_id)
+        self.assertEqual(metadata["invocationId"], sample_directory.parent.parent.name)
+
+        output_root = (self.root / "output").resolve()
+        for artifact in output_root.rglob("*"):
+            self.assertTrue(artifact.resolve().is_relative_to(output_root))
+
     def test_classifies_process_start_failure(self) -> None:
         self.executable.unlink()
 

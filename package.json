@@ -14,6 +14,8 @@
     "memory:check": "node scripts/project-memory.mjs check",
     "memory:index": "node scripts/project-memory.mjs write-index",
     "test:memory": "node --test scripts/project-memory.test.mjs",
+    "test:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen python -W error::ResourceWarning -m unittest discover -s prompt-evaluation/gepa/tests -v",
+    "smoke:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-smoke",
     "test": "node scripts/run-regression.mjs"
   },
   "keywords": [],

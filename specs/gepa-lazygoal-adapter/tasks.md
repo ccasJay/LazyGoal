@@ -42,7 +42,7 @@
   - 验证方式：待实现的 JSON 序列化/边界测试与官方 optimize 端到端集成测试；默认运行不使用 Docker、网络、真实模型或凭据。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 7. 接入仓库验证并提供显式真实链路 smoke
+- [x] //TODO 7. 接入仓库验证并提供显式真实链路 smoke
 
   - 实现目标：补齐敏感信息/产物目录检查，增加非默认 ALFWorld 或 GAIA 单任务 smoke，并接入仓库现有验证入口。
   - 成功判据：默认仓库回归包含 adapter 的无外部依赖测试；所有 adapter 产物限制在配置目录且不含秘密或完整 Diagnostic Trace；显式 smoke 通过真实 CLI 读取权威结果。
@@ -68,4 +68,18 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+整体状态：通过。
+
+| 验收范围 | 结果与证据 |
+|---|---|
+| 官方 GEPA adapter | Python 3.10 与 3.11 均通过 29 个测试；官方 `gepa.optimize()` fake 回路完成候选更新 |
+| 仓库回归 | `npm test` 通过：1178 个 TypeScript 测试、29 个 adapter 测试和 13 个 scripts 测试；依赖边界与类型检查通过 |
+| Benchmark 回归 | `npm --prefix benchmarks test` 通过 221 个测试；最终根回归额外覆盖 ALFWorld sidecar 生产路径 |
+| 真实链路 | `npm run smoke:gepa-adapter` 经真实 adapter、`lazygoal eval prompt`、Docker/ACP 和 ALFWorld 单任务返回 `passed`、score `1.0` |
+| 产物安全 | 配置目录约束、继承凭据脱敏测试和真实 smoke 产物秘密值扫描通过；反思数据只保留有界结果投影与产物定位器 |
+| 静态检查 | `git diff --check` 与 `uv lock --check` 通过 |
+
+时效：fresh；执行时间：2026-09-20T04:48:49Z。被测代码状态：基于
+`f8f2642e4804f109959ef2afb4d38803b3bf0933` 的 TODO 7 实现文件快照（不含本验证记录），
+文件摘要清单 SHA-256 为
+`6aadc752ad8236cf8766457da5d7297c71269c484cb3a5751aedaa70209c2c6f`。

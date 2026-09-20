@@ -17,6 +17,8 @@ def main():
 
     request_path = Path(sys.argv[4])
     request = json.loads(request_path.read_text(encoding="utf-8"))
+    if mode == "echo_secret":
+        sys.stderr.write(os.environ["FAKE_PROVIDER_SECRET"] + "\n")
     manifest = json.loads(
         Path(request["benchmark"]["manifestPath"]).read_text(encoding="utf-8")
     )

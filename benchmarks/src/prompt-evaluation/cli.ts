@@ -30,6 +30,11 @@ import {
 } from "./runner.js";
 import { PromptEvaluationResultRecorder } from "./result-recorder.js";
 
+/** Prompt Evaluation 生产接线使用的 ALFWorld sidecar 源文件。 */
+export const ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH = fileURLToPath(
+    new URL("../../alfworld/python/sidecar.py", import.meta.url),
+);
+
 /** `eval prompt` CLI 的可注入边界。 */
 export interface PromptEvaluationCliOptions {
     readonly cwd?: string;
@@ -223,7 +228,7 @@ async function createProductionRegistry(
         workspaceRoot,
         environment,
         workerArtifact,
-        sidecarScriptPath: fileURLToPath(new URL("../alfworld/python/sidecar.py", import.meta.url)),
+        sidecarScriptPath: ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,
     }));
 }
 

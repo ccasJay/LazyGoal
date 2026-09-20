@@ -100,6 +100,14 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 `prompt-evaluation:smoke` 使用确定性模型替身验证 CLI、容器、ACP、LLM RPC、领域评分和产物
 回收，不进入默认回归。
 
+[`prompt-evaluation/gepa`](../../prompt-evaluation/gepa/) 通过官方 `gepa==0.1.4` 实现外部
+优化适配。GEPA 负责候选搜索与反思；adapter 校验单任务 Manifest 和候选组件，按 batch
+顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
+取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
+后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
+有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
+ALFWorld 单任务 smoke 需显式运行且可能消耗模型额度。
+
 模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
 `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，
 缺失时字段缺省），随 Diagnostic Trace 逐调用落盘；Headless Root 按 run 累计

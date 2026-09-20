@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
-import { runPromptEvaluationCli } from "../../src/prompt-evaluation/cli.js";
+import {
+    ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,
+    runPromptEvaluationCli,
+} from "../../src/prompt-evaluation/cli.js";
 import {
     PromptEvaluationBenchmarkRegistry,
     type PromptEvaluationBenchmarkAdapter,
@@ -29,6 +32,14 @@ const llmAdapter: LLMAdapter = {
     structuredOutputMode: "strict",
     async generate() { throw new Error("not used"); },
 };
+
+test("Prompt Evaluation production wiring resolves the ALFWorld sidecar", async () => {
+    assert.match(
+        ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,
+        /\/benchmarks\/alfworld\/python\/sidecar\.py$/u,
+    );
+    await access(ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH);
+});
 
 test("Prompt Evaluation CLI maps domain failure to success and commits terminal result path", async (t) => {
     const fixture = await createFixture(t);

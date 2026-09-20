@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +30,11 @@ from .protocol import (
 
 _DEFAULT_CAPTURE_LIMIT = 1_048_576
 _TERMINATION_GRACE_SECONDS = 2.0
+_SECRET_ENV_NAME = re.compile(
+    r"(?:^|_)(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)",
+    re.IGNORECASE,
+)
+_REDACTION_MARKER = b"[REDACTED]"
 
 
 @dataclass(frozen=True)
@@ -98,8 +104,12 @@ class PromptEvaluationClient:
             raise PromptEvaluationCancelled(
                 self._context(example, "LazyGoal evaluation was cancelled")
             ) from error
-        (sample_directory / "stdout.ndjson").write_bytes(process_result.stdout.data)
-        (sample_directory / "stderr.log").write_bytes(process_result.stderr.data)
+        (sample_directory / "stdout.ndjson").write_bytes(
+            _redact_environment_secrets(process_result.stdout.data)
+        )
+        (sample_directory / "stderr.log").write_bytes(
+            _redact_environment_secrets(process_result.stderr.data)
+        )
 
         if process_result.stdout.overflowed or process_result.stderr.overflowed:
             raise PromptEvaluationProtocolError(
@@ -355,6 +365,18 @@ def _read_bounded(stream: BinaryIO, limit: int) -> _CapturedStream:
         if len(chunk) > max(remaining, 0):
             overflowed = True
     return _CapturedStream(bytes(captured), overflowed)
+
+
+def _redact_environment_secrets(data: bytes) -> bytes:
+    redacted = data
+    values = {
+        value.encode("utf-8")
+        for name, value in os.environ.items()
+        if _SECRET_ENV_NAME.search(name) and value
+    }
+    for value in sorted(values, key=len, reverse=True):
+        redacted = redacted.replace(value, _REDACTION_MARKER)
+    return redacted
 
 
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
