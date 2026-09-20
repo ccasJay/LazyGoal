@@ -11,6 +11,7 @@ import type {
     TuaBenchDomainResult,
     TuaBenchTaskDefinition,
 } from "./types.js";
+import { evaluateTuaBenchReward, parseRewardFile } from "./scoring.js";
 
 /**
  * 创建 TuaBenchEnvironmentSpec 所需的构造选项。
@@ -143,11 +144,10 @@ export class TuaBenchEnvironmentSpec
 
         if (rewardReadResult.code === 0 && rewardReadResult.stdout.trim().length > 0) {
             rewardRaw = rewardReadResult.stdout.trim();
-            const parsed = parseFloat(rewardRaw);
-            if (!Number.isNaN(parsed)) {
-                reward = parsed;
-            } else {
-                verifierError = `Invalid reward content: ${rewardRaw}`;
+            const parsed = parseRewardFile(rewardRaw);
+            reward = parsed.reward;
+            if (reward === null) {
+                verifierError = parsed.error ?? "Invalid reward content";
             }
         } else {
             verifierError = execResult.code !== 0
@@ -155,15 +155,12 @@ export class TuaBenchEnvironmentSpec
                 : "Reward file /logs/verifier/reward.txt not found or empty";
         }
 
-        const passed = reward !== null ? reward >= 1.0 : null;
-
-        const domainResult: TuaBenchDomainResult = {
-            taskFamily: this.task.taskFamily,
-            passed,
+        const domainResult = evaluateTuaBenchReward(
             reward,
-            verifierOutput: execResult.stdout || null,
+            execResult.stdout || null,
             verifierError,
-        };
+            this.task.taskFamily,
+        );
 
         return {
             reward,

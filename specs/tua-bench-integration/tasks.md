@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `benchmarks/tua-bench/test/bash-exec-tool.test.ts`；覆盖正常执行、输出截断、超时三个场景
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 4. 实现评分集成与 domainResult
+- [x] //TODO 4. 实现评分集成与 domainResult
 
   - 实现目标：在 `collectArtifacts` 中以 verifierUser 身份执行 `tests/test.sh`，从 `/logs/verifier/reward.txt` 读取评分结果，映射为 `TuaBenchDomainResult`；创建独立 `grade` 入口
   - 成功判据：reward ≥ 1.0 映射为 `passed: true`，低于 1.0 为 `passed: false`；验证脚本失败或 reward 文件不存在时 `verifierError` 非空且 `passed` 为 null；`grade` 入口读取已有 Attempt 记录并重跑验证，不触发模型调用
