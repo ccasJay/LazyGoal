@@ -18,6 +18,7 @@ from .errors import (
     PromptEvaluationCancelled,
     PromptEvaluationInfrastructureError,
     PromptEvaluationProtocolError,
+    ReflectiveDatasetError,
 )
 from .invocation import InvocationContext, InvocationDirectoryManager
 from .models import BenchmarkId, LazyGoalEvaluationExample, LazyGoalGEPAConfig
@@ -45,5 +46,6 @@ __all__ = [
     "PromptEvaluationClient",
     "PromptEvaluationInfrastructureError",
     "PromptEvaluationProtocolError",
+    "ReflectiveDatasetError",
     "ensure_gepa_compatibility",
 ]

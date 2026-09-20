@@ -41,6 +41,14 @@ def main():
     task_status = "failed" if mode == "failed" else "passed"
     if mode == "status_by_task":
         task_status = "passed" if task_id.endswith("pass") else "failed"
+    elif mode == "score_if_improved":
+        component_texts = [request["candidate"]["systemPrompt"]]
+        component_texts.extend(request["candidate"]["instructions"])
+        task_status = (
+            "passed"
+            if any("improved" in text for text in component_texts)
+            else "failed"
+        )
     exit_code = 0
     if mode == "infrastructure":
         result_status = "infrastructure_error"
@@ -54,6 +62,15 @@ def main():
         exit_code = 1
 
     authoritative = task_status in ("passed", "failed")
+    domain_result = (
+        {
+            "success": task_status == "passed",
+            "detail": "x" * 5000,
+            "items": list(range(80)),
+        }
+        if mode == "large_domain"
+        else {"success": task_status == "passed"}
+    )
     result = {
         "protocol": "prompt-evaluation@1",
         "evaluationId": evaluation_id,
@@ -77,9 +94,7 @@ def main():
             {
                 "taskId": "other-task" if mode == "task_mismatch" else task_id,
                 "status": task_status,
-                "domainResult": {"success": task_status == "passed"}
-                if authoritative
-                else None,
+                "domainResult": domain_result if authoritative else None,
                 "attemptPath": str(output_directory / "attempt.json")
                 if authoritative
                 else None,

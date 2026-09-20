@@ -35,7 +35,7 @@
   - 验证方式：待实现的 adapter batch、状态映射、顺序执行、故障停止和取消清理测试。
   - _Requirements: [4.3](./requirements.md#req-4-3), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 6. 实现反思数据与官方 optimize 集成测试
+- [x] //TODO 6. 实现反思数据与官方 optimize 集成测试
 
   - 实现目标：实现有界 JSON-safe 轻量 trajectory 和 `make_reflective_dataset()`，并以官方 `gepa.optimize()`、fake CLI、fake reflection LM 验证完整 adapter 回路。
   - 成功判据：每个请求组件获得逐样本 Inputs/Generated Outputs/Feedback/Score/Artifacts；未知组件和缺失 trace 明确失败；最小优化运行可观察到候选经评测、反思后发生更新。

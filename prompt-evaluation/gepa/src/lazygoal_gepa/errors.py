@@ -31,3 +31,7 @@ class PromptEvaluationInfrastructureError(LazyGoalGEPAError):
 
 class PromptEvaluationCancelled(LazyGoalGEPAError):
     """Raised when the current LazyGoal evaluation is cancelled."""
+
+
+class ReflectiveDatasetError(LazyGoalGEPAError):
+    """Raised when evaluation evidence cannot form a reflective dataset."""
