@@ -137,6 +137,17 @@ export interface EnvironmentSpec<TTask, TArtifact> {
     resolveImage(task: TTask): ImageSource;
     /** 提供共享 Worker 产物及其容器启动参数。 */
     getWorkerEntryConfig(task: TTask): WorkerEntryConfig;
+    /**
+     * 解析任务所需的容器网络隔离模式。
+     *
+     * @remarks
+     * 默认返回 "none"，容器在完全网络隔离下运行；特定 Benchmark（如 TUA-Bench 的 live-web 任务）
+     * 可返回 "bridge" 以允许访问外部网络。未实现此方法的 Spec 保持 "none" 默认值。
+     *
+     * @param task - 待执行的任务。
+     * @returns "none" 或 "bridge"。
+     */
+    resolveNetworkMode?(task: TTask): "none" | "bridge";
     /** 在 ACP 作答前准备领域依赖、数据和工作区。 */
     prepareEnvironment(env: EnvironmentHandle): Promise<void>;
     /** 在模型调用前验证领域运行时可用性。 */
@@ -403,7 +414,8 @@ export class IsolatedEnvironment {
                         await options.container.start(controller.signal);
                     } else {
                         await this.prepareImage(image, imageRef, platform, controller.signal, (value) => { imageId = value; });
-                        await this.createAndStart(containerName, imageId!, platform, workdir, controller.signal);
+                        const networkMode = options.spec.resolveNetworkMode?.(options.task) ?? "none";
+                        await this.createAndStart(containerName, imageId!, platform, workdir, networkMode, controller.signal);
                     }
                     if (options.container?.imageId !== undefined) imageId = options.container.imageId;
                     created = true;
@@ -666,10 +678,10 @@ export class IsolatedEnvironment {
         }
     }
 
-    private async createAndStart(name: string, imageId: string, platform: string, workdir: string, signal: AbortSignal): Promise<void> {
+    private async createAndStart(name: string, imageId: string, platform: string, workdir: string, networkMode: "none" | "bridge", signal: AbortSignal): Promise<void> {
         try {
             requireSuccess(await this.runProcess("docker", ["create", "--name", name, "--platform", platform,
-                "--network", "none", "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
+                "--network", networkMode, "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
                 "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--workdir", workdir,
                 "--entrypoint", "/bin/bash", imageId, "-c", "sleep infinity"], { timeoutMs: 60_000, signal }), "Create isolated container");
             requireSuccess(await this.runProcess("docker", ["start", name], { timeoutMs: 60_000, signal }), "Start isolated container");

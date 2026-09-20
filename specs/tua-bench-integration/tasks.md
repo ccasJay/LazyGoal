@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `benchmarks/tua-bench/test/manifest-loader.test.ts`；使用 fixture task.toml 和 instruction.md 覆盖正常解析、字段缺失默认值、TOML 错误跳过三个场景
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3)_
 
-- [ ] //TODO 2. 实现 TuaBenchEnvironmentSpec 与容器网络策略
+- [x] //TODO 2. 实现 TuaBenchEnvironmentSpec 与容器网络策略
 
   - 实现目标：在 `benchmarks/tua-bench/src/` 下创建 `environment-spec.ts`，实现 `EnvironmentSpec<TuaBenchTaskDefinition, TuaBenchCollectedArtifacts>`；在 `IsolatedEnvironment` 中新增可选 `resolveNetworkMode` 查询，默认 `"none"` 保持向后兼容
   - 成功判据：`resolveImage` 返回 custom 模式的任务镜像引用；`resolveNetworkMode` 按 task.toml 的 networkMode 返回 `"none"` 或 `"bridge"`；`preflight` 验证容器内 `tests/test.sh` 存在且可执行；`IsolatedEnvironment` 创建容器时使用 Spec 声明的网络模式；未实现 `resolveNetworkMode` 的现有 Spec 行为不变
