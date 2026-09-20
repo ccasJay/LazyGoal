@@ -144,3 +144,4 @@ export interface TuaBenchCollectedArtifacts {
     /** 映射的领域结果对象。 */
     readonly domainResult: TuaBenchDomainResult;
 }
+

@@ -115,7 +115,28 @@ export class BashExecTool implements Tool<typeof BASH_EXEC_INPUT_CONTRACT> {
         this.defaultTimeoutMs = options.defaultTimeoutMs ?? BASH_EXEC_DEFAULT_TIMEOUT_MS;
     }
 
-    validateInput(input: unknown): ToolValidationResult<BashExecInput> {
+    /**
+     * 校验已通过 Input Contract 的结构化输入语义。
+     */
+    validate(input: BashExecInput): ToolValidationResult {
+        if (input.command.trim().length === 0) {
+            return invalidInput("command 必须为非空字符串");
+        }
+        if (input.timeoutMs !== undefined) {
+            if (typeof input.timeoutMs !== "number" || !Number.isInteger(input.timeoutMs) || input.timeoutMs <= 0 || input.timeoutMs > BASH_EXEC_MAX_TIMEOUT_MS) {
+                return invalidInput("timeoutMs 必须为正整数且不超过上限");
+            }
+        }
+        if (input.workdir !== undefined && typeof input.workdir !== "string") {
+            return invalidInput("workdir 必须为有效字符串路径");
+        }
+        return { ok: true };
+    }
+
+    /**
+     * 兼容测试的未定型输入校验辅助方法。
+     */
+    validateInput(input: unknown): ToolValidationResult & { value?: BashExecInput } {
         if (input === null || typeof input !== "object") {
             return invalidInput("输入必须为非空对象");
         }
@@ -123,14 +144,12 @@ export class BashExecTool implements Tool<typeof BASH_EXEC_INPUT_CONTRACT> {
         if (typeof record.command !== "string" || record.command.trim().length === 0) {
             return invalidInput("command 必须为非空字符串");
         }
-        if (record.timeoutMs !== undefined) {
-            if (typeof record.timeoutMs !== "number" || !Number.isInteger(record.timeoutMs) || record.timeoutMs <= 0) {
-                return invalidInput("timeoutMs 必须为正整数");
-            }
-        }
-        if (record.workdir !== undefined && typeof record.workdir !== "string") {
-            return invalidInput("workdir 必须为有效字符串路径");
-        }
+        const validated = this.validate({
+            command: record.command,
+            ...(typeof record.timeoutMs === "number" ? { timeoutMs: record.timeoutMs } : {}),
+            ...(typeof record.workdir === "string" ? { workdir: record.workdir } : {}),
+        });
+        if (!validated.ok) return validated;
         return {
             ok: true,
             value: {
@@ -197,17 +216,34 @@ export class BashExecTool implements Tool<typeof BASH_EXEC_INPUT_CONTRACT> {
                 const truncatedStdout = truncateOutput(stdoutAccum);
                 const truncatedStderr = truncateOutput(stderrAccum);
 
-                const data: BashExecOutputData = {
-                    stdout: truncatedStdout,
-                    stderr: truncatedStderr,
-                    exitCode,
-                    ...(errorMsg !== undefined ? { error: errorMsg } : {}),
-                };
+                if (timedOut) {
+                    promiseResolve({
+                        kind: "failure",
+                        code: "COMMAND_TIMEOUT",
+                        message: errorMsg ?? `Command timed out after ${timeoutMs}ms`,
+                        retryable: true,
+                    });
+                    return;
+                }
+
+                if (exitCode === 0) {
+                    promiseResolve({
+                        kind: "success",
+                        output: {
+                            stdout: truncatedStdout,
+                            stderr: truncatedStderr,
+                            exitCode: 0,
+                        },
+                        summary: "命令执行成功",
+                    });
+                    return;
+                }
 
                 promiseResolve({
-                    actionId: request.actionId,
-                    isSuccess: !timedOut && exitCode === 0,
-                    data,
+                    kind: "failure",
+                    code: "COMMAND_FAILED",
+                    message: errorMsg ?? (truncatedStderr.trim().length > 0 ? truncatedStderr : `Command exited with code ${exitCode}`),
+                    retryable: true,
                 });
             };
 

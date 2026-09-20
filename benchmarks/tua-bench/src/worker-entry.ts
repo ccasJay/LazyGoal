@@ -119,7 +119,7 @@ export async function runTuaBenchAcpTask(
     const workspaceRoot = options.workspaceRoot ?? "/home/agent";
     const stateRoot = options.stateRoot ?? "/opt/lazygoal/state";
 
-    const adapter = new TuaBenchWorkerAdapter(workspaceRoot);
+    const adapter = new TuaBenchWorkerAdapter({ workdir: workspaceRoot });
     const persistence = new JsonFileBenchmarkPersistenceAdapter<TuaBenchTaskDefinition>({
         rootDirectory: stateRoot,
         namespaceFor: (t) => t.taskId,

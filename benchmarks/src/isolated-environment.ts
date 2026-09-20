@@ -630,7 +630,9 @@ export class IsolatedEnvironment {
         const inspected = inspectResult.stdout.trim();
         const [imageId, actualPlatform] = inspected.split("\t");
         if (!/^sha256:[a-f0-9]{64}$/u.test(imageId ?? "")) throw new Error("Docker returned an invalid image identity");
-        if (actualPlatform !== undefined && actualPlatform !== platform) throw new Error(`Isolated image platform mismatch: expected ${platform}, received ${actualPlatform}`);
+        if (actualPlatform !== undefined && actualPlatform !== "/" && actualPlatform.trim().length > 1 && actualPlatform !== platform) {
+            throw new Error(`Isolated image platform mismatch: expected ${platform}, received ${actualPlatform}`);
+        }
         receive(imageId!);
     }
 
@@ -785,8 +787,15 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
 
 async function drainDiagnostics(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader();
+    const decoder = new TextDecoder();
     try {
-        while (!(await reader.read()).done) { /* diagnostics are bounded by ProcessRunner */ }
+        while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            if (process.env.DEBUG_BENCHMARK_WORKER) {
+                process.stderr.write(decoder.decode(chunk.value));
+            }
+        }
     } catch {
         // Worker exit and transport failures are reported through their owning promises.
     } finally {

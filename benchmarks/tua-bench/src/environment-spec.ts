@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import type {
     EnvironmentHandle,
     EnvironmentSpec,
@@ -89,6 +91,26 @@ export class TuaBenchEnvironmentSpec
      * 执行容器初始化 setup 脚本。
      */
     async prepareEnvironment(env: EnvironmentHandle): Promise<void> {
+        const taskDir = this.task.taskDir;
+        if (taskDir) {
+            const hostSetup = path.join(taskDir, "environment", "setup.sh");
+            const hostTest = path.join(taskDir, "tests", "test.sh");
+            const setupExists = await stat(hostSetup).then(() => true).catch(() => false);
+            if (setupExists) {
+                await env.exec("mkdir -p environment");
+                const targetSetup = path.posix.join(env.workdir, "environment", "setup.sh");
+                await env.copyInto(hostSetup, targetSetup);
+                await env.exec(`chmod +x ${targetSetup}`);
+            }
+            const testExists = await stat(hostTest).then(() => true).catch(() => false);
+            if (testExists) {
+                await env.exec("mkdir -p tests");
+                const targetTest = path.posix.join(env.workdir, "tests", "test.sh");
+                await env.copyInto(hostTest, targetTest);
+                await env.exec(`chmod +x ${targetTest}`);
+            }
+        }
+
         const setupScript = this.task.setupScript ?? "environment/setup.sh";
         // 若容器内存在 setup 脚本则执行，镜像预构建完成时可平滑跳过
         await env.exec(`if [ -f "${setupScript}" ]; then bash "${setupScript}"; fi`);

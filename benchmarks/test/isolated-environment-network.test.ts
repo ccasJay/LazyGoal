@@ -108,3 +108,4 @@ test("实现 resolveNetworkMode 返回 none 时容器使用 network none 创建"
     assert.notEqual(netIndex, -1);
     assert.equal(create.args[netIndex + 1], "none");
 });
+

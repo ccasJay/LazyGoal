@@ -119,3 +119,4 @@ describe("TuaBenchEnvironmentSpec", () => {
         assert.equal(artifacts.domainResult.verifierError, null);
     });
 });
+
