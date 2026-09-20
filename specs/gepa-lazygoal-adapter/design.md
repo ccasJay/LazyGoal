@@ -14,7 +14,7 @@
 | CLI 协议隔离 | Python 只调用 `lazygoal eval prompt` 并读取 `prompt-evaluation@1`，不导入 TypeScript 内部模块 | adapter 与 LazyGoal 内部结构解耦，依赖前置 Prompt Evaluation Spec |
 | 单样本单任务 | 每个 GEPA 样本引用一个单任务 Manifest，一次子进程只评测一个样本 | score、结果和 Attempt 可一一对应；首版执行成本较高但边界确定 |
 | 显式 benchmark 身份 | 每个样本携带 benchmark ID，且必须与运行配置一致 | 跨 benchmark 输入在读取 Manifest 后、启动评测前明确失败 |
-| 固定组件编码 | `system_prompt` 加连续 `instruction_NNN` 无损映射 Profile Prompt | 支持独立进化多条 instruction，并拒绝含糊候选形状 |
+| 固定组件编码 | 非空 `system_prompt` 加至少一个从 `instruction_000` 开始连续编号的非空组件，无损映射 Profile Prompt | 支持独立进化多条 instruction，并在 CLI 请求前拒绝不兼容形状 |
 | 故障不计分 | 只有 `passed/failed` 转换为 `1.0/0.0`；协议、基础设施和取消抛异常 | 运行故障不会污染 Pareto 选择，但会终止当前 batch |
 | 权威摘要反思 | 反思仅使用 `result.json`、`domainResult` 与 Attempt/产物摘要，不解析原始 Trajectory | 反馈可审计且不复制 Runtime 提交语义；首版反思粒度受结果协议限制 |
 
@@ -90,7 +90,7 @@ class LazyGoalEvaluationExample:
 
 ### CandidateCodec
 
-候选键集合必须精确为 `system_prompt` 与零个或多个 `instruction_%03d`。编号从 `000` 连续增长，按数字升序生成 `instructions[]`；所有值保持原始字符串，不 trim、不拼接。首版拒绝超过三位编号的 instruction，以保持单一规范形状。（需求 3.1、3.2）
+候选键集合必须精确为非空 `system_prompt` 与一个或多个非空 `instruction_%03d`。编号从 `000` 连续增长，按数字升序生成 `instructions[]`；校验非空时允许首尾空白，但所有值保持原始字符串，不 trim、不拼接。首版拒绝超过三位编号的 instruction，以保持单一规范形状，并与 `prompt-evaluation@1` 的非空 Profile Prompt 契约一致。（需求 3.1、3.2）
 
 候选身份为固定键顺序 JSON 的 UTF-8 SHA-256：
 

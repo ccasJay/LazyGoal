@@ -16,7 +16,7 @@
 - 官方 GEPA 拥有候选池、反思变异、选择和优化循环；adapter 只负责把 GEPA 样本及候选转换为 LazyGoal Prompt Evaluation 调用。
 - 一次优化运行只使用一个 benchmark；每个 GEPA 样本引用只包含一个任务的 Manifest，并与一个 LazyGoal task 结果一一对应。
 - 每个 GEPA 样本显式携带 benchmark ID，且必须与本次运行配置一致。
-- GEPA 候选以 `system_prompt` 和连续的 `instruction_000`、`instruction_001` 等组件无损映射为 LazyGoal 的 `systemPrompt` 与 `instructions[]`，未知或断号组件在启动评测前拒绝。
+- GEPA 候选以非空 `system_prompt` 和至少一个从 `instruction_000` 开始连续编号的非空组件，无损映射为 LazyGoal 的 `systemPrompt` 与 `instructions[]`；未知、断号或空文本组件在启动评测前拒绝。
 - adapter 仅把权威 `result.json` 中的 `passed` 映射为 `1.0`、`failed` 映射为 `0.0`；协议、基础设施、取消及结果损坏必须终止当前 batch，不得伪造分数。
 - 开启 trace 时，adapter 使用权威 task 结果、`domainResult`、错误、用量和 Attempt/产物定位信息构造轻量轨迹；反思数据必须 JSON 可序列化且按请求更新的组件分组。
 
@@ -59,8 +59,8 @@
 
 #### 验收标准
 
-1. <a id="req-3-1"></a> 当候选包含 `system_prompt` 与从 `instruction_000` 开始连续编号的组件时，adapter 必须按编号顺序转换为一个 `systemPrompt` 和 `instructions[]`，且文本内容保持不变。
-2. <a id="req-3-2"></a> 当候选缺少 `system_prompt`、包含未知组件、指令编号断号或组件值不是字符串时，adapter 必须在创建 Prompt Evaluation 请求前返回可定位到组件的校验错误。
+1. <a id="req-3-1"></a> 当候选包含非空 `system_prompt` 与至少一个从 `instruction_000` 开始连续编号的非空组件时，adapter 必须按编号顺序转换为一个 `systemPrompt` 和 `instructions[]`，且文本内容保持不变。
+2. <a id="req-3-2"></a> 当候选缺少 `system_prompt` 或 `instruction_000`、包含未知组件、指令编号断号、空文本或组件值不是字符串时，adapter 必须在创建 Prompt Evaluation 请求前返回可定位到组件的校验错误。
 3. <a id="req-3-3"></a> 当相同候选被重复评测时，adapter 必须基于规范化组件内容生成相同候选身份，同时为每次调用创建独立的评测产物目录。
 
 ### 需求 4：通过公共协议执行并读取权威结果

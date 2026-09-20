@@ -21,7 +21,7 @@
   - 验证方式：待实现的 CandidateCodec 属性、哈希稳定性、路径安全和调用隔离测试。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 4. 实现 Prompt Evaluation 子进程协议客户端
+- [x] //TODO 4. 实现 Prompt Evaluation 子进程协议客户端
 
   - 实现目标：生成单样本 `prompt-evaluation@1` 请求，以无 shell 子进程调用 LazyGoal，严格解析有界 NDJSON、终态、退出码和权威 `result.json`。
   - 成功判据：passed/failed 结果可按 task 身份读取；坏 JSON、多个或缺失终态、越界结果路径、结果损坏、身份或退出码矛盾均抛出分类错误且不产生伪结果。

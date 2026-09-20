@@ -2,6 +2,7 @@
 
 from .compatibility import EXPECTED_GEPA_VERSION, ensure_gepa_compatibility
 from .candidate import CandidateCodec, LazyGoalPrompt
+from .client import LazyGoalEvaluationRecord, PromptEvaluationClient
 from .dataset import DatasetValidator
 from .errors import (
     CandidateValidationError,
@@ -9,6 +10,9 @@ from .errors import (
     DatasetValidationError,
     GEPACompatibilityError,
     LazyGoalGEPAError,
+    PromptEvaluationCancelled,
+    PromptEvaluationInfrastructureError,
+    PromptEvaluationProtocolError,
 )
 from .invocation import InvocationContext, InvocationDirectoryManager
 from .models import BenchmarkId, LazyGoalEvaluationExample, LazyGoalGEPAConfig
@@ -25,8 +29,13 @@ __all__ = [
     "InvocationContext",
     "InvocationDirectoryManager",
     "LazyGoalEvaluationExample",
+    "LazyGoalEvaluationRecord",
     "LazyGoalGEPAConfig",
     "LazyGoalGEPAError",
     "LazyGoalPrompt",
+    "PromptEvaluationCancelled",
+    "PromptEvaluationClient",
+    "PromptEvaluationInfrastructureError",
+    "PromptEvaluationProtocolError",
     "ensure_gepa_compatibility",
 ]

@@ -50,6 +50,10 @@ class CandidateCodec:
                 raise CandidateValidationError(
                     f"Candidate component {component_name!r} must be a string"
                 )
+            if not component_text.strip():
+                raise CandidateValidationError(
+                    f"Candidate component {component_name!r} must be non-empty"
+                )
             if component_name == "system_prompt":
                 continue
             match = _INSTRUCTION_COMPONENT.fullmatch(component_name)
@@ -62,6 +66,11 @@ class CandidateCodec:
             rendered = ", ".join(repr(name) for name in sorted(unknown_components))
             raise CandidateValidationError(
                 f"Unknown candidate components: {rendered}"
+            )
+
+        if not indexed_instructions:
+            raise CandidateValidationError(
+                "Candidate component instruction_000 is required"
             )
 
         expected_indices = list(range(len(indexed_instructions)))

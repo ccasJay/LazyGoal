@@ -50,6 +50,15 @@ class CandidateCodecTests(unittest.TestCase):
     def test_rejects_missing_unknown_gapped_or_non_string_components(self) -> None:
         cases = (
             ({}, "system_prompt is required"),
+            ({"system_prompt": "system"}, "instruction_000 is required"),
+            (
+                {"system_prompt": " ", "instruction_000": "text"},
+                "system_prompt.*must be non-empty",
+            ),
+            (
+                {"system_prompt": "system", "instruction_000": "\n"},
+                "instruction_000.*must be non-empty",
+            ),
             ({"system_prompt": "system", "other": "text"}, "Unknown candidate"),
             (
                 {"system_prompt": "system", "instruction_001": "text"},
@@ -79,7 +88,7 @@ class InvocationDirectoryTests(unittest.TestCase):
                 id_factory=lambda: next(ids),
             )
             candidate_id = CandidateCodec().decode(
-                {"system_prompt": "system"}
+                {"system_prompt": "system", "instruction_000": "instruction"}
             ).candidate_id
 
             first = manager.create_invocation(candidate_id)
@@ -94,7 +103,7 @@ class InvocationDirectoryTests(unittest.TestCase):
             root = Path(temporary_directory)
             manager = InvocationDirectoryManager(root, id_factory=lambda: "run1")
             candidate_id = CandidateCodec().decode(
-                {"system_prompt": "system"}
+                {"system_prompt": "system", "instruction_000": "instruction"}
             ).candidate_id
             invocation = manager.create_invocation(candidate_id)
             example = LazyGoalEvaluationExample(
@@ -117,7 +126,7 @@ class InvocationDirectoryTests(unittest.TestCase):
                 id_factory=lambda: "../outside",
             )
             candidate_id = CandidateCodec().decode(
-                {"system_prompt": "system"}
+                {"system_prompt": "system", "instruction_000": "instruction"}
             ).candidate_id
 
             with self.assertRaisesRegex(ConfigurationError, "Generated invocation ID"):
