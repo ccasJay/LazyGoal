@@ -6,6 +6,13 @@ import type {
 } from "./types";
 import type { ExecutionControl } from "../../../runtime/src/execution-control";
 
+export type {
+    LLMRequest,
+    LLMResponse,
+    LLMStreamEvent,
+    StructuredOutputMode,
+};
+
 /**
  * Agent 与具体 LLM 供应商之间的最小适配边界。
  *

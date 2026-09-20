@@ -72,6 +72,45 @@ export interface TuiTomlSection {
 }
 
 /**
+ * `[gepa]` 小节配置结构契约。
+ *
+ * @remarks
+ * 定义 GEPA 优化运行生命周期的专用配置，包括负责 Prompt 变异与反思的独立 Reflection Profile。
+ *
+ * @example
+ * ```toml
+ * [gepa]
+ * reflection_profile = "gepa-reflection"
+ * ```
+ */
+export interface GepaTomlSection {
+    /** 负责 Prompt 变异与反思推理的独立 Profile 名称。 */
+    reflection_profile?: string;
+}
+
+/**
+ * GEPA 模块已校验的运行时配置契约。
+ *
+ * @remarks
+ * 声明 GEPA 优化运行所需的独立 Reflection Profile 名称。
+ * 契约约束：
+ * 1. `reflectionProfile` 必须非空且必须为合法的安全 Profile 标识（不含路径遍历字符）；
+ * 2. `reflectionProfile` 严禁与 Working Profile 同名（不区分大小写匹配 `"default"`），避免凭据、模型角色及反思上下文混淆；
+ * 3. 必须在存在对应的 `profiles/<reflectionProfile>.toml` 时才能成功加载。
+ *
+ * @example
+ * ```ts
+ * const gepaConfig: GepaConfig = {
+ *     reflectionProfile: "gepa-reflection",
+ * };
+ * ```
+ */
+export interface GepaConfig {
+    /** 独立 Reflection LM 的 Profile 名称（必须非空且不能为 "default" 变体）。 */
+    readonly reflectionProfile: string;
+}
+
+/**
  * LazyGoal 主配置文件（`config.toml`）的数据结构契约。
  *
  * @example
@@ -83,6 +122,9 @@ export interface TuiTomlSection {
  *
  * [profile]
  * active = "default"
+ *
+ * [gepa]
+ * reflection_profile = "gepa-reflection"
  * ```
  */
 export interface LazyGoalTomlConfig {
@@ -90,6 +132,7 @@ export interface LazyGoalTomlConfig {
     workspace?: WorkspaceTomlSection;
     profile?: ProfileTomlSection;
     tui?: TuiTomlSection;
+    gepa?: GepaTomlSection;
 }
 
 /**
@@ -112,7 +155,8 @@ export interface ProfileTomlConfig {
     tui?: TuiTomlSection;
 }
 
-const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "workspace", "profile", "tui"]);
+const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "workspace", "profile", "tui", "gepa"]);
+const ALLOWED_GEPA_FIELDS = new Set(["reflection_profile"]);
 const ALLOWED_LLM_FIELDS = new Set([
     "provider", "model", "api_key", "base_url", "structured_output_mode",
     "context_window_tokens", "max_output_tokens", "tokenizer_encoding",
@@ -167,8 +211,26 @@ export function parseTomlConfig(content: string, filePath?: string): LazyGoalTom
         }
     }
 
+    // 校验 [gepa] 小节字段
+    if (raw.gepa !== undefined) {
+        if (typeof raw.gepa !== "object" || raw.gepa === null || Array.isArray(raw.gepa)) {
+            throw new TomlConfigurationError("[gepa] 小节必须为键值对象", filePath);
+        }
+        const gepa = raw.gepa as Record<string, unknown>;
+        for (const field of Object.keys(gepa)) {
+            if (!ALLOWED_GEPA_FIELDS.has(field)) {
+                throw new TomlConfigurationError(`[gepa] 小节包含未知字段: ${field}`, filePath);
+            }
+        }
+        if (gepa.reflection_profile !== undefined && typeof gepa.reflection_profile !== "string") {
+            throw new TomlConfigurationError("[gepa].reflection_profile 必须为字符串", filePath);
+        }
+    }
+
     return raw as LazyGoalTomlConfig;
 }
+
+const ALLOWED_PROFILE_KEYS = new Set(["name", "description", "llm", "tui"]);
 
 /**
  * 解析并强校验单个 Profile TOML 文本。
@@ -197,6 +259,12 @@ export function parseProfileToml(content: string, filePath?: string): ProfileTom
 
     if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
         throw new TomlConfigurationError("Profile TOML 顶级内容必须为键值对象", filePath);
+    }
+
+    for (const key of Object.keys(raw)) {
+        if (!ALLOWED_PROFILE_KEYS.has(key)) {
+            throw new TomlConfigurationError(`Profile 包含未知配置项: ${key}`, filePath);
+        }
     }
 
     return raw as ProfileTomlConfig;
@@ -241,4 +309,42 @@ export async function loadProfileToml(profileName: string, profilesDir: string):
             targetFile,
         );
     }
+}
+
+/**
+ * 校验并提取 GEPA 配置契约。
+ *
+ * @remarks
+ * 验证 `[gepa]` 配置的完整性与安全性，阻断同名 default（大小写不敏感匹配）、空值及路径穿越字符。
+ *
+ * @param section - 原始 `[gepa]` TOML 小节对象。
+ * @param filePath - 配置文件绝对路径，用于精准定位报错信息。
+ * @returns 经过语义校验的 GepaConfig。
+ * @throws TomlConfigurationError 当小节缺失、缺少 reflection_profile、reflection_profile 为空、大小写不敏感等价于 "default" 或包含路径遍历与非法字符时抛出。
+ * @example
+ * ```ts
+ * const gepa = validateGepaConfig({ reflection_profile: "gepa-reflection" }, "/path/to/config.toml");
+ * ```
+ */
+export function validateGepaConfig(section?: GepaTomlSection, filePath?: string): GepaConfig {
+    if (section === undefined || section.reflection_profile === undefined || section.reflection_profile.trim() === "") {
+        throw new TomlConfigurationError(
+            "缺少必要的 [gepa].reflection_profile 配置项",
+            filePath,
+        );
+    }
+    const profileName = section.reflection_profile.trim();
+    if (profileName.toLowerCase() === "default") {
+        throw new TomlConfigurationError(
+            'reflection_profile 不能与 Working Profile 同名 ("default")',
+            filePath,
+        );
+    }
+    if (profileName.includes("/") || profileName.includes("\\") || profileName.includes("..") || !/^[a-zA-Z0-9_-]+$/.test(profileName)) {
+        throw new TomlConfigurationError(
+            `reflection_profile 包含非法字符: "${profileName}"`,
+            filePath,
+        );
+    }
+    return { reflectionProfile: profileName };
 }

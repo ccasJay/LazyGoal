@@ -3,8 +3,11 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
-import { readLlmConfig } from "../../../packages/llm/src/config.js";
+import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { runGepaReflectCli } from "./reflection-bridge.js";
+
+export { runGepaReflectCli };
 import { AlfworldPromptEvaluationAdapter } from "../../alfworld/src/prompt-evaluation-adapter.js";
 import {
     loadAlfworldEnvironmentFile,
@@ -87,10 +90,18 @@ export async function runPromptEvaluationCli(
 
     let llmAdapter: LLMAdapter;
     try {
-        llmAdapter = options.llmAdapter ?? createLlmAdapter(readLlmConfig({
-            ...(options.env ?? process.env),
-            LLM_MODEL: request.model.modelId,
-        }));
+        if (options.llmAdapter !== undefined) {
+            llmAdapter = options.llmAdapter;
+        } else {
+            const runtimeConfig = await loadRuntimeConfig({
+                env: options.env ?? process.env,
+                cliArgs: {
+                    profile: request.model.configId,
+                    model: request.model.modelId,
+                },
+            });
+            llmAdapter = createLlmAdapter(runtimeConfig.llm);
+        }
     } catch (error: unknown) {
         writeError(errorMessage(error));
         return PROMPT_EVALUATION_EXIT_CODES.invalidRequest;
@@ -266,10 +277,13 @@ function errorMessage(error: unknown): string {
 
 const entrypoint = process.argv[1] === undefined ? undefined : resolve(process.argv[1]);
 if (entrypoint === fileURLToPath(import.meta.url)) {
-    void runPromptEvaluationCli().then((code) => {
+    const rawArgv = process.argv.slice(2);
+    const isReflect = rawArgv[0] === "gepa" && rawArgv[1] === "reflect";
+    const runner = isReflect ? runGepaReflectCli(rawArgv) : runPromptEvaluationCli(rawArgv);
+    void runner.then((code) => {
         process.exitCode = code;
     }).catch((error: unknown) => {
         process.stderr.write(`${errorMessage(error)}\n`);
-        process.exitCode = PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
+        process.exitCode = isReflect ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
     });
 }

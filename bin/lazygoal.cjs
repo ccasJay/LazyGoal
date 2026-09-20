@@ -8,11 +8,33 @@ const isAlfworldEval = argv[0] === "eval" && argv[1] === "alfworld";
 const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
 const isGaiaEval = argv[0] === "eval" && argv[1] === "gaia";
 const isPromptEval = argv[0] === "eval" && argv[1] === "prompt";
+const isGepaReflect = argv[0] === "gepa" && argv[1] === "reflect";
+const isGepaLifecycle = argv[0] === "gepa" && !isGepaReflect;
+
+if (isGepaLifecycle) {
+    const procEnv = process["env"];
+    const pythonBin = procEnv["LAZYGOAL_GEPA_PYTHON"] || "python3";
+    const pyArgs = ["-m", "lazygoal_gepa.cli", ...argv.slice(1)];
+    const pyResult = spawnSync(pythonBin, pyArgs, {
+        stdio: "inherit",
+        env: procEnv,
+    });
+    if (pyResult.error !== undefined) {
+        console.error(pyResult.error.message);
+        process.exitCode = 1;
+    } else if (pyResult.signal !== null) {
+        process.exitCode = pyResult.signal === "SIGINT" ? 130 : 1;
+    } else {
+        process.exitCode = pyResult.status ?? 1;
+    }
+    return;
+}
+
 const isAlfworldGrade = argv[0] === "grade" && argv[1] === "alfworld";
 const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const isGaiaGrade = argv[0] === "grade" && argv[1] === "gaia";
 const isGaiaLoad = (argv[0] === "load" && argv[1] === "gaia") || (argv[0] === "gaia" && argv[1] === "load");
-const source = isPromptEval
+const source = (isPromptEval || isGepaReflect)
     ? resolve(__dirname, "../benchmarks/src/prompt-evaluation/cli.ts")
     : isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")

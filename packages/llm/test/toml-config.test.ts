@@ -7,6 +7,7 @@ import {
     parseTomlConfig,
     parseProfileToml,
     loadProfileToml,
+    validateGepaConfig,
     TomlConfigurationError,
 } from "../src/toml-config";
 
@@ -134,5 +135,149 @@ test("loadProfileToml 在 Profile 缺失时报错并列出可用候选", async (
         );
     } finally {
         await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("parseTomlConfig 正常解析 [gepa] 小节的合法 reflection_profile", () => {
+    const toml = `
+[gepa]
+reflection_profile = "gepa-reflection"
+`;
+    const config = parseTomlConfig(toml);
+    assert.equal(config.gepa?.reflection_profile, "gepa-reflection");
+});
+
+test("parseTomlConfig 遇到 [gepa] 中的未知字段时快速失败", () => {
+    const toml = `
+[gepa]
+reflection_profile = "gepa-reflection"
+unknown_field = 123
+`;
+    assert.throws(
+        () => parseTomlConfig(toml),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /\[gepa\] 小节包含未知字段: unknown_field/);
+            return true;
+        },
+    );
+});
+
+test("parseTomlConfig 遇到 [gepa] 小节非键值对象时快速失败", () => {
+    const toml = `gepa = "string_value"`;
+    assert.throws(
+        () => parseTomlConfig(toml),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /\[gepa\] 小节必须为键值对象/);
+            return true;
+        },
+    );
+});
+
+test("parseTomlConfig 遇到 [gepa].reflection_profile 为非字符串时快速失败", () => {
+    const toml = `
+[gepa]
+reflection_profile = 12345
+`;
+    assert.throws(
+        () => parseTomlConfig(toml),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /\[gepa\]\.reflection_profile 必须为字符串/);
+            return true;
+        },
+    );
+});
+
+test("parseProfileToml 遇到未定义的顶级小节（如 [gepa]）时快速失败", () => {
+    const toml = `
+name = "custom"
+[gepa]
+reflection_profile = "nested"
+`;
+    assert.throws(
+        () => parseProfileToml(toml),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /Profile 包含未知配置项: gepa/);
+            return true;
+        },
+    );
+});
+
+test("validateGepaConfig 正常提取合法的 reflectionProfile", () => {
+    const gepa = validateGepaConfig({ reflection_profile: "gepa-reflection" }, "config.toml");
+    assert.equal(gepa.reflectionProfile, "gepa-reflection");
+});
+
+test("validateGepaConfig 遇到缺失或空白 reflection_profile 时快速失败", () => {
+    assert.throws(
+        () => validateGepaConfig(undefined),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /缺少必要的 \[gepa\]\.reflection_profile 配置项/);
+            return true;
+        },
+    );
+
+    assert.throws(
+        () => validateGepaConfig({ reflection_profile: "" }),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /缺少必要的 \[gepa\]\.reflection_profile 配置项/);
+            return true;
+        },
+    );
+
+    assert.throws(
+        () => validateGepaConfig({ reflection_profile: "   " }),
+        (err: unknown) => {
+            assert.ok(err instanceof TomlConfigurationError);
+            assert.match(err.message, /缺少必要的 \[gepa\]\.reflection_profile 配置项/);
+            return true;
+        },
+    );
+});
+
+test("validateGepaConfig 遇到 reflection_profile 为 default（不区分大小写）时禁止同名快速失败", () => {
+    const invalidNames = [
+        "default",
+        "Default",
+        "DEFAULT",
+        "DeFaUlT",
+        "  default  ",
+        "  DEFAULT  ",
+    ];
+    for (const name of invalidNames) {
+        assert.throws(
+            () => validateGepaConfig({ reflection_profile: name }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /reflection_profile 不能与 Working Profile 同名 \("default"\)/);
+                return true;
+            },
+        );
+    }
+});
+
+test("validateGepaConfig 遇到 reflection_profile 包含非法字符或路径穿越时快速失败", () => {
+    const invalidNames = [
+        "../escape",
+        "nested/profile",
+        "nested\\profile",
+        "has space",
+        "profile*star",
+        "profile$dollar",
+    ];
+    for (const name of invalidNames) {
+        assert.throws(
+            () => validateGepaConfig({ reflection_profile: name }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /reflection_profile 包含非法字符/);
+                return true;
+            },
+        );
     }
 });

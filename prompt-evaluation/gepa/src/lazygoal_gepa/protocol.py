@@ -9,7 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal, TypeAlias, cast
 
-from .errors import PromptEvaluationProtocolError
+from .errors import (
+    DatasetValidationError,
+    GEPARunProtocolError,
+    PromptEvaluationProtocolError,
+)
+from .models import BenchmarkId, SUPPORTED_BENCHMARKS
 
 PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1"
 
@@ -422,3 +427,292 @@ def _require_timestamp(value: Any, field: str) -> str:
 
 def _reject_json_constant(value: str) -> None:
     raise ValueError(f"Non-standard JSON constant: {value}")
+
+
+GEPA_RUN_PROTOCOL = "gepa-run@1"
+
+
+@dataclass(frozen=True)
+class GEPAExampleRequest:
+    """One benchmark sample in a gepa-run@1 request."""
+
+    sample_id: str
+    task_id: str
+    manifest_path: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "sampleId": self.sample_id,
+            "taskId": self.task_id,
+            "manifestPath": self.manifest_path,
+        }
+
+
+@dataclass(frozen=True)
+class GEPARunRequest:
+    """Authoritative gepa-run@1 request definition."""
+
+    protocol: Literal["gepa-run@1"]
+    benchmark: BenchmarkId
+    trainset: tuple[GEPAExampleRequest, ...]
+    max_metric_calls: int
+    valset: tuple[GEPAExampleRequest, ...] | None = None
+    reflection_minibatch_size: int | None = None
+    seed: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "protocol": self.protocol,
+            "benchmark": self.benchmark,
+            "trainset": [example.to_dict() for example in self.trainset],
+            "maxMetricCalls": self.max_metric_calls,
+        }
+        if self.valset is not None:
+            data["valset"] = [example.to_dict() for example in self.valset]
+        else:
+            data["valset"] = None
+        if self.reflection_minibatch_size is not None:
+            data["reflectionMinibatchSize"] = self.reflection_minibatch_size
+        else:
+            data["reflectionMinibatchSize"] = None
+        if self.seed is not None:
+            data["seed"] = self.seed
+        else:
+            data["seed"] = None
+        return data
+
+
+def parse_run_request(
+    data: Any,
+    *,
+    base_dir: Path | None = None,
+    check_manifests: bool = False,
+) -> GEPARunRequest:
+    """Validate a gepa-run@1 request mapping and resolve relative paths."""
+
+    if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
+        raise GEPARunProtocolError("GEPA run request must be an object")
+
+    required_keys = {"protocol", "benchmark", "trainset", "maxMetricCalls"}
+    optional_keys = {"valset", "reflectionMinibatchSize", "seed"}
+    actual_keys = set(data)
+    missing = sorted(required_keys - actual_keys)
+    unknown = sorted(actual_keys - required_keys - optional_keys)
+    if missing:
+        raise GEPARunProtocolError(
+            f"GEPA run request is missing fields: {', '.join(missing)}"
+        )
+    if unknown:
+        raise GEPARunProtocolError(
+            f"GEPA run request has unknown fields: {', '.join(unknown)}"
+        )
+
+    protocol = data["protocol"]
+    if protocol != GEPA_RUN_PROTOCOL:
+        raise GEPARunProtocolError(f"Unsupported protocol: {protocol!r}")
+
+    benchmark = data["benchmark"]
+    if benchmark not in SUPPORTED_BENCHMARKS:
+        raise GEPARunProtocolError(f"Unsupported benchmark: {benchmark!r}")
+
+    max_metric_calls = data["maxMetricCalls"]
+    if (
+        not isinstance(max_metric_calls, int)
+        or isinstance(max_metric_calls, bool)
+        or max_metric_calls <= 0
+    ):
+        raise GEPARunProtocolError(
+            f"maxMetricCalls must be a positive integer, got {max_metric_calls!r}"
+        )
+
+    reflection_minibatch_size = data.get("reflectionMinibatchSize")
+    if reflection_minibatch_size is not None:
+        if (
+            not isinstance(reflection_minibatch_size, int)
+            or isinstance(reflection_minibatch_size, bool)
+            or reflection_minibatch_size <= 0
+        ):
+            raise GEPARunProtocolError(
+                "reflectionMinibatchSize must be a positive integer, got "
+                f"{reflection_minibatch_size!r}"
+            )
+
+    seed = data.get("seed")
+    if seed is not None:
+        if not isinstance(seed, int) or isinstance(seed, bool):
+            raise GEPARunProtocolError(f"seed must be an integer, got {seed!r}")
+
+    trainset_raw = data["trainset"]
+    if not isinstance(trainset_raw, list) or len(trainset_raw) == 0:
+        raise DatasetValidationError("trainset must be a non-empty list")
+
+    trainset = _parse_example_list(trainset_raw, "trainset", base_dir)
+
+    valset_raw = data.get("valset")
+    valset: tuple[GEPAExampleRequest, ...] | None = None
+    if valset_raw is not None:
+        if not isinstance(valset_raw, list):
+            raise GEPARunProtocolError("valset must be a list or null")
+        if len(valset_raw) == 0:
+            raise DatasetValidationError("valset cannot be an empty list when provided")
+        valset = _parse_example_list(valset_raw, "valset", base_dir)
+
+    request = GEPARunRequest(
+        protocol="gepa-run@1",
+        benchmark=benchmark,
+        trainset=trainset,
+        max_metric_calls=max_metric_calls,
+        valset=valset,
+        reflection_minibatch_size=reflection_minibatch_size,
+        seed=seed,
+    )
+
+    if check_manifests:
+        validate_run_request_datasets(request)
+
+    return request
+
+
+def _parse_example_list(
+    items: list[Any],
+    context: str,
+    base_dir: Path | None,
+) -> tuple[GEPAExampleRequest, ...]:
+    sample_ids: set[str] = set()
+    task_ids: set[str] = set()
+    parsed: list[GEPAExampleRequest] = []
+
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) or not all(isinstance(k, str) for k in item):
+            raise GEPARunProtocolError(f"{context} item {index} must be an object")
+
+        required = {"sampleId", "taskId", "manifestPath"}
+        actual = set(item)
+        missing = sorted(required - actual)
+        unknown = sorted(actual - required)
+        if missing:
+            raise GEPARunProtocolError(
+                f"{context} item {index} is missing fields: {', '.join(missing)}"
+            )
+        if unknown:
+            raise GEPARunProtocolError(
+                f"{context} item {index} has unknown fields: {', '.join(unknown)}"
+            )
+
+        sample_id = item["sampleId"]
+        task_id = item["taskId"]
+        manifest_path_raw = item["manifestPath"]
+
+        if not isinstance(sample_id, str) or not sample_id.strip():
+            raise DatasetValidationError(
+                f"{context} item {index} sampleId must be a non-empty string"
+            )
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise DatasetValidationError(
+                f"{context} item {index} taskId must be a non-empty string"
+            )
+        if not isinstance(manifest_path_raw, str) or not manifest_path_raw.strip():
+            raise DatasetValidationError(
+                f"{context} item {index} manifestPath must be a non-empty string"
+            )
+
+        if sample_id in sample_ids:
+            raise DatasetValidationError(
+                f"Duplicate sample ID in {context}: {sample_id!r}"
+            )
+        if task_id in task_ids:
+            raise DatasetValidationError(
+                f"Duplicate task ID in {context}: {task_id!r}"
+            )
+
+        sample_ids.add(sample_id)
+        task_ids.add(task_id)
+
+        raw_path = Path(manifest_path_raw)
+        if raw_path.is_absolute():
+            resolved_manifest = raw_path.resolve()
+        elif base_dir is not None:
+            resolved_manifest = (base_dir / raw_path).resolve()
+        else:
+            resolved_manifest = raw_path.resolve()
+
+        parsed.append(
+            GEPAExampleRequest(
+                sample_id=sample_id,
+                task_id=task_id,
+                manifest_path=str(resolved_manifest),
+            )
+        )
+
+    return tuple(parsed)
+
+
+def read_run_request(
+    path: Path | str,
+    *,
+    check_manifests: bool = False,
+) -> GEPARunRequest:
+    """Read a JSON file and parse it as a gepa-run@1 request."""
+
+    request_path = Path(path).resolve()
+    if not request_path.is_file():
+        raise GEPARunProtocolError(f"Request file does not exist: {request_path}")
+
+    try:
+        content = request_path.read_text(encoding="utf-8")
+        data = json.loads(content, parse_constant=_reject_json_constant)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise GEPARunProtocolError(
+            f"Could not read request file as JSON: {request_path}"
+        ) from error
+
+    return parse_run_request(
+        data,
+        base_dir=request_path.parent,
+        check_manifests=check_manifests,
+    )
+
+
+def validate_run_request_datasets(request: GEPARunRequest) -> None:
+    """Validate all manifests in the request trainset and valset."""
+
+    batches_to_check = [("trainset", request.trainset)]
+    if request.valset is not None:
+        batches_to_check.append(("valset", request.valset))
+
+    for batch_name, batch in batches_to_check:
+        for example in batch:
+            manifest_file = Path(example.manifest_path)
+            if not manifest_file.is_file():
+                raise DatasetValidationError(
+                    f"Manifest does not exist or is not a file: {manifest_file}"
+                )
+            try:
+                raw = json.loads(manifest_file.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError) as error:
+                raise DatasetValidationError(
+                    f"Manifest could not be read as JSON: {manifest_file}"
+                ) from error
+
+            if not isinstance(raw, dict) or not isinstance(raw.get("tasks"), list):
+                raise DatasetValidationError(
+                    f"Manifest must contain a tasks array: {manifest_file}"
+                )
+            tasks = raw["tasks"]
+            if len(tasks) != 1:
+                raise DatasetValidationError(
+                    f"Manifest must contain exactly one task, found {len(tasks)}: {manifest_file}"
+                )
+            task = tasks[0]
+            if not isinstance(task, dict) or task.get("taskId") != example.task_id:
+                found_task_id = task.get("taskId") if isinstance(task, dict) else None
+                raise DatasetValidationError(
+                    "Manifest task ID does not match the sample: "
+                    f"expected {example.task_id!r}, found {found_task_id!r}"
+                )
+            manifest_benchmark = raw.get("benchmark") or task.get("benchmark")
+            if manifest_benchmark is not None and manifest_benchmark != request.benchmark:
+                raise DatasetValidationError(
+                    "Sample benchmark does not match the run: "
+                    f"manifest uses {manifest_benchmark!r}, run uses {request.benchmark!r}"
+                )

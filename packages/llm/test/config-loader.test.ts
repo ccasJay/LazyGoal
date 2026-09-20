@@ -3,9 +3,14 @@ import { test } from "node:test";
 import { join } from "node:path";
 import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { loadRuntimeConfig } from "../src/config-loader";
+import {
+    loadRuntimeConfig,
+    loadReflectionRuntimeConfig,
+    loadGepaModelConfigs,
+} from "../src/config-loader";
 import { resolveXdgPaths } from "../src/xdg";
 import { LlmConfigurationError } from "../src/config";
+import { TomlConfigurationError } from "../src/toml-config";
 
 test("loadRuntimeConfig 遵循四层覆盖优先级", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-test-"));
@@ -91,6 +96,207 @@ api_key = "sk-test"
         assert.equal(config.llm.model, "gpt-4o");
         assert.equal(config.llm.apiKey, "sk-test");
         assert.ok(config.llm.structuredOutputMode !== undefined);
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadGepaModelConfigs 正常双 Profile 独立解析与凭据隔离", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-loader-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+        await mkdir(xdgPaths.profilesDir, { recursive: true });
+
+        // 1. 写入 config.toml，包含 [gepa].reflection_profile
+        await writeFile(xdgPaths.configFile, `
+[gepa]
+reflection_profile = "gepa-reflection"
+`);
+
+        // 2. 写入 profiles/default.toml (Working LM)
+        await writeFile(join(xdgPaths.profilesDir, "default.toml"), `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-working-key"
+`);
+
+        // 3. 写入 profiles/gepa-reflection.toml (Reflection LM)
+        await writeFile(join(xdgPaths.profilesDir, "gepa-reflection.toml"), `
+[llm]
+provider = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-reflection-key"
+`);
+
+        const configs = await loadGepaModelConfigs({ xdgPaths });
+
+        // 校验 Working LM
+        assert.equal(configs.working.provider, "openai");
+        assert.equal(configs.working.model, "gpt-4o");
+        assert.equal(configs.working.apiKey, "sk-working-key");
+
+        // 校验 Reflection LM
+        assert.equal(configs.reflection.provider, "deepseek");
+        assert.equal(configs.reflection.model, "deepseek-chat");
+        assert.equal(configs.reflection.apiKey, "sk-reflection-key");
+        assert.equal(configs.reflection.structuredOutputMode, "prompt_only");
+
+        // 确保两者为不同对象且凭据相互隔离
+        assert.notEqual(configs.working, configs.reflection);
+        assert.notEqual(configs.working.apiKey, configs.reflection.apiKey);
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadReflectionRuntimeConfig 遇到同名 default 时快速失败", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-conflict-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+
+        await writeFile(xdgPaths.configFile, `
+[gepa]
+reflection_profile = "default"
+`);
+
+        await assert.rejects(
+            async () => loadReflectionRuntimeConfig({ xdgPaths }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /reflection_profile 不能与 Working Profile 同名 \("default"\)/);
+                return true;
+            },
+        );
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadReflectionRuntimeConfig 遇到路径穿越或非法字符时快速失败", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-traversal-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+
+        await writeFile(xdgPaths.configFile, `
+[gepa]
+reflection_profile = "../secret"
+`);
+
+        await assert.rejects(
+            async () => loadReflectionRuntimeConfig({ xdgPaths }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /reflection_profile 包含非法字符/);
+                return true;
+            },
+        );
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadReflectionRuntimeConfig 缺少 [gepa] 配置时快速失败", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-missing-section-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+
+        await writeFile(xdgPaths.configFile, `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-test"
+`);
+
+        await assert.rejects(
+            async () => loadReflectionRuntimeConfig({ xdgPaths }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /缺少必要的 \[gepa\]\.reflection_profile 配置项/);
+                return true;
+            },
+        );
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadReflectionRuntimeConfig 在目标 Profile 不存在时报错并列出可用候选", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-missing-file-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+        await mkdir(xdgPaths.profilesDir, { recursive: true });
+
+        await writeFile(xdgPaths.configFile, `
+[gepa]
+reflection_profile = "missing-reflection"
+`);
+        await writeFile(join(xdgPaths.profilesDir, "default.toml"), "name = 'default'\n");
+
+        await assert.rejects(
+            async () => loadReflectionRuntimeConfig({ xdgPaths }),
+            (err: unknown) => {
+                assert.ok(err instanceof TomlConfigurationError);
+                assert.match(err.message, /Profile "missing-reflection" 不存在/);
+                assert.match(err.message, /当前可用 Profile:/);
+                return true;
+            },
+        );
+    } finally {
+        await rm(tempDir, { recursive: true, force: true });
+    }
+});
+
+test("loadGepaModelConfigs 中 Working Profile 不受 [profile].active 影响", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-gepa-active-ignore-"));
+    try {
+        const xdgPaths = resolveXdgPaths({ XDG_CONFIG_HOME: tempDir });
+        await mkdir(xdgPaths.lazygoalConfigDir, { recursive: true });
+        await mkdir(xdgPaths.profilesDir, { recursive: true });
+
+        // config.toml 设置 active 为 "custom-work"
+        await writeFile(xdgPaths.configFile, `
+[profile]
+active = "custom-work"
+
+[gepa]
+reflection_profile = "reflection"
+`);
+
+        // default.toml (Working LM)
+        await writeFile(join(xdgPaths.profilesDir, "default.toml"), `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-default-key"
+`);
+
+        // custom-work.toml (active profile)
+        await writeFile(join(xdgPaths.profilesDir, "custom-work.toml"), `
+[llm]
+provider = "openai"
+model = "gpt-3.5-turbo"
+api_key = "sk-custom-key"
+`);
+
+        // reflection.toml (Reflection LM)
+        await writeFile(join(xdgPaths.profilesDir, "reflection.toml"), `
+[llm]
+provider = "deepseek"
+model = "deepseek-chat"
+api_key = "sk-reflection-key"
+`);
+
+        const configs = await loadGepaModelConfigs({ xdgPaths });
+        // Working LM 必须固定读取 default.toml，而不是 custom-work.toml
+        assert.equal(configs.working.model, "gpt-4o");
+        assert.equal(configs.working.apiKey, "sk-default-key");
+        assert.equal(configs.reflection.model, "deepseek-chat");
     } finally {
         await rm(tempDir, { recursive: true, force: true });
     }

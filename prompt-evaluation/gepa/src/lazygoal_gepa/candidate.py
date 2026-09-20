@@ -6,9 +6,12 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import Mapping
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Literal, Mapping
 
-from .errors import CandidateValidationError
+from .errors import CandidateValidationError, ProfileValidationError
+from .protocol import GEPARunRequest, parse_run_request
 
 _INSTRUCTION_COMPONENT = re.compile(r"instruction_(\d{3})\Z")
 
@@ -109,3 +112,319 @@ def _fingerprint(system_prompt: str, instructions: tuple[str, ...]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class AgentProfileSnapshot:
+    """In-memory representation of a validated Agent Profile."""
+
+    schema_version: int
+    id: str
+    name: str
+    description: str
+    system_prompt: str
+    instructions: tuple[str, ...]
+    tool_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "schemaVersion": self.schema_version,
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "systemPrompt": self.system_prompt,
+            "instructions": list(self.instructions),
+            "toolIds": list(self.tool_ids),
+        }
+
+
+def load_agent_profile(path: Path | str) -> tuple[AgentProfileSnapshot, str]:
+    """Load, strictly validate an Agent Profile, and return (snapshot, frozenDigest)."""
+
+    profile_path = Path(path).resolve()
+    if not profile_path.is_file():
+        raise ProfileValidationError(f"Profile file not found: {profile_path}")
+
+    try:
+        raw_bytes = profile_path.read_bytes()
+    except OSError as error:
+        raise ProfileValidationError(
+            f"Could not read profile file: {profile_path}"
+        ) from error
+
+    frozen_digest = hashlib.sha256(raw_bytes).hexdigest()
+
+    try:
+        data: Any = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ProfileValidationError(
+            f"Profile file is not valid UTF-8 JSON: {profile_path}"
+        ) from error
+
+    if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
+        raise ProfileValidationError("Agent Profile must be an object")
+
+    required_keys = {
+        "schemaVersion",
+        "id",
+        "name",
+        "description",
+        "systemPrompt",
+        "instructions",
+        "toolIds",
+    }
+    actual_keys = set(data)
+    missing = sorted(required_keys - actual_keys)
+    unknown = sorted(actual_keys - required_keys)
+    if missing:
+        raise ProfileValidationError(
+            f"Profile missing required fields: {', '.join(missing)}"
+        )
+    if unknown:
+        raise ProfileValidationError(
+            f"Profile contains unknown fields: {', '.join(unknown)}"
+        )
+
+    schema_version = data["schemaVersion"]
+    if (
+        not isinstance(schema_version, int)
+        or isinstance(schema_version, bool)
+        or schema_version != 1
+    ):
+        raise ProfileValidationError(
+            f"schemaVersion must be 1, got {schema_version!r}"
+        )
+
+    profile_id = data["id"]
+    if profile_id != "default":
+        raise ProfileValidationError(
+            f"Profile id must be 'default', got {profile_id!r}"
+        )
+
+    name = data["name"]
+    if not isinstance(name, str) or not name.strip():
+        raise ProfileValidationError("name must be a non-empty string")
+
+    description = data["description"]
+    if not isinstance(description, str) or not description.strip():
+        raise ProfileValidationError("description must be a non-empty string")
+
+    system_prompt = data["systemPrompt"]
+    if not isinstance(system_prompt, str) or not system_prompt.strip():
+        raise ProfileValidationError("systemPrompt must be a non-empty string")
+
+    instructions_raw = data["instructions"]
+    if not isinstance(instructions_raw, list) or len(instructions_raw) == 0:
+        raise ProfileValidationError("instructions must be a non-empty list")
+    for index, item in enumerate(instructions_raw):
+        if not isinstance(item, str) or not item.strip():
+            raise ProfileValidationError(
+                f"Instruction item {index} must be a non-empty string"
+            )
+
+    tool_ids_raw = data["toolIds"]
+    if not isinstance(tool_ids_raw, list) or not all(
+        isinstance(t, str) for t in tool_ids_raw
+    ):
+        raise ProfileValidationError("toolIds must be a list of strings")
+
+    snapshot = AgentProfileSnapshot(
+        schema_version=schema_version,
+        id=profile_id,
+        name=name,
+        description=description,
+        system_prompt=system_prompt,
+        instructions=tuple(instructions_raw),
+        tool_ids=tuple(tool_ids_raw),
+    )
+    return snapshot, frozen_digest
+
+
+def extract_seed_candidate(profile: AgentProfileSnapshot) -> dict[str, str]:
+    """Convert AgentProfileSnapshot into fixed contiguous GEPA candidate components."""
+
+    candidate: dict[str, str] = {
+        "system_prompt": profile.system_prompt,
+    }
+    for index, instruction in enumerate(profile.instructions):
+        candidate[f"instruction_{index:03d}"] = instruction
+
+    # Verify against CandidateCodec contract immediately
+    CandidateCodec().decode(candidate)
+    return candidate
+
+
+@dataclass(frozen=True)
+class ModelIdentity:
+    """Safe model identity without API keys or credentials."""
+
+    profile_name: str
+    model_id: str
+    provider: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "profileName": self.profile_name,
+            "modelId": self.model_id,
+        }
+        if self.provider is not None:
+            data["provider"] = self.provider
+        return data
+
+
+@dataclass(frozen=True)
+class TargetProfileSnapshot:
+    """Frozen target profile locator and digest."""
+
+    profile_id: str
+    profile_path: str
+    frozen_digest: str
+    profile: AgentProfileSnapshot
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "profileId": self.profile_id,
+            "profilePath": self.profile_path,
+            "frozenDigest": self.frozen_digest,
+            "snapshot": self.profile.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
+class FrozenRunManifest:
+    """Immutable safe run manifest written to run.json."""
+
+    protocol: Literal["gepa-run@1"]
+    run_id: str
+    created_at: str
+    gepa_version: str
+    request: GEPARunRequest
+    target_profile: TargetProfileSnapshot
+    seed_candidate: dict[str, str]
+    seed_candidate_id: str
+    working_model: ModelIdentity
+    reflection_model: ModelIdentity
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "protocol": self.protocol,
+            "runId": self.run_id,
+            "createdAt": self.created_at,
+            "gepaVersion": self.gepa_version,
+            "request": self.request.to_dict(),
+            "targetProfile": self.target_profile.to_dict(),
+            "seedCandidate": dict(self.seed_candidate),
+            "seedCandidateId": self.seed_candidate_id,
+            "models": {
+                "working": self.working_model.to_dict(),
+                "reflection": self.reflection_model.to_dict(),
+            },
+        }
+
+
+def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
+    """Parse and validate a dictionary as FrozenRunManifest."""
+
+    if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
+        raise ProfileValidationError("Run manifest must be an object")
+
+    protocol = data.get("protocol")
+    if protocol != "gepa-run@1":
+        raise ProfileValidationError(f"Unsupported manifest protocol: {protocol!r}")
+
+    run_id = data.get("runId")
+    if not isinstance(run_id, str) or not run_id.strip():
+        raise ProfileValidationError("runId must be a non-empty string")
+
+    created_at = data.get("createdAt")
+    if not isinstance(created_at, str) or not created_at.strip():
+        raise ProfileValidationError("createdAt must be a non-empty string")
+
+    gepa_version = data.get("gepaVersion")
+    if not isinstance(gepa_version, str) or not gepa_version.strip():
+        raise ProfileValidationError("gepaVersion must be a non-empty string")
+
+    request = parse_run_request(data.get("request"))
+
+    target_profile_raw = data.get("targetProfile")
+    if not isinstance(target_profile_raw, dict):
+        raise ProfileValidationError("targetProfile must be an object")
+
+    snapshot_raw = target_profile_raw.get("snapshot")
+    if not isinstance(snapshot_raw, dict):
+        raise ProfileValidationError("targetProfile.snapshot must be an object")
+
+    snapshot = AgentProfileSnapshot(
+        schema_version=snapshot_raw["schemaVersion"],
+        id=snapshot_raw["id"],
+        name=snapshot_raw["name"],
+        description=snapshot_raw["description"],
+        system_prompt=snapshot_raw["systemPrompt"],
+        instructions=tuple(snapshot_raw["instructions"]),
+        tool_ids=tuple(snapshot_raw["toolIds"]),
+    )
+    target_profile = TargetProfileSnapshot(
+        profile_id=target_profile_raw["profileId"],
+        profile_path=target_profile_raw["profilePath"],
+        frozen_digest=target_profile_raw["frozenDigest"],
+        profile=snapshot,
+    )
+
+    seed_candidate = data.get("seedCandidate")
+    if not isinstance(seed_candidate, dict):
+        raise ProfileValidationError("seedCandidate must be an object")
+
+    seed_candidate_id = data.get("seedCandidateId")
+    if not isinstance(seed_candidate_id, str) or not seed_candidate_id.strip():
+        raise ProfileValidationError("seedCandidateId must be a non-empty string")
+
+    models_raw = data.get("models")
+    if not isinstance(models_raw, dict):
+        raise ProfileValidationError("models must be an object")
+
+    working_raw = models_raw.get("working")
+    reflection_raw = models_raw.get("reflection")
+    if not isinstance(working_raw, dict) or not isinstance(reflection_raw, dict):
+        raise ProfileValidationError("models.working and models.reflection must be objects")
+
+    working_model = ModelIdentity(
+        profile_name=working_raw["profileName"],
+        model_id=working_raw["modelId"],
+        provider=working_raw.get("provider"),
+    )
+    reflection_model = ModelIdentity(
+        profile_name=reflection_raw["profileName"],
+        model_id=reflection_raw["modelId"],
+        provider=reflection_raw.get("provider"),
+    )
+
+    return FrozenRunManifest(
+        protocol="gepa-run@1",
+        run_id=run_id,
+        created_at=created_at,
+        gepa_version=gepa_version,
+        request=request,
+        target_profile=target_profile,
+        seed_candidate=seed_candidate,
+        seed_candidate_id=seed_candidate_id,
+        working_model=working_model,
+        reflection_model=reflection_model,
+    )
+
+
+def read_frozen_run_manifest(path: Path | str) -> FrozenRunManifest:
+    """Read and parse run.json manifest file."""
+
+    manifest_path = Path(path).resolve()
+    if not manifest_path.is_file():
+        raise ProfileValidationError(f"Manifest file not found: {manifest_path}")
+
+    try:
+        content = manifest_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ProfileValidationError(
+            f"Could not read manifest file as JSON: {manifest_path}"
+        ) from error
+
+    return parse_frozen_run_manifest(data)

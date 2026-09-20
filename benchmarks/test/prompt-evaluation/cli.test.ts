@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -195,3 +195,51 @@ async function createFixture(
 function parseEvent(line: string): PromptEvaluationEventV1 {
     return JSON.parse(line) as PromptEvaluationEventV1;
 }
+
+test("Prompt Evaluation CLI 按 model.configId 使用 XDG Profile 解析凭据并运行", async (t) => {
+    const xdgRoot = await mkdtemp(join(tmpdir(), "lazygoal-xdg-"));
+    t.after(() => rm(xdgRoot, { recursive: true, force: true }));
+    const profilesDir = join(xdgRoot, "lazygoal/profiles");
+    await mkdir(profilesDir, { recursive: true });
+    await writeFile(join(profilesDir, "default.toml"), `
+[llm]
+provider = "openai"
+model = "gpt-4o"
+api_key = "sk-fixture-key"
+`);
+
+    const fixture = await createFixture(t, {
+        model: { configId: "default", modelId: "gpt-4o" },
+    });
+    const lines: string[] = [];
+    const code = await runPromptEvaluationCli(fixture.argv, {
+        cwd: fixture.root,
+        env: { XDG_CONFIG_HOME: xdgRoot },
+        registry: registryWithStatus("passed"),
+        evaluationIdGenerator: () => "eval-xdg-success",
+        writeOutput: (line) => lines.push(line),
+        writeError: assert.fail,
+    });
+    assert.equal(code, 0);
+    const events = lines.map(parseEvent);
+    assert.equal(events.at(-1)?.stage, "completed");
+});
+
+test("Prompt Evaluation CLI 在指定的 XDG Profile 缺失时优雅失败返回 invalidRequest", async (t) => {
+    const xdgRoot = await mkdtemp(join(tmpdir(), "lazygoal-xdg-empty-"));
+    t.after(() => rm(xdgRoot, { recursive: true, force: true }));
+
+    const fixture = await createFixture(t, {
+        model: { configId: "missing-profile", modelId: "gpt-4o" },
+    });
+    const errors: string[] = [];
+    const code = await runPromptEvaluationCli(fixture.argv, {
+        cwd: fixture.root,
+        env: { XDG_CONFIG_HOME: xdgRoot },
+        registry: registryWithStatus("passed"),
+        writeOutput: assert.fail,
+        writeError: (line) => errors.push(line),
+    });
+    assert.equal(code, 2);
+    assert.match(errors[0]!, /Profile "missing-profile" 不存在/);
+});
