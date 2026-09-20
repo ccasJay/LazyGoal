@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 
@@ -20,6 +21,13 @@ def main():
         Path(request["benchmark"]["manifestPath"]).read_text(encoding="utf-8")
     )
     task_id = manifest["tasks"][0]["taskId"]
+    counter_path = os.environ.get("LAZYGOAL_GEPA_FAKE_COUNTER")
+    if counter_path:
+        path = Path(counter_path)
+        current = int(path.read_text(encoding="utf-8")) if path.exists() else 0
+        path.write_text(str(current + 1), encoding="utf-8")
+    if mode == "sleep":
+        time.sleep(60)
     evaluation_id = "fixture-evaluation"
     timestamp = "2026-09-20T00:00:00.000Z"
     output_directory = Path(request["outputDirectory"])
@@ -31,6 +39,8 @@ def main():
 
     result_status = "completed"
     task_status = "failed" if mode == "failed" else "passed"
+    if mode == "status_by_task":
+        task_status = "passed" if task_id.endswith("pass") else "failed"
     exit_code = 0
     if mode == "infrastructure":
         result_status = "infrastructure_error"

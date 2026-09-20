@@ -1,6 +1,11 @@
 """Public API for the LazyGoal adapter built on the official GEPA package."""
 
 from .compatibility import EXPECTED_GEPA_VERSION, ensure_gepa_compatibility
+from .adapter import (
+    LazyGoalEvaluationOutput,
+    LazyGoalEvaluationTrajectory,
+    LazyGoalGEPAAdapter,
+)
 from .candidate import CandidateCodec, LazyGoalPrompt
 from .client import LazyGoalEvaluationRecord, PromptEvaluationClient
 from .dataset import DatasetValidator
@@ -30,6 +35,9 @@ __all__ = [
     "InvocationDirectoryManager",
     "LazyGoalEvaluationExample",
     "LazyGoalEvaluationRecord",
+    "LazyGoalEvaluationOutput",
+    "LazyGoalEvaluationTrajectory",
+    "LazyGoalGEPAAdapter",
     "LazyGoalGEPAConfig",
     "LazyGoalGEPAError",
     "LazyGoalPrompt",

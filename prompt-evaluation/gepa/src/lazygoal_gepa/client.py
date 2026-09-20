@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import signal
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -26,6 +28,7 @@ from .protocol import (
 )
 
 _DEFAULT_CAPTURE_LIMIT = 1_048_576
+_TERMINATION_GRACE_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -89,7 +92,12 @@ class PromptEvaluationClient:
             "--request",
             str(request_path.resolve()),
         ]
-        process_result = self._run(command)
+        try:
+            process_result = self._run(command)
+        except PromptEvaluationCancelled as error:
+            raise PromptEvaluationCancelled(
+                self._context(example, "LazyGoal evaluation was cancelled")
+            ) from error
         (sample_directory / "stdout.ndjson").write_bytes(process_result.stdout.data)
         (sample_directory / "stderr.log").write_bytes(process_result.stderr.data)
 
@@ -201,6 +209,7 @@ class PromptEvaluationClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=False,
+                start_new_session=True,
             )
         except OSError as error:
             raise PromptEvaluationInfrastructureError(
@@ -221,7 +230,13 @@ class PromptEvaluationClient:
                     process.stderr,
                     self._capture_limit,
                 )
-                exit_code = process.wait()
+                try:
+                    exit_code = process.wait()
+                except KeyboardInterrupt as error:
+                    _terminate_process_group(process)
+                    raise PromptEvaluationCancelled(
+                        "LazyGoal evaluation was interrupted"
+                    ) from error
                 stdout = stdout_future.result()
                 stderr = stderr_future.result()
         finally:
@@ -340,3 +355,27 @@ def _read_bounded(stream: BinaryIO, limit: int) -> _CapturedStream:
         if len(chunk) > max(remaining, 0):
             overflowed = True
     return _CapturedStream(bytes(captured), overflowed)
+
+
+def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        process.terminate()
+    try:
+        process.wait(timeout=_TERMINATION_GRACE_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        process.kill()
+    try:
+        process.wait(timeout=_TERMINATION_GRACE_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        raise PromptEvaluationInfrastructureError(
+            "LazyGoal process group did not exit after forced termination"
+        ) from error

@@ -28,7 +28,7 @@
   - 验证方式：待实现的 fake CLI 进程集成测试，覆盖成功、领域失败及各协议/基础设施失败路径。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 5. 实现官方 LazyGoalGEPAAdapter 评测与取消语义
+- [x] //TODO 5. 实现官方 LazyGoalGEPAAdapter 评测与取消语义
 
   - 实现目标：实现 `evaluate()` 的顺序 batch 调度、逐样本 score/output/trajectory 投影、fail-fast 和有界子进程取消。
   - 成功判据：`passed/failed` 精确映射为 `1.0/0.0`；返回序列与 batch 对齐；故障或取消不启动后续样本且保留已提交产物；`capture_traces=False` 不生成轨迹。
