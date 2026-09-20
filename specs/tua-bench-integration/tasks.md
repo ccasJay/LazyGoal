@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `benchmarks/tua-bench/test/adapter.test.ts`（BenchmarkTaskDescriptor 映射测试）；待实现的 `benchmarks/tua-bench/test/eval-filter.test.ts`（Manifest 过滤与汇总统计测试）
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 6. 依赖边界检查与回归集成
+- [x] //TODO 6. 依赖边界检查与回归集成
 
   - 实现目标：确保 `benchmarks/tua-bench/` 不从其他 benchmark 目录导入；新增测试被 `npm test` 自动发现；`npx tsc --noEmit` 通过
   - 成功判据：依赖检查确认无跨 benchmark 导入；`npm test` 包含全部新增确定性测试且通过；类型检查无错误
@@ -49,23 +49,25 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | fixture task.toml 解析产出完整 TuaBenchTaskDefinition；Manifest 按任务族分组 | manifest-loader 单元测试（待实现） |
-| [1.3](./requirements.md#req-1-3) | TOML 错误或必要字段缺失的任务被跳过，不中断 Manifest 构建 | manifest-loader 容错测试（待实现） |
-| [2.1](./requirements.md#req-2-1) | EnvironmentSpec 使用 custom 镜像模式；resolveNetworkMode 按 task.toml 返回 | environment-spec 单元测试（待实现） |
-| [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3) | preflight 验证 setup 脚本和 test.sh 可达 | environment-spec preflight 测试（待实现） |
-| [2.4](./requirements.md#req-2-4) | collectArtifacts 回收评分输出和日志 | environment-spec artifacts 测试（待实现） |
-| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2) | bash_exec 执行命令返回 stdout/stderr/exitCode；输出截断和超时正确处理 | bash-exec-tool 单元测试（待实现） |
+| [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2) | fixture task.toml 解析产出完整 TuaBenchTaskDefinition；Manifest 按任务族分组 | manifest-loader 单元测试（通过） |
+| [1.3](./requirements.md#req-1-3) | TOML 错误或必要字段缺失的任务被跳过，不中断 Manifest 构建 | manifest-loader 容错测试（通过） |
+| [2.1](./requirements.md#req-2-1) | EnvironmentSpec 使用 custom 镜像模式；resolveNetworkMode 按 task.toml 返回 | environment-spec 单元测试（通过） |
+| [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3) | preflight 验证 setup 脚本和 test.sh 可达 | environment-spec preflight 测试（通过） |
+| [2.4](./requirements.md#req-2-4) | collectArtifacts 回收评分输出和日志 | environment-spec artifacts 测试（通过） |
+| [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2) | bash_exec 执行命令返回 stdout/stderr/exitCode；输出截断和超时正确处理 | bash-exec-tool 单元测试（通过） |
 | [3.3](./requirements.md#req-3-3) | LLM 调用通过 ACP llm 通道代理 | Worker 入口构建验证（WorkerBuilder 共享） |
-| [3.4](./requirements.md#req-3-4) | Agent 完成后 Worker 结束 ACP Session | Worker session 完成测试（待实现） |
-| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | reward ≥ 1.0 为 passed，低于 1.0 为 failed；domainResult 包含 taskFamily 和 reward | scoring 单元测试（待实现） |
-| [4.3](./requirements.md#req-4-3) | grade 入口重评分不触发模型调用 | grade 入口测试（待实现） |
-| [5.1](./requirements.md#req-5-1) | 任务族和 ID 过滤正确筛选 Manifest 子集 | eval-filter 测试（待实现） |
-| [5.2](./requirements.md#req-5-2) | 每任务独立 Goal 和容器 | adapter 映射测试（待实现） |
-| [5.3](./requirements.md#req-5-3) | 汇总报告包含各任务族通过率和整体通过率 | eval 汇总统计测试（待实现） |
-| [5.4](./requirements.md#req-5-4) | 中途中断后已完成 Attempt 保持完整 | AttemptRecorder 序列化测试（共享基础设施已覆盖） |
-| 容器网络策略向后兼容 | 未实现 resolveNetworkMode 的现有 Spec 默认 `"none"`，行为不变 | isolated-environment 网络模式测试（待实现） |
-| 依赖边界 | tua-bench 不从其他 benchmark 目录导入 | `npm test` 依赖检查 |
+| [3.4](./requirements.md#req-3-4) | Agent 完成后 Worker 结束 ACP Session | Worker session 完成测试（通过） |
+| [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2) | reward ≥ 1.0 为 passed，低于 1.0 为 failed；domainResult 包含 taskFamily 和 reward | scoring 单元测试（通过） |
+| [4.3](./requirements.md#req-4-3) | grade 入口重评分不触发模型调用 | grade 入口测试（通过） |
+| [5.1](./requirements.md#req-5-1) | 任务族和 ID 过滤正确筛选 Manifest 子集 | eval-filter 测试（通过） |
+| [5.2](./requirements.md#req-5-2) | 每任务独立 Goal 和容器 | adapter 映射测试（通过） |
+| [5.3](./requirements.md#req-5-3) | 汇总报告包含各任务族通过率和整体通过率 | eval 汇总统计测试（通过） |
+| [5.4](./requirements.md#req-5-4) | 中途中断后已完成 Attempt 保持完整 | AttemptRecorder 序列化测试（已覆盖） |
+| 容器网络策略向后兼容 | 未实现 resolveNetworkMode 的现有 Spec 默认 `"none"`，行为不变 | isolated-environment 网络模式测试（通过） |
+| 依赖边界 | tua-bench 不从其他 benchmark 目录导入 | `npm test` 依赖检查（通过） |
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+全部通过。`npm test`（类型检查 + 依赖边界检查 + 1168 个单元/集成测试 + 14 个 scripts 测试）均确定性通过无回归。
+- 时间：2026-09-20
+- 被测代码状态：feature/tua-bench-integration 全部任务实现完成，依赖边界防护生效。
