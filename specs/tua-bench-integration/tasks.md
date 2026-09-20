@@ -28,7 +28,7 @@
   - 验证方式：待实现的 `benchmarks/tua-bench/test/scoring.test.ts`；使用 fixture reward 文件覆盖 passed/failed/error 三种场景；`grade` 入口测试验证无 LLM 环境下运行
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 5. 实现 BenchmarkAdapter 与 headless 评测入口
+- [x] //TODO 5. 实现 BenchmarkAdapter 与 headless 评测入口
 
   - 实现目标：在 `benchmarks/tua-bench/src/` 下创建 `adapter.ts` 和 `eval.ts`（headless 入口）；Adapter 将 `TuaBenchTaskDefinition` 映射为 `BenchmarkTaskDescriptor`；headless 入口接收仓库路径和过滤参数，批量执行目标任务
   - 成功判据：任务族和任务 ID 过滤正确筛选 Manifest 子集；每个目标任务创建独立 Goal 和容器；执行完成后输出各任务族通过率和整体通过率的汇总报告；中途中断时已完成任务的 Attempt 记录保持完整

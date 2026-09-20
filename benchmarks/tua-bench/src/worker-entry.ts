@@ -50,42 +50,8 @@ export const TUA_BENCH_WORKER_PROFILE: AgentProfile = Object.freeze({
     toolIds: Object.freeze([BASH_EXEC_TOOL_ID]),
 });
 
-/** TUA-Bench Worker 任务执行产物结果。 */
-export interface TuaBenchEpisodeOutcome {
-    readonly completed: boolean;
-}
-
-/**
- * TUA-Bench 对 HeadlessCompositionRoot 的适配器。
- */
-export class TuaBenchWorkerAdapter
-    implements BenchmarkAdapter<TuaBenchTaskDefinition, TuaBenchEpisodeOutcome> {
-
-    constructor(private readonly workdir: string = "/home/agent") {}
-
-    describeTask(task: TuaBenchTaskDefinition): BenchmarkTaskDescriptor {
-        return {
-            intent: task.instruction,
-            objective: `完成终端任务：${task.name}`,
-            completionCriteria: ["Agent 认为任务已完成并终止执行"],
-            maxSteps: TUA_BENCH_DEFAULT_MAX_STEPS,
-        };
-    }
-
-    async createEpisode(
-        _task: TuaBenchTaskDefinition,
-        _context: BenchmarkEpisodeContext,
-    ): Promise<BenchmarkEpisode<TuaBenchEpisodeOutcome>> {
-        const registry = new InMemoryToolRegistry();
-        registry.register(new BashExecTool({ defaultWorkdir: this.workdir }));
-
-        return {
-            registry,
-            readOutcome: () => ({ completed: true }),
-            close: async () => {},
-        };
-    }
-}
+import { TuaBenchBenchmarkAdapter as TuaBenchWorkerAdapter, type TuaBenchEpisodeOutcome } from "./adapter.js";
+export { TuaBenchWorkerAdapter, type TuaBenchEpisodeOutcome };
 
 /** 经 ACP wire 接收的 TUA-Bench 任务 metadata。 */
 export interface TuaBenchAcpTaskMetadata extends TuaBenchTaskDefinition {
