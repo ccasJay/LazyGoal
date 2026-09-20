@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] //TODO 1. 实现 TUA-Bench 任务定义解析与 Manifest 构建
+- [x] //TODO 1. 实现 TUA-Bench 任务定义解析与 Manifest 构建
 
   - 实现目标：在 `benchmarks/tua-bench/src/` 下创建 `manifest-loader.ts`，解析 `tasks/*/task.toml` + `instruction.md` 并构建 `TuaBenchManifest`
   - 成功判据：fixture 任务目录（含 task.toml 和 instruction.md）解析后产出包含 taskId、instruction、taskFamily、imageRef、networkMode 等字段的 `TuaBenchTaskDefinition`；TOML 解析失败或必要字段缺失的任务被跳过并记录警告；缺省字段使用默认值（timeout 600s、network none、verifier user root）
