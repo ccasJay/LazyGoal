@@ -1,0 +1,19 @@
+name = "doc-smoke-001"
+task_id = "doc-smoke-001"
+
+[metadata]
+category = "document"
+
+[environment]
+docker_image = "ubuntu:22.04"
+network_mode = "none"
+setup_script = "environment/setup.sh"
+
+[agent]
+timeout_sec = 300
+
+[verifier]
+timeout_sec = 60
+user = "root"
+script = "tests/test.sh"
+

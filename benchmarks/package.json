@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts test/prompt-evaluation/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts",
+    "test": "tsx --test test/*.test.ts alfworld/test/*.test.ts swebench/test/*.test.ts gaia/test/*.test.ts tua-bench/test/*.test.ts",
+    "tua-bench:worker-smoke": "cd .. && tsx benchmarks/tua-bench/src/worker-smoke.ts",
     "gaia:worker-smoke": "cd .. && tsx benchmarks/gaia/src/worker-smoke.ts",
     "gaia:eval": "cd .. && tsx benchmarks/gaia/src/cli.ts eval gaia",
     "gaia:load": "cd .. && tsx benchmarks/gaia/src/cli.ts load gaia",
@@ -35,6 +36,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.4.0"
+    "@agentclientprotocol/sdk": "1.4.0",
+    "smol-toml": "^1.8.0"
   }
 }

@@ -164,15 +164,29 @@ export async function extractWorkerNode(options: WorkerNodeExtractorOptions): Pr
     const run = options.run ?? runProcess;
     const cacheRoot = resolve(options.cacheDirectory);
     await mkdir(cacheRoot, { recursive: true });
-    requireSuccess(await run("docker", ["pull", "--platform", WORKER_PLATFORM, WORKER_NODE_IMAGE], {
+    const pullResult = await run("docker", ["pull", "--platform", WORKER_PLATFORM, WORKER_NODE_IMAGE], {
         timeoutMs: 1_200_000,
         maxBytes: 16 * 1024,
         truncate: true,
-    }), "Pull fixed Worker Node image");
-    const inspected = requireSuccess(await run("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}\t{{.Architecture}}", WORKER_NODE_IMAGE], {
-        timeoutMs: 30_000,
-        maxBytes: 16 * 1024,
-    }), "Inspect fixed Worker Node image").trim().split("\t");
+    });
+    let inspected: string[];
+    if (pullResult.code === 0) {
+        inspected = requireSuccess(await run("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}\t{{.Architecture}}", WORKER_NODE_IMAGE], {
+            timeoutMs: 30_000,
+            maxBytes: 16 * 1024,
+        }), "Inspect fixed Worker Node image").trim().split("\t");
+    } else {
+        const localInspect = await run("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}\t{{.Architecture}}", WORKER_NODE_IMAGE], {
+            timeoutMs: 30_000,
+            maxBytes: 16 * 1024,
+        });
+        if (localInspect.code === 0 && localInspect.stdout.trim().length > 0) {
+            inspected = localInspect.stdout.trim().split("\t");
+        } else {
+            requireSuccess(pullResult, "Pull fixed Worker Node image");
+            inspected = [];
+        }
+    }
     const [imageId, operatingSystem, architecture] = inspected;
     if (imageId === undefined || operatingSystem !== "linux" || architecture !== "amd64") {
         throw new Error("Fixed Worker Node image is not linux/amd64");
