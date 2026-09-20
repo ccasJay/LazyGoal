@@ -106,7 +106,37 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
 后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
 有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
-ALFWorld 单任务 smoke 需显式运行且可能消耗模型额度。
+GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
+
+## GEPA lifecycle control plane
+
+GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由普通 TUI 或 benchmark
+Composition Root 持有。公开机器接口为 `preflight`、`start`、`status`、`stop`、`resume`
+和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`，因为它们可能产生模型和
+容器费用，并在成功后触及项目的 default Agent Profile。
+
+Python 生命周期控制器为每次运行创建
+`.lazygoal/gepa/runs/<runId>/`，其中 `run.json` 和 `request.json` 是冻结身份，
+`state.json` 是原子提交的可查询投影，`owner.json` 记录单 Worker 所有权，`gepa/`
+保存官方 GEPA `run_dir`，`adapter/`、`reflection/` 和 `artifacts/` 保存有界评测、
+反思及结果产物。`status`/`report` 只读取这些权威文件；它们不会从日志或私有
+checkpoint 推导成功状态。每个 Run 同时最多一个 Worker。
+
+候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
+项目 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
+`[gepa].reflection_profile` 绑定另一个 LLM Profile，仅执行无 Tool 的文本反思。两者的
+Profile、模型身份和凭据边界在 Run manifest 中冻结，恢复时必须保持一致。
+
+`stop` 只请求官方 GEPA 停止边界，不向 Worker 发送进程信号，也不删除产物。Worker
+观察到停止请求后保留 checkpoint 并进入 `stopped`；`resume` 只允许在 Worker 不存活、
+目标 Profile 摘要未漂移且 checkpoint 可读时复用同一 `run_dir`，并重新要求确认。
+
+发布不是普通评测的副作用。生命周期产物和报告区分最佳 Profile artifact、publication
+状态与 `complete`；只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
+Worker 才会原子更新
+`.lazygoal/profiles/default.json` 的 `systemPrompt` 与完整 `instructions`。停止、失败、
+外部 Profile 修改或写入失败不得覆盖当前 Profile；此类结果保留最佳 artifact 并报告
+`publish_blocked`（或对应失败分类）。真实双模型 smoke 不进入默认回归。
 
 模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
 `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，

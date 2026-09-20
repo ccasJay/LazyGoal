@@ -213,9 +213,10 @@ class LifecycleReportTests(unittest.TestCase):
         self.assertEqual(report["candidates"]["seedCandidateId"], manifest.seed_candidate_id)
 
         self.assertIn("scores", report)
-        self.assertEqual(report["scores"]["seedScore"], 0.0)
         self.assertEqual(report["scores"]["bestScore"], 0.95)
-        self.assertEqual(report["scores"]["scoreGain"], 0.95)
+        self.assertNotIn("seedScore", report["scores"])
+        self.assertNotIn("scoreGain", report["scores"])
+        self.assertTrue(report["complete"])
 
         # 4. 关键产物路径
         self.assertIn("artifacts", report)
@@ -239,6 +240,27 @@ class LifecycleReportTests(unittest.TestCase):
         self.assertTrue(report["timestamps"]["startedAt"])
         self.assertTrue(report["timestamps"]["completedAt"])
         self.assertGreaterEqual(report["timestamps"]["durationSeconds"], 0.0)
+
+    def test_succeeded_with_pending_publication_is_not_complete(self) -> None:
+        """Optimization success must not be reported as complete before publication."""
+        run_id = "run_test_report_publication_pending"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        self.store.update_state(
+            run_id,
+            lifecycle_status="succeeded",
+            best_score=0.75,
+            best_candidate_id="c_best_pending",
+            publication_status="pending",
+        )
+
+        generate_and_save_run_report(run_dir)
+        report = read_run_report(run_dir)
+
+        self.assertEqual(report["terminalStatus"], "succeeded")
+        self.assertEqual(report["publication"]["status"], "pending")
+        self.assertFalse(report["complete"])
+        self.assertEqual(report["scores"], {"bestScore": 0.75})
 
     def test_report_structure_for_stopped_run(self) -> None:
         """Verify stopped terminal run report has terminalStatus=stopped and pending publication."""
@@ -274,7 +296,10 @@ class LifecycleReportTests(unittest.TestCase):
             run_id,
             lifecycle_status="failed",
             error_code="evaluation_failed",
-            error_message="Subprocess crashed on sample-01 with Authorization: Bearer sk-secret123",
+            error_message=(
+                "Subprocess crashed on sample-01 with Authorization: Bearer "
+                "sk-proj-secret123 and apiKey=provider-secret"
+            ),
         )
 
         generate_and_save_run_report(run_dir)
@@ -284,8 +309,46 @@ class LifecycleReportTests(unittest.TestCase):
         self.assertIsNotNone(report["error"])
         self.assertEqual(report["error"]["code"], "evaluation_failed")
         # 验证敏感凭据在错误文本中被脱敏
-        self.assertNotIn("sk-secret123", report["error"]["message"])
+        self.assertNotIn("sk-proj-secret123", report["error"]["message"])
+        self.assertNotIn("provider-secret", report["error"]["message"])
+        self.assertNotIn("apiKey", json.dumps(report))
         self.assertIn("[REDACTED]", report["error"]["message"])
+
+    def test_report_schema_is_validated_and_rejects_fabricated_fields(self) -> None:
+        """A report with missing required fields or fictional score fields is corrupted."""
+        run_id = "run_test_report_schema"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        self.store.update_state(run_id, lifecycle_status="stopped")
+        generate_and_save_run_report(run_dir)
+
+        report_file = run_dir / "artifacts" / "report.json"
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        report.pop("protocol")
+        report_file.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaises(RunStoreError) as missing_protocol:
+            read_run_report(run_dir)
+        self.assertEqual(missing_protocol.exception.code, "corrupted")
+
+        report = json.loads(report_file.read_text(encoding="utf-8"))
+        report["protocol"] = "gepa-run@1"
+        report["scores"]["seedScore"] = 0.0
+        report_file.write_text(json.dumps(report), encoding="utf-8")
+        with self.assertRaises(RunStoreError) as fictional_score:
+            read_run_report(run_dir)
+        self.assertEqual(fictional_score.exception.code, "corrupted")
+
+    def test_report_file_present_while_run_is_running_is_not_accepted(self) -> None:
+        """An early artifact cannot turn a running run into a reportable terminal run."""
+        run_id = "run_test_report_early_artifact"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        self.store.update_state(run_id, lifecycle_status="running")
+        report_file = run_dir / "artifacts" / "report.json"
+        report_file.write_text(json.dumps({"protocol": "gepa-run@1"}), encoding="utf-8")
+
+        with self.assertRaises(ReportNotReadyError):
+            read_run_report(run_dir)
 
     def test_report_missing_or_corrupted_artifact_raises_corrupted(self) -> None:
         """Verify corrupted/unformed exceptions when report artifact is missing or bad JSON."""

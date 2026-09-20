@@ -6,8 +6,9 @@ import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { runGepaReflectCli } from "./reflection-bridge.js";
+import { runGepaResolveModelsCli } from "./model-bridge.js";
 
-export { runGepaReflectCli };
+export { runGepaReflectCli, runGepaResolveModelsCli };
 import { AlfworldPromptEvaluationAdapter } from "../../alfworld/src/prompt-evaluation-adapter.js";
 import {
     loadAlfworldEnvironmentFile,
@@ -279,11 +280,16 @@ const entrypoint = process.argv[1] === undefined ? undefined : resolve(process.a
 if (entrypoint === fileURLToPath(import.meta.url)) {
     const rawArgv = process.argv.slice(2);
     const isReflect = rawArgv[0] === "gepa" && rawArgv[1] === "reflect";
-    const runner = isReflect ? runGepaReflectCli(rawArgv) : runPromptEvaluationCli(rawArgv);
+    const isResolveModels = rawArgv[0] === "gepa" && rawArgv[1] === "resolve-models";
+    const runner = isReflect
+        ? runGepaReflectCli(rawArgv)
+        : isResolveModels
+        ? runGepaResolveModelsCli(rawArgv)
+        : runPromptEvaluationCli(rawArgv);
     void runner.then((code) => {
         process.exitCode = code;
     }).catch((error: unknown) => {
         process.stderr.write(`${errorMessage(error)}\n`);
-        process.exitCode = isReflect ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
+        process.exitCode = isReflect || isResolveModels ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
     });
 }

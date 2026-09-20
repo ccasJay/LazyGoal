@@ -47,6 +47,7 @@ from lazygoal_gepa.errors import (
 )
 from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
+from lazygoal_gepa.reporter import generate_and_save_run_report
 from lazygoal_gepa.store import RunStore, atomic_write_json
 
 
@@ -59,6 +60,24 @@ class LifecycleControllerTests(unittest.TestCase):
         self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
+
+        xdg_root = self.root / "xdg"
+        config_dir = xdg_root / "lazygoal"
+        profiles_dir = config_dir / "profiles"
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            '[gepa]\nreflection_profile = "gepa-reflection"\n', encoding="utf-8"
+        )
+        (profiles_dir / "default.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "default"\napi_key = "test-working"\n',
+            encoding="utf-8",
+        )
+        (profiles_dir / "gepa-reflection.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
+            encoding="utf-8",
+        )
+        self.env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg_root)})
+        self.env_patch.start()
 
         # 准备 default.json profile
         self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
@@ -108,6 +127,7 @@ class LifecycleControllerTests(unittest.TestCase):
         self.spawned_pids: list[int] = []
 
     def tearDown(self) -> None:
+        self.env_patch.stop()
         for pid in self.spawned_pids:
             if is_pid_alive(pid):
                 try:
@@ -148,8 +168,8 @@ class LifecycleControllerTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=ModelIdentity(profile_name="default", model_id="default", provider="openai"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="openai"),
         )
 
     # -------------------------------------------------------------------------
@@ -394,15 +414,11 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # 5.6 Report Succeeded
         self.store.update_state(run_id, lifecycle_status="succeeded")
-        report_data = {
-            "runId": run_id,
-            "status": "succeeded",
-            "bestCandidate": {"score": 0.95},
-        }
-        atomic_write_json(run_dir / "artifacts" / "report.json", report_data)
+        self.store.update_state(run_id, best_score=0.95)
+        generate_and_save_run_report(run_dir)
         read_report = get_run_report(run_id, runs_root=self.runs_dir)
-        self.assertEqual(read_report["status"], "succeeded")
-        self.assertEqual(read_report["bestCandidate"]["score"], 0.95)
+        self.assertEqual(read_report["terminalStatus"], "succeeded")
+        self.assertEqual(read_report["scores"]["bestScore"], 0.95)
 
     # -------------------------------------------------------------------------
     # 6. Resume 漂移防御与并发排他锁测试
@@ -449,14 +465,17 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # 清除活跃所有权并重新 resume
         (run_dir / "owner.json").unlink()
+        checkpoint_file = run_dir / "gepa" / "gepa_state.bin"
+        checkpoint_file.write_bytes(b"test checkpoint")
         dummy_worker = [sys.executable, "-c", "import time; time.sleep(10)"]
-        resumed = resume_run(
-            run_id=run_id,
-            yes=True,
-            workspace_root=self.workspace_root,
-            runs_root=self.runs_dir,
-            worker_cmd=dummy_worker,
-        )
+        with patch("gepa.core.state.GEPAState.load"):
+            resumed = resume_run(
+                run_id=run_id,
+                yes=True,
+                workspace_root=self.workspace_root,
+                runs_root=self.runs_dir,
+                worker_cmd=dummy_worker,
+            )
         self._track_pid(resumed["workerPid"])
         self.assertEqual(resumed["lifecycleStatus"], "starting")
 

@@ -7,7 +7,14 @@ import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
+import { resolveXdgPaths } from "../../../packages/llm/src/xdg.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
+
+/** 反思响应文本的最大字符数，避免模型回显撑爆机器协议。 */
+export const GEPA_REFLECTION_OUTPUT_MAX_CHARS = 256 * 1024;
+
+/** 反思桥 stderr 诊断消息的最大字符数。 */
+export const GEPA_REFLECTION_DIAGNOSTIC_MAX_CHARS = 4 * 1024;
 
 /**
  * GEPA 反思机器请求协议模型定位结构契约。
@@ -176,6 +183,7 @@ export function redactSensitiveString(text: string, env: NodeJS.ProcessEnv = pro
     // 2. 正则脱敏常见的 API Key 与 Authorization header 格式
     result = result.replace(/sk-[a-zA-Z0-9_-]{10,}/g, "[REDACTED]");
     result = result.replace(/Bearer\s+[a-zA-Z0-9_\-\.]+/gi, "Bearer [REDACTED]");
+    result = result.replace(/((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
     return result;
 }
 
@@ -349,7 +357,7 @@ export async function runGepaReflectCli(
     try {
         requestPath = parseReflectArgs(argv);
     } catch (error: unknown) {
-        const message = redactSensitiveString(error instanceof Error ? error.message : String(error), env);
+        const message = boundDiagnostic(redactSensitiveString(error instanceof Error ? error.message : String(error), env));
         writeError(JSON.stringify({ error: "invalid_request", message }));
         return 2;
     }
@@ -367,27 +375,46 @@ export async function runGepaReflectCli(
         const fileContent = await readFile(absolutePath, "utf-8");
         normalizedRequest = parseAndValidateReflectRequest(fileContent);
     } catch (error: unknown) {
-        const message = redactSensitiveString(error instanceof Error ? error.message : String(error), env);
+        const message = boundDiagnostic(redactSensitiveString(error instanceof Error ? error.message : String(error), env));
         writeError(JSON.stringify({ error: "invalid_request", message }));
         return 2;
     }
 
-    // 3. 准备 LLM Adapter（严格隔离 Working Profile）
+    // 3. 准备 LLM Adapter（严格隔离 Working Profile）。提供 configId 时，
+    // 若存在主配置则先解析真实 Reflection Profile，禁止请求冒充其它 Profile。
     let adapter: LLMAdapter;
     try {
-        if (options.reflectionAdapter !== undefined) {
-            adapter = options.reflectionAdapter;
-        } else {
-            const reflectionRuntime = await loadReflectionRuntimeConfig({
+        const configId = normalizedRequest.model?.configId;
+        // 注入 Adapter 的单元测试不应被宿主用户配置污染；只有调用方显式提供
+        // 环境且该环境存在主配置时，才对请求 configId 执行跨边界一致性校验。
+        const configFileExists = options.env !== undefined
+            && existsSync(resolveXdgPaths(env).configFile);
+        const shouldLoadReflectionProfile = options.reflectionAdapter === undefined
+            || (configId !== undefined && configFileExists);
+        let reflectionRuntime: Awaited<ReturnType<typeof loadReflectionRuntimeConfig>> | undefined;
+        if (shouldLoadReflectionProfile) {
+            reflectionRuntime = await loadReflectionRuntimeConfig({
                 env,
                 cliArgs: normalizedRequest.model?.modelId !== undefined
                     ? { model: normalizedRequest.model.modelId }
                     : {},
             });
+            if (configId !== undefined && configId !== reflectionRuntime.profileName) {
+                throw new Error(
+                    `Reflection model configId must match configured profile "${reflectionRuntime.profileName}"`,
+                );
+            }
+        }
+        if (options.reflectionAdapter !== undefined) {
+            adapter = options.reflectionAdapter;
+        } else {
+            // shouldLoadReflectionProfile 为 true 时已完成加载；此断言只隔离类型，
+            // 不引入回退配置。
+            if (reflectionRuntime === undefined) throw new Error("Reflection profile was not resolved");
             adapter = createLlmAdapter(reflectionRuntime.llm);
         }
     } catch (error: unknown) {
-        const message = redactSensitiveString(error instanceof Error ? error.message : String(error), env);
+        const message = boundDiagnostic(redactSensitiveString(error instanceof Error ? error.message : String(error), env));
         writeError(JSON.stringify({ error: "invalid_request", message }));
         return 2;
     }
@@ -414,7 +441,7 @@ export async function runGepaReflectCli(
 
         const response = await adapter.generate(llmRequest, { signal });
 
-        const outputText = redactSensitiveString(response.content, env);
+        const outputText = boundText(redactSensitiveString(response.content, env), GEPA_REFLECTION_OUTPUT_MAX_CHARS);
         const normalizedUsage = readNormalizedUsage(response.providerMetadata) ?? {
             inputTokens: 0,
             outputTokens: 0,
@@ -438,7 +465,7 @@ export async function runGepaReflectCli(
         if (signal.aborted) {
             return 130;
         }
-        const message = redactSensitiveString(error instanceof Error ? error.message : String(error), env);
+        const message = boundDiagnostic(redactSensitiveString(error instanceof Error ? error.message : String(error), env));
         writeError(JSON.stringify({ error: "model_error", message }));
         return 1;
     } finally {
@@ -447,4 +474,13 @@ export async function runGepaReflectCli(
             process.removeListener("SIGTERM", abort);
         }
     }
+}
+
+function boundDiagnostic(text: string): string {
+    return boundText(text, GEPA_REFLECTION_DIAGNOSTIC_MAX_CHARS);
+}
+
+function boundText(text: string, limit: number): string {
+    if (text.length <= limit) return text;
+    return `${text.slice(0, Math.max(0, limit - 1))}…`;
 }

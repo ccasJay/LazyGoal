@@ -86,6 +86,10 @@ class LifecycleResumeTests(unittest.TestCase):
         self.fake_cli.chmod(0o755)
 
         self.spawned_pids: list[int] = []
+        self.working_model = ModelIdentity(profile_name="default", model_id="default")
+        self.reflection_model = ModelIdentity(
+            profile_name="gepa-reflection", model_id="reflection"
+        )
 
     def tearDown(self) -> None:
         for pid in self.spawned_pids:
@@ -145,8 +149,8 @@ class LifecycleResumeTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
 
     def test_resume_from_checkpoint_advances_optimization(self) -> None:
@@ -182,6 +186,8 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
 
         with patch("lazygoal_gepa.controller.launch_detached_worker") as mock_launch:
@@ -235,6 +241,8 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
 
         # 场景 A: 修改 profile 内容
@@ -281,6 +289,8 @@ class LifecycleResumeTests(unittest.TestCase):
                 workspace_root=self.workspace_root,
                 runs_dir=self.runs_dir,
                 profile_path=self.profile_path,
+                working_model=self.working_model,
+                reflection_model=self.reflection_model,
             )
             with self.assertRaises(WorkerAlreadyRunningError) as ctx:
                 controller.resume(run_id, yes=True)
@@ -301,6 +311,8 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
 
         # 场景 1: succeeded
@@ -325,6 +337,8 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
         with self.assertRaises(ConfirmationRequiredError):
             controller.resume(run_id, yes=False)
@@ -340,6 +354,8 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
+            reflection_model=self.reflection_model,
         )
 
         # 场景 1: checkpoint 缺失
@@ -382,6 +398,7 @@ class LifecycleResumeTests(unittest.TestCase):
             workspace_root=self.workspace_root,
             runs_dir=self.runs_dir,
             profile_path=self.profile_path,
+            working_model=self.working_model,
             reflection_model=ModelIdentity(profile_name="different-reflection", model_id="r2"),
         )
         with self.assertRaises(ConfigurationError):

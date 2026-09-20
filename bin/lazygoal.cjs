@@ -9,7 +9,8 @@ const isSwebenchEval = argv[0] === "eval" && argv[1] === "swebench";
 const isGaiaEval = argv[0] === "eval" && argv[1] === "gaia";
 const isPromptEval = argv[0] === "eval" && argv[1] === "prompt";
 const isGepaReflect = argv[0] === "gepa" && argv[1] === "reflect";
-const isGepaLifecycle = argv[0] === "gepa" && !isGepaReflect;
+const isGepaResolveModels = argv[0] === "gepa" && argv[1] === "resolve-models";
+const isGepaLifecycle = argv[0] === "gepa" && !isGepaReflect && !isGepaResolveModels;
 
 if (isGepaLifecycle) {
     const procEnv = process["env"];
@@ -34,7 +35,7 @@ const isAlfworldGrade = argv[0] === "grade" && argv[1] === "alfworld";
 const isSwebenchGrade = argv[0] === "grade" && argv[1] === "swebench";
 const isGaiaGrade = argv[0] === "grade" && argv[1] === "gaia";
 const isGaiaLoad = (argv[0] === "load" && argv[1] === "gaia") || (argv[0] === "gaia" && argv[1] === "load");
-const source = (isPromptEval || isGepaReflect)
+const source = (isPromptEval || isGepaReflect || isGepaResolveModels)
     ? resolve(__dirname, "../benchmarks/src/prompt-evaluation/cli.ts")
     : isAlfworldEval
     ? resolve(__dirname, "../benchmarks/alfworld/src/cli.ts")

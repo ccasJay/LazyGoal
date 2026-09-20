@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 lazygoal-gepa-smoke = "lazygoal_gepa.smoke:main"
+lazygoal-gepa-lifecycle-smoke = "lazygoal_gepa.smoke:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

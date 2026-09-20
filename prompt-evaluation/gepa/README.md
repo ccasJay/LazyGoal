@@ -27,26 +27,43 @@ npm run test:gepa-adapter
 These tests are also part of the root `npm test` regression. They exercise the
 official GEPA optimizer against a fake LazyGoal CLI and fake reflection model.
 
-## Explicit ALFWorld smoke
+## Explicit real dual-model lifecycle smoke
 
-The smoke command is intentionally excluded from default tests. It evaluates
-the repository's one-task ALFWorld smoke Manifest through the Python adapter and
-the real `lazygoal eval prompt` CLI, then reads the authoritative
-`result.json`. It requires Docker, prepared ALFWorld data, the ALFWorld Profile,
-and valid `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` environment variables.
-It makes real provider calls and may incur charges.
+The lifecycle smoke is intentionally excluded from default tests. It invokes
+the public `lazygoal gepa` control plane in this order: read-only `preflight`,
+confirmed `start`, read-only `status` polling, and terminal `report`. The run
+uses the Working LM configured by the project `default` Profile and the
+independent Reflection LM configured by `[gepa].reflection_profile`. It may run
+Docker/benchmark resources, make real provider calls, and update the default
+Agent Profile.
+
+The command refuses to start without an explicit confirmation flag. Run
+`lazygoal gepa preflight` separately when you want to review the resolved models,
+budget, dataset, and target Profile before confirming the smoke:
 
 ```sh
-npm run smoke:gepa-adapter
+npm run smoke:gepa-lifecycle -- \
+  --request path/to/gepa-run.json \
+  --workspace-root . \
+  --yes
 ```
 
-Defaults can be replaced with `--manifest`, `--profile`,
-`--output-directory`, `--lazygoal-executable`, `--model-config-id`, and
-`--model-id`. Adapter-owned files stay below the configured output directory.
-Captured process logs are bounded and redact inherited environment values whose
-names indicate keys, tokens, passwords, credentials, or secrets. Reflection
-data includes only bounded result projections and artifact paths; it never
-loads the full LazyGoal Diagnostic Trace.
+`--request` must be a current `gepa-run@1` request; the smoke does not discover
+or invent datasets. Use `--runs-directory` to isolate run artifacts and
+`--lazygoal-executable` to select another `lazygoal` entrypoint. The old
+`smoke:gepa-adapter` script remains an alias for this explicit lifecycle smoke;
+neither script is part of the default regression.
+
+The smoke prints only the preflight summary and stable run/report fields. It
+does not print credentials, raw provider responses, thinking, or full
+Diagnostic Trace content. A successful optimization and a successful Profile
+publication remain separate lifecycle facts; a publication conflict must be
+reported as `publish_blocked` with the best Profile artifact retained.
+
+The smoke is an explicit integration check of the repository-level
+`bin/lazygoal.cjs` routing, detached worker, official checkpoint lifecycle,
+reporting, and guarded publication. It is not a substitute for the deterministic
+default regression.
 
 ## Python API
 

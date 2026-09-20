@@ -66,6 +66,7 @@ from lazygoal_gepa.errors import (
 )
 from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import parse_run_request
+from lazygoal_gepa.reporter import generate_and_save_run_report
 from lazygoal_gepa.store import RunStore, atomic_write_json
 
 
@@ -136,6 +137,24 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
+        xdg_root = self.root / "xdg"
+        config_dir = xdg_root / "lazygoal"
+        profiles_dir = config_dir / "profiles"
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            '[gepa]\nreflection_profile = "gepa-reflection"\n', encoding="utf-8"
+        )
+        (profiles_dir / "default.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "default"\napi_key = "test-working"\n',
+            encoding="utf-8",
+        )
+        (profiles_dir / "gepa-reflection.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
+            encoding="utf-8",
+        )
+        self.env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg_root)})
+        self.env_patch.start()
+
         # Baseline default profile
         self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
@@ -184,6 +203,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.spawned_procs: list[subprocess.Popen[Any]] = []
 
     def tearDown(self) -> None:
+        self.env_patch.stop()
         for proc in self.spawned_procs:
             if proc.poll() is None:
                 try:
@@ -236,8 +256,8 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=ModelIdentity(profile_name="default", model_id="default", provider="openai"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="openai"),
         )
 
     # =========================================================================
@@ -564,9 +584,12 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         run_dir = self.runs_dir / run_id
         if (run_dir / "owner.json").exists():
             (run_dir / "owner.json").unlink()
+        (run_dir / "gepa" / "gepa_state.bin").write_bytes(b"test checkpoint")
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf), patch(
+            "gepa.core.state.GEPAState.load"
+        ):
             code = cli_main([
                 "resume",
                 "--run", run_id,
@@ -579,9 +602,13 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self._track_pid(resumed_payload["workerPid"])
 
         # 6. report (写入 terminal report)
-        self.store.update_state(run_id, lifecycle_status="succeeded")
-        report_data = {"runId": run_id, "terminalStatus": "succeeded", "score": 1.0}
-        atomic_write_json(run_dir / "artifacts" / "report.json", report_data)
+        self.store.update_state(
+            run_id,
+            lifecycle_status="succeeded",
+            publication_status="unchanged",
+            best_score=1.0,
+        )
+        generate_and_save_run_report(run_dir)
 
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()

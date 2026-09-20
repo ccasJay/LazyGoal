@@ -142,6 +142,8 @@ api_key = "sk-reflection-key"
         assert.equal(configs.reflection.model, "deepseek-chat");
         assert.equal(configs.reflection.apiKey, "sk-reflection-key");
         assert.equal(configs.reflection.structuredOutputMode, "prompt_only");
+        assert.equal(configs.workingProfileName, "default");
+        assert.equal(configs.reflectionProfileName, "gepa-reflection");
 
         // 确保两者为不同对象且凭据相互隔离
         assert.notEqual(configs.working, configs.reflection);

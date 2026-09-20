@@ -33,6 +33,7 @@ from .errors import (
     WorkerAlreadyRunningError,
 )
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
+from .model_resolver import resolve_model_identities
 from .protocol import GEPARunRequest, read_run_request
 from .reporter import ReportNotReadyError, read_run_report
 from .store import RunState, RunStore
@@ -129,16 +130,30 @@ class LifecycleController:
             if profile_path is not None
             else (self.workspace_root / ".lazygoal" / "profiles" / "default.json")
         )
-        self.working_model = working_model or ModelIdentity(
-            profile_name="default",
-            model_id="default",
-        )
-        self.reflection_model = reflection_model or ModelIdentity(
-            profile_name="gepa-reflection",
-            model_id="reflection",
+        if (working_model is None) != (reflection_model is None):
+            raise ConfigurationError(
+                "Working and reflection model identities must be provided together"
+            )
+        self._resolved_models = (
+            (working_model, reflection_model)
+            if working_model is not None and reflection_model is not None
+            else None
         )
         self.worker_cmd = worker_cmd
         self.store = RunStore(self.runs_dir)
+
+    def _models(self) -> tuple[ModelIdentity, ModelIdentity]:
+        if self._resolved_models is None:
+            self._resolved_models = resolve_model_identities(self.workspace_root)
+        return self._resolved_models
+
+    @property
+    def working_model(self) -> ModelIdentity:
+        return self._models()[0]
+
+    @property
+    def reflection_model(self) -> ModelIdentity:
+        return self._models()[1]
 
     def preflight(self, request_path: Path | str) -> dict[str, Any]:
         """Perform read-only preflight consistency checks without creating files or processes."""
@@ -153,11 +168,7 @@ class LifecycleController:
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
         extract_seed_candidate(snapshot)
 
-        if self.working_model.profile_name == self.reflection_model.profile_name:
-            raise ConfigurationError(
-                "Working profile and reflection profile must not share the same name: "
-                f"{self.working_model.profile_name!r}"
-            )
+        working_model, reflection_model = self._models()
 
         return {
             "valid": True,
@@ -175,8 +186,8 @@ class LifecycleController:
                 "instructionCount": len(snapshot.instructions),
             },
             "models": {
-                "working": self.working_model.to_dict(),
-                "reflection": self.reflection_model.to_dict(),
+                "working": working_model.to_dict(),
+                "reflection": reflection_model.to_dict(),
             },
             "estimatedSideEffects": {
                 "willMutateProfile": True,
@@ -199,7 +210,8 @@ class LifecycleController:
                 "the default profile upon completion. Re-run with --yes to confirm."
             )
 
-        preflight_info = self.preflight(request_path)
+        self.preflight(request_path)
+        working_model, reflection_model = self._models()
         req = read_run_request(request_path, check_manifests=True)
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
         seed_candidate = extract_seed_candidate(snapshot)
@@ -223,8 +235,8 @@ class LifecycleController:
             ),
             seed_candidate=seed_candidate,
             seed_candidate_id=seed_candidate_id,
-            working_model=self.working_model,
-            reflection_model=self.reflection_model,
+            working_model=working_model,
+            reflection_model=reflection_model,
         )
 
         run_dir = self.store.initialize_run(manifest)
@@ -324,7 +336,7 @@ class LifecycleController:
 
         # Preflight Check 2: Active worker ownership
         health, owner = RunOwnership(run_dir).check_health()
-        if health in ("active", "stale"):
+        if health in ("active", "stale", "lost"):
             active_pid = owner.pid if owner else None
             raise WorkerAlreadyRunningError(
                 f"Worker is already active for run {run_id!r} (PID {active_pid})",
@@ -332,10 +344,8 @@ class LifecycleController:
             )
 
         # Preflight Check 3: Model identity and Target Profile digest drift
-        if (
-            self.working_model != manifest.working_model
-            or self.reflection_model != manifest.reflection_model
-        ):
+        working_model, reflection_model = self._models()
+        if working_model != manifest.working_model or reflection_model != manifest.reflection_model:
             raise ConfigurationError(
                 "Working or reflection model identity has drifted from frozen run manifest"
             )
@@ -352,18 +362,22 @@ class LifecycleController:
                 f"expected digest {manifest.target_profile.frozen_digest}, got {current_digest}"
             )
 
-        # Preflight Check 4: Official GEPA checkpoint integrity if exists
+        # Preflight Check 4: a resumable run must have a valid checkpoint.
         checkpoint_file = run_dir / "gepa" / "gepa_state.bin"
-        if checkpoint_file.is_file():
-            try:
-                from gepa.core.state import GEPAState
+        if not checkpoint_file.is_file():
+            raise RunStoreError(
+                f"Checkpoint is missing for run {run_id!r}: {checkpoint_file}",
+                code="checkpoint_failed",
+            )
+        try:
+            from gepa.core.state import GEPAState
 
-                GEPAState.load(str(run_dir / "gepa"))
-            except Exception as exc:
-                raise RunStoreError(
-                    f"Checkpoint is corrupted for run {run_id!r}: {exc}",
-                    code="checkpoint_corrupted",
-                ) from exc
+            GEPAState.load(str(run_dir / "gepa"))
+        except Exception as exc:
+            raise RunStoreError(
+                f"Checkpoint is corrupted for run {run_id!r}: {exc}",
+                code="checkpoint_corrupted",
+            ) from exc
 
         self.store.clear_stop_request(run_id)
         self.store.update_state(

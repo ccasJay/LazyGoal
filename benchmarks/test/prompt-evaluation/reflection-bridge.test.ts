@@ -10,6 +10,7 @@ import {
     runGepaReflectCli,
     parseAndValidateReflectRequest,
     redactSensitiveString,
+    GEPA_REFLECTION_OUTPUT_MAX_CHARS,
 } from "../../src/prompt-evaluation/reflection-bridge.js";
 
 class MockReflectionLLMAdapter implements LLMAdapter {
@@ -69,9 +70,9 @@ test("parseAndValidateReflectRequest 正常保留合法消息数组 Prompt", () 
     });
     const parsed = parseAndValidateReflectRequest(json);
     assert.equal(parsed.messages.length, 3);
-    assert.equal(parsed.messages[0].role, "system");
-    assert.equal(parsed.messages[1].role, "user");
-    assert.equal(parsed.messages[2].role, "assistant");
+    assert.equal(parsed.messages[0]!.role, "system");
+    assert.equal(parsed.messages[1]!.role, "user");
+    assert.equal(parsed.messages[2]!.role, "assistant");
 });
 
 test("parseAndValidateReflectRequest 拒绝非法角色（如 tool, function）", () => {
@@ -223,6 +224,55 @@ test("runGepaReflectCli 成功执行纯文本无工具生成并返回 stdout 单
     const parsedOutput = JSON.parse(outputs[0]!);
     assert.equal(parsedOutput.text, "Reflected mutation candidate\nwith newline");
     assert.deepEqual(parsedOutput.usage, { inputTokens: 120, outputTokens: 80 });
+});
+
+test("runGepaReflectCli 拒绝与实际 Reflection Profile 不一致的 configId", async (t) => {
+    const tempDir = await createTempDir(t, "gepa-reflect-config-id-");
+    const xdgConfigHome = join(tempDir, ".config");
+    const profilesDir = join(xdgConfigHome, "lazygoal/profiles");
+    await mkdir(profilesDir, { recursive: true });
+    await writeFile(join(xdgConfigHome, "lazygoal/config.toml"), "[gepa]\nreflection_profile = \"reflection\"\n");
+    await writeFile(join(profilesDir, "reflection.toml"), "[llm]\nprovider = \"openai\"\nmodel = \"reflection-model\"\napi_key = \"sk-reflection\"\n");
+    const reqFile = join(tempDir, "request.json");
+    await writeFile(reqFile, JSON.stringify({ model: { configId: "wrong-profile" }, prompt: "Reflect" }));
+    const errors: string[] = [];
+    let called = false;
+    const code = await runGepaReflectCli(["gepa", "reflect", "--request", reqFile], {
+        cwd: tempDir,
+        env: { XDG_CONFIG_HOME: xdgConfigHome },
+        reflectionAdapter: {
+            structuredOutputMode: "prompt_only",
+            async generate() {
+                called = true;
+                return { content: "should not run" };
+            },
+        },
+        writeOutput: assert.fail,
+        writeError: (line) => errors.push(line),
+    });
+    assert.equal(code, 2);
+    assert.equal(called, false);
+    assert.match(JSON.parse(errors[0]!).message, /must match configured profile "reflection"/);
+});
+
+test("runGepaReflectCli 对模型输出和诊断设置明确上限", async (t) => {
+    const tempDir = await createTempDir(t, "gepa-reflect-output-limit-");
+    const reqFile = join(tempDir, "request.json");
+    await writeFile(reqFile, JSON.stringify({ prompt: "Reflect" }));
+    const output: string[] = [];
+    const code = await runGepaReflectCli(["gepa", "reflect", "--request", reqFile], {
+        cwd: tempDir,
+        reflectionAdapter: {
+            structuredOutputMode: "prompt_only",
+            async generate() {
+                return { content: "x".repeat(GEPA_REFLECTION_OUTPUT_MAX_CHARS + 100) };
+            },
+        },
+        writeOutput: (line) => output.push(line),
+        writeError: assert.fail,
+    });
+    assert.equal(code, 0);
+    assert.equal(JSON.parse(output[0]!).text.length, GEPA_REFLECTION_OUTPUT_MAX_CHARS);
 });
 
 test("runGepaReflectCli 在 Reflection LM 异常时输出 model_error 且严禁回退", async (t) => {
@@ -466,4 +516,3 @@ test("runGepaReflectCli 成功对 stdout 输出中模型复述的敏感密钥与
     assert.ok(!parsed.text.includes("my-env-secret-value"));
     assert.equal(parsed.text, "Reflected text with [REDACTED] and Bearer [REDACTED] and [REDACTED]");
 });
-

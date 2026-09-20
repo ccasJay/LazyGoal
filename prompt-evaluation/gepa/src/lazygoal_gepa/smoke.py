@@ -1,72 +1,115 @@
-"""Explicit one-task smoke for the GEPA adapter and real LazyGoal CLI."""
+"""Explicit real-model smoke for the GEPA lifecycle control plane.
+
+This entry point is deliberately separate from the deterministic adapter tests.
+It invokes the public ``lazygoal gepa`` lifecycle CLI and therefore may use both
+the Working LM and the configured Reflection LM, as well as benchmark resources.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any, Sequence
 
-from .adapter import LazyGoalGEPAAdapter
-from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig
+
+_TERMINAL_STATUSES = {"stopped", "succeeded", "publish_blocked", "failed"}
+_COST_WARNING = (
+    "WARNING: this explicit GEPA smoke can incur Working LM and Reflection LM API "
+    "charges, run benchmark/container resources, and update the default Agent Profile. "
+    "Review the preflight summary before confirming with --yes."
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
-    workspace_root = arguments.workspace_root.resolve()
-    manifest_path = (arguments.manifest or workspace_root / "benchmarks/alfworld/manifests/smoke.json").resolve()
-    profile_path = (arguments.profile or workspace_root / ".lazygoal/profiles/alfworld-profile.json").resolve()
-    output_directory = (arguments.output_directory or workspace_root / ".lazygoal/gepa-adapter-smoke").resolve()
-    executable = (arguments.lazygoal_executable or workspace_root / "bin/lazygoal.cjs").resolve()
-    model_id = arguments.model_id or os.environ.get("LLM_MODEL", "").strip()
-    model_config_id = arguments.model_config_id or os.environ.get("LLM_PROVIDER", "").strip()
-    if not model_id:
-        raise SystemExit("LLM_MODEL or --model-id is required")
-    if not model_config_id:
-        raise SystemExit("LLM_PROVIDER or --model-config-id is required")
-
-    task_id = _read_single_task_id(manifest_path)
-    profile = _read_profile(profile_path)
-    candidate = {"system_prompt": profile["systemPrompt"]}
-    candidate.update(
-        {
-            f"instruction_{index:03d}": instruction
-            for index, instruction in enumerate(profile["instructions"])
-        }
-    )
-    adapter = LazyGoalGEPAAdapter(
-        LazyGoalGEPAConfig(
-            benchmark_id="alfworld",
-            base_profile_id=profile["id"],
-            model_config_id=model_config_id,
-            model_id=model_id,
-            output_directory=output_directory,
-            lazygoal_executable=executable,
+    if not arguments.yes:
+        print(_COST_WARNING, file=sys.stderr)
+        print(
+            "Refusing to start the real GEPA smoke without explicit confirmation; "
+            "rerun with --yes after reviewing preflight.",
+            file=sys.stderr,
         )
-    )
-    result = adapter.evaluate(
+        return 2
+
+    workspace_root = arguments.workspace_root.resolve()
+    request_path = arguments.request.resolve()
+    executable = (arguments.lazygoal_executable or workspace_root / "bin/lazygoal.cjs").resolve()
+    runs_directory = (
+        arguments.runs_directory
+        or workspace_root / ".lazygoal" / "gepa" / "runs"
+    ).resolve()
+
+    print(_COST_WARNING, file=sys.stderr)
+    preflight = _run_lifecycle(
+        executable,
+        workspace_root,
         [
-            LazyGoalEvaluationExample(
-                sample_id=f"alfworld:{task_id}",
-                benchmark_id="alfworld",
-                task_id=task_id,
-                manifest_path=manifest_path,
-            )
+            "preflight",
+            "--request",
+            str(request_path),
+            "--workspace-root",
+            str(workspace_root),
+            "--runs-dir",
+            str(runs_directory),
         ],
-        candidate,
-        capture_traces=True,
     )
-    output = result.outputs[0]
+    _print_preflight_summary(preflight)
+
+    started = _run_lifecycle(
+        executable,
+        workspace_root,
+        [
+            "start",
+            "--request",
+            str(request_path),
+            "--workspace-root",
+            str(workspace_root),
+            "--runs-dir",
+            str(runs_directory),
+            "--yes",
+        ],
+    )
+    run_id = _require_string(started, "runId")
+
+    status: dict[str, Any]
+    if arguments.max_polls < 1:
+        raise SystemExit("--max-polls must be positive")
+    if arguments.poll_interval < 0:
+        raise SystemExit("--poll-interval must be non-negative")
+    for _ in range(arguments.max_polls):
+        status = _run_lifecycle(
+            executable,
+            workspace_root,
+            ["status", "--run", run_id, "--runs-dir", str(runs_directory)],
+        )
+        if status.get("lifecycleStatus") in _TERMINAL_STATUSES:
+            break
+        time.sleep(arguments.poll_interval)
+    else:
+        raise SystemExit(
+            f"GEPA smoke did not reach a terminal state within {arguments.max_polls} status polls"
+        )
+
+    report = _run_lifecycle(
+        executable,
+        workspace_root,
+        ["report", "--run", run_id, "--runs-dir", str(runs_directory)],
+    )
     print(
         json.dumps(
             {
-                "benchmarkId": "alfworld",
-                "taskId": output.task_id,
-                "status": output.status,
-                "score": result.scores[0],
-                "outputDirectory": str(output_directory),
+                "runId": run_id,
+                "lifecycleStatus": status.get("lifecycleStatus"),
+                "workerHealth": status.get("workerHealth"),
+                "publicationStatus": status.get("publicationStatus"),
+                "reportStatus": report.get("terminalStatus", report.get("lifecycleStatus")),
+                "runDir": started.get("runDir"),
             },
+            ensure_ascii=False,
             separators=(",", ":"),
         )
     )
@@ -75,59 +118,85 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run one ALFWorld sample through GEPA's LazyGoal adapter",
+        description="Run one explicit real dual-model GEPA lifecycle smoke",
+    )
+    parser.add_argument(
+        "--request",
+        type=Path,
+        required=True,
+        help="Path to a validated gepa-run@1 request",
     )
     parser.add_argument("--workspace-root", type=Path, default=Path.cwd())
-    parser.add_argument("--manifest", type=Path)
-    parser.add_argument("--profile", type=Path)
-    parser.add_argument("--output-directory", type=Path)
+    parser.add_argument("--runs-directory", type=Path)
     parser.add_argument("--lazygoal-executable", type=Path)
-    parser.add_argument("--model-config-id")
-    parser.add_argument("--model-id")
+    parser.add_argument(
+        "--max-polls",
+        type=int,
+        default=120,
+        help="Maximum read-only status polls before failing (default: 120)",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=float,
+        default=1.0,
+        help="Seconds between status polls (default: 1.0)",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Confirm possible model/container costs and default Profile mutation",
+    )
     return parser
 
 
-def _read_single_task_id(path: Path) -> str:
-    raw = _read_json_object(path, "Manifest")
-    tasks = raw.get("tasks")
-    if not isinstance(tasks, list) or len(tasks) != 1:
-        raise SystemExit("Manifest must contain exactly one task")
-    task = tasks[0]
-    if not isinstance(task, dict) or not isinstance(task.get("taskId"), str) or not task["taskId"].strip():
-        raise SystemExit("Manifest taskId must be a non-empty string")
-    return task["taskId"]
-
-
-def _read_profile(path: Path) -> dict[str, Any]:
-    raw = _read_json_object(path, "Profile")
-    profile_id = raw.get("id")
-    system_prompt = raw.get("systemPrompt")
-    instructions = raw.get("instructions")
-    if not isinstance(profile_id, str) or not profile_id.strip():
-        raise SystemExit("Profile id must be a non-empty string")
-    if not isinstance(system_prompt, str) or not system_prompt.strip():
-        raise SystemExit("Profile systemPrompt must be a non-empty string")
-    if (
-        not isinstance(instructions, list)
-        or not instructions
-        or any(not isinstance(item, str) or not item.strip() for item in instructions)
-    ):
-        raise SystemExit("Profile instructions must contain non-empty strings")
-    return {
-        "id": profile_id,
-        "systemPrompt": system_prompt,
-        "instructions": instructions,
-    }
-
-
-def _read_json_object(path: Path, label: str) -> dict[str, Any]:
+def _run_lifecycle(
+    executable: Path,
+    workspace_root: Path,
+    arguments: Sequence[str],
+) -> dict[str, Any]:
+    command = [str(executable), "gepa", *arguments]
     try:
-        raw: Any = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise SystemExit(f"{label} could not be read as JSON: {path}") from error
-    if not isinstance(raw, dict):
-        raise SystemExit(f"{label} must be a JSON object: {path}")
-    return raw
+        completed = subprocess.run(
+            command,
+            cwd=str(workspace_root),
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except OSError as error:
+        raise SystemExit(f"Could not invoke GEPA lifecycle CLI: {error}") from error
+
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or f"process exited with {completed.returncode}"
+        raise SystemExit(f"GEPA lifecycle command failed: {detail}")
+    try:
+        value = json.loads(completed.stdout.strip())
+    except json.JSONDecodeError as error:
+        raise SystemExit("GEPA lifecycle CLI returned invalid JSON") from error
+    if not isinstance(value, dict):
+        raise SystemExit("GEPA lifecycle CLI returned a JSON value other than an object")
+    return value
+
+
+def _print_preflight_summary(preflight: dict[str, Any]) -> None:
+    """Print only the non-sensitive fields needed to review the paid run."""
+    summary = {
+        "benchmark": preflight.get("benchmark"),
+        "sampleCount": preflight.get("sampleCount"),
+        "maxMetricCalls": preflight.get("maxMetricCalls"),
+        "models": preflight.get("models"),
+        "targetProfile": preflight.get("targetProfile"),
+        "estimatedSideEffects": preflight.get("estimatedSideEffects"),
+    }
+    print(json.dumps({"preflight": summary}, ensure_ascii=False, separators=(",", ":")))
+
+
+def _require_string(value: dict[str, Any], key: str) -> str:
+    result = value.get(key)
+    if not isinstance(result, str) or not result.strip():
+        raise SystemExit(f"GEPA lifecycle response is missing a non-empty {key}")
+    return result
 
 
 if __name__ == "__main__":

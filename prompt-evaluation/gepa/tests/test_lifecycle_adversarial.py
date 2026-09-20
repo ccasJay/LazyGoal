@@ -187,11 +187,14 @@ class LifecycleAdversarialTests(unittest.TestCase):
         caller_script = f"""
 import sys, json, os, time
 from lazygoal_gepa.controller import LifecycleController
+from lazygoal_gepa.candidate import ModelIdentity
 
 controller = LifecycleController(
     workspace_root={repr(str(self.workspace_root))},
     runs_dir={repr(str(self.runs_dir))},
     worker_cmd=[sys.executable, "-c", {repr(worker_script)}],
+    working_model=ModelIdentity(profile_name="default", model_id="default"),
+    reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
 )
 
 res = controller.start({repr(str(self.request_path))}, yes=True)
@@ -468,10 +471,16 @@ import sys, os, time
 from lazygoal_gepa.ownership import RunOwnership
 from lazygoal_gepa.store import RunStore
 from lazygoal_gepa.controller import LifecycleController
+from lazygoal_gepa.candidate import ModelIdentity
 
 runs_dir = {repr(str(self.runs_dir))}
 workspace_root = {repr(str(self.workspace_root))}
-controller = LifecycleController(workspace_root=workspace_root, runs_dir=runs_dir)
+controller = LifecycleController(
+    workspace_root=workspace_root,
+    runs_dir=runs_dir,
+    working_model=ModelIdentity(profile_name="default", model_id="default"),
+    reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+)
 
 # 尝试初始化并抢占所有权
 manifest = controller.preflight({repr(str(self.request_path))})
@@ -698,10 +707,16 @@ import sys, os, time
 from lazygoal_gepa.ownership import RunOwnership
 from lazygoal_gepa.store import RunStore
 from lazygoal_gepa.controller import LifecycleController
+from lazygoal_gepa.candidate import ModelIdentity
 
 runs_dir = {repr(str(self.runs_dir))}
 workspace_root = {repr(str(self.workspace_root))}
-controller = LifecycleController(workspace_root=workspace_root, runs_dir=runs_dir)
+controller = LifecycleController(
+    workspace_root=workspace_root,
+    runs_dir=runs_dir,
+    working_model=ModelIdentity(profile_name="default", model_id="default"),
+    reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+)
 
 # 尝试初始化并抢占所有权
 manifest = controller.preflight({repr(str(self.request_path))})
@@ -804,5 +819,4 @@ ownership.release()
 
 if __name__ == "__main__":
     unittest.main()
-
 

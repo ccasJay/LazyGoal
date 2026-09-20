@@ -265,6 +265,10 @@ export interface GepaModelConfigs {
     readonly working: LlmConfig;
     /** 负责 Prompt 变异反思的独立 Reflection LM 配置（固定从 reflection_profile 加载，模式为 prompt_only）。 */
     readonly reflection: LlmConfig;
+    /** Working LM 实际解析使用的 Profile 名称，当前固定为 `default`。 */
+    readonly workingProfileName: string;
+    /** Reflection LM 实际解析使用的 Profile 名称，来自 `[gepa].reflection_profile`。 */
+    readonly reflectionProfileName: string;
 }
 
 /**
@@ -282,7 +286,8 @@ export interface GepaModelConfigs {
  * @throws LlmConfigurationError 当缺少必要凭据时。
  * @example
  * ```ts
- * const { working, reflection } = await loadGepaModelConfigs();
+ * const configs = await loadGepaModelConfigs();
+ * console.log(configs.workingProfileName, configs.reflectionProfileName);
  * ```
  */
 export async function loadGepaModelConfigs(options: LoadConfigOptions = {}): Promise<GepaModelConfigs> {
@@ -297,5 +302,7 @@ export async function loadGepaModelConfigs(options: LoadConfigOptions = {}): Pro
     return {
         working: workingRuntime.llm,
         reflection: reflectionRuntime.llm,
+        workingProfileName: "default",
+        reflectionProfileName: reflectionRuntime.profileName,
     };
 }

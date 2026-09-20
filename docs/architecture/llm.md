@@ -73,6 +73,19 @@ CLI 使用这些容量启用既有 token 预算时，还需 `LLM_TOKENIZER_ENCOD
 目录不自动改变上下文裁剪或 tokenizer；配置的输出上限不得超过所选目录模型上限。
 请求显式上限优先于 Adapter 配置；两者都缺省时沿用 SDK 行为。
 
+### GEPA 双模型边界
+
+GEPA 生命周期固定使用两个互不复用的 LLM 配置：Working LM 从项目
+`profiles/default.toml` 解析，负责候选 Profile 的 benchmark Agent 执行；Reflection LM
+由主 `config.toml` 的 `[gepa].reflection_profile` 指定的另一个 Profile 解析，固定为
+`prompt_only`，只负责根据有界评测信息生成反思文本。Reflection Profile 不能缺失、不能
+命名为 `default`，也不能以路径穿越或非法 Profile 名绕过配置边界。
+
+`loadGepaModelConfigs` 在产生模型调用前同时校验两侧配置；Prompt Evaluation 请求只携带
+`configId` 与 `modelId`，凭据仍由 XDG Profile 加载。生命周期 Run manifest 冻结两侧模型
+身份，恢复时若任一身份漂移即拒绝恢复。Reflection bridge 不进入 Working Agent 的 Tool
+循环，不将 Reflection LM 失败降级为 Working LM。
+
 ## 诊断与限制
 
 原生 Adapter 的真实上报计数写入 `providerMetadata.usage`，缺失时省略。
@@ -82,6 +95,11 @@ Goal Snapshot、Domain Event 或模型上下文。不保存认证头、完整 SD
 
 本期仅支持文本与显式 API Key，不支持原生 tool calling、多模态、OAuth、云身份、
 自动 JSON 修复或模型切换。自定义兼容服务必须支持 pi-ai 使用的流式 Chat Completions。
+
+GEPA 的 `start` 与 `resume` 属于显式付费操作：控制面在调用模型或 benchmark 前要求
+`--yes`，上层 smoke 还必须向操作者显示 Working/Reflection 模型、预算和目标 Profile
+副作用。默认回归使用 fake Working CLI、fake Reflection LM 和临时目录；真实双模型路径
+仅由显式 smoke 触发。
 
 `npm run llm:agent-smoke` 读取 `.env` 和进程环境，真实执行统一任务提案、任务批准、
 一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
