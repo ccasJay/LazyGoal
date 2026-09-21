@@ -28,6 +28,9 @@ def main():
         path = Path(counter_path)
         current = int(path.read_text(encoding="utf-8")) if path.exists() else 0
         path.write_text(str(current + 1), encoding="utf-8")
+    delay_seconds = os.environ.get("LAZYGOAL_GEPA_FAKE_DELAY_SECONDS")
+    if delay_seconds:
+        time.sleep(float(delay_seconds))
     if mode == "sleep":
         time.sleep(60)
     evaluation_id = "fixture-evaluation"

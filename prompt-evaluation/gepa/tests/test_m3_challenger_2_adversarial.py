@@ -680,12 +680,24 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             "--run-dir",
             str(run_dir),
         ]
+        worker_env = os.environ.copy()
+        worker_env.update(
+            {
+                "LAZYGOAL_EXECUTABLE": str(
+                    Path(__file__).parent / "fixtures" / "fake_lazygoal.py"
+                ),
+                "LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved",
+                "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "deterministic reflection",
+                "LAZYGOAL_GEPA_FAKE_DELAY_SECONDS": "1.0",
+            }
+        )
         proc = subprocess.Popen(
             worker_cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=worker_env,
         )
         self._track_proc(proc)
 
