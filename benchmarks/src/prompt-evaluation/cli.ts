@@ -21,6 +21,7 @@ import {
 import { GaiaPromptEvaluationAdapter } from "../../gaia/src/prompt-evaluation-adapter.js";
 import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../../gaia/src/worker-entry.js";
 import { buildBenchmarkWorker } from "../worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../default-paths.js";
 import {
     PROMPT_EVALUATION_EXIT_CODES,
     PROMPT_EVALUATION_PROTOCOL,
@@ -217,11 +218,14 @@ async function createProductionRegistry(
     workspaceRoot: string,
     env: NodeJS.ProcessEnv,
 ): Promise<PromptEvaluationBenchmarkRegistry> {
+    const gaiaPaths = request.benchmark.id === "gaia"
+        ? await resolveBenchmarkHomePaths(workspaceRoot, "gaia", env)
+        : undefined;
     if (request.benchmark.id === "gaia") {
         const workerArtifact = await buildBenchmarkWorker({
             projectRoot: workspaceRoot,
             entryPoint: resolve(workspaceRoot, "benchmarks/gaia/src/worker-entry.ts"),
-            cacheDirectory: resolve(workspaceRoot, ".lazygoal/benchmarks/gaia-worker-cache"),
+            cacheDirectory: join(gaiaPaths!.cacheDirectory, "worker"),
             promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
         });
         return registryFor(new GaiaPromptEvaluationAdapter({ workerArtifact }));
@@ -230,10 +234,11 @@ async function createProductionRegistry(
     const fileEnv = await loadAlfworldEnvironmentFile(undefined, env);
     const mergedEnv = { ...fileEnv, ...env };
     const environment = resolveAlfworldContainerEnvironment({ env: mergedEnv, cwd: workspaceRoot });
+    const alfworldPaths = await resolveBenchmarkHomePaths(workspaceRoot, "alfworld", env);
     const workerArtifact = await buildBenchmarkWorker({
         projectRoot: workspaceRoot,
         entryPoint: resolve(workspaceRoot, ALFWORLD_ACP_WORKER_ENTRYPOINT),
-        cacheDirectory: resolve(workspaceRoot, ".lazygoal/benchmarks/alfworld-worker-cache"),
+        cacheDirectory: join(alfworldPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
     return registryFor(new AlfworldPromptEvaluationAdapter({

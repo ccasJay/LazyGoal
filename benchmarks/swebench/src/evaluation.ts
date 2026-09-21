@@ -259,7 +259,7 @@ export interface SwebenchGradeOptions {
  * @throws 产物缺失、JSON 损坏或官方评分响应非法时抛出异常；不会构造模型。
  * @example
  * ```ts
- * const report = await gradeSwebenchEvaluation({ outputDirectory: ".lazygoal/run" });
+ * const report = await gradeSwebenchEvaluation({ outputDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/swebench/runs/run-1" });
  * console.log(report.summary.resolved);
  * ```
  */

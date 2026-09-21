@@ -58,12 +58,15 @@ class LifecycleAdversarialTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        lazygoal_home = self.root / "lazygoal-home"
+        self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(lazygoal_home)})
+        self.env_patch.start()
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
         # Baseline default profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = lazygoal_home / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {
@@ -109,6 +112,7 @@ class LifecycleAdversarialTests(unittest.TestCase):
         self.tracked_pids: list[int] = []
 
     def tearDown(self) -> None:
+        self.env_patch.stop()
         for pid in self.tracked_pids:
             if is_pid_alive(pid):
                 try:
@@ -819,4 +823,3 @@ ownership.release()
 
 if __name__ == "__main__":
     unittest.main()
-

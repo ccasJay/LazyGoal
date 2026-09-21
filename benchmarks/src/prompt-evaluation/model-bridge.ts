@@ -50,12 +50,12 @@ export interface GepaResolvedModel {
  * GEPA 模型解析命令的输出依赖注入选项。
  *
  * @remarks
- * 测试可注入环境变量和输出函数；生产调用仍通过 `loadGepaModelConfigs` 读取当前 XDG 配置。
+ * 测试可注入环境变量和输出函数；生产调用仍通过 `loadGepaModelConfigs` 读取当前 LazyGoal Home 配置。
  *
  * @example
  * ```ts
  * await runGepaResolveModelsCli(["gepa", "resolve-models"], {
- *     env: { XDG_CONFIG_HOME: "/tmp/config" },
+ *     env: { LAZYGOAL_HOME: "/tmp/lazygoal" },
  * });
  * ```
  */

@@ -39,10 +39,10 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 
 ## 配置
 
-运行要求 Node ≥22.19.0。系统支持 XDG 基础目录规范（优先读取 `$XDG_CONFIG_HOME/lazygoal`，默认回退至 `$HOME/.config/lazygoal`），按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；系统采用原生双通道工具调用架构自适应派发工具 Schema，`structured_output_mode` 已废除强制配置（缺省自适应，保留可选兼容）。
+运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；系统采用原生双通道工具调用架构自适应派发工具 Schema，`structured_output_mode` 已废除强制配置（缺省自适应，保留可选兼容）。
 
 ```toml
-# ~/.config/lazygoal/config.toml
+# ~/.lazygoal/config.toml
 [llm]
 provider = "openai"
 model = "gpt-4o"
@@ -75,14 +75,14 @@ CLI 使用这些容量启用既有 token 预算时，还需 `LLM_TOKENIZER_ENCOD
 
 ### GEPA 双模型边界
 
-GEPA 生命周期固定使用两个互不复用的 LLM 配置：Working LM 从项目
+GEPA 生命周期固定使用两个互不复用的 LLM 配置：Working LM 从 LazyGoal Home 的
 `profiles/default.toml` 解析，负责候选 Profile 的 benchmark Agent 执行；Reflection LM
 由主 `config.toml` 的 `[gepa].reflection_profile` 指定的另一个 Profile 解析，固定为
 `prompt_only`，只负责根据有界评测信息生成反思文本。Reflection Profile 不能缺失、不能
 命名为 `default`，也不能以路径穿越或非法 Profile 名绕过配置边界。
 
 `loadGepaModelConfigs` 在产生模型调用前同时校验两侧配置；Prompt Evaluation 请求只携带
-`configId` 与 `modelId`，凭据仍由 XDG Profile 加载。生命周期 Run manifest 冻结两侧模型
+`configId` 与 `modelId`，凭据仍由 LazyGoal Home Profile 加载。生命周期 Run manifest 冻结两侧模型
 身份，恢复时若任一身份漂移即拒绝恢复。Reflection bridge 不进入 Working Agent 的 Tool
 循环，不将 Reflection LM 失败降级为 Working LM。
 

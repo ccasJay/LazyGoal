@@ -350,7 +350,7 @@ export const DEFAULT_MANAGED_IMAGE = "node:22.22.2-bookworm-slim@sha256:868499d5
  * @example
  * ```ts
  * const environment = new IsolatedEnvironment();
- * const result = await environment.run({ task, spec, outputDirectory: ".lazygoal/run" });
+ * const result = await environment.run({ task, spec, outputDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/<name>/runs/<run-id>" });
  * ```
  */
 export class IsolatedEnvironment {

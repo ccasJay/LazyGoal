@@ -7,7 +7,7 @@ import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
-import { resolveXdgPaths } from "../../../packages/llm/src/xdg.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
 
 /** 反思响应文本的最大字符数，避免模型回显撑爆机器协议。 */
@@ -388,7 +388,7 @@ export async function runGepaReflectCli(
         // 注入 Adapter 的单元测试不应被宿主用户配置污染；只有调用方显式提供
         // 环境且该环境存在主配置时，才对请求 configId 执行跨边界一致性校验。
         const configFileExists = options.env !== undefined
-            && existsSync(resolveXdgPaths(env).configFile);
+            && existsSync(resolveLazyGoalHomePaths(env).configFile);
         const shouldLoadReflectionProfile = options.reflectionAdapter === undefined
             || (configId !== undefined && configFileExists);
         let reflectionRuntime: Awaited<ReturnType<typeof loadReflectionRuntimeConfig>> | undefined;

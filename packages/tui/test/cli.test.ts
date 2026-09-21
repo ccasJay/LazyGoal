@@ -25,18 +25,20 @@ import { currentProtocols } from "../../runtime/test/current-fixtures.js";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "../../tools/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import { AgentProfileConfigurationError } from "../../storage/src/index";
+import { resolveLazyGoalHomePaths, resolveWorkspaceHomePaths } from "../../llm/src/xdg";
 import {
     DEFAULT_PROFILE_FILE,
     writeDefaultProfile,
 } from "./profile-fixture";
 
-function environment(): NodeJS.ProcessEnv {
+function environment(homeDirectory?: string): NodeJS.ProcessEnv {
     return {
         LLM_PROVIDER: "openai",
         LLM_API_KEY: "test-key",
         LLM_BASE_URL: "https://llm.example.test/v1",
         LLM_MODEL: "test-model",
         LLM_STRUCTURED_OUTPUT_MODE: "strict",
+        ...(homeDirectory === undefined ? {} : { LAZYGOAL_HOME: homeDirectory }),
     };
 }
 
@@ -146,7 +148,7 @@ test("readConversationCharBudget 拒绝所有非正安全整数形式", () => {
 test("非法 Conversation 预算在访问工作区或创建 Goal 数据前失败", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-budget-"));
     const invalidEnv = {
-        ...environment(),
+        ...environment(join(workspace, "lazygoal-home")),
         LLM_CONVERSATION_CHAR_BUDGET: "0",
     };
 
@@ -164,7 +166,7 @@ test("非法 Model Context 预算在创建 Goal Store 或 Sidecar 前失败", as
     await assert.rejects(
         createCompositionRoot({
             cwd: workspace,
-            env: environment(),
+            env: environment(join(workspace, "lazygoal-home")),
             modelContextBudget: { modelInputBudget: 0 },
         }),
         (error: unknown) => error instanceof RangeError,
@@ -177,7 +179,7 @@ test("missing default Profile fails before creating the workspace Store", async 
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-profile-missing-"));
 
     await assert.rejects(
-        createCompositionRoot({ cwd: workspace, env: environment() }),
+        createCompositionRoot({ cwd: workspace, env: environment(join(workspace, "lazygoal-home")) }),
         (error: unknown) => error instanceof AgentProfileConfigurationError
             && /Profile 文件不存在/.test(error.message),
     );
@@ -192,7 +194,7 @@ test("an unregistered Profile Tool fails before creating a Goal Store", async ()
     });
 
     await assert.rejects(
-        createCompositionRoot({ cwd: workspace, env: environment() }),
+        createCompositionRoot({ cwd: workspace, env: environment(join(workspace, "lazygoal-home")) }),
         (error: unknown) => error instanceof AgentProfileConfigurationError
             && /未注册的 Tool/.test(error.message),
     );
@@ -204,25 +206,18 @@ test("composition root isolates workspace, freezes the default identity, and doe
     await writeDefaultProfile(workspace);
     const root = await createCompositionRoot({
         cwd: workspace,
-        env: environment(),
+        env: environment(join(workspace, "lazygoal-home")),
         goalIdGenerator: () => "goal-test",
         runIdGenerator: () => "run-test",
     });
 
     assert.equal(root.workspaceRoot, await realpath(workspace));
-    assert.equal(root.goalsDirectory, join(root.workspaceRoot, ".lazygoal", "goals"));
-    assert.equal(
-        root.trajectoriesDirectory,
-        join(root.workspaceRoot, ".lazygoal", "trajectories"),
-    );
-    assert.equal(
-        root.tracesDirectory,
-        join(root.workspaceRoot, ".lazygoal", "traces"),
-    );
-    assert.equal(
-        root.contextSidecarsDirectory,
-        join(root.workspaceRoot, ".lazygoal", "context-sidecars"),
-    );
+    const expectedHome = resolveLazyGoalHomePaths({ LAZYGOAL_HOME: join(workspace, "lazygoal-home") });
+    const expectedWorkspace = await resolveWorkspaceHomePaths(expectedHome, root.workspaceRoot);
+    assert.equal(root.goalsDirectory, expectedWorkspace.goalsDirectory);
+    assert.equal(root.trajectoriesDirectory, expectedWorkspace.trajectoriesDirectory);
+    assert.equal(root.tracesDirectory, expectedWorkspace.tracesDirectory);
+    assert.equal(root.contextSidecarsDirectory, expectedWorkspace.contextSidecarsDirectory);
     assert.ok(root.trajectoryStore !== undefined);
     assert.equal((root as any).sidecarStore, undefined);
     assert.equal((root as any).contextMaintenanceWorker, undefined);
@@ -255,7 +250,7 @@ test("Composition Root 使用覆盖预算创建共享 Compactor", async () => {
     const root = await createCompositionRoot({
         cwd: workspace,
         env: {
-            ...environment(),
+            ...environment(join(workspace, "lazygoal-home")),
             LLM_CONVERSATION_CHAR_BUDGET: "32",
         },
     });
@@ -315,7 +310,7 @@ test("-c reports an empty project without creating a Goal or rendering the TUI",
     let rendered = false;
     const exitCode = await runCli(["-c"], {
         cwd: workspace,
-        env: environment(),
+        env: environment(join(workspace, "lazygoal-home")),
         writeError: (message) => errors.push(message),
         render: (() => {
             rendered = true;
@@ -354,7 +349,7 @@ test("CLI handles SIGINT through one shutdown path and requests exit 130", async
     const errors: string[] = [];
     const exitCode = await runCli([], {
         cwd: workspace,
-        env: environment(),
+        env: environment(join(workspace, "lazygoal-home")),
         exitPort,
         writeError: (message) => errors.push(message),
         render: (() => exitInstance) as never,
@@ -374,7 +369,7 @@ test("composition root shares the checkpoint gate and abort signal with shutdown
     const exitCodes: number[] = [];
     const root = await createCompositionRoot({
         cwd: workspace,
-        env: environment(),
+        env: environment(join(workspace, "lazygoal-home")),
         exitPort: { exit: (code) => { exitCodes.push(code); } },
         gracePeriodMs: 0,
     });
@@ -401,7 +396,7 @@ test("provider and catalog failures precede workspace access and Goal creation",
         { LLM_MODEL: "gpt-4.1-mini", LLM_STRUCTURED_OUTPUT_MODE: "prompt_only", LLM_MAX_OUTPUT_TOKENS: "999999999" },
     ]) {
         await assert.rejects(createCompositionRoot({
-            cwd: "/nonexistent/lazygoal-provider-configuration-test", env: { ...environment(), ...override },
+            cwd: "/nonexistent/lazygoal-provider-configuration-test", env: { ...environment(join("/nonexistent/lazygoal-provider-configuration-test", "home")), ...override },
         }), LlmConfigurationError);
     }
 });
@@ -430,7 +425,7 @@ test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profil
 
     const root = await createCompositionRoot({
         cwd: workspace,
-        env: {}, // 空环境变量，不含 LLM 配置
+        env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") }, // 空环境变量，不含 LLM 配置
         adapter: customAdapter,
         profile: customProfile,
         toolRegistry: customRegistry,
@@ -444,7 +439,7 @@ test("createCompositionRoot 接受外部显式依赖注入且无需磁盘 Profil
     assert.equal(root.toolPolicy, customPolicy);
     assert.equal(root.adapter, customAdapter);
     // 验证未创建默认 profile
-    await assert.rejects(access(join(workspace, ".lazygoal", "profiles", "default.json")));
+    await assert.rejects(access(join(workspace, "lazygoal-home", "agent-profiles", "default.json")));
 });
 
 test("显式注入的 Profile 引用了未注册的 Tool 时快速失败", async () => {
@@ -463,7 +458,7 @@ test("显式注入的 Profile 引用了未注册的 Tool 时快速失败", async
     await assert.rejects(
         createCompositionRoot({
             cwd: workspace,
-            env: {},
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: {} as LLMAdapter,
             profile: customProfile,
             toolRegistry: customRegistry,
@@ -506,7 +501,7 @@ test("createCompositionRoot 装配 NotifyingGoalStore 并注入 SessionControlle
 
     const root = await createCompositionRoot({
         cwd: workspace,
-        env: environment(),
+        env: environment(join(workspace, "lazygoal-home")),
         adapter: {} as LLMAdapter,
     });
 
@@ -532,4 +527,3 @@ test("createCompositionRoot 装配 NotifyingGoalStore 并注入 SessionControlle
     unsubscribe();
     root.controller.dispose();
 });
-

@@ -57,15 +57,14 @@ class ProfilePublisherTests(unittest.TestCase):
             "instruction_000": "optimized first",
         }
 
-    def test_published_writes_complete_profile_and_preserves_permissions(self) -> None:
+    def test_published_writes_complete_profile_with_private_permissions(self) -> None:
         self.target.chmod(0o640)
-        original_mode = stat.S_IMODE(self.target.stat().st_mode)
 
         result = self._publisher().publish(self._candidate())
 
         self.assertEqual(result.status, "published")
         self.assertIsNone(result.error_code)
-        self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), original_mode)
+        self.assertEqual(stat.S_IMODE(self.target.stat().st_mode), 0o600)
         published = json.loads(self.target.read_text(encoding="utf-8"))
         self.assertEqual(published["schemaVersion"], 1)
         self.assertEqual(published["id"], "default")

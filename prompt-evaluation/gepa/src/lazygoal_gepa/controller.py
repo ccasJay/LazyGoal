@@ -32,6 +32,7 @@ from .errors import (
     RunStoreError,
     WorkerAlreadyRunningError,
 )
+from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
 from .protocol import GEPARunRequest, read_run_request, validate_gaia_minimal_request
@@ -62,10 +63,22 @@ def launch_detached_worker(
     bound to DEVNULL, and its stdout and stderr redirected to `<run_dir>/worker.log`.
     """
     resolved_run_dir = Path(run_dir).resolve()
+<<<<<<< HEAD
     resolved_workspace_root = (
         Path(workspace_root).resolve() if workspace_root is not None else None
     )
-    resolved_run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(resolved_run_dir, 0o700)
+    except OSError:
+        pass
+=======
+    resolved_run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(resolved_run_dir, 0o700)
+    except OSError:
+        pass
+>>>>>>> 5e5b713c (feat(storage): 统一 LazyGoal Home 持久化路径)
     log_file_path = resolved_run_dir / "worker.log"
 
     if worker_cmd is not None:
@@ -138,12 +151,12 @@ class LifecycleController:
         self.runs_dir = (
             Path(runs_dir).resolve()
             if runs_dir is not None
-            else (self.workspace_root / ".lazygoal" / "gepa" / "runs")
+            else (resolve_workspace_home(self.workspace_root) / "gepa" / "runs")
         )
         self.profile_path = (
             Path(profile_path).resolve()
             if profile_path is not None
-            else (self.workspace_root / ".lazygoal" / "profiles" / "default.json")
+            else (resolve_lazygoal_home() / "agent-profiles" / "default.json")
         )
         if (working_model is None) != (reflection_model is None):
             raise ConfigurationError(

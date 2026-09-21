@@ -22,7 +22,7 @@ import type {
  * @example
  * ```ts
  * const options: FilePersistenceAdapterOptions<MyTask> = {
- *     rootDirectory: ".lazygoal/benchmarks",
+ *     rootDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks",
  *     namespaceFor: (task) => task.id,
  *     enableTrace: true,
  * };
@@ -48,7 +48,7 @@ export interface FilePersistenceAdapterOptions<TTask> {
  * @example
  * ```ts
  * const persistence = new JsonFileBenchmarkPersistenceAdapter({
- *     rootDirectory: ".lazygoal/benchmarks",
+ *     rootDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks",
  *     namespaceFor: (task: MyTask) => task.id,
  * });
  * ```

@@ -28,7 +28,7 @@ packages/        Private `@lazygoal/*` workspaces
 docs/            Current implemented architecture documentation under `docs/architecture/`
 specs/           Feature requirements, designs, and implementation task checklists
 project-memory/  Durable summaries of completed and verified feature specifications
-.lazygoal/       Local Runtime data, including persisted Goal Snapshots, trajectories, and traces
+`~/.lazygoal/`  LazyGoal Home runtime data; workspace-scoped Goal Snapshots, trajectories, traces, benchmark runs, and GEPA runs
 ```
 
 ## Core Rules
@@ -58,7 +58,7 @@ Unless migration or compatibility support is explicitly required:
 * Do not increment a schema or protocol version merely because its implementation changed during development.
 * Introduce a new version only when multiple versions must intentionally coexist or when compatibility requirements make versioning necessary.
 * Unsupported historical data should fail fast with a clear unsupported-version error when it cannot be safely read.
-* Do not treat local `.lazygoal/` data as a product compatibility requirement.
+* Do not treat prior local `.lazygoal/` data as a product compatibility requirement.
 
 Prefer deleting obsolete test data and keeping one coherent current implementation over accumulating development-only `v1`, `v2`, `v3`, and legacy compatibility paths.
 

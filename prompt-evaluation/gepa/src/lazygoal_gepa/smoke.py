@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any, Sequence
 
+from .home import resolve_workspace_home
+
 
 _TERMINAL_STATUSES = {"stopped", "succeeded", "publish_blocked", "failed"}
 _COST_WARNING = (
@@ -40,7 +42,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     executable = (arguments.lazygoal_executable or workspace_root / "bin/lazygoal.cjs").resolve()
     runs_directory = (
         arguments.runs_directory
-        or workspace_root / ".lazygoal" / "gepa" / "runs"
+        or resolve_workspace_home(workspace_root) / "gepa" / "runs"
     ).resolve()
 
     print(_COST_WARNING, file=sys.stderr)

@@ -40,7 +40,7 @@ npm --prefix benchmarks run alfworld:preflight
 因此不需要手动拼接数据路径。若直接运行 Python 命令，仍需先执行
 `source benchmarks/alfworld/.env.alfworld`。
 
-评测使用工作区中的唯一测试 Profile：`.lazygoal/profiles/alfworld-profile.json`。
+评测使用 LazyGoal Home 中的全局测试 Profile：`~/.lazygoal/agent-profiles/alfworld-profile.json`。
 该 Profile 授权 `read_file`、`grep`、`alfworld_reset` 和 `alfworld_step`，不会授权
 Bash、写入或编辑 Tool。显式 ALFWorld 入口会自动读取
 `benchmarks/alfworld/.env.alfworld`；也可以在运行独立 Python 命令前手动 source

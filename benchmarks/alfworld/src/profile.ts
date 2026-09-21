@@ -6,7 +6,7 @@ import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 
 export const ALFWORLD_PROFILE_ID = "alfworld-profile";
 export const ALFWORLD_PROFILE_SCHEMA_VERSION = 1 as const;
-export const ALFWORLD_PROFILE_RELATIVE_PATH = ".lazygoal/profiles/alfworld-profile.json";
+export const ALFWORLD_PROFILE_FILE_NAME = "alfworld-profile.json";
 export const ALFWORLD_PROFILE_TOOL_IDS = [
     "read_file",
     "grep",
@@ -23,7 +23,7 @@ export const ALFWORLD_PROFILE_TOOL_IDS = [
  *
  * @example
  * ```ts
- * const loaded = await loadAlfworldProfile("/workspace/project");
+ * const loaded = await loadAlfworldProfile("/home/user/.lazygoal/agent-profiles");
  * console.log(loaded.profile.id, loaded.contentHash);
  * ```
  */
@@ -46,7 +46,7 @@ export type AlfworldProfileErrorCode =
  * @example
  * ```ts
  * try {
- *   await loadAlfworldProfile("/workspace/project");
+ *   await loadAlfworldProfile("/home/user/.lazygoal/agent-profiles");
  * } catch (error) {
  *   if (error instanceof AlfworldProfileError) console.error(error.code);
  * }
@@ -180,20 +180,20 @@ export function validateAlfworldPromptEvaluationProfile(profile: unknown): Agent
 }
 
 /**
- * 从 workspace 的 `.lazygoal/profiles` 加载固定 ALFWorld Profile。
+ * 从 LazyGoal Home 的全局 Agent Profile 目录加载固定 ALFWorld Profile。
  *
- * @param workspaceRoot - workspace 绝对或相对根目录。
+ * @param agentProfilesDirectory - LazyGoal Home 的全局 Agent Profile 目录。
  * @returns Profile、绝对文件路径和内容哈希。
  * @throws 文件缺失、JSON 损坏或 Profile 契约不合法时抛出 `AlfworldProfileError`。
  * @example
  * ```ts
- * const loaded = await loadAlfworldProfile(process.cwd());
+ * const loaded = await loadAlfworldProfile("/home/user/.lazygoal/agent-profiles");
  * ```
  */
 export async function loadAlfworldProfile(
-    workspaceRoot: string,
+    agentProfilesDirectory: string,
 ): Promise<LoadedAlfworldProfile> {
-    const profilePath = join(resolve(workspaceRoot), ALFWORLD_PROFILE_RELATIVE_PATH);
+    const profilePath = join(resolve(agentProfilesDirectory), ALFWORLD_PROFILE_FILE_NAME);
     let content: string;
     try {
         content = await readFile(profilePath, "utf8");

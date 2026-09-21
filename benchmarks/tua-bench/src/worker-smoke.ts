@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { IsolatedEnvironment } from "../../src/isolated-environment.js";
 import { loadTuaBenchManifest } from "./manifest-loader.js";
 import { TuaBenchEnvironmentSpec } from "./environment-spec.js";
@@ -23,6 +24,7 @@ import { TUA_BENCH_ACP_WORKER_PROMPT_ASSETS } from "./worker-entry.js";
  */
 export async function runTuaBenchWorkerSmoke(): Promise<void> {
     const projectRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+    const benchmarkPaths = await resolveBenchmarkHomePaths(projectRoot, "tua-bench");
     const smokeRepoDir = join(projectRoot, "benchmarks/tua-bench/manifests/smoke-repo");
 
     process.stdout.write("1. 正在解析 TUA-Bench 烟雾任务清单...\n");
@@ -37,7 +39,7 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
     const artifact = await buildBenchmarkWorker({
         projectRoot,
         entryPoint: join(projectRoot, "benchmarks/tua-bench/src/worker-entry.ts"),
-        cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/tua-bench-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: TUA_BENCH_ACP_WORKER_PROMPT_ASSETS,
     });
     process.stdout.write(`   Worker 构建完成！Worker SHA-256: ${artifact.manifest.workerSha256.slice(0, 16)}...\n`);
@@ -199,4 +201,3 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-smoke.ts")
         process.exitCode = 1;
     });
 }
-

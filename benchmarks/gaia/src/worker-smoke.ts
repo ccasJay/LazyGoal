@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { loadGaiaManifest } from "./manifest.js";
 import { runGaiaSupervisor } from "./supervisor.js";
 import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "./worker-entry.js";
@@ -22,6 +23,7 @@ import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "./worker-entry.js";
  */
 export async function runGaiaWorkerSmoke(): Promise<void> {
     const projectRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+    const benchmarkPaths = await resolveBenchmarkHomePaths(projectRoot, "gaia");
     const manifestPath = join(projectRoot, "benchmarks/gaia/manifests/smoke.json");
     const manifest = await loadGaiaManifest(manifestPath);
     const task = manifest.tasks[0];
@@ -32,7 +34,7 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
     const artifact = await buildBenchmarkWorker({
         projectRoot,
         entryPoint: join(projectRoot, "benchmarks/gaia/src/worker-entry.ts"),
-        cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/gaia-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
     });
 
@@ -109,4 +111,3 @@ if (process.argv[1] !== undefined && process.argv[1].endsWith("worker-smoke.ts")
         process.exitCode = 1;
     });
 }
-

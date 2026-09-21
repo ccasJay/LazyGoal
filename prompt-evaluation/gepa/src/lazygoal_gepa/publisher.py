@@ -162,7 +162,8 @@ class ProfilePublisher:
             )
 
         try:
-            mode = stat.S_IMODE(self.target_path.stat().st_mode)
+            # Agent Profile 文件始终收紧到 POSIX 0600，避免继承旧文件的可读权限。
+            mode = stat.S_IRUSR | stat.S_IWUSR
             _atomic_replace_json(self.target_path, best_profile_data, mode)
         except OSError as error:
             return PublicationResult(
@@ -207,14 +208,22 @@ def _safe_error_message(message: str) -> str:
 def _atomic_write_json(target: Path, data: Any) -> None:
     """Write an artifact with a same-directory fsync and atomic replace."""
 
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(target.parent, 0o700)
+    except OSError:
+        pass
     _atomic_replace_json(target, data, None)
 
 
 def _atomic_replace_json(target: Path, data: Any, mode: int | None) -> None:
     """Atomically replace a JSON file, optionally preserving its mode bits."""
 
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(target.parent, 0o700)
+    except OSError:
+        pass
     fd, temp_name = tempfile.mkstemp(
         prefix=f".{target.name}.tmp.",
         dir=str(target.parent),

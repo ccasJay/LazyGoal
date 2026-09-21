@@ -133,12 +133,12 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
-        xdg_root = self.root / "xdg"
-        config_dir = xdg_root / "lazygoal"
+        lazygoal_home = self.root / "lazygoal-home"
+        config_dir = lazygoal_home
         profiles_dir = config_dir / "profiles"
         profiles_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "config.toml").write_text(
@@ -152,11 +152,11 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
             encoding="utf-8",
         )
-        self.env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg_root)})
+        self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(lazygoal_home)})
         self.env_patch.start()
 
         # Baseline default profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = lazygoal_home / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {

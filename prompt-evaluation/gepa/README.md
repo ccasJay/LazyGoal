@@ -32,7 +32,7 @@ official GEPA optimizer against a fake LazyGoal CLI and fake reflection model.
 The lifecycle smoke is intentionally excluded from default tests. It invokes
 the public `lazygoal gepa` control plane in this order: read-only `preflight`,
 confirmed `start`, read-only `status` polling, and terminal `report`. The run
-uses the Working LM configured by the project `default` Profile and the
+uses the Working LM configured by the LazyGoal Home `default` Profile and the
 independent Reflection LM configured by `[gepa].reflection_profile`. It may run
 Docker/benchmark resources, make real provider calls, and update the default
 Agent Profile.
@@ -82,7 +82,7 @@ adapter = LazyGoalGEPAAdapter(
         base_profile_id="alfworld-profile",
         model_config_id="default",
         model_id="configured-model",
-        output_directory=Path(".lazygoal/gepa"),
+        output_directory=Path("~/.lazygoal/workspaces/<workspace-id>/gepa/runs"),
         lazygoal_executable=Path("bin/lazygoal.cjs"),
     )
 )

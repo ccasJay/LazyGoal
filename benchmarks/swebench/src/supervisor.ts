@@ -67,7 +67,7 @@ export interface SwebenchSupervisorError {
  * ```ts
  * const options: SwebenchSupervisorOptions = {
  *     task, container, artifact, manifest, metadata,
- *     outputDirectory: ".lazygoal/run-1", llmAdapter,
+ *     outputDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/swebench/runs/run-1", llmAdapter,
  *     taskTimeoutMs: 300_000,
  * };
  * ```

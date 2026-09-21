@@ -57,12 +57,12 @@ class LifecycleControllerTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
-        xdg_root = self.root / "xdg"
-        config_dir = xdg_root / "lazygoal"
+        self.lazygoal_home = self.root / "lazygoal-home"
+        config_dir = self.lazygoal_home
         profiles_dir = config_dir / "profiles"
         profiles_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "config.toml").write_text(
@@ -76,11 +76,11 @@ class LifecycleControllerTests(unittest.TestCase):
             '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
             encoding="utf-8",
         )
-        self.env_patch = patch.dict(os.environ, {"XDG_CONFIG_HOME": str(xdg_root)})
+        self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(self.lazygoal_home)})
         self.env_patch.start()
 
         # 准备 default.json profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = self.lazygoal_home / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {
@@ -122,9 +122,17 @@ class LifecycleControllerTests(unittest.TestCase):
             "maxMetricCalls": 20,
         }
         self.request_path.write_text(json.dumps(self.request_data), encoding="utf-8")
-
         # 记录派生的测试进程 PID，确保 tearDown 清理
         self.spawned_pids: list[int] = []
+
+    def test_default_paths_use_lazygoal_home_and_workspace_identity(self) -> None:
+        controller = LifecycleController(workspace_root=self.workspace_root)
+        self.assertEqual(
+            controller.profile_path,
+            (self.lazygoal_home / "agent-profiles" / "default.json").resolve(),
+        )
+        self.assertIn(str(self.lazygoal_home / "workspaces"), str(controller.runs_dir))
+        self.assertNotIn(".lazygoal", str(controller.runs_dir))
 
     def tearDown(self) -> None:
         self.env_patch.stop()

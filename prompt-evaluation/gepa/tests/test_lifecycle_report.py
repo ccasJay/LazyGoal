@@ -43,12 +43,12 @@ class LifecycleReportTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
         # 准备 default.json profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = self.root / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {

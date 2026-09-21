@@ -31,7 +31,7 @@ export async function writeDefaultProfile(
     workspaceRoot: string,
     profile: ProfileFileFixture = DEFAULT_PROFILE_FILE,
 ): Promise<void> {
-    const directory = join(workspaceRoot, ".lazygoal", "profiles");
+    const directory = join(workspaceRoot, "lazygoal-home", "agent-profiles");
     await mkdir(directory, { recursive: true });
     await writeFile(
         join(directory, "default.json"),

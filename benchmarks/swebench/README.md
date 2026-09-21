@@ -15,10 +15,10 @@ limited to 2 CPUs, 4 GiB RAM and 256 processes. Image downloads require addition
 disk space; see the [official Docker guidance](https://www.swebench.com/SWE-bench/guides/docker_setup/).
 
 ```bash
-python3 -m venv .lazygoal/swebench-venv
-.lazygoal/swebench-venv/bin/python -m pip install -r benchmarks/swebench/python/requirements.txt
+python3 -m venv ~/.lazygoal/cache/benchmarks/swebench/venv
+~/.lazygoal/cache/benchmarks/swebench/venv/bin/python -m pip install -r benchmarks/swebench/python/requirements.txt
 docker info
-.lazygoal/swebench-venv/bin/python -B benchmarks/swebench/python/bridge.py preflight
+~/.lazygoal/cache/benchmarks/swebench/venv/bin/python -B benchmarks/swebench/python/bridge.py preflight
 ```
 
 The integration requires `swebench==4.1.0`; another version fails preflight. The
@@ -63,8 +63,7 @@ environment file or a repository `.env` file.
 ```bash
 node bin/lazygoal.cjs eval swebench \
   --manifest benchmarks/swebench/manifests/single.json \
-  --python .lazygoal/swebench-venv/bin/python \
-  --output .lazygoal/benchmarks/swebench-runs/astropy-12907
+  --python ~/.lazygoal/cache/benchmarks/swebench/venv/bin/python
 ```
 
 The output directory must not already exist. Omit `--output` to allocate a unique
@@ -82,7 +81,7 @@ To exercise the injected Worker with a deterministic host model, run the explici
 Docker smoke command:
 
 ```bash
-SWEBENCH_PYTHON=.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
+SWEBENCH_PYTHON=~/.lazygoal/cache/benchmarks/swebench/venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
 ```
 
 It uses the fixed single-task manifest and official image, checks the linux/amd64
@@ -146,15 +145,15 @@ To grade saved predictions independently through the benchmark CLI, use the same
 Python environment. This does not rerun LazyGoal model inference:
 
 ```bash
-lazygoal grade swebench --output .lazygoal/benchmarks/swebench-runs/astropy-12907
+lazygoal grade swebench --output ~/.lazygoal/workspaces/<workspace-id>/benchmarks/swebench/runs/astropy-12907
 ```
 
 The underlying harness can also be called directly with an unused run ID:
 
 ```bash
-.lazygoal/swebench-venv/bin/python -m swebench.harness.run_evaluation \
-  --dataset_name .lazygoal/benchmarks/swebench-runs/astropy-12907/dataset.json \
-  --predictions_path .lazygoal/benchmarks/swebench-runs/astropy-12907/predictions.jsonl \
+~/.lazygoal/cache/benchmarks/swebench/venv/bin/python -m swebench.harness.run_evaluation \
+  --dataset_name ~/.lazygoal/workspaces/<workspace-id>/benchmarks/swebench/runs/astropy-12907/dataset.json \
+  --predictions_path ~/.lazygoal/workspaces/<workspace-id>/benchmarks/swebench/runs/astropy-12907/predictions.jsonl \
   --run_id astropy-12907-regrade-1 --max_workers 1 --cache_level instance
 ```
 

@@ -33,3 +33,12 @@ Session 初始化从完整 Goal Snapshot hydrate 时间线、消息和已提交�
 ## 当前限制
 
 TUI 只保证单进程内命令串行化；跨进程租约、历史 Snapshot 查询和终端外部滚动由 Runtime/Ink 当前能力决定。Inspector 读取已提交 Trajectory，不从 UI 时间线反推 Working Memory。
+
+## LazyGoal Home 持久化
+
+TUI 从 `LAZYGOAL_HOME` 解析全局配置、LLM Profile 和 Agent Profile；缺失时使用
+`~/.lazygoal`。当前 workspace 的真实路径经 SHA-256 归一化为 workspace ID，Goal、Trajectory、
+Trace、Context Sidecar、benchmark 历史和 GEPA Run 写入
+`~/.lazygoal/workspaces/<workspace-id>/`。普通 Goal 与 benchmark 历史只从当前 workspace
+发现；显式数据目录仍可由测试、导出或容器调用方覆盖。组装成功后写入
+`workspace.json` 身份清单，身份不一致会快速失败。

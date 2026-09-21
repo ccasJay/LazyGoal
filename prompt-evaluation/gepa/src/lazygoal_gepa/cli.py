@@ -16,6 +16,7 @@ from .controller import (
     ReportNotReadyError,
 )
 from .errors import LazyGoalGEPAError, RunOwnershipError, RunStoreError
+from .home import resolve_workspace_home
 from .ownership import RunOwnership
 from .store import RunStore
 from .worker import run_gepa_worker
@@ -88,7 +89,11 @@ def _run_worker(
     if run_dir_str is not None:
         run_dir = Path(run_dir_str).resolve()
     elif run_id is not None:
-        runs_dir = Path(runs_dir_str).resolve() if runs_dir_str else Path.cwd() / ".lazygoal" / "gepa" / "runs"
+        runs_dir = (
+            Path(runs_dir_str).resolve()
+            if runs_dir_str
+            else resolve_workspace_home(Path.cwd()) / "gepa" / "runs"
+        )
         run_dir = (runs_dir / run_id).resolve()
     else:
         sys.stderr.write("Error: worker requires either --run-dir or --run\n")

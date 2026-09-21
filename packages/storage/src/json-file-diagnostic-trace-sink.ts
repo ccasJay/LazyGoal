@@ -20,7 +20,7 @@ import type {
  *
  * @example
  * ```ts
- * const sink = new JsonFileDiagnosticTraceSink(".lazygoal/traces");
+ * const sink = new JsonFileDiagnosticTraceSink("~/.lazygoal/workspaces/<workspace-id>/traces");
  * await sink.append(record);
  * ```
  */

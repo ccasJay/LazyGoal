@@ -113,7 +113,7 @@ test("runAlfworldCli validates Bash-free Profile and writes a machine report bef
     const environmentFilePath = join(workspace, ".env.alfworld");
     const reportPath = join(workspace, "reports", "smoke.json");
     try {
-        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
+        await mkdir(join(workspace, "lazygoal-home/agent-profiles"), { recursive: true });
         await mkdir(dataRoot, { recursive: true });
         await writeFile(
             environmentFilePath,
@@ -121,7 +121,7 @@ test("runAlfworldCli validates Bash-free Profile and writes a machine report bef
             "utf8",
         );
         await writeFile(
-            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
+            join(workspace, "lazygoal-home/agent-profiles/alfworld-profile.json"),
             JSON.stringify(profile),
             "utf8",
         );
@@ -151,7 +151,7 @@ test("runAlfworldCli validates Bash-free Profile and writes a machine report bef
             "1",
         ], {
             cwd: workspace,
-            env: { LLM_MODEL: "fake-model" },
+            env: { LLM_MODEL: "fake-model", LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             environmentFilePath,
             writeOutput: (text) => output.push(text),
             writeError: (message) => {
@@ -204,10 +204,10 @@ test("runAlfworldCli returns non-zero while preserving stdout report when thresh
     const dataRoot = join(workspace, "data");
     const output: string[] = [];
     try {
-        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
+        await mkdir(join(workspace, "lazygoal-home/agent-profiles"), { recursive: true });
         await mkdir(dataRoot, { recursive: true });
         await writeFile(
-            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
+            join(workspace, "lazygoal-home/agent-profiles/alfworld-profile.json"),
             JSON.stringify(profile),
             "utf8",
         );
@@ -229,7 +229,7 @@ test("runAlfworldCli returns non-zero while preserving stdout report when thresh
             "eval", "alfworld", "--manifest", manifestPath, "--min-success-rate", "1",
         ], {
             cwd: workspace,
-            env: { ALFWORLD_PYTHON: "/fake/python", ALFWORLD_DATA: dataRoot },
+            env: { ALFWORLD_PYTHON: "/fake/python", ALFWORLD_DATA: dataRoot, LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             writeOutput: (text) => output.push(text),
             writeError: (message) => { throw new Error(message); },
             probePython: async (_executable, _script, env) => ({
@@ -259,10 +259,10 @@ test("runAlfworldCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE in default evalu
     const dataRoot = join(workspace, "data");
     const errors: string[] = [];
     try {
-        await mkdir(join(workspace, ".lazygoal/profiles"), { recursive: true });
+        await mkdir(join(workspace, "lazygoal-home/agent-profiles"), { recursive: true });
         await mkdir(dataRoot, { recursive: true });
         await writeFile(
-            join(workspace, ".lazygoal/profiles/alfworld-profile.json"),
+            join(workspace, "lazygoal-home/agent-profiles/alfworld-profile.json"),
             JSON.stringify(profile),
             "utf8",
         );
@@ -305,6 +305,7 @@ test("runAlfworldCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE in default evalu
                 LLM_BASE_URL: "http://127.0.0.1/v1",
                 LLM_MODEL: "test-model",
                 LLM_STRUCTURED_OUTPUT_MODE: "invalid_mode",
+                LAZYGOAL_HOME: join(workspace, "lazygoal-home"),
             },
             writeError: (message) => errors.push(message),
             probePython,
@@ -321,6 +322,7 @@ test("runAlfworldCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE in default evalu
                 env: {
                     ALFWORLD_PYTHON: "/must-not-start-sidecar", ALFWORLD_DATA: dataRoot,
                     LLM_API_KEY: "test-key", LLM_MODEL: "test-model", ...override,
+                    LAZYGOAL_HOME: join(workspace, "lazygoal-home"),
                 },
                 probePython, writeError: message => errors.push(message),
             });

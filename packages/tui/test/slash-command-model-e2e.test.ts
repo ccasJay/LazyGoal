@@ -134,9 +134,10 @@ test("端到端组合流：// 转义入会话、/model 命令被拦截不入会�
         const initialAdapter = new SensitiveFakeAdapter("model-alpha");
         adapterMap.set("model-alpha", initialAdapter);
 
-        // 真实实例化 Composition Root，不 mock 持久化，所有文件写入 workspace/.lazygoal
+        // 真实实例化 Composition Root，不 mock 持久化，所有文件写入 workspace 对应的 Home。
         const root = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => {
@@ -265,6 +266,7 @@ test("敏感凭据（Canary Secret）隔离审计：持久化快照、轨迹、T
 
         const root = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => new SensitiveFakeAdapter(sel.modelId),
@@ -301,8 +303,8 @@ test("敏感凭据（Canary Secret）隔离审计：持久化快照、轨迹、T
             content: "Step 2 message",
         });
 
-        // 1. 扫描磁盘上 .lazygoal 目录下的所有文件（包括 goals 快照、trajectories 轨迹、traces 诊断日志）
-        const lazygoalDir = join(workspace, ".lazygoal");
+        // 1. 扫描当前测试 Home 下的所有文件（包括 goals 快照、trajectories 轨迹、traces 诊断日志）
+        const lazygoalDir = join(workspace, "lazygoal-home");
         const leakedFiles = await scanDirectoryForSecret(lazygoalDir, CANARY_SECRET);
         assert.deepEqual(
             leakedFiles,
@@ -346,6 +348,7 @@ test("跨进程会话恢复：Provider 兼容时重建 Binding，不兼容时拒
         // 1. 在第一个会话中创建 Goal 并切换到 model-custom
         const root1 = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => new SensitiveFakeAdapter(sel.modelId),
@@ -377,6 +380,7 @@ test("跨进程会话恢复：Provider 兼容时重建 Binding，不兼容时拒
         // 2. 模拟新进程启动：当前环境 Provider 为 "openai"，兼容恢复
         const root2 = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: new SensitiveFakeAdapter("model-initial"),
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => new SensitiveFakeAdapter(sel.modelId),
@@ -415,6 +419,7 @@ test("跨进程会话恢复：Provider 兼容时重建 Binding，不兼容时拒
 
         const root3 = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: anthropicAdapter,
             modelCatalog: new FakeCatalog([
                 createDescriptor("claude-3-5", "Claude 3.5 Sonnet", "anthropic"),
@@ -459,6 +464,7 @@ test("非安全等待点拦截：非等待状态拒绝打开模型选择器，�
 
         const root = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => new SensitiveFakeAdapter(sel.modelId),
@@ -492,6 +498,7 @@ test("单 Controller 串行化防重入与非法 Slash 命令拦截", async () =
 
         const root = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             adapterFactory: (sel) => new SensitiveFakeAdapter(sel.modelId),
@@ -546,6 +553,7 @@ test("单 Controller 串行化防重入与非法 Slash 命令拦截", async () =
         const slowAdapter = new SlowAdapter();
         const slowRoot = await createCompositionRoot({
             cwd: workspace,
+            env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             adapter: slowAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
             profile: {
@@ -579,4 +587,3 @@ test("单 Controller 串行化防重入与非法 Slash 命令拦截", async () =
         await cleanup();
     }
 });
-

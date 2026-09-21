@@ -10,13 +10,13 @@ import { runGepaResolveModelsCli } from "../../src/prompt-evaluation/model-bridg
 async function setupConfig(t: TestContext): Promise<{ env: NodeJS.ProcessEnv }> {
     const root = await mkdtemp(join(tmpdir(), "gepa-model-bridge-"));
     t.after(() => rm(root, { recursive: true, force: true }));
-    const lazygoal = join(root, "lazygoal");
+    const lazygoal = root;
     const profiles = join(lazygoal, "profiles");
     await mkdir(profiles, { recursive: true });
     await writeFile(join(lazygoal, "config.toml"), "[gepa]\nreflection_profile = \"reflection\"\n");
     await writeFile(join(profiles, "default.toml"), "[llm]\nprovider = \"openai\"\nmodel = \"working-model\"\napi_key = \"sk-working-secret\"\n");
     await writeFile(join(profiles, "reflection.toml"), "[llm]\nprovider = \"deepseek\"\nmodel = \"reflection-model\"\napi_key = \"sk-reflection-secret\"\n");
-    return { env: { XDG_CONFIG_HOME: root } };
+    return { env: { LAZYGOAL_HOME: root } };
 }
 
 test("resolve-models 只输出双模型无凭据身份且 stdout 恰好一行", async (t) => {
@@ -42,7 +42,7 @@ test("resolve-models 只输出双模型无凭据身份且 stdout 恰好一行", 
 
 test("resolve-models 失败时 stdout 为空，stderr 为单行且脱敏有界 JSON", async (t) => {
     const { env } = await setupConfig(t);
-    await writeFile(join(env.XDG_CONFIG_HOME!, "lazygoal", "config.toml"), "[gepa]\nreflection_profile = \"missing\"\n");
+    await writeFile(join(env.LAZYGOAL_HOME!, "config.toml"), "[gepa]\nreflection_profile = \"missing\"\n");
     const output: string[] = [];
     const errors: string[] = [];
     const code = await runGepaResolveModelsCli(["gepa", "resolve-models"], {

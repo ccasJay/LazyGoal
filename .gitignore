@@ -17,7 +17,6 @@ coverage/
 *.tsbuildinfo
 
 # Project-local LazyGoal snapshots
-.lazygoal/
 .trae/
 
 # Local files
