@@ -71,6 +71,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_worker.add_argument("--run-dir", default=None, help="Absolute path to the run directory")
     p_worker.add_argument("--run", default=None, help="Run ID")
     p_worker.add_argument("--runs-dir", default=None, help="Runs directory")
+    p_worker.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_worker.add_argument("--duration", type=float, default=None, help="Max run duration in seconds")
 
     return parser
@@ -80,6 +81,7 @@ def _run_worker(
     run_dir_str: str | None,
     run_id: str | None,
     runs_dir_str: str | None,
+    workspace_root_str: str | None = None,
     max_duration: float | None = None,
 ) -> int:
     """Internal loop for background worker execution."""
@@ -140,7 +142,7 @@ def _run_worker(
         finally:
             ownership.release()
 
-    return run_gepa_worker(run_dir)
+    return run_gepa_worker(run_dir, workspace_root=workspace_root_str)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -157,6 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 run_dir_str=args.run_dir,
                 run_id=args.run,
                 runs_dir_str=args.runs_dir,
+                workspace_root_str=args.workspace_root,
                 max_duration=args.duration,
             )
 

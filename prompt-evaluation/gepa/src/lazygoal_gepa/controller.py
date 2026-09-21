@@ -54,6 +54,7 @@ def launch_detached_worker(
     run_dir: Path | str,
     worker_cmd: list[str] | None = None,
     extra_env: Mapping[str, str] | None = None,
+    workspace_root: Path | str | None = None,
 ) -> int:
     """Launch an independent background worker detached from the caller session.
 
@@ -61,6 +62,9 @@ def launch_detached_worker(
     bound to DEVNULL, and its stdout and stderr redirected to `<run_dir>/worker.log`.
     """
     resolved_run_dir = Path(run_dir).resolve()
+    resolved_workspace_root = (
+        Path(workspace_root).resolve() if workspace_root is not None else None
+    )
     resolved_run_dir.mkdir(parents=True, exist_ok=True)
     log_file_path = resolved_run_dir / "worker.log"
 
@@ -71,6 +75,11 @@ def launch_detached_worker(
         formatted_cmd = raw_cmd.format(
             run_dir=str(resolved_run_dir),
             run_id=resolved_run_dir.name,
+            workspace_root=(
+                str(resolved_workspace_root)
+                if resolved_workspace_root is not None
+                else ""
+            ),
         )
         cmd = shlex.split(formatted_cmd)
     else:
@@ -82,6 +91,8 @@ def launch_detached_worker(
             "--run-dir",
             str(resolved_run_dir),
         ]
+        if resolved_workspace_root is not None:
+            cmd.extend(["--workspace-root", str(resolved_workspace_root)])
 
     env = os.environ.copy()
     if extra_env:
@@ -248,7 +259,11 @@ class LifecycleController:
         )
 
         run_dir = self.store.initialize_run(manifest)
-        worker_pid = launch_detached_worker(run_dir, worker_cmd=self.worker_cmd)
+        worker_pid = launch_detached_worker(
+            run_dir,
+            worker_cmd=self.worker_cmd,
+            workspace_root=self.workspace_root,
+        )
 
         return {
             "runId": run_id,
@@ -394,7 +409,11 @@ class LifecycleController:
             stop_requested=False,
         )
 
-        worker_pid = launch_detached_worker(run_dir, worker_cmd=self.worker_cmd)
+        worker_pid = launch_detached_worker(
+            run_dir,
+            worker_cmd=self.worker_cmd,
+            workspace_root=self.workspace_root,
+        )
 
         return {
             "runId": run_id,

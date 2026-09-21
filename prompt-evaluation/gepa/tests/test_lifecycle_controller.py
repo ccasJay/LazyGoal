@@ -249,6 +249,20 @@ class LifecycleControllerTests(unittest.TestCase):
         self.assertTrue((run_dir / "state.json").is_file())
         self.assertTrue((run_dir / "worker.log").is_file())
 
+    def test_default_detached_worker_receives_workspace_root(self) -> None:
+        """默认后台 Worker 必须保留组合根，避免从 run 目录错误解析 lazygoal。"""
+        run_dir = self.runs_dir / "run_workspace_root"
+        fake_process = type("FakeProcess", (), {"pid": 12345})()
+        with patch("lazygoal_gepa.controller.subprocess.Popen", return_value=fake_process) as popen:
+            pid = launch_detached_worker(
+                run_dir,
+                workspace_root=self.workspace_root,
+            )
+
+        self.assertEqual(pid, 12345)
+        command = popen.call_args.args[0]
+        self.assertEqual(command[-2:], ["--workspace-root", str(self.workspace_root)])
+
     def test_profile_path_is_explicitly_selected_and_frozen(self) -> None:
         """preflight/start must use the requested profile and persist its identity."""
         custom_profile_path = self.profile_dir / "gaia-worker.json"
