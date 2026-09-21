@@ -21,7 +21,7 @@
   - 验证方式：新增 GAIA Profile 物化与 Worker runtime 测试（待实现），并扩展 `benchmarks/test/prompt-evaluation/profile.test.ts`；执行 `npm --prefix benchmarks test -- gaia/test/prompt-evaluation-adapter.test.ts` 或等价定向测试。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 4. 暴露 Profile 路径并完善 GEPA 生命周期冻结与 preflight
+- [x] //TODO 4. 暴露 Profile 路径并完善 GEPA 生命周期冻结与 preflight
 
   - 实现目标：为 GEPA `preflight`、`start`、`resume` 增加显式 `--profile-path`，放宽 Profile ID 为稳定非空标识，冻结目标路径与摘要，并让 preflight/status/report 使用同一份生命周期 Manifest。
   - 成功判据：GAIA 使用专用 Profile 路径而不回退通用 default；摘要包含 benchmark、train/validation 数量、预算、两侧模型和目标 Profile；运行中目标文件漂移时阻止 resume/publish 且不覆盖文件，preflight 失败不创建 Worker、容器或模型调用。

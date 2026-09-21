@@ -406,12 +406,14 @@ def start_run(
     yes: bool = False,
     runs_root: Path | str | None = None,
     workspace_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
     worker_cmd: list[str] | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to start a GEPA run."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
         worker_cmd=worker_cmd,
     )
     return controller.start(request_path, yes=yes)
@@ -440,12 +442,14 @@ def resume_run(
     yes: bool = False,
     runs_root: Path | str | None = None,
     workspace_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
     worker_cmd: list[str] | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to resume an uncompleted GEPA run."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
         worker_cmd=worker_cmd,
     )
     return controller.resume(run_id, yes=yes)
@@ -464,10 +468,12 @@ def preflight_run(
     request_path: Path | str,
     workspace_root: Path | str | None = None,
     runs_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to execute read-only preflight checks."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
     )
     return controller.preflight(request_path)

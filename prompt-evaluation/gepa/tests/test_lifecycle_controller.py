@@ -249,6 +249,52 @@ class LifecycleControllerTests(unittest.TestCase):
         self.assertTrue((run_dir / "state.json").is_file())
         self.assertTrue((run_dir / "worker.log").is_file())
 
+    def test_profile_path_is_explicitly_selected_and_frozen(self) -> None:
+        """preflight/start must use the requested profile and persist its identity."""
+        custom_profile_path = self.profile_dir / "gaia-worker.json"
+        custom_profile_data = dict(self.profile_data)
+        custom_profile_data["id"] = "gaia-worker-profile"
+        custom_profile_path.write_text(
+            json.dumps(custom_profile_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        preflight = preflight_run(
+            request_path=self.request_path,
+            workspace_root=self.workspace_root,
+            runs_root=self.runs_dir,
+            profile_path=custom_profile_path,
+        )
+        self.assertEqual(preflight["targetProfile"]["profileId"], "gaia-worker-profile")
+        self.assertEqual(
+            preflight["targetProfile"]["profilePath"],
+            str(custom_profile_path.resolve()),
+        )
+        self.assertTrue(preflight["estimatedSideEffects"]["willMutateProfile"])
+        self.assertIn("working", preflight["models"])
+        self.assertIn("reflection", preflight["models"])
+
+        result = start_run(
+            request_path=self.request_path,
+            yes=True,
+            workspace_root=self.workspace_root,
+            runs_root=self.runs_dir,
+            profile_path=custom_profile_path,
+            worker_cmd=[sys.executable, "-c", "import time; time.sleep(10)"],
+        )
+        self._track_pid(result["workerPid"])
+        manifest = self.store.read_manifest(result["runId"])
+        self.assertEqual(manifest.target_profile.profile_id, "gaia-worker-profile")
+        self.assertEqual(
+            manifest.target_profile.profile_path,
+            str(custom_profile_path.resolve()),
+        )
+
+        # The lifecycle manifest is authoritative: changing the controller's
+        # default profile path must not alter the frozen target.
+        status = get_run_status(result["runId"], runs_root=self.runs_dir)
+        self.assertEqual(status["runId"], result["runId"])
+
     # -------------------------------------------------------------------------
     # 3. 只读 status 测试
     # -------------------------------------------------------------------------
@@ -503,6 +549,38 @@ class LifecycleControllerTests(unittest.TestCase):
         preflight_obj = json.loads(lines[0])
         self.assertTrue(preflight_obj["valid"])
         self.assertEqual(preflight_obj["benchmark"], "alfworld")
+
+        custom_profile_path = self.profile_dir / "cli-custom.json"
+        custom_profile_data = dict(self.profile_data)
+        custom_profile_data["id"] = "cli-custom-profile"
+        custom_profile_path.write_text(
+            json.dumps(custom_profile_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            code = cli_main([
+                "preflight",
+                "--request",
+                str(self.request_path),
+                "--workspace-root",
+                str(self.workspace_root),
+                "--runs-dir",
+                str(self.runs_dir),
+                "--profile-path",
+                str(custom_profile_path),
+            ])
+        self.assertEqual(code, 0)
+        custom_preflight = json.loads(stdout_buf.getvalue())
+        self.assertEqual(
+            custom_preflight["targetProfile"]["profileId"],
+            "cli-custom-profile",
+        )
+        self.assertEqual(
+            custom_preflight["targetProfile"]["profilePath"],
+            str(custom_profile_path.resolve()),
+        )
 
         # 7.2 start 缺少 --yes: exit code 1, stderr 诊断, stdout 无 JSON
         stdout_buf = io.StringIO()

@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_preflight.add_argument("--request", required=True, help="Path to gepa-run@1 JSON request file")
     p_preflight.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_preflight.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
+    p_preflight.add_argument("--profile-path", default=None, help="Path to the target Agent Profile JSON file")
 
     # start
     p_start = subparsers.add_parser("start", help="Start a new GEPA run with a detached background worker")
@@ -40,6 +41,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_start.add_argument("--yes", action="store_true", default=False, help="Confirm LLM costs and profile mutation")
     p_start.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_start.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
+    p_start.add_argument("--profile-path", default=None, help="Path to the target Agent Profile JSON file")
 
     # status
     p_status = subparsers.add_parser("status", help="Query read-only authoritative run status")
@@ -57,6 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_resume.add_argument("--yes", action="store_true", default=False, help="Confirm LLM costs and execution")
     p_resume.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_resume.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
+    p_resume.add_argument("--profile-path", default=None, help="Path to the frozen target Agent Profile JSON file")
 
     # report
     p_report = subparsers.add_parser("report", help="Read authoritative final run report")
@@ -160,6 +163,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         controller = LifecycleController(
             workspace_root=getattr(args, "workspace_root", None),
             runs_dir=getattr(args, "runs_dir", None),
+            profile_path=getattr(args, "profile_path", None),
         )
 
         if args.subcommand == "preflight":
