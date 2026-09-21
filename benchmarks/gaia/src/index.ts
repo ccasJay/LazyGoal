@@ -49,6 +49,7 @@ export {
 } from "./tools-worker-entry";
 export {
     GAIA_PROFILE_TOOL_IDS,
+    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
     createGaiaWorkerToolRegistry,
     GaiaBenchmarkAdapter,
@@ -61,6 +62,14 @@ export {
     type GaiaAcpTaskMetadata,
     type GaiaAcpRuntimeOptions,
 } from "./worker-entry";
+export {
+    GaiaProfileValidationError,
+    loadGaiaWorkerProfile,
+    materializeGaiaWorkerProfile,
+    toGaiaWorkerProfileDocument,
+    validateGaiaWorkerProfileDocument,
+    type GaiaWorkerProfileDocument,
+} from "./profile";
 export {
     GaiaPromptEvaluationAdapter,
     type GaiaPromptEvaluationAdapterOptions,

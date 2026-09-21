@@ -14,7 +14,7 @@
   - 验证方式：扩展 `prompt-evaluation/gepa/tests/test_dataset.py`、协议测试和请求读取测试（待实现）；执行 `npm run test:gepa-adapter`。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 3. 物化并校验 GAIA 基准 Profile，冻结候选字段
+- [x] //TODO 3. 物化并校验 GAIA 基准 Profile，冻结候选字段
 
   - 实现目标：增加 benchmark-owned 的 GAIA Profile JSON 物化/校验入口，以 `GAIA_WORKER_PROFILE` 为唯一语义来源；接入 Worker metadata 校验，允许候选只改变 `systemPrompt` 和 `instructions`。
   - 成功判据：物化文件与 Worker 常量的身份、工具列表和 Prompt 完全一致；非 `gaia-worker-profile`、工具白名单、提交协议、结构化输出模式或其他冻结字段发生变化时，preflight/Worker 在模型调用前拒绝。

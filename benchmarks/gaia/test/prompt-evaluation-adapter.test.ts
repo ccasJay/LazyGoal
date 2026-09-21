@@ -134,6 +134,13 @@ test("GAIA Worker accepts paired Prompt profiles and rejects frozen-field drift"
         }),
         /toolIds/,
     );
+    assert.throws(
+        () => parseGaiaAcpTaskMetadata({
+            ...metadata,
+            structuredOutputMode: "prompt_only",
+        }),
+        /structuredOutputMode must be strict/,
+    );
 });
 
 test("GAIA Supervisor persists Prompt Evaluation identity in Attempt", async (t) => {
