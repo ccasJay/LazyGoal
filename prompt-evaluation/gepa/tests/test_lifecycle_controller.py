@@ -262,6 +262,7 @@ class LifecycleControllerTests(unittest.TestCase):
         self.assertEqual(pid, 12345)
         command = popen.call_args.args[0]
         self.assertEqual(command[-2:], ["--workspace-root", str(self.workspace_root)])
+        self.assertEqual(popen.call_args.kwargs["cwd"], str(self.workspace_root))
 
     def test_profile_path_is_explicitly_selected_and_frozen(self) -> None:
         """preflight/start must use the requested profile and persist its identity."""

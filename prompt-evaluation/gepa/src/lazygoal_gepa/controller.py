@@ -98,6 +98,7 @@ def launch_detached_worker(
     if extra_env:
         env.update(extra_env)
 
+    worker_cwd = resolved_workspace_root or resolved_run_dir
     log_file = open(log_file_path, "a", encoding="utf-8")
     try:
         proc = subprocess.Popen(
@@ -105,7 +106,7 @@ def launch_detached_worker(
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
-            cwd=str(resolved_run_dir),
+            cwd=str(worker_cwd),
             env=env,
             start_new_session=True,
             close_fds=True,
