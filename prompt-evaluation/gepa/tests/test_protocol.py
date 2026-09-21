@@ -97,6 +97,50 @@ class GEPARunProtocolTests(unittest.TestCase):
         self.assertEqual(len(request.valset), 1)
         self.assertEqual(request.valset[0].sample_id, "s-val")
 
+    def test_rejects_train_and_validation_identity_overlap(self) -> None:
+        train_m = self._write_manifest("train.json", "task-shared")
+        val_m = self._write_manifest("val.json", "task-shared")
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "gaia",
+            "trainset": [{"sampleId": "s-train", "taskId": "task-shared", "manifestPath": str(train_m)}],
+            "valset": [{"sampleId": "s-val", "taskId": "task-shared", "manifestPath": str(val_m)}],
+            "maxMetricCalls": 4,
+        }
+        with self.assertRaisesRegex(DatasetValidationError, "task IDs"):
+            parse_run_request(data)
+
+        data["valset"] = [{"sampleId": "s-train", "taskId": "task-other", "manifestPath": str(val_m)}]
+        with self.assertRaisesRegex(DatasetValidationError, "sample IDs"):
+            parse_run_request(data)
+
+    def test_rejects_gaia_manifest_that_is_not_first_stage(self) -> None:
+        gaia_manifest = self.root / "gaia-invalid.json"
+        gaia_manifest.write_text(
+            json.dumps({
+                "source": "huggingface",
+                "loadedAt": "2026-09-21T00:00:00+00:00",
+                "dataRoot": str(self.root),
+                "tasks": [{
+                    "taskId": "task-gaia",
+                    "question": "q",
+                    "expectedAnswer": "a",
+                    "level": 2,
+                    "split": "validation",
+                    "attachments": [],
+                }],
+            }),
+            encoding="utf-8",
+        )
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "gaia",
+            "trainset": [{"sampleId": "s1", "taskId": "task-gaia", "manifestPath": str(gaia_manifest)}],
+            "maxMetricCalls": 4,
+        }
+        with self.assertRaisesRegex(DatasetValidationError, "level 1"):
+            parse_run_request(data, check_manifests=True)
+
     def test_reject_unsupported_protocol_version(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
         cases = ("gepa-run@2", "gepa-run@0", "prompt-evaluation@1", "")

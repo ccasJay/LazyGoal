@@ -14,7 +14,8 @@ from .errors import (
     GEPARunProtocolError,
     PromptEvaluationProtocolError,
 )
-from .models import BenchmarkId, SUPPORTED_BENCHMARKS
+from .dataset import validate_manifest_file
+from .models import BenchmarkId, LazyGoalEvaluationExample, SUPPORTED_BENCHMARKS
 
 PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1"
 
@@ -557,6 +558,25 @@ def parse_run_request(
             raise DatasetValidationError("valset cannot be an empty list when provided")
         valset = _parse_example_list(valset_raw, "valset", base_dir)
 
+        train_task_ids = {example.task_id for example in trainset}
+        train_sample_ids = {example.sample_id for example in trainset}
+        overlapping_tasks = sorted(
+            train_task_ids.intersection(example.task_id for example in valset)
+        )
+        overlapping_samples = sorted(
+            train_sample_ids.intersection(example.sample_id for example in valset)
+        )
+        if overlapping_tasks:
+            raise DatasetValidationError(
+                "Trainset and valset must not reuse task IDs: "
+                + ", ".join(overlapping_tasks)
+            )
+        if overlapping_samples:
+            raise DatasetValidationError(
+                "Trainset and valset must not reuse sample IDs: "
+                + ", ".join(overlapping_samples)
+            )
+
     request = GEPARunRequest(
         protocol="gepa-run@1",
         benchmark=benchmark,
@@ -710,9 +730,12 @@ def validate_run_request_datasets(request: GEPARunRequest) -> None:
                     "Manifest task ID does not match the sample: "
                     f"expected {example.task_id!r}, found {found_task_id!r}"
                 )
-            manifest_benchmark = raw.get("benchmark") or task.get("benchmark")
-            if manifest_benchmark is not None and manifest_benchmark != request.benchmark:
-                raise DatasetValidationError(
-                    "Sample benchmark does not match the run: "
-                    f"manifest uses {manifest_benchmark!r}, run uses {request.benchmark!r}"
-                )
+            validate_manifest_file(
+                LazyGoalEvaluationExample(
+                    sample_id=example.sample_id,
+                    benchmark_id=request.benchmark,
+                    task_id=example.task_id,
+                    manifest_path=manifest_file,
+                ),
+                request.benchmark,
+            )

@@ -7,7 +7,7 @@
   - 验证方式：新增 `benchmarks/gaia/test` 物化器与边界测试（待实现）；执行 `npm --prefix benchmarks test -- gaia/test/manifest.test.ts` 或等价的定向测试。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 将单任务 Manifest 接入 GEPA Dataset 校验与请求边界
+- [x] //TODO 2. 将单任务 Manifest 接入 GEPA Dataset 校验与请求边界
 
   - 实现目标：扩展 `prompt-evaluation/gepa` 的 Dataset/Protocol 校验，使 GAIA 请求强制使用 `gaia`、非空 trainset、单任务 Manifest、唯一 sample/task，并让 validation 集在存在时满足相同约束且不与 trainset 重复。
   - 成功判据：空 validation、非正 metric 预算、重复样本、跨 benchmark、多任务 Manifest、taskId 不一致和无效物化产物均在 Worker 或模型启动前返回稳定协议错误。

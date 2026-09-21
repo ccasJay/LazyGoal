@@ -29,6 +29,7 @@ class DatasetValidatorTests(unittest.TestCase):
                 manifest = self._write_manifest(
                     f"{benchmark_id}.json",
                     [{"taskId": f"{benchmark_id}-task", "domain": "untouched"}],
+                    benchmark_id=benchmark_id,
                 )
                 example = LazyGoalEvaluationExample(
                     sample_id=f"{benchmark_id}-sample",
@@ -113,6 +114,45 @@ class DatasetValidatorTests(unittest.TestCase):
                 [self._example("sample-1", "expected", manifest)],
             )
 
+    def test_rejects_gaia_manifest_outside_first_stage_boundary(self) -> None:
+        cases = (
+            (
+                {"split": "test", "level": 1, "expectedAnswer": "a", "attachments": []},
+                "validation split",
+            ),
+            (
+                {"split": "validation", "level": 2, "expectedAnswer": "a", "attachments": []},
+                "level 1",
+            ),
+            (
+                {"split": "validation", "level": 1, "expectedAnswer": "", "attachments": []},
+                "non-empty expectedAnswer",
+            ),
+            (
+                {"split": "validation", "level": 1, "expectedAnswer": "a", "attachments": ["file.pdf"]},
+                "attachments",
+            ),
+        )
+        for task_fields, expected_message in cases:
+            with self.subTest(expected_message=expected_message):
+                manifest = self._write_manifest(
+                    "gaia-invalid.json",
+                    [{"taskId": "gaia-task", **task_fields}],
+                    benchmark_id="gaia",
+                )
+                with self.assertRaisesRegex(DatasetValidationError, expected_message):
+                    self.validator.validate_batch(
+                        self._config("gaia"),
+                        [
+                            LazyGoalEvaluationExample(
+                                sample_id="gaia-sample",
+                                benchmark_id="gaia",
+                                task_id="gaia-task",
+                                manifest_path=manifest,
+                            )
+                        ],
+                    )
+
     def test_configuration_rejects_unsupported_or_empty_values(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "Unsupported benchmark"):
             self._config("swebench")
@@ -149,9 +189,32 @@ class DatasetValidatorTests(unittest.TestCase):
             manifest_path=manifest_path,
         )
 
-    def _write_manifest(self, name: str, tasks: list[dict[str, str]]) -> Path:
+    def _write_manifest(
+        self,
+        name: str,
+        tasks: list[dict[str, str]],
+        benchmark_id: str = "alfworld",
+    ) -> Path:
         path = self.root / name
-        path.write_text(json.dumps({"tasks": tasks}), encoding="utf-8")
+        if benchmark_id == "gaia":
+            task = tasks[0]
+            task = {
+                "taskId": task["taskId"],
+                "question": "question",
+                "expectedAnswer": "answer",
+                "level": 1,
+                "split": "validation",
+                "attachments": [],
+            } | task
+            data = {
+                "source": "huggingface",
+                "loadedAt": "2026-09-21T00:00:00+00:00",
+                "dataRoot": str(self.root),
+                "tasks": [task],
+            }
+        else:
+            data = {"tasks": tasks}
+        path.write_text(json.dumps(data), encoding="utf-8")
         return path
 
 
