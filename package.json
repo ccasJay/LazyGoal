@@ -17,6 +17,7 @@
     "test:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen python -W error::ResourceWarning -m unittest discover -s prompt-evaluation/gepa/tests -v",
     "smoke:gepa-lifecycle": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-lifecycle-smoke",
     "smoke:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-lifecycle-smoke",
+    "e2e:gaia-real": "uv run --project prompt-evaluation/gepa --frozen lazygoal-gepa-gaia-e2e",
     "test": "node scripts/run-regression.mjs"
   },
   "keywords": [],

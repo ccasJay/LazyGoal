@@ -49,11 +49,11 @@
   - 验证方式：扩展 `prompt-evaluation/gepa/tests/test_publisher.py`、`test_reporter.py` 和 Prompt Evaluation result recorder 测试（待实现）；执行 `npm run test:gepa-adapter`。
   - _Requirements: [1.4](./requirements.md#req-1-4), [5.4](./requirements.md#req-5-4), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 8. 增加显式真实 E2E 闸门并保持默认回归隔离
+- [x] //TODO 8. 增加显式真实 E2E 闸门并保持默认回归隔离
 
   - 实现目标：增加只在显式命令和用户提供数据/模型配置存在时运行的 GAIA 真实单任务与最小 GEPA E2E 入口，串联 `preflight → start → status → report`；默认 `npm test`、现有 smoke 和离线协议测试不得触发真实模型或真实容器。
   - 成功判据：真实闸门能读取指定 validation Level 1 无附件任务，完成 Prompt Evaluation 和最小 GEPA 终态报告；领域答案错误不会被视为生命周期协议成功；未显式启用时不会访问外部 GAIA 数据服务或创建真实容器。
-  - 验证方式：新增环境门控的 E2E runner/fixture 与脚本测试（待实现），执行默认 `npm test` 和显式真实 E2E 命令的 dry-run/preflight 检查；真实模型调用留在 Feature Verification 中执行。
+  - 验证方式：新增环境门控的 E2E runner/fixture 与脚本测试，执行默认 `npm test` 和显式真实 E2E 命令的 dry-run/preflight 检查；真实模型调用留在 Feature Verification 中执行。
   - _Requirements: [2.2](./requirements.md#req-2-2), [4.2](./requirements.md#req-4-2), [5.1](./requirements.md#req-5-1), [5.4](./requirements.md#req-5-4), [6.1](./requirements.md#req-6-1), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
 ## Feature Verification
@@ -88,4 +88,4 @@
 
 ### Latest Result
 
-未执行。实现完成后按 `delivery-loop.md` 记录每项证据、整体状态、时效、被测 Git 状态和契约版本。
+TODO 1–8 已实现。已通过 GAIA E2E 闸门单元测试、GEPA adapter 回归和 `git diff --check`；真实模型/容器执行仍需在具备用户配置的 Feature Verification 中显式运行。

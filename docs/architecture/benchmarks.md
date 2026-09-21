@@ -138,6 +138,15 @@ Worker 才会原子更新
 外部 Profile 修改或写入失败不得覆盖当前 Profile；此类结果保留最佳 artifact 并报告
 `publish_blocked`（或对应失败分类）。真实双模型 smoke 不进入默认回归。
 
+GAIA 真实端到端闸门由 [`lazygoal-gepa-gaia-e2e`](../../prompt-evaluation/gepa/src/lazygoal_gepa/gaia_e2e.py)
+提供，根脚本为 `npm run e2e:gaia-real`。它要求调用方同时提供单任务 GAIA
+`gepa-run@1` 请求、`gaia-worker-profile` 路径，并设置 `LAZYGOAL_GAIA_REAL_E2E=1`；
+`--dry-run` 只执行本地请求、Manifest、Profile 和模型身份 preflight，不创建容器或调用模型。
+真实执行先对 validation Manifest 做一次 `prompt-evaluation@1` 单任务评测，再按
+`preflight → start → status → report` 查询 GEPA 生命周期。Prompt Evaluation 的
+`passed/failed` 是领域结果；生命周期报告的 `complete` 与发布状态独立判断，错误答案不会被
+提升为整条 E2E 协议成功。该入口不属于默认 `npm test` 回归。
+
 模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
 `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，
 缺失时字段缺省），随 Diagnostic Trace 逐调用落盘；Headless Root 按 run 累计
