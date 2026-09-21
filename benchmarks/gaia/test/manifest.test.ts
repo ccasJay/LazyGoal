@@ -8,6 +8,7 @@ import {
     GaiaDatasetLoader,
     GaiaManifestValidationError,
     loadGaiaManifest,
+    materializeGaiaSingleTask,
     saveGaiaManifest,
     validateGaiaManifest,
     type GaiaRawMetadataRecord,
@@ -122,6 +123,136 @@ test("validateGaiaManifest 拒绝重复 task_id、非法 level 或非法 source"
     );
 });
 
+test("materializeGaiaSingleTask 只输出指定的 Level 1 validation 无附件任务", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "gaia-single-task-test-"));
+    try {
+        const loader = new GaiaDatasetLoader();
+        const source = loader.buildManifestFromRecords(
+            [
+                {
+                    task_id: "gaia-001",
+                    Question: "What is the capital of France?",
+                    Level: 1,
+                    "Final answer": "Paris",
+                },
+                {
+                    task_id: "gaia-002",
+                    Question: "Requires an attachment",
+                    Level: 1,
+                    "Final answer": "Document",
+                    file_name: "doc.pdf",
+                },
+            ],
+            "validation",
+            tmpDir,
+        );
+        const sourcePath = join(tmpDir, "source.json");
+        const outputPath = join(tmpDir, "single.json");
+        await saveGaiaManifest(sourcePath, source);
+
+        const materialized = await materializeGaiaSingleTask({
+            sourceManifestPath: sourcePath,
+            taskId: "gaia-001",
+            outputPath,
+        });
+
+        assert.equal(materialized.tasks.length, 1);
+        assert.equal(materialized.tasks[0]?.taskId, "gaia-001");
+        assert.deepEqual((await loadGaiaManifest(sourcePath)).tasks, source.tasks);
+        assert.deepEqual((await loadGaiaManifest(outputPath)).tasks, materialized.tasks);
+    } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+    }
+});
+
+test("materializeGaiaSingleTask 拒绝非 validation、非 Level 1、缺失答案和附件任务", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "gaia-single-task-invalid-"));
+    try {
+        const loader = new GaiaDatasetLoader();
+        const writeSource = async (records: readonly GaiaRawMetadataRecord[], split: "validation" | "test") => {
+            const source = loader.buildManifestFromRecords(records, split, tmpDir);
+            const sourcePath = join(tmpDir, `${split}-${records[0]?.task_id ?? "empty"}.json`);
+            await saveGaiaManifest(sourcePath, source);
+            return sourcePath;
+        };
+
+        const testSource = await writeSource([
+            { task_id: "test-task", Question: "q", Level: 1, "Final answer": "a" },
+        ], "test");
+        await assert.rejects(
+            materializeGaiaSingleTask({
+                sourceManifestPath: testSource,
+                taskId: "test-task",
+                outputPath: join(tmpDir, "test-out.json"),
+            }),
+            (error: Error) => error instanceof GaiaManifestValidationError && error.code === "UNSUPPORTED_SINGLE_TASK",
+        );
+
+        const levelSource = await writeSource([
+            { task_id: "level-task", Question: "q", Level: 2, "Final answer": "a" },
+        ], "validation");
+        await assert.rejects(
+            materializeGaiaSingleTask({
+                sourceManifestPath: levelSource,
+                taskId: "level-task",
+                outputPath: join(tmpDir, "level-out.json"),
+            }),
+            (error: Error) => error instanceof GaiaManifestValidationError && error.code === "UNSUPPORTED_SINGLE_TASK",
+        );
+
+        const attachmentSource = await writeSource([
+            { task_id: "attachment-task", Question: "q", Level: 1, "Final answer": "a", file_name: "a.pdf" },
+        ], "validation");
+        await assert.rejects(
+            materializeGaiaSingleTask({
+                sourceManifestPath: attachmentSource,
+                taskId: "attachment-task",
+                outputPath: join(tmpDir, "attachment-out.json"),
+            }),
+            (error: Error) => error instanceof GaiaManifestValidationError && error.code === "UNSUPPORTED_SINGLE_TASK",
+        );
+
+        const noAnswerSource = await writeSource([
+            { task_id: "missing-answer", Question: "q", Level: 1 },
+        ], "validation");
+        await assert.rejects(
+            materializeGaiaSingleTask({
+                sourceManifestPath: noAnswerSource,
+                taskId: "missing-answer",
+                outputPath: join(tmpDir, "missing-answer-out.json"),
+            }),
+            (error: Error) => error instanceof GaiaManifestValidationError && error.code === "INVALID_TASK",
+        );
+    } finally {
+        await rm(tmpDir, { recursive: true, force: true });
+    }
+});
+
+test("validateGaiaManifest 拒绝相对 dataRoot 和空 tasks", () => {
+    const baseValid = {
+        source: "huggingface",
+        loadedAt: new Date().toISOString(),
+        dataRoot: "/tmp/gaia",
+        tasks: [{
+            taskId: "t-1",
+            question: "q1",
+            expectedAnswer: "a1",
+            level: 1,
+            split: "validation",
+            attachments: [],
+        }],
+    } as const;
+
+    assert.throws(
+        () => validateGaiaManifest({ ...baseValid, dataRoot: "relative/gaia" }),
+        (error: Error) => error instanceof GaiaManifestValidationError && error.code === "INVALID_DATA_ROOT",
+    );
+    assert.throws(
+        () => validateGaiaManifest({ ...baseValid, tasks: [] }),
+        (error: Error) => error instanceof GaiaManifestValidationError && error.code === "EMPTY_TASKS",
+    );
+});
+
 test("GaiaDatasetLoader downloadSplit 在 mock fetch 下正确保存并返回 Manifest", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "gaia-download-test-"));
     try {
@@ -144,4 +275,3 @@ test("GaiaDatasetLoader downloadSplit 在 mock fetch 下正确保存并返回 Ma
         await rm(tmpDir, { recursive: true, force: true });
     }
 });
-

@@ -14,6 +14,10 @@ export {
     type GaiaManifestValidationErrorCode,
 } from "./manifest";
 export {
+    materializeGaiaSingleTask,
+    type GaiaSingleTaskMaterializerOptions,
+} from "./single-task-manifest";
+export {
     GaiaDatasetLoader,
     GAIA_DEFAULT_HF_REPO,
     type GaiaDatasetLoaderOptions,

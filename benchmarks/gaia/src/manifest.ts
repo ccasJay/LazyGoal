@@ -11,7 +11,12 @@ export type GaiaManifestValidationErrorCode =
     | "DUPLICATE_TASK_ID"
     | "INVALID_TASK"
     | "INVALID_LEVEL"
-    | "INVALID_SPLIT";
+    | "INVALID_SPLIT"
+    | "TASK_NOT_FOUND"
+    | "SINGLE_TASK_REQUIRED"
+    | "UNSUPPORTED_SINGLE_TASK"
+    | "DATA_ROOT_NOT_FOUND"
+    | "OUTPUT_PATH_INVALID";
 
 /**
  * GAIA 清单校验错误。
@@ -144,10 +149,14 @@ export function validateGaiaManifest(value: unknown): GaiaManifest {
         );
     }
 
-    if (typeof value.dataRoot !== "string" || value.dataRoot.trim().length === 0) {
+    if (
+        typeof value.dataRoot !== "string"
+        || value.dataRoot.trim().length === 0
+        || !isAbsolute(value.dataRoot.trim())
+    ) {
         throw new GaiaManifestValidationError(
             "INVALID_DATA_ROOT",
-            "GAIA manifest dataRoot must be a non-empty string",
+            "GAIA manifest dataRoot must be a non-empty absolute path",
         );
     }
 
@@ -160,6 +169,10 @@ export function validateGaiaManifest(value: unknown): GaiaManifest {
 
     if (!Array.isArray(value.tasks)) {
         throw new GaiaManifestValidationError("INVALID_FORMAT", "GAIA manifest tasks must be an array");
+    }
+
+    if (value.tasks.length === 0) {
+        throw new GaiaManifestValidationError("EMPTY_TASKS", "GAIA manifest tasks must not be empty");
     }
 
     const seenIds = new Set<string>();
@@ -230,4 +243,3 @@ export async function saveGaiaManifest(
     const content = JSON.stringify(validated, null, 2) + "\n";
     await writeFile(manifestPath, content, "utf8");
 }
-

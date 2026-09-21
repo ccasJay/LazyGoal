@@ -1,6 +1,6 @@
 # 实施任务
 
-- [ ] //TODO 1. 实现 GAIA validation 单任务 Manifest 物化器
+- [x] //TODO 1. 实现 GAIA validation 单任务 Manifest 物化器
 
   - 实现目标：在 `benchmarks/gaia` 增加从用户指定源 Manifest 按 task ID 物化单任务 Manifest 的入口，复用现有 GAIA 校验并补充首阶段 validation、Level 1、非空 `expectedAnswer`、绝对 `dataRoot`、无附件和路径边界检查。
   - 成功判据：有效 task 只生成一个与声明一致的任务且源 Manifest 不被修改；test、重复 task、缺失答案、无效数据根目录、附件或越界路径在模型调用前返回可定位错误。
