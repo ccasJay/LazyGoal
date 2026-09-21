@@ -34,7 +34,7 @@ from .errors import (
 )
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
-from .protocol import GEPARunRequest, read_run_request
+from .protocol import GEPARunRequest, read_run_request, validate_gaia_minimal_request
 from .reporter import ReportNotReadyError, read_run_report
 from .store import RunState, RunStore
 
@@ -45,6 +45,9 @@ class ConfirmationRequiredError(LazyGoalGEPAError):
 
 class ProfileDriftError(LazyGoalGEPAError):
     """Raised when the target profile has drifted from its frozen digest during resume."""
+
+
+_GAIA_WORKER_PROFILE_ID = "gaia-worker-profile"
 
 
 def launch_detached_worker(
@@ -160,12 +163,17 @@ class LifecycleController:
         ensure_gepa_compatibility()
 
         req = read_run_request(request_path, check_manifests=True)
+        validate_gaia_minimal_request(req)
 
         if not self.profile_path.is_file():
             raise ProfileValidationError(
                 f"Target profile file does not exist: {self.profile_path}"
             )
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
+        if req.benchmark == "gaia" and snapshot.id != _GAIA_WORKER_PROFILE_ID:
+            raise ProfileValidationError(
+                "GAIA lifecycle requires target Profile id 'gaia-worker-profile'"
+            )
         extract_seed_candidate(snapshot)
 
         working_model, reflection_model = self._models()

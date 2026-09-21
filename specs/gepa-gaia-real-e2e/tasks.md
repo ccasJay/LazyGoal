@@ -35,7 +35,7 @@
   - 验证方式：扩展 `benchmarks/gaia/test/prompt-evaluation-adapter.test.ts`、`benchmarks/test/prompt-evaluation/runner.test.ts` 和 Prompt Evaluation CLI 集成测试（待实现）；执行 `npm --prefix benchmarks test -- gaia/test/prompt-evaluation-adapter.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.2](./requirements.md#req-3-2), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 6. 接通官方 GEPA 双模型最小生命周期
+- [x] //TODO 6. 接通官方 GEPA 双模型最小生命周期
 
   - 实现目标：在 GEPA Worker/Adapter 中固定首轮 train/validation 配置、`seed=0`、`reflectionMinibatchSize=1` 和 `maxMetricCalls<=4`，复用 Prompt Evaluation 边界执行候选评测，并把 Working LM、Reflection LM、候选、预算、终态和发布状态写入公开生命周期状态/报告。
   - 成功判据：每个候选只使用 GAIA `passed`/`failed` 计算分数；基础设施、协议、模型、容器、持久化和取消错误不转换为零分；`status`/`report` 可在不读取内部 checkpoint 或日志的情况下返回完整终态。

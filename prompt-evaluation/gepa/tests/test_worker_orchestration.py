@@ -26,7 +26,7 @@ from lazygoal_gepa.candidate import (
 from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
 from lazygoal_gepa.errors import PromptEvaluationInfrastructureError
 from lazygoal_gepa.ownership import RunOwnership, is_pid_alive
-from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
+from lazygoal_gepa.protocol import GEPAExampleRequest, GEPARunRequest, parse_run_request
 from lazygoal_gepa.reporter import read_run_report
 from lazygoal_gepa.store import RunStore
 from lazygoal_gepa.worker import (
@@ -190,6 +190,61 @@ class WorkerOrchestrationTests(unittest.TestCase):
         # Check ownership lock released
         health, owner = RunOwnership(run_dir).check_health()
         self.assertEqual(health, "none")
+
+    def test_gaia_worker_freezes_minimal_gepa_defaults_before_optimize(self) -> None:
+        """GAIA lifecycle supplies seed 0 and reflection minibatch 1 when omitted."""
+        run_id = "run_test_gaia_minimal_defaults"
+        request = GEPARunRequest(
+            protocol="gepa-run@1",
+            benchmark="gaia",
+            trainset=(GEPAExampleRequest("train", "task-train", str(self.manifest_path)),),
+            valset=(GEPAExampleRequest("val", "task-val", str(self.manifest_path)),),
+            max_metric_calls=4,
+            reflection_minibatch_size=None,
+            seed=None,
+        )
+        snapshot = AgentProfileSnapshot(
+            schema_version=self.profile_data["schemaVersion"],
+            id="gaia-worker-profile",
+            name=self.profile_data["name"],
+            description=self.profile_data["description"],
+            system_prompt=self.profile_data["systemPrompt"],
+            instructions=tuple(self.profile_data["instructions"]),
+            tool_ids=tuple(self.profile_data["toolIds"]),
+        )
+        run_dir = self.store.initialize_run(FrozenRunManifest(
+            protocol="gepa-run@1",
+            run_id=run_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            gepa_version=EXPECTED_GEPA_VERSION,
+            request=request,
+            target_profile=TargetProfileSnapshot(
+                profile_id=snapshot.id,
+                profile_path=str(self.profile_path),
+                frozen_digest=self.profile_digest,
+                profile=snapshot,
+            ),
+            seed_candidate=extract_seed_candidate(snapshot),
+            seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
+            working_model=ModelIdentity(profile_name="default", model_id="default"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+        ))
+        captured: dict[str, object] = {}
+
+        def capture_optimize(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop after inspecting GAIA configuration")
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.gepa.optimize", side_effect=capture_optimize),
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(captured["seed"], 0)
+        self.assertEqual(captured["reflection_minibatch_size"], 1)
+        self.assertEqual(captured["max_metric_calls"], 4)
 
     def test_worker_records_unchanged_publication(self) -> None:
         """A seed-only result is complete without rewriting the target Profile."""

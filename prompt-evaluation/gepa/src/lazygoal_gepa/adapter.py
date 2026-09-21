@@ -11,7 +11,12 @@ from .candidate import CandidateCodec
 from .client import PromptEvaluationClient
 from .compatibility import ensure_gepa_compatibility
 from .dataset import DatasetValidator
-from .errors import ReflectiveDatasetError
+from .errors import (
+    PromptEvaluationCancelled,
+    PromptEvaluationInfrastructureError,
+    PromptEvaluationProtocolError,
+    ReflectiveDatasetError,
+)
 from .invocation import InvocationDirectoryManager
 from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig
 from .protocol import (
@@ -96,6 +101,18 @@ class LazyGoalGEPAAdapter(
         )
         for example in examples:
             record = self._client.evaluate_one(example, prompt, invocation)
+            if record.task.status == "infrastructure_error":
+                raise PromptEvaluationInfrastructureError(
+                    f"Prompt Evaluation infrastructure failure for sample {example.sample_id!r}"
+                )
+            if record.task.status == "cancelled":
+                raise PromptEvaluationCancelled(
+                    f"Prompt Evaluation cancelled for sample {example.sample_id!r}"
+                )
+            if record.task.status not in ("passed", "failed"):
+                raise PromptEvaluationProtocolError(
+                    f"Prompt Evaluation returned an unsupported domain status for sample {example.sample_id!r}"
+                )
             score = 1.0 if record.task.status == "passed" else 0.0
             outputs.append(
                 LazyGoalEvaluationOutput(

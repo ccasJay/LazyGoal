@@ -11,6 +11,7 @@ from lazygoal_gepa.protocol import (
     GEPARunRequest,
     parse_run_request,
     read_run_request,
+    validate_gaia_minimal_request,
 )
 
 
@@ -96,6 +97,33 @@ class GEPARunProtocolTests(unittest.TestCase):
         assert request.valset is not None
         self.assertEqual(len(request.valset), 1)
         self.assertEqual(request.valset[0].sample_id, "s-val")
+
+    def test_gaia_minimal_lifecycle_bounds(self) -> None:
+        train_m = self._write_manifest("train.json", "task-train")
+        val_m = self._write_manifest("val.json", "task-val")
+        base = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "gaia",
+            "trainset": [{"sampleId": "s-train", "taskId": "task-train", "manifestPath": str(train_m)}],
+            "valset": [{"sampleId": "s-val", "taskId": "task-val", "manifestPath": str(val_m)}],
+            "maxMetricCalls": 4,
+        }
+        request = parse_run_request(base)
+        validate_gaia_minimal_request(request)
+
+        cases = (
+            ({"maxMetricCalls": 5}, "at most 4"),
+            ({"reflectionMinibatchSize": 2}, "reflectionMinibatchSize"),
+            ({"seed": 1}, "seed"),
+            ({"valset": None}, "validation sample"),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                data = dict(base)
+                data.update(overrides)
+                parsed = parse_run_request(data)
+                with self.assertRaisesRegex((DatasetValidationError, GEPARunProtocolError), expected):
+                    validate_gaia_minimal_request(parsed)
 
     def test_rejects_train_and_validation_identity_overlap(self) -> None:
         train_m = self._write_manifest("train.json", "task-shared")

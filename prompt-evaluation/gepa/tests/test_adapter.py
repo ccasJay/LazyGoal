@@ -17,6 +17,8 @@ from lazygoal_gepa import (
     PromptEvaluationCancelled,
     PromptEvaluationInfrastructureError,
 )
+from lazygoal_gepa.client import LazyGoalEvaluationRecord
+from lazygoal_gepa.protocol import PromptEvaluationTaskRecord
 
 
 class LazyGoalGEPAAdapterTests(unittest.TestCase):
@@ -95,6 +97,32 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
 
         self.assertEqual(self.counter.read_text(encoding="utf-8"), "1")
         self.assertEqual(len(list((self.root / "output").glob("**/request.json"))), 1)
+
+    def test_non_domain_task_status_is_never_converted_to_zero_score(self) -> None:
+        class StaticClient:
+            def evaluate_one(self, example, prompt, invocation):
+                return LazyGoalEvaluationRecord(
+                    evaluation_id="eval-infrastructure",
+                    result_path=self.root / "result.json",
+                    task=PromptEvaluationTaskRecord(
+                        task_id=example.task_id,
+                        status="infrastructure_error",
+                        domain_result=None,
+                        attempt_path=None,
+                        artifact_locator=None,
+                        errors=(),
+                    ),
+                )
+
+            def __init__(self, root: Path) -> None:
+                self.root = root
+
+        adapter = LazyGoalGEPAAdapter(
+            self.adapter._config,
+            client=StaticClient(self.root),  # type: ignore[arg-type]
+        )
+        with self.assertRaises(PromptEvaluationInfrastructureError):
+            adapter.evaluate([self._example("sample-infrastructure", "task-infrastructure")], self.candidate)
 
     def test_keyboard_interrupt_terminates_current_process_and_stops_batch(self) -> None:
         batch = [self._example("sample-1", "task-1"), self._example("sample-2", "task-2")]

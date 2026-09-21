@@ -483,6 +483,37 @@ class GEPARunRequest:
         return data
 
 
+def validate_gaia_minimal_request(request: GEPARunRequest) -> None:
+    """Validate the bounded first-stage GAIA GEPA lifecycle configuration.
+
+    The public request protocol remains reusable for offline benchmark adapters, but a
+    real GAIA lifecycle is intentionally limited to one train task, one distinct
+    validation task, seed ``0``, reflection minibatch ``1``, and at most four metric
+    calls. This check is read-only and must run before the worker is launched.
+    """
+
+    if request.benchmark != "gaia":
+        return
+    if len(request.trainset) != 1:
+        raise DatasetValidationError(
+            "GAIA first-stage GEPA requires exactly one train sample"
+        )
+    if request.valset is None or len(request.valset) != 1:
+        raise DatasetValidationError(
+            "GAIA first-stage GEPA requires exactly one validation sample"
+        )
+    if request.max_metric_calls > 4:
+        raise GEPARunProtocolError(
+            "GAIA first-stage GEPA maxMetricCalls must be at most 4"
+        )
+    if request.reflection_minibatch_size not in (None, 1):
+        raise GEPARunProtocolError(
+            "GAIA first-stage GEPA reflectionMinibatchSize must be 1"
+        )
+    if request.seed not in (None, 0):
+        raise GEPARunProtocolError("GAIA first-stage GEPA seed must be 0")
+
+
 def parse_run_request(
     data: Any,
     *,
