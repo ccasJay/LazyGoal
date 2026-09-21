@@ -28,7 +28,7 @@
   - 验证方式：扩展 `prompt-evaluation/gepa/tests/test_lifecycle_controller.py`、`test_lifecycle_resume.py`、CLI 测试（待实现）；执行 `npm run test:gepa-adapter`。
   - _Requirements: [3.3](./requirements.md#req-3-3), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.3](./requirements.md#req-5-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 5. 强化 GAIA Prompt Evaluation 的真实边界与权威结果映射
+- [x] //TODO 5. 强化 GAIA Prompt Evaluation 的真实边界与权威结果映射
 
   - 实现目标：将 GAIA 单任务请求接入既有隔离 Docker、GAIA Worker、ACP/LLM RPC 和真实模型配置边界，确认候选 Profile 传递、Attempt/Goal Snapshot/Trajectory 定位和领域评分均来自公开 Prompt Evaluation 结果。
   - 成功判据：模型真实调用路径不替换为假模型；答案正确/错误分别得到 `passed`/`failed`，complete 文本和进度事件不能决定领域结果；容器、模型、协议、取消或持久化失败保持非领域状态并保留已回收产物。

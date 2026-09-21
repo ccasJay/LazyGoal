@@ -120,12 +120,35 @@ export async function runGaiaSupervisor(
     });
     const durationMs = Date.now() - startTime;
 
-    const submittedAnswer = envResult.artifact?.submittedAnswer ?? null;
-    const domainResult = scoreGaiaAnswer(
-        submittedAnswer,
-        options.task.expectedAnswer,
-        options.task.level,
-    );
+    const collectedArtifacts = envResult.artifact;
+    const submittedAnswer = collectedArtifacts?.submittedAnswer ?? null;
+    const artifactErrors: IsolatedEnvironmentError[] = (collectedArtifacts?.errors ?? []).map((error) => ({
+        stage: "artifact_collect",
+        code: error.stage,
+        message: error.message,
+    }));
+    if (collectedArtifacts !== null
+        && submittedAnswer !== null
+        && collectedArtifacts.answerTaskId !== options.task.taskId) {
+        artifactErrors.push({
+            stage: "artifact_collect",
+            code: "ANSWER_TASK_MISMATCH",
+            message: "GAIA answer artifact task identity does not match the evaluated task",
+        });
+    }
+    const errors: IsolatedEnvironmentError[] = [...envResult.errors, ...artifactErrors];
+    const status = envResult.status === "completed" && artifactErrors.length > 0
+        ? "infrastructure_error"
+        : envResult.status;
+    const domainResult: GaiaDomainResult = status === "completed"
+        ? scoreGaiaAnswer(submittedAnswer, options.task.expectedAnswer, options.task.level)
+        : {
+            submittedAnswer: null,
+            correct: null,
+            normalizedAnswer: null,
+            normalizedExpected: null,
+            level: options.task.level,
+        };
 
     const attemptsDir = join(
         options.outputDirectory,
@@ -140,10 +163,10 @@ export async function runGaiaSupervisor(
         goalId,
         runId,
         attempt: 1,
-        status: envResult.status,
+        status,
         durationMs,
         usage: null,
-        errors: envResult.errors,
+        errors,
         artifactLocator: envResult.artifact?.persistence ?? null,
         domainResult,
         ...(options.promptEvaluation === undefined
@@ -154,14 +177,14 @@ export async function runGaiaSupervisor(
     await recorder.commit(attemptRecord);
 
     return {
-        status: envResult.status,
+        status,
         taskId: options.task.taskId,
         goalId,
         runId,
         durationMs,
         domainResult,
         persistence: envResult.artifact?.persistence ?? null,
-        errors: envResult.errors,
+        errors,
         attemptPath: recorder.path,
     };
 }
