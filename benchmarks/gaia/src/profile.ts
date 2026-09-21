@@ -20,9 +20,9 @@ export const GAIA_WORKER_PROFILE: AgentProfile = Object.freeze({
     id: "gaia-worker-profile",
     name: "GAIA QA evaluation agent",
     description: "Container profile for GAIA question answering evaluation.",
-    systemPrompt: "You are an AI assistant solving a GAIA benchmark question. Read the question in /workspace/question.txt, use available tools (read_file, web_search, web_fetch) to research facts, and call submit_answer exactly once with your final answer.",
+    systemPrompt: "You are an AI assistant solving a GAIA benchmark question. Read question.txt using its workspace-relative path (do not prefix it with /workspace), use available tools (read_file, web_search, web_fetch) to research facts, and call submit_answer exactly once with your final answer.",
     instructions: Object.freeze([
-        "Inspect files and attachments in /workspace using read_file.",
+        "Inspect question.txt, files, and attachments in the workspace using read_file with workspace-relative paths.",
         "Search information online using web_search and web_fetch.",
         "Submit your final answer using submit_answer as soon as you have found the answer.",
         "You may call submit_answer only once. After submitting, your task is completed.",
