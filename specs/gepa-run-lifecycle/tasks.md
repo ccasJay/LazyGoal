@@ -28,28 +28,28 @@
   - 验证方式：待实现的 Python CLI/后台进程集成测试与 `benchmarks/test/package-wiring.test.ts`；使用临时目录和 fake Worker。
   - _Requirements: [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [4.1](./requirements.md#req-4-1), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 5. 接入官方优化、进度报告与 checkpoint 恢复
+- [x] //TODO 5. 接入官方优化、进度报告与 checkpoint 恢复
 
   - 实现目标：Worker 组合现有 Adapter、Reflection client 与 `gepa.optimize(run_dir=...)`，投影进度/错误，并让 `resume` 在冻结身份校验后复用同一 checkpoint。
   - 成功判据：fake 链路形成多组件候选和可查询预算/分数；停止后的同一 Run 从已有候选继续；失联、配置漂移和存活 Worker 均拒绝恢复且不丢产物。
   - 验证方式：待扩展的官方 GEPA fake 集成测试与生命周期恢复测试；执行 `npm run test:gepa-adapter`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 6. 实现稳定状态报告
+- [x] //TODO 6. 实现稳定状态报告
 
   - 实现目标：从原子状态和官方结果投影稳定 report，不解析日志或私有 checkpoint，并区分运行、Worker 健康、优化终态和 publication 状态。
   - 成功判据：报告完整提供冻结身份、预算、候选、最佳分数、artifact 和错误分类；未形成、损坏或失联状态不会被报告为成功。
   - 验证方式：待实现的 report 协议与损坏/失联测试；覆盖运行中和全部终态。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 7. 实现最佳 Profile 安全发布
+- [x] //TODO 7. 实现最佳 Profile 安全发布
 
   - 实现目标：从 `GEPAResult` 生成最佳完整 Profile、原子保存 artifacts/report，并在原摘要未变化时写回 `.lazygoal/profiles/default.json`。
   - 成功判据：成功 Run 同时更新 `systemPrompt` 与全部 `instructions` 且保留冻结字段；相同候选记录 unchanged；冲突、停止或失败均不覆盖目标文件并返回可定位报告。
   - 验证方式：待实现的 publisher、report 和 lifecycle 端到端测试；覆盖原子写入失败与外部修改。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 8. 完成回归接线、架构文档和显式 smoke
+- [x] //TODO 8. 完成回归接线、架构文档和显式 smoke
 
   - 实现目标：把确定性生命周期测试接入现有回归，更新 GEPA/LLM/benchmark 当前架构文档，并增加不会进入默认回归的真实双模型 smoke。
   - 成功判据：默认回归无 Docker、网络和凭据即可验证跨语言停止恢复及发布；普通 CLI 不加载 GEPA；真实 smoke 启动前明确提示费用。
@@ -82,4 +82,22 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+整体状态：**PASS**。验证时间：2026-09-21（Asia/Shanghai）。被测代码：
+`2d4150d6eef126e130cdb00024545cbf6d486e1a`；Requirements SHA-256：
+`2ce7f144a10239dd8c44703433a0ce80d1b644d33ac8311396d9a465e3c54f8f`；Design SHA-256：
+`3b63bd7a6fa697ab29bf5c3081b2a354c071461b8b60cb0ad9f2a9078c0f4526`。验证后仅更新本文件的
+任务勾选与证据记录，代码证据保持新鲜。
+
+| 验收范围 | 结果 | 证据 |
+|---|---|---|
+| 1、2：请求、Profile、双模型与确认门 | PASS | TypeScript model/reflection/config 测试 34/34；Python 请求、候选、CLI 与 `resolve-models` 测试进入全量回归 |
+| 3：官方优化与错误隔离 | PASS | `npm run test:gepa-adapter` 135/135；覆盖真实 `gepa.optimize(run_dir=...)`、fake Working/Reflection、预算投影与基础设施错误不发布 |
+| 4：状态与报告 | PASS | 严格报告 schema、无虚构 seed 分数、publication/complete 一致性、未形成/损坏/失联及敏感信息脱敏测试通过 |
+| 5：停止与恢复 | PASS | 官方 `gepa.stop` 零信号停止、官方 checkpoint 校验、同目录恢复、缺失/损坏 checkpoint、身份/Profile 漂移和 owner 冲突测试通过 |
+| 6：安全发布 | PASS | Publisher 与 Worker 端到端覆盖 published、unchanged、摘要冲突、写入失败、停止及优化失败不覆盖目标 Profile |
+| 7：回归、路由、文档与 smoke 门 | PASS | `npm test`：GEPA 135/135、TypeScript 1261/1261、scripts 14/14；`git diff --check` 通过；真实付费 smoke 未执行，其 `--yes` 费用确认门和调用序列由离线测试覆盖 |
+
+### Learning Candidates
+
+- 官方 FileStopper 在初始 seed 评测之后检查停止标记，并由官方引擎在退出时保存 checkpoint；生命周期层只应通过公开 `GEPAState.load()` 校验，不应构造或修改私有 checkpoint。
+- 跨语言控制面应复用 TypeScript XDG 配置加载器输出无凭据模型身份，Python 只冻结和比较该机器协议，避免复制 Profile 解析规则。
