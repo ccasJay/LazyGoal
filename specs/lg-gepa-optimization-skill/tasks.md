@@ -51,12 +51,12 @@
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
 | [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3) | 项目级 Skill 命名有效、应触发请求可发现、排除请求不被声明适用 | `quick_validate.py` 与 frontmatter/description 审查 |
-| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3) | 用户数据形成 request 并先 preflight；缺失或失败时不启动 | fake preflight transcript 场景检查（待实现） |
-| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3) | 当前影响摘要获批后才 start，返回后台 Run 而非完成结论 | fake start transcript 场景检查（待实现） |
-| [3.4](./requirements.md#req-3-4) | 恢复前读取当前状态并重新确认，批准不跨 Run 复用 | fake resume transcript 场景检查（待实现） |
-| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | status/stop 使用精确 runId，区分 stop_requested/stopped，歧义时不操作 | fake control transcript 场景检查（待实现） |
-| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | report 只信任 CLI，区分优化和发布完成，冲突给出 artifact 而不强制覆盖 | fake report transcript 场景检查（待实现） |
-| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2) | Skill 不暴露敏感内容，不修补内部状态或自动重跑 | 静态边界审查与错误 transcript（待实现） |
+| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3) | 用户数据形成 request 并先 preflight；缺失或失败时不启动 | fake preflight transcript 场景检查 |
+| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3) | 当前影响摘要获批后才 start，返回后台 Run 而非完成结论 | fake start transcript 场景检查 |
+| [3.4](./requirements.md#req-3-4) | 恢复前读取当前状态并重新确认，批准不跨 Run 复用 | fake resume transcript 场景检查 |
+| [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | status/stop 使用精确 runId，区分 stop_requested/stopped，歧义时不操作 | fake control transcript 场景检查 |
+| [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | report 只信任 CLI，区分优化和发布完成，冲突给出 artifact 而不强制覆盖 | fake report transcript 场景检查 |
+| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2) | Skill 不暴露敏感内容，不修补内部状态或自动重跑 | 静态边界审查与错误 transcript |
 | [6.3](./requirements.md#req-6-3) | 全部验证无真实模型、网络或 Docker，且覆盖确认门和命令路由 | validator、fake 端到端场景与 `git diff --check` |
 
 ### Latest Result
