@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import tempfile
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from typing import Any, Literal, Mapping
 from .candidate import AgentProfileSnapshot, CandidateCodec
 
 PublicationStatus = Literal["published", "unchanged", "conflict", "failed"]
+_MAX_PUBLICATION_ERROR_CHARS = 4_096
+_REDACTED = "[REDACTED]"
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,10 @@ class PublicationResult:
     candidate_id: str | None = None
     error_code: Literal["publish_conflict", "publish_failed"] | None = None
     error_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.error_message is not None:
+            object.__setattr__(self, "error_message", _safe_error_message(self.error_message))
 
     @property
     def publication_status(self) -> Literal["published", "unchanged", "blocked", "failed"]:
@@ -177,6 +184,24 @@ class ProfilePublisher:
 
 def _json_bytes(data: Any) -> bytes:
     return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def _safe_error_message(message: str) -> str:
+    safe = message
+    for name, value in os.environ.items():
+        if value and len(value) >= 4 and re.search(r"(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)", name, re.IGNORECASE):
+            safe = safe.replace(value, _REDACTED)
+    safe = re.sub(r"sk-[A-Za-z0-9][A-Za-z0-9._-]*", _REDACTED, safe)
+    safe = re.sub(r"Bearer\s+[^\s,;]+", "Bearer " + _REDACTED, safe, flags=re.IGNORECASE)
+    safe = re.sub(
+        r"((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)[^\s,;]+",
+        r"\1" + _REDACTED,
+        safe,
+        flags=re.IGNORECASE,
+    )
+    return safe if len(safe) <= _MAX_PUBLICATION_ERROR_CHARS else (
+        safe[:_MAX_PUBLICATION_ERROR_CHARS - 1] + "…"
+    )
 
 
 def _atomic_write_json(target: Path, data: Any) -> None:

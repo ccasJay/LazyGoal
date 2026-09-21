@@ -141,6 +141,28 @@ class ProfilePublisherTests(unittest.TestCase):
         self.assertEqual(self.target.read_bytes(), original)
         self.assertTrue(result.best_profile_path.is_file())
 
+    def test_publication_errors_are_bounded_and_redacted(self) -> None:
+        original = self.target.read_bytes()
+        real_replace = os.replace
+        calls = 0
+
+        def fail_target_replace(source, target) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise OSError("api_key=provider-secret " + ("vendor response " * 1_000))
+            real_replace(source, target)
+
+        with patch("lazygoal_gepa.publisher.os.replace", side_effect=fail_target_replace):
+            result = self._publisher().publish(self._candidate())
+
+        self.assertEqual(result.status, "failed")
+        self.assertIsNotNone(result.error_message)
+        assert result.error_message is not None
+        self.assertLessEqual(len(result.error_message), 4_096)
+        self.assertNotIn("provider-secret", result.error_message)
+        self.assertEqual(self.target.read_bytes(), original)
+
     def test_report_summary_excludes_prompt_text(self) -> None:
         result = self._publisher().publish(self._candidate())
 

@@ -313,6 +313,7 @@ class LifecycleReportTests(unittest.TestCase):
         self.assertNotIn("provider-secret", report["error"]["message"])
         self.assertNotIn("apiKey", json.dumps(report))
         self.assertIn("[REDACTED]", report["error"]["message"])
+        self.assertLessEqual(len(report["error"]["message"]), 4_096)
 
     def test_report_schema_is_validated_and_rejects_fabricated_fields(self) -> None:
         """A report with missing required fields or fictional score fields is corrupted."""

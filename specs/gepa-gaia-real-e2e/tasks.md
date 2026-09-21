@@ -42,7 +42,7 @@
   - 验证方式：扩展 `prompt-evaluation/gepa/tests/test_worker_orchestration.py`、`test_lifecycle_controller.py` 和 reporter/adapter 测试（待实现）；执行 `npm run test:gepa-adapter`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3), [5.4](./requirements.md#req-5-4), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 7. 完善 Profile 发布保护与敏感信息边界
+- [x] //TODO 7. 完善 Profile 发布保护与敏感信息边界
 
   - 实现目标：收紧 `ProfilePublisher`、reporter、result recorder 和产物摘要的输出边界，确保只写入有界定位信息；以冻结摘要进行原子发布和冲突检测，并禁止写入凭据、Authorization 或完整供应商响应。
   - 成功判据：目标文件未漂移时只发布完整最佳候选并返回 `published`/`unchanged`；发生漂移时保留 artifact、返回 `publish_blocked` 且目标内容不变；请求、报告、Attempt 和 Profile artifact 均不含敏感信息或完整供应商响应。

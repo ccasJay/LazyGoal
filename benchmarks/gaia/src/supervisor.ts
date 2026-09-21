@@ -21,6 +21,8 @@ import { scoreGaiaAnswer } from "./grading.js";
 import type { WebFetchHandler, WebSearchBackend } from "../../../packages/tools/src/index.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 
+const MAX_DIAGNOSTIC_CHARS = 4_096;
+
 /** GAIA Supervisor 单次评测执行结果。 */
 export interface GaiaSupervisorResult {
     readonly status: "completed" | "failed" | "cancelled" | "infrastructure_error";
@@ -136,7 +138,10 @@ export async function runGaiaSupervisor(
             message: "GAIA answer artifact task identity does not match the evaluated task",
         });
     }
-    const errors: IsolatedEnvironmentError[] = [...envResult.errors, ...artifactErrors];
+    const errors: IsolatedEnvironmentError[] = [...envResult.errors, ...artifactErrors].map((error) => ({
+        ...error,
+        message: sanitizeDiagnostic(error.message),
+    }));
     const status = envResult.status === "completed" && artifactErrors.length > 0
         ? "infrastructure_error"
         : envResult.status;
@@ -187,4 +192,20 @@ export async function runGaiaSupervisor(
         errors,
         attemptPath: recorder.path,
     };
+}
+
+function sanitizeDiagnostic(message: string): string {
+    let safe = message;
+    for (const [name, value] of Object.entries(process.env)) {
+        if (value !== undefined && value.length >= 4 && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/iu.test(name)) {
+            safe = safe.split(value).join("[REDACTED]");
+        }
+    }
+    safe = safe
+        .replace(/sk-[A-Za-z0-9][A-Za-z0-9._-]*/gu, "[REDACTED]")
+        .replace(/Bearer\s+[^\s,;]+/giu, "Bearer [REDACTED]")
+        .replace(/((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)[^\s,;]+/giu, "$1[REDACTED]");
+    return safe.length <= MAX_DIAGNOSTIC_CHARS
+        ? safe
+        : `${safe.slice(0, MAX_DIAGNOSTIC_CHARS - 1)}…`;
 }

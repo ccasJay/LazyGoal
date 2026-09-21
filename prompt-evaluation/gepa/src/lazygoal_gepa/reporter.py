@@ -22,6 +22,7 @@ class ReportNotReadyError(LazyGoalGEPAError):
 _TERMINAL_STATUSES = frozenset({"stopped", "succeeded", "publish_blocked", "failed"})
 _PUBLICATION_STATUSES = frozenset({"pending", "published", "unchanged", "blocked", "failed"})
 _REDACTED = "[REDACTED]"
+_MAX_DIAGNOSTIC_CHARS = 4_096
 
 # These patterns intentionally consume the complete credential value.  Replacing only
 # the marker (for example, ``sk-``) leaves the token suffix in the persisted report.
@@ -43,7 +44,9 @@ def _sanitize_string(val: str) -> str:
     sanitized = _BEARER_RE.sub(f"Bearer {_REDACTED}", sanitized)
     sanitized = _PROVIDER_TOKEN_RE.sub(_REDACTED, sanitized)
     sanitized = _CREDENTIAL_ASSIGNMENT_RE.sub(_REDACTED, sanitized)
-    return sanitized
+    if len(sanitized) <= _MAX_DIAGNOSTIC_CHARS:
+        return sanitized
+    return f"{sanitized[:_MAX_DIAGNOSTIC_CHARS - 1]}…"
 
 
 def _contains_unsanitized_secret(val: str) -> bool:
