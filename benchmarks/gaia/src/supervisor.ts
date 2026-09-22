@@ -163,7 +163,10 @@ export async function runGaiaSupervisor(
     }));
     const isModelDecisionFailure = envResult.acp?.meta?.executionError === "INVALID_AGENT_DECISION";
     const isTaskTimeout = envResult.errors.some((error) => error.code === "TASK_TIMEOUT");
-    const isDomainFailure = isModelDecisionFailure || isTaskTimeout;
+    const isModelIncomplete = envResult.acp !== null
+        && submittedAnswer === null
+        && envResult.acp.meta?.modelCompleted === false;
+    const isDomainFailure = isModelDecisionFailure || isTaskTimeout || isModelIncomplete;
     let status: BenchmarkAttemptStatus;
     if (envResult.status === "cancelled") {
         status = "cancelled";
