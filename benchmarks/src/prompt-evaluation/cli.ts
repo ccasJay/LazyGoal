@@ -32,6 +32,7 @@ import {
 import {
     PromptEvaluationBenchmarkRegistry,
     PromptEvaluationRunner,
+    type PromptEvaluationBenchmarkAdapter,
 } from "./runner.js";
 import { PromptEvaluationResultRecorder } from "./result-recorder.js";
 
@@ -40,6 +41,17 @@ export const ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH = fileURLToPath(
     new URL("../../alfworld/python/sidecar.py", import.meta.url),
 );
 
+type ProductionAdapter = PromptEvaluationBenchmarkAdapter<unknown, unknown>;
+type ProductionAdapterFactory = (
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+) => Promise<ProductionAdapter>;
+
+const PRODUCTION_ADAPTER_FACTORIES: ReadonlyMap<string, ProductionAdapterFactory> = new Map([
+    ["alfworld", createAlfworldPromptEvaluationAdapter],
+    ["gaia", createGaiaPromptEvaluationAdapter],
+]);
+
 /** `eval prompt` CLI 的可注入边界。 */
 export interface PromptEvaluationCliOptions {
     readonly cwd?: string;
@@ -47,7 +59,7 @@ export interface PromptEvaluationCliOptions {
     readonly signal?: AbortSignal;
     readonly writeOutput?: (line: string) => void;
     readonly writeError?: (line: string) => void;
-    /** 测试可注入的 registry；提供后不会构建 Worker。 */
+    /** 可注入的 registry；其 ID 集合定义请求支持范围，提供后不会构建 Worker。 */
     readonly registry?: PromptEvaluationBenchmarkRegistry;
     /** 测试可注入的模型 adapter；提供后不会读取供应商配置。 */
     readonly llmAdapter?: LLMAdapter;
@@ -84,7 +96,9 @@ export async function runPromptEvaluationCli(
     let request: PromptEvaluationRequestV1;
     try {
         const requestPath = parseRequestPath(argv);
-        request = await readPromptEvaluationRequest(requestPath, { cwd });
+        const supportedBenchmarkIds = options.registry?.ids()
+            ?? new Set(PRODUCTION_ADAPTER_FACTORIES.keys());
+        request = await readPromptEvaluationRequest(requestPath, { cwd, supportedBenchmarkIds });
     } catch (error: unknown) {
         writeError(errorMessage(error));
         return PROMPT_EVALUATION_EXIT_CODES.invalidRequest;
@@ -218,19 +232,33 @@ async function createProductionRegistry(
     workspaceRoot: string,
     env: NodeJS.ProcessEnv,
 ): Promise<PromptEvaluationBenchmarkRegistry> {
-    const gaiaPaths = request.benchmark.id === "gaia"
-        ? await resolveBenchmarkHomePaths(workspaceRoot, "gaia", env)
-        : undefined;
-    if (request.benchmark.id === "gaia") {
-        const workerArtifact = await buildBenchmarkWorker({
-            projectRoot: workspaceRoot,
-            entryPoint: resolve(workspaceRoot, "benchmarks/gaia/src/worker-entry.ts"),
-            cacheDirectory: join(gaiaPaths!.cacheDirectory, "worker"),
-            promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
-        });
-        return registryFor(new GaiaPromptEvaluationAdapter({ workerArtifact }));
+    const factory = PRODUCTION_ADAPTER_FACTORIES.get(request.benchmark.id);
+    if (factory === undefined) {
+        throw new Error(`Unsupported Prompt Evaluation benchmark: ${request.benchmark.id}`);
     }
+    return new PromptEvaluationBenchmarkRegistry([
+        await factory(workspaceRoot, env),
+    ]);
+}
 
+async function createGaiaPromptEvaluationAdapter(
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ProductionAdapter> {
+    const paths = await resolveBenchmarkHomePaths(workspaceRoot, "gaia", env);
+    const workerArtifact = await buildBenchmarkWorker({
+        projectRoot: workspaceRoot,
+        entryPoint: resolve(workspaceRoot, "benchmarks/gaia/src/worker-entry.ts"),
+        cacheDirectory: join(paths.cacheDirectory, "worker"),
+        promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
+    });
+    return new GaiaPromptEvaluationAdapter({ workerArtifact }) as unknown as ProductionAdapter;
+}
+
+async function createAlfworldPromptEvaluationAdapter(
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ProductionAdapter> {
     const fileEnv = await loadAlfworldEnvironmentFile(undefined, env);
     const mergedEnv = { ...fileEnv, ...env };
     const environment = resolveAlfworldContainerEnvironment({ env: mergedEnv, cwd: workspaceRoot });
@@ -241,20 +269,12 @@ async function createProductionRegistry(
         cacheDirectory: join(alfworldPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
-    return registryFor(new AlfworldPromptEvaluationAdapter({
+    return new AlfworldPromptEvaluationAdapter({
         workspaceRoot,
         environment,
         workerArtifact,
         sidecarScriptPath: ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,
-    }));
-}
-
-function registryFor(
-    adapter: GaiaPromptEvaluationAdapter | AlfworldPromptEvaluationAdapter,
-): PromptEvaluationBenchmarkRegistry {
-    return new PromptEvaluationBenchmarkRegistry([
-        adapter as unknown as import("./runner.js").PromptEvaluationBenchmarkAdapter<unknown, unknown>,
-    ]);
+    }) as unknown as ProductionAdapter;
 }
 
 function createInfrastructureTerminal(

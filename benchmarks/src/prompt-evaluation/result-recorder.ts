@@ -77,7 +77,7 @@ export function parsePromptEvaluationResult(value: unknown): PromptEvaluationRes
         || value.protocol !== PROMPT_EVALUATION_PROTOCOL
         || !isNonEmptyString(value.evaluationId)
         || !isEvaluationStatus(value.status)
-        || (value.benchmarkId !== "alfworld" && value.benchmarkId !== "gaia")
+        || !isNonEmptyString(value.benchmarkId)
         || !isNonEmptyString(value.manifestPath)
         || !isNonEmptyString(value.candidateId)
         || !isNonEmptyString(value.baseProfileId)

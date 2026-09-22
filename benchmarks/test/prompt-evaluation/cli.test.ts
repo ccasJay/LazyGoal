@@ -141,7 +141,7 @@ function registryWithStatus(
     onRun?: () => void,
 ): PromptEvaluationBenchmarkRegistry {
     const adapter: PromptEvaluationBenchmarkAdapter<{ id: string }, { correct: boolean }> = {
-        benchmarkId: "gaia",
+        benchmarkId: "custom-benchmark",
         async loadManifest() { return [{ id: "task-1" }]; },
         async loadBaseProfile() { return profile; },
         validateCandidateProfile(candidate) { return candidate; },
@@ -175,7 +175,7 @@ async function createFixture(
     await writeFile(join(root, "manifest.json"), "{}\n", "utf8");
     await writeFile(join(root, "request.json"), `${JSON.stringify({
         protocol: "prompt-evaluation@1",
-        benchmark: { id: "gaia", manifestPath: "manifest.json" },
+        benchmark: { id: "custom-benchmark", manifestPath: "manifest.json" },
         candidate: {
             id: "candidate-1",
             baseProfileId: profile.id,

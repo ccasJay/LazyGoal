@@ -16,8 +16,8 @@ export const PROMPT_EVALUATION_EXIT_CODES = Object.freeze({
     cancelled: 130,
 } as const);
 
-/** 首批可通过 Prompt Evaluation 调用的 benchmark 标识。 */
-export type PromptEvaluationBenchmarkId = "alfworld" | "gaia";
+/** 由当前组合根注册并解释的稳定 benchmark 标识。 */
+export type PromptEvaluationBenchmarkId = string;
 
 /** Prompt Evaluation 请求中的 benchmark 定位。 */
 export interface PromptEvaluationBenchmarkReference {
@@ -276,7 +276,6 @@ const ROOT_KEYS = ["protocol", "benchmark", "candidate", "model", "outputDirecto
 const BENCHMARK_KEYS = ["id", "manifestPath"] as const;
 const CANDIDATE_KEYS = ["id", "baseProfileId", "systemPrompt", "instructions"] as const;
 const MODEL_KEYS = ["configId", "modelId"] as const;
-const DEFAULT_BENCHMARK_IDS = new Set<string>(["alfworld", "gaia"]);
 
 /**
  * 校验并规范化未知 Prompt Evaluation 请求。
@@ -305,8 +304,8 @@ export async function parsePromptEvaluationRequest(
 
     const benchmark = requireRecord(root.benchmark, "$.benchmark", BENCHMARK_KEYS);
     const benchmarkId = requireString(benchmark.id, "$.benchmark.id");
-    const supported = options.supportedBenchmarkIds ?? DEFAULT_BENCHMARK_IDS;
-    if (!supported.has(benchmarkId) || (benchmarkId !== "alfworld" && benchmarkId !== "gaia")) {
+    if (options.supportedBenchmarkIds !== undefined
+        && !options.supportedBenchmarkIds.has(benchmarkId)) {
         throw new PromptEvaluationRequestError(
             "UNSUPPORTED_BENCHMARK",
             "$.benchmark.id",

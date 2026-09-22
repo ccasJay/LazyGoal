@@ -92,6 +92,10 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
+CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
+ID 集合，且只实例化请求指定的 factory。协议与结果持久化将 benchmark ID 视为非空稳定
+字符串，不枚举领域类型；新增 benchmark 只需实现并注册 TypeScript adapter factory。
+
 [`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
 任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
 只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
