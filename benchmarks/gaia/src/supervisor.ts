@@ -162,9 +162,18 @@ export async function runGaiaSupervisor(
         message: sanitizeDiagnostic(error.message),
     }));
     const isModelDecisionFailure = envResult.acp?.meta?.executionError === "INVALID_AGENT_DECISION";
-    const status = envResult.status === "completed" && artifactErrors.length > 0 && !isModelDecisionFailure
-        ? "infrastructure_error"
-        : envResult.status;
+    const isTaskTimeout = envResult.errors.some((error) => error.code === "TASK_TIMEOUT");
+    const isDomainFailure = isModelDecisionFailure || isTaskTimeout;
+    let status: BenchmarkAttemptStatus;
+    if (envResult.status === "cancelled") {
+        status = "cancelled";
+    } else if (isDomainFailure) {
+        status = "completed";
+    } else if (envResult.status === "completed" && artifactErrors.length > 0) {
+        status = "infrastructure_error";
+    } else {
+        status = envResult.status;
+    }
     const domainResult: GaiaDomainResult = status === "completed"
         ? scoreGaiaAnswer(submittedAnswer, options.task.expectedAnswer, options.task.level)
         : {

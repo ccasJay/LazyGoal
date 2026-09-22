@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `IsolatedEnvironment` 超时与取消单元测试；`pnpm --filter @lazygoal/benchmarks test`
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2)_
 
-- [ ] //TODO 2. 将超时与模型决策错误映射为领域失败并保留轨迹 (GaiaSupervisor)
+- [x] //TODO 2. 将超时与模型决策错误映射为领域失败并保留轨迹 (GaiaSupervisor)
 
   - 实现目标：在 `benchmarks/gaia/src/supervisor.ts` 中，将单任务超时（`TASK_TIMEOUT`）和模型非法决策（`INVALID_AGENT_DECISION`）判定为未作答领域失败（`status: "completed"`, `domainResult.correct: false`），保留 Attempt 中的 Goal 快照与 Trajectory，真实容器/API 崩溃仍归为 `infrastructure_error`
   - 成功判据：超时或决策错误终止的任务生成 `completed` 且 `correct: false` 的 Attempt 记录并包含完整轨迹路径；真正基础设施故障仍标记为 `infrastructure_error` 且无领域得分

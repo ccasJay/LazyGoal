@@ -465,6 +465,88 @@ test("GAIA Supervisor 将 INVALID_AGENT_DECISION 模型决策失败判定为 com
     assert.equal(attempt.status, "completed");
 });
 
+test("GAIA Supervisor 将 TASK_TIMEOUT 超时判定为 completed 且 correct 为 false 的领域失败并保留轨迹", async (t) => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-task-timeout-"));
+    t.after(() => rm(outputDirectory, { recursive: true, force: true }));
+    const isolatedEnvironment = {
+        async run() {
+            return {
+                status: "failed" as const,
+                artifact: {
+                    submittedAnswer: null,
+                    answerTaskId: null,
+                    persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+                    errors: [{ stage: "result_read" as const, message: "answer.json is missing" }],
+                },
+                imageId: null,
+                acp: {
+                    sessionId: "session-1",
+                    stopReason: "cancelled" as const,
+                    meta: {
+                        modelCompleted: false,
+                        runStatus: "failed",
+                        stepCount: 15,
+                        submitted: false,
+                    },
+                },
+                errors: [
+                    { stage: "agent" as const, code: "TASK_TIMEOUT", message: "Task exceeded timeout of 300000ms" },
+                ],
+            };
+        },
+    } as unknown as IsolatedEnvironment;
+
+    const result = await runGaiaSupervisor({
+        task,
+        dataRoot: "/data/gaia",
+        outputDirectory,
+        llmAdapter,
+        isolatedEnvironment,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.domainResult.correct, false);
+    assert.equal(result.domainResult.submittedAnswer, null);
+    assert.deepEqual(result.persistence, { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" });
+    const attempt = await readBenchmarkAttempt<GaiaDomainResult>(result.attemptPath);
+    assert.equal(attempt.domainResult.correct, false);
+    assert.equal(attempt.status, "completed");
+    assert.deepEqual(attempt.artifactLocator, { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" });
+});
+
+test("GAIA Supervisor 将真正基础设施故障判定为 infrastructure_error 且无领域得分", async (t) => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-infra-error-"));
+    t.after(() => rm(outputDirectory, { recursive: true, force: true }));
+    const isolatedEnvironment = {
+        async run() {
+            return {
+                status: "infrastructure_error" as const,
+                artifact: null,
+                imageId: null,
+                acp: null,
+                errors: [
+                    { stage: "container_start" as const, message: "Docker daemon unavailable" },
+                ],
+            };
+        },
+    } as unknown as IsolatedEnvironment;
+
+    const result = await runGaiaSupervisor({
+        task,
+        dataRoot: "/data/gaia",
+        outputDirectory,
+        llmAdapter,
+        isolatedEnvironment,
+    });
+
+    assert.equal(result.status, "infrastructure_error");
+    assert.equal(result.domainResult.correct, null);
+    assert.equal(result.domainResult.submittedAnswer, null);
+    const attempt = await readBenchmarkAttempt<GaiaDomainResult>(result.attemptPath);
+    assert.equal(attempt.status, "infrastructure_error");
+    assert.equal(attempt.domainResult.correct, null);
+});
+
 function baseMetadata(): Record<string, unknown> {
     return {
         ...task,
