@@ -31,13 +31,7 @@ from lazygoal_gepa.controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
-    get_run_report,
-    get_run_status,
     launch_detached_worker,
-    preflight_run,
-    resume_run,
-    start_run,
-    stop_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,
@@ -187,11 +181,12 @@ class LifecycleControllerTests(unittest.TestCase):
         """start 与 resume 必须在未提供 --yes 时拒绝执行，绝不创建目录或启动进程。"""
         # start 未带 yes
         with self.assertRaises(ConfirmationRequiredError):
-            start_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).start(
                 request_path=self.request_path,
                 yes=False,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 验证没有在 runs_dir 创建任何 run 目录
@@ -206,11 +201,12 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # resume 未带 yes
         with self.assertRaises(ConfirmationRequiredError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=False,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
     # -------------------------------------------------------------------------
@@ -225,12 +221,13 @@ class LifecycleControllerTests(unittest.TestCase):
         ]
 
         t0 = time.monotonic()
-        result = start_run(
+        result = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            worker_cmd=dummy_worker,
+        ).start(
             request_path=self.request_path,
             yes=True,
-            workspace_root=self.workspace_root,
-            runs_root=self.runs_dir,
-            worker_cmd=dummy_worker,
         )
         elapsed = time.monotonic() - t0
 
@@ -350,7 +347,7 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # 连续调用 5 次 status
         for _ in range(5):
-            status = get_run_status(run_id, runs_root=self.runs_dir)
+            status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
             self.assertEqual(status["runId"], run_id)
             self.assertEqual(status["lifecycleStatus"], "running")
             self.assertEqual(status["workerHealth"], "active")
@@ -391,7 +388,7 @@ class LifecycleControllerTests(unittest.TestCase):
             # 模拟存活性探测：os.kill(pid, 0)
             mock_kill.return_value = None
 
-            stop_result = stop_run(run_id, runs_root=self.runs_dir)
+            stop_result = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
 
             self.assertEqual(stop_result["runId"], run_id)
             self.assertEqual(stop_result["lifecycleStatus"], "stop_requested")
@@ -410,7 +407,7 @@ class LifecycleControllerTests(unittest.TestCase):
                 )
 
         # 再次调用 stop，验证幂等性
-        idempotent_stop = stop_run(run_id, runs_root=self.runs_dir)
+        idempotent_stop = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
         self.assertTrue(idempotent_stop["stopRequested"])
 
     # -------------------------------------------------------------------------
@@ -433,7 +430,7 @@ class LifecycleControllerTests(unittest.TestCase):
         )
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
-        status = get_run_status(run_id, runs_root=self.runs_dir)
+        status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(status["workerHealth"], "lost")
 
         # 5.2 Stale Worker: 当前进程存活，但心跳超过 30s
@@ -446,18 +443,18 @@ class LifecycleControllerTests(unittest.TestCase):
         )
         atomic_write_json(run_dir / "owner.json", owner_stale.to_dict())
 
-        status = get_run_status(run_id, runs_root=self.runs_dir)
+        status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(status["workerHealth"], "stale")
 
         # 5.3 Unformed Run
         with self.assertRaises(RunStoreError) as cm_unformed:
-            get_run_status("run_non_existent", runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status("run_non_existent")
         self.assertEqual(cm_unformed.exception.code, "unformed")
 
         # 5.4 Corrupted State
         (run_dir / "state.json").write_text("{broken json", encoding="utf-8")
         with self.assertRaises(RunStoreError) as cm_corrupt:
-            get_run_status(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(cm_corrupt.exception.code, "corrupted")
 
         # 5.5 Report Not Ready
@@ -479,13 +476,13 @@ class LifecycleControllerTests(unittest.TestCase):
         }
         atomic_write_json(run_dir / "state.json", valid_state_data)
         with self.assertRaises(ReportNotReadyError):
-            get_run_report(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).report(run_id)
 
         # 5.6 Report Succeeded
         self.store.update_state(run_id, lifecycle_status="succeeded")
         self.store.update_state(run_id, best_score=0.95)
         generate_and_save_run_report(run_dir)
-        read_report = get_run_report(run_id, runs_root=self.runs_dir)
+        read_report = LifecycleController(runs_dir=self.runs_dir).report(run_id)
         self.assertEqual(read_report["terminalStatus"], "succeeded")
         self.assertEqual(read_report["scores"]["bestScore"], 0.95)
 
@@ -505,11 +502,12 @@ class LifecycleControllerTests(unittest.TestCase):
         self.profile_path.write_text(json.dumps(modified_data, indent=2), encoding="utf-8")
 
         with self.assertRaises(ProfileDriftError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=True,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 恢复 profile 内容
@@ -525,11 +523,12 @@ class LifecycleControllerTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with self.assertRaises(WorkerAlreadyRunningError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=True,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 清除活跃所有权并重新 resume
@@ -538,12 +537,13 @@ class LifecycleControllerTests(unittest.TestCase):
         checkpoint_file.write_bytes(b"test checkpoint")
         dummy_worker = [sys.executable, "-c", "import time; time.sleep(10)"]
         with patch("gepa.core.state.GEPAState.load"):
-            resumed = resume_run(
+            resumed = LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+                worker_cmd=dummy_worker,
+            ).resume(
                 run_id=run_id,
                 yes=True,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
-                worker_cmd=dummy_worker,
             )
         self._track_pid(resumed["workerPid"])
         self.assertEqual(resumed["lifecycleStatus"], "starting")
@@ -686,7 +686,7 @@ class LifecycleControllerTests(unittest.TestCase):
         run_dir = self.store.initialize_run(manifest)
         self.store.update_state(run_id, lifecycle_status="stopped")
 
-        stop_result = stop_run(run_id, runs_root=self.runs_dir)
+        stop_result = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
         self.assertEqual(stop_result["lifecycleStatus"], "stopped")
         state = self.store.read_state(run_id)
         self.assertEqual(state.lifecycle_status, "stopped")
@@ -694,7 +694,7 @@ class LifecycleControllerTests(unittest.TestCase):
         # 2. 统一 corrupted 契约：当 run.json 损坏时，get_run_status 必须抛出 RunStoreError(code="corrupted")
         (run_dir / "run.json").write_text("{broken manifest json content", encoding="utf-8")
         with self.assertRaises(RunStoreError) as cm:
-            get_run_status(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(cm.exception.code, "corrupted")
 
         # 验证 CLI status 对损坏 run.json 优雅退出并输出友好错误

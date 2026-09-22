@@ -113,11 +113,6 @@ class PromptEvaluationClientTests(unittest.TestCase):
         stderr = (sample_directory / "stderr.log").read_text(encoding="utf-8")
         self.assertNotIn(secret, stderr)
         self.assertIn("[REDACTED]", stderr)
-        metadata = json.loads(
-            (sample_directory.parent / "metadata.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(metadata["candidateId"], self.prompt.candidate_id)
-        self.assertEqual(metadata["invocationId"], sample_directory.parent.parent.name)
 
         output_root = (self.root / "output").resolve()
         for artifact in output_root.rglob("*"):

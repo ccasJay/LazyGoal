@@ -48,13 +48,7 @@ from lazygoal_gepa.controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
-    get_run_report,
-    get_run_status,
     launch_detached_worker,
-    preflight_run,
-    resume_run,
-    start_run,
-    stop_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,
@@ -295,7 +289,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with SignalMonitor() as monitor:
-            res = stop_run(run_id, runs_root=self.runs_dir)
+            res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
 
             # 验证停止文件被创建
             stop_file = run_dir / "gepa" / "gepa.stop"
@@ -330,28 +324,28 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with SignalMonitor() as monitor:
-            res = stop_run(run_id, runs_root=self.runs_dir)
+            res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res["lifecycleStatus"], "stop_requested")
             monitor.assert_no_termination_signals()
 
         # 2. 状态已是 stopped
         self.store.update_state(run_id, lifecycle_status="stopped")
         with SignalMonitor() as monitor:
-            res_stopped = stop_run(run_id, runs_root=self.runs_dir)
+            res_stopped = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_stopped["lifecycleStatus"], "stopped")
             monitor.assert_no_termination_signals()
 
         # 3. 状态已是 succeeded
         self.store.update_state(run_id, lifecycle_status="succeeded")
         with SignalMonitor() as monitor:
-            res_succ = stop_run(run_id, runs_root=self.runs_dir)
+            res_succ = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_succ["lifecycleStatus"], "succeeded")
             monitor.assert_no_termination_signals()
 
         # 4. 状态已是 failed
         self.store.update_state(run_id, lifecycle_status="failed")
         with SignalMonitor() as monitor:
-            res_failed = stop_run(run_id, runs_root=self.runs_dir)
+            res_failed = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_failed["lifecycleStatus"], "failed")
             monitor.assert_no_termination_signals()
 
@@ -423,7 +417,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
                 # 1. 验证 Python API 抛出 RunStoreError(code="corrupted")
                 with self.assertRaises(RunStoreError) as cm:
-                    get_run_status(run_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(run_id)
                 self.assertEqual(cm.exception.code, "corrupted")
 
                 # 2. 验证 CLI status 命令：优雅退出，无 Traceback 崩溃
@@ -462,7 +456,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
                 (run_dir / "owner.json").write_text(payload, encoding="utf-8")
 
                 # 1. 验证 Python API: status 必须成功返回，不抛异常！
-                status_dict = get_run_status(run_id, runs_root=self.runs_dir)
+                status_dict = LifecycleController(runs_dir=self.runs_dir).status(run_id)
                 self.assertEqual(status_dict["runId"], run_id)
                 self.assertEqual(status_dict["workerHealth"], "corrupt",
                                  f"Expected workerHealth='corrupt' on {label}, got {status_dict['workerHealth']}")
@@ -496,7 +490,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             with self.subTest(bad_run_id=bad_id):
                 # 1. Python API
                 with self.assertRaises(RunStoreError) as cm:
-                    get_run_status(bad_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(bad_id)
                 
                 # 2. CLI status
                 stdout_buf = io.StringIO()
@@ -516,7 +510,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         (self.runs_dir / empty_run_id).mkdir(parents=True, exist_ok=True)
 
         with self.assertRaises(RunStoreError) as cm:
-            get_run_status(empty_run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(empty_run_id)
         self.assertEqual(cm.exception.code, "unformed")
 
         stdout_buf = io.StringIO()
@@ -716,7 +710,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
         # 在全局信号监视器下发起 stop
         with SignalMonitor() as monitor:
-            stop_res = stop_run(run_id, runs_root=self.runs_dir)
+            stop_res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(stop_res["lifecycleStatus"], "stop_requested")
             self.assertTrue((run_dir / "gepa" / "gepa.stop").is_file())
 
@@ -753,7 +747,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
                 # 1. Python API: 必须抛出受控的 LazyGoalGEPAError
                 with self.assertRaises(LazyGoalGEPAError):
-                    get_run_status(run_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(run_id)
 
                 # 2. CLI status: 优雅返回非零退出码，stdout 为空，无裸 Traceback
                 stdout_buf = io.StringIO()

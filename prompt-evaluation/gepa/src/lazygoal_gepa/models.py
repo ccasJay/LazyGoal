@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from typing import Literal, TypeAlias
 
@@ -67,4 +68,22 @@ def _require_path(
 ) -> None:
     if not isinstance(value, Path) or not str(value):
         raise error_type(f"{field_name} must be a non-empty pathlib.Path")
+
+
+def resolve_lazygoal_executable(workspace_root: Path | str) -> Path:
+    """Resolve the canonical LazyGoal executable without credential exposure."""
+    override = os.environ.get("LAZYGOAL_EXECUTABLE")
+    if override:
+        return Path(override).resolve()
+    workspace = Path(workspace_root).resolve()
+    candidates = (
+        workspace / "bin" / "lazygoal.cjs",
+        Path(__file__).resolve().parents[4] / "bin" / "lazygoal.cjs",
+    )
+    for executable in candidates:
+        if executable.is_file():
+            return executable.resolve()
+    raise ConfigurationError(
+        "LazyGoal executable does not exist; set LAZYGOAL_EXECUTABLE or run from a source checkout"
+    )
 

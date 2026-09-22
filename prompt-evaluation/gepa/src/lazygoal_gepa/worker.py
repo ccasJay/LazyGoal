@@ -33,7 +33,7 @@ from .errors import (
     ProfileValidationError,
     RunStoreError,
 )
-from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig
+from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazygoal_executable
 from .ownership import RunOwnership
 from .publisher import ProfilePublisher
 from .protocol import validate_gaia_minimal_request
@@ -175,19 +175,9 @@ class WorkerProgressCallback(GEPACallback):
         )
 
 
-def _resolve_executable(workspace_root: Path) -> Path:
-    if "LAZYGOAL_EXECUTABLE" in os.environ:
-        return Path(os.environ["LAZYGOAL_EXECUTABLE"]).resolve()
-    candidate = workspace_root / "bin" / "lazygoal.cjs"
-    if candidate.is_file():
-        return candidate.resolve()
-    return Path(sys.executable).resolve()
-
-
 def run_gepa_worker(
     run_dir: Path | str,
     workspace_root: Path | str | None = None,
-    max_duration: float | None = None,
 ) -> int:
     """Execute the full GEPA background worker loop.
 
@@ -233,7 +223,7 @@ def run_gepa_worker(
             )
         store.update_state(run_id, lifecycle_status="running")
 
-        executable = _resolve_executable(resolved_workspace)
+        executable = resolve_lazygoal_executable(resolved_workspace)
         adapter_output_dir = resolved_run_dir / "adapter"
         adapter_output_dir.mkdir(parents=True, exist_ok=True)
 

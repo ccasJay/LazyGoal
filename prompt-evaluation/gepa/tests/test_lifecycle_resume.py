@@ -27,7 +27,6 @@ from lazygoal_gepa.controller import (
     ConfirmationRequiredError,
     LifecycleController,
     ProfileDriftError,
-    resume_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,

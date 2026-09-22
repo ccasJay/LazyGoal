@@ -49,7 +49,6 @@ class LazyGoalEvaluationTrajectory:
     score: float
     domain_result: JSONValue
     errors: tuple[BoundedError, ...]
-    usage: JSONValue
     attempt_path: str | None
     artifact_locator: PromptEvaluationArtifactLocator | None
 
@@ -134,7 +133,6 @@ class LazyGoalGEPAAdapter(
                         score=score,
                         domain_result=record.task.domain_result,
                         errors=record.task.errors,
-                        usage=None,
                         attempt_path=record.task.attempt_path,
                         artifact_locator=record.task.artifact_locator,
                     )
@@ -255,7 +253,6 @@ def _reflective_record(
     feedback = {
         "status": trajectory.status,
         "errors": errors,
-        "usage": trajectory.usage,
     }
     return {
         "Inputs": _bounded_json(

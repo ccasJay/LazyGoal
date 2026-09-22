@@ -10,6 +10,7 @@ from typing import Any
 
 from .candidate import ModelIdentity
 from .errors import ConfigurationError
+from .models import resolve_lazygoal_executable
 
 _MAX_OUTPUT_CHARS = 16 * 1024
 _MAX_DIAGNOSTIC_CHARS = 4 * 1024
@@ -22,7 +23,7 @@ def resolve_model_identities(
     """Resolve Working and Reflection identities without exposing credentials."""
 
     workspace = Path(workspace_root).resolve()
-    command = Path(executable).resolve() if executable is not None else _find_executable(workspace)
+    command = Path(executable).resolve() if executable is not None else resolve_lazygoal_executable(workspace)
     try:
         completed = subprocess.run(
             [str(command), "gepa", "resolve-models"],
@@ -62,22 +63,6 @@ def resolve_model_identities(
             f"{working.profile_name!r}"
         )
     return working, reflection
-
-
-def _find_executable(workspace_root: Path) -> Path:
-    override = os.environ.get("LAZYGOAL_EXECUTABLE")
-    if override:
-        return Path(override).resolve()
-    candidates = (
-        workspace_root / "bin" / "lazygoal.cjs",
-        Path(__file__).resolve().parents[4] / "bin" / "lazygoal.cjs",
-    )
-    for executable in candidates:
-        if executable.is_file():
-            return executable.resolve()
-    raise ConfigurationError(
-        "LazyGoal executable does not exist; set LAZYGOAL_EXECUTABLE or run from a source checkout"
-    )
 
 
 def _parse_identity(value: Any, role: str) -> ModelIdentity:

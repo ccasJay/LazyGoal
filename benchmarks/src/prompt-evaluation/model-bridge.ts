@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 
 import { loadGepaModelConfigs } from "../../../packages/llm/src/config-loader.js";
+import { redactSensitiveString } from "./protocol.js";
 
 /** GEPA 解析模型身份时允许的单行机器输出最大字符数。 */
 export const GEPA_MODEL_OUTPUT_MAX_CHARS = 16 * 1024;
@@ -145,16 +146,7 @@ function serializeDiagnostic(error: "invalid_request", message: string): string 
 }
 
 function redactDiagnostic(text: string, env: NodeJS.ProcessEnv): string {
-    let result = text;
-    for (const [name, value] of Object.entries(env)) {
-        if (value !== undefined && value.length >= 4 && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name)) {
-            result = result.split(value).join("[REDACTED]");
-        }
-    }
-    result = result.replace(/sk-[a-zA-Z0-9_-]{10,}/g, "[REDACTED]");
-    result = result.replace(/Bearer\s+[a-zA-Z0-9_\-.]+/gi, "Bearer [REDACTED]");
-    result = result.replace(/((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
-    return boundText(result, GEPA_DIAGNOSTIC_MAX_CHARS);
+    return boundText(redactSensitiveString(text, env), GEPA_DIAGNOSTIC_MAX_CHARS);
 }
 
 function boundText(text: string, limit: number): string {

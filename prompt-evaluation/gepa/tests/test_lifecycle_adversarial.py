@@ -41,10 +41,7 @@ from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
 from lazygoal_gepa.controller import (
     ConfirmationRequiredError,
     LifecycleController,
-    get_run_status,
     launch_detached_worker,
-    start_run,
-    stop_run,
 )
 from lazygoal_gepa.errors import RunStoreError, WorkerAlreadyRunningError
 from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
@@ -337,7 +334,7 @@ time.sleep(10)
         def _do_status_query(query_idx: int) -> dict[str, Any]:
             # 微小随机交错增加并发碰撞概率
             time.sleep(0.001 * (query_idx % 5))
-            return get_run_status(run_id, runs_root=self.runs_dir)
+            return LifecycleController(runs_dir=self.runs_dir).status(run_id)
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(_do_status_query, i) for i in range(query_count)]
@@ -406,15 +403,24 @@ time.sleep(10)
 
         # 编写一个竞争 worker 脚本：尝试使用 RunOwnership.acquire() 抢占锁
         # 如果抢到锁，保持运行 2 秒；如果没抢到，会抛出 WorkerAlreadyRunningError 并退出
+        worker_script = (
+            "import sys, time; from pathlib import Path; "
+            "from lazygoal_gepa.ownership import RunOwnership; "
+            "from lazygoal_gepa.store import RunStore; "
+            "run_dir = Path(sys.argv[1]); "
+            "ownership = RunOwnership(run_dir); "
+            "store = RunStore(run_dir.parent); "
+            "ownership.acquire(); "
+            "store.update_state(run_dir.name, lifecycle_status='running'); "
+            "time.sleep(2.0); "
+            "store.update_state(run_dir.name, lifecycle_status='succeeded'); "
+            "ownership.release()"
+        )
         worker_cli_cmd = [
             sys.executable,
-            "-m",
-            "lazygoal_gepa.cli",
-            "worker",
-            "--run-dir",
+            "-c",
+            worker_script,
             str(run_dir),
-            "--duration",
-            "3.0",
         ]
 
         # 同时启动两个并发子进程，竞争同一个 run_dir
@@ -568,16 +574,20 @@ ownership.release()
         run_dir = self.store.initialize_run(manifest)
 
         # 启动一个 worker
+        worker_script_1 = (
+            "import sys, time; from pathlib import Path; "
+            "from lazygoal_gepa.ownership import RunOwnership; "
+            "run_dir = Path(sys.argv[1]); "
+            "ownership = RunOwnership(run_dir); "
+            "ownership.acquire(); "
+            "time.sleep(10.0)"
+        )
         proc = subprocess.Popen(
             [
                 sys.executable,
-                "-m",
-                "lazygoal_gepa.cli",
-                "worker",
-                "--run-dir",
+                "-c",
+                worker_script_1,
                 str(run_dir),
-                "--duration",
-                "10.0",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -610,16 +620,23 @@ ownership.release()
         self.assertEqual(lost_owner.pid, proc.pid)
 
         # 现在启动第二个 worker，它必须能够成功接管，不被遗留的 owner.json 阻塞
+        worker_script_2 = (
+            "import sys, time; from pathlib import Path; "
+            "from lazygoal_gepa.ownership import RunOwnership; "
+            "from lazygoal_gepa.store import RunStore; "
+            "run_dir = Path(sys.argv[1]); "
+            "ownership = RunOwnership(run_dir); "
+            "store = RunStore(run_dir.parent); "
+            "ownership.acquire(); "
+            "store.update_state(run_dir.name, lifecycle_status='succeeded'); "
+            "ownership.release()"
+        )
         reclaim_proc = subprocess.Popen(
             [
                 sys.executable,
-                "-m",
-                "lazygoal_gepa.cli",
-                "worker",
-                "--run-dir",
+                "-c",
+                worker_script_2,
                 str(run_dir),
-                "--duration",
-                "0.5",
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -666,7 +683,7 @@ ownership.release()
             stop_results: list[dict[str, Any]] = []
 
             def _do_stop(_: int) -> dict[str, Any]:
-                return stop_run(run_id, runs_root=self.runs_dir)
+                return LifecycleController(runs_dir=self.runs_dir).stop(run_id)
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(_do_stop, i) for i in range(stop_count)]
@@ -809,7 +826,7 @@ ownership.release()
 
         # 当前实现实证验证：未捕获并抛出了 ProfileValidationError
         with self.assertRaises((RunStoreError, ProfileValidationError)) as cm:
-            get_run_status(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(run_id)
 
         # 实证记录：当前抛出的是 ProfileValidationError，证明了存在契约违背
         is_profile_val_err = isinstance(cm.exception, ProfileValidationError)

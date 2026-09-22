@@ -25,16 +25,15 @@ from .controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
-    get_run_report,
-    get_run_status,
     launch_detached_worker,
-    preflight_run,
-    resume_run,
-    start_run,
-    stop_run,
 )
 from .invocation import InvocationContext, InvocationDirectoryManager
-from .models import BenchmarkId, LazyGoalEvaluationExample, LazyGoalGEPAConfig
+from .models import (
+    BenchmarkId,
+    LazyGoalEvaluationExample,
+    LazyGoalGEPAConfig,
+    resolve_lazygoal_executable,
+)
 from .reporter import generate_and_save_run_report, read_run_report
 from .worker import (
     ReflectionExecutionError,
@@ -76,13 +75,8 @@ __all__ = [
     "WorkerProgressCallback",
     "ensure_gepa_compatibility",
     "generate_and_save_run_report",
-    "get_run_report",
-    "get_run_status",
     "launch_detached_worker",
-    "preflight_run",
     "read_run_report",
-    "resume_run",
+    "resolve_lazygoal_executable",
     "run_gepa_worker",
-    "start_run",
-    "stop_run",
 ]

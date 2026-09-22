@@ -26,7 +26,6 @@ from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
 from lazygoal_gepa.controller import (
     LifecycleController,
     ReportNotReadyError,
-    get_run_report,
 )
 from lazygoal_gepa.errors import RunStoreError
 from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
