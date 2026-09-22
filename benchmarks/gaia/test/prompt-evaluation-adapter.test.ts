@@ -409,7 +409,8 @@ test("GAIA Supervisor preserves ACP stop reason when answer artifact is missing"
         isolatedEnvironment,
     });
 
-    assert.equal(result.status, "infrastructure_error");
+    assert.equal(result.status, "completed");
+    assert.equal(result.domainResult.correct, false);
     assert.deepEqual(
         result.errors.map((error) => `${error.code}:${error.message}`),
         [
