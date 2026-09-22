@@ -9,6 +9,7 @@ from lazygoal_gepa.errors import DatasetValidationError, GEPARunProtocolError
 from lazygoal_gepa.protocol import (
     GEPA_RUN_PROTOCOL,
     GEPARunRequest,
+    parse_event_stream,
     parse_run_request,
     read_run_request,
     validate_gaia_minimal_request,
@@ -419,6 +420,36 @@ class GEPARunProtocolTests(unittest.TestCase):
                 with self.assertRaises(GEPARunProtocolError):
                     parse_run_request(val)
 
+    def test_parse_event_stream_with_cancelled_progress_stage(self) -> None:
+        lines = [
+            json.dumps({
+                "protocol": "prompt-evaluation@1",
+                "evaluationId": "eval-1",
+                "type": "progress",
+                "authoritative": False,
+                "taskId": "task-1",
+                "stage": "cancelled",
+                "timestamp": "2026-09-22T00:00:00.000Z",
+            }),
+            json.dumps({
+                "protocol": "prompt-evaluation@1",
+                "evaluationId": "eval-1",
+                "type": "terminal",
+                "authoritative": False,
+                "taskId": None,
+                "stage": "cancelled",
+                "timestamp": "2026-09-22T00:00:01.000Z",
+            }),
+        ]
+        data = "\n".join(lines).encode("utf-8")
+        events = parse_event_stream(data)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0].stage, "cancelled")
+        self.assertEqual(events[0].event_type, "progress")
+        self.assertEqual(events[1].stage, "cancelled")
+        self.assertEqual(events[1].event_type, "terminal")
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -14,7 +14,7 @@
   - 验证方式：待补充更新的 `benchmarks/gaia/test/prompt-evaluation-adapter.test.ts` 判定用例；`pnpm --filter @lazygoal/benchmarks test`
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 3. 对齐 Python 协议阶段白名单 (lazygoal_gepa)
+- [x] //TODO 3. 对齐 Python 协议阶段白名单 (lazygoal_gepa)
 
   - 实现目标：在 `prompt-evaluation/gepa/src/lazygoal_gepa/protocol.py` 中，将 `"cancelled"` 加入 `_PROGRESS_STAGES` 白名单，与 TypeScript 端进度事件保持一致
   - 成功判据：Python 协议解析器正常解析 `stage: "cancelled"` 的进度事件，不再抛出 `PromptEvaluationProtocolError` 异常

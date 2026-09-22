@@ -31,7 +31,7 @@ EvaluationStatus: TypeAlias = Literal[
 
 _SHA256 = re.compile(r"[a-f0-9]{64}\Z")
 _PROGRESS_STAGES = frozenset(
-    ("accepted", "task_started", "task_progress", "task_completed")
+    ("accepted", "task_started", "task_progress", "task_completed", "cancelled")
 )
 _TERMINAL_STAGES = frozenset(
     ("completed", "infrastructure_error", "cancelled")
