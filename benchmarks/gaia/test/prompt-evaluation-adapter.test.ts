@@ -15,9 +15,12 @@ import {
     parseGaiaAcpTaskMetadata,
     projectGaiaAcpResult,
 } from "../src/worker-entry.js";
+import { GaiaManifestValidationError } from "../src/manifest.js";
 import { GaiaPromptEvaluationAdapter } from "../src/prompt-evaluation-adapter.js";
 import { runGaiaSupervisor } from "../src/supervisor.js";
 import type { GaiaDomainResult, GaiaManifestTask } from "../src/types.js";
+
+const testDataRoot = await mkdtemp(join(tmpdir(), "gaia-adapter-test-root-"));
 
 const task: GaiaManifestTask = {
     taskId: "gaia-task-1",
@@ -67,6 +70,7 @@ test("GAIA Prompt Evaluation adapter forwards candidate identity and uses domain
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
             dataRoot: "/data/gaia",
+            dataRoot: testDataRoot,
             tasks: [task],
         }),
         runSupervisor: async (options) => {
@@ -99,6 +103,7 @@ test("GAIA Prompt Evaluation adapter forwards candidate identity and uses domain
     });
 
     assert.equal(receivedDataRoot, "/data/gaia");
+    assert.equal(receivedDataRoot, testDataRoot);
     assert.equal(result.status, "passed");
     assert.equal(result.domainResult?.correct, true);
     assert.equal(result.attemptPath, "/output/task-1/attempt.json");
@@ -110,6 +115,7 @@ test("GAIA Prompt Evaluation adapter maps an authoritative wrong answer to faile
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
             dataRoot: "/data/gaia",
+            dataRoot: testDataRoot,
             tasks: [task],
         }),
         runSupervisor: async () => supervisorResult({ correct: false }),
@@ -139,6 +145,7 @@ test("GAIA Prompt Evaluation adapter does not turn infrastructure errors into sc
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
             dataRoot: "/data/gaia",
+            dataRoot: testDataRoot,
             tasks: [task],
         }),
         runSupervisor: async () => ({
@@ -171,6 +178,7 @@ test("GAIA Prompt Evaluation adapter treats agent failure as infrastructure, not
             source: "huggingface",
             loadedAt: "2026-09-20T00:00:00.000Z",
             dataRoot: "/data/gaia",
+            dataRoot: testDataRoot,
             tasks: [task],
         }),
         runSupervisor: async () => ({
@@ -196,6 +204,36 @@ test("GAIA Prompt Evaluation adapter treats agent failure as infrastructure, not
 
     assert.equal(result.status, "infrastructure_error");
     assert.equal(result.domainResult, null);
+});
+
+test("GAIA Prompt Evaluation adapter rejects non-existent dataRoot on loadManifest", async () => {
+    const adapter = new GaiaPromptEvaluationAdapter({
+        loadManifestFile: async () => ({
+            source: "huggingface",
+            loadedAt: "2026-09-20T00:00:00.000Z",
+            dataRoot: join(testDataRoot, "non-existent-dir"),
+            tasks: [task],
+        }),
+    });
+    await assert.rejects(
+        () => adapter.loadManifest("/manifest.json"),
+        (err: Error) => err instanceof GaiaManifestValidationError && err.code === "DATA_ROOT_NOT_FOUND",
+    );
+});
+
+test("GAIA Prompt Evaluation adapter rejects non-existent or escaping attachment on loadManifest", async () => {
+    const adapter = new GaiaPromptEvaluationAdapter({
+        loadManifestFile: async () => ({
+            source: "huggingface",
+            loadedAt: "2026-09-20T00:00:00.000Z",
+            dataRoot: testDataRoot,
+            tasks: [{ ...task, attachments: ["missing.file"] }],
+        }),
+    });
+    await assert.rejects(
+        () => adapter.loadManifest("/manifest.json"),
+        (err: Error) => err instanceof GaiaManifestValidationError && err.code === "ATTACHMENT_NOT_FOUND",
+    );
 });
 
 test("GAIA Worker accepts paired Prompt profiles and rejects frozen-field drift", () => {

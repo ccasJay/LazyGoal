@@ -4,8 +4,8 @@ import {
     GaiaManifestValidationError,
     loadGaiaManifest,
     saveGaiaManifest,
-} from "./manifest";
-import type { GaiaManifest, GaiaManifestTask } from "./types";
+} from "./manifest.js";
+import type { GaiaManifest, GaiaManifestTask } from "./types.js";
 
 /** GAIA GEPA validation 单任务 Manifest 物化选项。 */
 export interface GaiaSingleTaskMaterializerOptions {
@@ -38,7 +38,21 @@ function assertGepaValidationTask(task: GaiaManifestTask): void {
     }
 }
 
-async function assertDataRoot(dataRoot: string): Promise<void> {
+/**
+ * 校验 GAIA 数据根目录的有效性与可访问性。
+ *
+ * @remarks
+ * 要求路径必须为绝对路径且在文件系统中实际存在并指向一个目录。
+ *
+ * @param dataRoot - GAIA 数据根目录路径。
+ * @throws 路径不是绝对路径、不存在或不是目录时抛出 `GaiaManifestValidationError`。
+ *
+ * @example
+ * ```ts
+ * await assertDataRoot("/data/gaia");
+ * ```
+ */
+export async function assertDataRoot(dataRoot: string): Promise<void> {
     if (!isAbsolute(dataRoot)) {
         throw new GaiaManifestValidationError(
             "INVALID_DATA_ROOT",
@@ -62,7 +76,22 @@ async function assertDataRoot(dataRoot: string): Promise<void> {
     }
 }
 
-async function assertTaskAttachments(
+/**
+ * 校验 GAIA 单个任务所声明的所有附件文件存在性与路径安全性。
+ *
+ * @remarks
+ * 确保任务引用的每个附件文件均实际存在，且规范化解析后的真实路径严格保留在 `dataRoot` 目录内部，防止路径穿越。
+ *
+ * @param dataRoot - 已验证有效的 GAIA 数据根目录。
+ * @param task - 待校验附件的 GAIA 任务对象。
+ * @throws 附件文件不存在、不是常规文件或解析后逃逸出 `dataRoot` 时抛出 `GaiaManifestValidationError`。
+ *
+ * @example
+ * ```ts
+ * await assertTaskAttachments("/data/gaia", task);
+ * ```
+ */
+export async function assertTaskAttachments(
     dataRoot: string,
     task: GaiaManifestTask,
 ): Promise<void> {

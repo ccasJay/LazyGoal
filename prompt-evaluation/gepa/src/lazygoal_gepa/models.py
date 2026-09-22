@@ -10,6 +10,7 @@ from typing import Literal, TypeAlias
 from .errors import ConfigurationError, DatasetValidationError
 
 BenchmarkId: TypeAlias = Literal["alfworld", "gaia"]
+BenchmarkId: TypeAlias = str
 
 SUPPORTED_BENCHMARKS = frozenset(("alfworld", "gaia"))
 
@@ -30,6 +31,8 @@ class LazyGoalGEPAConfig:
             raise ConfigurationError(
                 f"Unsupported benchmark ID: {self.benchmark_id!r}"
             )
+        if not isinstance(self.benchmark_id, str) or not self.benchmark_id.strip():
+            raise ConfigurationError("benchmark_id must be a non-empty string")
         for field_name in ("base_profile_id", "model_config_id", "model_id"):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value.strip():
@@ -58,6 +61,8 @@ class LazyGoalEvaluationExample:
             raise DatasetValidationError(
                 f"Unsupported sample benchmark ID: {self.benchmark_id!r}"
             )
+        if not isinstance(self.benchmark_id, str) or not self.benchmark_id.strip():
+            raise DatasetValidationError("benchmark_id must be a non-empty string")
         _require_path(self.manifest_path, "manifest_path", DatasetValidationError)
 
 

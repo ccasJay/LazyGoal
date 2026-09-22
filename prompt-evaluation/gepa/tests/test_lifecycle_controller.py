@@ -31,7 +31,11 @@ from lazygoal_gepa.controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
+    get_run_status,
     launch_detached_worker,
+    preflight_run,
+    start_run,
+    stop_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,

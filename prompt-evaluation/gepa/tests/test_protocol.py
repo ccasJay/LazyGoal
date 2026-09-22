@@ -202,6 +202,7 @@ class GEPARunProtocolTests(unittest.TestCase):
     def test_reject_invalid_benchmark(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
         cases = ("swebench", "webarena", "", 123)
+        cases = ("", "   ", 123, None, False)
 
         for invalid_bm in cases:
             with self.subTest(benchmark=invalid_bm):
@@ -219,6 +220,23 @@ class GEPARunProtocolTests(unittest.TestCase):
                 }
                 with self.assertRaises(GEPARunProtocolError):
                     parse_run_request(data)
+
+    def test_accepts_arbitrary_valid_benchmark(self) -> None:
+        manifest = self._write_manifest("m.json", "task-1")
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "custom-benchmark",
+            "trainset": [
+                {
+                    "sampleId": "s1",
+                    "taskId": "task-1",
+                    "manifestPath": str(manifest),
+                }
+            ],
+            "maxMetricCalls": 10,
+        }
+        request = parse_run_request(data)
+        self.assertEqual(request.benchmark, "custom-benchmark")
 
     def test_reject_cross_benchmark_samples(self) -> None:
         # Declares alfworld, but manifest declares gaia

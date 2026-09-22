@@ -174,6 +174,10 @@ class DatasetValidatorTests(unittest.TestCase):
     def test_configuration_rejects_unsupported_or_empty_values(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "Unsupported benchmark"):
             self._config("swebench")
+        with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
+            self._config("")
+        with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
+            self._config("   ")
         with self.assertRaisesRegex(ConfigurationError, "model_id"):
             LazyGoalGEPAConfig(
                 benchmark_id="alfworld",

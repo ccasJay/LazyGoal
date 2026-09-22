@@ -16,6 +16,7 @@ from .errors import (
 )
 from .dataset import validate_manifest_file
 from .models import BenchmarkId, LazyGoalEvaluationExample, SUPPORTED_BENCHMARKS
+from .models import BenchmarkId, LazyGoalEvaluationExample
 
 PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1"
 
@@ -77,6 +78,7 @@ class PromptEvaluationResultRecord:
     evaluation_id: str
     status: EvaluationStatus
     benchmark_id: Literal["alfworld", "gaia"]
+    benchmark_id: str
     manifest_path: str
     candidate_id: str
     base_profile_id: str
@@ -247,6 +249,7 @@ def _parse_result(value: Any) -> PromptEvaluationResultRecord:
         raise PromptEvaluationProtocolError("Prompt Evaluation result status is invalid")
     benchmark_id = record["benchmarkId"]
     if benchmark_id not in ("alfworld", "gaia"):
+    if not isinstance(benchmark_id, str) or not benchmark_id.strip():
         raise PromptEvaluationProtocolError("Prompt Evaluation result benchmark is invalid")
     prompt_sha256 = _require_non_empty_string(record["promptSha256"], "promptSha256")
     if _SHA256.fullmatch(prompt_sha256) is None:
@@ -260,6 +263,7 @@ def _parse_result(value: Any) -> PromptEvaluationResultRecord:
         evaluation_id=_require_non_empty_string(record["evaluationId"], "evaluationId"),
         status=cast(EvaluationStatus, status),
         benchmark_id=cast(Literal["alfworld", "gaia"], benchmark_id),
+        benchmark_id=benchmark_id,
         manifest_path=_require_non_empty_string(record["manifestPath"], "manifestPath"),
         candidate_id=_require_non_empty_string(record["candidateId"], "candidateId"),
         base_profile_id=_require_non_empty_string(record["baseProfileId"], "baseProfileId"),
@@ -547,6 +551,8 @@ def parse_run_request(
     benchmark = data["benchmark"]
     if benchmark not in SUPPORTED_BENCHMARKS:
         raise GEPARunProtocolError(f"Unsupported benchmark: {benchmark!r}")
+    if not isinstance(benchmark, str) or not benchmark.strip():
+        raise GEPARunProtocolError(f"benchmark must be a non-empty string, got {benchmark!r}")
 
     max_metric_calls = data["maxMetricCalls"]
     if (

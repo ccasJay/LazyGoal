@@ -289,6 +289,7 @@ def run_gepa_worker(
                 if manifest.request.reflection_minibatch_size is not None
                 else (1 if manifest.request.benchmark == "gaia" else None)
             ),
+            reflection_minibatch_size=manifest.request.reflection_minibatch_size,
             run_dir=str(gepa_dir),
             seed=manifest.request.seed if manifest.request.seed is not None else 0,
             display_progress_bar=False,

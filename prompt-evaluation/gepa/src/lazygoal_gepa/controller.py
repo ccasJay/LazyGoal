@@ -32,6 +32,7 @@ from .errors import (
     RunStoreError,
     WorkerAlreadyRunningError,
 )
+from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
 from .protocol import GEPARunRequest, read_run_request
@@ -139,12 +140,12 @@ class LifecycleController:
         self.runs_dir = (
             Path(runs_dir).resolve()
             if runs_dir is not None
-            else (self.workspace_root / ".lazygoal" / "gepa" / "runs")
+            else (resolve_workspace_home(self.workspace_root) / "gepa" / "runs")
         )
         self.profile_path = (
             Path(profile_path).resolve()
             if profile_path is not None
-            else (self.workspace_root / ".lazygoal" / "profiles" / "default.json")
+            else (resolve_lazygoal_home() / "agent-profiles" / "default.json")
         )
         if (working_model is None) != (reflection_model is None):
             raise ConfigurationError(

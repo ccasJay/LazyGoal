@@ -15,8 +15,10 @@ export {
 } from "./manifest";
 export {
     materializeGaiaSingleTask,
+    assertDataRoot,
+    assertTaskAttachments,
     type GaiaSingleTaskMaterializerOptions,
-} from "./single-task-manifest";
+} from "./single-task-manifest.js";
 export {
     GaiaDatasetLoader,
     GAIA_DEFAULT_HF_REPO,

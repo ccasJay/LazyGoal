@@ -193,6 +193,8 @@ class WorkerOrchestrationTests(unittest.TestCase):
 
     def test_gaia_worker_freezes_minimal_gepa_defaults_before_optimize(self) -> None:
         """GAIA lifecycle supplies seed 0 and reflection minibatch 1 when omitted."""
+    def test_worker_forwards_request_reflection_minibatch_size(self) -> None:
+        """Worker forwards reflection_minibatch_size directly from request without benchmark defaults."""
         run_id = "run_test_gaia_minimal_defaults"
         request = GEPARunRequest(
             protocol="gepa-run@1",
@@ -244,6 +246,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(captured["seed"], 0)
         self.assertEqual(captured["reflection_minibatch_size"], 1)
+        self.assertIsNone(captured["reflection_minibatch_size"])
         self.assertEqual(captured["max_metric_calls"], 4)
 
     def test_worker_records_unchanged_publication(self) -> None:
