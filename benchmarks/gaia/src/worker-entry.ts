@@ -268,7 +268,9 @@ export async function runGaiaAcpTask(
  * @remarks
  * `max_turn_requests` 只表示 Runtime 实际触发 `max_steps_exceeded`；不能把所有
  * 未提交答案的结果都伪装成轮数上限。普通完成或等待返回 `end_turn`，取消返回
- * `cancelled`，其他 Runtime/清理失败直接抛出，使宿主保留真实失败阶段。
+ * `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）映射为
+ * `end_turn` 并通过 meta 记录 executionError 作为未作答领域失败（badcase）；
+ * 其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。
  *
  * @param result - 已恢复并包含 Runtime 终态的 Headless 结果。
  * @returns 与 ACP v1 一致的 Prompt 终态和可审计元数据。
@@ -311,6 +313,19 @@ export function projectGaiaAcpResult(
     }
     if (run.status === "failed" && run.stopReason?.kind === "max_steps_exceeded") {
         return { stopReason: "max_turn_requests", meta };
+    }
+    if (
+        run.status === "failed"
+        && run.stopReason?.kind === "execution_error"
+        && run.stopReason.code === "INVALID_AGENT_DECISION"
+    ) {
+        return {
+            stopReason: "end_turn",
+            meta: {
+                ...meta,
+                executionError: run.stopReason.code,
+            },
+        };
     }
 
     const reason = run.stopReason?.kind === "execution_error"

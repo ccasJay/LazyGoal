@@ -161,7 +161,8 @@ export async function runGaiaSupervisor(
         ...error,
         message: sanitizeDiagnostic(error.message),
     }));
-    const status = envResult.status === "completed" && artifactErrors.length > 0
+    const isModelDecisionFailure = envResult.acp?.meta?.executionError === "INVALID_AGENT_DECISION";
+    const status = envResult.status === "completed" && artifactErrors.length > 0 && !isModelDecisionFailure
         ? "infrastructure_error"
         : envResult.status;
     const domainResult: GaiaDomainResult = status === "completed"
