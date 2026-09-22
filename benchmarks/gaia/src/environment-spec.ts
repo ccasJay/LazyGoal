@@ -122,7 +122,8 @@ function shellQuote(str: string): string {
  *
  * @remarks
  * 声明 managed 模式镜像（含 Python 文件处理依赖）、工作区准备、附件注入、
- * Python 关键依赖预检和答案回收。
+ * Python 关键依赖预检和答案回收。GAIA 需要网络工具，因此使用 bridge 网络并只
+ * 继承宿主标准代理变量。
  *
  * @example
  * ```ts
@@ -166,6 +167,26 @@ export class GaiaEnvironmentSpec
             platform: "linux/amd64",
             installCommands: this.installCommands,
         };
+    }
+
+    /**
+     * @param task - 必须与构造时绑定的任务一致。
+     * @returns `bridge`，允许 GAIA 网络工具访问外部资料。
+     * @throws 任务身份漂移时抛出。
+     */
+    resolveNetworkMode(task: GaiaManifestTask): "bridge" {
+        this.assertTask(task);
+        return "bridge";
+    }
+
+    /**
+     * @param task - 必须与构造时绑定的任务一致。
+     * @returns `true`，由共享隔离层注入宿主标准代理变量。
+     * @throws 任务身份漂移时抛出。
+     */
+    inheritHostProxyEnvironment(task: GaiaManifestTask): boolean {
+        this.assertTask(task);
+        return true;
     }
 
     /** 返回 Worker 入口配置。 */

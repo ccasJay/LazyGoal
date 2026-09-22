@@ -45,6 +45,13 @@ SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命�
 数据准备使用 `npm --prefix benchmarks run alfworld:download`；GAIA 数据集下载使用 `lazygoal load gaia`。
 评测 CLI 与独立 preflight 脚本共用同一个有界 Python 探针执行器，测试入口仍可注入
 替身探针，不会改变预检顺序或错误语义。
+
+隔离容器默认使用 `network=none`，只有 benchmark `EnvironmentSpec` 可显式选择 bridge。
+Spec 还可显式继承宿主代理；共享层只注入 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、
+`NO_PROXY` 及其小写形式，不传递其他宿主环境变量。代理值不进入 Docker 命令参数，
+回环代理主机在容器环境中改写为 `host.docker.internal`。GAIA 启用 bridge 和该代理继承，
+其他 benchmark 保持各自网络策略。
+
 ALFWorld 测试 Profile 只从 LazyGoal Home 的全局
 `agent-profiles/alfworld-profile.json` 加载，不会从 `benchmarks` 源码目录或 workspace
 Profile 覆盖层读取。
