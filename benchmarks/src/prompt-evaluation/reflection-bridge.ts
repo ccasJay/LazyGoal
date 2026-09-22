@@ -154,7 +154,8 @@ export interface GepaReflectCliOptions {
     readonly reflectionAdapter?: LLMAdapter;
 }
 
-export { redactSensitiveString } from "./protocol.js";
+import { redactSensitiveString } from "./protocol.js";
+export { redactSensitiveString };
 
 /**
  * 校验并归一化反思请求 JSON 内容。

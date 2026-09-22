@@ -270,7 +270,7 @@ test("missing CLI configuration exits before touching the workspace", async () =
     const errors: string[] = [];
     const exitCode = await runCli([], {
         cwd: workspace,
-        env: {},
+        env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
         writeError: (message) => errors.push(message),
     });
 
@@ -294,6 +294,7 @@ test("runCli rejects invalid LLM_STRUCTURED_OUTPUT_MODE before Store or Goal sid
             LLM_BASE_URL: "https://llm.example.test/v1",
             LLM_MODEL: "test-model",
             LLM_STRUCTURED_OUTPUT_MODE: "unsupported_mode",
+            LAZYGOAL_HOME: join(workspace, "lazygoal-home"),
         },
         writeError: (message) => errors.push(message),
     });
