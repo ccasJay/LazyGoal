@@ -117,6 +117,46 @@ test("PromptEvaluationRunner preserves adapter domain judgments and creates isol
     ]);
 });
 
+test("PromptEvaluationRunner 将单任务领域失败（超时或决策错误）汇总为 failed 任务并保持 evaluation completed", async () => {
+    const adapter = createAdapter([
+        { id: "task-timeout", passed: false },
+    ], async (input) => {
+        return {
+            taskId: input.task.id,
+            status: "failed",
+            domainResult: { correct: false },
+            attemptPath: `/tmp/${input.task.id}.json`,
+            artifactLocator: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+            errors: [{ stage: "agent", code: "TASK_TIMEOUT", message: "Task exceeded timeout of 300000ms" }],
+        };
+    });
+    const events: string[] = [];
+    const runner = new PromptEvaluationRunner({
+        registry: registry(adapter),
+        evaluationIdGenerator: () => "eval-timeout",
+        now: () => "2026-09-20T00:00:00.000Z",
+    });
+
+    const result = await runner.run(request, {
+        llmAdapter,
+        onEvent(event) { events.push(`${event.type}:${event.stage}:${event.taskId ?? "-"}`); },
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.tasks.length, 1);
+    const taskResult = result.tasks[0]!;
+    assert.equal(taskResult.status, "failed");
+    assert.deepEqual(taskResult.domainResult, { correct: false });
+    assert.equal(taskResult.attemptPath, "/tmp/task-timeout.json");
+    assert.deepEqual(taskResult.artifactLocator, { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" });
+    assert.deepEqual(events, [
+        "progress:accepted:-",
+        "progress:task_started:task-timeout",
+        "progress:task_completed:task-timeout",
+        "terminal:completed:-",
+    ]);
+});
+
 test("PromptEvaluationRunner stops starting tasks after cancellation and lists the remainder", async () => {
     const controller = new AbortController();
     const called: string[] = [];
