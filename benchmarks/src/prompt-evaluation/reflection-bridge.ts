@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 
 import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import type { LLMRequest } from "../../../packages/llm/src/core/types.js";
-import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
+import { createLlmAdapter, createReflectionLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { loadReflectionRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
 import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
 import { readNormalizedUsage } from "../../../packages/llm/src/core/usage.js";
@@ -381,7 +381,7 @@ export async function runGepaReflectCli(
             // shouldLoadReflectionProfile 为 true 时已完成加载；此断言只隔离类型，
             // 不引入回退配置。
             if (reflectionRuntime === undefined) throw new Error("Reflection profile was not resolved");
-            adapter = createLlmAdapter(reflectionRuntime.llm);
+            adapter = createReflectionLlmAdapter(reflectionRuntime.llm);
         }
     } catch (error: unknown) {
         const message = boundDiagnostic(redactSensitiveString(error instanceof Error ? error.message : String(error), env));
