@@ -11,7 +11,9 @@ scoring.
 - [`uv`](https://docs.astral.sh/uv/)
 - LazyGoal's Node.js dependencies
 
-The package accepts only ALFWorld or GAIA single-task Manifests. A candidate is
+The package accepts only ALFWorld or GAIA single-task Manifests. GAIA GEPA
+samples must be validation Level 1 or Level 2; Level 2 attachments are checked
+as existing files under the Manifest's absolute `dataRoot` before evaluation. A candidate is
 one non-empty `system_prompt` plus contiguous, non-empty
 `instruction_000...instruction_NNN` components.
 

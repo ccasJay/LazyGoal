@@ -16,6 +16,7 @@ export type GaiaManifestValidationErrorCode =
     | "SINGLE_TASK_REQUIRED"
     | "UNSUPPORTED_SINGLE_TASK"
     | "DATA_ROOT_NOT_FOUND"
+    | "ATTACHMENT_NOT_FOUND"
     | "OUTPUT_PATH_INVALID";
 
 /**

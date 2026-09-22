@@ -55,6 +55,7 @@ export {
     GaiaBenchmarkAdapter,
     runGaiaWorker,
     runGaiaAcpTask,
+    projectGaiaAcpResult,
     parseGaiaAcpTaskMetadata,
     validateGaiaPromptEvaluationProfile,
     type GaiaWorkerToolOptions,

@@ -9,12 +9,13 @@
 ### 范围
 
 - 包含：真实 GAIA validation 任务选择与单任务 Manifest、真实 Docker 评测、真实 Working LM、GAIA authoritative scoring、最小 GEPA train/validation 运行、Reflection LM、生命周期状态与报告、GAIA 专用 Profile 目标和发布验证。
-- 不包含：GAIA 全量评测、test split、Level 3 专项策略、首阶段网页搜索与复杂附件任务、默认回归自动调用真实模型、将结果发布到通用 default Profile。
+- 不包含：GAIA 全量评测、test split、Level 3 专项策略、默认回归自动调用真实模型、将结果发布到通用 default Profile。
 
 ### 核心行为
 
 - 评测前必须由调用方明确提供 validation 任务和数据位置；每个 GEPA 样本只对应一个任务 Manifest，并在模型调用前完成身份、答案和数据文件校验。
-- 第一阶段真实冒烟只使用 Level 1、无附件且不依赖网页搜索的任务，通过隔离 Docker、GAIA Worker、ACP/LLM RPC 和真实模型完成评分。
+- 第一阶段真实冒烟支持指定的 Level 1/2 validation 任务；Level 2 的附件必须位于
+  `dataRoot` 内并由隔离环境挂载，通过 Docker、GAIA Worker、ACP/LLM RPC 和真实模型完成评分。
 - GAIA 运行必须使用 `gaia-worker-profile` 作为基准 Profile；GEPA 候选只能改变 Prompt 文本，工具白名单、提交协议和其他冻结字段保持不变。
 - GEPA 首轮使用互不重复的最小 train/validation 集、固定 seed 和有界 metric 预算；必须先执行只读 `preflight`，再经当次摘要批准后启动真实运行。
 - 领域失败、基础设施失败、协议失败和取消必须保持可区分；运行产物不得泄露凭据、完整供应商响应或未授权诊断内容。
@@ -23,7 +24,7 @@
 
 - 风险等级：medium；理由：涉及真实模型费用、Docker 执行、Python/Node 跨进程协议和 Profile 发布，但目标限制在 GAIA 专用 Profile，且可通过生命周期确认和摘要保护回滚。
 - 关键操作：调用 Working LM 和 Reflection LM、创建隔离容器、向指定 GAIA Profile 发布最佳候选。
-- 风险：真实模型、容器镜像和 GAIA 数据准备可能失败；模型失败答案不能与基础设施故障混淆；网页和复杂附件能力不在首阶段验收范围。
+- 风险：真实模型、容器镜像、附件准备和 GAIA 数据准备可能失败；模型失败答案不能与基础设施故障混淆；Level 3 能力不在本范围内。
 - 待确认：无。
 
 ## 引言
@@ -40,7 +41,7 @@
 
 1. <a id="req-1-1"></a> 当准备真实评测请求时，系统必须只接受调用方明确指定的 GAIA `validation` 任务；使用 `test` split 或未指定任务的自动发现必须在模型调用前拒绝。
 2. <a id="req-1-2"></a> 当一个任务被纳入 GEPA trainset 或 validation set 时，其 Manifest 必须只包含一个 task，且 Manifest 内的 `taskId` 必须与样本声明一致。
-3. <a id="req-1-3"></a> 当任务用于首阶段真实冒烟时，Manifest 必须包含非空 `expectedAnswer`、有效的绝对 `dataRoot`，并且不声明附件；缺失答案、数据根目录或越界文件路径时必须在模型调用前失败。
+3. <a id="req-1-3"></a> 当任务用于真实 GEPA 时，Manifest 必须包含非空 `expectedAnswer`、有效的绝对 `dataRoot`，且任务级别必须为 Level 1 或 Level 2；附件（如有）必须是 `dataRoot` 内存在的相对文件。缺失答案、数据根目录、附件文件或越界文件路径时必须在模型调用前失败。
 4. <a id="req-1-4"></a> 当系统写入请求、Manifest、结果或报告时，任何文件都不得包含模型凭据、API Key、Authorization 内容或完整供应商响应。
 
 ### 需求 2：真实 GAIA 单任务 Prompt Evaluation
@@ -98,12 +99,12 @@
 3. <a id="req-6-3"></a> 当真实运行发生 GAIA 答案错误时，系统必须将其记录为领域 `failed`，而不是基础设施错误；当发生容器或模型故障时，系统必须保持领域结果为 `null` 或等价的非领域状态。
 4. <a id="req-6-4"></a> 当目标 GAIA Profile 在运行期间发生外部修改时，系统必须阻止覆盖并将终态标记为发布阻塞；不得通过强制替换绕过摘要保护。
 
-### 需求 7：首阶段验收边界
+### 需求 7：GAIA Level 1/2 验收边界
 
 **用户故事：** 作为验收人员，我希望首轮真实测试规模小、结果明确且可重复，以便先确认核心链路再扩展 GAIA 能力范围。
 
 #### 验收标准
 
-1. <a id="req-7-1"></a> 当使用指定的 Level 1、无附件且不依赖网页搜索的 GAIA validation 任务执行首阶段真实冒烟时，系统必须完成数据校验、真实 Prompt Evaluation、GAIA 评分和产物回收全链路。
-2. <a id="req-7-2"></a> 当首阶段单任务链路通过后，使用一条 train 任务和一条独立 validation 任务的最小 GEPA 运行必须能够产生可读取的终态报告；领域答案错误不得被解释为生命周期协议成功。
-3. <a id="req-7-3"></a> 当首阶段验收尚未完成时，系统不得把 GAIA 全量数据、test split、Level 3、网页搜索或复杂附件任务加入默认验收集合；这些能力必须作为后续独立范围处理。
+1. <a id="req-7-1"></a> 当使用指定的 Level 1 或 Level 2 GAIA validation 任务执行真实冒烟时，系统必须完成数据校验、真实 Prompt Evaluation、GAIA 评分和产物回收全链路。
+2. <a id="req-7-2"></a> 当单任务链路通过后，使用一条 train 任务和一条独立 validation 任务的最小 GEPA 运行必须能够产生可读取的终态报告；领域答案错误不得被解释为生命周期协议成功。
+3. <a id="req-7-3"></a> 当 Level 1/2 验收尚未完成时，系统不得把 GAIA 全量数据、test split 或 Level 3 任务加入默认验收集合；这些能力必须作为后续独立范围处理。

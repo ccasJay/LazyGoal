@@ -2,16 +2,16 @@
 
 - [x] //TODO 1. 实现 GAIA validation 单任务 Manifest 物化器
 
-  - 实现目标：在 `benchmarks/gaia` 增加从用户指定源 Manifest 按 task ID 物化单任务 Manifest 的入口，复用现有 GAIA 校验并补充首阶段 validation、Level 1、非空 `expectedAnswer`、绝对 `dataRoot`、无附件和路径边界检查。
-  - 成功判据：有效 task 只生成一个与声明一致的任务且源 Manifest 不被修改；test、重复 task、缺失答案、无效数据根目录、附件或越界路径在模型调用前返回可定位错误。
-  - 验证方式：新增 `benchmarks/gaia/test` 物化器与边界测试（待实现）；执行 `npm --prefix benchmarks test -- gaia/test/manifest.test.ts` 或等价的定向测试。
+  - 实现目标：在 `benchmarks/gaia` 增加从用户指定源 Manifest 按 task ID 物化单任务 Manifest 的入口，复用现有 GAIA 校验并补充 validation、Level 1/2、非空 `expectedAnswer`、绝对 `dataRoot`、合法附件和路径边界检查。
+  - 成功判据：有效 task 只生成一个与声明一致的任务且源 Manifest 不被修改；test、Level 3、重复 task、缺失答案、无效数据根目录、缺失附件或越界路径在模型调用前返回可定位错误。
+  - 验证方式：执行 `npx tsx --test gaia/test/*.test.ts`（在 `benchmarks/` 目录）。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
 - [x] //TODO 2. 将单任务 Manifest 接入 GEPA Dataset 校验与请求边界
 
   - 实现目标：扩展 `prompt-evaluation/gepa` 的 Dataset/Protocol 校验，使 GAIA 请求强制使用 `gaia`、非空 trainset、单任务 Manifest、唯一 sample/task，并让 validation 集在存在时满足相同约束且不与 trainset 重复。
   - 成功判据：空 validation、非正 metric 预算、重复样本、跨 benchmark、多任务 Manifest、taskId 不一致和无效物化产物均在 Worker 或模型启动前返回稳定协议错误。
-  - 验证方式：扩展 `prompt-evaluation/gepa/tests/test_dataset.py`、协议测试和请求读取测试（待实现）；执行 `npm run test:gepa-adapter`。
+  - 验证方式：执行 `npm run test:gepa-adapter`，覆盖 Dataset、Protocol 和生命周期回归。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4), [6.1](./requirements.md#req-6-1)_
 
 - [x] //TODO 3. 物化并校验 GAIA 基准 Profile，冻结候选字段
@@ -52,7 +52,7 @@
 - [x] //TODO 8. 增加显式真实 E2E 闸门并保持默认回归隔离
 
   - 实现目标：增加只在显式命令和用户提供数据/模型配置存在时运行的 GAIA 真实单任务与最小 GEPA E2E 入口，串联 `preflight → start → status → report`；默认 `npm test`、现有 smoke 和离线协议测试不得触发真实模型或真实容器。
-  - 成功判据：真实闸门能读取指定 validation Level 1 无附件任务，完成 Prompt Evaluation 和最小 GEPA 终态报告；领域答案错误不会被视为生命周期协议成功；未显式启用时不会访问外部 GAIA 数据服务或创建真实容器。
+  - 成功判据：真实闸门能读取指定 validation Level 1/2 任务，完成 Prompt Evaluation 和最小 GEPA 终态报告；Level 2 附件可被隔离环境读取；领域答案错误不会被视为生命周期协议成功；未显式启用时不会访问外部 GAIA 数据服务或创建真实容器。
   - 验证方式：新增环境门控的 E2E runner/fixture 与脚本测试，执行默认 `npm test` 和显式真实 E2E 命令的 dry-run/preflight 检查；真实模型调用留在 Feature Verification 中执行。
   - _Requirements: [2.2](./requirements.md#req-2-2), [4.2](./requirements.md#req-4-2), [5.1](./requirements.md#req-5-1), [5.4](./requirements.md#req-5-4), [6.1](./requirements.md#req-6-1), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
@@ -64,8 +64,8 @@
 
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
-| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2) | 只接受调用方指定的 validation task；每个样本对应一个且仅一个任务，taskId 一致 | GAIA 物化器与 GEPA Dataset 单元测试（待实现） |
-| [1.3](./requirements.md#req-1-3) | 缺失答案、无效绝对 dataRoot、附件或越界路径在模型调用前失败 | Manifest 边界测试（待实现） |
+| [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2) | 只接受调用方指定的 validation task；每个样本对应一个且仅一个任务，taskId 一致 | GAIA 物化器与 GEPA Dataset 单元测试 |
+| [1.3](./requirements.md#req-1-3) | 缺失答案、无效绝对 dataRoot、附件或越界路径在模型调用前失败 | Manifest 边界测试 |
 | [1.4](./requirements.md#req-1-4) | 请求、Manifest、结果、报告和 artifact 不含凭据、Authorization 或完整供应商响应 | 敏感信息扫描测试（待实现） |
 | [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2) | 显式真实任务使用真实 Working LM、隔离 Docker、GAIA Worker、ACP 和 LLM RPC | 真实单任务 E2E 闸门；默认回归只做 dry-run |
 | [2.3](./requirements.md#req-2-3) | GAIA authoritative scoring 决定 passed/failed，不由 complete 文本决定 | GAIA adapter fake-model 集成测试与真实结果检查（待实现） |
@@ -82,10 +82,10 @@
 | [5.4](./requirements.md#req-5-4) | report 显示数据规模、预算、最佳候选、终态、发布状态、Profile 路径和错误分类 | Reporter 终态测试与显式 E2E report |
 | [6.1](./requirements.md#req-6-1) | 默认回归不调用真实模型、不创建真实 GAIA 容器、不访问外部数据服务 | `npm test` 回归与环境门控测试（待实现） |
 | [6.2](./requirements.md#req-6-2) | 基础设施/协议/产物回收/持久化错误保留已提交产物且不发布不完整候选 | 失败隔离与 publisher 测试（待实现） |
-| [7.1](./requirements.md#req-7-1) | 指定 Level 1、无附件、无网页依赖任务完成数据校验、真实评测、评分和回收 | 真实单任务 E2E 闸门 |
+| [7.1](./requirements.md#req-7-1) | 指定 Level 1/2 任务完成数据校验、真实评测、评分和回收；Level 2 附件可用 | 真实单任务 E2E 闸门 |
 | [7.2](./requirements.md#req-7-2) | 单任务闸门通过后，最小 GEPA 生成可读终态报告；答案错误不冒充协议成功 | 真实 GEPA E2E 闸门 |
-| [7.3](./requirements.md#req-7-3) | 首阶段默认集合不加入全量、test、Level 3、网页或复杂附件任务 | Manifest fixture 与默认回归范围检查（待实现） |
+| [7.3](./requirements.md#req-7-3) | 默认集合不加入全量、test 或 Level 3 任务 | Manifest fixture 与默认回归范围检查（待实现） |
 
 ### Latest Result
 
-TODO 1–8 已实现。已通过 GAIA E2E 闸门单元测试、GEPA adapter 回归和 `git diff --check`；真实模型/容器执行仍需在具备用户配置的 Feature Verification 中显式运行。
+TODO 1–8 已实现，且本次 Level 2 扩展已通过 GAIA 单元测试、GEPA Python 回归（149 项）、依赖边界检查和 `git diff --check`；真实模型/容器执行仍需在具备用户指定 task manifest 的 Feature Verification 中显式运行。

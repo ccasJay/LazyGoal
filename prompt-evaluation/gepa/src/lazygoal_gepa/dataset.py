@@ -53,9 +53,10 @@ def validate_manifest_file(
 ) -> None:
     """Validate one GEPA sample's Manifest before any benchmark process starts.
 
-    GAIA uses the stricter first-stage contract: a validation Level 1 task with a
-    non-empty expected answer, an absolute existing dataRoot, and no attachments.
-    Other benchmark adapters retain their existing single-task envelope contract.
+    GAIA uses the bounded validation contract: a validation Level 1 or Level 2 task
+    with a non-empty expected answer and an absolute existing dataRoot. Attachments
+    are allowed when they are relative files contained by ``dataRoot``. Other
+    benchmark adapters retain their existing single-task envelope contract.
     """
 
     path = example.manifest_path
@@ -116,9 +117,9 @@ def validate_manifest_file(
         raise DatasetValidationError(
             f"GAIA GEPA samples require validation split: {example.task_id}"
         )
-    if task.get("level") != 1:
+    if task.get("level") not in (1, 2):
         raise DatasetValidationError(
-            f"GAIA first-stage GEPA samples require level 1: {example.task_id}"
+            f"GAIA GEPA samples require validation level 1 or level 2: {example.task_id}"
         )
     expected_answer = task.get("expectedAnswer")
     if not isinstance(expected_answer, str) or not expected_answer.strip():
@@ -126,7 +127,25 @@ def validate_manifest_file(
             f"GAIA task requires a non-empty expectedAnswer: {example.task_id}"
         )
     attachments = task.get("attachments")
-    if attachments not in ([], None):
+    if attachments is None:
+        return
+    if not isinstance(attachments, list):
         raise DatasetValidationError(
-            f"GAIA first-stage GEPA samples cannot contain attachments: {example.task_id}"
+            f"GAIA task attachments must be an array: {example.task_id}"
         )
+    for attachment in attachments:
+        if not isinstance(attachment, str) or not attachment.strip():
+            raise DatasetValidationError(
+                f"GAIA task attachment paths must be non-empty strings: {example.task_id}"
+            )
+        attachment_path = (data_root_path / attachment).resolve()
+        try:
+            attachment_path.relative_to(data_root_path.resolve())
+        except ValueError as error:
+            raise DatasetValidationError(
+                f"GAIA task attachment must stay inside dataRoot: {attachment}"
+            ) from error
+        if not attachment_path.is_file():
+            raise DatasetValidationError(
+                f"GAIA task attachment does not exist: {attachment}"
+            )

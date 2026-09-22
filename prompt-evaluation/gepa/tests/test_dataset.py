@@ -114,23 +114,41 @@ class DatasetValidatorTests(unittest.TestCase):
                 [self._example("sample-1", "expected", manifest)],
             )
 
-    def test_rejects_gaia_manifest_outside_first_stage_boundary(self) -> None:
+    def test_accepts_gaia_level_2_and_existing_attachment(self) -> None:
+        manifest = self._write_manifest(
+            "gaia-level2.json",
+            [{
+                "taskId": "gaia-task",
+                "level": 2,
+                "attachments": ["attachments/level2.pdf"],
+            }],
+            benchmark_id="gaia",
+        )
+        example = LazyGoalEvaluationExample(
+            sample_id="gaia-sample",
+            benchmark_id="gaia",
+            task_id="gaia-task",
+            manifest_path=manifest,
+        )
+
+        self.assertEqual(
+            self.validator.validate_batch(self._config("gaia"), [example]),
+            (example,),
+        )
+
+    def test_rejects_gaia_manifest_outside_level_1_2_boundary(self) -> None:
         cases = (
             (
                 {"split": "test", "level": 1, "expectedAnswer": "a", "attachments": []},
                 "validation split",
             ),
             (
-                {"split": "validation", "level": 2, "expectedAnswer": "a", "attachments": []},
-                "level 1",
+                {"split": "validation", "level": 3, "expectedAnswer": "a", "attachments": []},
+                "level 1 or level 2",
             ),
             (
                 {"split": "validation", "level": 1, "expectedAnswer": "", "attachments": []},
                 "non-empty expectedAnswer",
-            ),
-            (
-                {"split": "validation", "level": 1, "expectedAnswer": "a", "attachments": ["file.pdf"]},
-                "attachments",
             ),
         )
         for task_fields, expected_message in cases:
@@ -192,7 +210,7 @@ class DatasetValidatorTests(unittest.TestCase):
     def _write_manifest(
         self,
         name: str,
-        tasks: list[dict[str, str]],
+        tasks: list[dict[str, object]],
         benchmark_id: str = "alfworld",
     ) -> Path:
         path = self.root / name
@@ -215,6 +233,14 @@ class DatasetValidatorTests(unittest.TestCase):
         else:
             data = {"tasks": tasks}
         path.write_text(json.dumps(data), encoding="utf-8")
+        if benchmark_id == "gaia":
+            attachments = data["tasks"][0].get("attachments")
+            if isinstance(attachments, list):
+                for attachment in attachments:
+                    if isinstance(attachment, str):
+                        attachment_path = self.root / attachment
+                        attachment_path.parent.mkdir(parents=True, exist_ok=True)
+                        attachment_path.write_bytes(b"fixture")
         return path
 
 

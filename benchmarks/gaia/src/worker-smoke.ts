@@ -44,9 +44,27 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
         let calls = 0;
         const adapter: LLMAdapter = {
             structuredOutputMode: "strict",
-            generate: async () => {
+            generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {
+                    return {
+                        content: JSON.stringify({
+                            result: {
+                                kind: "task_proposal",
+                                task: {
+                                    objective: `Submit the answer for GAIA task ${task.taskId}`,
+                                    completionCriteria: [{
+                                        text: "The answer is submitted using submit_answer",
+                                        acceptance: null,
+                                    }],
+                                },
+                                approvalRequest: "Approve the GAIA smoke task.",
+                                memoryPatch: null,
+                            },
+                        }),
+                    };
+                }
+                if (calls === 2) {
                     return {
                         content: JSON.stringify({
                             result: {
@@ -61,12 +79,26 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
                         }),
                     };
                 }
+                const context = request.messages.at(-1)?.content;
+                if (typeof context !== "string") {
+                    throw new Error("GAIA smoke expected serialized execution context");
+                }
+                const parsed = JSON.parse(context) as {
+                    trajectoryContext?: {
+                        hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[];
+                    };
+                };
+                const sequence = parsed.trajectoryContext?.hot?.flatMap((unit) => unit.events ?? [])
+                    .filter((event) => event.eventType === "observation_recorded").at(-1)?.sequence;
+                if (typeof sequence !== "number") {
+                    throw new Error("GAIA smoke did not receive submit_answer observation");
+                }
                 return {
                     content: JSON.stringify({
                         result: {
                             kind: "complete",
                             summary: "Submitted answer 2",
-                            completionEvidence: [],
+                            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }],
                             memoryPatch: null,
                         },
                     }),
@@ -90,6 +122,9 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
 
         if (result.domainResult.correct !== true) {
             throw new Error(`GAIA smoke expected correct answer '2', got '${result.domainResult.submittedAnswer}'`);
+        }
+        if (calls !== 3) {
+            throw new Error(`GAIA smoke expected task proposal, submit action and completion, got ${calls} model calls`);
         }
 
         process.stdout.write(

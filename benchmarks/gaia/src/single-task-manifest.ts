@@ -1,5 +1,5 @@
-import { stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import {
     GaiaManifestValidationError,
     loadGaiaManifest,
@@ -7,7 +7,7 @@ import {
 } from "./manifest";
 import type { GaiaManifest, GaiaManifestTask } from "./types";
 
-/** 首阶段 GAIA GEPA 单任务 Manifest 物化选项。 */
+/** GAIA GEPA validation 单任务 Manifest 物化选项。 */
 export interface GaiaSingleTaskMaterializerOptions {
     /** 包含源任务集合的 Manifest JSON 文件路径。 */
     readonly sourceManifestPath: string;
@@ -17,29 +17,23 @@ export interface GaiaSingleTaskMaterializerOptions {
     readonly outputPath: string;
 }
 
-function assertFirstStageTask(task: GaiaManifestTask): void {
+function assertGepaValidationTask(task: GaiaManifestTask): void {
     if (task.split !== "validation") {
         throw new GaiaManifestValidationError(
             "UNSUPPORTED_SINGLE_TASK",
             `GAIA single-task materialization requires validation split: ${task.taskId}`,
         );
     }
-    if (task.level !== 1) {
+    if (task.level !== 1 && task.level !== 2) {
         throw new GaiaManifestValidationError(
             "UNSUPPORTED_SINGLE_TASK",
-            `GAIA first-stage materialization requires level 1: ${task.taskId}`,
+            `GAIA GEPA materialization requires validation level 1 or level 2: ${task.taskId}`,
         );
     }
     if (task.expectedAnswer === null || task.expectedAnswer.trim().length === 0) {
         throw new GaiaManifestValidationError(
             "INVALID_TASK",
             `GAIA validation task requires a non-empty expectedAnswer: ${task.taskId}`,
-        );
-    }
-    if (task.attachments.length !== 0) {
-        throw new GaiaManifestValidationError(
-            "UNSUPPORTED_SINGLE_TASK",
-            `GAIA first-stage materialization does not support attachments: ${task.taskId}`,
         );
     }
 }
@@ -68,13 +62,57 @@ async function assertDataRoot(dataRoot: string): Promise<void> {
     }
 }
 
+async function assertTaskAttachments(
+    dataRoot: string,
+    task: GaiaManifestTask,
+): Promise<void> {
+    let realDataRoot: string;
+    try {
+        realDataRoot = await realpath(dataRoot);
+    } catch {
+        throw new GaiaManifestValidationError(
+            "DATA_ROOT_NOT_FOUND",
+            `GAIA dataRoot does not exist or is not readable: ${dataRoot}`,
+        );
+    }
+    for (const attachment of task.attachments) {
+        try {
+            const attachmentPath = await realpath(resolve(dataRoot, attachment));
+            const relativePath = relative(realDataRoot, attachmentPath);
+            if (
+                relativePath === ".."
+                || relativePath.startsWith(`..${sep}`)
+                || isAbsolute(relativePath)
+            ) {
+                throw new GaiaManifestValidationError(
+                    "ATTACHMENT_NOT_FOUND",
+                    `GAIA task attachment must stay inside dataRoot: ${attachment}`,
+                );
+            }
+            const info = await stat(attachmentPath);
+            if (!info.isFile()) {
+                throw new GaiaManifestValidationError(
+                    "ATTACHMENT_NOT_FOUND",
+                    `GAIA task attachment must be a file: ${attachment}`,
+                );
+            }
+        } catch (error) {
+            if (error instanceof GaiaManifestValidationError) throw error;
+            throw new GaiaManifestValidationError(
+                "ATTACHMENT_NOT_FOUND",
+                `GAIA task attachment does not exist or is not readable: ${attachment}`,
+            );
+        }
+    }
+}
+
 /**
- * 将用户明确选择的首阶段 GAIA validation 任务物化为单任务 Manifest。
+ * 将用户明确选择的 GAIA validation Level 1/2 任务物化为单任务 Manifest。
  *
  * @remarks
- * 此入口只服务于 GEPA 首阶段真实闸门，不改变源 Manifest；它拒绝 test split、
- * 非 Level 1、缺少标准答案和带附件的任务，从而保证一个 GEPA sample 只对应一个
- * 可评分且不依赖附件的 GAIA task。
+ * 此入口服务于 GEPA 真实闸门，不改变源 Manifest；它拒绝 test split、Level 3
+ * 和缺少标准答案的任务，从而保证一个 GEPA sample 只对应一个可评分的 GAIA task。
+ * 附件路径由源 Manifest 的校验保证为相对路径，运行时由 GAIA Environment 注入沙箱。
  *
  * @param options - 源 Manifest、taskId 和输出文件路径。
  * @returns 已写入并通过校验的单任务 Manifest。
@@ -118,7 +156,8 @@ export async function materializeGaiaSingleTask(
     }
 
     const task = matches[0]!;
-    assertFirstStageTask(task);
+    assertGepaValidationTask(task);
+    await assertTaskAttachments(source.dataRoot, task);
     const outputPath = resolve(options.outputPath);
     if (outputPath === resolve(options.sourceManifestPath)) {
         throw new GaiaManifestValidationError(

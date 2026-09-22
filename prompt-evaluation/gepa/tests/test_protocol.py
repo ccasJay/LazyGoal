@@ -142,32 +142,41 @@ class GEPARunProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(DatasetValidationError, "sample IDs"):
             parse_run_request(data)
 
-    def test_rejects_gaia_manifest_that_is_not_first_stage(self) -> None:
-        gaia_manifest = self.root / "gaia-invalid.json"
+    def test_accepts_gaia_level_2_manifest(self) -> None:
+        gaia_manifest = self.root / "gaia-level2.json"
+        gaia_validation_manifest = self.root / "gaia-level2-validation.json"
+        manifest_payload = {
+            "source": "huggingface",
+            "loadedAt": "2026-09-21T00:00:00+00:00",
+            "dataRoot": str(self.root),
+            "tasks": [{
+                "taskId": "task-gaia",
+                "question": "q",
+                "expectedAnswer": "a",
+                "level": 2,
+                "split": "validation",
+                "attachments": [],
+            }],
+        }
         gaia_manifest.write_text(
-            json.dumps({
-                "source": "huggingface",
-                "loadedAt": "2026-09-21T00:00:00+00:00",
-                "dataRoot": str(self.root),
-                "tasks": [{
-                    "taskId": "task-gaia",
-                    "question": "q",
-                    "expectedAnswer": "a",
-                    "level": 2,
-                    "split": "validation",
-                    "attachments": [],
-                }],
-            }),
+            json.dumps(manifest_payload),
+            encoding="utf-8",
+        )
+        validation_payload = dict(manifest_payload)
+        validation_payload["tasks"] = [{**manifest_payload["tasks"][0], "taskId": "task-gaia-validation"}]
+        gaia_validation_manifest.write_text(
+            json.dumps(validation_payload),
             encoding="utf-8",
         )
         data = {
             "protocol": GEPA_RUN_PROTOCOL,
             "benchmark": "gaia",
             "trainset": [{"sampleId": "s1", "taskId": "task-gaia", "manifestPath": str(gaia_manifest)}],
+            "valset": [{"sampleId": "s2", "taskId": "task-gaia-validation", "manifestPath": str(gaia_validation_manifest)}],
             "maxMetricCalls": 4,
         }
-        with self.assertRaisesRegex(DatasetValidationError, "level 1"):
-            parse_run_request(data, check_manifests=True)
+        request = parse_run_request(data, check_manifests=True)
+        validate_gaia_minimal_request(request)
 
     def test_reject_unsupported_protocol_version(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")

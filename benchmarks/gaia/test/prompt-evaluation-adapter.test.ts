@@ -10,8 +10,10 @@ import { readBenchmarkAttempt } from "../../src/attempt-recorder.js";
 import type { IsolatedEnvironment } from "../../src/isolated-environment.js";
 import { fingerprintPromptEvaluationCandidate } from "../../src/prompt-evaluation/profile.js";
 import {
+    GAIA_DEFAULT_MAX_STEPS,
     GAIA_WORKER_PROFILE,
     parseGaiaAcpTaskMetadata,
+    projectGaiaAcpResult,
 } from "../src/worker-entry.js";
 import { GaiaPromptEvaluationAdapter } from "../src/prompt-evaluation-adapter.js";
 import { runGaiaSupervisor } from "../src/supervisor.js";
@@ -40,6 +42,23 @@ const llmAdapter: LLMAdapter = {
     structuredOutputMode: "strict",
     async generate() { throw new Error("not used"); },
 };
+
+test("GAIA Worker 默认不设置执行步数上限", () => {
+    assert.equal(GAIA_DEFAULT_MAX_STEPS, 0);
+});
+
+test("GAIA ACP 不把普通未提交结果伪装为 max_turn_requests", () => {
+    const response = projectGaiaAcpResult({
+        goal: { state: { run: { status: "completed", stepCount: 2 } } },
+        progress: { ok: true, kind: "terminal", phase: "executing" },
+        runner: { ok: true, state: { status: "completed", stepCount: 2 } },
+        model: { completed: false, runStatus: "completed" },
+        outcome: { submitted: false, submittedAnswer: null },
+        persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+    } as never);
+
+    assert.equal(response.stopReason, "end_turn");
+});
 
 test("GAIA Prompt Evaluation adapter forwards candidate identity and uses domain score", async () => {
     let receivedDataRoot: string | undefined;
@@ -288,6 +307,53 @@ test("GAIA Supervisor rejects mismatched answer artifacts without producing a do
     const attempt = await readBenchmarkAttempt<GaiaDomainResult>(result.attemptPath);
     assert.equal(attempt.domainResult.correct, null);
     assert.equal(attempt.artifactLocator?.goalSnapshot, "goal.json");
+});
+
+test("GAIA Supervisor preserves ACP stop reason when answer artifact is missing", async (t) => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-missing-answer-"));
+    t.after(() => rm(outputDirectory, { recursive: true, force: true }));
+    const isolatedEnvironment = {
+        async run() {
+            return {
+                status: "completed" as const,
+                artifact: {
+                    submittedAnswer: null,
+                    answerTaskId: null,
+                    persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+                    errors: [{ stage: "result_read" as const, message: "answer.json is missing" }],
+                },
+                imageId: null,
+                acp: {
+                    sessionId: "session-1",
+                    stopReason: "max_turn_requests" as const,
+                    meta: {
+                        modelCompleted: true,
+                        runStatus: "completed",
+                        stepCount: 2,
+                        submitted: false,
+                    },
+                },
+                errors: [],
+            };
+        },
+    } as unknown as IsolatedEnvironment;
+
+    const result = await runGaiaSupervisor({
+        task,
+        dataRoot: "/data/gaia",
+        outputDirectory,
+        llmAdapter,
+        isolatedEnvironment,
+    });
+
+    assert.equal(result.status, "infrastructure_error");
+    assert.deepEqual(
+        result.errors.map((error) => `${error.code}:${error.message}`),
+        [
+            "result_read:answer.json is missing",
+            "ACP_STOP_REASON:ACP prompt ended with stopReason=max_turn_requests, modelCompleted=true, runStatus=completed, stepCount=2",
+        ],
+    );
 });
 
 function baseMetadata(): Record<string, unknown> {

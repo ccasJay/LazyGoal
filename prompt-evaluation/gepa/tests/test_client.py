@@ -96,6 +96,13 @@ class PromptEvaluationClientTests(unittest.TestCase):
                 with self.assertRaises(error_type):
                     self._evaluate(mode)
 
+    def test_infrastructure_error_includes_bounded_task_diagnostics(self) -> None:
+        with self.assertRaisesRegex(
+            PromptEvaluationInfrastructureError,
+            r"stage='fixture'.*code='FIXTURE_FAILURE'.*infrastructure failed",
+        ):
+            self._evaluate("infrastructure")
+
     def test_bounds_captured_process_output(self) -> None:
         with self.assertRaisesRegex(PromptEvaluationProtocolError, "capture limit"):
             self._evaluate("overflow", capture_limit=64)

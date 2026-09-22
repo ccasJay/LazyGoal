@@ -57,8 +57,8 @@ export {
     GAIA_WORKER_PROFILE,
 } from "./profile.js";
 
-/** GAIA Worker 默认最大执行步数。 */
-export const GAIA_DEFAULT_MAX_STEPS = 30;
+/** GAIA Worker 默认执行步数；Runtime 以 0 表示不设置步数上限。 */
+export const GAIA_DEFAULT_MAX_STEPS = 0;
 
 /** GAIA Worker 工具装配选项。 */
 export interface GaiaWorkerToolOptions {
@@ -263,6 +263,63 @@ export async function runGaiaAcpTask(
 }
 
 /**
+ * 将 GAIA Headless Runtime 结果映射为 ACP Prompt 终态。
+ *
+ * @remarks
+ * `max_turn_requests` 只表示 Runtime 实际触发 `max_steps_exceeded`；不能把所有
+ * 未提交答案的结果都伪装成轮数上限。普通完成或等待返回 `end_turn`，取消返回
+ * `cancelled`，其他 Runtime/清理失败直接抛出，使宿主保留真实失败阶段。
+ *
+ * @param result - 已恢复并包含 Runtime 终态的 Headless 结果。
+ * @returns 与 ACP v1 一致的 Prompt 终态和可审计元数据。
+ * @throws Runtime、协议或清理未达到受支持终态时抛出错误。
+ *
+ * @example
+ * ```ts
+ * const response = projectGaiaAcpResult(result);
+ * console.log(response.stopReason);
+ * ```
+ */
+export function projectGaiaAcpResult(
+    result: HeadlessEpisodeResult<GaiaEpisodeOutcome>,
+): AcpPromptResult {
+    const run = result.goal.state.run;
+    const meta = {
+        modelCompleted: result.model.completed,
+        runStatus: result.model.runStatus,
+        stepCount: run.stepCount,
+        submitted: result.outcome.submitted,
+    };
+
+    if (result.cleanupError !== undefined) {
+        throw new Error("GAIA Worker cleanup failed");
+    }
+    if (!result.progress.ok) {
+        throw new Error(`GAIA Runtime did not reach a valid terminal state: ${result.progress.error.code}`);
+    }
+    if (result.runner !== null && !result.runner.ok) {
+        throw new Error(`GAIA Runner did not reach a valid terminal state: ${result.runner.error.code}`);
+    }
+    if (result.model.runStatus !== run.status) {
+        throw new Error("GAIA model and Goal Run statuses disagree");
+    }
+    if (run.status === "completed" || run.status === "waiting") {
+        return { stopReason: "end_turn", meta };
+    }
+    if (run.status === "cancelled") {
+        return { stopReason: "cancelled", meta };
+    }
+    if (run.status === "failed" && run.stopReason?.kind === "max_steps_exceeded") {
+        return { stopReason: "max_turn_requests", meta };
+    }
+
+    const reason = run.stopReason?.kind === "execution_error"
+        ? run.stopReason.code
+        : "RUN_NOT_TERMINAL";
+    throw new Error(`GAIA Runtime failed before a supported ACP terminal state: ${reason}`);
+}
+
+/**
  * 校验候选 Profile 保持 GAIA 固定 Tool 白名单和提交协议。
  *
  * @param profile - 公共层派生或 ACP metadata 反序列化的候选。
@@ -373,8 +430,7 @@ export async function runGaiaWorker(): Promise<void> {
                         signal: control.signal,
                     });
                     if (control.signal.aborted) return { stopReason: "cancelled" };
-                    const stopReason = result.outcome.submitted ? "end_turn" : "max_turn_requests";
-                    return { stopReason };
+                    return projectGaiaAcpResult(result);
                 },
                 dispose: async () => {
                     await adapter?.close();

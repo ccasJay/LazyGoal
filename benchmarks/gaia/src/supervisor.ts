@@ -138,6 +138,25 @@ export async function runGaiaSupervisor(
             message: "GAIA answer artifact task identity does not match the evaluated task",
         });
     }
+    if (submittedAnswer === null && envResult.acp !== null) {
+        const meta = envResult.acp.meta;
+        const modelCompleted = meta?.modelCompleted;
+        const runStatus = meta?.runStatus;
+        const stepCount = meta?.stepCount;
+        const stateDetails = [
+            typeof modelCompleted === "boolean" ? `modelCompleted=${modelCompleted}` : null,
+            typeof runStatus === "string" ? `runStatus=${runStatus}` : null,
+            typeof stepCount === "number" ? `stepCount=${stepCount}` : null,
+        ].filter((value): value is string => value !== null);
+        artifactErrors.push({
+            stage: "artifact_collect",
+            code: "ACP_STOP_REASON",
+            message: [
+                `ACP prompt ended with stopReason=${envResult.acp.stopReason}`,
+                ...stateDetails,
+            ].join(", "),
+        });
+    }
     const errors: IsolatedEnvironmentError[] = [...envResult.errors, ...artifactErrors].map((error) => ({
         ...error,
         message: sanitizeDiagnostic(error.message),
