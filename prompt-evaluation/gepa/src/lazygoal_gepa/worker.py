@@ -30,13 +30,11 @@ from .errors import (
     PromptEvaluationCancelled,
     PromptEvaluationInfrastructureError,
     PromptEvaluationProtocolError,
-    ProfileValidationError,
     RunStoreError,
 )
 from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazygoal_executable
 from .ownership import RunOwnership
 from .publisher import ProfilePublisher
-from .protocol import validate_gaia_minimal_request
 from .reporter import generate_and_save_run_report
 from .store import RunStore, atomic_write_json
 
@@ -213,14 +211,6 @@ def run_gepa_worker(
 
     try:
         manifest = store.read_manifest(run_id)
-        validate_gaia_minimal_request(manifest.request)
-        if (
-            manifest.request.benchmark == "gaia"
-            and manifest.target_profile.profile_id != "gaia-worker-profile"
-        ):
-            raise ProfileValidationError(
-                "GAIA lifecycle requires target Profile id 'gaia-worker-profile'"
-            )
         store.update_state(run_id, lifecycle_status="running")
 
         executable = resolve_lazygoal_executable(resolved_workspace)
@@ -284,11 +274,6 @@ def run_gepa_worker(
             adapter=adapter,
             reflection_lm=reflection_client,
             max_metric_calls=manifest.request.max_metric_calls,
-            reflection_minibatch_size=(
-                manifest.request.reflection_minibatch_size
-                if manifest.request.reflection_minibatch_size is not None
-                else (1 if manifest.request.benchmark == "gaia" else None)
-            ),
             reflection_minibatch_size=manifest.request.reflection_minibatch_size,
             run_dir=str(gepa_dir),
             seed=manifest.request.seed if manifest.request.seed is not None else 0,

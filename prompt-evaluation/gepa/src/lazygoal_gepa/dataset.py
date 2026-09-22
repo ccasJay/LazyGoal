@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import Any, Sequence
 
 from .errors import DatasetValidationError
@@ -47,17 +46,12 @@ class DatasetValidator:
 
         return tuple(validated)
 
+
 def validate_manifest_file(
     example: LazyGoalEvaluationExample,
     benchmark_id: str,
 ) -> None:
-    """Validate one GEPA sample's Manifest before any benchmark process starts.
-
-    GAIA uses the bounded validation contract: a validation Level 1 or Level 2 task
-    with a non-empty expected answer and an absolute existing dataRoot. Attachments
-    are allowed when they are relative files contained by ``dataRoot``. Other
-    benchmark adapters retain their existing single-task envelope contract.
-    """
+    """Validate the shared single-task Manifest envelope before evaluation."""
 
     path = example.manifest_path
     if not path.is_file():
@@ -95,57 +89,3 @@ def validate_manifest_file(
             "Sample benchmark does not match the run: "
             f"manifest uses {manifest_benchmark!r}, run uses {benchmark_id!r}"
         )
-
-    if benchmark_id != "gaia":
-        return
-
-    if raw.get("source") != "huggingface":
-        raise DatasetValidationError(
-            f"GAIA Manifest source must be 'huggingface': {path}"
-        )
-    data_root = raw.get("dataRoot")
-    if not isinstance(data_root, str) or not data_root.strip():
-        raise DatasetValidationError(
-            f"GAIA Manifest dataRoot must be a non-empty absolute directory: {path}"
-        )
-    data_root_path = Path(data_root)
-    if not data_root_path.is_absolute() or not data_root_path.is_dir():
-        raise DatasetValidationError(
-            f"GAIA Manifest dataRoot must be an existing absolute directory: {data_root}"
-        )
-    if task.get("split") != "validation":
-        raise DatasetValidationError(
-            f"GAIA GEPA samples require validation split: {example.task_id}"
-        )
-    if task.get("level") not in (1, 2):
-        raise DatasetValidationError(
-            f"GAIA GEPA samples require validation level 1 or level 2: {example.task_id}"
-        )
-    expected_answer = task.get("expectedAnswer")
-    if not isinstance(expected_answer, str) or not expected_answer.strip():
-        raise DatasetValidationError(
-            f"GAIA task requires a non-empty expectedAnswer: {example.task_id}"
-        )
-    attachments = task.get("attachments")
-    if attachments is None:
-        return
-    if not isinstance(attachments, list):
-        raise DatasetValidationError(
-            f"GAIA task attachments must be an array: {example.task_id}"
-        )
-    for attachment in attachments:
-        if not isinstance(attachment, str) or not attachment.strip():
-            raise DatasetValidationError(
-                f"GAIA task attachment paths must be non-empty strings: {example.task_id}"
-            )
-        attachment_path = (data_root_path / attachment).resolve()
-        try:
-            attachment_path.relative_to(data_root_path.resolve())
-        except ValueError as error:
-            raise DatasetValidationError(
-                f"GAIA task attachment must stay inside dataRoot: {attachment}"
-            ) from error
-        if not attachment_path.is_file():
-            raise DatasetValidationError(
-                f"GAIA task attachment does not exist: {attachment}"
-            )

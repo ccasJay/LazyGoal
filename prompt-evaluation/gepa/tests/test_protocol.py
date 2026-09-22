@@ -142,41 +142,31 @@ class GEPARunProtocolTests(unittest.TestCase):
         with self.assertRaisesRegex(DatasetValidationError, "sample IDs"):
             parse_run_request(data)
 
-    def test_accepts_gaia_level_2_manifest(self) -> None:
-        gaia_manifest = self.root / "gaia-level2.json"
-        gaia_validation_manifest = self.root / "gaia-level2-validation.json"
+    def test_check_manifests_accepts_domain_specific_fields(self) -> None:
+        manifest = self.root / "custom.json"
         manifest_payload = {
-            "source": "huggingface",
-            "loadedAt": "2026-09-21T00:00:00+00:00",
-            "dataRoot": str(self.root),
+            "benchmark": "custom-benchmark",
             "tasks": [{
-                "taskId": "task-gaia",
-                "question": "q",
-                "expectedAnswer": "a",
-                "level": 2,
-                "split": "validation",
-                "attachments": [],
+                "taskId": "task-custom",
+                "domainConfig": {"mode": "benchmark-owned"},
             }],
         }
-        gaia_manifest.write_text(
+        manifest.write_text(
             json.dumps(manifest_payload),
-            encoding="utf-8",
-        )
-        validation_payload = dict(manifest_payload)
-        validation_payload["tasks"] = [{**manifest_payload["tasks"][0], "taskId": "task-gaia-validation"}]
-        gaia_validation_manifest.write_text(
-            json.dumps(validation_payload),
             encoding="utf-8",
         )
         data = {
             "protocol": GEPA_RUN_PROTOCOL,
-            "benchmark": "gaia",
-            "trainset": [{"sampleId": "s1", "taskId": "task-gaia", "manifestPath": str(gaia_manifest)}],
-            "valset": [{"sampleId": "s2", "taskId": "task-gaia-validation", "manifestPath": str(gaia_validation_manifest)}],
+            "benchmark": "custom-benchmark",
+            "trainset": [{
+                "sampleId": "s1",
+                "taskId": "task-custom",
+                "manifestPath": str(manifest),
+            }],
             "maxMetricCalls": 4,
         }
         request = parse_run_request(data, check_manifests=True)
-        validate_gaia_minimal_request(request)
+        self.assertEqual(request.benchmark, "custom-benchmark")
 
     def test_reject_unsupported_protocol_version(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
@@ -201,7 +191,6 @@ class GEPARunProtocolTests(unittest.TestCase):
 
     def test_reject_invalid_benchmark(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
-        cases = ("swebench", "webarena", "", 123)
         cases = ("", "   ", 123, None, False)
 
         for invalid_bm in cases:

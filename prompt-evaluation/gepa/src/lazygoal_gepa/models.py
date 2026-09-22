@@ -5,14 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
-from typing import Literal, TypeAlias
+from typing import TypeAlias
 
 from .errors import ConfigurationError, DatasetValidationError
 
-BenchmarkId: TypeAlias = Literal["alfworld", "gaia"]
 BenchmarkId: TypeAlias = str
-
-SUPPORTED_BENCHMARKS = frozenset(("alfworld", "gaia"))
 
 
 @dataclass(frozen=True)
@@ -27,10 +24,6 @@ class LazyGoalGEPAConfig:
     lazygoal_executable: Path
 
     def __post_init__(self) -> None:
-        if self.benchmark_id not in SUPPORTED_BENCHMARKS:
-            raise ConfigurationError(
-                f"Unsupported benchmark ID: {self.benchmark_id!r}"
-            )
         if not isinstance(self.benchmark_id, str) or not self.benchmark_id.strip():
             raise ConfigurationError("benchmark_id must be a non-empty string")
         for field_name in ("base_profile_id", "model_config_id", "model_id"):
@@ -57,10 +50,6 @@ class LazyGoalEvaluationExample:
                 raise DatasetValidationError(
                     f"{field_name} must be a non-empty string"
                 )
-        if self.benchmark_id not in SUPPORTED_BENCHMARKS:
-            raise DatasetValidationError(
-                f"Unsupported sample benchmark ID: {self.benchmark_id!r}"
-            )
         if not isinstance(self.benchmark_id, str) or not self.benchmark_id.strip():
             raise DatasetValidationError("benchmark_id must be a non-empty string")
         _require_path(self.manifest_path, "manifest_path", DatasetValidationError)
@@ -91,4 +80,3 @@ def resolve_lazygoal_executable(workspace_root: Path | str) -> Path:
     raise ConfigurationError(
         "LazyGoal executable does not exist; set LAZYGOAL_EXECUTABLE or run from a source checkout"
     )
-

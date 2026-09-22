@@ -23,8 +23,8 @@ class DatasetValidatorTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def test_accepts_single_task_alfworld_and_gaia_manifests(self) -> None:
-        for benchmark_id in ("alfworld", "gaia"):
+    def test_accepts_single_task_manifests_for_arbitrary_benchmarks(self) -> None:
+        for benchmark_id in ("alfworld", "gaia", "custom-benchmark"):
             with self.subTest(benchmark_id=benchmark_id):
                 manifest = self._write_manifest(
                     f"{benchmark_id}.json",
@@ -114,70 +114,19 @@ class DatasetValidatorTests(unittest.TestCase):
                 [self._example("sample-1", "expected", manifest)],
             )
 
-    def test_accepts_gaia_level_2_and_existing_attachment(self) -> None:
-        manifest = self._write_manifest(
-            "gaia-level2.json",
-            [{
-                "taskId": "gaia-task",
-                "level": 2,
-                "attachments": ["attachments/level2.pdf"],
-            }],
-            benchmark_id="gaia",
-        )
-        example = LazyGoalEvaluationExample(
-            sample_id="gaia-sample",
-            benchmark_id="gaia",
-            task_id="gaia-task",
-            manifest_path=manifest,
-        )
-
-        self.assertEqual(
-            self.validator.validate_batch(self._config("gaia"), [example]),
-            (example,),
-        )
-
-    def test_rejects_gaia_manifest_outside_level_1_2_boundary(self) -> None:
-        cases = (
-            (
-                {"split": "test", "level": 1, "expectedAnswer": "a", "attachments": []},
-                "validation split",
-            ),
-            (
-                {"split": "validation", "level": 3, "expectedAnswer": "a", "attachments": []},
-                "level 1 or level 2",
-            ),
-            (
-                {"split": "validation", "level": 1, "expectedAnswer": "", "attachments": []},
-                "non-empty expectedAnswer",
-            ),
-        )
-        for task_fields, expected_message in cases:
-            with self.subTest(expected_message=expected_message):
-                manifest = self._write_manifest(
-                    "gaia-invalid.json",
-                    [{"taskId": "gaia-task", **task_fields}],
-                    benchmark_id="gaia",
-                )
-                with self.assertRaisesRegex(DatasetValidationError, expected_message):
-                    self.validator.validate_batch(
-                        self._config("gaia"),
-                        [
-                            LazyGoalEvaluationExample(
-                                sample_id="gaia-sample",
-                                benchmark_id="gaia",
-                                task_id="gaia-task",
-                                manifest_path=manifest,
-                            )
-                        ],
-                    )
-
-    def test_configuration_rejects_unsupported_or_empty_values(self) -> None:
-        with self.assertRaisesRegex(ConfigurationError, "Unsupported benchmark"):
-            self._config("swebench")
+    def test_configuration_accepts_arbitrary_benchmark_and_rejects_empty_values(self) -> None:
+        self.assertEqual(self._config("swebench").benchmark_id, "swebench")
         with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
             self._config("")
         with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
             self._config("   ")
+        with self.assertRaisesRegex(DatasetValidationError, "benchmark_id must be a non-empty string"):
+            LazyGoalEvaluationExample(
+                sample_id="sample-1",
+                benchmark_id=" ",
+                task_id="task-1",
+                manifest_path=self.root / "manifest.json",
+            )
         with self.assertRaisesRegex(ConfigurationError, "model_id"):
             LazyGoalGEPAConfig(
                 benchmark_id="alfworld",
@@ -218,33 +167,8 @@ class DatasetValidatorTests(unittest.TestCase):
         benchmark_id: str = "alfworld",
     ) -> Path:
         path = self.root / name
-        if benchmark_id == "gaia":
-            task = tasks[0]
-            task = {
-                "taskId": task["taskId"],
-                "question": "question",
-                "expectedAnswer": "answer",
-                "level": 1,
-                "split": "validation",
-                "attachments": [],
-            } | task
-            data = {
-                "source": "huggingface",
-                "loadedAt": "2026-09-21T00:00:00+00:00",
-                "dataRoot": str(self.root),
-                "tasks": [task],
-            }
-        else:
-            data = {"tasks": tasks}
+        data = {"benchmark": benchmark_id, "tasks": tasks}
         path.write_text(json.dumps(data), encoding="utf-8")
-        if benchmark_id == "gaia":
-            attachments = data["tasks"][0].get("attachments")
-            if isinstance(attachments, list):
-                for attachment in attachments:
-                    if isinstance(attachment, str):
-                        attachment_path = self.root / attachment
-                        attachment_path.parent.mkdir(parents=True, exist_ok=True)
-                        attachment_path.write_bytes(b"fixture")
         return path
 
 

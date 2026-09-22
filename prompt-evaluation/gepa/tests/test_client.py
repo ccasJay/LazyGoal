@@ -69,6 +69,23 @@ class PromptEvaluationClientTests(unittest.TestCase):
                     ["Instruction one"],
                 )
 
+    def test_accepts_arbitrary_benchmark_identity_in_request_and_result(self) -> None:
+        benchmark_id = "custom-benchmark"
+        example = LazyGoalEvaluationExample(
+            sample_id="sample-1",
+            benchmark_id=benchmark_id,
+            task_id="task-1",
+            manifest_path=self.manifest,
+        )
+
+        record = self._evaluate(
+            "passed",
+            benchmark_id=benchmark_id,
+            example=example,
+        )
+
+        self.assertEqual(record.task.status, "passed")
+
     def test_rejects_malformed_or_contradictory_protocol_outputs(self) -> None:
         modes = (
             "bad_json",
@@ -134,7 +151,14 @@ class PromptEvaluationClientTests(unittest.TestCase):
         ):
             self._evaluate("passed")
 
-    def _evaluate(self, mode: str, capture_limit: int = 1_048_576):
+    def _evaluate(
+        self,
+        mode: str,
+        capture_limit: int = 1_048_576,
+        *,
+        benchmark_id: str = "alfworld",
+        example: LazyGoalEvaluationExample | None = None,
+    ):
         self.sequence += 1
         manager = InvocationDirectoryManager(
             self.root / "output",
@@ -143,7 +167,7 @@ class PromptEvaluationClientTests(unittest.TestCase):
         invocation = manager.create_invocation(self.prompt.candidate_id)
         client = PromptEvaluationClient(
             LazyGoalGEPAConfig(
-                benchmark_id="alfworld",
+                benchmark_id=benchmark_id,
                 base_profile_id="alfworld-profile",
                 model_config_id="default",
                 model_id="model-1",
@@ -154,7 +178,7 @@ class PromptEvaluationClientTests(unittest.TestCase):
             capture_limit=capture_limit,
         )
         with patch.dict(os.environ, {"LAZYGOAL_GEPA_FAKE_MODE": mode}):
-            return client.evaluate_one(self.example, self.prompt, invocation)
+            return client.evaluate_one(example or self.example, self.prompt, invocation)
 
 
 if __name__ == "__main__":

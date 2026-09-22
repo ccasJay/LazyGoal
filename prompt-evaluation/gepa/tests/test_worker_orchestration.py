@@ -191,14 +191,12 @@ class WorkerOrchestrationTests(unittest.TestCase):
         health, owner = RunOwnership(run_dir).check_health()
         self.assertEqual(health, "none")
 
-    def test_gaia_worker_freezes_minimal_gepa_defaults_before_optimize(self) -> None:
-        """GAIA lifecycle supplies seed 0 and reflection minibatch 1 when omitted."""
     def test_worker_forwards_request_reflection_minibatch_size(self) -> None:
         """Worker forwards reflection_minibatch_size directly from request without benchmark defaults."""
-        run_id = "run_test_gaia_minimal_defaults"
+        run_id = "run_test_generic_defaults"
         request = GEPARunRequest(
             protocol="gepa-run@1",
-            benchmark="gaia",
+            benchmark="custom-benchmark",
             trainset=(GEPAExampleRequest("train", "task-train", str(self.manifest_path)),),
             valset=(GEPAExampleRequest("val", "task-val", str(self.manifest_path)),),
             max_metric_calls=4,
@@ -207,7 +205,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
         )
         snapshot = AgentProfileSnapshot(
             schema_version=self.profile_data["schemaVersion"],
-            id="gaia-worker-profile",
+            id=self.profile_data["id"],
             name=self.profile_data["name"],
             description=self.profile_data["description"],
             system_prompt=self.profile_data["systemPrompt"],
@@ -235,7 +233,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
 
         def capture_optimize(**kwargs):
             captured.update(kwargs)
-            raise RuntimeError("stop after inspecting GAIA configuration")
+            raise RuntimeError("stop after inspecting worker configuration")
 
         with (
             patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
@@ -245,7 +243,6 @@ class WorkerOrchestrationTests(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertEqual(captured["seed"], 0)
-        self.assertEqual(captured["reflection_minibatch_size"], 1)
         self.assertIsNone(captured["reflection_minibatch_size"])
         self.assertEqual(captured["max_metric_calls"], 4)
 

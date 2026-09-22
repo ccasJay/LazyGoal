@@ -104,7 +104,9 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 回收，不进入默认回归。
 
 [`prompt-evaluation/gepa`](../../prompt-evaluation/gepa/) 通过官方 `gepa==0.1.4` 实现外部
-优化适配。GEPA 负责候选搜索与反思；adapter 校验单任务 Manifest 和候选组件，按 batch
+优化适配。GEPA 负责候选搜索与反思；Python adapter 只校验通用单任务 Manifest 外层结构、
+候选组件和跨进程结果身份，不枚举 benchmark ID，也不解释领域 Manifest 或 Profile。
+benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Python adapter 按 batch
 顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
 取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
 后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
