@@ -287,6 +287,25 @@ test("GAIA Worker accepts paired Prompt profiles and rejects frozen-field drift"
     );
 });
 
+test("GAIA Worker 允许工具引用位于 systemPrompt 或 instructions 中", () => {
+    const metadata = baseMetadata();
+    const profileWithToolsInSystemPrompt: AgentProfile = {
+        ...GAIA_WORKER_PROFILE,
+        systemPrompt: "Solve using read_file, web_search, web_fetch, and submit_answer.",
+        instructions: [
+            "Inspect workspace files using workspace-relative paths.",
+            "Search online facts when necessary.",
+            "Write the final answer before ending the turn.",
+        ],
+    };
+    const parsed = parseGaiaAcpTaskMetadata({
+        ...metadata,
+        baseProfile: GAIA_WORKER_PROFILE,
+        profile: profileWithToolsInSystemPrompt,
+    });
+    assert.deepEqual(parsed.profile, profileWithToolsInSystemPrompt);
+});
+
 test("GAIA Supervisor persists Prompt Evaluation identity in Attempt", async (t) => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-prompt-"));
     t.after(() => rm(outputDirectory, { recursive: true, force: true }));

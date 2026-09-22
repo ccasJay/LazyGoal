@@ -347,9 +347,9 @@ export function projectGaiaAcpResult(
  */
 export function validateGaiaPromptEvaluationProfile(profile: unknown): AgentProfile {
     const validated = validatePromptEvaluationProfile(profile, GAIA_WORKER_PROFILE);
-    const instructions = validated.instructions.join("\n");
+    const promptText = `${validated.systemPrompt}\n${validated.instructions.join("\n")}`;
     for (const toolId of GAIA_PROFILE_TOOL_IDS) {
-        if (!instructions.includes(toolId)) {
+        if (!promptText.includes(toolId)) {
             throw new TypeError(`GAIA candidate instructions must reference ${toolId}`);
         }
     }
