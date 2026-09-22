@@ -423,11 +423,19 @@ export class IsolatedEnvironment {
         const workdir = workerConfig.cwd ?? "/workspace";
         const errors: IsolatedEnvironmentError[] = [];
         const controller = new AbortController();
-        const forwardAbort = () => controller.abort();
+        let isTimedOut = false;
+        let isCancelled = options.signal?.aborted === true || options.forceSignal?.aborted === true;
+        const forwardAbort = () => {
+            isCancelled = true;
+            controller.abort();
+        };
         options.signal?.addEventListener("abort", forwardAbort, { once: true });
         options.forceSignal?.addEventListener("abort", forwardAbort, { once: true });
-        if (options.signal?.aborted || options.forceSignal?.aborted) controller.abort();
-        const timeout = setTimeout(() => controller.abort(), options.taskTimeoutMs ?? 300_000);
+        if (isCancelled) controller.abort();
+        const timeout = setTimeout(() => {
+            isTimedOut = true;
+            controller.abort();
+        }, options.taskTimeoutMs ?? 300_000);
         let imageId: string | null = options.container?.imageId ?? null;
         let created = false;
         let worker: InteractiveProcess | undefined;
@@ -440,7 +448,11 @@ export class IsolatedEnvironment {
             ?? this.createHandle(containerName, workdir, controller.signal);
         try {
             if (controller.signal.aborted) {
-                pushError(errors, "cancel", "Attempt cancelled before container startup");
+                if (isCancelled) {
+                    pushError(errors, "cancel", "Attempt cancelled before container startup");
+                } else if (isTimedOut) {
+                    pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                }
             } else {
                 try {
                     if (options.container !== undefined) {
@@ -473,7 +485,13 @@ export class IsolatedEnvironment {
                         try { await options.container.close(); }
                         catch (cleanupError) { pushError(errors, "cleanup", cleanupError); }
                     }
-                    pushError(errors, controller.signal.aborted ? "cancel" : "container_start", error);
+                    if (isCancelled) {
+                        pushError(errors, "cancel", error);
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                    } else {
+                        pushError(errors, "container_start", error);
+                    }
                 }
             }
 
@@ -485,7 +503,13 @@ export class IsolatedEnvironment {
                         await this.injectWorker(containerName, workerConfig, controller.signal);
                     }
                 } catch (error) {
-                    pushError(errors, controller.signal.aborted ? "cancel" : "worker_inject", error);
+                    if (isCancelled) {
+                        pushError(errors, "cancel", error);
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                    } else {
+                        pushError(errors, "worker_inject", error);
+                    }
                 }
             }
 
@@ -498,7 +522,13 @@ export class IsolatedEnvironment {
                     }
                     await options.spec.prepareEnvironment(handle);
                 } catch (error) {
-                    pushError(errors, controller.signal.aborted ? "cancel" : "environment_prepare", error);
+                    if (isCancelled) {
+                        pushError(errors, "cancel", error);
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                    } else {
+                        pushError(errors, "environment_prepare", error);
+                    }
                 }
             }
 
@@ -512,7 +542,13 @@ export class IsolatedEnvironment {
                         throw error;
                     }
                 } catch (error) {
-                    pushError(errors, controller.signal.aborted ? "cancel" : "preflight", error);
+                    if (isCancelled) {
+                        pushError(errors, "cancel", error);
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                    } else {
+                        pushError(errors, "preflight", error);
+                    }
                 }
             }
 
@@ -542,15 +578,44 @@ export class IsolatedEnvironment {
                         mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
                         await options.runAgent!({ environment: handle, worker, mux, signal: controller.signal });
                     }
-                    status = controller.signal.aborted || acp?.stopReason === "cancelled" ? "cancelled" : "completed";
+                    if (isCancelled) {
+                        status = "cancelled";
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                        status = "failed";
+                    } else if (acp?.stopReason === "cancelled") {
+                        status = "cancelled";
+                    } else {
+                        status = "completed";
+                    }
                 } catch (error) {
-                    pushError(errors, controller.signal.aborted ? "cancel" : "agent", error);
-                    status = controller.signal.aborted ? "cancelled" : "failed";
+                    if (isCancelled) {
+                        pushError(errors, "cancel", error);
+                        status = "cancelled";
+                    } else if (isTimedOut) {
+                        pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                        status = "failed";
+                    } else {
+                        pushError(errors, "agent", error);
+                        status = "failed";
+                    }
                 }
             } else if (created && errors.length === 0) {
-                status = controller.signal.aborted ? "cancelled" : "completed";
-            } else if (controller.signal.aborted) {
+                if (isCancelled) {
+                    status = "cancelled";
+                } else if (isTimedOut) {
+                    pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                    status = "failed";
+                } else {
+                    status = "completed";
+                }
+            } else if (isCancelled) {
                 status = "cancelled";
+            } else if (isTimedOut) {
+                if (!errors.some((e) => e.code === "TASK_TIMEOUT")) {
+                    pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
+                }
+                status = "failed";
             }
         } finally {
             clearTimeout(timeout);
@@ -636,7 +701,7 @@ export class IsolatedEnvironment {
                 }
             }
         }
-        if (controller.signal.aborted && status !== "cancelled") status = "cancelled";
+        if (isCancelled && status !== "cancelled") status = "cancelled";
         if (errors.length > 0) {
             if (errors.some((error) => error.stage === "cleanup")) {
                 status = "infrastructure_error";

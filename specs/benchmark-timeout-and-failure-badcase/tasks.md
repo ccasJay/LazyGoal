@@ -1,6 +1,6 @@
 # 评测超时与决策失败 Badcase 归类及协议对齐 实施任务
 
-- [ ] //TODO 1. 解耦单任务超时与外部取消信号 (IsolatedEnvironment)
+- [x] //TODO 1. 解耦单任务超时与外部取消信号 (IsolatedEnvironment)
 
   - 实现目标：在 `benchmarks/src/isolated-environment.ts` 中区分外部调用方传入的 `options.signal` 与单任务时限 `taskTimeoutMs`，超时时终止当前容器但记录特定超时原因，不标记为全局 `cancelled`
   - 成功判据：单任务超时触发后，环境结果携带 `TASK_TIMEOUT` 标识且未标记为 `cancelled`；外部 `signal` 触发时依然正确标记为 `cancelled`
