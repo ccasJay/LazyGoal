@@ -217,7 +217,7 @@ test("normal CLI exit returns zero and cleans up without requesting an interrupt
         const code = await runCli([], {
             cwd: workspace,
             env: { LLM_PROVIDER: "openai", LLM_API_KEY: "test", LLM_MODEL: "model",
-                LLM_STRUCTURED_OUTPUT_MODE: "strict" },
+                LLM_STRUCTURED_OUTPUT_MODE: "strict", LAZYGOAL_HOME: join(workspace, "lazygoal-home") },
             exitPort: { exit: code => { exitCodes.push(code); } },
             render: (() => ({ unmount: () => { unmounts += 1; },
                 waitUntilExit: async () => {} })) as never,
@@ -245,6 +245,7 @@ test("runCli with inspect non-existent goalId returns error code 1", async () =>
                 LLM_API_KEY: "test",
                 LLM_MODEL: "model",
                 LLM_STRUCTURED_OUTPUT_MODE: "strict",
+                LAZYGOAL_HOME: join(workspace, "lazygoal-home"),
             },
             writeError: (msg) => errors.push(msg),
             render: (() => ({

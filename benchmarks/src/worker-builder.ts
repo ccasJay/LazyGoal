@@ -363,7 +363,7 @@ export async function buildSwebenchWorker(options: WorkerBuilderOptions): Promis
  * const artifact = await buildBenchmarkWorker({
  *   projectRoot: process.cwd(),
  *   entryPoint: "benchmarks/alfworld/src/worker.ts",
- *   cacheDirectory: ".lazygoal/alfworld-worker-cache",
+ *   cacheDirectory: "~/.lazygoal/cache/benchmarks/alfworld/worker",
  * });
  * ```
  */

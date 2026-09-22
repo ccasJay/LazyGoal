@@ -45,8 +45,16 @@ SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命�
 数据准备使用 `npm --prefix benchmarks run alfworld:download`；GAIA 数据集下载使用 `lazygoal load gaia`。
 评测 CLI 与独立 preflight 脚本共用同一个有界 Python 探针执行器，测试入口仍可注入
 替身探针，不会改变预检顺序或错误语义。
-ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.json` 加载，
-不会从 `benchmarks` 源码目录或单数 `profile` 目录读取。
+
+隔离容器默认使用 `network=none`，只有 benchmark `EnvironmentSpec` 可显式选择 bridge。
+Spec 还可显式继承宿主代理；共享层只注入 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、
+`NO_PROXY` 及其小写形式，不传递其他宿主环境变量。代理值不进入 Docker 命令参数，
+回环代理主机在容器环境中改写为 `host.docker.internal`。GAIA 启用 bridge 和该代理继承，
+其他 benchmark 保持各自网络策略。
+
+ALFWorld 测试 Profile 只从 LazyGoal Home 的全局
+`agent-profiles/alfworld-profile.json` 加载，不会从 `benchmarks` 源码目录或 workspace
+Profile 覆盖层读取。
 显式入口同时自动读取 `benchmarks/alfworld/.env.alfworld`，命令行环境变量覆盖文件值。
 `grade alfworld`、`grade swebench` 和 `grade gaia` 只读取已有报告、Attempt 和产物，不构造模型。
 
@@ -56,7 +64,7 @@ ALFWorld 测试 Profile 只从工作区 `.lazygoal/profiles/alfworld-profile.jso
 把每个任务委托给 [`runAlfworldSupervisor`](../../benchmarks/alfworld/src/supervisor.ts)，由
 共享 [`IsolatedEnvironment`](../../benchmarks/src/isolated-environment.ts) 创建独立容器，
 再在容器 Worker 内装配通用 [`HeadlessCompositionRoot`](../../benchmarks/src/headless-composition-root.ts)。
-ALFWorld Reset 与 Step 专用 Tool 使用不可变 Input Contract 声明其输入规范（Reset 为 strict empty object，Step 为非空 string `command`），由 Root 通过 `createToolRegistration` 封装为 `ToolRegistration` 注册入 Registry，并在执行时共享 Runtime 的单次 Contract 解析与结构/语义分层校验边界。每个 task 默认写入 `.lazygoal/benchmarks/` 下独立的 LazyGoal
+ALFWorld Reset 与 Step 专用 Tool 使用不可变 Input Contract 声明其输入规范（Reset 为 strict empty object，Step 为非空 string `command`），由 Root 通过 `createToolRegistration` 封装为 `ToolRegistration` 注册入 Registry，并在执行时共享 Runtime 的单次 Contract 解析与结构/语义分层校验边界。每个 task 默认写入当前 workspace Home 的 `workspaces/<workspace-id>/benchmarks/` 下独立的 LazyGoal
 Goal Snapshot 和 JSONL Trajectory，并可启用独立 Diagnostic Trace；Snapshot 的
 `committedThroughSequence` 是恢复边界，未提交 tail 只供审计，不会自动 replay。
 Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和
@@ -66,6 +74,8 @@ Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory
 任务描述符 `BenchmarkTaskDescriptor.completionCriteria` 支持纯文本与携带验收声明的结构化条件；Root 在启动前执行结构校验与 Profile 工具白名单授权检查，将声明注入 Goal Task。基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
 `won=true`，模型 `complete` 与验收声明不能覆盖环境失败。
 通用 Headless Root 为每个 task 创建一个 Goal 和一个 Run，自动批准首轮任务提案后在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。当前 benchmark descriptor 仍创建 normal Goal，因此不会隐式 materialize GoalPlan。
+
+GAIA ACP Worker 的默认 `maxSteps` 为 `0`，表示不设置 Runtime 步数上限；只有调用方显式配置正数时才会产生 `max_steps_exceeded`。Worker 仅将该真实 Runtime 终态映射为 ACP `max_turn_requests`，普通完成/等待映射为 `end_turn`，取消映射为 `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）映射为 `end_turn` 并通过 meta 记录 executionError 作为未作答领域失败（badcase），其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。
 
 容器内 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
 归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。
@@ -89,6 +99,10 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
+CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
+ID 集合，且只实例化请求指定的 factory。协议与结果持久化将 benchmark ID 视为非空稳定
+字符串，不枚举领域类型；新增 benchmark 只需实现并注册 TypeScript adapter factory。
+
 [`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
 任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
 只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
@@ -101,12 +115,56 @@ JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与
 回收，不进入默认回归。
 
 [`prompt-evaluation/gepa`](../../prompt-evaluation/gepa/) 通过官方 `gepa==0.1.4` 实现外部
-优化适配。GEPA 负责候选搜索与反思；adapter 校验单任务 Manifest 和候选组件，按 batch
+优化适配。GEPA 负责候选搜索与反思；Python adapter 只校验通用单任务 Manifest 外层结构、
+候选组件和跨进程结果身份，不枚举 benchmark ID，也不解释领域 Manifest 或 Profile。
+benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Python adapter 按 batch
 顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
 取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
 后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
 有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
-ALFWorld 单任务 smoke 需显式运行且可能消耗模型额度。
+GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
+GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
+`dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
+split 和自动发现不进入该生命周期。
+
+## GEPA lifecycle control plane
+
+GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由普通 TUI 或 benchmark
+Composition Root 持有。公开机器接口为 `preflight`、`start`、`status`、`stop`、`resume`
+和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`，因为它们可能产生模型和
+容器费用，并在成功后触及 LazyGoal Home 的 default Agent Profile。
+
+Python 生命周期控制器为每次运行创建
+`~/.lazygoal/workspaces/<workspace-id>/gepa/runs/<runId>/`，其中 `run.json` 和 `request.json` 是冻结身份，
+`state.json` 是原子提交的可查询投影，`owner.json` 记录单 Worker 所有权，`gepa/`
+保存官方 GEPA `run_dir`，`adapter/`、`reflection/` 和 `artifacts/` 保存有界评测、
+反思及结果产物。`status`/`report` 只读取这些权威文件；它们不会从日志或私有
+checkpoint 推导成功状态。每个 Run 同时最多一个 Worker。
+
+候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
+LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
+`[gepa].reflection_profile` 绑定另一个 LLM Profile，仅执行无 Tool 的文本反思。两者的
+Profile、模型身份和凭据边界在 Run manifest 中冻结，恢复时必须保持一致。
+
+`stop` 只请求官方 GEPA 停止边界，不向 Worker 发送进程信号，也不删除产物。Worker
+观察到停止请求后保留 checkpoint 并进入 `stopped`；`resume` 只允许在 Worker 不存活、
+目标 Profile 摘要未漂移且 checkpoint 可读时复用同一 `run_dir`，并重新要求确认。
+
+发布不是普通评测的副作用。生命周期产物和报告区分最佳 Profile artifact、publication
+状态与 `complete`；只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
+Worker 才会原子更新
+`~/.lazygoal/agent-profiles/default.json` 的 `systemPrompt` 与完整 `instructions`。停止、失败、
+外部 Profile 修改或写入失败不得覆盖当前 Profile；此类结果保留最佳 artifact 并报告
+`publish_blocked`（或对应失败分类）。真实双模型 smoke 不进入默认回归。
+
+GAIA 真实端到端闸门由 [`lazygoal-gepa-gaia-e2e`](../../prompt-evaluation/gepa/src/lazygoal_gepa/gaia_e2e.py)
+提供，根脚本为 `npm run e2e:gaia-real`。它要求调用方同时提供单任务 GAIA
+`gepa-run@1` 请求、`gaia-worker-profile` 路径，并设置 `LAZYGOAL_GAIA_REAL_E2E=1`；
+`--dry-run` 只执行本地请求、Manifest、Profile 和模型身份 preflight，不创建容器或调用模型。
+真实执行先对 validation Manifest 做一次 `prompt-evaluation@1` 单任务评测，再按
+`preflight → start → status → report` 查询 GEPA 生命周期。Prompt Evaluation 的
+`passed/failed` 是领域结果；生命周期报告的 `complete` 与发布状态独立判断，错误答案不会被
+提升为整条 E2E 协议成功。该入口不属于默认 `npm test` 回归。
 
 模型 token 用量数据流：LLM Adapter 把供应商用量归一化写入
 `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`，

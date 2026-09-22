@@ -8,6 +8,7 @@ import { buildSwebenchWorker } from "../../src/worker-builder.js";
 import { parseSwebenchTasks, SwebenchContainer } from "./container.js";
 import { BRIDGE_PATH } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { requireSuccess, runProcess } from "../../src/process.js";
 import { runSwebenchSupervisor } from "./supervisor.js";
 import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
@@ -22,11 +23,12 @@ import { SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worke
  *
  * @example
  * ```bash
- * SWEBENCH_PYTHON=.lazygoal/swebench-venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
+ * SWEBENCH_PYTHON=~/.lazygoal/cache/benchmarks/swebench/venv/bin/python npm run swebench:worker-smoke --prefix benchmarks
  * ```
  */
 export async function runSwebenchWorkerSmoke(): Promise<void> {
     const projectRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+    const benchmarkPaths = await resolveBenchmarkHomePaths(projectRoot, "swebench");
     const python = process.env.SWEBENCH_PYTHON ?? "python3";
     const manifest = await loadSwebenchManifest(join(projectRoot, "benchmarks/swebench/manifests/single.json"));
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-swebench-worker-smoke-"));
@@ -49,7 +51,7 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
         const artifact = await buildSwebenchWorker({
             projectRoot,
             entryPoint: SWE_ACP_WORKER_ENTRYPOINT,
-            cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/swebench-worker-cache"),
+            cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
             promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
         });
         let modelCalls = 0;

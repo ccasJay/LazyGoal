@@ -1,11 +1,12 @@
 import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { randomUUID } from "node:crypto";
 import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildSwebenchWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { SWE_TOOLS_WORKER_ENTRYPOINT, SWE_ACP_WORKER_ENTRYPOINT, SWE_ACP_WORKER_PROMPT_ASSETS } from "./worker-config.js";
 import { gradeSwebenchEvaluation, preflightSwebench, runSwebenchEvaluation } from "./evaluation.js";
 import { loadSwebenchManifest } from "./manifest.js";
@@ -78,7 +79,11 @@ export interface SwebenchGradeCommand {
  * const cmd = parseSwebenchArgs(["eval", "swebench", "--tui", "--manifest", "m.json", "--task", "t-1", "--output-dir", "out"]);
  * ```
  */
-export function parseSwebenchArgs(argv: readonly string[], cwd = process.cwd()): SwebenchCommand {
+export function parseSwebenchArgs(
+    argv: readonly string[],
+    cwd = process.cwd(),
+    defaultOutputDirectory?: string,
+): SwebenchCommand {
     const parsed = parseArgs({
         args: [...argv],
         strict: true,
@@ -152,7 +157,7 @@ export function parseSwebenchArgs(argv: readonly string[], cwd = process.cwd()):
     if (parsed.values.python !== undefined && !parsed.values.python.trim()) throw new Error("--python must be non-empty");
     return {
         manifest: resolve(cwd, parsed.values.manifest),
-        output: resolve(cwd, outputRaw ?? `.lazygoal/benchmarks/swebench-runs/${randomUUID()}`),
+        output: resolve(cwd, outputRaw ?? defaultOutputDirectory ?? `swebench-run-${randomUUID()}`),
         python: parsed.values.python ?? "python3",
     };
 }
@@ -246,7 +251,14 @@ export async function runSwebenchCli(
 ): Promise<number> {
     if (argv[0] === "grade" && argv[1] === "swebench") return runSwebenchGradeCli(argv);
     let command: SwebenchCommand;
-    try { command = parseSwebenchArgs(argv); }
+    try {
+        const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "swebench");
+        command = parseSwebenchArgs(
+            argv,
+            process.cwd(),
+            join(benchmarkPaths.runsDirectory, `run-${randomUUID()}`),
+        );
+    }
     catch (error) { process.stderr.write(`${message(error)}\n`); return 2; }
     const controller = new AbortController();
     const abort = () => controller.abort();
@@ -274,10 +286,11 @@ export async function runSwebenchCli(
             if (!dependencies?.skipPreflight) {
                 await preflightSwebench(command.python, undefined, controller.signal);
             }
+            const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "swebench");
             const workerArtifact = dependencies?.workerArtifact ?? await buildSwebenchWorker({
                 projectRoot: process.cwd(),
                 entryPoint: SWE_TOOLS_WORKER_ENTRYPOINT,
-                cacheDirectory: ".lazygoal/benchmarks/swebench-tools-worker-cache",
+                cacheDirectory: join(benchmarkPaths.cacheDirectory, "tools-worker"),
             });
             await mkdir(command.output, { recursive: true });
 
@@ -367,10 +380,11 @@ export async function runSwebenchCli(
         const config = readLlmConfig(process.env);
         const adapter = createLlmAdapter(config);
         await preflightSwebench(command.python, undefined, controller.signal);
+        const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "swebench");
         const workerArtifact = await buildSwebenchWorker({
             projectRoot: process.cwd(),
             entryPoint: SWE_ACP_WORKER_ENTRYPOINT,
-            cacheDirectory: ".lazygoal/benchmarks/swebench-worker-cache",
+            cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
             promptAssets: SWE_ACP_WORKER_PROMPT_ASSETS,
         });
         await mkdir(dirname(command.output), { recursive: true });

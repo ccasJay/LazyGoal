@@ -12,6 +12,7 @@ import {
     type PromptEvaluationBenchmarkAdapter,
 } from "../../src/prompt-evaluation/runner.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import {
     loadAlfworldEnvironmentFile,
     resolveAlfworldContainerEnvironment,
@@ -19,6 +20,7 @@ import {
 import { AlfworldPromptEvaluationAdapter } from "./prompt-evaluation-adapter.js";
 import { loadManifest } from "./manifest.js";
 import { loadAlfworldProfile } from "./profile.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
     ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
@@ -41,15 +43,16 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
     const fileEnv = await loadAlfworldEnvironmentFile(undefined, process.env);
     const environmentEnv = { ...fileEnv, ...process.env };
     const environment = resolveAlfworldContainerEnvironment({ env: environmentEnv, cwd: projectRoot });
-    const profile = (await loadAlfworldProfile(projectRoot)).profile;
+    const profile = (await loadAlfworldProfile(resolveLazyGoalHomePaths(environmentEnv).agentProfilesDir)).profile;
     const manifestPath = join(projectRoot, "benchmarks/alfworld/manifests/smoke.json");
+    const benchmarkPaths = await resolveBenchmarkHomePaths(projectRoot, "alfworld", environmentEnv);
     const manifest = await loadManifest(manifestPath, environment.dataRoot);
     const smokeTask = manifest.tasks[0];
     if (smokeTask === undefined) throw new Error("Prompt Evaluation smoke Manifest is empty");
     const workerArtifact = await buildBenchmarkWorker({
         projectRoot,
         entryPoint: ALFWORLD_ACP_WORKER_ENTRYPOINT,
-        cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/alfworld-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
     const adapter = new AlfworldPromptEvaluationAdapter({

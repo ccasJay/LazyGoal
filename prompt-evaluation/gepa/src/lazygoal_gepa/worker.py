@@ -7,8 +7,6 @@ import os
 import subprocess
 import sys
 import uuid
-from dataclasses import replace
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,20 +22,19 @@ from gepa.core.state import GEPAState
 
 from .adapter import LazyGoalGEPAAdapter
 from .candidate import (
-    AgentProfileSnapshot,
     CandidateCodec,
-    FrozenRunManifest,
     ModelIdentity,
-    _fingerprint,
 )
 from .errors import (
     LazyGoalGEPAError,
     PromptEvaluationCancelled,
     PromptEvaluationInfrastructureError,
     PromptEvaluationProtocolError,
+    RunStoreError,
 )
-from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig
+from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazygoal_executable
 from .ownership import RunOwnership
+from .publisher import ProfilePublisher
 from .reporter import generate_and_save_run_report
 from .store import RunStore, atomic_write_json
 
@@ -176,49 +173,14 @@ class WorkerProgressCallback(GEPACallback):
         )
 
 
-def _resolve_executable(workspace_root: Path) -> Path:
-    if "LAZYGOAL_EXECUTABLE" in os.environ:
-        return Path(os.environ["LAZYGOAL_EXECUTABLE"]).resolve()
-    candidate = workspace_root / "bin" / "lazygoal.cjs"
-    if candidate.is_file():
-        return candidate.resolve()
-    return Path(sys.executable).resolve()
-
-
-def _save_best_profile(
-    run_dir: Path,
-    manifest: FrozenRunManifest,
-    best_candidate: dict[str, str],
-) -> Path:
-    """Save the best candidate assembled into an AgentProfileSnapshot."""
-    codec = CandidateCodec()
-    prompt = codec.decode(best_candidate)
-    orig_profile = manifest.target_profile.profile
-
-    best_snapshot = AgentProfileSnapshot(
-        schema_version=orig_profile.schema_version,
-        id=orig_profile.id,
-        name=orig_profile.name,
-        description=orig_profile.description,
-        system_prompt=prompt.system_prompt,
-        instructions=prompt.instructions,
-        tool_ids=orig_profile.tool_ids,
-    )
-    best_profile_path = run_dir / "artifacts" / "best-profile.json"
-    atomic_write_json(best_profile_path, best_snapshot.to_dict())
-    return best_profile_path
-
-
 def run_gepa_worker(
     run_dir: Path | str,
     workspace_root: Path | str | None = None,
-    max_duration: float | None = None,
 ) -> int:
     """Execute the full GEPA background worker loop.
 
     Acquires exclusive lock, loads frozen manifest, sets up Adapter and Reflection client,
-    drives official gepa.optimize(), handles cooperative stop via gepa.stop, and generates
-    terminal report.
+    drives official ``gepa.optimize()`` and generates the terminal report.
     """
     resolved_run_dir = Path(run_dir).resolve()
     store = RunStore(resolved_run_dir.parent)
@@ -251,7 +213,7 @@ def run_gepa_worker(
         manifest = store.read_manifest(run_id)
         store.update_state(run_id, lifecycle_status="running")
 
-        executable = _resolve_executable(resolved_workspace)
+        executable = resolve_lazygoal_executable(resolved_workspace)
         adapter_output_dir = resolved_run_dir / "adapter"
         adapter_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -304,27 +266,6 @@ def run_gepa_worker(
         gepa_dir = resolved_run_dir / "gepa"
         gepa_dir.mkdir(parents=True, exist_ok=True)
 
-        if store.has_stop_request(run_id):
-            checkpoint_file = gepa_dir / "gepa_state.bin"
-            if not checkpoint_file.is_file():
-                try:
-                    from gepa.core.state import GEPAState
-
-                    initial_state = GEPAState(
-                        program_candidates=[manifest.seed_candidate],
-                        current_program_index=0,
-                    )
-                    initial_state.save(str(gepa_dir))
-                except Exception:
-                    pass
-            store.update_state(
-                run_id,
-                lifecycle_status="stopped",
-                stop_requested=True,
-            )
-            generate_and_save_run_report(resolved_run_dir)
-            return 0
-
         # Execute official gepa.optimize
         result: GEPAResult = gepa.optimize(
             seed_candidate=manifest.seed_candidate,
@@ -340,8 +281,21 @@ def run_gepa_worker(
             callbacks=[progress_callback],
         )
 
-        # Check if stopped cooperatively via gepa.stop
+        # Check if stopped cooperatively via the official GEPA marker and
+        # validate the checkpoint written by the official engine.
         if store.has_stop_request(run_id):
+            try:
+                GEPAState.load(str(gepa_dir))
+            except FileNotFoundError as exc:
+                raise RunStoreError(
+                    f"Checkpoint is missing for run {run_id!r}",
+                    code="checkpoint_failed",
+                ) from exc
+            except Exception as exc:
+                raise RunStoreError(
+                    f"Checkpoint is corrupted for run {run_id!r}: {exc}",
+                    code="checkpoint_corrupted",
+                ) from exc
             best_cand_id = None
             best_score = None
             if result.best_candidate is not None:
@@ -364,45 +318,75 @@ def run_gepa_worker(
             generate_and_save_run_report(resolved_run_dir)
             return 0
 
-        # Normal completion -> succeeded
+        # Normal completion publishes the best complete Profile before success.
         best_cand_id = None
         best_score = None
-        if result.best_candidate is not None:
-            try:
-                _save_best_profile(resolved_run_dir, manifest, result.best_candidate)
-                best_cand_id = CandidateCodec().decode(result.best_candidate).candidate_id
-            except Exception:
-                pass
-
         if result.val_aggregate_scores:
             best_score = result.val_aggregate_scores[result.best_idx]
 
+        if result.best_candidate is None:
+            store.update_state(
+                run_id,
+                lifecycle_status="failed",
+                publication_status="failed",
+                metric_calls=result.total_metric_calls,
+                candidate_count=len(result.candidates),
+                best_score=best_score,
+                error_code="publish_failed",
+                error_message="GEPA completed without a best candidate to publish",
+            )
+            generate_and_save_run_report(resolved_run_dir)
+            return 1
+
+        publication = ProfilePublisher(
+            target_path=manifest.target_profile.profile_path,
+            frozen_digest=manifest.target_profile.frozen_digest,
+            base_profile=manifest.target_profile.profile,
+            artifacts_dir=resolved_run_dir / "artifacts",
+        ).publish(result.best_candidate)
+        best_cand_id = publication.candidate_id
+
+        if publication.status == "conflict":
+            lifecycle_status = "publish_blocked"
+        elif publication.status == "failed":
+            lifecycle_status = "failed"
+        else:
+            lifecycle_status = "succeeded"
+
         store.update_state(
             run_id,
-            lifecycle_status="succeeded",
+            lifecycle_status=lifecycle_status,
+            publication_status=publication.publication_status,
             metric_calls=result.total_metric_calls,
             candidate_count=len(result.candidates),
             best_score=best_score,
             best_candidate_id=best_cand_id,
+            error_code=publication.error_code,
+            error_message=publication.error_message,
         )
         generate_and_save_run_report(resolved_run_dir)
-        return 0
+        return 0 if lifecycle_status == "succeeded" else 1
 
     except Exception as exc:
-        if store.has_stop_request(run_id):
+        checkpoint_error = isinstance(exc, RunStoreError) and exc.code in {
+            "checkpoint_failed",
+            "checkpoint_corrupted",
+        }
+        checkpoint_file = resolved_run_dir / "gepa" / "gepa_state.bin"
+        if not checkpoint_error and checkpoint_file.is_file():
             try:
-                store.update_state(
-                    run_id,
-                    lifecycle_status="stopped",
-                    stop_requested=True,
-                )
-                generate_and_save_run_report(resolved_run_dir)
+                GEPAState.load(str(checkpoint_file.parent))
             except Exception:
-                pass
-            return 0
-
+                checkpoint_error = True
         error_code = "optimization_failed"
-        if isinstance(
+        if isinstance(exc, RunStoreError) and exc.code in {
+            "checkpoint_failed",
+            "checkpoint_corrupted",
+        }:
+            error_code = exc.code
+        elif checkpoint_error:
+            error_code = "checkpoint_corrupted"
+        elif isinstance(
             exc,
             (
                 PromptEvaluationInfrastructureError,

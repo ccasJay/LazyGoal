@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { readLlmConfig } from "../../../packages/llm/src/config.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import { loadGaiaManifest } from "./manifest.js";
 import { GaiaDatasetLoader } from "./dataset-loader.js";
 import { runGaiaSupervisor } from "./supervisor.js";
@@ -28,7 +29,8 @@ export async function runGaiaLoadCli(argv: readonly string[]): Promise<number> {
         strict: false,
     });
 
-    const targetDir = resolve((values.target as string) ?? ".lazygoal/benchmarks/gaia-data");
+    const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "gaia");
+    const targetDir = resolve((values.target as string) ?? join(benchmarkPaths.cacheDirectory, "data"));
     const split = ((values.split as string) ?? "validation") as GaiaSplit;
     const hfToken = (values["hf-token"] as string) ?? process.env.HF_TOKEN;
 
@@ -182,10 +184,11 @@ export async function runGaiaEvalCli(
             return createLlmAdapter(llmConfig);
         })();
 
+        const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "gaia");
         const workerArtifact = dependencies?.workerArtifact ?? await buildBenchmarkWorker({
             projectRoot: resolve("."),
             entryPoint: resolve("benchmarks/gaia/src/tools-worker-entry.ts"),
-            cacheDirectory: resolve(".lazygoal/benchmarks/gaia-tools-worker-cache"),
+            cacheDirectory: join(benchmarkPaths.cacheDirectory, "tools-worker"),
         });
         const outputDirectory = resolve(outputVal);
         await mkdir(outputDirectory, { recursive: true });
@@ -253,7 +256,8 @@ export async function runGaiaEvalCli(
     }
 
     const runId = `gaia-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
-    const outputDirectory = resolve((values.output as string) ?? join(".lazygoal/benchmarks/gaia-runs", runId));
+    const benchmarkPaths = await resolveBenchmarkHomePaths(process.cwd(), "gaia");
+    const outputDirectory = resolve((values.output as string) ?? join(benchmarkPaths.runsDirectory, runId));
     await mkdir(outputDirectory, { recursive: true });
 
     // 加载 Manifest
@@ -275,7 +279,7 @@ export async function runGaiaEvalCli(
     const workerArtifact = await buildBenchmarkWorker({
         projectRoot: resolve("."),
         entryPoint: resolve("benchmarks/gaia/src/worker-entry.ts"),
-        cacheDirectory: resolve(".lazygoal/benchmarks/gaia-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
     });
 

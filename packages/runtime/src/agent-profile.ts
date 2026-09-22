@@ -57,7 +57,7 @@ export interface AgentProfileRegistry {
  * @example
  * ```ts
  * const store: AgentProfileStore = new JsonFileAgentProfileStore(
- *     ".lazygoal/profiles",
+ *     "~/.lazygoal/agent-profiles",
  * );
  * const profile = await store.load("default");
  * ```

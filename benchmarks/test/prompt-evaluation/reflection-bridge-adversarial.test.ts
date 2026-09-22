@@ -400,13 +400,13 @@ test("[Adversarial] 退出码与单行 JSON 契约：无效请求返回退出码
 
 test("[Adversarial] 物理与逻辑隔离：绝不回退至 Working LM", async (t) => {
     const tempDir = await createTempDir(t, "adv-no-fallback-");
-    const xdgConfigHome = join(tempDir, ".config");
-    const profilesDir = join(xdgConfigHome, "lazygoal/profiles");
+    const lazygoalHome = join(tempDir, ".config");
+    const profilesDir = join(lazygoalHome, "profiles");
     await mkdir(profilesDir, { recursive: true });
 
     // 构造配置：
     // config.toml 声明 [gepa].reflection_profile = "reflection"
-    await writeFile(join(xdgConfigHome, "lazygoal/config.toml"), `
+    await writeFile(join(lazygoalHome, "config.toml"), `
 [gepa]
 reflection_profile = "reflection"
 `);
@@ -443,7 +443,7 @@ api_key = "sk-reflection-lm-key"
     const errors: string[] = [];
     const code = await runGepaReflectCli(["gepa", "reflect", "--request", reqFile], {
         cwd: tempDir,
-        env: { XDG_CONFIG_HOME: xdgConfigHome },
+        env: { LAZYGOAL_HOME: lazygoalHome },
         reflectionAdapter: spyAdapter,
         writeOutput: assert.fail,
         writeError: (l) => errors.push(l),
@@ -454,7 +454,7 @@ api_key = "sk-reflection-lm-key"
     assert.equal(workingLmCalled, false, "严禁回退调用 Working LM");
 
     // 再次验证：即使 Reflection Profile 损坏，也直接报 invalid_request (code 2)，绝不回退到 default
-    await writeFile(join(xdgConfigHome, "lazygoal/config.toml"), `
+    await writeFile(join(lazygoalHome, "config.toml"), `
 [gepa]
 reflection_profile = "non-existent-profile"
 `);
@@ -462,7 +462,7 @@ reflection_profile = "non-existent-profile"
     const errorsMissing: string[] = [];
     const codeMissing = await runGepaReflectCli(["gepa", "reflect", "--request", reqFile], {
         cwd: tempDir,
-        env: { XDG_CONFIG_HOME: xdgConfigHome },
+        env: { LAZYGOAL_HOME: lazygoalHome },
         writeOutput: assert.fail,
         writeError: (l) => errorsMissing.push(l),
     });

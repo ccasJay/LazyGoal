@@ -196,10 +196,8 @@ def load_agent_profile(path: Path | str) -> tuple[AgentProfileSnapshot, str]:
         )
 
     profile_id = data["id"]
-    if profile_id != "default":
-        raise ProfileValidationError(
-            f"Profile id must be 'default', got {profile_id!r}"
-        )
+    if not isinstance(profile_id, str) or not profile_id.strip():
+        raise ProfileValidationError("id must be a non-empty string")
 
     name = data["name"]
     if not isinstance(name, str) or not name.strip():

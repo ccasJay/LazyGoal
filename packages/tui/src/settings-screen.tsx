@@ -63,7 +63,7 @@ export function SettingsScreen({
                     ["Workspace Root:", settings.workspaceRoot],
                     ["Active Profile:", settings.profileId],
                     ["Model Name:", settings.modelName ?? "(default / adapter)"],
-                    ["Data Directory:", settings.dataDirectory ?? ".lazygoal"],
+                    ["Data Directory:", settings.dataDirectory ?? "~/.lazygoal/workspaces/<workspace-id>"],
                 ].map(([label, value]) => (
                     <Box key={label} flexDirection={columns < 60 ? "column" : "row"}>
                         <Box width={17} flexShrink={0}><Text dimColor>{label}</Text></Box>

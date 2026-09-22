@@ -21,6 +21,8 @@ import { scoreGaiaAnswer } from "./grading.js";
 import type { WebFetchHandler, WebSearchBackend } from "../../../packages/tools/src/index.js";
 import type { AgentProfile } from "../../../packages/runtime/src/agent-profile.js";
 
+const MAX_DIAGNOSTIC_CHARS = 4_096;
+
 /** GAIA Supervisor 单次评测执行结果。 */
 export interface GaiaSupervisorResult {
     readonly status: "completed" | "failed" | "cancelled" | "infrastructure_error";
@@ -120,12 +122,58 @@ export async function runGaiaSupervisor(
     });
     const durationMs = Date.now() - startTime;
 
-    const submittedAnswer = envResult.artifact?.submittedAnswer ?? null;
-    const domainResult = scoreGaiaAnswer(
-        submittedAnswer,
-        options.task.expectedAnswer,
-        options.task.level,
-    );
+    const collectedArtifacts = envResult.artifact;
+    const submittedAnswer = collectedArtifacts?.submittedAnswer ?? null;
+    const artifactErrors: IsolatedEnvironmentError[] = (collectedArtifacts?.errors ?? []).map((error) => ({
+        stage: "artifact_collect",
+        code: error.stage,
+        message: error.message,
+    }));
+    if (collectedArtifacts !== null
+        && submittedAnswer !== null
+        && collectedArtifacts.answerTaskId !== options.task.taskId) {
+        artifactErrors.push({
+            stage: "artifact_collect",
+            code: "ANSWER_TASK_MISMATCH",
+            message: "GAIA answer artifact task identity does not match the evaluated task",
+        });
+    }
+    if (submittedAnswer === null && envResult.acp !== null) {
+        const meta = envResult.acp.meta;
+        const modelCompleted = meta?.modelCompleted;
+        const runStatus = meta?.runStatus;
+        const stepCount = meta?.stepCount;
+        const stateDetails = [
+            typeof modelCompleted === "boolean" ? `modelCompleted=${modelCompleted}` : null,
+            typeof runStatus === "string" ? `runStatus=${runStatus}` : null,
+            typeof stepCount === "number" ? `stepCount=${stepCount}` : null,
+        ].filter((value): value is string => value !== null);
+        artifactErrors.push({
+            stage: "artifact_collect",
+            code: "ACP_STOP_REASON",
+            message: [
+                `ACP prompt ended with stopReason=${envResult.acp.stopReason}`,
+                ...stateDetails,
+            ].join(", "),
+        });
+    }
+    const errors: IsolatedEnvironmentError[] = [...envResult.errors, ...artifactErrors].map((error) => ({
+        ...error,
+        message: sanitizeDiagnostic(error.message),
+    }));
+    const isModelDecisionFailure = envResult.acp?.meta?.executionError === "INVALID_AGENT_DECISION";
+    const status = envResult.status === "completed" && artifactErrors.length > 0 && !isModelDecisionFailure
+        ? "infrastructure_error"
+        : envResult.status;
+    const domainResult: GaiaDomainResult = status === "completed"
+        ? scoreGaiaAnswer(submittedAnswer, options.task.expectedAnswer, options.task.level)
+        : {
+            submittedAnswer: null,
+            correct: null,
+            normalizedAnswer: null,
+            normalizedExpected: null,
+            level: options.task.level,
+        };
 
     const attemptsDir = join(
         options.outputDirectory,
@@ -140,10 +188,10 @@ export async function runGaiaSupervisor(
         goalId,
         runId,
         attempt: 1,
-        status: envResult.status,
+        status,
         durationMs,
         usage: null,
-        errors: envResult.errors,
+        errors,
         artifactLocator: envResult.artifact?.persistence ?? null,
         domainResult,
         ...(options.promptEvaluation === undefined
@@ -154,14 +202,30 @@ export async function runGaiaSupervisor(
     await recorder.commit(attemptRecord);
 
     return {
-        status: envResult.status,
+        status,
         taskId: options.task.taskId,
         goalId,
         runId,
         durationMs,
         domainResult,
         persistence: envResult.artifact?.persistence ?? null,
-        errors: envResult.errors,
+        errors,
         attemptPath: recorder.path,
     };
+}
+
+function sanitizeDiagnostic(message: string): string {
+    let safe = message;
+    for (const [name, value] of Object.entries(process.env)) {
+        if (value !== undefined && value.length >= 4 && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/iu.test(name)) {
+            safe = safe.split(value).join("[REDACTED]");
+        }
+    }
+    safe = safe
+        .replace(/sk-[A-Za-z0-9][A-Za-z0-9._-]*/gu, "[REDACTED]")
+        .replace(/Bearer\s+[^\s,;]+/giu, "Bearer [REDACTED]")
+        .replace(/((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)[^\s,;]+/giu, "$1[REDACTED]");
+    return safe.length <= MAX_DIAGNOSTIC_CHARS
+        ? safe
+        : `${safe.slice(0, MAX_DIAGNOSTIC_CHARS - 1)}…`;
 }

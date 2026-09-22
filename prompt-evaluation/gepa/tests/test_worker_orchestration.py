@@ -26,7 +26,7 @@ from lazygoal_gepa.candidate import (
 from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
 from lazygoal_gepa.errors import PromptEvaluationInfrastructureError
 from lazygoal_gepa.ownership import RunOwnership, is_pid_alive
-from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
+from lazygoal_gepa.protocol import GEPAExampleRequest, GEPARunRequest, parse_run_request
 from lazygoal_gepa.reporter import read_run_report
 from lazygoal_gepa.store import RunStore
 from lazygoal_gepa.worker import (
@@ -43,12 +43,12 @@ class WorkerOrchestrationTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
         # 准备 default.json profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = self.root / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {
@@ -166,6 +166,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
 
         state = self.store.read_state(run_id)
         self.assertEqual(state.lifecycle_status, "succeeded")
+        self.assertEqual(state.publication_status, "published")
         self.assertGreaterEqual(state.candidate_count, 1)
 
         # Check official GEPA checkpoint exists
@@ -182,10 +183,122 @@ class WorkerOrchestrationTests(unittest.TestCase):
         # Check best profile created
         best_profile_path = run_dir / "artifacts" / "best-profile.json"
         self.assertTrue(best_profile_path.is_file())
+        published_profile = json.loads(self.profile_path.read_text(encoding="utf-8"))
+        self.assertEqual(published_profile["systemPrompt"], "You are an improved test assistant.")
+        self.assertEqual(published_profile["instructions"], self.profile_data["instructions"])
 
         # Check ownership lock released
         health, owner = RunOwnership(run_dir).check_health()
         self.assertEqual(health, "none")
+
+    def test_worker_forwards_request_reflection_minibatch_size(self) -> None:
+        """Worker forwards reflection_minibatch_size directly from request without benchmark defaults."""
+        run_id = "run_test_generic_defaults"
+        request = GEPARunRequest(
+            protocol="gepa-run@1",
+            benchmark="custom-benchmark",
+            trainset=(GEPAExampleRequest("train", "task-train", str(self.manifest_path)),),
+            valset=(GEPAExampleRequest("val", "task-val", str(self.manifest_path)),),
+            max_metric_calls=4,
+            reflection_minibatch_size=None,
+            seed=None,
+        )
+        snapshot = AgentProfileSnapshot(
+            schema_version=self.profile_data["schemaVersion"],
+            id=self.profile_data["id"],
+            name=self.profile_data["name"],
+            description=self.profile_data["description"],
+            system_prompt=self.profile_data["systemPrompt"],
+            instructions=tuple(self.profile_data["instructions"]),
+            tool_ids=tuple(self.profile_data["toolIds"]),
+        )
+        run_dir = self.store.initialize_run(FrozenRunManifest(
+            protocol="gepa-run@1",
+            run_id=run_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            gepa_version=EXPECTED_GEPA_VERSION,
+            request=request,
+            target_profile=TargetProfileSnapshot(
+                profile_id=snapshot.id,
+                profile_path=str(self.profile_path),
+                frozen_digest=self.profile_digest,
+                profile=snapshot,
+            ),
+            seed_candidate=extract_seed_candidate(snapshot),
+            seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
+            working_model=ModelIdentity(profile_name="default", model_id="default"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+        ))
+        captured: dict[str, object] = {}
+
+        def capture_optimize(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop after inspecting worker configuration")
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.gepa.optimize", side_effect=capture_optimize),
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(captured["seed"], 0)
+        self.assertIsNone(captured["reflection_minibatch_size"])
+        self.assertEqual(captured["max_metric_calls"], 4)
+
+    def test_worker_records_unchanged_publication(self) -> None:
+        """A seed-only result is complete without rewriting the target Profile."""
+        run_id = "run_test_worker_unchanged"
+        manifest = self._create_helper_manifest(run_id, max_metric_calls=1)
+        run_dir = self.store.initialize_run(manifest)
+
+        with patch.dict(
+            os.environ,
+            {
+                "LAZYGOAL_EXECUTABLE": str(self.fake_cli),
+                "LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved",
+                "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "unused",
+            },
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 0)
+        state = self.store.read_state(run_id)
+        self.assertEqual(state.lifecycle_status, "succeeded")
+        self.assertEqual(state.publication_status, "unchanged")
+        self.assertEqual(self.profile_path.read_text(encoding="utf-8"), self.profile_raw)
+        self.assertTrue(read_run_report(run_dir)["complete"])
+
+    def test_worker_publish_conflict_preserves_external_profile(self) -> None:
+        """External edits block publication while retaining the best Profile artifact."""
+        run_id = "run_test_worker_publish_conflict"
+        manifest = self._create_helper_manifest(run_id, max_metric_calls=3)
+        run_dir = self.store.initialize_run(manifest)
+        external_profile = dict(self.profile_data)
+        external_profile["description"] = "Edited while optimization was running"
+        self.profile_path.write_text(json.dumps(external_profile), encoding="utf-8")
+        external_bytes = self.profile_path.read_bytes()
+
+        with patch.dict(
+            os.environ,
+            {
+                "LAZYGOAL_EXECUTABLE": str(self.fake_cli),
+                "LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved",
+                "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "```\nYou are an improved test assistant.\n```",
+            },
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 1)
+        state = self.store.read_state(run_id)
+        self.assertEqual(state.lifecycle_status, "publish_blocked")
+        self.assertEqual(state.publication_status, "blocked")
+        self.assertEqual(state.error_code, "publish_conflict")
+        self.assertEqual(self.profile_path.read_bytes(), external_bytes)
+        self.assertTrue((run_dir / "artifacts" / "best-profile.json").is_file())
+        report = read_run_report(run_dir)
+        self.assertEqual(report["publication"]["status"], "blocked")
+        self.assertFalse(report["complete"])
 
     def test_worker_progress_and_heartbeat_projection(self) -> None:
         """Verify callback updates heartbeat in owner.json and projects metrics to state.json."""
@@ -293,6 +406,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
         state = self.store.read_state(run_id)
         self.assertEqual(state.lifecycle_status, "failed")
         self.assertEqual(state.error_code, "evaluation_failed")
+        self.assertEqual(self.profile_path.read_text(encoding="utf-8"), self.profile_raw)
 
         report = read_run_report(run_dir)
         self.assertEqual(report["terminalStatus"], "failed")
@@ -300,6 +414,29 @@ class WorkerOrchestrationTests(unittest.TestCase):
 
         health, _ = RunOwnership(run_dir).check_health()
         self.assertEqual(health, "none")
+
+    def test_stop_marker_does_not_hide_evaluation_failure(self) -> None:
+        """A stop request cannot turn a pre-checkpoint evaluation error into stopped."""
+        run_id = "run_test_worker_stop_with_eval_failure"
+        manifest = self._create_helper_manifest(run_id, max_metric_calls=5)
+        run_dir = self.store.initialize_run(manifest)
+        self.store.request_stop(run_id)
+
+        with patch.dict(
+            os.environ,
+            {
+                "LAZYGOAL_EXECUTABLE": str(self.fake_cli),
+                "LAZYGOAL_GEPA_FAKE_MODE": "infrastructure",
+            },
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 1)
+        state = self.store.read_state(run_id)
+        self.assertEqual(state.lifecycle_status, "failed")
+        self.assertEqual(state.error_code, "evaluation_failed")
+        self.assertEqual(state.publication_status, "pending")
+        self.assertEqual(self.profile_path.read_text(encoding="utf-8"), self.profile_raw)
 
     def test_worker_acquire_lock_failure(self) -> None:
         """Verify worker handles acquire failure cleanly when another worker holds lock."""

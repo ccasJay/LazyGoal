@@ -51,6 +51,18 @@ test("parsePromptEvaluationRequest accepts one candidate and normalizes paths wi
     assert.equal(PROMPT_EVALUATION_EXIT_CODES.invalidRequest, 2);
 });
 
+test("parsePromptEvaluationRequest treats benchmark IDs as opaque without a registry constraint", async (t) => {
+    const data = await fixture();
+    t.after(() => rm(data.root, { recursive: true, force: true }));
+
+    const request = await parsePromptEvaluationRequest({
+        ...data.request,
+        benchmark: { id: "custom-benchmark", manifestPath: "manifest.json" },
+    }, { cwd: data.root });
+
+    assert.equal(request.benchmark.id, "custom-benchmark");
+});
+
 test("parsePromptEvaluationRequest rejects unknown frozen fields and unsupported versions", async (t) => {
     const data = await fixture();
     t.after(() => rm(data.root, { recursive: true, force: true }));
@@ -82,7 +94,10 @@ test("parsePromptEvaluationRequest rejects unregistered benchmarks and invalid r
         parsePromptEvaluationRequest({
             ...data.request,
             benchmark: { id: "swebench", manifestPath: "manifest.json" },
-        }, { cwd: data.root }),
+        }, {
+            cwd: data.root,
+            supportedBenchmarkIds: new Set(["alfworld", "gaia"]),
+        }),
         (error: unknown) => error instanceof PromptEvaluationRequestError
             && error.code === "UNSUPPORTED_BENCHMARK",
     );

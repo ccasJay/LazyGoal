@@ -95,20 +95,20 @@ function request<Input extends JsonValue>(toolId: string, input: Input): ToolExe
     return { actionId: `${toolId}-1`, input };
 }
 
-test("Profile loader freezes the fixed ID and allowlist from .lazygoal/profiles", async () => {
+test("Profile loader freezes the fixed ID and allowlist from LazyGoal Home", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-profile-"));
     try {
-        const profileDirectory = join(workspace, ".lazygoal/profiles");
+        const profileDirectory = join(workspace, "agent-profiles");
         await mkdir(profileDirectory, { recursive: true });
         const content = JSON.stringify(profile, null, 2);
         await writeFile(join(profileDirectory, "alfworld-profile.json"), content, "utf8");
-        const loaded = await loadAlfworldProfile(workspace);
+        const loaded = await loadAlfworldProfile(profileDirectory);
 
         assert.equal(loaded.profile.id, ALFWORLD_PROFILE_ID);
         assert.equal(loaded.profile.name, profile.name);
         assert.deepEqual(loaded.profile.toolIds, ALFWORLD_PROFILE_TOOL_IDS);
         assert.equal(loaded.contentHash.length, 64);
-        assert.equal(loaded.profilePath, join(workspace, ".lazygoal/profiles/alfworld-profile.json"));
+        assert.equal(loaded.profilePath, join(profileDirectory, "alfworld-profile.json"));
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

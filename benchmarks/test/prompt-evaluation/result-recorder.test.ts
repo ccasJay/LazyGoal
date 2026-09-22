@@ -15,7 +15,7 @@ function result(evaluationId: string): PromptEvaluationResultV1 {
         protocol: "prompt-evaluation@1",
         evaluationId,
         status: "cancelled",
-        benchmarkId: "alfworld",
+        benchmarkId: "custom-benchmark",
         manifestPath: "/tmp/manifest.json",
         candidateId: "candidate-1",
         baseProfileId: "alfworld-profile",
@@ -76,6 +76,10 @@ test("PromptEvaluationResultRecorder rejects mismatched identities and fake infr
 
     await assert.rejects(recorder.commit(result("eval-2")), /identity/u);
     const invalid = result("eval-1");
+    await assert.rejects(recorder.commit({
+        ...invalid,
+        benchmarkId: " ",
+    }), /Invalid PromptEvaluationResultV1/u);
     await assert.rejects(recorder.commit({
         ...invalid,
         tasks: [{

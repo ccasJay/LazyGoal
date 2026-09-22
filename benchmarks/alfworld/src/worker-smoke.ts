@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { LLMAdapter } from "../../../packages/agent/src/index.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
 import {
     loadAlfworldEnvironmentFile,
     resolveAlfworldContainerEnvironment,
@@ -27,6 +28,7 @@ import { ALFWORLD_ACP_WORKER_ENTRYPOINT, ALFWORLD_ACP_WORKER_PROMPT_ASSETS } fro
  */
 export async function runAlfworldWorkerSmoke(): Promise<void> {
     const projectRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
+    const benchmarkPaths = await resolveBenchmarkHomePaths(projectRoot, "alfworld");
     const fileEnv = await loadAlfworldEnvironmentFile(undefined, process.env);
     const environmentEnv = { ...fileEnv, ...process.env };
     const dataRoot = environmentEnv.ALFWORLD_DATA;
@@ -38,7 +40,7 @@ export async function runAlfworldWorkerSmoke(): Promise<void> {
     const artifact = await buildBenchmarkWorker({
         projectRoot,
         entryPoint: ALFWORLD_ACP_WORKER_ENTRYPOINT,
-        cacheDirectory: join(projectRoot, ".lazygoal/benchmarks/alfworld-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
     const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-alfworld-worker-smoke-"));

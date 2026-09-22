@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -45,17 +44,6 @@ class InvocationDirectoryManager:
         directory = self._output_directory / invocation_id / candidate_id
         try:
             directory.mkdir(parents=True, exist_ok=False)
-            (directory / "metadata.json").write_text(
-                json.dumps(
-                    {
-                        "invocationId": invocation_id,
-                        "candidateId": candidate_id,
-                    },
-                    separators=(",", ":"),
-                )
-                + "\n",
-                encoding="utf-8",
-            )
         except OSError as error:
             raise ConfigurationError(
                 f"Invocation directory could not be created: {directory}"

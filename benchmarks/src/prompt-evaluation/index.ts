@@ -51,6 +51,15 @@ export {
 export {
     runPromptEvaluationCli,
 } from "./cli.js";
+export {
+    runGepaResolveModelsCli,
+    GEPA_DIAGNOSTIC_MAX_CHARS,
+} from "./model-bridge.js";
+export type {
+    GepaResolvedModel,
+    GepaResolvedModels,
+    GepaResolveModelsCliOptions,
+} from "./model-bridge.js";
 export type {
     PromptEvaluationCliOptions,
 } from "./cli.js";

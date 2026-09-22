@@ -94,7 +94,7 @@ function tryDecodeBase64Url(segment: string): string {
  *
  * @example
  * ```ts
- * const entries = await discoverBenchmarkGoals(".lazygoal/benchmarks");
+ * const entries = await discoverBenchmarkGoals("~/.lazygoal/workspaces/<workspace-id>/benchmarks");
  * ```
  */
 export async function discoverBenchmarkGoals(
@@ -291,12 +291,12 @@ export async function discoverBenchmarkGoals(
  * 聚合主持久化与 Benchmark 目录的聚合 GoalStore 与 GoalCatalog。
  *
  * @remarks
- * 在标准 GoalStore/GoalCatalog 基础上，透明聚合 `.lazygoal/benchmarks/` 下的评测产物；
+ * 在标准 GoalStore/GoalCatalog 基础上，透明聚合当前 workspace Home 下的 benchmark 评测产物；
  * 在调用 `listHistory` 时自动发现评测目标并合并排序，在调用 `restore` 时支持跨目录寻址与解码。
  *
  * @example
  * ```ts
- * const store = new AggregatedGoalStore(primaryStore, ".lazygoal/benchmarks");
+ * const store = new AggregatedGoalStore(primaryStore, "~/.lazygoal/workspaces/<workspace-id>/benchmarks");
  * const allHistory = await store.listHistory();
  * const goal = await store.restore("gaia-smoke-1");
  * ```
@@ -390,7 +390,7 @@ export class AggregatedGoalStore implements GoalStore, GoalCatalog {
  *
  * @example
  * ```ts
- * const trajectoryStore = new AggregatedTrajectoryStore(primaryStore, ".lazygoal/benchmarks");
+ * const trajectoryStore = new AggregatedTrajectoryStore(primaryStore, "~/.lazygoal/workspaces/<workspace-id>/benchmarks");
  * const result = await trajectoryStore.readWithBoundary({ goalId, runId }, 10);
  * ```
  */

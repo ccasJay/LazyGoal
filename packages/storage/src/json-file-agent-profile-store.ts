@@ -12,7 +12,7 @@ import {
 } from "./agent-profile-file";
 
 /**
- * 按当前生效的 Profile ID 从 workspace 配置目录加载单个 Profile。
+ * 按当前生效的 Profile ID 从 LazyGoal Home 的全局 Agent Profile 目录加载单个 Profile。
  *
  * @remarks
  * 每次 `load` 只访问 `<directory>/<profileId>.json`，不会扫描目录或校验其它
@@ -22,13 +22,13 @@ import {
  *
  * @example
  * ```ts
- * const store = new JsonFileAgentProfileStore(".lazygoal/profiles");
+ * const store = new JsonFileAgentProfileStore("~/.lazygoal/agent-profiles");
  * const profile = await store.load("default");
  * ```
  */
 export class JsonFileAgentProfileStore implements AgentProfileStore {
     /**
-     * @param directory - Profile JSON 文件所在的 workspace 目录。
+     * @param directory - Profile JSON 文件所在的全局 Agent Profile 目录。
      */
     constructor(private readonly directory: string) {}
 

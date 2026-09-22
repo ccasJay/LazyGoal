@@ -188,7 +188,11 @@ def atomic_write_json(target_path: Path, data: Any) -> None:
     """Atomically write data to target_path using same-directory temp file and replace."""
 
     target = Path(target_path).resolve()
-    target.parent.mkdir(parents=True, exist_ok=True)
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(target.parent, 0o700)
+    except OSError:
+        pass
     temp_path = target.parent / f".{target.name}.tmp.{os.getpid()}.{uuid.uuid4().hex}"
     content = json.dumps(data, indent=2, ensure_ascii=False)
 
@@ -232,7 +236,11 @@ class RunStore:
         artifacts_dir = run_dir / "artifacts"
 
         for directory in (run_dir, gepa_dir, adapter_dir, reflection_dir, artifacts_dir):
-            directory.mkdir(parents=True, exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            try:
+                os.chmod(directory, 0o700)
+            except OSError:
+                pass
 
         # 1. Immutable manifest
         atomic_write_json(run_dir / "run.json", manifest.to_dict())
@@ -347,7 +355,11 @@ class RunStore:
         """Create gepa.stop and set stop_requested=True in state.json."""
 
         stop_path = self.get_stop_file_path(run_id)
-        stop_path.parent.mkdir(parents=True, exist_ok=True)
+        stop_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            os.chmod(stop_path.parent, 0o700)
+        except OSError:
+            pass
         stop_path.touch(exist_ok=True)
         try:
             current = self.read_state(run_id)

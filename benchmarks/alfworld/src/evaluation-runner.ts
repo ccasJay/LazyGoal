@@ -286,7 +286,7 @@ export interface AlfworldEpisodeExecutorDependencies {
     readonly createClient: (
         task: AlfworldManifestTask,
     ) => Pick<SidecarClient, "reset" | "step" | "close">;
-    /** Benchmark Goal/Trajectory/Trace 文件的根目录；省略时使用 workspace 下的默认目录。 */
+    /** Benchmark Goal/Trajectory/Trace 文件的根目录；必须由 LazyGoal Home 路径解析器注入，省略时快速失败。 */
     readonly persistenceRoot?: string;
     /** 是否写入每个 task 的 Diagnostic Trace 文件；默认关闭。 */
     readonly enableTrace?: boolean;
@@ -328,7 +328,7 @@ export function createAlfworldEpisodeExecutor(
     });
     const persistence = new JsonFileBenchmarkPersistenceAdapter<AlfworldManifestTask>({
         rootDirectory: dependencies.persistenceRoot
-            ?? join(dependencies.workspaceRoot, ".lazygoal", "benchmarks"),
+            ?? (() => { throw new Error("ALFWorld persistenceRoot must be provided by the Home path resolver"); })(),
         namespaceFor: (task) => task.taskId,
         enableTrace: dependencies.enableTrace ?? false,
     });

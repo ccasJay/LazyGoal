@@ -31,11 +31,9 @@ from lazygoal_gepa.controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
-    get_run_report,
     get_run_status,
     launch_detached_worker,
     preflight_run,
-    resume_run,
     start_run,
     stop_run,
 )
@@ -47,6 +45,7 @@ from lazygoal_gepa.errors import (
 )
 from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
+from lazygoal_gepa.reporter import generate_and_save_run_report
 from lazygoal_gepa.store import RunStore, atomic_write_json
 
 
@@ -56,12 +55,30 @@ class LifecycleControllerTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
+        self.lazygoal_home = self.root / "lazygoal-home"
+        config_dir = self.lazygoal_home
+        profiles_dir = config_dir / "profiles"
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            '[gepa]\nreflection_profile = "gepa-reflection"\n', encoding="utf-8"
+        )
+        (profiles_dir / "default.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "default"\napi_key = "test-working"\n',
+            encoding="utf-8",
+        )
+        (profiles_dir / "gepa-reflection.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
+            encoding="utf-8",
+        )
+        self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(self.lazygoal_home)})
+        self.env_patch.start()
+
         # 准备 default.json profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = self.lazygoal_home / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {
@@ -103,11 +120,20 @@ class LifecycleControllerTests(unittest.TestCase):
             "maxMetricCalls": 20,
         }
         self.request_path.write_text(json.dumps(self.request_data), encoding="utf-8")
-
         # 记录派生的测试进程 PID，确保 tearDown 清理
         self.spawned_pids: list[int] = []
 
+    def test_default_paths_use_lazygoal_home_and_workspace_identity(self) -> None:
+        controller = LifecycleController(workspace_root=self.workspace_root)
+        self.assertEqual(
+            controller.profile_path,
+            (self.lazygoal_home / "agent-profiles" / "default.json").resolve(),
+        )
+        self.assertIn(str(self.lazygoal_home / "workspaces"), str(controller.runs_dir))
+        self.assertNotIn(".lazygoal", str(controller.runs_dir))
+
     def tearDown(self) -> None:
+        self.env_patch.stop()
         for pid in self.spawned_pids:
             if is_pid_alive(pid):
                 try:
@@ -148,8 +174,8 @@ class LifecycleControllerTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=ModelIdentity(profile_name="default", model_id="default", provider="openai"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="openai"),
         )
 
     # -------------------------------------------------------------------------
@@ -159,11 +185,12 @@ class LifecycleControllerTests(unittest.TestCase):
         """start 与 resume 必须在未提供 --yes 时拒绝执行，绝不创建目录或启动进程。"""
         # start 未带 yes
         with self.assertRaises(ConfirmationRequiredError):
-            start_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).start(
                 request_path=self.request_path,
                 yes=False,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 验证没有在 runs_dir 创建任何 run 目录
@@ -178,11 +205,12 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # resume 未带 yes
         with self.assertRaises(ConfirmationRequiredError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=False,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
     # -------------------------------------------------------------------------
@@ -197,12 +225,13 @@ class LifecycleControllerTests(unittest.TestCase):
         ]
 
         t0 = time.monotonic()
-        result = start_run(
+        result = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            worker_cmd=dummy_worker,
+        ).start(
             request_path=self.request_path,
             yes=True,
-            workspace_root=self.workspace_root,
-            runs_root=self.runs_dir,
-            worker_cmd=dummy_worker,
         )
         elapsed = time.monotonic() - t0
 
@@ -228,6 +257,67 @@ class LifecycleControllerTests(unittest.TestCase):
         self.assertTrue((run_dir / "run.json").is_file())
         self.assertTrue((run_dir / "state.json").is_file())
         self.assertTrue((run_dir / "worker.log").is_file())
+
+    def test_default_detached_worker_receives_workspace_root(self) -> None:
+        """默认后台 Worker 必须保留组合根，避免从 run 目录错误解析 lazygoal。"""
+        run_dir = self.runs_dir / "run_workspace_root"
+        fake_process = type("FakeProcess", (), {"pid": 12345})()
+        with patch("lazygoal_gepa.controller.subprocess.Popen", return_value=fake_process) as popen:
+            pid = launch_detached_worker(
+                run_dir,
+                workspace_root=self.workspace_root,
+            )
+
+        self.assertEqual(pid, 12345)
+        command = popen.call_args.args[0]
+        self.assertEqual(command[-2:], ["--workspace-root", str(self.workspace_root)])
+        self.assertEqual(popen.call_args.kwargs["cwd"], str(self.workspace_root))
+
+    def test_profile_path_is_explicitly_selected_and_frozen(self) -> None:
+        """preflight/start must use the requested profile and persist its identity."""
+        custom_profile_path = self.profile_dir / "gaia-worker.json"
+        custom_profile_data = dict(self.profile_data)
+        custom_profile_data["id"] = "gaia-worker-profile"
+        custom_profile_path.write_text(
+            json.dumps(custom_profile_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        preflight = preflight_run(
+            request_path=self.request_path,
+            workspace_root=self.workspace_root,
+            runs_root=self.runs_dir,
+            profile_path=custom_profile_path,
+        )
+        self.assertEqual(preflight["targetProfile"]["profileId"], "gaia-worker-profile")
+        self.assertEqual(
+            preflight["targetProfile"]["profilePath"],
+            str(custom_profile_path.resolve()),
+        )
+        self.assertTrue(preflight["estimatedSideEffects"]["willMutateProfile"])
+        self.assertIn("working", preflight["models"])
+        self.assertIn("reflection", preflight["models"])
+
+        result = start_run(
+            request_path=self.request_path,
+            yes=True,
+            workspace_root=self.workspace_root,
+            runs_root=self.runs_dir,
+            profile_path=custom_profile_path,
+            worker_cmd=[sys.executable, "-c", "import time; time.sleep(10)"],
+        )
+        self._track_pid(result["workerPid"])
+        manifest = self.store.read_manifest(result["runId"])
+        self.assertEqual(manifest.target_profile.profile_id, "gaia-worker-profile")
+        self.assertEqual(
+            manifest.target_profile.profile_path,
+            str(custom_profile_path.resolve()),
+        )
+
+        # The lifecycle manifest is authoritative: changing the controller's
+        # default profile path must not alter the frozen target.
+        status = get_run_status(result["runId"], runs_root=self.runs_dir)
+        self.assertEqual(status["runId"], result["runId"])
 
     # -------------------------------------------------------------------------
     # 3. 只读 status 测试
@@ -261,7 +351,7 @@ class LifecycleControllerTests(unittest.TestCase):
 
         # 连续调用 5 次 status
         for _ in range(5):
-            status = get_run_status(run_id, runs_root=self.runs_dir)
+            status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
             self.assertEqual(status["runId"], run_id)
             self.assertEqual(status["lifecycleStatus"], "running")
             self.assertEqual(status["workerHealth"], "active")
@@ -302,7 +392,7 @@ class LifecycleControllerTests(unittest.TestCase):
             # 模拟存活性探测：os.kill(pid, 0)
             mock_kill.return_value = None
 
-            stop_result = stop_run(run_id, runs_root=self.runs_dir)
+            stop_result = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
 
             self.assertEqual(stop_result["runId"], run_id)
             self.assertEqual(stop_result["lifecycleStatus"], "stop_requested")
@@ -321,7 +411,7 @@ class LifecycleControllerTests(unittest.TestCase):
                 )
 
         # 再次调用 stop，验证幂等性
-        idempotent_stop = stop_run(run_id, runs_root=self.runs_dir)
+        idempotent_stop = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
         self.assertTrue(idempotent_stop["stopRequested"])
 
     # -------------------------------------------------------------------------
@@ -344,7 +434,7 @@ class LifecycleControllerTests(unittest.TestCase):
         )
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
-        status = get_run_status(run_id, runs_root=self.runs_dir)
+        status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(status["workerHealth"], "lost")
 
         # 5.2 Stale Worker: 当前进程存活，但心跳超过 30s
@@ -357,18 +447,18 @@ class LifecycleControllerTests(unittest.TestCase):
         )
         atomic_write_json(run_dir / "owner.json", owner_stale.to_dict())
 
-        status = get_run_status(run_id, runs_root=self.runs_dir)
+        status = LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(status["workerHealth"], "stale")
 
         # 5.3 Unformed Run
         with self.assertRaises(RunStoreError) as cm_unformed:
-            get_run_status("run_non_existent", runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status("run_non_existent")
         self.assertEqual(cm_unformed.exception.code, "unformed")
 
         # 5.4 Corrupted State
         (run_dir / "state.json").write_text("{broken json", encoding="utf-8")
         with self.assertRaises(RunStoreError) as cm_corrupt:
-            get_run_status(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(cm_corrupt.exception.code, "corrupted")
 
         # 5.5 Report Not Ready
@@ -390,19 +480,15 @@ class LifecycleControllerTests(unittest.TestCase):
         }
         atomic_write_json(run_dir / "state.json", valid_state_data)
         with self.assertRaises(ReportNotReadyError):
-            get_run_report(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).report(run_id)
 
         # 5.6 Report Succeeded
         self.store.update_state(run_id, lifecycle_status="succeeded")
-        report_data = {
-            "runId": run_id,
-            "status": "succeeded",
-            "bestCandidate": {"score": 0.95},
-        }
-        atomic_write_json(run_dir / "artifacts" / "report.json", report_data)
-        read_report = get_run_report(run_id, runs_root=self.runs_dir)
-        self.assertEqual(read_report["status"], "succeeded")
-        self.assertEqual(read_report["bestCandidate"]["score"], 0.95)
+        self.store.update_state(run_id, best_score=0.95)
+        generate_and_save_run_report(run_dir)
+        read_report = LifecycleController(runs_dir=self.runs_dir).report(run_id)
+        self.assertEqual(read_report["terminalStatus"], "succeeded")
+        self.assertEqual(read_report["scores"]["bestScore"], 0.95)
 
     # -------------------------------------------------------------------------
     # 6. Resume 漂移防御与并发排他锁测试
@@ -420,11 +506,12 @@ class LifecycleControllerTests(unittest.TestCase):
         self.profile_path.write_text(json.dumps(modified_data, indent=2), encoding="utf-8")
 
         with self.assertRaises(ProfileDriftError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=True,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 恢复 profile 内容
@@ -440,23 +527,28 @@ class LifecycleControllerTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with self.assertRaises(WorkerAlreadyRunningError):
-            resume_run(
+            LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+            ).resume(
                 run_id=run_id,
                 yes=True,
-                workspace_root=self.workspace_root,
-                runs_root=self.runs_dir,
             )
 
         # 清除活跃所有权并重新 resume
         (run_dir / "owner.json").unlink()
+        checkpoint_file = run_dir / "gepa" / "gepa_state.bin"
+        checkpoint_file.write_bytes(b"test checkpoint")
         dummy_worker = [sys.executable, "-c", "import time; time.sleep(10)"]
-        resumed = resume_run(
-            run_id=run_id,
-            yes=True,
-            workspace_root=self.workspace_root,
-            runs_root=self.runs_dir,
-            worker_cmd=dummy_worker,
-        )
+        with patch("gepa.core.state.GEPAState.load"):
+            resumed = LifecycleController(
+                workspace_root=self.workspace_root,
+                runs_dir=self.runs_dir,
+                worker_cmd=dummy_worker,
+            ).resume(
+                run_id=run_id,
+                yes=True,
+            )
         self._track_pid(resumed["workerPid"])
         self.assertEqual(resumed["lifecycleStatus"], "starting")
 
@@ -484,6 +576,38 @@ class LifecycleControllerTests(unittest.TestCase):
         preflight_obj = json.loads(lines[0])
         self.assertTrue(preflight_obj["valid"])
         self.assertEqual(preflight_obj["benchmark"], "alfworld")
+
+        custom_profile_path = self.profile_dir / "cli-custom.json"
+        custom_profile_data = dict(self.profile_data)
+        custom_profile_data["id"] = "cli-custom-profile"
+        custom_profile_path.write_text(
+            json.dumps(custom_profile_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            code = cli_main([
+                "preflight",
+                "--request",
+                str(self.request_path),
+                "--workspace-root",
+                str(self.workspace_root),
+                "--runs-dir",
+                str(self.runs_dir),
+                "--profile-path",
+                str(custom_profile_path),
+            ])
+        self.assertEqual(code, 0)
+        custom_preflight = json.loads(stdout_buf.getvalue())
+        self.assertEqual(
+            custom_preflight["targetProfile"]["profileId"],
+            "cli-custom-profile",
+        )
+        self.assertEqual(
+            custom_preflight["targetProfile"]["profilePath"],
+            str(custom_profile_path.resolve()),
+        )
 
         # 7.2 start 缺少 --yes: exit code 1, stderr 诊断, stdout 无 JSON
         stdout_buf = io.StringIO()
@@ -566,7 +690,7 @@ class LifecycleControllerTests(unittest.TestCase):
         run_dir = self.store.initialize_run(manifest)
         self.store.update_state(run_id, lifecycle_status="stopped")
 
-        stop_result = stop_run(run_id, runs_root=self.runs_dir)
+        stop_result = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
         self.assertEqual(stop_result["lifecycleStatus"], "stopped")
         state = self.store.read_state(run_id)
         self.assertEqual(state.lifecycle_status, "stopped")
@@ -574,7 +698,7 @@ class LifecycleControllerTests(unittest.TestCase):
         # 2. 统一 corrupted 契约：当 run.json 损坏时，get_run_status 必须抛出 RunStoreError(code="corrupted")
         (run_dir / "run.json").write_text("{broken manifest json content", encoding="utf-8")
         with self.assertRaises(RunStoreError) as cm:
-            get_run_status(run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(run_id)
         self.assertEqual(cm.exception.code, "corrupted")
 
         # 验证 CLI status 对损坏 run.json 优雅退出并输出友好错误

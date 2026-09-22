@@ -69,6 +69,8 @@ test("GaiaEnvironmentSpec resolveImage 返回 managed 模式与标准安装命�
     const workerEntry = spec.getWorkerEntryConfig(sampleTask);
     assert.equal(workerEntry.cwd, "/workspace");
     assert.deepEqual(workerEntry.command, ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"]);
+    assert.equal(spec.resolveNetworkMode(sampleTask), "bridge");
+    assert.equal(spec.inheritHostProxyEnvironment(sampleTask), true);
 });
 
 test("GaiaEnvironmentSpec tools 模式启动 Tool RPC Worker 并传入任务身份", () => {

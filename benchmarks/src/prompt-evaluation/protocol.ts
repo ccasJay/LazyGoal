@@ -16,8 +16,8 @@ export const PROMPT_EVALUATION_EXIT_CODES = Object.freeze({
     cancelled: 130,
 } as const);
 
-/** 首批可通过 Prompt Evaluation 调用的 benchmark 标识。 */
-export type PromptEvaluationBenchmarkId = "alfworld" | "gaia";
+/** 由当前组合根注册并解释的稳定 benchmark 标识。 */
+export type PromptEvaluationBenchmarkId = string;
 
 /** Prompt Evaluation 请求中的 benchmark 定位。 */
 export interface PromptEvaluationBenchmarkReference {
@@ -276,7 +276,6 @@ const ROOT_KEYS = ["protocol", "benchmark", "candidate", "model", "outputDirecto
 const BENCHMARK_KEYS = ["id", "manifestPath"] as const;
 const CANDIDATE_KEYS = ["id", "baseProfileId", "systemPrompt", "instructions"] as const;
 const MODEL_KEYS = ["configId", "modelId"] as const;
-const DEFAULT_BENCHMARK_IDS = new Set<string>(["alfworld", "gaia"]);
 
 /**
  * 校验并规范化未知 Prompt Evaluation 请求。
@@ -305,8 +304,8 @@ export async function parsePromptEvaluationRequest(
 
     const benchmark = requireRecord(root.benchmark, "$.benchmark", BENCHMARK_KEYS);
     const benchmarkId = requireString(benchmark.id, "$.benchmark.id");
-    const supported = options.supportedBenchmarkIds ?? DEFAULT_BENCHMARK_IDS;
-    if (!supported.has(benchmarkId) || (benchmarkId !== "alfworld" && benchmarkId !== "gaia")) {
+    if (options.supportedBenchmarkIds !== undefined
+        && !options.supportedBenchmarkIds.has(benchmarkId)) {
         throw new PromptEvaluationRequestError(
             "UNSUPPORTED_BENCHMARK",
             "$.benchmark.id",
@@ -486,4 +485,35 @@ function isMissingPathError(error: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 对文本中出现的敏感密钥和环境变量凭据进行脱敏替换。
+ *
+ * @remarks
+ * 防御性凭据脱敏工具：
+ * 1. 扫描进程环境变量中具有敏感特征命名的变量值（如 KEY、TOKEN、SECRET、PASSWORD、CREDENTIAL）；
+ * 2. 匹配常见 API Key 前缀（如 `sk-...`）与 Bearer 令牌格式；
+ * 3. 统一将敏感片段替换为 `[REDACTED]`，防止错误诊断写入 stderr 或 stdout 时泄露模型密钥与凭据。
+ *
+ * @param text - 待脱敏的原始字符串。
+ * @param env - 当前进程环境变量字典，默认取 `process.env`。
+ * @returns 脱敏后的安全字符串。
+ * @example
+ * ```ts
+ * const safe = redactSensitiveString("Failed with api_key: sk-1234567890abcdef");
+ * // safe === "Failed with api_key: [REDACTED]"
+ * ```
+ */
+export function redactSensitiveString(text: string, env: NodeJS.ProcessEnv = process.env): string {
+    let result = text;
+    for (const [key, value] of Object.entries(env)) {
+        if (value && value.length >= 4 && /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(key)) {
+            result = result.split(value).join("[REDACTED]");
+        }
+    }
+    result = result.replace(/sk-[a-zA-Z0-9_-]{10,}/g, "[REDACTED]");
+    result = result.replace(/Bearer\s+[a-zA-Z0-9_\-.]+/gi, "Bearer [REDACTED]");
+    result = result.replace(/((?:api[-_ ]?key|access[-_ ]?token|secret|password)\s*[:=]\s*)([^\s,;]+)/gi, "$1[REDACTED]");
+    return result;
 }

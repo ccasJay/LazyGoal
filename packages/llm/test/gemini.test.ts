@@ -629,6 +629,35 @@ test("Gemini restores response and strips null properties for all branches", asy
     assert.equal(decoded2.kind, "tool_call");
 });
 
+test("Gemini strips ask_user residue from a tool_call before restoring sentinels", async () => {
+    const bundle = createModelOutputContractBundle({
+        kind: "executing",
+        authorizedTools: [{ id: "submit_answer", inputContract: contract.object({ answer: contract.string() }) }],
+    });
+    const adapter = createAdapter("strict");
+    const modelResponse = {
+        result: {
+            kind: "tool_call",
+            action: {
+                actionId: "submit_guava",
+                toolId: "submit_answer",
+                input: { answer: "Guava" },
+            },
+            memoryPatch: "__lazygoal_null__",
+            questions: [],
+        },
+    };
+    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(modelResponse) }) } };
+
+    const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
+    const wire = JSON.parse(response.content);
+    assert.equal("questions" in wire.result, false);
+    assert.equal(wire.result.memoryPatch, null);
+    const decoded = bundle.decode(wire);
+    assert.equal(decoded.kind, "tool_call");
+    assert.equal(decoded.action.toolId, "submit_answer");
+});
+
 test("Gemini does not rollback on evidence sentinel and keeps corrupted output transparent", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",

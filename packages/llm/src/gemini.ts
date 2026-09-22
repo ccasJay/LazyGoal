@@ -340,6 +340,7 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             delete result.error;
             delete result.need;
             delete result.question;
+            delete result.questions;
             delete result.filters;
         } else if (result.action === null || result.action === undefined) {
             delete result.action;
@@ -355,6 +356,7 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             delete result.error;
             delete result.need;
             delete result.question;
+            delete result.questions;
             delete result.filters;
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
                 delete result.completionEvidence;

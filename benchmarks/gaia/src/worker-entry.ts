@@ -43,34 +43,22 @@ import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-
 import { createAcpMuxStream, MultiplexedConnection } from "../../src/multiplex.js";
 import { RpcLlmAdapter } from "../../src/llm-rpc.js";
 import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
+import {
+    GAIA_PROFILE_TOOL_IDS,
+    GAIA_STRUCTURED_OUTPUT_MODE,
+    GAIA_WORKER_PROFILE,
+} from "./profile.js";
 import type { GaiaManifestTask } from "./types.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
 
-/** GAIA Worker 支持且仅支持的四个工具 ID 列表。 */
-export const GAIA_PROFILE_TOOL_IDS = Object.freeze([
-    READ_FILE_TOOL_ID,
-    WEB_SEARCH_TOOL_ID,
-    WEB_FETCH_TOOL_ID,
-    SUBMIT_ANSWER_TOOL_ID,
-] as const);
+export {
+    GAIA_PROFILE_TOOL_IDS,
+    GAIA_STRUCTURED_OUTPUT_MODE,
+    GAIA_WORKER_PROFILE,
+} from "./profile.js";
 
-/** GAIA Worker 默认最大执行步数。 */
-export const GAIA_DEFAULT_MAX_STEPS = 30;
-
-/** GAIA 容器内固定的 Agent Profile。 */
-export const GAIA_WORKER_PROFILE: AgentProfile = Object.freeze({
-    id: "gaia-worker-profile",
-    name: "GAIA QA evaluation agent",
-    description: "Container profile for GAIA question answering evaluation.",
-    systemPrompt: "You are an AI assistant solving a GAIA benchmark question. Read the question in /workspace/question.txt, use available tools (read_file, web_search, web_fetch) to research facts, and call submit_answer exactly once with your final answer.",
-    instructions: Object.freeze([
-        "Inspect files and attachments in /workspace using read_file.",
-        "Search information online using web_search and web_fetch.",
-        "Submit your final answer using submit_answer as soon as you have found the answer.",
-        "You may call submit_answer only once. After submitting, your task is completed.",
-    ]),
-    toolIds: GAIA_PROFILE_TOOL_IDS,
-});
+/** GAIA Worker 默认执行步数；Runtime 以 0 表示不设置步数上限。 */
+export const GAIA_DEFAULT_MAX_STEPS = 0;
 
 /** GAIA Worker 工具装配选项。 */
 export interface GaiaWorkerToolOptions {
@@ -205,8 +193,10 @@ export function parseGaiaAcpTaskMetadata(value: unknown): GaiaAcpTaskMetadata {
         throw new TypeError("Invalid GAIA ACP session metadata: missing goalId or runId");
     }
     const mode = record.structuredOutputMode;
-    if (mode !== "strict" && mode !== "prompt_only") {
-        throw new TypeError("Invalid GAIA ACP session metadata: invalid structuredOutputMode");
+    if (mode !== GAIA_STRUCTURED_OUTPUT_MODE) {
+        throw new TypeError(
+            `Invalid GAIA ACP session metadata: structuredOutputMode must be ${GAIA_STRUCTURED_OUTPUT_MODE}`,
+        );
     }
 
     const promptProfiles = parseGaiaPromptEvaluationProfiles(record);
@@ -270,6 +260,78 @@ export async function runGaiaAcpTask(
         options.metadata,
         options.signal === undefined ? {} : { signal: options.signal },
     );
+}
+
+/**
+ * 将 GAIA Headless Runtime 结果映射为 ACP Prompt 终态。
+ *
+ * @remarks
+ * `max_turn_requests` 只表示 Runtime 实际触发 `max_steps_exceeded`；不能把所有
+ * 未提交答案的结果都伪装成轮数上限。普通完成或等待返回 `end_turn`，取消返回
+ * `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）映射为
+ * `end_turn` 并通过 meta 记录 executionError 作为未作答领域失败（badcase）；
+ * 其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。
+ *
+ * @param result - 已恢复并包含 Runtime 终态的 Headless 结果。
+ * @returns 与 ACP v1 一致的 Prompt 终态和可审计元数据。
+ * @throws Runtime、协议或清理未达到受支持终态时抛出错误。
+ *
+ * @example
+ * ```ts
+ * const response = projectGaiaAcpResult(result);
+ * console.log(response.stopReason);
+ * ```
+ */
+export function projectGaiaAcpResult(
+    result: HeadlessEpisodeResult<GaiaEpisodeOutcome>,
+): AcpPromptResult {
+    const run = result.goal.state.run;
+    const meta = {
+        modelCompleted: result.model.completed,
+        runStatus: result.model.runStatus,
+        stepCount: run.stepCount,
+        submitted: result.outcome.submitted,
+    };
+
+    if (result.cleanupError !== undefined) {
+        throw new Error("GAIA Worker cleanup failed");
+    }
+    if (!result.progress.ok) {
+        throw new Error(`GAIA Runtime did not reach a valid terminal state: ${result.progress.error.code}`);
+    }
+    if (result.runner !== null && !result.runner.ok) {
+        throw new Error(`GAIA Runner did not reach a valid terminal state: ${result.runner.error.code}`);
+    }
+    if (result.model.runStatus !== run.status) {
+        throw new Error("GAIA model and Goal Run statuses disagree");
+    }
+    if (run.status === "completed" || run.status === "waiting") {
+        return { stopReason: "end_turn", meta };
+    }
+    if (run.status === "cancelled") {
+        return { stopReason: "cancelled", meta };
+    }
+    if (run.status === "failed" && run.stopReason?.kind === "max_steps_exceeded") {
+        return { stopReason: "max_turn_requests", meta };
+    }
+    if (
+        run.status === "failed"
+        && run.stopReason?.kind === "execution_error"
+        && run.stopReason.code === "INVALID_AGENT_DECISION"
+    ) {
+        return {
+            stopReason: "end_turn",
+            meta: {
+                ...meta,
+                executionError: run.stopReason.code,
+            },
+        };
+    }
+
+    const reason = run.stopReason?.kind === "execution_error"
+        ? run.stopReason.code
+        : "RUN_NOT_TERMINAL";
+    throw new Error(`GAIA Runtime failed before a supported ACP terminal state: ${reason}`);
 }
 
 /**
@@ -383,8 +445,7 @@ export async function runGaiaWorker(): Promise<void> {
                         signal: control.signal,
                     });
                     if (control.signal.aborted) return { stopReason: "cancelled" };
-                    const stopReason = result.outcome.submitted ? "end_turn" : "max_turn_requests";
-                    return { stopReason };
+                    return projectGaiaAcpResult(result);
                 },
                 dispose: async () => {
                     await adapter?.close();

@@ -66,9 +66,16 @@ import {
     type ModelInputEstimator,
     TrajectoryModelContextAssembler,
 } from "../../agent/src/index";
-import { readLlmConfig, type LlmConfig } from "../../llm/src/config";
+import { LlmConfigurationError, readLlmConfig, type LlmConfig } from "../../llm/src/config";
 import { loadRuntimeConfig } from "../../llm/src/config-loader";
-import { resolveXdgPaths } from "../../llm/src/xdg";
+import {
+    ensureSecureConfigFile,
+    ensureSecureHomeDirectories,
+    ensureSecureWorkspaceDirectories,
+    ensureWorkspaceManifest,
+    resolveLazyGoalHomePaths,
+    resolveWorkspaceHomePaths,
+} from "../../llm/src/xdg";
 import { loadProfileToml } from "../../llm/src/toml-config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
@@ -260,7 +267,7 @@ export type CliCommand =
  * parseCliArgs(["-c"]); // { kind: "continueLatest" }
  * parseCliArgs(["inspect"]); // { kind: "inspect" }
  * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
- * parseCliArgs(["inspect", "--dir", ".lazygoal/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: ".lazygoal/benchmarks/run" }
+ * parseCliArgs(["inspect", "--dir", "/tmp/lazygoal-workspace/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: "/tmp/lazygoal-workspace/benchmarks/run" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -319,7 +326,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
  *
  * @remarks
  * `cwd` 和 `env` 主要用于测试隔离；生产调用省略它们时分别使用当前工作区
- * 和进程环境。Profile 从 `<workspaceRoot>/.lazygoal/profiles/default.json`
+ * 和进程环境。Profile 从 LazyGoal Home 的 `agent-profiles/default.json`
  * 加载；ID 生成器可注入确定性实现，但默认使用随机 UUID。
  *
  * @example
@@ -335,7 +342,7 @@ export interface CompositionRootOptions {
      *
      * @remarks
      * 传入时，goals, trajectories, traces, context-sidecars 将被重定向到该目录下；
-     * 省略时使用默认的 `<workspaceRoot>/.lazygoal`。
+     * 省略时使用当前 workspace 对应的 LazyGoal Home 目录。
      *
      * @example
      * ```ts
@@ -422,7 +429,7 @@ export interface CompositionRootOptions {
     readonly initialScreen?: UiScreen;
     /** 可选初始目标选择模式（"resume" 或 "inspect"），在 initialScreen 为 "goal_select" 时生效。 */
     readonly initialGoalSelectMode?: "resume" | "inspect";
-    /** 可选的 Benchmark 评测输出根目录，默认自动发现 <workspaceRoot>/.lazygoal/benchmarks。 */
+    /** 可选的 Benchmark 评测输出根目录，默认自动发现 LazyGoal Home 当前 workspace 的 benchmarks。 */
     readonly benchmarksDirectory?: string;
     /** 可选的模型目录服务。 */
     readonly modelCatalog?: LlmModelCatalog;
@@ -439,7 +446,7 @@ export interface CompositionRootOptions {
  *
  * @remarks
  * 所有 Runtime、Tool 和 Controller 共享同一个 workspace 级 Store、Adapter
- * 和 Profile Registry；Store 目录是 `<workspaceRoot>/.lazygoal/goals`。
+ * 和 Profile Registry；Store 目录是 LazyGoal Home 下当前 workspace 的 `goals`。
  * 构造根本身不会创建该目录或写入 Goal，第一次写入只会由合法 `create` 命令
  * 触发。一个根只暴露一个 SessionController，因而一个进程只推进一个 Goal。
  *
@@ -452,7 +459,7 @@ export interface CompositionRootOptions {
 export interface CompositionRoot {
     /** `realpath(process.cwd())` 得到的工作区根。 */
     readonly workspaceRoot: string;
-    /** 当前使用的持久化根目录（默认为 `<workspaceRoot>/.lazygoal`）。 */
+    /** 当前使用的持久化根目录（默认为 LazyGoal Home 下当前 workspace 的目录）。 */
     readonly dataDirectory: string;
     /** 项目级 Goal 快照目录。 */
     readonly goalsDirectory: string;
@@ -591,12 +598,19 @@ export async function createCompositionRoot(
         try {
             llmConfig = readLlmConfig(env);
         } catch (error) {
-            const xdgPaths = resolveXdgPaths(env);
-            const allowXdgConfig = env.XDG_CONFIG_HOME !== undefined || env.HOME !== undefined;
-            if (allowXdgConfig && existsSync(xdgPaths.configFile)) {
-                const runtimeConfig = await loadRuntimeConfig({ env, xdgPaths });
+            const homePaths = resolveLazyGoalHomePaths(env);
+            const hasHomeConfig = existsSync(homePaths.configFile)
+                || existsSync(join(homePaths.profilesDir, "default.toml"));
+            if (hasHomeConfig) {
+                const runtimeConfig = await loadRuntimeConfig({ env, homePaths });
                 llmConfig = runtimeConfig.llm;
             } else {
+                if (error instanceof LlmConfigurationError) {
+                    throw new LlmConfigurationError(
+                        error.missing,
+                        `${error.message}。请在 ${homePaths.configFile} 配置，或通过环境变量传入；如需迁移，请手动复制到该 Home 文件。`,
+                    );
+                }
                 throw error;
             }
         }
@@ -607,9 +621,11 @@ export async function createCompositionRoot(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
+    const homePaths = resolveLazyGoalHomePaths(env);
+    const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceRoot);
     const dataDirectory = options.dataDirectory !== undefined
         ? resolve(options.dataDirectory)
-        : join(workspaceRoot, ".lazygoal");
+        : workspaceHomePaths.workspaceDirectory;
     const goalsDirectory = join(dataDirectory, "goals");
     const trajectoriesDirectory = join(
         dataDirectory,
@@ -620,7 +636,7 @@ export async function createCompositionRoot(
         dataDirectory,
         "context-sidecars",
     );
-    const profilesDirectory = join(workspaceRoot, ".lazygoal", "profiles");
+    const profilesDirectory = homePaths.agentProfilesDir;
     const profilePath = join(
         profilesDirectory,
         `${DEFAULT_PROFILE_ID}.json`,
@@ -642,14 +658,9 @@ export async function createCompositionRoot(
         if (loadedProfile !== undefined) {
             profile = loadedProfile;
         } else {
-            const xdgPaths = resolveXdgPaths(env);
-            const xdgConfigFile = join(xdgPaths.lazygoalConfigDir, "config.toml");
-            const xdgDefaultProfile = join(xdgPaths.profilesDir, `${DEFAULT_PROFILE_ID}.toml`);
-            const hasXdgConfig = existsSync(xdgConfigFile);
-            const hasXdgProfile = existsSync(xdgDefaultProfile);
-
-            const allowXdgConfig = env.XDG_CONFIG_HOME !== undefined || env.HOME !== undefined;
-            if (!allowXdgConfig || (!hasXdgConfig && !hasXdgProfile)) {
+            const hasHomeConfig = existsSync(homePaths.configFile);
+            const hasHomeProfile = existsSync(join(homePaths.profilesDir, `${DEFAULT_PROFILE_ID}.toml`));
+            if (!hasHomeConfig && !hasHomeProfile) {
                 throw new AgentProfileConfigurationError(
                     DEFAULT_PROFILE_ID,
                     profilePath,
@@ -733,7 +744,7 @@ export async function createCompositionRoot(
         );
     const benchmarksDirectory = options.benchmarksDirectory !== undefined
         ? resolve(options.benchmarksDirectory)
-        : join(workspaceRoot, ".lazygoal", "benchmarks");
+        : workspaceHomePaths.benchmarksDirectory;
     const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
     const store = new AggregatedGoalStore(primaryGoalStore, benchmarksDirectory);
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
@@ -950,6 +961,18 @@ export async function createCompositionRoot(
             ? {}
             : { gracePeriodMs: options.gracePeriodMs }),
     });
+
+    await ensureSecureHomeDirectories(homePaths);
+    if (existsSync(homePaths.configFile)) {
+        await ensureSecureConfigFile(homePaths.configFile);
+    }
+    if (existsSync(profilePath)) {
+        await ensureSecureConfigFile(profilePath);
+    }
+    await ensureWorkspaceManifest(workspaceHomePaths, workspaceRoot);
+    if (dataDirectory === workspaceHomePaths.workspaceDirectory) {
+        await ensureSecureWorkspaceDirectories(workspaceHomePaths);
+    }
 
     return {
         workspaceRoot,

@@ -16,8 +16,8 @@ build/
 coverage/
 *.tsbuildinfo
 
-# Project-local LazyGoal snapshots
-.lazygoal/
+# Project-local LazyGoal runtime state
+/.lazygoal/
 .trae/
 
 # Local files

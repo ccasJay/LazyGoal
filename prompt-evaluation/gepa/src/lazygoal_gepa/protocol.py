@@ -14,7 +14,8 @@ from .errors import (
     GEPARunProtocolError,
     PromptEvaluationProtocolError,
 )
-from .models import BenchmarkId, SUPPORTED_BENCHMARKS
+from .dataset import validate_manifest_file
+from .models import BenchmarkId, LazyGoalEvaluationExample
 
 PROMPT_EVALUATION_PROTOCOL = "prompt-evaluation@1"
 
@@ -75,7 +76,7 @@ class PromptEvaluationTaskRecord:
 class PromptEvaluationResultRecord:
     evaluation_id: str
     status: EvaluationStatus
-    benchmark_id: Literal["alfworld", "gaia"]
+    benchmark_id: str
     manifest_path: str
     candidate_id: str
     base_profile_id: str
@@ -245,7 +246,7 @@ def _parse_result(value: Any) -> PromptEvaluationResultRecord:
     if status not in _TERMINAL_STAGES:
         raise PromptEvaluationProtocolError("Prompt Evaluation result status is invalid")
     benchmark_id = record["benchmarkId"]
-    if benchmark_id not in ("alfworld", "gaia"):
+    if not isinstance(benchmark_id, str) or not benchmark_id.strip():
         raise PromptEvaluationProtocolError("Prompt Evaluation result benchmark is invalid")
     prompt_sha256 = _require_non_empty_string(record["promptSha256"], "promptSha256")
     if _SHA256.fullmatch(prompt_sha256) is None:
@@ -258,7 +259,7 @@ def _parse_result(value: Any) -> PromptEvaluationResultRecord:
     return PromptEvaluationResultRecord(
         evaluation_id=_require_non_empty_string(record["evaluationId"], "evaluationId"),
         status=cast(EvaluationStatus, status),
-        benchmark_id=cast(Literal["alfworld", "gaia"], benchmark_id),
+        benchmark_id=benchmark_id,
         manifest_path=_require_non_empty_string(record["manifestPath"], "manifestPath"),
         candidate_id=_require_non_empty_string(record["candidateId"], "candidateId"),
         base_profile_id=_require_non_empty_string(record["baseProfileId"], "baseProfileId"),
@@ -482,6 +483,38 @@ class GEPARunRequest:
         return data
 
 
+def validate_gaia_minimal_request(request: GEPARunRequest) -> None:
+    """Validate the bounded GAIA Level 1/2 GEPA lifecycle configuration.
+
+    The public request protocol remains reusable for offline benchmark adapters, but a
+    real GAIA lifecycle is intentionally limited to one train task, one distinct
+    validation task, seed ``0``, reflection minibatch ``1``, and at most four metric
+    calls. The dataset validator applies the Level 1/2 and attachment contract.
+    This check is read-only and must run before the worker is launched.
+    """
+
+    if request.benchmark != "gaia":
+        return
+    if len(request.trainset) != 1:
+        raise DatasetValidationError(
+            "GAIA GEPA requires exactly one train sample"
+        )
+    if request.valset is None or len(request.valset) != 1:
+        raise DatasetValidationError(
+            "GAIA GEPA requires exactly one validation sample"
+        )
+    if request.max_metric_calls > 4:
+        raise GEPARunProtocolError(
+            "GAIA GEPA maxMetricCalls must be at most 4"
+        )
+    if request.reflection_minibatch_size not in (None, 1):
+        raise GEPARunProtocolError(
+            "GAIA GEPA reflectionMinibatchSize must be 1"
+        )
+    if request.seed not in (None, 0):
+        raise GEPARunProtocolError("GAIA GEPA seed must be 0")
+
+
 def parse_run_request(
     data: Any,
     *,
@@ -512,8 +545,8 @@ def parse_run_request(
         raise GEPARunProtocolError(f"Unsupported protocol: {protocol!r}")
 
     benchmark = data["benchmark"]
-    if benchmark not in SUPPORTED_BENCHMARKS:
-        raise GEPARunProtocolError(f"Unsupported benchmark: {benchmark!r}")
+    if not isinstance(benchmark, str) or not benchmark.strip():
+        raise GEPARunProtocolError(f"benchmark must be a non-empty string, got {benchmark!r}")
 
     max_metric_calls = data["maxMetricCalls"]
     if (
@@ -556,6 +589,25 @@ def parse_run_request(
         if len(valset_raw) == 0:
             raise DatasetValidationError("valset cannot be an empty list when provided")
         valset = _parse_example_list(valset_raw, "valset", base_dir)
+
+        train_task_ids = {example.task_id for example in trainset}
+        train_sample_ids = {example.sample_id for example in trainset}
+        overlapping_tasks = sorted(
+            train_task_ids.intersection(example.task_id for example in valset)
+        )
+        overlapping_samples = sorted(
+            train_sample_ids.intersection(example.sample_id for example in valset)
+        )
+        if overlapping_tasks:
+            raise DatasetValidationError(
+                "Trainset and valset must not reuse task IDs: "
+                + ", ".join(overlapping_tasks)
+            )
+        if overlapping_samples:
+            raise DatasetValidationError(
+                "Trainset and valset must not reuse sample IDs: "
+                + ", ".join(overlapping_samples)
+            )
 
     request = GEPARunRequest(
         protocol="gepa-run@1",
@@ -710,9 +762,12 @@ def validate_run_request_datasets(request: GEPARunRequest) -> None:
                     "Manifest task ID does not match the sample: "
                     f"expected {example.task_id!r}, found {found_task_id!r}"
                 )
-            manifest_benchmark = raw.get("benchmark") or task.get("benchmark")
-            if manifest_benchmark is not None and manifest_benchmark != request.benchmark:
-                raise DatasetValidationError(
-                    "Sample benchmark does not match the run: "
-                    f"manifest uses {manifest_benchmark!r}, run uses {request.benchmark!r}"
-                )
+            validate_manifest_file(
+                LazyGoalEvaluationExample(
+                    sample_id=example.sample_id,
+                    benchmark_id=request.benchmark,
+                    task_id=example.task_id,
+                    manifest_path=manifest_file,
+                ),
+                request.benchmark,
+            )

@@ -7,6 +7,7 @@ import type {
 import type { PromptEvaluationTaskResult } from "../../src/prompt-evaluation/protocol.js";
 import type { WorkerArtifact } from "../../src/worker-builder.js";
 import { loadGaiaManifest } from "./manifest.js";
+import { assertDataRoot, assertTaskAttachments } from "./single-task-manifest.js";
 import {
     runGaiaSupervisor,
     type GaiaSupervisorOptions,
@@ -62,6 +63,10 @@ export class GaiaPromptEvaluationAdapter implements PromptEvaluationBenchmarkAda
 
     async loadManifest(path: string): Promise<readonly GaiaManifestTask[]> {
         const manifest = await this.loadManifestFile(path);
+        await assertDataRoot(manifest.dataRoot);
+        for (const task of manifest.tasks) {
+            await assertTaskAttachments(manifest.dataRoot, task);
+        }
         this.dataRoot = manifest.dataRoot;
         return manifest.tasks;
     }
@@ -135,6 +140,8 @@ export class GaiaPromptEvaluationAdapter implements PromptEvaluationBenchmarkAda
 
 function taskStatus(result: GaiaSupervisorResult): PromptEvaluationTaskResult["status"] {
     if (result.status === "cancelled") return "cancelled";
-    if (result.status === "infrastructure_error") return "infrastructure_error";
+    if (result.status === "infrastructure_error" || result.status === "failed") {
+        return "infrastructure_error";
+    }
     return result.domainResult.correct === true ? "passed" : "failed";
 }

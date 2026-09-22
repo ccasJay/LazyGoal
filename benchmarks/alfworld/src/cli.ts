@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { randomUUID } from "node:crypto";
 
 import {
     createDefaultPromptBundleRenderer,
@@ -14,6 +15,8 @@ import {
 } from "./evaluation-runner.js";
 import { buildBenchmarkWorker } from "../../src/worker-builder.js";
 import { AttemptRecorder } from "../../src/attempt-recorder.js";
+import { resolveBenchmarkHomePaths } from "../../src/default-paths.js";
+import { resolveLazyGoalHomePaths } from "../../../packages/llm/src/xdg.js";
 import { runAlfworldSupervisor } from "./supervisor.js";
 import {
     ALFWORLD_ACP_WORKER_ENTRYPOINT,
@@ -355,7 +358,8 @@ export async function runAlfworldCli(
     let environmentEnv = process.env;
     let context: AlfworldEvaluationContext;
     try {
-        const profile = await loadAlfworldProfile(workspaceRoot);
+        const homePaths = resolveLazyGoalHomePaths(options.env ?? process.env);
+        const profile = await loadAlfworldProfile(homePaths.agentProfilesDir);
         if (profile.profile.id !== command.profileId) {
             throw new Error(
                 `ALFWorld Profile id mismatch: requested ${command.profileId}, file contains ${profile.profile.id}`,
@@ -431,23 +435,28 @@ async function runDefaultEvaluation(
     context: AlfworldEvaluationContext,
     env: NodeJS.ProcessEnv,
 ): Promise<EvaluationReport> {
+    const benchmarkPaths = await resolveBenchmarkHomePaths(context.workspaceRoot, "alfworld", env);
     const adapter = createLlmAdapter(readLlmConfig(env));
     const renderer = await createDefaultPromptBundleRenderer();
     const contextCompactor = new DropOldestContextCompactor();
     const workerArtifact = await buildBenchmarkWorker({
         projectRoot: context.workspaceRoot,
         entryPoint: ALFWORLD_ACP_WORKER_ENTRYPOINT,
-        cacheDirectory: join(context.workspaceRoot, ".lazygoal/benchmarks/alfworld-worker-cache"),
+        cacheDirectory: join(benchmarkPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
     const scriptPath = fileURLToPath(new URL("../python/sidecar.py", import.meta.url));
+    const runDirectory = join(
+        benchmarkPaths.runsDirectory,
+        `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`,
+    );
     const executeEpisode = async ({ task, signal }: import("./evaluation-runner.js").EpisodeExecutionContext) => {
         const result = await runAlfworldSupervisor({
             task,
             environment: context.environment,
             workerArtifact,
             llmAdapter: adapter,
-            outputDirectory: join(context.workspaceRoot, ".lazygoal/benchmarks/alfworld-runs", context.metadata.manifest.name),
+            outputDirectory: runDirectory,
             taskTimeoutMs: task.maxSteps * 60_000,
             ...(signal === undefined ? {} : { signal }),
             sidecarScriptPath: scriptPath,
@@ -488,7 +497,7 @@ async function runDefaultEvaluation(
         metadata: context.metadata,
         executeEpisode,
         maxInfrastructureRetries: context.command.maxInfrastructureRetries,
-        attemptsDirectory: join(context.workspaceRoot, ".lazygoal/benchmarks/alfworld-runs", context.metadata.manifest.name, "attempts"),
+        attemptsDirectory: join(runDirectory, "attempts"),
     }).run();
 }
 

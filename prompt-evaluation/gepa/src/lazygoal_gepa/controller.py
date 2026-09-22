@@ -32,7 +32,9 @@ from .errors import (
     RunStoreError,
     WorkerAlreadyRunningError,
 )
+from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
+from .model_resolver import resolve_model_identities
 from .protocol import GEPARunRequest, read_run_request
 from .reporter import ReportNotReadyError, read_run_report
 from .store import RunState, RunStore
@@ -50,6 +52,7 @@ def launch_detached_worker(
     run_dir: Path | str,
     worker_cmd: list[str] | None = None,
     extra_env: Mapping[str, str] | None = None,
+    workspace_root: Path | str | None = None,
 ) -> int:
     """Launch an independent background worker detached from the caller session.
 
@@ -57,7 +60,14 @@ def launch_detached_worker(
     bound to DEVNULL, and its stdout and stderr redirected to `<run_dir>/worker.log`.
     """
     resolved_run_dir = Path(run_dir).resolve()
-    resolved_run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_workspace_root = (
+        Path(workspace_root).resolve() if workspace_root is not None else None
+    )
+    resolved_run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(resolved_run_dir, 0o700)
+    except OSError:
+        pass
     log_file_path = resolved_run_dir / "worker.log"
 
     if worker_cmd is not None:
@@ -67,6 +77,11 @@ def launch_detached_worker(
         formatted_cmd = raw_cmd.format(
             run_dir=str(resolved_run_dir),
             run_id=resolved_run_dir.name,
+            workspace_root=(
+                str(resolved_workspace_root)
+                if resolved_workspace_root is not None
+                else ""
+            ),
         )
         cmd = shlex.split(formatted_cmd)
     else:
@@ -78,11 +93,14 @@ def launch_detached_worker(
             "--run-dir",
             str(resolved_run_dir),
         ]
+        if resolved_workspace_root is not None:
+            cmd.extend(["--workspace-root", str(resolved_workspace_root)])
 
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
 
+    worker_cwd = resolved_workspace_root or resolved_run_dir
     log_file = open(log_file_path, "a", encoding="utf-8")
     try:
         proc = subprocess.Popen(
@@ -90,7 +108,7 @@ def launch_detached_worker(
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=subprocess.STDOUT,
-            cwd=str(resolved_run_dir),
+            cwd=str(worker_cwd),
             env=env,
             start_new_session=True,
             close_fds=True,
@@ -122,23 +140,37 @@ class LifecycleController:
         self.runs_dir = (
             Path(runs_dir).resolve()
             if runs_dir is not None
-            else (self.workspace_root / ".lazygoal" / "gepa" / "runs")
+            else (resolve_workspace_home(self.workspace_root) / "gepa" / "runs")
         )
         self.profile_path = (
             Path(profile_path).resolve()
             if profile_path is not None
-            else (self.workspace_root / ".lazygoal" / "profiles" / "default.json")
+            else (resolve_lazygoal_home() / "agent-profiles" / "default.json")
         )
-        self.working_model = working_model or ModelIdentity(
-            profile_name="default",
-            model_id="default",
-        )
-        self.reflection_model = reflection_model or ModelIdentity(
-            profile_name="gepa-reflection",
-            model_id="reflection",
+        if (working_model is None) != (reflection_model is None):
+            raise ConfigurationError(
+                "Working and reflection model identities must be provided together"
+            )
+        self._resolved_models = (
+            (working_model, reflection_model)
+            if working_model is not None and reflection_model is not None
+            else None
         )
         self.worker_cmd = worker_cmd
         self.store = RunStore(self.runs_dir)
+
+    def _models(self) -> tuple[ModelIdentity, ModelIdentity]:
+        if self._resolved_models is None:
+            self._resolved_models = resolve_model_identities(self.workspace_root)
+        return self._resolved_models
+
+    @property
+    def working_model(self) -> ModelIdentity:
+        return self._models()[0]
+
+    @property
+    def reflection_model(self) -> ModelIdentity:
+        return self._models()[1]
 
     def preflight(self, request_path: Path | str) -> dict[str, Any]:
         """Perform read-only preflight consistency checks without creating files or processes."""
@@ -153,11 +185,7 @@ class LifecycleController:
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
         extract_seed_candidate(snapshot)
 
-        if self.working_model.profile_name == self.reflection_model.profile_name:
-            raise ConfigurationError(
-                "Working profile and reflection profile must not share the same name: "
-                f"{self.working_model.profile_name!r}"
-            )
+        working_model, reflection_model = self._models()
 
         return {
             "valid": True,
@@ -175,8 +203,8 @@ class LifecycleController:
                 "instructionCount": len(snapshot.instructions),
             },
             "models": {
-                "working": self.working_model.to_dict(),
-                "reflection": self.reflection_model.to_dict(),
+                "working": working_model.to_dict(),
+                "reflection": reflection_model.to_dict(),
             },
             "estimatedSideEffects": {
                 "willMutateProfile": True,
@@ -199,7 +227,8 @@ class LifecycleController:
                 "the default profile upon completion. Re-run with --yes to confirm."
             )
 
-        preflight_info = self.preflight(request_path)
+        self.preflight(request_path)
+        working_model, reflection_model = self._models()
         req = read_run_request(request_path, check_manifests=True)
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
         seed_candidate = extract_seed_candidate(snapshot)
@@ -223,12 +252,16 @@ class LifecycleController:
             ),
             seed_candidate=seed_candidate,
             seed_candidate_id=seed_candidate_id,
-            working_model=self.working_model,
-            reflection_model=self.reflection_model,
+            working_model=working_model,
+            reflection_model=reflection_model,
         )
 
         run_dir = self.store.initialize_run(manifest)
-        worker_pid = launch_detached_worker(run_dir, worker_cmd=self.worker_cmd)
+        worker_pid = launch_detached_worker(
+            run_dir,
+            worker_cmd=self.worker_cmd,
+            workspace_root=self.workspace_root,
+        )
 
         return {
             "runId": run_id,
@@ -324,7 +357,7 @@ class LifecycleController:
 
         # Preflight Check 2: Active worker ownership
         health, owner = RunOwnership(run_dir).check_health()
-        if health in ("active", "stale"):
+        if health in ("active", "stale", "lost"):
             active_pid = owner.pid if owner else None
             raise WorkerAlreadyRunningError(
                 f"Worker is already active for run {run_id!r} (PID {active_pid})",
@@ -332,10 +365,8 @@ class LifecycleController:
             )
 
         # Preflight Check 3: Model identity and Target Profile digest drift
-        if (
-            self.working_model != manifest.working_model
-            or self.reflection_model != manifest.reflection_model
-        ):
+        working_model, reflection_model = self._models()
+        if working_model != manifest.working_model or reflection_model != manifest.reflection_model:
             raise ConfigurationError(
                 "Working or reflection model identity has drifted from frozen run manifest"
             )
@@ -352,18 +383,22 @@ class LifecycleController:
                 f"expected digest {manifest.target_profile.frozen_digest}, got {current_digest}"
             )
 
-        # Preflight Check 4: Official GEPA checkpoint integrity if exists
+        # Preflight Check 4: a resumable run must have a valid checkpoint.
         checkpoint_file = run_dir / "gepa" / "gepa_state.bin"
-        if checkpoint_file.is_file():
-            try:
-                from gepa.core.state import GEPAState
+        if not checkpoint_file.is_file():
+            raise RunStoreError(
+                f"Checkpoint is missing for run {run_id!r}: {checkpoint_file}",
+                code="checkpoint_failed",
+            )
+        try:
+            from gepa.core.state import GEPAState
 
-                GEPAState.load(str(run_dir / "gepa"))
-            except Exception as exc:
-                raise RunStoreError(
-                    f"Checkpoint is corrupted for run {run_id!r}: {exc}",
-                    code="checkpoint_corrupted",
-                ) from exc
+            GEPAState.load(str(run_dir / "gepa"))
+        except Exception as exc:
+            raise RunStoreError(
+                f"Checkpoint is corrupted for run {run_id!r}: {exc}",
+                code="checkpoint_corrupted",
+            ) from exc
 
         self.store.clear_stop_request(run_id)
         self.store.update_state(
@@ -372,7 +407,11 @@ class LifecycleController:
             stop_requested=False,
         )
 
-        worker_pid = launch_detached_worker(run_dir, worker_cmd=self.worker_cmd)
+        worker_pid = launch_detached_worker(
+            run_dir,
+            worker_cmd=self.worker_cmd,
+            workspace_root=self.workspace_root,
+        )
 
         return {
             "runId": run_id,
@@ -392,12 +431,14 @@ def start_run(
     yes: bool = False,
     runs_root: Path | str | None = None,
     workspace_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
     worker_cmd: list[str] | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to start a GEPA run."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
         worker_cmd=worker_cmd,
     )
     return controller.start(request_path, yes=yes)
@@ -426,12 +467,14 @@ def resume_run(
     yes: bool = False,
     runs_root: Path | str | None = None,
     workspace_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
     worker_cmd: list[str] | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to resume an uncompleted GEPA run."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
         worker_cmd=worker_cmd,
     )
     return controller.resume(run_id, yes=yes)
@@ -450,10 +493,12 @@ def preflight_run(
     request_path: Path | str,
     workspace_root: Path | str | None = None,
     runs_root: Path | str | None = None,
+    profile_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Top-level helper to execute read-only preflight checks."""
     controller = LifecycleController(
         workspace_root=workspace_root,
         runs_dir=runs_root,
+        profile_path=profile_path,
     )
     return controller.preflight(request_path)

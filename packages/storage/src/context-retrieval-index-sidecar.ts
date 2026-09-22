@@ -287,7 +287,7 @@ export const contextRetrievalIndexSidecarCodec: ContextRetrievalIndexSidecarCode
  *
  * @example
  * ```ts
- * const store = new JsonFileContextRetrievalIndexStore(".lazygoal/context-sidecars");
+ * const store = new JsonFileContextRetrievalIndexStore("~/.lazygoal/workspaces/<workspace-id>/context-sidecars");
  * const sidecar = await store.restore("goal-1", "run-1", {
  *     committedThroughSequence: 42,
  *     indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,

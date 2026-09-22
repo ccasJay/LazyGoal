@@ -29,6 +29,22 @@ import {
 } from "./process.js";
 import type { WorkerArtifact } from "./worker-builder.js";
 
+const HOST_PROXY_ENVIRONMENT_VARIABLES = Object.freeze([
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+] as const);
+
+interface ContainerProxyEnvironment {
+    readonly names: readonly string[];
+    readonly processEnvironment: NodeJS.ProcessEnv;
+}
+
 /** LazyGoal 管理的统一隔离镜像来源。 */
 export type ImageSource =
     | {
@@ -94,6 +110,8 @@ export interface PreflightResult {
  *   benchmarkId: "example",
  *   resolveImage: () => ({ mode: "custom", image: "example:latest" }),
  *   getWorkerEntryConfig: () => ({}),
+ *   resolveNetworkMode: () => "bridge",
+ *   inheritHostProxyEnvironment: () => true,
  *   async prepareEnvironment(env) { await env.exec("mkdir -p data"); },
  *   async preflight() { return { ok: true }; },
  *   async collectArtifacts(_env, output) { return output; },
@@ -148,6 +166,18 @@ export interface EnvironmentSpec<TTask, TArtifact> {
      * @returns "none" 或 "bridge"。
      */
     resolveNetworkMode?(task: TTask): "none" | "bridge";
+    /**
+     * 是否把宿主的标准代理环境变量注入当前任务容器。
+     *
+     * @remarks
+     * 默认不继承。启用时只传递 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY`、
+     * `NO_PROXY` 及其小写形式，并要求网络模式为 `bridge`；其他宿主变量不会进入
+     * 容器。回环代理主机会规范化为 `host.docker.internal`。
+     *
+     * @param task - 待执行的任务。
+     * @returns 当前任务是否显式继承宿主代理。
+     */
+    inheritHostProxyEnvironment?(task: TTask): boolean;
     /** 在 ACP 作答前准备领域依赖、数据和工作区。 */
     prepareEnvironment(env: EnvironmentHandle): Promise<void>;
     /** 在模型调用前验证领域运行时可用性。 */
@@ -343,19 +373,21 @@ export const DEFAULT_MANAGED_IMAGE = "node:22.22.2-bookworm-slim@sha256:868499d5
  * LazyGoal 拥有的 Docker 隔离执行环境。
  *
  * @remarks
- * 每次 `run` 生成独立容器，固定使用 linux/amd64、无网络、无宿主挂载、去除全部
- * capabilities 和 `no-new-privileges`。Spec 只能通过 `EnvironmentHandle` 处理领域
- * 准备与产物，容器始终在有界回收后删除。
+ * 每次 `run` 生成独立容器，固定使用 linux/amd64、无宿主挂载、去除全部 capabilities
+ * 和 `no-new-privileges`。网络默认关闭；Spec 可显式启用 bridge，并单独选择是否继承
+ * 受限的宿主代理变量。Spec 只能通过 `EnvironmentHandle` 处理领域准备与产物，容器
+ * 始终在有界回收后删除。
  *
  * @example
  * ```ts
  * const environment = new IsolatedEnvironment();
- * const result = await environment.run({ task, spec, outputDirectory: ".lazygoal/run" });
+ * const result = await environment.run({ task, spec, outputDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/<name>/runs/<run-id>" });
  * ```
  */
 export class IsolatedEnvironment {
     private readonly runProcess: ProcessRunner;
     private readonly runInteractive: InteractiveProcessRunner;
+    private readonly hostEnvironment: NodeJS.ProcessEnv;
 
     /**
      * @param options - 可替换的进程边界和安全默认值；测试可注入伪 Docker。
@@ -363,6 +395,7 @@ export class IsolatedEnvironment {
     constructor(options: IsolatedEnvironmentOptions = {}) {
         this.runProcess = options.run ?? runProcess;
         this.runInteractive = options.interactiveRun ?? runInteractiveProcess;
+        this.hostEnvironment = options.hostEnvironment ?? process.env;
     }
 
     /**
@@ -415,7 +448,23 @@ export class IsolatedEnvironment {
                     } else {
                         await this.prepareImage(image, imageRef, platform, controller.signal, (value) => { imageId = value; });
                         const networkMode = options.spec.resolveNetworkMode?.(options.task) ?? "none";
-                        await this.createAndStart(containerName, imageId!, platform, workdir, networkMode, controller.signal);
+                        const proxyEnvironment = options.spec.inheritHostProxyEnvironment?.(options.task) === true
+                            ? resolveContainerProxyEnvironment(this.hostEnvironment)
+                            : undefined;
+                        if (proxyEnvironment !== undefined
+                            && proxyEnvironment.names.length > 0
+                            && networkMode !== "bridge") {
+                            throw new Error("Host proxy inheritance requires bridge container networking");
+                        }
+                        await this.createAndStart(
+                            containerName,
+                            imageId!,
+                            platform,
+                            workdir,
+                            networkMode,
+                            proxyEnvironment,
+                            controller.signal,
+                        );
                     }
                     if (options.container?.imageId !== undefined) imageId = options.container.imageId;
                     created = true;
@@ -680,12 +729,32 @@ export class IsolatedEnvironment {
         }
     }
 
-    private async createAndStart(name: string, imageId: string, platform: string, workdir: string, networkMode: "none" | "bridge", signal: AbortSignal): Promise<void> {
+    private async createAndStart(
+        name: string,
+        imageId: string,
+        platform: string,
+        workdir: string,
+        networkMode: "none" | "bridge",
+        proxyEnvironment: ContainerProxyEnvironment | undefined,
+        signal: AbortSignal,
+    ): Promise<void> {
         try {
             requireSuccess(await this.runProcess("docker", ["create", "--name", name, "--platform", platform,
                 "--network", networkMode, "--cpus", "2", "--memory", "4g", "--pids-limit", "256",
                 "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--workdir", workdir,
-                "--entrypoint", "/bin/bash", imageId, "-c", "sleep infinity"], { timeoutMs: 60_000, signal }), "Create isolated container");
+                ...(proxyEnvironment === undefined || proxyEnvironment.names.length === 0
+                    ? []
+                    : [
+                        "--add-host", "host.docker.internal:host-gateway",
+                        ...proxyEnvironment.names.flatMap((variable) => ["--env", variable]),
+                    ]),
+                "--entrypoint", "/bin/bash", imageId, "-c", "sleep infinity"], {
+                timeoutMs: 60_000,
+                signal,
+                ...(proxyEnvironment === undefined
+                    ? {}
+                    : { env: proxyEnvironment.processEnvironment }),
+            }), "Create isolated container");
             requireSuccess(await this.runProcess("docker", ["start", name], { timeoutMs: 60_000, signal }), "Start isolated container");
         } catch (error) {
             try {
@@ -738,6 +807,39 @@ export interface IsolatedEnvironmentOptions {
     readonly run?: ProcessRunner;
     /** 交互式 Worker 启动器；省略时使用共享 InteractiveProcessRunner。 */
     readonly interactiveRun?: InteractiveProcessRunner;
+    /** 宿主环境快照；仅显式启用代理继承的 Spec 可读取标准代理变量。 */
+    readonly hostEnvironment?: NodeJS.ProcessEnv;
+}
+
+function resolveContainerProxyEnvironment(
+    hostEnvironment: NodeJS.ProcessEnv,
+): ContainerProxyEnvironment {
+    const processEnvironment: NodeJS.ProcessEnv = { ...hostEnvironment };
+    const names: string[] = [];
+    for (const name of HOST_PROXY_ENVIRONMENT_VARIABLES) {
+        const value = hostEnvironment[name];
+        if (value === undefined || value.trim() === "") continue;
+        names.push(name);
+        processEnvironment[name] = name.toLowerCase() === "no_proxy"
+            ? value
+            : normalizeProxyUrlForContainer(value);
+    }
+    return { names: Object.freeze(names), processEnvironment };
+}
+
+function normalizeProxyUrlForContainer(value: string): string {
+    try {
+        const url = new URL(value);
+        if (url.hostname === "localhost"
+            || url.hostname === "127.0.0.1"
+            || url.hostname === "[::1]") {
+            url.hostname = "host.docker.internal";
+            return url.toString();
+        }
+    } catch {
+        // 非 URL 代理格式保持原值，由代理客户端解释。
+    }
+    return value;
 }
 
 function makeContainerName(benchmarkId: string): string {

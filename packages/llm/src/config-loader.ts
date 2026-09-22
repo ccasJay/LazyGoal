@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { resolveXdgPaths, type XdgPaths } from "./xdg";
+import { resolveLazyGoalHomePaths, type LazyGoalHomePaths } from "./xdg";
 import {
     parseTomlConfig,
     loadProfileToml,
@@ -51,13 +51,21 @@ export interface LazyGoalRuntimeConfig {
 
 /**
  * 加载运行时配置的选项。
+ *
+ * @example
+ * ```ts
+ * const config = await loadRuntimeConfig({
+ *     homePaths: resolveLazyGoalHomePaths(),
+ *     cliArgs: { profile: "default" },
+ * });
+ * ```
  */
 export interface LoadConfigOptions {
     /** 自定义环境变量（主要用于测试注入）。 */
     readonly env?: NodeJS.ProcessEnv;
-    /** 预先指定的 XDG 路径对象。 */
-    readonly xdgPaths?: XdgPaths;
-    /** 显式指定的主配置文件路径（优先级高于 XDG 默认路径）。 */
+    /** 预先指定的 LazyGoal Home 路径对象。 */
+    readonly homePaths?: LazyGoalHomePaths;
+    /** 显式指定的主配置文件路径（优先级高于 LazyGoal Home 默认路径）。 */
     readonly customConfigFile?: string;
     /** CLI 命令行传入的临时覆盖参数。 */
     readonly cliArgs?: CliConfigOverrides;
@@ -81,8 +89,8 @@ export interface LoadConfigOptions {
  * ```
  */
 export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promise<LazyGoalRuntimeConfig> {
-    const xdgPaths = options.xdgPaths ?? resolveXdgPaths(options.env);
-    const configFile = options.customConfigFile ?? xdgPaths.configFile;
+    const homePaths = options.homePaths ?? resolveLazyGoalHomePaths(options.env);
+    const configFile = options.customConfigFile ?? homePaths.configFile;
 
     // 1. 加载 config.toml
     let fileConfig: LazyGoalTomlConfig = {};
@@ -94,11 +102,11 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
     // 2. 判定激活的 Profile 名称
     const activeProfileName = options.cliArgs?.profile
         ?? fileConfig.profile?.active
-        ?? (existsSync(`${xdgPaths.profilesDir}/default.toml`) ? "default" : undefined);
+        ?? (existsSync(`${homePaths.profilesDir}/default.toml`) ? "default" : undefined);
 
     let profileConfig: ProfileTomlConfig = {};
     if (activeProfileName !== undefined) {
-        profileConfig = await loadProfileToml(activeProfileName, xdgPaths.profilesDir);
+        profileConfig = await loadProfileToml(activeProfileName, homePaths.profilesDir);
     }
 
     // 3. 逐层合并配置（Defaults -> config.toml -> profile.toml -> CLI args）
@@ -221,8 +229,8 @@ export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {
     readonly llm: LlmConfig;
     readonly profileName: string;
 }> {
-    const xdgPaths = options.xdgPaths ?? resolveXdgPaths(options.env);
-    const configFile = options.customConfigFile ?? xdgPaths.configFile;
+    const homePaths = options.homePaths ?? resolveLazyGoalHomePaths(options.env);
+    const configFile = options.customConfigFile ?? homePaths.configFile;
     let fileConfig: LazyGoalTomlConfig = {};
     if (existsSync(configFile)) {
         const content = await readFile(configFile, "utf-8");
@@ -231,6 +239,7 @@ export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {
     const gepa = validateGepaConfig(fileConfig.gepa, configFile);
     const runtimeConfig = await loadRuntimeConfig({
         ...options,
+        homePaths,
         cliArgs: {
             ...options.cliArgs,
             profile: gepa.reflectionProfile,
@@ -248,7 +257,7 @@ export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {
  *
  * @remarks
  * 聚合 GEPA 优化运行生命周期所需的两个独立 LLM 运行时配置：
- * 1. `working`：负责在基准任务上执行 Agent 循环与工具调用，固定从 `profiles/default.toml` 加载，不受用户活动 profile 变更干扰；
+ * 1. `working`：负责在基准任务上执行 Agent 循环与工具调用，固定从 LazyGoal Home 的 `profiles/default.toml` 加载，不受用户活动 profile 变更干扰；
  * 2. `reflection`：负责根据失败轨迹生成变异 Prompt 反思文本，固定从 `[gepa].reflection_profile` 解析，且强制限制为 `prompt_only` 模式；
  * 两者在物理配置文件、模型凭据及运行时适配器上严格隔离，严禁同名与回退。
  *
@@ -265,6 +274,10 @@ export interface GepaModelConfigs {
     readonly working: LlmConfig;
     /** 负责 Prompt 变异反思的独立 Reflection LM 配置（固定从 reflection_profile 加载，模式为 prompt_only）。 */
     readonly reflection: LlmConfig;
+    /** Working LM 实际解析使用的 Profile 名称，当前固定为 `default`。 */
+    readonly workingProfileName: string;
+    /** Reflection LM 实际解析使用的 Profile 名称，来自 `[gepa].reflection_profile`。 */
+    readonly reflectionProfileName: string;
 }
 
 /**
@@ -272,7 +285,7 @@ export interface GepaModelConfigs {
  *
  * @remarks
  * 严格执行双模型配置隔离契约：
- * 1. Working LM 固定锁定解析 `profiles/default.toml`，忽略 `config.toml` 中声明的 `[profile].active`；
+ * 1. Working LM 固定锁定解析 LazyGoal Home 的 `profiles/default.toml`，忽略 `config.toml` 中声明的 `[profile].active`；
  * 2. Reflection LM 强制读取 `config.toml` 中的 `[gepa].reflection_profile`，且强制覆盖为 `prompt_only` 模式；
  * 3. 若 Reflection Profile 缺失、同名为 default 或配置非法，在任何模型调用前快速失败。
  *
@@ -282,7 +295,8 @@ export interface GepaModelConfigs {
  * @throws LlmConfigurationError 当缺少必要凭据时。
  * @example
  * ```ts
- * const { working, reflection } = await loadGepaModelConfigs();
+ * const configs = await loadGepaModelConfigs();
+ * console.log(configs.workingProfileName, configs.reflectionProfileName);
  * ```
  */
 export async function loadGepaModelConfigs(options: LoadConfigOptions = {}): Promise<GepaModelConfigs> {
@@ -297,5 +311,7 @@ export async function loadGepaModelConfigs(options: LoadConfigOptions = {}): Pro
     return {
         working: workingRuntime.llm,
         reflection: reflectionRuntime.llm,
+        workingProfileName: "default",
+        reflectionProfileName: reflectionRuntime.profileName,
     };
 }

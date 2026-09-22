@@ -11,6 +11,7 @@ from lazygoal_gepa.protocol import (
     GEPARunRequest,
     parse_run_request,
     read_run_request,
+    validate_gaia_minimal_request,
 )
 
 
@@ -97,6 +98,76 @@ class GEPARunProtocolTests(unittest.TestCase):
         self.assertEqual(len(request.valset), 1)
         self.assertEqual(request.valset[0].sample_id, "s-val")
 
+    def test_gaia_minimal_lifecycle_bounds(self) -> None:
+        train_m = self._write_manifest("train.json", "task-train")
+        val_m = self._write_manifest("val.json", "task-val")
+        base = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "gaia",
+            "trainset": [{"sampleId": "s-train", "taskId": "task-train", "manifestPath": str(train_m)}],
+            "valset": [{"sampleId": "s-val", "taskId": "task-val", "manifestPath": str(val_m)}],
+            "maxMetricCalls": 4,
+        }
+        request = parse_run_request(base)
+        validate_gaia_minimal_request(request)
+
+        cases = (
+            ({"maxMetricCalls": 5}, "at most 4"),
+            ({"reflectionMinibatchSize": 2}, "reflectionMinibatchSize"),
+            ({"seed": 1}, "seed"),
+            ({"valset": None}, "validation sample"),
+        )
+        for overrides, expected in cases:
+            with self.subTest(overrides=overrides):
+                data = dict(base)
+                data.update(overrides)
+                parsed = parse_run_request(data)
+                with self.assertRaisesRegex((DatasetValidationError, GEPARunProtocolError), expected):
+                    validate_gaia_minimal_request(parsed)
+
+    def test_rejects_train_and_validation_identity_overlap(self) -> None:
+        train_m = self._write_manifest("train.json", "task-shared")
+        val_m = self._write_manifest("val.json", "task-shared")
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "gaia",
+            "trainset": [{"sampleId": "s-train", "taskId": "task-shared", "manifestPath": str(train_m)}],
+            "valset": [{"sampleId": "s-val", "taskId": "task-shared", "manifestPath": str(val_m)}],
+            "maxMetricCalls": 4,
+        }
+        with self.assertRaisesRegex(DatasetValidationError, "task IDs"):
+            parse_run_request(data)
+
+        data["valset"] = [{"sampleId": "s-train", "taskId": "task-other", "manifestPath": str(val_m)}]
+        with self.assertRaisesRegex(DatasetValidationError, "sample IDs"):
+            parse_run_request(data)
+
+    def test_check_manifests_accepts_domain_specific_fields(self) -> None:
+        manifest = self.root / "custom.json"
+        manifest_payload = {
+            "benchmark": "custom-benchmark",
+            "tasks": [{
+                "taskId": "task-custom",
+                "domainConfig": {"mode": "benchmark-owned"},
+            }],
+        }
+        manifest.write_text(
+            json.dumps(manifest_payload),
+            encoding="utf-8",
+        )
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "custom-benchmark",
+            "trainset": [{
+                "sampleId": "s1",
+                "taskId": "task-custom",
+                "manifestPath": str(manifest),
+            }],
+            "maxMetricCalls": 4,
+        }
+        request = parse_run_request(data, check_manifests=True)
+        self.assertEqual(request.benchmark, "custom-benchmark")
+
     def test_reject_unsupported_protocol_version(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
         cases = ("gepa-run@2", "gepa-run@0", "prompt-evaluation@1", "")
@@ -120,7 +191,7 @@ class GEPARunProtocolTests(unittest.TestCase):
 
     def test_reject_invalid_benchmark(self) -> None:
         manifest = self._write_manifest("m.json", "task-1")
-        cases = ("swebench", "webarena", "", 123)
+        cases = ("", "   ", 123, None, False)
 
         for invalid_bm in cases:
             with self.subTest(benchmark=invalid_bm):
@@ -138,6 +209,23 @@ class GEPARunProtocolTests(unittest.TestCase):
                 }
                 with self.assertRaises(GEPARunProtocolError):
                     parse_run_request(data)
+
+    def test_accepts_arbitrary_valid_benchmark(self) -> None:
+        manifest = self._write_manifest("m.json", "task-1")
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "custom-benchmark",
+            "trainset": [
+                {
+                    "sampleId": "s1",
+                    "taskId": "task-1",
+                    "manifestPath": str(manifest),
+                }
+            ],
+            "maxMetricCalls": 10,
+        }
+        request = parse_run_request(data)
+        self.assertEqual(request.benchmark, "custom-benchmark")
 
     def test_reject_cross_benchmark_samples(self) -> None:
         # Declares alfworld, but manifest declares gaia

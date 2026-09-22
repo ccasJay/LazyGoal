@@ -48,13 +48,7 @@ from lazygoal_gepa.controller import (
     LifecycleController,
     ProfileDriftError,
     ReportNotReadyError,
-    get_run_report,
-    get_run_status,
     launch_detached_worker,
-    preflight_run,
-    resume_run,
-    start_run,
-    stop_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,
@@ -66,6 +60,7 @@ from lazygoal_gepa.errors import (
 )
 from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import parse_run_request
+from lazygoal_gepa.reporter import generate_and_save_run_report
 from lazygoal_gepa.store import RunStore, atomic_write_json
 
 
@@ -132,12 +127,30 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name).resolve()
         self.workspace_root = self.root / "workspace"
         self.workspace_root.mkdir(parents=True, exist_ok=True)
-        self.runs_dir = self.workspace_root / ".lazygoal" / "gepa" / "runs"
+        self.runs_dir = self.root / "test-runs" / "gepa"
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.store = RunStore(self.runs_dir)
 
+        lazygoal_home = self.root / "lazygoal-home"
+        config_dir = lazygoal_home
+        profiles_dir = config_dir / "profiles"
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        (config_dir / "config.toml").write_text(
+            '[gepa]\nreflection_profile = "gepa-reflection"\n', encoding="utf-8"
+        )
+        (profiles_dir / "default.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "default"\napi_key = "test-working"\n',
+            encoding="utf-8",
+        )
+        (profiles_dir / "gepa-reflection.toml").write_text(
+            '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
+            encoding="utf-8",
+        )
+        self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(lazygoal_home)})
+        self.env_patch.start()
+
         # Baseline default profile
-        self.profile_dir = self.workspace_root / ".lazygoal" / "profiles"
+        self.profile_dir = lazygoal_home / "agent-profiles"
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.profile_path = self.profile_dir / "default.json"
         self.profile_data = {
@@ -184,6 +197,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.spawned_procs: list[subprocess.Popen[Any]] = []
 
     def tearDown(self) -> None:
+        self.env_patch.stop()
         for proc in self.spawned_procs:
             if proc.poll() is None:
                 try:
@@ -236,8 +250,8 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=ModelIdentity(profile_name="default", model_id="default", provider="openai"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="openai"),
         )
 
     # =========================================================================
@@ -275,7 +289,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with SignalMonitor() as monitor:
-            res = stop_run(run_id, runs_root=self.runs_dir)
+            res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
 
             # 验证停止文件被创建
             stop_file = run_dir / "gepa" / "gepa.stop"
@@ -310,28 +324,28 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         atomic_write_json(run_dir / "owner.json", owner.to_dict())
 
         with SignalMonitor() as monitor:
-            res = stop_run(run_id, runs_root=self.runs_dir)
+            res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res["lifecycleStatus"], "stop_requested")
             monitor.assert_no_termination_signals()
 
         # 2. 状态已是 stopped
         self.store.update_state(run_id, lifecycle_status="stopped")
         with SignalMonitor() as monitor:
-            res_stopped = stop_run(run_id, runs_root=self.runs_dir)
+            res_stopped = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_stopped["lifecycleStatus"], "stopped")
             monitor.assert_no_termination_signals()
 
         # 3. 状态已是 succeeded
         self.store.update_state(run_id, lifecycle_status="succeeded")
         with SignalMonitor() as monitor:
-            res_succ = stop_run(run_id, runs_root=self.runs_dir)
+            res_succ = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_succ["lifecycleStatus"], "succeeded")
             monitor.assert_no_termination_signals()
 
         # 4. 状态已是 failed
         self.store.update_state(run_id, lifecycle_status="failed")
         with SignalMonitor() as monitor:
-            res_failed = stop_run(run_id, runs_root=self.runs_dir)
+            res_failed = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(res_failed["lifecycleStatus"], "failed")
             monitor.assert_no_termination_signals()
 
@@ -403,7 +417,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
                 # 1. 验证 Python API 抛出 RunStoreError(code="corrupted")
                 with self.assertRaises(RunStoreError) as cm:
-                    get_run_status(run_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(run_id)
                 self.assertEqual(cm.exception.code, "corrupted")
 
                 # 2. 验证 CLI status 命令：优雅退出，无 Traceback 崩溃
@@ -442,7 +456,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
                 (run_dir / "owner.json").write_text(payload, encoding="utf-8")
 
                 # 1. 验证 Python API: status 必须成功返回，不抛异常！
-                status_dict = get_run_status(run_id, runs_root=self.runs_dir)
+                status_dict = LifecycleController(runs_dir=self.runs_dir).status(run_id)
                 self.assertEqual(status_dict["runId"], run_id)
                 self.assertEqual(status_dict["workerHealth"], "corrupt",
                                  f"Expected workerHealth='corrupt' on {label}, got {status_dict['workerHealth']}")
@@ -476,7 +490,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             with self.subTest(bad_run_id=bad_id):
                 # 1. Python API
                 with self.assertRaises(RunStoreError) as cm:
-                    get_run_status(bad_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(bad_id)
                 
                 # 2. CLI status
                 stdout_buf = io.StringIO()
@@ -496,7 +510,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         (self.runs_dir / empty_run_id).mkdir(parents=True, exist_ok=True)
 
         with self.assertRaises(RunStoreError) as cm:
-            get_run_status(empty_run_id, runs_root=self.runs_dir)
+            LifecycleController(runs_dir=self.runs_dir).status(empty_run_id)
         self.assertEqual(cm.exception.code, "unformed")
 
         stdout_buf = io.StringIO()
@@ -564,9 +578,12 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         run_dir = self.runs_dir / run_id
         if (run_dir / "owner.json").exists():
             (run_dir / "owner.json").unlink()
+        (run_dir / "gepa" / "gepa_state.bin").write_bytes(b"test checkpoint")
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf), patch(
+            "gepa.core.state.GEPAState.load"
+        ):
             code = cli_main([
                 "resume",
                 "--run", run_id,
@@ -579,9 +596,13 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self._track_pid(resumed_payload["workerPid"])
 
         # 6. report (写入 terminal report)
-        self.store.update_state(run_id, lifecycle_status="succeeded")
-        report_data = {"runId": run_id, "terminalStatus": "succeeded", "score": 1.0}
-        atomic_write_json(run_dir / "artifacts" / "report.json", report_data)
+        self.store.update_state(
+            run_id,
+            lifecycle_status="succeeded",
+            publication_status="unchanged",
+            best_score=1.0,
+        )
+        generate_and_save_run_report(run_dir)
 
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
@@ -653,12 +674,24 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             "--run-dir",
             str(run_dir),
         ]
+        worker_env = os.environ.copy()
+        worker_env.update(
+            {
+                "LAZYGOAL_EXECUTABLE": str(
+                    Path(__file__).parent / "fixtures" / "fake_lazygoal.py"
+                ),
+                "LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved",
+                "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "deterministic reflection",
+                "LAZYGOAL_GEPA_FAKE_DELAY_SECONDS": "1.0",
+            }
+        )
         proc = subprocess.Popen(
             worker_cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
+            env=worker_env,
         )
         self._track_proc(proc)
 
@@ -677,7 +710,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
         # 在全局信号监视器下发起 stop
         with SignalMonitor() as monitor:
-            stop_res = stop_run(run_id, runs_root=self.runs_dir)
+            stop_res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
             self.assertEqual(stop_res["lifecycleStatus"], "stop_requested")
             self.assertTrue((run_dir / "gepa" / "gepa.stop").is_file())
 
@@ -714,7 +747,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
 
                 # 1. Python API: 必须抛出受控的 LazyGoalGEPAError
                 with self.assertRaises(LazyGoalGEPAError):
-                    get_run_status(run_id, runs_root=self.runs_dir)
+                    LifecycleController(runs_dir=self.runs_dir).status(run_id)
 
                 # 2. CLI status: 优雅返回非零退出码，stdout 为空，无裸 Traceback
                 stdout_buf = io.StringIO()

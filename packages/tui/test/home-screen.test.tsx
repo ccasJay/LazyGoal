@@ -102,7 +102,7 @@ test("SettingsScreen displays environment details and triggers onBack when press
                 workspaceRoot: "/repo/LazyGoal",
                 profileId: "test-profile",
                 modelName: "claude-3-sonnet",
-                dataDirectory: "/repo/LazyGoal/.lazygoal",
+                dataDirectory: "/Users/test/.lazygoal/workspaces/workspace-id",
             }}
             busy={false}
             onBack={() => {
@@ -116,7 +116,7 @@ test("SettingsScreen displays environment details and triggers onBack when press
     assert.match(frame, /Workspace Root:.*\/repo\/LazyGoal/);
     assert.match(frame, /Active Profile:.*test-profile/);
     assert.match(frame, /Model Name:.*claude-3-sonnet/);
-    assert.match(frame, /Data Directory:.*\.lazygoal/);
+    assert.match(frame, /Data Directory:.*\.lazygoal\/workspaces/);
 
     instance.stdin.write("q");
     await new Promise<void>((resolve) => setTimeout(resolve, 50));

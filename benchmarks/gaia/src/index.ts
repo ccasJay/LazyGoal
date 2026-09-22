@@ -14,6 +14,12 @@ export {
     type GaiaManifestValidationErrorCode,
 } from "./manifest";
 export {
+    materializeGaiaSingleTask,
+    assertDataRoot,
+    assertTaskAttachments,
+    type GaiaSingleTaskMaterializerOptions,
+} from "./single-task-manifest.js";
+export {
     GaiaDatasetLoader,
     GAIA_DEFAULT_HF_REPO,
     type GaiaDatasetLoaderOptions,
@@ -45,11 +51,13 @@ export {
 } from "./tools-worker-entry";
 export {
     GAIA_PROFILE_TOOL_IDS,
+    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
     createGaiaWorkerToolRegistry,
     GaiaBenchmarkAdapter,
     runGaiaWorker,
     runGaiaAcpTask,
+    projectGaiaAcpResult,
     parseGaiaAcpTaskMetadata,
     validateGaiaPromptEvaluationProfile,
     type GaiaWorkerToolOptions,
@@ -57,6 +65,14 @@ export {
     type GaiaAcpTaskMetadata,
     type GaiaAcpRuntimeOptions,
 } from "./worker-entry";
+export {
+    GaiaProfileValidationError,
+    loadGaiaWorkerProfile,
+    materializeGaiaWorkerProfile,
+    toGaiaWorkerProfileDocument,
+    validateGaiaWorkerProfileDocument,
+    type GaiaWorkerProfileDocument,
+} from "./profile";
 export {
     GaiaPromptEvaluationAdapter,
     type GaiaPromptEvaluationAdapterOptions,

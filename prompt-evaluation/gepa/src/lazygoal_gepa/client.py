@@ -169,8 +169,12 @@ class PromptEvaluationClient:
         )
 
         if process_result.exit_code == 1:
+            task = result.tasks[0]
             raise PromptEvaluationInfrastructureError(
-                self._context(example, "LazyGoal reported an infrastructure failure")
+                self._context(
+                    example,
+                    _format_task_failure(task),
+                )
             )
         if process_result.exit_code == 130:
             raise PromptEvaluationCancelled(
@@ -377,6 +381,27 @@ def _redact_environment_secrets(data: bytes) -> bytes:
     for value in sorted(values, key=len, reverse=True):
         redacted = redacted.replace(value, _REDACTION_MARKER)
     return redacted
+
+
+def _format_task_failure(task: PromptEvaluationTaskRecord) -> str:
+    """Return bounded task diagnostics suitable for the public GEPA status."""
+
+    if not task.errors:
+        return "LazyGoal reported an infrastructure failure without task diagnostics"
+
+    details: list[str] = []
+    for error in task.errors[:3]:
+        code = error.code or "unspecified"
+        message = " ".join(error.message.split())
+        if len(message) > 500:
+            message = f"{message[:499]}…"
+        details.append(
+            f"stage={error.stage!r}, code={code!r}, message={message!r}"
+        )
+    suffix = "; ".join(details)
+    if len(task.errors) > 3:
+        suffix = f"{suffix}; additionalErrors={len(task.errors) - 3}"
+    return f"LazyGoal reported an infrastructure failure: {suffix}"
 
 
 def _terminate_process_group(process: subprocess.Popen[bytes]) -> None:

@@ -97,7 +97,7 @@ function parseTailSequence(
  *
  * @example
  * ```ts
- * const store = new JsonFileTrajectoryStore(".lazygoal/trajectories");
+ * const store = new JsonFileTrajectoryStore("~/.lazygoal/workspaces/<workspace-id>/trajectories");
  * await store.append(draft);
  * const view = await store.readWithBoundary(
  *     { goalId: "goal-1", runId: "run-1" },

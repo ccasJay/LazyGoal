@@ -240,12 +240,20 @@ class ProfileSeedCandidateTests(unittest.TestCase):
         with self.assertRaises(ProfileValidationError):
             load_agent_profile(path)
 
-        # ID not default
+        # Custom non-empty IDs are valid stable profile identities.
         data = self._valid_profile_data()
         data["id"] = "custom"
         path = self._write_profile(data)
-        with self.assertRaises(ProfileValidationError):
-            load_agent_profile(path)
+        snapshot, _ = load_agent_profile(path)
+        self.assertEqual(snapshot.id, "custom")
+
+        for invalid_id in ("", "   ", "\n\t"):
+            with self.subTest(invalid_id=invalid_id):
+                data = self._valid_profile_data()
+                data["id"] = invalid_id
+                path = self._write_profile(data)
+                with self.assertRaisesRegex(ProfileValidationError, "non-empty string"):
+                    load_agent_profile(path)
 
     def test_binary_sha256_exactness_and_whitespace_sensitivity(self) -> None:
         path = self._write_profile(self._valid_profile_data())

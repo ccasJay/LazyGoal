@@ -279,7 +279,7 @@ export function parseProfileToml(content: string, filePath?: string): ProfileTom
  * @throws TomlConfigurationError 当指定的 Profile 不存在时抛出，并附带列出可用选项。
  * @example
  * ```ts
- * const profile = await loadProfileToml("default", "~/.config/lazygoal/profiles");
+ * const profile = await loadProfileToml("default", "~/.lazygoal/profiles");
  * ```
  */
 export async function loadProfileToml(profileName: string, profilesDir: string): Promise<ProfileTomlConfig> {

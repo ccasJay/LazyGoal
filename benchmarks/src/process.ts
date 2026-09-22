@@ -13,6 +13,8 @@ export interface ProcessOptions {
     readonly timeoutMs: number;
     readonly signal?: AbortSignal | undefined;
     readonly cwd?: string;
+    /** 子进程环境；省略时继承当前进程环境。 */
+    readonly env?: NodeJS.ProcessEnv;
     readonly maxBytes?: number;
     /** shell Observation 可截断；协议与补丁输出超限必须失败。 */
     readonly truncate?: boolean;
@@ -70,6 +72,7 @@ export const runProcess: ProcessRunner = async (command, args, options) => {
     return new Promise((resolve, reject) => {
         const child = spawn(command, [...args], {
             cwd: options.cwd,
+            env: options.env,
             stdio: ["ignore", "pipe", "pipe"],
             detached: process.platform !== "win32",
         });
@@ -146,6 +149,7 @@ export const runInteractiveProcess: InteractiveProcessRunner = async (command, a
     if (options.signal?.aborted) throw new ExecutionAbortedError();
     const child = spawn(command, [...args], {
         cwd: options.cwd,
+        env: options.env,
         stdio: ["pipe", "pipe", "pipe"],
         detached: process.platform !== "win32",
     });

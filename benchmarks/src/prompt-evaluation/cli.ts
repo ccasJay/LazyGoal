@@ -6,8 +6,9 @@ import type { LLMAdapter } from "../../../packages/llm/src/core/adapter.js";
 import { loadRuntimeConfig } from "../../../packages/llm/src/config-loader.js";
 import { createLlmAdapter } from "../../../packages/llm/src/factory.js";
 import { runGepaReflectCli } from "./reflection-bridge.js";
+import { runGepaResolveModelsCli } from "./model-bridge.js";
 
-export { runGepaReflectCli };
+export { runGepaReflectCli, runGepaResolveModelsCli };
 import { AlfworldPromptEvaluationAdapter } from "../../alfworld/src/prompt-evaluation-adapter.js";
 import {
     loadAlfworldEnvironmentFile,
@@ -20,6 +21,7 @@ import {
 import { GaiaPromptEvaluationAdapter } from "../../gaia/src/prompt-evaluation-adapter.js";
 import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../../gaia/src/worker-entry.js";
 import { buildBenchmarkWorker } from "../worker-builder.js";
+import { resolveBenchmarkHomePaths } from "../default-paths.js";
 import {
     PROMPT_EVALUATION_EXIT_CODES,
     PROMPT_EVALUATION_PROTOCOL,
@@ -30,6 +32,7 @@ import {
 import {
     PromptEvaluationBenchmarkRegistry,
     PromptEvaluationRunner,
+    type PromptEvaluationBenchmarkAdapter,
 } from "./runner.js";
 import { PromptEvaluationResultRecorder } from "./result-recorder.js";
 
@@ -38,6 +41,17 @@ export const ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH = fileURLToPath(
     new URL("../../alfworld/python/sidecar.py", import.meta.url),
 );
 
+type ProductionAdapter = PromptEvaluationBenchmarkAdapter<unknown, unknown>;
+type ProductionAdapterFactory = (
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+) => Promise<ProductionAdapter>;
+
+const PRODUCTION_ADAPTER_FACTORIES: ReadonlyMap<string, ProductionAdapterFactory> = new Map([
+    ["alfworld", createAlfworldPromptEvaluationAdapter],
+    ["gaia", createGaiaPromptEvaluationAdapter],
+]);
+
 /** `eval prompt` CLI 的可注入边界。 */
 export interface PromptEvaluationCliOptions {
     readonly cwd?: string;
@@ -45,7 +59,7 @@ export interface PromptEvaluationCliOptions {
     readonly signal?: AbortSignal;
     readonly writeOutput?: (line: string) => void;
     readonly writeError?: (line: string) => void;
-    /** 测试可注入的 registry；提供后不会构建 Worker。 */
+    /** 可注入的 registry；其 ID 集合定义请求支持范围，提供后不会构建 Worker。 */
     readonly registry?: PromptEvaluationBenchmarkRegistry;
     /** 测试可注入的模型 adapter；提供后不会读取供应商配置。 */
     readonly llmAdapter?: LLMAdapter;
@@ -82,7 +96,9 @@ export async function runPromptEvaluationCli(
     let request: PromptEvaluationRequestV1;
     try {
         const requestPath = parseRequestPath(argv);
-        request = await readPromptEvaluationRequest(requestPath, { cwd });
+        const supportedBenchmarkIds = options.registry?.ids()
+            ?? new Set(PRODUCTION_ADAPTER_FACTORIES.keys());
+        request = await readPromptEvaluationRequest(requestPath, { cwd, supportedBenchmarkIds });
     } catch (error: unknown) {
         writeError(errorMessage(error));
         return PROMPT_EVALUATION_EXIT_CODES.invalidRequest;
@@ -216,39 +232,49 @@ async function createProductionRegistry(
     workspaceRoot: string,
     env: NodeJS.ProcessEnv,
 ): Promise<PromptEvaluationBenchmarkRegistry> {
-    if (request.benchmark.id === "gaia") {
-        const workerArtifact = await buildBenchmarkWorker({
-            projectRoot: workspaceRoot,
-            entryPoint: resolve(workspaceRoot, "benchmarks/gaia/src/worker-entry.ts"),
-            cacheDirectory: resolve(workspaceRoot, ".lazygoal/benchmarks/gaia-worker-cache"),
-            promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
-        });
-        return registryFor(new GaiaPromptEvaluationAdapter({ workerArtifact }));
+    const factory = PRODUCTION_ADAPTER_FACTORIES.get(request.benchmark.id);
+    if (factory === undefined) {
+        throw new Error(`Unsupported Prompt Evaluation benchmark: ${request.benchmark.id}`);
     }
+    return new PromptEvaluationBenchmarkRegistry([
+        await factory(workspaceRoot, env),
+    ]);
+}
 
+async function createGaiaPromptEvaluationAdapter(
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ProductionAdapter> {
+    const paths = await resolveBenchmarkHomePaths(workspaceRoot, "gaia", env);
+    const workerArtifact = await buildBenchmarkWorker({
+        projectRoot: workspaceRoot,
+        entryPoint: resolve(workspaceRoot, "benchmarks/gaia/src/worker-entry.ts"),
+        cacheDirectory: join(paths.cacheDirectory, "worker"),
+        promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
+    });
+    return new GaiaPromptEvaluationAdapter({ workerArtifact }) as unknown as ProductionAdapter;
+}
+
+async function createAlfworldPromptEvaluationAdapter(
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ProductionAdapter> {
     const fileEnv = await loadAlfworldEnvironmentFile(undefined, env);
     const mergedEnv = { ...fileEnv, ...env };
     const environment = resolveAlfworldContainerEnvironment({ env: mergedEnv, cwd: workspaceRoot });
+    const alfworldPaths = await resolveBenchmarkHomePaths(workspaceRoot, "alfworld", env);
     const workerArtifact = await buildBenchmarkWorker({
         projectRoot: workspaceRoot,
         entryPoint: resolve(workspaceRoot, ALFWORLD_ACP_WORKER_ENTRYPOINT),
-        cacheDirectory: resolve(workspaceRoot, ".lazygoal/benchmarks/alfworld-worker-cache"),
+        cacheDirectory: join(alfworldPaths.cacheDirectory, "worker"),
         promptAssets: ALFWORLD_ACP_WORKER_PROMPT_ASSETS,
     });
-    return registryFor(new AlfworldPromptEvaluationAdapter({
+    return new AlfworldPromptEvaluationAdapter({
         workspaceRoot,
         environment,
         workerArtifact,
         sidecarScriptPath: ALFWORLD_PROMPT_EVALUATION_SIDECAR_PATH,
-    }));
-}
-
-function registryFor(
-    adapter: GaiaPromptEvaluationAdapter | AlfworldPromptEvaluationAdapter,
-): PromptEvaluationBenchmarkRegistry {
-    return new PromptEvaluationBenchmarkRegistry([
-        adapter as unknown as import("./runner.js").PromptEvaluationBenchmarkAdapter<unknown, unknown>,
-    ]);
+    }) as unknown as ProductionAdapter;
 }
 
 function createInfrastructureTerminal(
@@ -279,11 +305,16 @@ const entrypoint = process.argv[1] === undefined ? undefined : resolve(process.a
 if (entrypoint === fileURLToPath(import.meta.url)) {
     const rawArgv = process.argv.slice(2);
     const isReflect = rawArgv[0] === "gepa" && rawArgv[1] === "reflect";
-    const runner = isReflect ? runGepaReflectCli(rawArgv) : runPromptEvaluationCli(rawArgv);
+    const isResolveModels = rawArgv[0] === "gepa" && rawArgv[1] === "resolve-models";
+    const runner = isReflect
+        ? runGepaReflectCli(rawArgv)
+        : isResolveModels
+        ? runGepaResolveModelsCli(rawArgv)
+        : runPromptEvaluationCli(rawArgv);
     void runner.then((code) => {
         process.exitCode = code;
     }).catch((error: unknown) => {
         process.stderr.write(`${errorMessage(error)}\n`);
-        process.exitCode = isReflect ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
+        process.exitCode = isReflect || isResolveModels ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
     });
 }

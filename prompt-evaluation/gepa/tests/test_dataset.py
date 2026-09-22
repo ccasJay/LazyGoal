@@ -23,12 +23,13 @@ class DatasetValidatorTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
-    def test_accepts_single_task_alfworld_and_gaia_manifests(self) -> None:
-        for benchmark_id in ("alfworld", "gaia"):
+    def test_accepts_single_task_manifests_for_arbitrary_benchmarks(self) -> None:
+        for benchmark_id in ("alfworld", "gaia", "custom-benchmark"):
             with self.subTest(benchmark_id=benchmark_id):
                 manifest = self._write_manifest(
                     f"{benchmark_id}.json",
                     [{"taskId": f"{benchmark_id}-task", "domain": "untouched"}],
+                    benchmark_id=benchmark_id,
                 )
                 example = LazyGoalEvaluationExample(
                     sample_id=f"{benchmark_id}-sample",
@@ -113,9 +114,19 @@ class DatasetValidatorTests(unittest.TestCase):
                 [self._example("sample-1", "expected", manifest)],
             )
 
-    def test_configuration_rejects_unsupported_or_empty_values(self) -> None:
-        with self.assertRaisesRegex(ConfigurationError, "Unsupported benchmark"):
-            self._config("swebench")
+    def test_configuration_accepts_arbitrary_benchmark_and_rejects_empty_values(self) -> None:
+        self.assertEqual(self._config("swebench").benchmark_id, "swebench")
+        with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
+            self._config("")
+        with self.assertRaisesRegex(ConfigurationError, "benchmark_id must be a non-empty string"):
+            self._config("   ")
+        with self.assertRaisesRegex(DatasetValidationError, "benchmark_id must be a non-empty string"):
+            LazyGoalEvaluationExample(
+                sample_id="sample-1",
+                benchmark_id=" ",
+                task_id="task-1",
+                manifest_path=self.root / "manifest.json",
+            )
         with self.assertRaisesRegex(ConfigurationError, "model_id"):
             LazyGoalGEPAConfig(
                 benchmark_id="alfworld",
@@ -149,9 +160,15 @@ class DatasetValidatorTests(unittest.TestCase):
             manifest_path=manifest_path,
         )
 
-    def _write_manifest(self, name: str, tasks: list[dict[str, str]]) -> Path:
+    def _write_manifest(
+        self,
+        name: str,
+        tasks: list[dict[str, object]],
+        benchmark_id: str = "alfworld",
+    ) -> Path:
         path = self.root / name
-        path.write_text(json.dumps({"tasks": tasks}), encoding="utf-8")
+        data = {"benchmark": benchmark_id, "tasks": tasks}
+        path.write_text(json.dumps(data), encoding="utf-8")
         return path
 
 

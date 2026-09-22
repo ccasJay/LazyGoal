@@ -69,6 +69,8 @@ export type {
 export {
     JsonFileBenchmarkPersistenceAdapter,
 } from "./file-persistence-adapter.js";
+export { resolveBenchmarkHomePaths } from "./default-paths.js";
+export type { BenchmarkHomePaths } from "./default-paths.js";
 export {
     DEFAULT_MANAGED_IMAGE,
     IsolatedEnvironment,

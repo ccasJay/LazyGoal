@@ -105,7 +105,7 @@ export interface BenchmarkAttemptError {
  * @example
  * ```ts
  * const options: AttemptRecorderOptions = {
- *   rootDirectory: ".lazygoal/run/task-1",
+ *   rootDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/<name>/runs/<run-id>/task-1",
  * };
  * ```
  */
@@ -125,7 +125,7 @@ export interface AttemptRecorderOptions {
  *
  * @example
  * ```ts
- * const recorder = new AttemptRecorder({ rootDirectory: ".lazygoal/run/task-1" });
+ * const recorder = new AttemptRecorder({ rootDirectory: "~/.lazygoal/workspaces/<workspace-id>/benchmarks/<name>/runs/<run-id>/task-1" });
  * await recorder.commit(record);
  * await recorder.update({ status: "completed", lastStage: "artifacts" });
  * ```
@@ -206,7 +206,7 @@ export class AttemptRecorder<TDomain = unknown> {
  * @throws 文件不存在、JSON 损坏或公共字段非法时抛出。
  * @example
  * ```ts
- * const record = await readBenchmarkAttempt(".lazygoal/run/task-1/attempt.json");
+ * const record = await readBenchmarkAttempt("~/.lazygoal/workspaces/<workspace-id>/benchmarks/<name>/runs/<run-id>/task-1/attempt.json");
  * ```
  */
 export async function readBenchmarkAttempt<TDomain = unknown>(path: string): Promise<BenchmarkAttemptRecord<TDomain>> {
