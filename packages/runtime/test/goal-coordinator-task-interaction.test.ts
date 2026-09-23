@@ -57,12 +57,14 @@ function createMockTool(definition: ToolDefinition): Tool {
 
 class QueueStepExecutor implements StepExecutor {
     private queue: AgentDecision[] = [];
+    calls = 0;
 
     enqueue(...decisions: AgentDecision[]): void {
         this.queue.push(...decisions);
     }
 
     async execute({ goal: _goal }: StepExecutionInput): Promise<AgentDecision> {
+        this.calls += 1;
         const next = this.queue.shift();
         if (next === undefined) {
             throw new Error("QueueStepExecutor: no queued decision available");
@@ -71,7 +73,58 @@ class QueueStepExecutor implements StepExecutor {
     }
 }
 
-function createCoordinatorTestRig() {
+class GoalPlanCompletionExecutor implements StepExecutor {
+    private index = 0;
+
+    constructor(private readonly trajectoryStore: ReturnType<typeof trajectoryStoreFor>) {}
+
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+        this.index += 1;
+        if (this.index === 1) {
+            return {
+                kind: "goal_plan_update",
+                baseRevision: goal.state.goalPlan?.revision ?? 0,
+                operations: [{ type: "add", content: "完成当前 Run 的计划项" }],
+            };
+        }
+        if (this.index === 2) {
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: "integrated-write",
+                    toolId: "write_file",
+                    input: { path: "run.txt", content: "completed" },
+                },
+            };
+        }
+        if (this.index === 3) {
+            const observation = [...this.trajectoryStore.events].reverse().find((event) =>
+                event.goalId === goal.id
+                && event.runId === goal.state.run.id
+                && event.eventType === "observation_recorded");
+            if (observation === undefined) throw new Error("current Run Observation was not committed");
+            return {
+                kind: "goal_plan_update",
+                baseRevision: goal.state.goalPlan?.revision ?? 0,
+                operations: [
+                    { type: "update", id: "todo-1-1", status: "in_progress" },
+                    {
+                        type: "update",
+                        id: "todo-1-1",
+                        status: "completed",
+                        evidenceSequences: [observation.sequence],
+                    },
+                ],
+            };
+        }
+        if (this.index === 4) {
+            return { kind: "complete", summary: "Run 与计划项完成", completionEvidence: [] };
+        }
+        throw new Error("GoalPlanCompletionExecutor received an unexpected call");
+    }
+}
+
+function createCoordinatorTestRig(mode: "normal" | "plan" = "plan") {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
@@ -100,7 +153,7 @@ function createCoordinatorTestRig() {
         promptBundleVersion: 1,
         profile,
         runId: "run-test-unified-1",
-        mode: "plan",
+        mode,
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
@@ -110,6 +163,7 @@ function createCoordinatorTestRig() {
         store,
         trajectoryStore,
         stepExecutor,
+        toolRegistry,
         coordinator,
         goal,
         ref: { goalId: goal.id, runId: goal.state.run.id },
@@ -478,6 +532,78 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
         approvedEvent?.payload.type === "task_approved" ? approvedEvent.payload.requestId : undefined,
         proposalReqId,
     );
+});
+
+test("跨重启恢复 Plan 选择、任务审批与 GoalPlan Run 执行", async () => {
+    const { store, trajectoryStore, stepExecutor, toolRegistry, coordinator, goal, ref } = createCoordinatorTestRig("normal");
+    await store.save(goal);
+    const selected = await coordinator.enterPlanMode(ref);
+    assert.equal(selected.ok, true);
+    if (!selected.ok) assert.fail("Expected Plan mode selection");
+    assert.equal(selected.goal.state.run.mode, "plan");
+    assert.equal(selected.goal.state.goalPlan, undefined);
+    stepExecutor.enqueue({
+        kind: "task_proposal",
+        task: { objective: "恢复后继续的计划任务", completionCriteria: [] },
+        approvalRequest: "请批准计划任务",
+    });
+
+    const waiting = await coordinator.advance(ref);
+    assert.equal(waiting.ok, true);
+    if (!waiting.ok || waiting.kind !== "waiting") assert.fail("Expected task approval waiting point");
+    assert.equal(waiting.waitingFor, "task_approval");
+    const pending = waiting.goal.state.run.pendingInteraction;
+    assert.equal(pending?.kind, "task_approval");
+    if (pending?.kind !== "task_approval") return;
+
+    const restored = await store.restore(goal.id);
+    assert.equal(restored?.state.run.id, ref.runId);
+    assert.equal(restored?.state.run.mode, "plan");
+    assert.deepEqual(restored?.state.run.pendingInteraction, pending);
+    const eventsAtRestart = await trajectoryStore.read(ref);
+    const resumedExecutor = new GoalPlanCompletionExecutor(trajectoryStore);
+    const resumedCoordinator = new GoalCoordinator({
+        store,
+        scheduler: new InlineScheduler(new Runner({
+            store,
+            executor: resumedExecutor,
+            trajectoryStore,
+            toolRegistry,
+        })),
+        trajectoryStore,
+    });
+
+    const stale = await resumedCoordinator.resume({
+        ref,
+        action: { kind: "approve_task", requestId: "expired-request" },
+    });
+    assert.equal(stale.ok, false);
+    if (!stale.ok) assert.equal(stale.error.code, "INVALID_GOAL_INPUT");
+    assert.deepEqual(await store.restore(goal.id), restored);
+    assert.deepEqual(await trajectoryStore.read(ref), eventsAtRestart);
+
+    const resumed = await resumedCoordinator.resume({
+        ref,
+        action: { kind: "approve_task", requestId: pending.requestId },
+    });
+    assert.equal(resumed.ok, true);
+    if (!resumed.ok || resumed.kind !== "terminal") assert.fail("Expected the restored Run to complete");
+    assert.equal(resumed.goal.state.run.id, ref.runId);
+    assert.equal(resumed.goal.state.run.mode, "plan");
+    assert.equal(resumed.goal.state.run.approvedTask?.objective, "恢复后继续的计划任务");
+    assert.equal(resumed.goal.state.run.pendingInteraction, undefined);
+    assert.equal(resumed.goal.state.run.status, "completed");
+    assert.equal(resumed.goal.state.run.stepCount, 4);
+    assert.deepEqual(resumed.goal.state.goalPlan?.items, [{
+        id: "todo-1-1",
+        content: "完成当前 Run 的计划项",
+        position: 0,
+        status: "completed",
+    }]);
+    const finalEvents = await trajectoryStore.read(ref);
+    assert.equal(finalEvents.filter((event) => event.eventType === "goal_plan_updated").length, 2);
+    assert.equal(finalEvents.filter((event) => event.eventType === "tool_finished").length, 1);
+    assert.ok(finalEvents.every((event) => event.runId === ref.runId));
 });
 
 test("失配操作安全边界: 状态不匹配时拒绝且不改变快照或状态", async () => {

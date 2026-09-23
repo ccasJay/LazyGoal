@@ -495,7 +495,7 @@ test("SessionScreen renders terminal summary and accepts input for the next Run"
     assert.deepEqual(events, ["message"]);
 });
 
-test("SessionScreen only projects GoalPlan in Plan Mode without binding a Todo to the Run", () => {
+test("SessionScreen projects an existing GoalPlan in both Run modes without binding a Todo to the Run", () => {
     const goal = executingGoal("goal-plan-panel");
     const planGoal: Goal = {
         ...goal,
@@ -535,7 +535,7 @@ test("SessionScreen only projects GoalPlan in Plan Mode without binding a Todo t
             onRejectAction={() => undefined}
         />,
     ).lastFrame() ?? "";
-    assert.doesNotMatch(normalFrame, /Inspect sources/);
+    assert.match(normalFrame, /Inspect sources/);
 });
 
 const step1: UiStepSummary = {

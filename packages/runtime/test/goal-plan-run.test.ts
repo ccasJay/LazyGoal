@@ -20,7 +20,7 @@ import {
     type ToolDefinition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
 
 const profile: AgentProfile = {
@@ -100,6 +100,47 @@ class TodoCompletionExecutor implements StepExecutor {
             };
         }
         return { kind: "complete", summary: "Run 已完成", completionEvidence: [] };
+    }
+}
+
+class MultiTodoExecutor implements StepExecutor {
+    private index = 0;
+
+    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {}
+
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+        this.index += 1;
+        if (this.index === 1 || this.index === 3) {
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: `observation-action-${this.index}`,
+                    toolId: OBSERVATION_TOOL_DEFINITION.id,
+                    input: {},
+                },
+            };
+        }
+        if (this.index === 2 || this.index === 4) {
+            const observations = this.trajectory.events.filter((candidate) =>
+                candidate.goalId === goal.id
+                && candidate.runId === goal.state.run.id
+                && candidate.eventType === "observation_recorded");
+            const event = observations[observations.length - 1];
+            if (event === undefined) throw new Error("current Run Observation was not committed");
+            const id = this.index === 2 ? "todo-1" : "todo-2";
+            return {
+                kind: "goal_plan_update",
+                baseRevision: goal.state.goalPlan?.revision ?? 0,
+                operations: [
+                    { type: "update", id, status: "in_progress" },
+                    { type: "update", id, status: "completed", evidenceSequences: [event.sequence] },
+                ],
+            };
+        }
+        if (this.index === 5) {
+            return { kind: "complete", summary: "两个计划项均已完成", completionEvidence: [] };
+        }
+        throw new Error("unexpected executor call");
     }
 }
 
@@ -268,6 +309,118 @@ test("当前 Run 完成后，GoalPlan Todo 状态独立保留", async () => {
         "memory_patch_accepted",
         "state_committed",
     ]);
+});
+
+test("同一 Run 可以依次完成多个 Todo，计划更新不会结束或创建 Run", async () => {
+    const store = new InMemoryGoalStore();
+    const created = withObservationTool(planGoal());
+    const added = reduceGoalPlan(createEmptyGoalPlan(), {
+        baseRevision: 0,
+        operations: [
+            { type: "add", content: "完成第一个计划项" },
+            { type: "add", content: "完成第二个计划项" },
+        ],
+    }, { idFactory: (ordinal) => `todo-${ordinal}` });
+    if (!added.ok) throw new Error(added.error.message);
+    const initial: Goal = {
+        ...created,
+        state: { ...created.state, goalPlan: added.plan },
+    };
+    await store.save(initial);
+    const trajectory = trajectoryStoreFor(store);
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectory,
+        toolRegistry: new InMemoryToolRegistry([createToolRegistration(observationTool)]),
+        executor: new MultiTodoExecutor(trajectory),
+    }).run({ goalId: initial.id, runId: initial.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "completed");
+    assert.equal(result.state.stepCount, 5);
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.run.id, "run-1");
+    assert.equal(saved?.state.run.status, "completed");
+    assert.deepEqual(saved?.state.goalPlan?.items.map(({ id, status }) => ({ id, status })), [
+        { id: "todo-1", status: "completed" },
+        { id: "todo-2", status: "completed" },
+    ]);
+    assert.equal(trajectory.events.filter((event) => event.eventType === "run_created").length, 0);
+    assert.ok(trajectory.events.every((event) => event.runId === "run-1"));
+});
+
+test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效边界", async () => {
+    for (const failingBoundary of ["snapshot", "trajectory"] as const) {
+        const store = new InMemoryGoalStore();
+        const initial = withObservationTool(planGoal());
+        await store.save(initial);
+        const originalSave = store.save.bind(store);
+        const saveError = new Error("goal plan snapshot failed");
+        store.save = async (goal) => {
+            if (failingBoundary === "snapshot" && goal.state.goalPlan?.revision === 2) {
+                throw saveError;
+            }
+            await originalSave(goal);
+        };
+
+        const trajectory = new InMemoryTrajectoryStore();
+        const originalAppend = trajectory.append.bind(trajectory);
+        trajectory.append = async (draft) => {
+            if (failingBoundary === "trajectory" && draft.eventType === "goal_plan_updated") {
+                throw new Error("goal plan trajectory append failed");
+            }
+            return originalAppend(draft);
+        };
+
+        let modelCalls = 0;
+        let toolCalls = 0;
+        const countingTool: Tool<typeof OBSERVATION_TOOL_INPUT> = {
+            ...observationTool,
+            async execute() {
+                toolCalls += 1;
+                return { kind: "success", output: "unexpected", summary: "unexpected tool call" };
+            },
+        };
+        const executor: StepExecutor = {
+            async execute(): Promise<AgentDecision> {
+                modelCalls += 1;
+                return modelCalls === 1
+                    ? {
+                        kind: "goal_plan_update",
+                        baseRevision: initial.state.goalPlan!.revision,
+                        operations: [{ type: "update", id: "todo-1", content: "提交后的内容" }],
+                    }
+                    : {
+                        kind: "tool_call",
+                        action: {
+                            actionId: "must-not-run",
+                            toolId: OBSERVATION_TOOL_DEFINITION.id,
+                            input: {},
+                        },
+                    };
+            },
+        };
+
+        await assert.rejects(
+            () => new Runner({
+                store,
+                trajectoryStore: trajectory,
+                toolRegistry: new InMemoryToolRegistry([createToolRegistration(countingTool)]),
+                executor,
+            }).run({ goalId: initial.id, runId: initial.state.run.id }),
+            failingBoundary === "snapshot" ? saveError : /goal plan trajectory append failed/,
+        );
+
+        assert.equal(modelCalls, 1);
+        assert.equal(toolCalls, 0);
+        assert.deepEqual(await store.restore(initial.id), initial);
+        assert.equal(trajectory.events.some((event) => event.eventType === "state_committed"), false);
+        assert.equal(
+            trajectory.events.some((event) => event.eventType === "goal_plan_updated"),
+            failingBoundary === "snapshot",
+        );
+    }
 });
 
 test("失败 Run 不隐式改变 GoalPlan Todo", async () => {

@@ -1391,7 +1391,7 @@ export class SessionController {
                 ? {}
                 : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
-            ...(snapshot.state.run.mode === "plan" && snapshot.state.goalPlan !== undefined
+            ...(snapshot.state.goalPlan !== undefined
                 ? { goalPlan: snapshot.state.goalPlan }
                 : {}),
         };

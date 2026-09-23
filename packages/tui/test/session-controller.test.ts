@@ -994,6 +994,32 @@ test("session derives proposal and approvalRequest from task_approval pendingInt
     assert.equal(view.approvalRequest, "Please approve deployment plan");
 });
 
+test("session projects a committed GoalPlan while the current Run is normal", () => {
+    const base = createWaitingGoal("goal-normal-with-plan");
+    const goal: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            goalPlan: {
+                revision: 2,
+                items: [{ id: "todo-1", content: "Committed plan item", position: 0, status: "pending" }],
+            },
+            run: { ...base.state.run, mode: "normal" },
+        },
+    };
+    const controller = new SessionController({
+        ...dependencies(
+            new FakeLauncher(waitingResult(goal)),
+            new FakeCoordinator(waitingResult(goal)),
+            new FakeStore([goal]),
+            new FakeCatalog([]),
+        ),
+        initialGoal: goal,
+    });
+
+    assert.deepEqual(sessionView(controller).goalPlan, goal.state.goalPlan);
+});
+
 test("initialScreen: home initializes snapshot with home screen and environment summary", () => {
     const goal = createWaitingGoal();
     const coordinator = new FakeCoordinator(waitingResult(goal));

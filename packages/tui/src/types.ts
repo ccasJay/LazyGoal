@@ -446,7 +446,7 @@ export interface UiSessionViewModel {
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
-    /** Plan Mode 下由 Goal Snapshot 投影的当前计划；普通模式始终省略。 */
+    /** Goal Snapshot 中已提交的当前计划；计划独立于 Run 模式显示。 */
     readonly goalPlan?: Goal["state"]["goalPlan"];
     readonly error?: UiError;
     readonly notice?: UiNotice;
