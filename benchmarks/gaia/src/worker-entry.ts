@@ -314,10 +314,19 @@ export function projectGaiaAcpResult(
     if (run.status === "failed" && run.stopReason?.kind === "max_steps_exceeded") {
         return { stopReason: "max_turn_requests", meta };
     }
+    if (result.outcome.submitted) {
+        return {
+            stopReason: "end_turn",
+            meta: {
+                ...meta,
+                ...(run.stopReason?.kind === "execution_error" ? { executionError: run.stopReason.code } : {}),
+            },
+        };
+    }
     if (
         run.status === "failed"
         && run.stopReason?.kind === "execution_error"
-        && run.stopReason.code === "INVALID_AGENT_DECISION"
+        && (run.stopReason.code === "INVALID_AGENT_DECISION" || run.stopReason.code === "INVALID_TOOL_INPUT")
     ) {
         return {
             stopReason: "end_turn",

@@ -90,6 +90,59 @@ test("GAIA ACP 将 INVALID_AGENT_DECISION 映射为 end_turn 并记录 execution
     assert.equal(response.meta?.submitted, false);
 });
 
+test("GAIA ACP 将 INVALID_TOOL_INPUT 映射为 end_turn 并记录 executionError", () => {
+    const response = projectGaiaAcpResult({
+        goal: {
+            state: {
+                run: {
+                    status: "failed",
+                    stepCount: 3,
+                    stopReason: {
+                        kind: "execution_error",
+                        code: "INVALID_TOOL_INPUT",
+                        message: "Invalid input",
+                    },
+                },
+            },
+        },
+        progress: { ok: true, kind: "terminal", phase: "executing" },
+        runner: { ok: true, state: { status: "failed", stepCount: 3 } },
+        model: { completed: false, runStatus: "failed" },
+        outcome: { submitted: false, submittedAnswer: null },
+        persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+    } as never);
+
+    assert.equal(response.stopReason, "end_turn");
+    assert.equal(response.meta?.executionError, "INVALID_TOOL_INPUT");
+    assert.equal(response.meta?.submitted, false);
+});
+
+test("GAIA ACP 在已提交答案时无论后续状态均映射为 end_turn", () => {
+    const response = projectGaiaAcpResult({
+        goal: {
+            state: {
+                run: {
+                    status: "failed",
+                    stepCount: 3,
+                    stopReason: {
+                        kind: "execution_error",
+                        code: "INVALID_TOOL_INPUT",
+                        message: "submit_answer already called",
+                    },
+                },
+            },
+        },
+        progress: { ok: true, kind: "terminal", phase: "executing" },
+        runner: { ok: true, state: { status: "failed", stepCount: 3 } },
+        model: { completed: false, runStatus: "failed" },
+        outcome: { submitted: true, submittedAnswer: "Paris" },
+        persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+    } as never);
+
+    assert.equal(response.stopReason, "end_turn");
+    assert.equal(response.meta?.submitted, true);
+});
+
 test("GAIA Prompt Evaluation adapter forwards candidate identity and uses domain score", async () => {
     let receivedDataRoot: string | undefined;
     const adapter = new GaiaPromptEvaluationAdapter({
@@ -482,6 +535,52 @@ test("GAIA Supervisor 将 INVALID_AGENT_DECISION 模型决策失败判定为 com
     assert.equal(result.domainResult.submittedAnswer, null);
     const attempt = await readBenchmarkAttempt<GaiaDomainResult>(result.attemptPath);
     assert.equal(attempt.domainResult.correct, false);
+    assert.equal(attempt.status, "completed");
+});
+
+test("GAIA Supervisor 将包含已提交答案但伴随 INVALID_TOOL_INPUT 的 Attempt 判定为 completed 并正确判分", async (t) => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "lazygoal-gaia-tool-input-error-"));
+    t.after(() => rm(outputDirectory, { recursive: true, force: true }));
+    const isolatedEnvironment = {
+        async run() {
+            return {
+                status: "completed" as const,
+                artifact: {
+                    submittedAnswer: "42",
+                    answerTaskId: task.taskId,
+                    persistence: { goalSnapshot: "goal.json", trajectory: "trajectory.jsonl" },
+                    errors: [],
+                },
+                imageId: null,
+                acp: {
+                    sessionId: "session-1",
+                    stopReason: "end_turn" as const,
+                    meta: {
+                        modelCompleted: false,
+                        runStatus: "failed",
+                        stepCount: 3,
+                        submitted: true,
+                        executionError: "INVALID_TOOL_INPUT",
+                    },
+                },
+                errors: [],
+            };
+        },
+    } as unknown as IsolatedEnvironment;
+
+    const result = await runGaiaSupervisor({
+        task,
+        dataRoot: "/data/gaia",
+        outputDirectory,
+        llmAdapter,
+        isolatedEnvironment,
+    });
+
+    assert.equal(result.status, "completed");
+    assert.equal(result.domainResult.correct, true);
+    assert.equal(result.domainResult.submittedAnswer, "42");
+    const attempt = await readBenchmarkAttempt<GaiaDomainResult>(result.attemptPath);
+    assert.equal(attempt.domainResult.correct, true);
     assert.equal(attempt.status, "completed");
 });
 

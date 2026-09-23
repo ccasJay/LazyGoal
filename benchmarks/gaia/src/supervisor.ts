@@ -162,7 +162,8 @@ export async function runGaiaSupervisor(
         message: sanitizeDiagnostic(error.message),
     }));
     const isTaskMismatch = artifactErrors.some((error) => error.code === "ANSWER_TASK_MISMATCH");
-    const isModelDecisionFailure = envResult.acp?.meta?.executionError === "INVALID_AGENT_DECISION";
+    const isModelDecisionFailure = typeof envResult.acp?.meta?.executionError === "string"
+        && envResult.acp.meta.executionError.length > 0;
     const isTaskTimeout = envResult.errors.some((error) => error.code === "TASK_TIMEOUT");
     const isMissingAnswer = envResult.acp !== null && submittedAnswer === null;
     const isDomainFailure = isModelDecisionFailure || isTaskTimeout || isMissingAnswer;
@@ -171,6 +172,8 @@ export async function runGaiaSupervisor(
         status = "cancelled";
     } else if (isTaskMismatch) {
         status = "infrastructure_error";
+    } else if (submittedAnswer !== null) {
+        status = "completed";
     } else if (isDomainFailure) {
         status = "completed";
     } else if (envResult.status === "completed" && artifactErrors.length > 0) {
