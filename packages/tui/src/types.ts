@@ -757,11 +757,12 @@ export interface SessionCoordinator {
         control?: ExecutionControl,
     ) => Promise<GoalProgressResult>;
     /**
-     * 在安全等待边界进入后端 Plan Mode。
+     * 为未启动的当前 Run 或已完成 Run 的下一 Run 选择 Plan Mode。
      *
      * @param ref - 当前 Goal 与 Run 的关联键。
      * @param control - 可选调用级中止控制。
-     * @returns 模式切换后的等待点、终态或稳定错误。
+     * @returns 模式选择后的最新等待点、终态或稳定错误；`run_started` 已提交的普通
+     *   Run 不会被改写。
      * @example
      * ```ts
      * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });

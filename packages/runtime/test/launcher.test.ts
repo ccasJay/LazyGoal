@@ -241,6 +241,32 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
     assert.deepEqual(store.savedGoals[0]?.definition.profile, createProfile());
 });
 
+test("launch persists the one-time Plan selection on the new Run before advancing", async () => {
+    const store = new RecordingGoalStore();
+    const coordinator = new FakeCoordinator(unusedResult);
+
+    await launch(
+        {
+            goalId: "goal-plan-launch",
+            intent: "Plan this work",
+            profileId: "profile-1",
+            mode: "plan",
+        },
+        {
+            profiles: new FakeProfileRegistry([createProfile()]),
+            runIdGenerator: () => "run-plan-launch",
+            store,
+            coordinator,
+        },
+    );
+
+    assert.equal(store.savedGoals[0]?.state.run.mode, "plan");
+    assert.deepEqual(coordinator.receivedRefs, [{
+        goalId: "goal-plan-launch",
+        runId: "run-plan-launch",
+    }]);
+});
+
 test("launch records the initial intent provenance before saving the Snapshot", async () => {
     const events: string[] = [];
     const sink = new RecordingTrajectorySink();

@@ -103,6 +103,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
+import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -686,30 +687,57 @@ export class Runner {
             return this.actionNotAuthorized(ref, options.authorizedActionId);
         }
 
-        const contextLookupResult = options.contextLookupResult
-            ?? await this.restoreContextLookupResult(goal, effectiveControl);
-
         if (goal.state.run.status === "created") {
-            throwIfAborted(effectiveControl);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "run_started",
-                payload: { type: "run_started" },
-            }, effectiveControl);
-            const runningGoal = this.withRun(
-                goal,
-                this.applyTransition(goal.state.run, { kind: "start" }),
-            );
-            const checkpoint = await this.saveCheckpoint(runningGoal, effectiveControl);
+            const start = await withRunModeSelectionGate(this.store, goal.id, async () => {
+                throwIfAborted(effectiveControl);
+                const latestGoal = await this.restore(ref, effectiveControl);
+                throwIfAborted(effectiveControl);
+                if (latestGoal === undefined) return { kind: "missing" as const };
+                this.validateGoalProtocol(latestGoal);
+                if (latestGoal.state.run.status !== "created") {
+                    return { kind: "already_started" as const, goal: latestGoal };
+                }
+                if (!this.hasMatchingTransientAuthorization(latestGoal, options)) {
+                    return {
+                        kind: "unauthorized" as const,
+                        result: this.actionNotAuthorized(ref, options.authorizedActionId),
+                    };
+                }
+
+                const runningGoal = this.withRun(
+                    latestGoal,
+                    this.applyTransition(latestGoal.state.run, { kind: "start" }),
+                );
+                const committed = await this.checkpointCommitter.commit(runningGoal, {
+                    facts: [{
+                        goalId: latestGoal.id,
+                        runId: latestGoal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_started",
+                        payload: { type: "run_started" },
+                    }],
+                    ...(effectiveControl === undefined ? {} : { control: effectiveControl }),
+                });
+                this.publishCommittedEvents(committed);
+                return { kind: "started" as const, goal: committed.goal };
+            });
+
+            if (start.kind === "missing") return this.runNotFound(ref);
+            if (start.kind === "unauthorized") return start.result;
+            if (start.kind === "already_started") return { ok: true, state: start.goal.state.run };
+
+            const contextLookupResult = options.contextLookupResult
+                ?? await this.restoreContextLookupResult(start.goal, effectiveControl);
             return this.runLoop(
-                checkpoint,
+                start.goal,
                 options.authorizedActionId,
                 effectiveControl,
                 contextLookupResult,
             );
         }
+
+        const contextLookupResult = options.contextLookupResult
+            ?? await this.restoreContextLookupResult(goal, effectiveControl);
 
         return this.runLoop(
             goal,

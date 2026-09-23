@@ -354,6 +354,7 @@ test("starts a created Goal, saves every transition, and executes until complete
 
     assert.deepEqual(events, [
         "restore:goal-1",
+        "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:running:0",
@@ -458,6 +459,7 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
     assert.equal(completed.status, "completed");
     assert.equal(completed.stepCount, 2);
     assert.deepEqual(events, [
+        "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -768,6 +770,7 @@ test("fails at maxSteps without an extra executor call or step count", async () 
     assert.deepEqual((await store.peek(initial.id))?.state.messages, []);
     assert.deepEqual(events, [
         "restore:goal-1",
+        "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:running:0",
@@ -881,6 +884,7 @@ test("converts an executor exception into a persisted fail decision", async () =
         },
     ]);
     assert.deepEqual(events, [
+        "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
         "execute:running:0",
@@ -1609,6 +1613,7 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
 
     const state = requireSuccessfulState(result);
     assert.deepEqual(events, [
+        "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
         "executor:0",

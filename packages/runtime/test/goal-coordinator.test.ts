@@ -8,11 +8,12 @@ import {
     GoalCoordinator,
     InlineScheduler,
     Runner,
+    TrajectoryCheckpointCommitter,
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentProfile,
     CompletionCriterion,
@@ -77,6 +78,40 @@ class RecordingGoalStore implements GoalStore {
 
     async restore(goalId: string): Promise<Goal | undefined> {
         this.events.push(`restore:${goalId}`);
+        return this.delegate.restore(goalId);
+    }
+}
+
+class SaveLatchGoalStore implements GoalStore {
+    private readonly delegate = new InMemoryGoalStore();
+    private predicate: ((goal: Goal) => boolean) | undefined;
+    private enteredResolve!: () => void;
+    private releaseResolve!: () => void;
+    readonly entered = new Promise<void>((resolve) => {
+        this.enteredResolve = resolve;
+    });
+    private readonly released = new Promise<void>((resolve) => {
+        this.releaseResolve = resolve;
+    });
+
+    arm(predicate: (goal: Goal) => boolean): void {
+        this.predicate = predicate;
+    }
+
+    release(): void {
+        this.releaseResolve();
+    }
+
+    async save(goal: Goal): Promise<void> {
+        if (this.predicate?.(goal) === true) {
+            this.predicate = undefined;
+            this.enteredResolve();
+            await this.released;
+        }
+        await this.delegate.save(goal);
+    }
+
+    async restore(goalId: string): Promise<Goal | undefined> {
         return this.delegate.restore(goalId);
     }
 }
@@ -713,6 +748,73 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     assert.equal(completed.goal.state.run.status, "completed");
     assert.equal(completed.goal.state.run.stepCount, 2);
     assert.equal(executedActionId, "action-approval");
+});
+
+test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
+    for (const winner of ["plan", "run_started"] as const) {
+        const store = new SaveLatchGoalStore();
+        const initial = createInitialGoal();
+        await store.save(initial);
+        const trajectoryStore = new InMemoryTrajectoryStore();
+        const checkpointCommitter = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
+        const observedModes: string[] = [];
+        const runner = new Runner({
+            store,
+            trajectoryStore,
+            checkpointCommitter,
+            executor: {
+                async execute({ goal }) {
+                    observedModes.push(goal.state.run.mode);
+                    return { kind: "wait", reason: "等待本次运行结束" };
+                },
+            },
+        });
+        const coordinator = new GoalCoordinator({
+            store,
+            trajectoryStore,
+            checkpointCommitter,
+            scheduler: new InlineScheduler(runner),
+        });
+        const ref = { goalId: initial.id, runId: initial.state.run.id };
+
+        if (winner === "plan") {
+            store.arm((saved) => saved.state.run.status === "created" && saved.state.run.mode === "plan");
+            const planPromise = coordinator.enterPlanMode(ref);
+            await store.entered;
+            const runPromise = runner.run(ref);
+            store.release();
+
+            const [planResult, runResult] = await Promise.all([planPromise, runPromise]);
+            assert.equal(planResult.ok, true);
+            assert.equal(runResult.ok, true);
+            if (runResult.ok) assert.equal(runResult.state.status, "waiting");
+            assert.deepEqual(observedModes, ["plan"]);
+            assert.deepEqual(trajectoryStore.events
+                .filter((event) => event.payload.type === "plan_mode_entered" || event.payload.type === "run_started")
+                .map((event) => event.payload.type), ["plan_mode_entered", "run_started"]);
+        } else {
+            store.arm((saved) => saved.state.run.status === "running");
+            const runPromise = runner.run(ref);
+            await store.entered;
+            const planPromise = coordinator.enterPlanMode(ref);
+            store.release();
+
+            const [runResult, planResult] = await Promise.all([runPromise, planPromise]);
+            assert.equal(runResult.ok, true);
+            if (runResult.ok) assert.equal(runResult.state.status, "waiting");
+            assert.deepEqual(observedModes, ["normal"]);
+            assert.deepEqual(planResult, {
+                ok: false,
+                error: {
+                    code: "PLAN_MODE_BUSY",
+                    message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+                },
+            });
+            assert.deepEqual(trajectoryStore.events
+                .filter((event) => event.payload.type === "plan_mode_entered" || event.payload.type === "run_started")
+                .map((event) => event.payload.type), ["run_started"]);
+        }
+    }
 });
 
 test("rejects Action controls with the wrong waiting type or actionId without side effects", async () => {

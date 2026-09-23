@@ -554,6 +554,7 @@ export class SessionController {
             } catch (error: unknown) {
                 const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
                 if (savedGoal !== undefined) {
+                    this.pendingLaunchMode = "normal";
                     this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
                     this.setError(toUiError(error));
                     return;
@@ -564,6 +565,7 @@ export class SessionController {
             if (!result.ok) {
                 const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
                 if (savedGoal !== undefined) {
+                    this.pendingLaunchMode = "normal";
                     this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
                     this.setError(result.error);
                     return;

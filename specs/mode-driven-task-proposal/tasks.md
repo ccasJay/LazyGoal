@@ -6,7 +6,7 @@
   - 验证方式：更新 Snapshot、交互等待点和 Trajectory 契约测试；运行 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/goal-snapshot-interaction.test.ts packages/runtime/test/trajectory.test.ts`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [4.4](./requirements.md#req-4-4), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 实现 `/plan` 对当前或下一 Run 的一次性选择
+- [x] //TODO 2. 实现 `/plan` 对当前或下一 Run 的一次性选择
   - 实现目标：接通 Slash Command、Launcher、GoalCoordinator 和 SessionController，使新 Goal、尚未执行的 Run、已完成 Run 分别按设计设置当前或下一 Run 模式。
   - 成功判据：在持久化 `run_started` 提交前接受切换、提交后无副作用拒绝；并发命令与 Run 启动按提交顺序得到唯一结果；重复命令幂等，重启后待用选择仍只消费一次。
   - 验证方式：新增/更新 Coordinator、Slash Command 与 SessionController 场景测试（待实现），包括并发竞态的两种提交顺序；运行 `npx tsx --test packages/runtime/test/goal-coordinator.test.ts packages/slash-command/test/slash-command.test.ts packages/tui/test/session-controller.test.ts`。

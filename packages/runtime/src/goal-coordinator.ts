@@ -47,6 +47,7 @@ import {
     type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 
 function isStreamDeltaKind(kind: string): boolean {
     return kind.endsWith("_delta");
@@ -320,12 +321,14 @@ export class GoalCoordinator {
     }
 
     /**
-     * 在安全输入边界把现有 Goal 切换到后端 Plan Mode。
+     * 为未启动的当前 Run 或已完成 Run 的下一次 Run 选择 Plan Mode。
      *
      * @remarks
-     * 模式和空 GoalPlan 由 Coordinator 在同一 Snapshot 提交边界写入；命令文本
-     * 不会成为 Goal 消息或 Run Step。重复调用是幂等的。模型/Tool 正在执行的
-     * `running` Run 会被拒绝，避免在执行中改变模型契约。
+     * 同一 Goal 的模式选择与 `run_started` 提交按 Store 实例上的串行边界线性化。
+     * 未启动 Run 的模式和事件一起提交；已完成 Run 只把一次性选择写入
+     * `nextRunMode`，由后续 Run 创建时消费。命令文本不会成为 Goal 消息或 Run
+     * Step。重复选择不重复写入。已经提交 `run_started` 的普通 Run 及其它非终态
+     * 等待点不能再切换；Trajectory 中存在未提交的 `run_started` 时也会拒绝。
      *
      * @param ref - Goal 与当前 Run 的关联键。
      * @param control - 当前调用共享的可选中止控制。
@@ -339,55 +342,75 @@ export class GoalCoordinator {
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
-        throwIfAborted(control);
-        const goal = await this.restore(ref, control);
-        throwIfAborted(control);
-        if (goal === undefined) return this.runNotFound(ref);
-        this.validateGoalProtocol(goal);
-        if (goal.state.run.status === "running") {
-            return {
-                ok: false,
-                error: {
-                    code: "PLAN_MODE_BUSY",
-                    message: "Plan Mode cannot be entered while the current Run is executing",
+        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+            throwIfAborted(control);
+            const goal = await this.restore(ref, control);
+            throwIfAborted(control);
+            if (goal === undefined) return this.runNotFound(ref);
+            this.validateGoalProtocol(goal);
+
+            if (goal.state.run.status === "completed") {
+                if (goal.state.nextRunMode === "plan") {
+                    return { ok: true, kind: "terminal", phase: "executing", goal };
+                }
+                const nextGoal: Goal = {
+                    ...goal,
+                    state: { ...goal.state, nextRunMode: "plan" },
+                };
+                const saved = await this.checkpointCommitter.saveCheckpoint(nextGoal, control);
+                return { ok: true, kind: "terminal", phase: "executing", goal: saved };
+            }
+
+            if (goal.state.run.mode === "plan") {
+                return goal.state.run.status === "waiting"
+                    ? this.executingWaitingResult(goal)
+                    : { ok: true, kind: "terminal", phase: "executing", goal };
+            }
+
+            if (goal.state.run.status !== "created") {
+                return this.planModeBusy();
+            }
+
+            if (this.trajectoryStore !== undefined) {
+                const boundary = await this.trajectoryStore.readWithBoundary(
+                    { goalId: goal.id, runId: goal.state.run.id },
+                    goal.state.run.committedThroughSequence ?? 0,
+                );
+                if (boundary.uncommittedTail.some((event) => event.payload.type === "run_started")) {
+                    return this.planModeBusy();
+                }
+            }
+
+            const planGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: { ...goal.state.run, mode: "plan" },
                 },
             };
-        }
-        if (goal.state.run.mode === "plan") {
-            return goal.state.run.status === "waiting"
-                ? this.executingWaitingResult(goal)
-                : goal.state.run.status === "created"
-                    ? {
-                        ok: true,
-                        kind: "terminal",
-                        phase: "executing",
-                        goal,
-                    }
-                    : {
-                        ok: true,
-                        kind: "terminal",
-                        phase: "executing",
-                        goal,
-                    };
-        }
+            const committed = await this.checkpointCommitter.commit(planGoal, {
+                facts: [{
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "plan_mode_entered",
+                    payload: { type: "plan_mode_entered" },
+                }],
+                ...(control === undefined ? {} : { control }),
+            });
+            this.publishCommittedEvents(committed, committed.events);
+            return { ok: true, kind: "terminal", phase: "executing", goal: committed.goal };
+        });
+    }
 
-        const planGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                run: { ...goal.state.run, mode: "plan" },
+    private planModeBusy(): GoalProgressResult {
+        return {
+            ok: false,
+            error: {
+                code: "PLAN_MODE_BUSY",
+                message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
             },
         };
-        await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            eventType: "plan_mode_entered",
-            payload: { type: "plan_mode_entered" },
-        }, control);
-        const saved = await this.saveCheckpoint(planGoal, control);
-        if (saved.state.run.status === "waiting") return this.executingWaitingResult(saved);
-        return { ok: true, kind: "terminal", phase: "executing", goal: saved };
     }
 
     /**
@@ -458,11 +481,11 @@ export class GoalCoordinator {
      *
      * @remarks
      * `continue` 只接受当前 `completed` Run 和非空输入。它在同一个 Goal 内先
-     * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并在 Plan Mode
-     * 绑定 position 最前的 pending Todo；完整 Snapshot 成功后才调用 Scheduler。
-     * waiting Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个
-     * Coordinator 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被
-     * 两次消费。
+     * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
+     * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
+     * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
+     * Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个 Coordinator
+     * 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被两次消费。
      *
      * @param ref - 当前已完成 Run 的 Goal/Run 关联键。
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
@@ -483,83 +506,95 @@ export class GoalCoordinator {
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
-            throwIfAborted(control);
-            if (newInput.trim().length === 0) {
-                return this.invalidGoalInput("Continuation input must not be empty");
-            }
+            const preparation = await withRunModeSelectionGate(
+                this.store,
+                ref.goalId,
+                async (): Promise<
+                    | { readonly progress: GoalProgressResult }
+                    | { readonly nextRef: RunRef }
+                > => {
+                    throwIfAborted(control);
+                    if (newInput.trim().length === 0) {
+                        return { progress: this.invalidGoalInput("Continuation input must not be empty") };
+                    }
 
-            const goal = await this.restore(ref, control);
-            throwIfAborted(control);
-            if (goal === undefined) return this.runNotFound(ref);
-            this.validateGoalProtocol(goal);
+                    const goal = await this.restore(ref, control);
+                    throwIfAborted(control);
+                    if (goal === undefined) return { progress: this.runNotFound(ref) };
+                    this.validateGoalProtocol(goal);
 
-            if (goal.state.run.status !== "completed") {
-                return this.goalNotCompleted(ref);
-            }
+                    if (goal.state.run.status !== "completed") {
+                        return { progress: this.goalNotCompleted(ref) };
+                    }
 
-            const runId = this.runIdGenerator();
-            if (
-                typeof runId !== "string"
-                || runId.trim().length === 0
-                || runId === goal.state.run.id
-                || (goal.state.completedRuns ?? []).some((record) => record.runId === runId)
-            ) {
-                return this.invalidGoalInput("Run ID generator returned a duplicate or empty ID");
-            }
+                    const runId = this.runIdGenerator();
+                    if (
+                        typeof runId !== "string"
+                        || runId.trim().length === 0
+                        || runId === goal.state.run.id
+                        || (goal.state.completedRuns ?? []).some((record) => record.runId === runId)
+                    ) {
+                        return {
+                            progress: this.invalidGoalInput("Run ID generator returned a duplicate or empty ID"),
+                        };
+                    }
 
-            const priorMessages = goal.state.messages;
-            const priorHistory = goal.state.completedRuns ?? [];
-            const historyEnd = priorMessages.length;
-            const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
-            const history: CompletedRunRecord = {
-                runId: goal.state.run.id,
-                stepCount: goal.state.run.stepCount,
-                committedThroughSequence: goal.state.run.committedThroughSequence,
-                messageRange: {
-                    start: previousRangeEnd,
-                    end: historyEnd,
-                },
-            };
-
-            const nextRunMode = goal.state.nextRunMode ?? "normal";
-            const nextRun = createRun(runId, nextRunMode);
-            const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
-            const nextGoal: Goal = {
-                ...goal,
-                state: {
-                    ...stateWithoutNextRunMode,
-                    messages: [
-                        ...priorMessages,
-                        { role: "user", content: newInput },
-                    ],
-                    run: nextRun,
-                    completedRuns: [...priorHistory, history],
-                },
-            };
-
-            throwIfAborted(control);
-            const committed = await this.checkpointCommitter.commit(nextGoal, {
-                facts: [
-                    {
-                        goalId: goal.id,
-                        runId,
-                        phase: goal.state.workflow.phase,
-                        eventType: "run_created",
-                        payload: {
-                            type: "run_created",
-                            mode: nextRun.mode,
+                    const priorMessages = goal.state.messages;
+                    const priorHistory = goal.state.completedRuns ?? [];
+                    const historyEnd = priorMessages.length;
+                    const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
+                    const history: CompletedRunRecord = {
+                        runId: goal.state.run.id,
+                        stepCount: goal.state.run.stepCount,
+                        committedThroughSequence: goal.state.run.committedThroughSequence,
+                        messageRange: {
+                            start: previousRangeEnd,
+                            end: historyEnd,
                         },
-                    },
-                ],
-                ...(control === undefined ? {} : { control }),
-            });
-            this.publishCommittedEvents(committed, committed.events);
-            throwIfAborted(control);
+                    };
 
-            const nextRef = { goalId: goal.id, runId };
-            const scheduled = await this.scheduler.schedule(nextRef, undefined, control);
+                    const nextRunMode = goal.state.nextRunMode ?? "normal";
+                    const nextRun = createRun(runId, nextRunMode);
+                    const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
+                    const nextGoal: Goal = {
+                        ...goal,
+                        state: {
+                            ...stateWithoutNextRunMode,
+                            messages: [
+                                ...priorMessages,
+                                { role: "user", content: newInput },
+                            ],
+                            run: nextRun,
+                            completedRuns: [...priorHistory, history],
+                        },
+                    };
+
+                    throwIfAborted(control);
+                    const committed = await this.checkpointCommitter.commit(nextGoal, {
+                        facts: [
+                            {
+                                goalId: goal.id,
+                                runId,
+                                phase: goal.state.workflow.phase,
+                                eventType: "run_created",
+                                payload: {
+                                    type: "run_created",
+                                    mode: nextRun.mode,
+                                },
+                            },
+                        ],
+                        ...(control === undefined ? {} : { control }),
+                    });
+                    this.publishCommittedEvents(committed, committed.events);
+                    throwIfAborted(control);
+                    return { nextRef: { goalId: goal.id, runId } };
+                },
+            );
+            if ("progress" in preparation) return preparation.progress;
+
+            const scheduled = await this.scheduler.schedule(preparation.nextRef, undefined, control);
             throwIfAborted(control);
-            return this.afterSchedule(nextRef, scheduled, control);
+            return this.afterSchedule(preparation.nextRef, scheduled, control);
         });
     }
 
