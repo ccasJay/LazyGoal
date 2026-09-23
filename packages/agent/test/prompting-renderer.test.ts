@@ -40,6 +40,7 @@ function buildContext(overrides: Partial<PromptContext> = {}): PromptContext {
         promptBundleVersion: 1,
         phase: "executing",
         runMode: "normal",
+        goalPlanWritable: false,
         profile: { id: "profile-1", systemPrompt: "base", instructions: [] },
         authorizedTools: [],
         memoryProtocol: { kind: "structured", version: 1 },

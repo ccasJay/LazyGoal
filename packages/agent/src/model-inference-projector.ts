@@ -5,6 +5,7 @@ import {
     type WorkingMemory,
 } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
+import { canUpdateGoalPlan } from "../../runtime/src/run-mode-capabilities";
 import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
@@ -93,6 +94,7 @@ export class ModelInferenceProjector {
             promptBundleVersion: goal.definition.promptBundleVersion,
             phase: "executing",
             runMode: goal.state.run.mode,
+            goalPlanWritable: canUpdateGoalPlan(goal.state.run.mode),
             profile: projectProfile(goal),
             authorizedTools: projectTools(tools),
             memoryProtocol: projectMemoryProtocol(memoryProtocol),

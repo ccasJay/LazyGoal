@@ -65,6 +65,7 @@ import {
     createEmptyGoalPlan,
     reduceGoalPlan,
 } from "./goal-plan";
+import { canUpdateGoalPlan } from "./run-mode-capabilities";
 import {
     TrajectoryAppendError,
     allocateDiagnosticTraceRecord,
@@ -1194,10 +1195,10 @@ export class Runner {
                 "task_proposal is only allowed before approval in Plan Mode",
             );
         }
-        if (decision.kind === "goal_plan_update" && run.mode !== "plan") {
+        if (decision.kind === "goal_plan_update" && !canUpdateGoalPlan(run.mode)) {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
-                "goal_plan_update requires Plan Mode",
+                "goal_plan_update is not authorized in the current Run mode",
             );
         }
 
@@ -2406,28 +2407,49 @@ export class Runner {
 
                 if (normalized.decision.kind === "goal_plan_update") {
                     if (
-                        goal.state.run.mode !== "plan"
+                        !canUpdateGoalPlan(goal.state.run.mode)
                         || (goal.state.goalPlan === undefined && normalized.decision.baseRevision !== 0)
                     ) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
                                 "INVALID_AGENT_DECISION",
-                                "goal_plan_update requires Plan Mode",
+                                "goal_plan_update is not authorized in the current Run mode",
                             ),
                             control,
                         );
                     }
 
-                    if (normalized.decision.operations.some((operation) =>
-                        operation.type === "update" && operation.status === "completed"
-                    )) {
+                    try {
+                        for (const operation of normalized.decision.operations) {
+                            if (operation.type !== "update") continue;
+                            if (operation.status === "completed") {
+                                if (
+                                    operation.evidenceSequences === undefined
+                                    || operation.evidenceSequences.length === 0
+                                ) {
+                                    throw new RunnerExecutionError(
+                                        "INVALID_AGENT_DECISION",
+                                        "completed Todo update must cite current Run evidence",
+                                    );
+                                }
+                                session.validateEvidence(operation.evidenceSequences);
+                            } else if (operation.evidenceSequences !== undefined) {
+                                throw new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    "GoalPlan evidence is only valid when completing a Todo",
+                                );
+                            }
+                        }
+                    } catch (error) {
                         return this.stopWithExecutionError(
                             goal,
-                            new RunnerExecutionError(
-                                "INVALID_AGENT_DECISION",
-                                "Todo completion requires the current Run completion evidence",
-                            ),
+                            error instanceof RunnerExecutionError
+                                ? error
+                                : new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
                             control,
                         );
                     }

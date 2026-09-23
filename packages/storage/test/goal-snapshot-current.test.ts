@@ -357,7 +357,12 @@ test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码",
         decision: {
             kind: "goal_plan_update",
             baseRevision: 0,
-            operations: [{ type: "add", content: "保留计划更新" }],
+            operations: [{
+                type: "update",
+                id: "todo-1",
+                status: "completed",
+                evidenceSequences: [9],
+            }],
         },
     });
     assert.equal(progressed.ok, true);
@@ -370,4 +375,8 @@ test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码",
     const decoded = goalSnapshotCodec.decode(encoded);
     assert.equal(decoded.state.run.mode, "plan");
     assert.deepEqual(decoded.state.run.lastStep, progressed.state.lastStep);
+
+    const invalid = structuredClone(encoded) as any;
+    delete invalid.state.run.lastStep.result.operations[0].evidenceSequences;
+    assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
 });

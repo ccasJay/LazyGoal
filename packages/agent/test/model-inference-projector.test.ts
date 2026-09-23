@@ -261,6 +261,7 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
     assert.equal(view.prompt.phase, "executing");
     assert.equal(view.prompt.runMode, "normal");
+    assert.equal(view.prompt.goalPlanWritable, false);
     assert.equal(view.prompt.profile.id, "profile-1");
     assert.deepEqual(view.workingContext, { phase: "executing", intent, execution: { stepCount: 0 } });
     assert.deepEqual(view.workingMemory, currentWorkingMemory);
@@ -296,6 +297,7 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
     };
 
     const view = project(planGoal, [], currentWorkingMemory);
+    assert.equal(view.prompt.goalPlanWritable, true);
     assert.deepEqual(view.prompt.goalPlan, {
         revision: 2,
         items: [{
@@ -322,6 +324,7 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
     const normalView = project(goalWithPlan, [], currentWorkingMemory);
     assert.deepEqual(normalView.prompt.goalPlan, view.prompt.goalPlan);
     assert.equal(normalView.prompt.runMode, "normal");
+    assert.equal(normalView.prompt.goalPlanWritable, false);
     assert.deepEqual(normalView.workingMemory.plan, currentWorkingMemory.plan);
 });
 

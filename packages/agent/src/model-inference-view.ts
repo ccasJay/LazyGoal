@@ -139,7 +139,13 @@ export type ModelStepRecord =
                 readonly baseRevision: number;
                 readonly operations: readonly (
                     | { readonly type: "add"; readonly content: string; readonly position?: number }
-                    | { readonly type: "update"; readonly id: string; readonly content?: string; readonly status?: "pending" | "in_progress" | "completed" | "cancelled" }
+                    | {
+                        readonly type: "update";
+                        readonly id: string;
+                        readonly content?: string;
+                        readonly status?: "pending" | "in_progress" | "completed" | "cancelled";
+                        readonly evidenceSequences?: readonly number[];
+                    }
                     | { readonly type: "reorder"; readonly id: string; readonly position: number }
                     | { readonly type: "cancel"; readonly id: string }
                 )[];
@@ -387,7 +393,7 @@ export type ModelContextLookupResult =
  *
  * @example
  * ```ts
- * const mode = promptContext.runMode;
+ * const canWritePlan = promptContext.goalPlanWritable;
  * ```
  */
 export interface PromptContext {
@@ -397,6 +403,8 @@ export interface PromptContext {
     readonly phase: PromptPhase;
     /** 当前 Run 的决策模式，决定提案审批与完成证据协议。 */
     readonly runMode: "normal" | "plan";
+    /** 当前 Run 模式是否获授权写入 GoalPlan，与提案审批流程分开投影。 */
+    readonly goalPlanWritable: boolean;
     /** 冻结 Profile 的模型可读投影。 */
     readonly profile: ModelProfileView;
     /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */

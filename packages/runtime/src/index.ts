@@ -28,6 +28,7 @@ export type {
     GoalPlanReducerResult,
     GoalPlanStatus,
 } from "./goal-plan";
+export { canUpdateGoalPlan } from "./run-mode-capabilities";
 export {
     EXECUTION_ABORTED_ERROR_CODE,
     ExecutionAbortedError,

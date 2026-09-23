@@ -83,8 +83,10 @@ export type ModelOutputRequest =
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
         readonly taskPresent?: boolean;
-        /** 只有 Plan Mode 才允许模型提交 GoalPlan Patch。 */
+        /** 当前 Run 是否按 Plan Mode 的任务提案生命周期执行。 */
         readonly planMode?: boolean;
+        /** 当前模式是否获授权提交 GoalPlan Patch；独立于任务提案生命周期。 */
+        readonly goalPlanWritable?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -221,11 +223,17 @@ export function createModelOutputContractBundle(
         case "executing": {
             const taskPresent = request.taskPresent !== false;
             const planMode = request.planMode === true;
+            const goalPlanWritable = request.goalPlanWritable ?? planMode;
             name = planMode
                 ? taskPresent
                     ? "plan_mode_approved_executing_agent_decision"
                     : "plan_mode_unapproved_executing_agent_decision"
-                : "normal_executing_agent_decision";
+                : goalPlanWritable
+                    ? "normal_goal_plan_writable_executing_agent_decision"
+                    : "normal_executing_agent_decision";
+            if (planMode && request.goalPlanWritable === false) {
+                name = `${name}_goal_plan_read_only`;
+            }
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);
             const effectiveTools = sortedTools;
 
@@ -250,7 +258,7 @@ export function createModelOutputContractBundle(
                     ContextLookupRequestContract,
                     AskUserAgentDecisionContract,
                 ];
-            if (planMode) {
+            if (goalPlanWritable) {
                 nonToolCanonicalBranches.push(GoalPlanUpdateAgentDecisionContract);
             }
             const nonToolWireBranches = nonToolCanonicalBranches.map((c) => deriveWireContract(c));

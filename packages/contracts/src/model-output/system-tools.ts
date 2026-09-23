@@ -234,7 +234,7 @@ export const SystemAskUserInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/** Plan Mode GoalPlan 增量更新工具参数契约。 */
+/** 获授权模式的 GoalPlan 增量更新工具参数契约。 */
 export const SystemUpdateGoalPlanInputContract = contract.object({
     baseRevision: contract.integer({ minimum: 0 }),
     operations: contract.array(GoalPlanPatchOperationContract),
@@ -349,11 +349,11 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDeci
 );
 
 /**
- * Plan Mode GoalPlan 更新工具声明。
+ * GoalPlan 更新工具声明。
  *
  * @remarks
- * 工具只解码模型提出的结构化 Patch；Runtime 仍负责检查当前模式、revision、Todo
- * ID、状态转换和原子持久化，工具本身不授予业务 Tool 权限。
+ * 工具只解码模型提出的结构化 Patch；Runtime 仍负责检查模式能力、revision、Todo
+ * ID、证据、状态转换和原子持久化，工具本身不授予业务 Tool 权限。
  *
  * @example
  * ```ts
@@ -365,7 +365,7 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDeci
  */
 export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
     "system_update_goal_plan",
-    "Update the GoalPlan only in Plan Mode using an atomic patch with the current revision. Runtime allocates Todo IDs and validates all transitions. Plan updates do not replace execution or verification.",
+    "Update the GoalPlan only when the current mode authorizes plan writing, using an atomic patch with the current revision. Runtime allocates Todo IDs, validates completion evidence, and checks all transitions. Plan updates do not replace execution or verification.",
     SystemUpdateGoalPlanInputContract,
     (args: { baseRevision: number; operations: GoalPlanPatchOperation[]; memoryPatch?: unknown }): AgentDecision => ({
         kind: "goal_plan_update",
@@ -446,22 +446,25 @@ export function createExecutingToolDeclarations(
  * 按 Run 模式与任务审批状态派生决策工具：
  * - 普通模式：暴露全部授权业务工具与普通完成、wait、fail、lookup、ask_user；
  * - Plan 未批准：暴露全部授权业务工具与 ask_user、task_proposal、lookup；
- * - Plan 已批准：暴露全部授权业务工具与逐条件完成、wait、fail、lookup、ask_user。
+ * - Plan 已批准：暴露全部授权业务工具与逐条件完成、wait、fail、lookup、ask_user；
+ * - 任一状态是否额外暴露 GoalPlan 更新工具，由 `goalPlanWritable` 单独决定。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
  * @param taskPresent - 是否已批准固定 GoalTask。
- * @param planMode - 是否处于当前 Run 的 Plan Mode；为 true 时暴露 GoalPlan 更新工具。
+ * @param planMode - 是否处于当前 Run 的 Plan Mode 任务提案生命周期。
+ * @param goalPlanWritable - 当前 Run 模式是否获授权更新 GoalPlan。
  * @returns 对应状态下的工具声明列表。
  *
  * @example
  * ```ts
- * const tools = createUnifiedToolDeclarations(tools, true);
+ * const tools = createUnifiedToolDeclarations(tools, true, false, true);
  * ```
  */
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
     taskPresent: boolean,
     planMode = false,
+    goalPlanWritable = planMode,
 ): readonly SystemToolDeclaration<AgentDecision>[] {
     if (!planMode) {
         const businessTools = authorizedTools.map(t => createExecutingBusinessToolDeclaration(t));
@@ -472,6 +475,7 @@ export function createUnifiedToolDeclarations(
             SystemFailGoalDeclaration,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemAskUserDeclaration,
+            ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
         ];
     }
 
@@ -482,13 +486,13 @@ export function createUnifiedToolDeclarations(
             SystemAskUserDeclaration,
             SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
-            SystemUpdateGoalPlanDeclaration,
+            ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
         ];
     }
 
     return [
         ...createExecutingToolDeclarations(authorizedTools),
-        ...(planMode ? [SystemUpdateGoalPlanDeclaration] : []),
+        ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
     ];
 }
 

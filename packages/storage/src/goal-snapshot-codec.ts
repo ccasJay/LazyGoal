@@ -303,6 +303,9 @@ function encodeGoalPlanOperation(
                 id: operation.id,
                 ...(operation.content === undefined ? {} : { content: operation.content }),
                 ...(operation.status === undefined ? {} : { status: operation.status }),
+                ...(operation.evidenceSequences === undefined
+                    ? {}
+                    : { evidenceSequences: [...operation.evidenceSequences] }),
             };
         case "reorder":
             return { type: "reorder", id: operation.id, position: operation.position };

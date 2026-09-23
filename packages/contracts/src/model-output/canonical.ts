@@ -131,12 +131,13 @@ export const GoalPlanAddOperationContract = contract.object({
     position: contract.optional(contract.integer({ minimum: 0 })),
 });
 
-/** 更新 GoalPlan Todo 内容或状态操作契约。 */
+/** 更新 GoalPlan Todo 内容或状态的契约；完成状态必须引用当前 Run 证据。 */
 export const GoalPlanUpdateOperationContract = contract.object({
     type: contract.literal("update"),
     id: contract.string(),
     content: contract.optional(contract.string()),
     status: contract.optional(GoalPlanStatusContract),
+    evidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
 });
 
 /** 重排 GoalPlan Todo 操作契约。 */
@@ -666,12 +667,12 @@ export const ExecutingWorkingMemoryPatchContract = contract.object({
 export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingMemoryPatchContract>;
 
 /**
- * Plan Mode 更新 GoalPlan 的模型决策契约。
+ * 获授权模式更新 GoalPlan 的模型决策契约。
  *
  * @remarks
  * `baseRevision` 与操作列表由 Runtime 的 GoalPlan reducer 原子校验；模型只能引用
- * 已投影的 Todo ID，不能提交 Run 归属或完成证据。可选 Working Memory Patch 仍属于
- * 当前 Run，与 GoalPlan 更新保持独立。
+ * 已投影的 Todo ID。将 Todo 置为 completed 时必须引用当前 Run 的 Observation，引用
+ * 由 Runtime Evidence Gate 校验。可选 Working Memory Patch 仍属于当前 Run。
  *
  * @example
  * ```ts
@@ -1218,6 +1219,7 @@ export type AgentDecision = InferContract<typeof AgentDecisionContract>;
 export type ModelOutputSemanticIssueCode =
     | "blank_string"
     | "invalid_sequence_range"
+    | "invalid_evidence_reference"
     | "empty_update"
     | "invalid_tool_id"
     | "duplicate_option";
@@ -1489,6 +1491,21 @@ function validateGoalPlanPatchSemantics(
                         code: "empty_update",
                         path,
                         message: "GoalPlan update must change content or status",
+                    });
+                }
+                if (operation.status === "completed") {
+                    if (!Array.isArray(operation.evidenceSequences) || operation.evidenceSequences.length === 0) {
+                        issues.push({
+                            code: "invalid_evidence_reference",
+                            path: [...path, "evidenceSequences"],
+                            message: "completed Todo update must cite current Run evidence",
+                        });
+                    }
+                } else if (operation.evidenceSequences !== undefined) {
+                    issues.push({
+                        code: "invalid_evidence_reference",
+                        path: [...path, "evidenceSequences"],
+                        message: "evidenceSequences is only valid when completing a Todo",
                     });
                 }
                 break;

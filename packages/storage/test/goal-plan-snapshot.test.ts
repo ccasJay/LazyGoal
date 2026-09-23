@@ -109,7 +109,12 @@ test("Trajectory 支持 Plan Mode、GoalPlan 更新和新 Run 事实事件", () 
             payload: {
                 type: "goal_plan_updated",
                 revision: 1,
-                operations: [{ type: "add", content: "建立模型" }],
+                operations: [{
+                    type: "update",
+                    id: "todo-1",
+                    status: "completed",
+                    evidenceSequences: [8],
+                }],
             },
         },
         {

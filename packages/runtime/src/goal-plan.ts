@@ -40,7 +40,10 @@ export interface GoalPlan {
     readonly items: readonly GoalPlanItem[];
 }
 
-/** 模型可提出的 GoalPlan 增量操作。新增 Todo 的 ID 由 Runtime 分配。 */
+/**
+ * 模型可提出的 GoalPlan 增量操作。新增 Todo 的 ID 由 Runtime 分配；完成操作携带
+ * 当前 Run 已提交 Observation 的引用，Runtime 在 reducer 前校验该引用。
+ */
 export type GoalPlanPatchOperation =
     | {
         readonly type: "add";
@@ -52,8 +55,10 @@ export type GoalPlanPatchOperation =
         readonly type: "update";
         readonly id: string;
         readonly content?: string;
-        /** 更新状态时仍由 Runtime 校验合法转换和 Evidence 边界。 */
+        /** 更新状态时仍由 Runtime 校验合法转换。 */
         readonly status?: GoalPlanStatus;
+        /** 仅完成 Todo 时使用；引用当前 Run 已提交的 Observation sequence。 */
+        readonly evidenceSequences?: readonly number[];
     }
     | {
         readonly type: "reorder";

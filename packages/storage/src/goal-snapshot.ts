@@ -119,6 +119,7 @@ export type GoalSnapshotGoalPlanPatchOperationV1 =
         readonly id: string;
         readonly content?: string | undefined;
         readonly status?: "pending" | "in_progress" | "completed" | "cancelled" | undefined;
+        readonly evidenceSequences?: readonly number[] | undefined;
     }
     | {
         readonly type: "reorder";
@@ -628,9 +629,17 @@ const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
         id: NonEmptyStringSchema,
         content: NonEmptyStringSchema.optional(),
         status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
+        evidenceSequences: z.array(z.number().int().nonnegative().safe()).optional(),
     }).strict().refine(
         (operation) => operation.content !== undefined || operation.status !== undefined,
         { message: "update operation must change content or status" },
+    ).refine(
+        (operation) => operation.status !== "completed"
+            || (operation.evidenceSequences !== undefined && operation.evidenceSequences.length > 0),
+        { message: "completed Todo update must cite current Run evidence" },
+    ).refine(
+        (operation) => operation.status === "completed" || operation.evidenceSequences === undefined,
+        { message: "evidenceSequences is only valid when completing a Todo" },
     ),
     z.object({
         type: z.literal("reorder"),

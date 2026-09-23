@@ -24,7 +24,7 @@
   - 验证方式：新增/更新提案批准、反馈、恢复与过期请求测试（待实现）；运行 `npx tsx --test packages/runtime/test/goal-coordinator-task-interaction.test.ts packages/runtime/test/goal-coordinator.test.ts packages/storage/test/goal-snapshot-interaction.test.ts`。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [6.1](./requirements.md#req-6-1), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 5. 通过模式能力授权并按需提交 GoalPlan 更新
+- [x] //TODO 5. 通过模式能力授权并按需提交 GoalPlan 更新
   - 实现目标：让模式能力决定 GoalPlan Tool 的暴露与 Runtime 校验；仅首次成功 Patch 时创建计划，维持稳定 Todo ID、revision 原子性，并为 Todo 完成操作校验当前 Run 的证据引用。
   - 成功判据：无权模式的更新在无副作用情况下拒绝；失败或过期 Patch 不创建计划、不部分提交；完成 Todo 只接受当前 Run 已提交 Observation 引用，旧 Run、未提交或无效引用时整个 Patch 被拒绝；已有计划在普通模式保留且可读，计划内容不改变任务审批或业务 Tool 权限。
   - 验证方式：新增/更新 Contract、Reducer、Runner 和 Snapshot 测试（待实现）；运行 `npx tsx --test packages/runtime/test/goal-plan.test.ts packages/runtime/test/goal-plan-mode.test.ts packages/storage/test/goal-plan-snapshot.test.ts`。

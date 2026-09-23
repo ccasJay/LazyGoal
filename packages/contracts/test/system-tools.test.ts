@@ -162,14 +162,17 @@ test("Plan 提案前挂载获授权读取与任务提案工具", () => {
     }
 });
 
-test("system_update_goal_plan 只在 Plan Mode 工具包中出现并保留 Memory Patch", () => {
+test("system_update_goal_plan 按独立模式能力暴露并保留 Memory Patch", () => {
     const normal = createUnifiedToolDeclarations([], false, false);
     assert.equal(normal.some((decl) => decl.id === "system_update_goal_plan"), false);
 
     const plan = createUnifiedToolDeclarations([], false, true);
     assert.equal(plan.some((decl) => decl.id === "system_update_goal_plan"), true);
 
-    const decision = decodePhaseToolCall(plan, "system_update_goal_plan", {
+    const writableNormal = createUnifiedToolDeclarations([], false, false, true);
+    assert.equal(writableNormal.some((decl) => decl.id === "system_update_goal_plan"), true);
+
+    const decision = decodePhaseToolCall(writableNormal, "system_update_goal_plan", {
         baseRevision: 0,
         operations: [{ type: "add", content: "检查现有实现", position: null }],
         memoryPatch: {
@@ -184,6 +187,18 @@ test("system_update_goal_plan 只在 Plan Mode 工具包中出现并保留 Memor
     if (decision.kind === "goal_plan_update") {
         assert.deepEqual(decision.operations, [{ type: "add", content: "检查现有实现" }]);
         assert.equal(decision.memoryPatch?.operations.length, 1);
+    }
+
+    const completion = decodePhaseToolCall(writableNormal, "system_update_goal_plan", {
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "completed", evidenceSequences: [12] }],
+        memoryPatch: null,
+    });
+    assert.equal(completion.kind, "goal_plan_update");
+    if (completion.kind === "goal_plan_update") {
+        assert.deepEqual(completion.operations, [{
+            type: "update", id: "todo-1", status: "completed", evidenceSequences: [12],
+        }]);
     }
 });
 

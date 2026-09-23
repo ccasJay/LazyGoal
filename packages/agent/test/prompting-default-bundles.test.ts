@@ -31,7 +31,7 @@ test("决策模板允许列表与真实系统工具声明一致，禁止列表�
             const allowed = text.match(/^Outside checkpoint, allowed system tools: (.+)\.$/m);
             assert.ok(allowed);
             assert.deepEqual(allowed[1]!.split(", ").sort(),
-                createUnifiedToolDeclarations([], taskPresent, runMode === "plan").map(tool => tool.id).sort());
+                createUnifiedToolDeclarations([], taskPresent, runMode === "plan", runMode === "plan").map(tool => tool.id).sort());
             assert.doesNotMatch(text, /system_ask_user|system_task_proposal|contextEpoch\.control|control\.status/);
             if (runMode === "normal") {
                 assert.match(text, /act directly on the current user request/);
@@ -45,6 +45,24 @@ test("决策模板允许列表与真实系统工具声明一致，禁止列表�
             }
         }
     }
+});
+
+test("GoalPlan 写入工具由独立模式能力投影，不改变普通 Run 的提案流程", async () => {
+    const text = (await createDefaultPromptBundleRenderer()).render(context({
+        runMode: "normal",
+        goalPlanWritable: true,
+    }));
+    const allowed = text.match(/^Outside checkpoint, allowed system tools: (.+)\.$/m);
+
+    assert.ok(allowed);
+    assert.match(text, /act directly on the current user request/);
+    assert.doesNotMatch(text, /system_propose_task_plan/);
+    assert.match(text, /first valid system_update_goal_plan patch must use baseRevision 0/);
+    assert.match(allowed[1]!, /system_update_goal_plan/);
+    assert.deepEqual(
+        allowed[1]!.split(", ").sort(),
+        createUnifiedToolDeclarations([], false, false, true).map((tool) => tool.id).sort(),
+    );
 });
 
 test("Checkpoint 指令引用实际控制字段并优先于普通决策", async () => {
@@ -66,10 +84,14 @@ test("Checkpoint 指令引用实际控制字段并优先于普通决策", async 
 });
 
 function context(overrides: Record<string, unknown> = {}) {
+    const runMode: "normal" | "plan" = overrides.runMode === "plan" ? "plan" : "normal";
     return {
         promptBundleVersion: 1 as const,
         phase: "executing" as const,
-        runMode: "normal" as const,
+        runMode,
+        goalPlanWritable: typeof overrides.goalPlanWritable === "boolean"
+            ? overrides.goalPlanWritable
+            : runMode === "plan",
         profile: {
             id: "profile-1",
             systemPrompt: "system",

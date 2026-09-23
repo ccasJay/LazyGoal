@@ -479,7 +479,7 @@ test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部
     assert.equal(decodedExecuting.kind, "complete");
 });
 
-test("GoalPlan 更新只属于 Plan Mode，且保留独立 Working Memory Patch", () => {
+test("GoalPlan 更新由独立写入能力授权，且保留独立 Working Memory Patch", () => {
     const decision = {
         kind: "goal_plan_update" as const,
         baseRevision: 0,
@@ -525,4 +525,53 @@ test("GoalPlan 更新只属于 Plan Mode，且保留独立 Working Memory Patch"
         assert.equal(decoded.baseRevision, 0);
         assert.deepEqual(decoded.operations, [{ type: "add", content: "检查实现" }]);
     }
+
+    const writableNormalBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: false,
+        goalPlanWritable: true,
+    });
+    assert.equal(JSON.stringify(writableNormalBundle.jsonSchema).includes("goal_plan_update"), true);
+    assert.equal(writableNormalBundle.name, "normal_goal_plan_writable_executing_agent_decision");
+    assert.equal(writableNormalBundle.decode({
+        result: {
+            ...decision,
+            operations: [{ type: "add", content: "检查实现", position: null }],
+            memoryPatch: null,
+        },
+    }).kind, "goal_plan_update");
+
+    const readOnlyPlanBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: true,
+        goalPlanWritable: false,
+    });
+    assert.equal(JSON.stringify(readOnlyPlanBundle.jsonSchema).includes("goal_plan_update"), false);
+    assert.equal(readOnlyPlanBundle.name, "plan_mode_approved_executing_agent_decision_goal_plan_read_only");
+});
+
+test("GoalPlan 完成操作必须带非空证据，其他状态不得携带证据", () => {
+    const missingEvidence = {
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "completed" }],
+    };
+    const missingIssues = validateModelOutputSemantics(missingEvidence);
+    assert.equal(missingIssues.length, 1);
+    assert.equal(missingIssues[0]?.code, "invalid_evidence_reference");
+    assert.deepEqual(missingIssues[0]?.path, ["operations", 0, "evidenceSequences"]);
+
+    const evidenceWithoutCompletion = {
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", content: "重写内容", evidenceSequences: [7] }],
+    };
+    assert.equal(validateModelOutputSemantics(evidenceWithoutCompletion)[0]?.code, "invalid_evidence_reference");
+    assert.deepEqual(validateModelOutputSemantics({
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "completed", evidenceSequences: [7] }],
+    }), []);
 });
