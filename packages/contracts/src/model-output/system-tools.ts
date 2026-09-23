@@ -5,6 +5,7 @@ import type { JsonSchema202012 } from "../json-schema";
 import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
+    type AskUserAgentDecision,
     type CompletionEvidence,
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
@@ -55,6 +56,23 @@ export interface SystemToolDeclaration<TResult = unknown> {
      * @throws {@link ContractValidationError} 参数不符合契约时抛出。
      */
     readonly decode: (rawArguments: unknown) => TResult;
+}
+
+/**
+ * 可供执行模式按授权复用的 AskUser 系统工具声明。
+ *
+ * @remarks
+ * 只约束模型可调用的工具身份和解码结果；问题等待、用户回答与恢复继续由
+ * 现有 `ask_user` 交互流程负责。持有此声明不授予模式调用权限。
+ *
+ * @example
+ * ```ts
+ * const tool: AskUserTool = SystemAskUserDeclaration;
+ * ```
+ */
+export interface AskUserTool extends SystemToolDeclaration<AskUserAgentDecision> {
+    /** 与现有问答交互对应的唯一工具标识。 */
+    readonly id: "ask_user";
 }
 
 /**
@@ -137,12 +155,12 @@ function decodeArgumentsNode(
 /**
  * 为任意 Object Contract 构建标准 Tool 声明。
  */
-function buildDeclaration<TArgs, TResult>(
-    id: string,
+function buildDeclaration<TArgs, TResult, TId extends string>(
+    id: TId,
     description: string,
     inputContract: ObjectContract<ObjectShape>,
     transform: (validatedArgs: TArgs) => TResult,
-): SystemToolDeclaration<TResult> {
+): SystemToolDeclaration<TResult> & { readonly id: TId } {
     const wireContract = deriveWireContract(inputContract);
     const parametersSchema = compileModelOutputSchema(wireContract);
 
@@ -278,11 +296,12 @@ export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision
  * const declaration = SystemAskUserDeclaration;
  * ```
  */
-export const SystemAskUserDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+//TODO: 后续模式接入 AskUserTool 时按模式授权暴露，复用现有 ask_user 等待与回答流程。
+export const SystemAskUserDeclaration: AskUserTool = buildDeclaration(
     "ask_user",
     "Ask 1 to 3 focused structured questions when information must come from the user and materially affects scope, correctness or authorization. Do not ask for routine confirmation or facts available through tools. Users can choose options or provide free-form Other text.",
     SystemAskUserInputContract,
-    (args: { questions: any; memoryPatch?: unknown }): AgentDecision => ({
+    (args: { questions: any; memoryPatch?: unknown }): AskUserAgentDecision => ({
         kind: "ask_user",
         questions: args.questions,
         ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),

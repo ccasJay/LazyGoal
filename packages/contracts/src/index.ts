@@ -175,6 +175,7 @@ export {
     decodePhaseToolCall,
 } from "./model-output/system-tools";
 export type {
+    AskUserTool,
     SystemToolDeclaration,
 } from "./model-output/system-tools";
 export {
