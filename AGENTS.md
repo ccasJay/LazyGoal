@@ -85,6 +85,8 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * Benchmark integration, sandboxed worker packaging, evaluation runners, and troubleshooting → `lg-benchmark-integration`
 * 在独立 worktree 执行 spec → `lg-spec-worktree-execution`
 * 功能分支合入就绪检查或按请求合入 → `lg-feature-integration`
+* 启动单个 GEPA 优化运行、管理与汇报 → `lg-gepa-optimization`
+* 在独立 worktree 执行多轮 GEPA 变异循环与自纠错 → `lg-gepa-loop`
 
 When multiple skills apply, follow all relevant skills unless their instructions conflict with a higher-priority repository rule.
 
