@@ -16,6 +16,7 @@ description: 在 LazyGoal 仓库中启动 GEPA Prompt 自进化、优化 default
 | 查询进度 | 精确 `runId` | `lazygoal gepa status --run <runId>` | 无 |
 | 请求停止 | 精确 `runId` | `lazygoal gepa stop --run <runId>` | 无；只请求协作停止 |
 | 恢复运行 | 精确 `runId` 和刚读取的 status | `lazygoal gepa resume --run <runId> --yes` | 必须批准当前恢复摘要 |
+| 等待运行结束 | 精确 `runId` | `lazygoal gepa wait --run <runId> [--timeout-seconds <sec>]` | 无 |
 | 查看终态报告 | 精确 `runId` | `lazygoal gepa report --run <runId>` | 无 |
 
 可按 CLI 的实际部署方式附加 `--workspace-root` 或 `--runs-dir`，但不要改变以上路由。缺少 `runId` 且上下文不能唯一确定时，请用户提供；不要猜测“最近运行”。
@@ -68,9 +69,11 @@ start 成功后只报告 CLI 返回的 `runId`、`lifecycleStatus` 和 `runDir`�
 
 ## 管理已有 Run
 
-### 查询与停止
+### 查询、等待与停止
 
-status 是唯一的运行状态查询入口。汇报 `runId`、`lifecycleStatus`、`workerHealth`、metric calls 已用/上限、候选数、最佳分数、publication 状态和停止请求；错误存在时附错误分类和最小下一步。
+status 是运行状态的快照查询入口。wait 是阻塞等待至终态的控制边界；它持续等待直到 Run 达到 terminal status（`succeeded`、`failed`、`stopped`、`publish_blocked`）并输出单行终态 JSON。用户要求持续跟进或在完成时汇报时，调用 wait 等待 Worker 到达终态，无需人工反复轮询。
+
+汇报 `runId`、`lifecycleStatus`、`workerHealth`、metric calls 已用/上限、候选数、最佳分数、publication 状态和停止请求；错误存在时附错误分类和最小下一步。
 
 区分 `running`、`stop_requested`、`stopped`、`succeeded`、`publish_blocked` 和 `failed`。Worker 为 `stale` 或 `lost` 时只报告权威 status 和恢复前置条件，不自动恢复。
 
@@ -95,7 +98,7 @@ stop 只写协作停止标记。返回 `stop_requested` 时表述为“已请求
 
 优化完成和发布完成是两个事实。只有 terminal status 为 `succeeded` 且 publication 为 `published` 或 `unchanged`，才说明运行完整成功。`publish_blocked` 表示优化产物仍保留，但目标 Profile 在运行期间变化、未被覆盖；提供 best Profile artifact 路径，不建议绕过摘要保护或强制覆盖。
 
-report 尚未就绪时先用 status；不要轮询到无限期，也不要自动安排 heartbeat 或 scheduler。
+report 尚未就绪时可先用 status 查询快照，或用 wait 阻塞等待至终态；不要在模型层循环轮询，也不要在缺乏明确终态时安排无限期 scheduler。
 
 ## 错误与信息边界
 

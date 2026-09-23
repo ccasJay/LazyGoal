@@ -36,6 +36,7 @@ from lazygoal_gepa.controller import (
     preflight_run,
     start_run,
     stop_run,
+    wait_run,
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,
@@ -716,6 +717,72 @@ class LifecycleControllerTests(unittest.TestCase):
         self.assertEqual(stdout_buf.getvalue(), "")
         self.assertIn("RunStoreError", stderr_buf.getvalue())
         self.assertIn("corrupted", stderr_buf.getvalue())
+
+    def test_wait_terminal_status_and_cli(self) -> None:
+        """Verify wait method immediately returns on terminal states and CLI exits accordingly."""
+        run_id = "run_ctrl_wait_test"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        self.store.update_state(
+            run_id,
+            lifecycle_status="succeeded",
+            best_score=1.0,
+            metric_calls=4,
+        )
+
+        # 1. 成功终态：wait_run 立即返回且包含 status 信息
+        controller = LifecycleController(runs_dir=self.runs_dir)
+        res = controller.wait(run_id, timeout_seconds=1.0)
+        self.assertEqual(res["lifecycleStatus"], "succeeded")
+        self.assertEqual(res["bestScore"], 1.0)
+
+        # 验证 CLI wait 在成功终态退出码为 0，stdout 输出 json
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            code = cli_main(["wait", "--run", run_id, "--runs-dir", str(self.runs_dir)])
+        self.assertEqual(code, 0)
+        out = json.loads(stdout_buf.getvalue().strip())
+        self.assertEqual(out["lifecycleStatus"], "succeeded")
+
+        # 2. 失败终态：CLI wait 退出码为 1，stdout 输出 json
+        self.store.update_state(run_id, lifecycle_status="failed", error_message="Task failed")
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            code = cli_main(["wait", "--run", run_id, "--runs-dir", str(self.runs_dir)])
+        self.assertEqual(code, 1)
+        out = json.loads(stdout_buf.getvalue().strip())
+        self.assertEqual(out["lifecycleStatus"], "failed")
+
+        # 3. 超时退出：当处于 running 且超时时，抛出 TimeoutError，CLI 返回 124
+        run_id_running = "run_ctrl_wait_timeout"
+        m_running = self._create_helper_manifest(run_id_running)
+        self.store.initialize_run(m_running)
+        self.store.update_state(run_id_running, lifecycle_status="running")
+
+        # Mock is_pid_alive so workerHealth is active instead of lost
+        fake_owner = OwnerInfo(pid=999999, worker_token="tok", started_at="2026-09-23T00:00:00Z", heartbeat_at="2026-09-23T00:00:00Z")
+        with patch.object(RunOwnership, "check_health", return_value=("active", fake_owner)):
+            with self.assertRaises(TimeoutError):
+                controller.wait(run_id_running, timeout_seconds=0.1, interval_seconds=0.05)
+
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+                code = cli_main([
+                    "wait",
+                    "--run",
+                    run_id_running,
+                    "--runs-dir",
+                    str(self.runs_dir),
+                    "--timeout-seconds",
+                    "0.1",
+                    "--interval-seconds",
+                    "0.05",
+                ])
+            self.assertEqual(code, 124)
+            self.assertIn("TimeoutError", stderr_buf.getvalue())
 
 
 if __name__ == "__main__":
