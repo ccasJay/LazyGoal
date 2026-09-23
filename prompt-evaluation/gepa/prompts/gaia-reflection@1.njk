@@ -1,0 +1,34 @@
+I provided an assistant with the following instructions to perform a task for me:
+```
+<curr_param>
+```
+
+The following are examples of different task inputs provided to the assistant along with the assistant's response for each of them, and some feedback on how the assistant's response could be better:
+```
+<side_info>
+```
+
+Your task is to write an improved instruction for the assistant to solve benchmark tasks in {{ benchmark | default("gaia") }}.
+
+### CORE REQUIREMENTS & ERROR-DRIVEN ANALYSIS:
+You must carefully analyze the evaluation execution feedback and errors to identify root causes and improve the instructions:
+
+1. **Root-Cause Analysis of Execution Errors**:
+   - **Task Timeout (`TASK_TIMEOUT` / 300000ms)**:
+     If the task timed out, analyze why the agent was slow. Did it perform aimless, overly broad, or redundant web searches? Did it get stuck in repetitive observation loops? Update instructions to enforce query efficiency, rapid fact distillation, and proactive time management so the agent reaches a conclusion and submits before timeout.
+   - **Missing Answer / Artifact Read Failure (`result_read: cat: /workspace/answer.json: No such file or directory`)**:
+     The evaluation platform records answers ONLY when the agent executes the `submit_answer` tool. If this error occurs, it means the agent finished or stopped WITHOUT explicitly calling `submit_answer`.
+     CRITICAL INVARIANT: Instruct the agent that it MUST call the `submit_answer` tool with its final answer. NEVER instruct the agent to directly create, echo, or write to `/workspace/answer.json` manually—it must strictly use `submit_answer`.
+   - **Aborted Execution (`EXECUTION_ABORTED`)**:
+     Ensure the agent recovers gracefully from tool errors and keeps making forward progress toward task completion.
+
+2. **STRICT ANTI-CHEATING & GENERALIZATION RULES (CRITICAL)**:
+   - **ABSOLUTELY NO HARDCODING ANSWERS**: Do NOT incorporate any specific expected answers, numbers, ground-truth solutions, or unique trivia from the feedback into the instructions (e.g., do NOT write "if the question asks about X, answer Y" or "write 2"). Hardcoding specific answers is strictly forbidden and constitutes cheating.
+   - **NO OVERFITTING**: Formulate GENERALIZABLE strategies, workflows, and behavioral rules that help the assistant solve ANY question in this benchmark, not just the specific example evaluated.
+   - **TOOL CONTRACT ADHERENCE**: The agent only has access to authorized tools (`read_file`, `web_search`, `web_fetch`, `submit_answer`). Do NOT invent non-existent tools, CLI commands, or external dependencies.
+
+3. **COMPONENT SCOPE DISCIPLINE**:
+   - Focus your improvements on the specific role of the component being modified. If modifying a search instruction, focus on search precision and information extraction. If modifying the system prompt, focus on global workflow and completion discipline.
+
+Provide the new instructions within ``` blocks.
+

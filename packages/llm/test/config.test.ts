@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readLlmConfig, LlmConfigurationError } from "../src/config";
-import { createLlmAdapter } from "../src/factory";
+import { createLlmAdapter, createReflectionLlmAdapter } from "../src/factory";
 import { OpenAICompatible } from "../src/openai-compatible";
 import { Gemini } from "../src/gemini";
 import { PiAiAdapter } from "../src/pi-ai";
@@ -81,3 +81,37 @@ test("catalog resolution and capacity errors happen during factory construction"
     // Native strict endpoints retain their existing support for arbitrary model identifiers.
     assert.ok(createLlmAdapter(readLlmConfig({ ...base, LLM_MODEL: "private-model", LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof OpenAICompatible);
 });
+
+test("createReflectionLlmAdapter dispatches native runtime providers for google and openai in prompt_only mode", () => {
+    // Google provider uses native Gemini adapter even in prompt_only mode and with arbitrary model name
+    const googleReflection = createReflectionLlmAdapter({
+        provider: "google",
+        apiKey: "test-key",
+        model: "custom-gemini-model",
+        structuredOutputMode: "prompt_only",
+        baseURL: "http://127.0.0.1:8317/v1beta",
+    });
+    assert.ok(googleReflection instanceof Gemini);
+    assert.equal(googleReflection.structuredOutputMode, "prompt_only");
+
+    // OpenAI provider uses native OpenAICompatible adapter
+    const openaiReflection = createReflectionLlmAdapter({
+        provider: "openai",
+        apiKey: "test-key",
+        model: "custom-openai-model",
+        structuredOutputMode: "prompt_only",
+        baseURL: "http://127.0.0.1:8317/v1",
+    });
+    assert.ok(openaiReflection instanceof OpenAICompatible);
+    assert.equal(openaiReflection.structuredOutputMode, "prompt_only");
+
+    // Anthropic provider falls back to pi-ai
+    const anthropicReflection = createReflectionLlmAdapter({
+        provider: "anthropic",
+        apiKey: "test-key",
+        model: "claude-sonnet-4-5",
+        structuredOutputMode: "prompt_only",
+    });
+    assert.ok(anthropicReflection instanceof PiAiAdapter);
+});
+

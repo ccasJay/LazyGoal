@@ -46,7 +46,7 @@ test("GAIA tools worker describe 与 getGaiaToolManifest 一致", async (t) => {
     const tools = await client.describe();
     const manifest = getGaiaToolManifest();
 
-    assert.equal(tools.length, 4);
+    assert.equal(tools.length, 5);
     assert.deepEqual(
         tools.map((t) => t.id),
         [...GAIA_TOOL_IDS],
@@ -61,7 +61,7 @@ test("GAIA tools worker describe 与 getGaiaToolManifest 一致", async (t) => {
     await workerPromise;
 });
 
-test("GAIA tools worker 执行 read_file, web_search, web_fetch 与 submit_answer", async (t) => {
+test("GAIA tools worker 执行 read_file, web_search, web_fetch, bash 与 submit_answer", async (t) => {
     const workspace = await mkdtemp(join(tmpdir(), "gaia-tools-exec-"));
     t.after(() => rm(workspace, { recursive: true, force: true }));
 
@@ -135,7 +135,16 @@ test("GAIA tools worker 执行 read_file, web_search, web_fetch 与 submit_answe
     assert.equal(fetchCalls, 1);
     assert.match((fetchRes as any).output, /Full page text/);
 
-    // 4. submit_answer
+    // 4. bash
+    const bashRes = await client.execute({
+        actionId: "act-bash",
+        toolId: "bash",
+        input: { command: "python3 -c 'print(2+2)'" },
+    });
+    assert.equal(bashRes.kind, "success");
+    assert.match((bashRes as any).output.stdout, /4/);
+
+    // 5. submit_answer
     const submitRes = await client.execute({
         actionId: "act-submit",
         toolId: "submit_answer",

@@ -63,6 +63,13 @@ def _build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--run", required=True, help="Run ID to report")
     p_report.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
 
+    # wait
+    p_wait = subparsers.add_parser("wait", help="Wait until a GEPA run reaches a terminal status")
+    p_wait.add_argument("--run", required=True, help="Run ID to wait for")
+    p_wait.add_argument("--timeout-seconds", type=float, default=None, help="Maximum seconds to wait")
+    p_wait.add_argument("--interval-seconds", type=float, default=2.0, help="Polling interval in seconds (default: 2.0)")
+    p_wait.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
+
     # internal worker
     p_worker = subparsers.add_parser("worker", help="Internal background worker process entrypoint")
     p_worker.add_argument("--run-dir", required=True, help="Absolute path to the run directory")
@@ -108,6 +115,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             result = controller.resume(args.run, yes=args.yes)
         elif args.subcommand == "report":
             result = controller.report(args.run)
+        elif args.subcommand == "wait":
+            result = controller.wait(
+                args.run,
+                timeout_seconds=args.timeout_seconds,
+                interval_seconds=args.interval_seconds,
+            )
+            sys.stdout.write(json.dumps(result, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+            if result.get("lifecycleStatus") in ("failed", "stopped"):
+                return 1
+            return 0
         else:
             sys.stderr.write(f"Error: Unknown subcommand {args.subcommand!r}\n")
             return 2
@@ -116,6 +134,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.flush()
         return 0
 
+    except TimeoutError as error:
+        sys.stderr.write(f"TimeoutError: {error}\n")
+        sys.stderr.flush()
+        return 124
     except ConfirmationRequiredError as error:
         sys.stderr.write(f"ConfirmationRequiredError: {error}\n")
         sys.stderr.flush()

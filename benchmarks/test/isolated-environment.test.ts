@@ -342,3 +342,36 @@ test("IsolatedEnvironment 容器删除失败时错误记录包含容器标识且
     assert.match(cleanupError.message, /lazygoal-fixture-/);
 });
 
+test("IsolatedEnvironment taskTimeoutMs 超时时标记为 failed 并记录 TASK_TIMEOUT 错误，而不是 cancelled", async () => {
+    const calls: string[] = [];
+    const spec: EnvironmentSpec<{ id: string }, { readonly collected: boolean }> = {
+        benchmarkId: "timeout-task",
+        resolveImage: () => ({ mode: "custom", image: "fixture:latest" }),
+        getWorkerEntryConfig: () => ({ cwd: "/work" }),
+        async prepareEnvironment() {},
+        async preflight() { return { ok: true }; },
+        async collectArtifacts() {
+            return { collected: true };
+        },
+    };
+    const result = await new IsolatedEnvironment().run({
+        task: { id: "timeout-test" },
+        spec,
+        outputDirectory: join(tmpdir(), "lazygoal-timeout-test"),
+        container: customContainer(calls),
+        taskTimeoutMs: 50,
+        runAgent: async ({ signal }) => {
+            await new Promise((resolve) => {
+                if (signal.aborted) resolve(undefined);
+                else signal.addEventListener("abort", () => resolve(undefined), { once: true });
+            });
+        },
+    });
+
+    assert.equal(result.status, "failed");
+    assert.deepEqual(result.artifact, { collected: true });
+    const timeoutError = result.errors.find((e) => e.code === "TASK_TIMEOUT");
+    assert.ok(timeoutError, "应当记录 TASK_TIMEOUT 错误");
+    assert.equal(timeoutError.stage, "agent");
+});
+

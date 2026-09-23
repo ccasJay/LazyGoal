@@ -42,6 +42,7 @@ export interface SubmitAnswerToolOptions {
  * @remarks
  * 使用 O_EXCL（flag: "wx"）将最终答案原子写入指定答案文件。
  * 每个任务只允许提交一次；若文件已存在或已提交过，后续调用均返回拒绝。
+ * 作为评测交卷探针，isReadOnly 声明为 true，确保在未提案阶段即可被 Agent 调用交卷。
  *
  * @example
  * ```ts
@@ -57,7 +58,7 @@ export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRAC
         id: SUBMIT_ANSWER_TOOL_ID,
         description: "提交 GAIA 任务的最终答案。每个任务只允许调用一次，提交后任务结束。",
         inputContract: SUBMIT_ANSWER_INPUT_CONTRACT,
-        isReadOnly: false,
+        isReadOnly: true,
     };
 
     readonly replayPolicy = "manual" as const;

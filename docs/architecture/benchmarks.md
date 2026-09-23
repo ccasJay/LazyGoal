@@ -35,8 +35,8 @@ lazygoal eval prompt --request <request.json>
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
 官方 harness 预检仍在宿主评分边界完成。GAIA 使用 managed 镜像安装 Python 文件处理库，
-通过 `preflight` 验证依赖，任务通过宿主代理 `web_search`/`web_fetch` 工具及容器内
-`submit_answer` 工具作答。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
+通过 `preflight` 验证依赖，任务通过宿主代理 `web_search`/`web_fetch` 工具、容器内
+`bash` 计算工具及容器内 `submit_answer` 工具作答。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
 不支持的 provider/mode、未知目录模型及容量错误均在 Episode 与 Goal 创建前失败。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
 SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命周期、产物与限制见
@@ -75,7 +75,7 @@ Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory
 `won=true`，模型 `complete` 与验收声明不能覆盖环境失败。
 通用 Headless Root 为每个 task 创建一个 Goal 和一个 Run，自动批准首轮任务提案后在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。当前 benchmark descriptor 仍创建 normal Goal，因此不会隐式 materialize GoalPlan。
 
-GAIA ACP Worker 的默认 `maxSteps` 为 `0`，表示不设置 Runtime 步数上限；只有调用方显式配置正数时才会产生 `max_steps_exceeded`。Worker 仅将该真实 Runtime 终态映射为 ACP `max_turn_requests`，普通完成/等待映射为 `end_turn`，取消映射为 `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）映射为 `end_turn` 并通过 meta 记录 executionError 作为未作答领域失败（badcase），其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。
+GAIA ACP Worker 的默认 `maxSteps` 为 `0`，表示不设置 Runtime 步数上限；只有调用方显式配置正数时才会产生 `max_steps_exceeded`。Worker 仅将该真实 Runtime 终态映射为 ACP `max_turn_requests`，普通完成/等待映射为 `end_turn`，取消映射为 `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）与单任务超时（`TASK_TIMEOUT`）在 GAIA Supervisor 中统一判定为未作答领域失败（`status: "completed"`, `correct: false`，作为 badcase 保留轨迹），其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。外部用户主动发起的取消信号（`signal`）则保持全局取消（`status: "cancelled"`）。
 
 容器内 Python sidecar 将 TextWorld 1.6.2 的 `GameState` reset 返回值和三元组 `step` 返回值
 归一化为稳定的 JSONL Reset/Step 结构，同时继续接受旧的二元/四元返回形状。

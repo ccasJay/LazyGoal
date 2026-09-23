@@ -97,7 +97,7 @@ test("runAlfworldCli rejects a missing Profile before reading Conda or LLM setti
     try {
         const exitCode = await runAlfworldCli(
             ["eval", "alfworld", "--manifest", "missing.json"],
-            { cwd: workspace, env: {}, writeError: (message) => errors.push(message) },
+            { cwd: workspace, env: { LAZYGOAL_HOME: join(workspace, "lazygoal-home") }, writeError: (message) => errors.push(message) },
         );
         assert.equal(exitCode, 1);
         assert.match(errors.join("\n"), /Profile/);

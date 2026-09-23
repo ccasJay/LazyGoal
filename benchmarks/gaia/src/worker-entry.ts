@@ -50,6 +50,7 @@ import {
 } from "./profile.js";
 import type { GaiaManifestTask } from "./types.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
+import { GaiaBashTool } from "./bash.js";
 
 export {
     GAIA_PROFILE_TOOL_IDS,
@@ -80,10 +81,10 @@ export interface GaiaWorkerToolOptions {
  * 装配 GAIA Worker 的 ToolRegistry。
  *
  * @remarks
- * 该注册表包含且仅包含 `read_file`、`web_search`、`web_fetch`、`submit_answer` 四个工具。
+ * 该注册表包含且仅包含 `read_file`、`web_search`、`web_fetch`、`bash`、`submit_answer` 五个工具。
  *
  * @param options - 工具初始化配置。
- * @returns 包含固定四个工具的 InMemoryToolRegistry。
+ * @returns 包含固定五个工具的 InMemoryToolRegistry。
  *
  * @example
  * ```ts
@@ -104,6 +105,7 @@ export function createGaiaWorkerToolRegistry(
         createToolRegistration(new ReadFileTool(workspaceRoot)),
         createToolRegistration(new WebSearchTool(options.searchBackend)),
         createToolRegistration(new WebFetchTool(options.fetchHandler)),
+        createToolRegistration(new GaiaBashTool(workspaceRoot)),
         createToolRegistration(submitAnswerTool),
     ]);
 }
@@ -314,10 +316,19 @@ export function projectGaiaAcpResult(
     if (run.status === "failed" && run.stopReason?.kind === "max_steps_exceeded") {
         return { stopReason: "max_turn_requests", meta };
     }
+    if (result.outcome.submitted) {
+        return {
+            stopReason: "end_turn",
+            meta: {
+                ...meta,
+                ...(run.stopReason?.kind === "execution_error" ? { executionError: run.stopReason.code } : {}),
+            },
+        };
+    }
     if (
         run.status === "failed"
         && run.stopReason?.kind === "execution_error"
-        && run.stopReason.code === "INVALID_AGENT_DECISION"
+        && (run.stopReason.code === "INVALID_AGENT_DECISION" || run.stopReason.code === "INVALID_TOOL_INPUT")
     ) {
         return {
             stopReason: "end_turn",
@@ -347,9 +358,9 @@ export function projectGaiaAcpResult(
  */
 export function validateGaiaPromptEvaluationProfile(profile: unknown): AgentProfile {
     const validated = validatePromptEvaluationProfile(profile, GAIA_WORKER_PROFILE);
-    const instructions = validated.instructions.join("\n");
+    const promptText = `${validated.systemPrompt}\n${validated.instructions.join("\n")}`;
     for (const toolId of GAIA_PROFILE_TOOL_IDS) {
-        if (!instructions.includes(toolId)) {
+        if (!promptText.includes(toolId)) {
             throw new TypeError(`GAIA candidate instructions must reference ${toolId}`);
         }
     }

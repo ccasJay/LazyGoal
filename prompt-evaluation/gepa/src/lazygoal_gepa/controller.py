@@ -6,6 +6,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ from .errors import (
 from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
+from .prompt_template import load_and_render_reflection_prompt_template
 from .protocol import GEPARunRequest, read_run_request
 from .reporter import ReportNotReadyError, read_run_report
 from .store import RunState, RunStore
@@ -132,11 +134,14 @@ class LifecycleController:
         reflection_model: ModelIdentity | None = None,
         worker_cmd: list[str] | None = None,
     ) -> None:
-        self.workspace_root = (
-            Path(workspace_root).resolve()
-            if workspace_root is not None
-            else Path.cwd().resolve()
-        )
+        if workspace_root is not None:
+            self.workspace_root = Path(workspace_root).resolve()
+        else:
+            repo_root = Path(__file__).resolve().parents[4]
+            if (repo_root / "packages").is_dir() and (repo_root / "benchmarks").is_dir():
+                self.workspace_root = repo_root
+            else:
+                self.workspace_root = Path.cwd().resolve()
         self.runs_dir = (
             Path(runs_dir).resolve()
             if runs_dir is not None
@@ -178,6 +183,13 @@ class LifecycleController:
 
         req = read_run_request(request_path, check_manifests=True)
 
+        if req.reflection_prompt_template is not None:
+            load_and_render_reflection_prompt_template(
+                req.reflection_prompt_template,
+                benchmark=req.benchmark,
+                workspace_root=self.workspace_root,
+            )
+
         if not self.profile_path.is_file():
             raise ProfileValidationError(
                 f"Target profile file does not exist: {self.profile_path}"
@@ -190,6 +202,7 @@ class LifecycleController:
         return {
             "valid": True,
             "benchmark": req.benchmark,
+            "reflectionPromptTemplate": req.reflection_prompt_template,
             "sampleCount": {
                 "train": len(req.trainset),
                 "validation": len(req.valset) if req.valset is not None else len(req.trainset),
@@ -425,6 +438,50 @@ class LifecycleController:
         run_dir = self.store.get_run_dir(run_id)
         return read_run_report(run_dir)
 
+    def wait(
+        self,
+        run_id: str,
+        timeout_seconds: float | None = None,
+        interval_seconds: float = 2.0,
+    ) -> dict[str, Any]:
+        """Wait until a GEPA run reaches a terminal lifecycle status.
+
+        Polls status at interval_seconds until reaching a terminal status
+        ("succeeded", "failed", "stopped", "publish_blocked") or timeout.
+        If the worker health becomes "lost" and the process is no longer active,
+        aborts with a RunStoreError instead of hanging indefinitely.
+        """
+        start_time = time.monotonic()
+        terminal_statuses = {"stopped", "succeeded", "publish_blocked", "failed"}
+
+        while True:
+            current_status = self.status(run_id)
+            status_name = current_status["lifecycleStatus"]
+
+            if status_name in terminal_statuses:
+                if status_name == "succeeded":
+                    try:
+                        report_data = self.report(run_id)
+                        current_status["report"] = report_data
+                    except Exception:
+                        pass
+                return current_status
+
+            if current_status["workerHealth"] == "lost":
+                raise RunStoreError(
+                    f"Worker process for run {run_id!r} is lost and no longer active",
+                    code="worker_lost",
+                )
+
+            if timeout_seconds is not None:
+                elapsed = time.monotonic() - start_time
+                if elapsed >= timeout_seconds:
+                    raise TimeoutError(
+                        f"Timed out waiting for run {run_id!r} after {timeout_seconds}s (status: {status_name})"
+                    )
+
+            time.sleep(max(0.1, interval_seconds))
+
 
 def start_run(
     request_path: Path | str,
@@ -502,3 +559,18 @@ def preflight_run(
         profile_path=profile_path,
     )
     return controller.preflight(request_path)
+
+
+def wait_run(
+    run_id: str,
+    timeout_seconds: float | None = None,
+    interval_seconds: float = 2.0,
+    runs_root: Path | str | None = None,
+) -> dict[str, Any]:
+    """Top-level helper to wait until a GEPA run reaches a terminal status."""
+    controller = LifecycleController(runs_dir=runs_root)
+    return controller.wait(
+        run_id,
+        timeout_seconds=timeout_seconds,
+        interval_seconds=interval_seconds,
+    )
