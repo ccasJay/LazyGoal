@@ -42,8 +42,8 @@ function createStreamGoal(): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "stream", completionCriteria: [] },
             },
+            run: { ...created.state.run, mode: "plan", approvedTask: { objective: "stream", completionCriteria: [] } },
         },
     };
 }

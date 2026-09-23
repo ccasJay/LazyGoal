@@ -120,7 +120,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task,
             },
             run: {
                 ...goal.state.run,
@@ -132,6 +131,8 @@ function createExecutingGoal(options: {
                 ...(options.pendingAction === undefined
                     ? {}
                     : { pendingAction: options.pendingAction }),
+
+                mode: "plan", approvedTask: task,
             },
         },
     };
@@ -654,7 +655,7 @@ test("请求构建返回成对的 request 与 bundle，未批准与已批准状�
         currentWorkingMemory,
         trajectoryContextAssembler,
     );
-    assert.equal(executingPlan.bundle.name, "executing_agent_decision");
+    assert.equal(executingPlan.bundle.name, "plan_mode_executing_agent_decision");
 });
 
 test("prompt-only 模式在尾部动态控制消息末尾注入 Shape Guide，strict 模式不注入", async () => {
@@ -890,7 +891,6 @@ test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划
             ...created.state,
             workflow: {
                 phase: "executing",
-                task,
             },
             goalPlan: {
                 revision: 1,
@@ -901,7 +901,7 @@ test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划
                     status: "pending",
                 }],
             },
-            run: { ...created.state.run, status: "running" },
+            run: { ...created.state.run, status: "running" , mode: "plan", approvedTask: task },
         },
     };
 
@@ -910,7 +910,21 @@ test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划
     assert.match(plan.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
     assert.match(plan.request.messages[0]?.content ?? "", /todo-1/);
 
-    const normal = await stepPlan(createExecutingGoal());
+    const createdNormal = createGoal({
+        ...currentProtocols,
+        promptBundleVersion: 1,
+        id: "goal-normal-1",
+        intent,
+        profile,
+        runId: "run-normal-1",
+    });
+    const normal = await stepPlan({
+        ...createdNormal,
+        state: {
+            ...createdNormal.state,
+            run: { ...createdNormal.state.run, status: "running" },
+        },
+    });
     assert.equal(normal.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"), false);
     assert.doesNotMatch(normal.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
 });

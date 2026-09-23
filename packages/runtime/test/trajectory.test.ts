@@ -62,6 +62,31 @@ test("draft validation rejects derived state and mismatched payload type", () =>
         }),
         /payload\.type must match eventType/,
     );
+
+    assert.throws(
+        () => assertValidTrajectoryEventDraft({
+            goalId: "goal-1",
+            runId: "run-1",
+            phase: "executing",
+            eventType: "run_created",
+            payload: { type: "run_created", mode: "plan", todoId: "todo-1" },
+        } as unknown as TrajectoryEventDraft),
+        (error: unknown) => error instanceof TrajectoryProtocolError
+            && error.message.includes("run_created contains unknown fields"),
+    );
+    for (const mode of [undefined, "invalid"] as const) {
+        assert.throws(
+            () => assertValidTrajectoryEventDraft({
+                goalId: "goal-1",
+                runId: "run-1",
+                phase: "executing",
+                eventType: "run_created",
+                payload: { type: "run_created", ...(mode === undefined ? {} : { mode }) },
+            } as unknown as TrajectoryEventDraft),
+            (error: unknown) => error instanceof TrajectoryProtocolError
+                && error.message.includes("run_created.mode must be normal or plan"),
+        );
+    }
 });
 
 test("computeContentHash 计算合法哈希，且旧 preparation_input_recorded 事件被严格拒绝", () => {
@@ -203,4 +228,3 @@ test("decision_received 保留 thought 属性且缺省时向下兼容，旧 prep
         /eventType is invalid/,
     );
 });
-

@@ -38,7 +38,7 @@ function createPlanGoal(): Goal {
         ...goal,
         state: {
             ...goal.state,
-            mode: "plan",
+            run: { ...goal.state.run, mode: "plan" },
             goalPlan: {
                 revision: 2,
                 items: [
@@ -48,7 +48,6 @@ function createPlanGoal(): Goal {
             },
             completedRuns: [{
                 runId: "run-plan-previous",
-                todoId: "todo-1",
                 stepCount: 3,
                 committedThroughSequence: 8,
                 messageRange: { start: 0, end: 1 },
@@ -57,22 +56,27 @@ function createPlanGoal(): Goal {
     };
 }
 
-test("GoalPlan、mode、completedRuns 和 todoId 可以完整 round-trip", () => {
+test("Run mode、independent GoalPlan and completedRuns round-trip", () => {
     const goal = createPlanGoal();
     const encoded = goalSnapshotCodec.encode(goal);
     const decoded = goalSnapshotCodec.decode(encoded);
 
-    assert.equal(encoded.state.mode, "plan");
+    assert.equal(encoded.state.run.mode, "plan");
     assert.deepEqual(decoded, goal);
     assert.deepEqual(decoded.state.goalPlan?.items[1], goal.state.goalPlan?.items[1]);
     assert.deepEqual(decoded.state.completedRuns, goal.state.completedRuns);
 });
 
-test("Snapshot 拒绝 normal Goal 携带 GoalPlan、重复 Todo ID 和非法 in_progress 数量", () => {
+test("Snapshot allows GoalPlan independent of Run mode and rejects invalid Todo structure", () => {
     const encoded = goalSnapshotCodec.encode(createPlanGoal());
-    const normalWithPlan = structuredClone(encoded);
-    (normalWithPlan.state as { mode: "normal" | "plan" }).mode = "normal";
-    assert.throws(() => goalSnapshotCodec.decode(normalWithPlan), GoalSnapshotProtocolError);
+    const normalWithPlan = {
+        ...structuredClone(encoded),
+        state: {
+            ...structuredClone(encoded).state,
+            run: { ...structuredClone(encoded).state.run, mode: "normal" as const },
+        },
+    };
+    assert.deepEqual(goalSnapshotCodec.decode(normalWithPlan).state.goalPlan, createPlanGoal().state.goalPlan);
 
     const duplicate = structuredClone(encoded);
     const duplicateItems = duplicate.state.goalPlan!.items as unknown as Array<{
@@ -113,7 +117,7 @@ test("Trajectory 支持 Plan Mode、GoalPlan 更新和新 Run 事实事件", () 
             runId: "run-2",
             phase: "executing",
             eventType: "run_created",
-            payload: { type: "run_created", todoId: "todo-1" },
+            payload: { type: "run_created", mode: "normal" },
         },
     ];
     for (const draft of drafts) assert.doesNotThrow(() => assertValidTrajectoryEventDraft(draft));

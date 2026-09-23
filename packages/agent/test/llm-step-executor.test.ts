@@ -73,8 +73,8 @@ function createExecutingGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: runTask,
             },
+            run: { ...created.state.run, mode: "plan", approvedTask: runTask },
             messages: [...messages],
         },
     };
@@ -594,7 +594,7 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "INVALID_LLM_RESPONSE: 响应不符合 executing_agent_decision 契约",
+        message: "INVALID_LLM_RESPONSE: 响应不符合 plan_mode_executing_agent_decision 契约",
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);

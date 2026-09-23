@@ -10,7 +10,6 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
-import { bindGoalPlanTodo, createEmptyGoalPlan } from "./goal-plan";
 import { createRun } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
@@ -354,7 +353,7 @@ export class GoalCoordinator {
                 },
             };
         }
-        if ((goal.state.mode ?? "normal") === "plan" && goal.state.goalPlan !== undefined) {
+        if (goal.state.run.mode === "plan") {
             return goal.state.run.status === "waiting"
                 ? this.executingWaitingResult(goal)
                 : goal.state.run.status === "created"
@@ -376,8 +375,7 @@ export class GoalCoordinator {
             ...goal,
             state: {
                 ...goal.state,
-                mode: "plan",
-                goalPlan: goal.state.goalPlan ?? createEmptyGoalPlan(),
+                run: { ...goal.state.run, mode: "plan" },
             },
         };
         await this.appendTrajectory({
@@ -515,7 +513,6 @@ export class GoalCoordinator {
             const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
             const history: CompletedRunRecord = {
                 runId: goal.state.run.id,
-                ...(goal.state.run.todoId === undefined ? {} : { todoId: goal.state.run.todoId }),
                 stepCount: goal.state.run.stepCount,
                 committedThroughSequence: goal.state.run.committedThroughSequence,
                 messageRange: {
@@ -524,46 +521,18 @@ export class GoalCoordinator {
                 },
             };
 
-            const mode = goal.state.mode ?? "normal";
-            let nextPlan = goal.state.goalPlan;
-            let todoId: string | undefined;
-            let planFact: TrajectoryEventDraft | undefined;
-            if (mode === "plan") {
-                if (nextPlan === undefined) {
-                    return this.invalidGoalInput("Plan Mode Goal is missing its GoalPlan");
-                }
-                const pendingTodo = nextPlan.items.find((item) => item.status === "pending");
-                if (pendingTodo === undefined) {
-                    return this.invalidGoalInput("Plan Mode has no pending Todo to continue");
-                }
-                todoId = pendingTodo.id;
-                nextPlan = bindGoalPlanTodo(nextPlan, todoId, runId);
-                planFact = {
-                    goalId: goal.id,
-                    runId,
-                    phase: goal.state.workflow.phase,
-                    eventType: "goal_plan_updated",
-                    payload: {
-                        type: "goal_plan_updated",
-                        revision: nextPlan.revision,
-                        operations: [{ type: "update", id: todoId, status: "in_progress" }],
-                    },
-                };
-            } else if (nextPlan !== undefined) {
-                return this.invalidGoalInput("Normal Mode Goal cannot contain a GoalPlan");
-            }
-
-            const nextRun = createRun(runId, todoId);
+            const nextRunMode = goal.state.nextRunMode ?? "normal";
+            const nextRun = createRun(runId, nextRunMode);
+            const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
             const nextGoal: Goal = {
                 ...goal,
                 state: {
-                    ...goal.state,
+                    ...stateWithoutNextRunMode,
                     messages: [
                         ...priorMessages,
                         { role: "user", content: newInput },
                     ],
                     run: nextRun,
-                    ...(nextPlan === undefined ? {} : { goalPlan: nextPlan }),
                     completedRuns: [...priorHistory, history],
                 },
             };
@@ -578,10 +547,9 @@ export class GoalCoordinator {
                         eventType: "run_created",
                         payload: {
                             type: "run_created",
-                            ...(todoId === undefined ? {} : { todoId }),
+                            mode: nextRun.mode,
                         },
                     },
-                    ...(planFact === undefined ? [] : [planFact]),
                 ],
                 ...(control === undefined ? {} : { control }),
             });
@@ -749,11 +717,10 @@ export class GoalCoordinator {
                         ...epoch.goal,
                         state: {
                             ...epoch.goal.state,
-                            workflow: {
-                                phase: "executing",
-                                task: cloneTask(proposal),
+                            run: {
+                                ...resolvedRun.state,
+                                approvedTask: cloneTask(proposal),
                             },
-                            run: resolvedRun.state,
                         },
                     };
 

@@ -52,7 +52,6 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
             executionPolicy: { maxSteps: 0 },
         },
         state: {
-            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -62,6 +61,7 @@ test("createGoal creates an initial executing snapshot with independent IDs", ()
             ],
             run: {
                 id: "run-1",
+                mode: "normal",
                 status: "created",
                 stepCount: 0,
                 committedThroughSequence: 0,
@@ -126,7 +126,7 @@ test("createGoal initializes an executing workflow without initial task", () => 
     });
 
     assert.equal(goal.state.workflow.phase, "executing");
-    assert.equal(goal.state.workflow.task, undefined);
+    assert.equal(goal.state.run.approvedTask, undefined);
     assert.deepEqual(goal.state.run, createRun("run-3"));
 });
 
@@ -173,6 +173,7 @@ test("a complete Goal with a frozen Prompt Bundle version supports a JSON round-
 test("createRun creates a deterministic core RunState", () => {
     assert.deepEqual(createRun("run-5"), {
         id: "run-5",
+        mode: "normal",
         status: "created",
         stepCount: 0,
         committedThroughSequence: 0,

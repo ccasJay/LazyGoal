@@ -1,6 +1,6 @@
 # 实施计划
 
-- [ ] //TODO 1. 将模式与任务归属迁移到 Run 持久化模型
+- [x] //TODO 1. 将模式与任务归属迁移到 Run 持久化模型
   - 实现目标：调整 Runtime Domain、Snapshot Schema/Codec 和 Trajectory 契约，保存 `Run.mode`、`Run.approvedTask`、可选 `Goal.nextRunMode` 与独立 GoalPlan；移除 Goal 级模式/任务和 Todo/Run 持久绑定，沿用当前协议形状。
   - 成功判据：新状态经 Snapshot 保存、恢复后字段归属不变；旧开发期字段或不一致的模式/审批状态被明确拒绝，且不触发兼容迁移。
   - 验证方式：更新 Snapshot、交互等待点和 Trajectory 契约测试；运行 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/goal-snapshot-interaction.test.ts packages/runtime/test/trajectory.test.ts`。

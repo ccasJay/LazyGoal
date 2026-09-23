@@ -31,7 +31,7 @@ export type TrajectoryEventPayload =
     | { readonly type: "run_started" }
     | {
         readonly type: "run_created";
-        readonly todoId?: string;
+        readonly mode: "normal" | "plan";
     }
     | { readonly type: "run_resumed" }
     | { readonly type: "plan_mode_entered" }
@@ -610,10 +610,12 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
     }
     if (eventType === "run_created") {
-        if (Object.keys(payload).some((key) => !["type", "todoId"].includes(key))) {
+        if (Object.keys(payload).some((key) => !["type", "mode"].includes(key))) {
             throw new TrajectoryProtocolError("run_created contains unknown fields");
         }
-        assertOptionalNonEmptyString(payload.todoId, "run_created.todoId");
+        if (payload.mode !== "normal" && payload.mode !== "plan") {
+            throw new TrajectoryProtocolError("run_created.mode must be normal or plan");
+        }
     }
     if (eventType === "plan_mode_entered") {
         if (Object.keys(payload).some((key) => key !== "type")) {

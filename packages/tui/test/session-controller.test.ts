@@ -877,6 +877,7 @@ test("session derives proposal and approvalRequest from task_approval pendingInt
             ...base.state,
             run: {
                 ...base.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -1050,7 +1051,6 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
             ...pendingGoal.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "Execute", completionCriteria: [] },
             },
             run: {
                 ...pendingGoal.state.run,
@@ -1059,6 +1059,8 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
                     status: "awaiting_approval",
                     action: { actionId: "act-99", toolId: "bash", input: {} },
                 },
+
+                mode: "plan", approvedTask: { objective: "Execute", completionCriteria: [] },
             },
         },
     };
@@ -1120,11 +1122,11 @@ test("YOLO keeps advancement serialized and switches to Confirm during an in-fli
     const { pendingInteraction: _pendingInteraction, ...runWithoutPendingInteraction } = base.state.run;
     const goal: Goal = { ...base, state: { ...base.state,
         workflow: { phase: "executing",
-            task: { objective: "Review files", completionCriteria: [] } },
+},
         run: { ...runWithoutPendingInteraction, status: "waiting", pendingAction: {
             status: "awaiting_approval",
             action: { actionId: "act-1", toolId: "bash", input: {} },
-        } },
+        } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
     } };
     const result: GoalProgressResult = { ok: true, kind: "waiting", phase: "executing",
         waitingFor: "action_approval", goal };
@@ -1171,10 +1173,10 @@ test("YOLO publishes busy snapshots throughout consecutive approvals", async () 
         ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
         goal: { ...base, state: { ...base.state,
             workflow: { phase: "executing",
-                task: { objective: "Review files", completionCriteria: [] } },
+},
             run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
                 status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
-            } },
+            } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
         } },
     });
     let count = 0;

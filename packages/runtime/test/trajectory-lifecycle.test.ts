@@ -95,8 +95,8 @@ function executingGoal(): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "execute", completionCriteria: [] },
             },
+            run: { ...goal.state.run, mode: "plan", approvedTask: { objective: "execute", completionCriteria: [] } },
         },
     };
 }

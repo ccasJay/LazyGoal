@@ -245,8 +245,8 @@ function createInitialGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: goalDefinition,
             },
+            run: { ...created.state.run, mode: "plan", approvedTask: goalDefinition },
             messages: [...messages],
         },
     };
@@ -284,7 +284,7 @@ function executionTask(goal: Goal) {
         assert.fail("expected an executing Goal");
     }
 
-    return goal.state.workflow.task;
+    return goal.state.run.approvedTask;
 }
 
 function requireSuccessfulState(result: RunnerResult): RunState {
@@ -2392,8 +2392,8 @@ function withExecutingTask(goal: Goal, task: GoalTask): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task,
             },
+            run: { ...goal.state.run, mode: "plan", approvedTask: task },
         },
     };
 }

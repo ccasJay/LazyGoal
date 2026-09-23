@@ -75,11 +75,11 @@ function createExecutingGoal(input: {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
-                },
-            },
+                } },
         },
     };
 }
@@ -240,10 +240,6 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: goal.definition.intent,
-                    completionCriteria: [],
-                },
             },
             run: {
                 ...goal.state.run,
@@ -255,6 +251,11 @@ function createWaitingSnapshot(runId = "run-1"): Goal {
                         kind: "wait",
                         reason: "等待外部输入",
                     },
+                },
+
+                mode: "plan", approvedTask: {
+                    objective: goal.definition.intent,
+                    completionCriteria: [],
                 },
             },
         },
@@ -337,6 +338,7 @@ test("GoalSnapshotCodec round-trips bounded Action memory and approval state", (
             ...createSnapshot("run-pending").state,
             run: {
                 id: "run-pending",
+                mode: "normal",
                 status: "waiting",
                 stepCount: 0,
                 committedThroughSequence: 0,
@@ -390,6 +392,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
             ],
             run: {
                 ...planning.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -411,6 +414,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
             },
             run: {
                 ...planning.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "ask_user",
@@ -438,6 +442,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
             ...createSnapshot("run-failed").state,
             run: {
                 id: "run-failed",
+                mode: "normal",
                 status: "failed",
                 stepCount: 1,
                 committedThroughSequence: 0,
@@ -591,9 +596,9 @@ test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => 
     const encoded = goalSnapshotCodec.encode(goal);
     assert.equal(encoded.state.workflow.phase, "executing");
     if (encoded.state.workflow.phase === "executing") {
-        assert.ok(encoded.state.workflow.task);
+        assert.ok(encoded.state.run.approvedTask);
         assert.deepEqual(
-            encoded.state.workflow.task.completionCriteria,
+            encoded.state.run.approvedTask.completionCriteria,
             [
                 { text: "纯文本标准" },
                 {
@@ -611,10 +616,10 @@ test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => 
     const restored = goalSnapshotCodec.decode(encoded);
     assert.equal(restored.state.workflow.phase, "executing");
     if (restored.state.workflow.phase === "executing") {
-        assert.ok(restored.state.workflow.task);
+        assert.ok(restored.state.run.approvedTask);
         assert.deepEqual(
-            restored.state.workflow.task.completionCriteria,
-            goal.state.workflow.task?.completionCriteria ?? [],
+            restored.state.run.approvedTask.completionCriteria,
+            goal.state.run.approvedTask?.completionCriteria ?? [],
         );
     }
 });
@@ -622,7 +627,10 @@ test("GoalSnapshotCodec round-trips CompletionCriterion with acceptance", () => 
 test("GoalSnapshotCodec fails fast on legacy string completionCriteria", () => {
     const validSnapshot = goalSnapshotCodec.encode(createSnapshot());
     const legacySnapshot = JSON.parse(JSON.stringify(validSnapshot));
-    legacySnapshot.state.workflow.task.completionCriteria = ["旧版纯字符串条件 1", "旧版纯字符串条件 2"];
+    legacySnapshot.state.workflow.task = {
+        objective: "旧版任务",
+        completionCriteria: ["旧版纯字符串条件 1", "旧版纯字符串条件 2"],
+    };
 
     assert.throws(
         () => goalSnapshotCodec.decode(legacySnapshot),

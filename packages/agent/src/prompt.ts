@@ -204,8 +204,8 @@ export async function buildStepRequest(
     );
 
     const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
-    const taskPresent = !isInitialCheckpoint && goal.state.workflow.task !== undefined;
-    const planMode = !isInitialCheckpoint && (goal.state.mode ?? "normal") === "plan";
+    const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
+    const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
     const effectiveTools = taskPresent ? tools : tools.filter(isReadOnlyTool);
     const authorizedToolContracts = effectiveTools.map((t) => ({
         id: t.id,

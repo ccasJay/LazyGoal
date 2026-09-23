@@ -162,6 +162,7 @@ test("task proposal feedback clears pending interaction and resumes execution", 
             },
             run: {
                 ...base.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -189,6 +190,7 @@ test("task proposal feedback clears pending interaction and resumes execution", 
                             ...current.state,
                             run: {
                                 ...current.state.run,
+                                mode: "plan",
                                 status: "waiting",
                                 pendingInteraction: {
                                     kind: "task_approval",
@@ -215,7 +217,7 @@ test("task proposal feedback clears pending interaction and resumes execution", 
     const persisted = await store.restore(goalId);
     assert.ok(persisted);
     assert.equal(persisted.state.workflow.phase, "executing");
-    assert.equal(persisted.state.workflow.task, undefined);
+    assert.equal(persisted.state.run.approvedTask, undefined);
     assert.equal(persisted.state.run.pendingInteraction?.kind, "task_approval");
     assert.equal(persisted.state.messages.at(-1)?.content, "请换一个方案");
 });
@@ -233,6 +235,7 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
             },
             run: {
                 ...base.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -286,7 +289,7 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
     assert.equal(result.ok, true);
     assert.ok(scheduledWithGoal);
     assert.equal(scheduledWithGoal.state.workflow.phase, "executing");
-    assert.deepEqual(scheduledWithGoal.state.workflow.task, {
+    assert.deepEqual(scheduledWithGoal.state.run.approvedTask, {
         objective: "获批任务",
         completionCriteria: [],
     });

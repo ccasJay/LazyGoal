@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import {
     createGoal,
+    createEmptyGoalPlan,
     GoalCoordinator,
     reduceGoalPlan,
     TrajectoryCommitMarkerError,
@@ -296,7 +297,7 @@ test("advance returns one completed Plan Run and does not auto-start pending Tod
     try {
         const store = new JsonFileGoalStore(join(directory, "goals"));
         const created = completedGoal("goal-plan-boundary", "plan");
-        const added = reduceGoalPlan(created.state.goalPlan!, {
+        const added = reduceGoalPlan(createEmptyGoalPlan(), {
             baseRevision: 0,
             operations: [{ type: "add", content: "等待用户触发" }],
         }, { idFactory: () => "todo-1" });

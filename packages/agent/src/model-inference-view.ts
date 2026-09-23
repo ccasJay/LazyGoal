@@ -74,8 +74,6 @@ export interface ModelGoalPlanItem {
     readonly position: number;
     /** Todo 当前生命周期状态。 */
     readonly status: "pending" | "in_progress" | "completed" | "cancelled";
-    /** 当前承接 Todo 的 Run；只有 in_progress Todo 可能有该字段。 */
-    readonly activeRunId?: string;
 }
 
 /**

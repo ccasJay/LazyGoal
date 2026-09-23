@@ -100,6 +100,7 @@ function createCoordinatorTestRig() {
         promptBundleVersion: 1,
         profile,
         runId: "run-test-unified-1",
+        mode: "plan",
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
@@ -145,7 +146,7 @@ test("统一执行生命周期: 新 Goal 直接推进，ask_user 请求进入等
     assert.equal(result.phase, "executing");
     assert.equal(result.waitingFor, "ask_user");
     assert.equal(result.goal.state.run.stepCount, 0);
-    assert.equal(result.goal.state.workflow.task, undefined);
+    assert.equal(result.goal.state.run.approvedTask, undefined);
 
     const pending = result.goal.state.run.pendingInteraction;
     assert.ok(pending);
@@ -335,7 +336,7 @@ test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息�
     if (!feedbackResult.ok || feedbackResult.kind !== "waiting") assert.fail();
     assert.equal(feedbackResult.waitingFor, "task_approval");
     assert.equal(feedbackResult.goal.state.run.stepCount, 0);
-    assert.equal(feedbackResult.goal.state.workflow.task, undefined);
+    assert.equal(feedbackResult.goal.state.run.approvedTask, undefined);
 
     // 检查反馈消息已追加
     const messages = feedbackResult.goal.state.messages;
@@ -396,7 +397,7 @@ test("任务提案批准: approve_task 固定任务并推进 ContextEpoch，后�
     }
 
     // 任务被固定
-    assert.equal(approveResult.goal.state.workflow.task?.objective, "最终方案");
+    assert.equal(approveResult.goal.state.run.approvedTask?.objective, "最终方案");
     // pendingInteraction 已被清除
     assert.equal(approveResult.goal.state.run.pendingInteraction, undefined);
     // 批准后执行了一步工具调用与一次完成决策，stepCount 增加了 2

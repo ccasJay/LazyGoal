@@ -117,6 +117,7 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
             ...goal.state,
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: approvalInteraction,
             },
@@ -148,7 +149,6 @@ test("快照不变量: pendingAction 与 pendingInteraction 互斥拒绝", () =>
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: taskProposal,
             },
             run: {
                 ...goal.state.run,
@@ -188,6 +188,7 @@ test("快照不变量: pendingInteraction 必须处于 waiting 状态", () => {
             ...goal.state,
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "running",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -217,6 +218,7 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
             ...goal.state,
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "created",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -233,9 +235,10 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
         ...goal,
         state: {
             ...goal.state,
-            workflow: { phase: "executing", task },
+            workflow: { phase: "executing", },
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "completed",
                 stepCount: 1,
                 lastStep: {

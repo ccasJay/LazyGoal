@@ -125,6 +125,7 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-1",
+        mode: "plan",
     });
     await store.save(goal);
 
@@ -207,6 +208,7 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-approval",
+        mode: "plan",
     });
     await store.save(goal);
     stepExecutor.enqueue({
@@ -287,6 +289,7 @@ test("无任务只读 Action: maxSteps 统一计入前置读取", async () => {
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-budget",
+        mode: "plan",
         maxSteps: 1,
     });
     await store.save(goal);
@@ -353,6 +356,7 @@ test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Ste
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-failure",
+        mode: "plan",
     });
     await store.save(goal);
 
@@ -425,6 +429,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-crash",
+        mode: "plan",
     });
     await store.save(goal);
 
@@ -489,6 +494,7 @@ test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-write-intercept",
+        mode: "plan",
     });
     await store.save(goal);
 
@@ -561,6 +567,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-yolo-mode",
+        mode: "plan",
     });
     await store.save(goal);
 
@@ -655,6 +662,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
         runId: "run-pretask-read-resume",
+        mode: "plan",
     });
     await store.save(goal);
 

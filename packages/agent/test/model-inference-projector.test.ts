@@ -153,7 +153,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task,
             },
             run: {
                 ...goal.state.run,
@@ -165,6 +164,8 @@ function createExecutingGoal(options: {
                 ...(options.pendingAction === undefined
                     ? {}
                     : { pendingAction: options.pendingAction }),
+
+                mode: "plan", approvedTask: task,
             },
         },
     };
@@ -287,10 +288,9 @@ test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory p
                     content: "检查现有实现",
                     position: 0,
                     status: "in_progress",
-                    activeRunId: "run-plan-1",
                 }],
             },
-            run: { ...goal.state.run, status: "running", todoId: "todo-1" },
+            run: { ...goal.state.run, status: "running", mode: "plan" },
         },
     };
 
@@ -302,7 +302,6 @@ test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory p
             content: "检查现有实现",
             position: 0,
             status: "in_progress",
-            activeRunId: "run-plan-1",
         }],
     });
     assert.deepEqual(view.workingMemory.plan, currentWorkingMemory.plan);

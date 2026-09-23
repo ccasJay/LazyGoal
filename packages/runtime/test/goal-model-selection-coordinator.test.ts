@@ -76,6 +76,7 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
             },
             run: {
                 ...createBaseTestGoal().state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "ask_user",
@@ -145,14 +146,15 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
             ...createBaseTestGoal().state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: "执行中任务",
-                    completionCriteria: [{ text: "标准 1" }],
-                },
             },
             run: {
                 ...createBaseTestGoal().state.run,
                 status: "waiting",
+
+                mode: "plan", approvedTask: {
+                    objective: "执行中任务",
+                    completionCriteria: [{ text: "标准 1" }],
+                },
             },
         },
     };
@@ -202,7 +204,6 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格
             ...createBaseTestGoal().state,
             workflow: {
                 phase: "executing",
-                task: { objective: "t", completionCriteria: [] },
             },
             run: {
                 ...createBaseTestGoal().state.run,
@@ -211,6 +212,8 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格
                     action: { actionId: "a1", toolId: "read_file", input: {} },
                     status: "awaiting_approval",
                 },
+
+                mode: "plan", approvedTask: { objective: "t", completionCriteria: [] },
             },
         },
     };

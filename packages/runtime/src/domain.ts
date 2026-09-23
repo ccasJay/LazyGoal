@@ -30,8 +30,7 @@ import type {
     ContextLookupResult,
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
-import { createEmptyGoalPlan } from "./goal-plan";
-import type { GoalMode, GoalPlan } from "./goal-plan";
+import type { GoalPlan } from "./goal-plan";
 
 export type {
     CompletionAcceptance,
@@ -42,7 +41,10 @@ export type {
     AskUserAnswer,
     ToolObservation,
 };
-export type { GoalMode, GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
+export type { GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
+
+/** 单个 Run 的任务提案审批模式。 */
+export type RunMode = "normal" | "plan";
 
 /** Goal 工作流使用的稳定阶段名称。 */
 export type GoalPhase =
@@ -642,7 +644,7 @@ export type PendingInteraction = PendingInteractionAskUser | PendingInteractionT
  * Goal 工作流状态。
  *
  * @remarks
- * 统一收敛为 executing 生命周期；`task` 在用户批准任务提案前缺省，批准后固定为 GoalTask。
+ * 只记录统一的 `executing` 生命周期；任务提案审批与已批准任务由当前 Run 持有。
  *
  * @example
  * ```ts
@@ -653,7 +655,6 @@ export type PendingInteraction = PendingInteractionAskUser | PendingInteractionT
  */
 export type GoalWorkflowState = {
     readonly phase: "executing";
-    readonly task?: GoalTask;
 };
 
 /**
@@ -820,8 +821,10 @@ export type RunStopReason =
  */
 export interface RunState {
     readonly id: string;
-    /** Plan Mode 下当前 Run 承接的 GoalPlan Todo；普通 Run 省略。 */
-    readonly todoId?: string;
+    /** 当前 Run 是否要求先提交任务提案并等待用户审批。 */
+    readonly mode: RunMode;
+    /** Plan Run 经用户批准后固定的任务范围；普通 Run 与待审批 Run 省略。 */
+    readonly approvedTask?: GoalTask;
     readonly status: RunStatus;
     readonly stepCount: number;
     /**
@@ -922,14 +925,31 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
     inputEstimator: Object.freeze({ kind: "character-v1" as const }),
 });
 
+/**
+ * Goal 当前可变且需要持久化的状态。
+ *
+ * @remarks
+ * 当前模式与已批准任务属于当前 Run；`nextRunMode` 只表示尚未启动的下一 Run。
+ * GoalPlan 可独立于当前 Run 模式存在，并在首次成功计划写入前保持缺省。
+ *
+ * @example
+ * ```ts
+ * const state: GoalState = {
+ *   workflow: { phase: "executing" },
+ *   messages: [],
+ *   run: createRun("run-1"),
+ *   modelSelection: DEFAULT_GOAL_MODEL_SELECTION,
+ * };
+ * ```
+ */
 export interface GoalState {
-    /** 后端控制的会话模式；缺省值仅用于恢复旧的开发期内存 fixture，生产创建值为 `normal`。 */
-    readonly mode?: GoalMode;
+    /** 已完成 Run 后为下一 Run 保存的一次性 Plan 模式选择。 */
+    readonly nextRunMode?: "plan";
     readonly workflow: GoalWorkflowState;
     readonly messages: readonly GoalMessage[];
     readonly run: RunState;
     readonly modelSelection: GoalModelSelection;
-    /** Plan Mode 的唯一计划状态源；普通模式不得 materialize。 */
+    /** 可选的 Goal 进度计划；与当前 Run 模式及任务审批状态独立。 */
     readonly goalPlan?: GoalPlan;
     /** 已完成 Run 的只读摘要；初始 Goal 为空。 */
     readonly completedRuns?: readonly CompletedRunRecord[];
@@ -939,8 +959,6 @@ export interface GoalState {
 export interface CompletedRunRecord {
     /** 已完成 Run 的稳定 ID。 */
     readonly runId: string;
-    /** 该 Run 承接的 Todo；普通模式省略。 */
-    readonly todoId?: string;
     /** 完成时的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */
@@ -1133,8 +1151,8 @@ export interface GoalCreationInput {
     readonly contextRetrievalProtocol: ContextRetrievalProtocol;
     readonly profile: AgentProfile;
     readonly runId: string;
-    /** 新 Goal 的后端模式；Plan Mode 创建时同时 materialize 空 GoalPlan。 */
-    readonly mode?: GoalMode;
+    /** 首个 Run 的模式；未提供时直接执行。 */
+    readonly mode?: RunMode;
     readonly maxSteps?: number;
     readonly messages?: readonly GoalMessage[];
     /** 可选的模型选择状态；未提供时使用 DEFAULT_GOAL_MODEL_SELECTION。 */
@@ -1221,9 +1239,8 @@ export function createGoal(input: GoalCreationInput): Goal {
                 { role: "user", content: input.intent },
                 ...(input.messages ?? []),
             ]),
-            run: createRun(input.runId),
+            run: createRun(input.runId, mode),
             modelSelection: cloneModelSelection(input.modelSelection ?? DEFAULT_GOAL_MODEL_SELECTION),
-            ...(mode === "plan" ? { mode, goalPlan: createEmptyGoalPlan() } : { mode }),
             completedRuns: [],
         },
     };
@@ -1233,17 +1250,17 @@ export function createGoal(input: GoalCreationInput): Goal {
  * 创建只包含 Run 自身字段的初始状态。
  *
  * @param runId - Runtime 分配的 Run 稳定 ID。
- * @param todoId - Plan Mode 下可选的唯一承接 Todo；普通 Run 省略。
+ * @param mode - 当前 Run 的模式；省略时为 `normal`。
  * @returns 处于 created 状态且尚未消费 Step 的 Run。
  * @example
  * ```ts
- * const run = createRun("run-2", "todo-1");
+ * const run = createRun("run-2", "plan");
  * ```
  */
-export function createRun(runId: string, todoId?: string): RunState {
+export function createRun(runId: string, mode: RunMode = "normal"): RunState {
     return {
         id: runId,
-        ...(todoId === undefined ? {} : { todoId }),
+        mode,
         status: "created",
         stepCount: 0,
         committedThroughSequence: 0,

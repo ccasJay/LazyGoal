@@ -188,6 +188,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
             runIdGenerator: () => "run-current",
         });
 
+        await root.controller.dispatch({ kind: "enterPlanMode" });
         await root.controller.dispatch({
             kind: "create",
             intent: "Verify the current workflow",
@@ -462,6 +463,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             runIdGenerator: () => "run-invalid-wire",
         });
 
+        await root.controller.dispatch({ kind: "enterPlanMode" });
         await root.controller.dispatch({
             kind: "create",
             intent: "Test invalid wire response handling",

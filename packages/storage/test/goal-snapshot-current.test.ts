@@ -247,7 +247,7 @@ test("无最终任务的普通只读 Step 可以通过当前 Snapshot 编解码"
     const encoded = goalSnapshotCodec.encode(progressed);
     const decoded = goalSnapshotCodec.decode(encoded);
 
-    assert.equal(decoded.state.workflow.task, undefined);
+    assert.equal(decoded.state.run.approvedTask, undefined);
     assert.equal(decoded.state.run.stepCount, 1);
     assert.deepEqual(decoded.state.run.lastStep, observed.state.lastStep);
 });
@@ -279,9 +279,64 @@ test("无最终任务的普通只读 Action 可以保存为可恢复 pendingActi
     });
     const decoded = goalSnapshotCodec.decode(encoded);
 
-    assert.equal(decoded.state.workflow.task, undefined);
+    assert.equal(decoded.state.run.approvedTask, undefined);
     assert.deepEqual(decoded.state.run.pendingAction, waiting.state.pendingAction);
     assert.equal(decoded.state.run.stepCount, 0);
+});
+
+test("Run mode、approvedTask、nextRunMode 与 GoalPlan 独立往返", () => {
+    const snapshot = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(createCurrentGoal()))) as any;
+    snapshot.state.nextRunMode = "plan";
+    snapshot.state.run.mode = "plan";
+    snapshot.state.run.status = "running";
+    snapshot.state.run.approvedTask = {
+        objective: "当前 Run 任务",
+        completionCriteria: [{ text: "当前 Run 完成条件" }],
+    };
+    snapshot.state.goalPlan = {
+        revision: 1,
+        items: [{ id: "todo-1", content: "后续计划项", position: 0, status: "pending" }],
+    };
+
+    const restored = goalSnapshotCodec.decode(snapshot);
+    const encoded = goalSnapshotCodec.encode(restored);
+    assert.equal(restored.state.run.mode, "plan");
+    assert.equal(restored.state.run.approvedTask?.objective, "当前 Run 任务");
+    assert.equal(restored.state.nextRunMode, "plan");
+    assert.deepEqual(restored.state.goalPlan, snapshot.state.goalPlan);
+    assert.deepEqual(encoded, snapshot);
+    assert.equal("mode" in encoded.state, false);
+    assert.equal("task" in encoded.state.workflow, false);
+    assert.equal("todoId" in encoded.state.run, false);
+    assert.ok(encoded.state.goalPlan);
+    assert.equal("activeRunId" in encoded.state.goalPlan.items[0]!, false);
+});
+
+test("Snapshot 明确拒绝旧 Goal mode 与 Todo/Run 绑定字段", () => {
+    const current = goalSnapshotCodec.encode(createCurrentGoal());
+    const mutations: readonly ((snapshot: any) => void)[] = [
+        (snapshot) => { snapshot.state.mode = "plan"; },
+        (snapshot) => { snapshot.state.workflow.task = { objective: "旧任务", completionCriteria: [] }; },
+        (snapshot) => { snapshot.state.run.todoId = "todo-1"; },
+        (snapshot) => {
+            snapshot.state.goalPlan = {
+                revision: 1,
+                items: [{ id: "todo-1", content: "旧计划", position: 0, status: "in_progress", activeRunId: "run-1" }],
+            };
+        },
+        (snapshot) => { snapshot.state.completedRuns = [{ todoId: "todo-1" }]; },
+    ];
+    for (const mutate of mutations) {
+        const legacy = JSON.parse(JSON.stringify(current));
+        mutate(legacy);
+        assert.throws(() => goalSnapshotCodec.decode(legacy), assertProtocolError);
+    }
+});
+
+test("Snapshot rejects an approved task on a normal Run", () => {
+    const invalid = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(createCurrentGoal()))) as any;
+    invalid.state.run.approvedTask = { objective: "不一致任务", completionCriteria: [] };
+    assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
 });
 
 test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码", () => {
@@ -313,6 +368,6 @@ test("Plan Mode 的 GoalPlan 更新 Step 可以通过当前 Snapshot 编解码",
         state: { ...created.state, run: progressed.state },
     });
     const decoded = goalSnapshotCodec.decode(encoded);
-    assert.equal(decoded.state.mode, "plan");
+    assert.equal(decoded.state.run.mode, "plan");
     assert.deepEqual(decoded.state.run.lastStep, progressed.state.lastStep);
 });

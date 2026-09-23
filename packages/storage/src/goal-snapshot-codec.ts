@@ -128,10 +128,7 @@ function encodeTask(task: GoalTask): GoalSnapshotTaskV1 {
 }
 
 function encodeWorkflow(workflow: GoalWorkflowState): GoalSnapshotWorkflowV1 {
-    return {
-        phase: "executing",
-        ...(workflow.task === undefined ? {} : { task: encodeTask(workflow.task) }),
-    };
+    return { phase: workflow.phase };
 }
 
 function encodePendingInteraction(
@@ -283,7 +280,6 @@ function encodeGoalPlanItem(item: GoalPlanItem): GoalSnapshotGoalPlanItemV1 {
         content: item.content,
         position: item.position,
         status: item.status,
-        ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
     };
 }
 
@@ -321,7 +317,6 @@ function encodeGoalPlan(plan: GoalPlan): GoalSnapshotGoalPlanV1 {
 function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRunV1 {
     return {
         runId: record.runId,
-        ...(record.todoId === undefined ? {} : { todoId: record.todoId }),
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
@@ -365,12 +360,13 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
             executionPolicy: { maxSteps: goal.definition.executionPolicy.maxSteps },
         },
         state: {
-            mode: goal.state.mode ?? "normal",
+            ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
             workflow: encodeWorkflow(goal.state.workflow),
             messages: goal.state.messages.map(encodeMessage),
             run: {
                 id: run.id,
-                ...(run.todoId === undefined ? {} : { todoId: run.todoId }),
+                mode: run.mode,
+                ...(run.approvedTask === undefined ? {} : { approvedTask: encodeTask(run.approvedTask) }),
                 status: run.status,
                 stepCount: run.stepCount,
                 committedThroughSequence: run.committedThroughSequence,
@@ -450,10 +446,7 @@ function decodeTask(task: GoalSnapshotTaskV1): GoalTask {
 }
 
 function decodeWorkflow(workflow: GoalSnapshotWorkflowV1): GoalWorkflowState {
-    return {
-        phase: "executing",
-        ...(workflow.task === undefined ? {} : { task: decodeTask(workflow.task) }),
-    };
+    return { phase: workflow.phase };
 }
 
 function decodePendingInteraction(
@@ -604,7 +597,6 @@ function decodeGoalPlanItem(item: GoalSnapshotGoalPlanItemV1): GoalPlanItem {
         content: item.content,
         position: item.position,
         status: item.status,
-        ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
     };
 }
 
@@ -618,7 +610,6 @@ function decodeGoalPlan(plan: GoalSnapshotGoalPlanV1): GoalPlan {
 function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRecord {
     return {
         runId: record.runId,
-        ...(record.todoId === undefined ? {} : { todoId: record.todoId }),
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
@@ -639,7 +630,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
             executionPolicy: { maxSteps: snapshot.definition.executionPolicy.maxSteps },
         },
         state: {
-            mode: snapshot.state.mode,
+            ...(snapshot.state.nextRunMode === undefined ? {} : { nextRunMode: snapshot.state.nextRunMode }),
             workflow: decodeWorkflow(snapshot.state.workflow),
             messages: snapshot.state.messages.map((message): GoalMessage =>
                 message.role === "user"
@@ -652,7 +643,8 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
             ),
             run: {
                 id: run.id,
-                ...(run.todoId === undefined ? {} : { todoId: run.todoId }),
+                mode: run.mode,
+                ...(run.approvedTask === undefined ? {} : { approvedTask: decodeTask(run.approvedTask) }),
                 status: run.status,
                 stepCount: run.stepCount,
                 committedThroughSequence: run.committedThroughSequence,
@@ -713,15 +705,58 @@ function assertNoLegacyPreparationWorkflow(input: unknown): void {
  * 指引用户删除或重建 Goal 而不是猜测迁移。
  */
 function assertNoLegacyStringCriteria(input: unknown): void {
-    if (!isRecord(input) || !isRecord(input.state) || !isRecord(input.state.workflow)) {
+    if (!isRecord(input) || !isRecord(input.state)) {
         return;
     }
 
-    const workflow = input.state.workflow;
-    if (isRecord(workflow.task) && Array.isArray(workflow.task.completionCriteria)) {
-        if (workflow.task.completionCriteria.some((criterion) => typeof criterion === "string")) {
+    const workflowTask = isRecord(input.state.workflow) ? input.state.workflow.task : undefined;
+    const runTask = isRecord(input.state.run) ? input.state.run.approvedTask : undefined;
+    const pending = isRecord(input.state.run) && isRecord(input.state.run.pendingInteraction)
+        ? input.state.run.pendingInteraction
+        : undefined;
+    const pendingTask = pending?.kind === "task_approval" && isRecord(pending.proposal)
+        ? pending.proposal
+        : undefined;
+    for (const task of [workflowTask, runTask, pendingTask]) {
+        if (isRecord(task) && Array.isArray(task.completionCriteria)
+            && task.completionCriteria.some((criterion) => typeof criterion === "string")) {
             throw protocolError(
                 "Invalid Goal snapshot: legacy string completionCriteria are no longer supported; delete and recreate the Goal",
+            );
+        }
+    }
+}
+
+/** 拒绝已迁移出当前 Snapshot 契约的 Goal 级模式与 Todo/Run 绑定字段。 */
+function assertNoLegacyRunAndTodoBindings(input: unknown): void {
+    if (!isRecord(input) || !isRecord(input.state)) return;
+    const state = input.state;
+    if ("mode" in state) {
+        throw protocolError(
+            "Invalid Goal snapshot: Goal-level mode is no longer supported; store mode on state.run",
+        );
+    }
+    if (isRecord(state.workflow) && "task" in state.workflow) {
+        throw protocolError(
+            "Invalid Goal snapshot: workflow.task is no longer supported; store an approved task on state.run",
+        );
+    }
+    if (isRecord(state.run) && "todoId" in state.run) {
+        throw protocolError(
+            "Invalid Goal snapshot: Run-to-Todo binding is no longer supported",
+        );
+    }
+    if (isRecord(state.goalPlan) && Array.isArray(state.goalPlan.items)) {
+        if (state.goalPlan.items.some((item) => isRecord(item) && "activeRunId" in item)) {
+            throw protocolError(
+                "Invalid Goal snapshot: GoalPlan items cannot persist activeRunId",
+            );
+        }
+    }
+    if (Array.isArray(state.completedRuns)) {
+        if (state.completedRuns.some((run) => isRecord(run) && "todoId" in run)) {
+            throw protocolError(
+                "Invalid Goal snapshot: completed Runs cannot persist Todo bindings",
             );
         }
     }
@@ -743,6 +778,7 @@ export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSn
 
         assertNoLegacyPreparationWorkflow(input);
         assertNoLegacyStringCriteria(input);
+        assertNoLegacyRunAndTodoBindings(input);
 
         const validation = GoalSnapshotV1Schema.safeParse(input);
         if (!validation.success) {

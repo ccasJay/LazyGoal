@@ -94,13 +94,14 @@ function createRunningGoal(id = "goal-running"): Goal {
             run: {
                 ...goal.state.run,
                 status: "created",
-            },
-            workflow: {
-                phase: "executing",
-                task: {
+
+                mode: "plan", approvedTask: {
                     objective: "Test task",
                     completionCriteria: [],
                 },
+            },
+            workflow: {
+                phase: "executing",
             },
         },
     };

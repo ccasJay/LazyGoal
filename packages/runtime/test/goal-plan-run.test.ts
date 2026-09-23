@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    bindGoalPlanTodo,
     createGoal,
+    createEmptyGoalPlan,
     createRun,
     reduceGoalPlan,
     Runner,
@@ -56,23 +56,25 @@ function planGoal(
         runId: "run-1",
         mode: "plan",
     });
-    const added = reduceGoalPlan(created.state.goalPlan!, {
+    const added = reduceGoalPlan(createEmptyGoalPlan(), {
         baseRevision: 0,
         operations: [{ type: "add", content: "执行计划项" }],
     }, { idFactory: () => "todo-1" });
     if (!added.ok) throw new Error(added.error.message);
-    const bound = bindGoalPlanTodo(added.plan, "todo-1", "run-1");
     const run = runStatus === "running"
-        ? transition(createRun("run-1", "todo-1"), { kind: "start" })
-        : { ok: true as const, state: createRun("run-1", "todo-1") };
+        ? transition(createRun("run-1", "plan"), { kind: "start" })
+        : { ok: true as const, state: createRun("run-1", "plan") };
     if (!run.ok) throw new Error(run.error.message);
     return {
         ...created,
         state: {
             ...created.state,
-            workflow: { phase: "executing", ...(decisionTask === undefined ? {} : { task: decisionTask }) },
-            goalPlan: bound,
-            run: run.state,
+            workflow: { phase: "executing" },
+            goalPlan: added.plan,
+            run: {
+                ...run.state,
+                ...(decisionTask === undefined ? {} : { approvedTask: decisionTask }),
+            },
         },
     };
 }
@@ -97,7 +99,7 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
         state: {
             ...created.state,
             goalPlan: { revision: 0, items: [] },
-            run: createRun("run-plan-update"),
+            run: createRun("run-plan-update", "plan"),
         },
     };
     await store.save(initial);
@@ -121,7 +123,7 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
     assert.equal(result.state.status, "waiting");
     assert.equal(result.state.stepCount, 2);
     const saved = await store.restore(initial.id);
-    assert.equal(saved?.state.mode, "plan");
+    assert.equal(saved?.state.run.mode, "plan");
     assert.deepEqual(saved?.state.goalPlan, {
         revision: 1,
         items: [{ id: "todo-1-1", content: "先建立清单", position: 0, status: "pending" }],
@@ -138,7 +140,7 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
     ]);
 });
 
-test("当前 Run 的完成证据通过后，Run 与 Todo 在同一提交中完成", async () => {
+test("当前 Run 完成后，GoalPlan Todo 状态独立保留", async () => {
     const store = new InMemoryGoalStore();
     const initial = planGoal();
     await store.save(initial);
@@ -158,24 +160,22 @@ test("当前 Run 的完成证据通过后，Run 与 Todo 在同一提交中完�
     assert.equal(result.state.status, "completed");
     const saved = await store.restore(initial.id);
     assert.equal(saved?.state.run.status, "completed");
-    assert.equal(saved?.state.run.todoId, "todo-1");
     assert.deepEqual(saved?.state.goalPlan?.items, [{
         id: "todo-1",
         content: "执行计划项",
         position: 0,
-        status: "completed",
+        status: "pending",
     }]);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "decision_received",
         "run_completed",
-        "goal_plan_updated",
         "context_epoch_closed",
         "memory_patch_accepted",
         "state_committed",
     ]);
 });
 
-test("失败 Run 释放 Todo 绑定并保持 pending，不能伪装成 completed", async () => {
+test("失败 Run 不隐式改变 GoalPlan Todo", async () => {
     const store = new InMemoryGoalStore();
     const initial = planGoal();
     await store.save(initial);

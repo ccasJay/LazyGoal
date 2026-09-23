@@ -184,7 +184,6 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
             executionPolicy: { maxSteps: 7 },
         },
         state: {
-            mode: "normal",
             workflow: {
                 phase: "executing",
             },
@@ -193,6 +192,7 @@ test("launch saves an initial executing Goal before Coordinator.advance", async 
             ],
             run: {
                 id: "run-1",
+                mode: "normal",
                 status: "created",
                 stepCount: 0,
                 committedThroughSequence: 0,

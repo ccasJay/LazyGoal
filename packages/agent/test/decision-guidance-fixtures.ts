@@ -49,8 +49,8 @@ export function decisionScenarioView(scenario: Scenario): ModelInferenceView {
     const profile = { id: "decision-eval", systemPrompt: "You are a general-purpose task agent.", instructions: [], toolIds: decisionTools.map(t => t.id) };
     const base = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "decision-eval", runId: "run-1", intent: scenario.intent, profile });
     const goal: Goal = { ...base, state: { ...base.state,
-        workflow: { phase: "executing", ...(scenario.approved ? { task: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } } : {}) },
-        run: { ...base.state.run, status: "running" },
+        workflow: { phase: "executing", ...(scenario.approved ? { } : {}) },
+        run: { ...base.state.run, status: "running" , mode: "plan", approvedTask: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } },
     } };
     const view = new ModelInferenceProjector().project(goal, decisionTools, currentWorkingMemory);
     const observation = scenario.observation;

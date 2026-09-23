@@ -135,6 +135,7 @@ function createAskUserWaitingGoal(): Goal {
             ],
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "ask_user",
@@ -180,6 +181,7 @@ function createTaskApprovalWaitingGoal(
             ],
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -347,11 +349,11 @@ function createExecutingGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
-                },
-            },
+                } },
             messages: [],
         },
     };
@@ -785,7 +787,6 @@ test("saves an ask_user answer before continuing and preserves its original text
                 ...current.state,
                 workflow: {
                     phase: "executing" as const,
-                    task: { objective: "Done", completionCriteria: [] },
                 },
                 run: {
                     ...current.state.run,
@@ -795,6 +796,8 @@ test("saves an ask_user answer before continuing and preserves its original text
                         result: { kind: "complete" as const, summary: "Done", completionEvidence: [] },
                     },
                     stepCount: 1,
+
+                    mode: "plan" as const, approvedTask: { objective: "Done", completionCriteria: [] },
                 },
             },
         };
@@ -842,6 +845,7 @@ test("saves task proposal feedback without the current proposal before replannin
                 ...current.state,
                 run: {
                     ...current.state.run,
+                    mode: "plan" as const,
                     status: "waiting" as const,
                     pendingInteraction: {
                         kind: "task_approval" as const,
@@ -872,7 +876,7 @@ test("saves task proposal feedback without the current proposal before replannin
     assert.equal(result.kind, "waiting");
     assert.equal(result.phase, "executing");
     assert.equal(result.waitingFor, "task_approval");
-    assert.equal(result.goal.state.workflow.task, undefined);
+    assert.equal(result.goal.state.run.approvedTask, undefined);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_resumed",
         "state_committed",
@@ -892,10 +896,8 @@ test("saves an approved proposal as the final task before scheduling execution",
     const scheduler = new FakeScheduler(async (ref) => {
         const approved = await store.restore(ref.goalId);
         assert.ok(approved);
-        assert.deepEqual(approved.state.workflow, {
-            phase: "executing",
-            task: proposal,
-        });
+        assert.deepEqual(approved.state.workflow, { phase: "executing" });
+        assert.deepEqual(approved.state.run.approvedTask, proposal);
         const completedRun = applyRunTransition(approved.state.run, {
             kind: "decision",
             decision: {

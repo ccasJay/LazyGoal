@@ -1389,7 +1389,7 @@ export class SessionController {
                 ? {}
                 : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
-            ...(snapshot.state.mode === "plan" && snapshot.state.goalPlan !== undefined
+            ...(snapshot.state.run.mode === "plan" && snapshot.state.goalPlan !== undefined
                 ? { goalPlan: snapshot.state.goalPlan }
                 : {}),
         };
@@ -1870,7 +1870,7 @@ function deriveProposal(goal: Goal): GoalTask | undefined {
     if (interaction?.kind === "task_approval") {
         return interaction.proposal;
     }
-    return goal.state.workflow.task;
+    return goal.state.run.approvedTask;
 }
 
 function deriveBlockedReason(goal: Goal): string | undefined {

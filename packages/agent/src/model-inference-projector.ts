@@ -85,11 +85,11 @@ export class ModelInferenceProjector {
 
         const workingContext = this.projectWorkingContext(goal);
 
-        const projectedGoalPlan = (goal.state.mode ?? "normal") === "plan"
+        const projectedGoalPlan = goal.state.run.mode === "plan" && goal.state.goalPlan !== undefined
             ? projectGoalPlan(goal.state.goalPlan)
             : undefined;
 
-        const effectiveTools = workingContext.task === undefined
+        const effectiveTools = goal.state.run.approvedTask === undefined
             ? tools.filter(isReadOnlyTool)
             : tools;
 
@@ -207,12 +207,12 @@ export class ModelInferenceProjector {
         return {
             phase: "executing",
             intent: goal.definition.intent,
-            ...(workflow.task === undefined
+            ...(goal.state.run.approvedTask === undefined
                 ? {}
                 : {
                     task: {
-                        objective: workflow.task.objective,
-                        completionCriteria: workflow.task.completionCriteria.map(
+                        objective: goal.state.run.approvedTask.objective,
+                        completionCriteria: goal.state.run.approvedTask.completionCriteria.map(
                             (criterion) => ({
                                 text: criterion.text,
                                 ...(criterion.acceptance === undefined
@@ -339,7 +339,6 @@ function projectGoalPlan(
             content: item.content,
             position: item.position,
             status: item.status,
-            ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
         })),
     };
 }

@@ -144,13 +144,8 @@ export function SessionScreen({
                     <MarkdownRenderer content={session.streamingTail.content} />
                 </Box>
             ) : null}
-            {session.goal.state.mode === "plan" && session.goal.state.goalPlan !== undefined ? (
-                <PlanPanel
-                    plan={session.goal.state.goalPlan}
-                    {...(session.goal.state.run.todoId === undefined
-                        ? {}
-                        : { activeRunTodoId: session.goal.state.run.todoId })}
-                />
+            {session.goal.state.run.mode === "plan" && session.goal.state.goalPlan !== undefined ? (
+                <PlanPanel plan={session.goal.state.goalPlan} />
             ) : null}
             <ActiveDrawer
                 session={session}

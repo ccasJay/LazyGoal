@@ -1,6 +1,3 @@
-/** Goal 级结构化计划的生命周期模式。 */
-export type GoalMode = "normal" | "plan";
-
 /** GoalPlan Todo 的显式生命周期状态。 */
 export type GoalPlanStatus =
     | "pending"
@@ -8,7 +5,22 @@ export type GoalPlanStatus =
     | "completed"
     | "cancelled";
 
-/** GoalPlan 中单个 Todo 的稳定持久化表示。 */
+/**
+ * GoalPlan 中单个 Todo 的稳定持久化表示。
+ *
+ * @remarks
+ * Todo 只记录计划顺序和进度，不持久化所属 Run 或执行授权。
+ *
+ * @example
+ * ```ts
+ * const item: GoalPlanItem = {
+ *   id: "todo-1",
+ *   content: "检查实现",
+ *   position: 0,
+ *   status: "pending",
+ * };
+ * ```
+ */
 export interface GoalPlanItem {
     /** Runtime 在 Goal 内分配且不会因重排改变的稳定 ID。 */
     readonly id: string;
@@ -18,8 +30,6 @@ export interface GoalPlanItem {
     readonly position: number;
     /** Todo 的生命周期状态。 */
     readonly status: GoalPlanStatus;
-    /** 当前承接该 Todo 的 Run；仅 `in_progress` 状态允许存在。 */
-    readonly activeRunId?: string;
 }
 
 /** Goal Snapshot 中唯一的结构化计划状态。 */
@@ -62,10 +72,15 @@ export interface GoalPlanPatch {
     readonly operations: readonly GoalPlanPatchOperation[];
 }
 
-/** GoalPlan reducer 的运行时限制与 ID 分配策略。 */
+/**
+ * GoalPlan reducer 的容量限制与 ID 分配策略。
+ *
+ * @example
+ * ```ts
+ * const options: GoalPlanReducerOptions = { maxItems: 32 };
+ * ```
+ */
 export interface GoalPlanReducerOptions {
-    /** 普通模式不得直接应用计划 Patch。省略时按 `plan` 处理领域 reducer。 */
-    readonly mode?: GoalMode;
     /** Goal 内允许的最大 Todo 数量。默认 32。 */
     readonly maxItems?: number;
     /** Runtime 分配新增 Todo ID；不得使用模型传入的 ID。 */
@@ -152,7 +167,7 @@ function normalizePositions(items: readonly GoalPlanItem[]): GoalPlanItem[] {
  * 校验一个已持久化 GoalPlan 的结构和跨字段不变量。
  *
  * @param plan - 待校验的计划状态。
- * @throws GoalPlanPatchError 当 revision、ID、position、状态或 activeRunId 非法时。
+ * @throws GoalPlanPatchError 当 revision、ID、position 或状态非法时。
  * @example
  * ```ts
  * assertValidGoalPlan({ revision: 0, items: [] });
@@ -184,15 +199,7 @@ export function assertValidGoalPlan(plan: GoalPlan): void {
         if (!isStatus(item.status)) {
             throw new GoalPlanPatchError(`invalid Todo status at position ${index}`);
         }
-        if (item.status === "in_progress") {
-            inProgress += 1;
-            if (item.activeRunId !== undefined
-                && (typeof item.activeRunId !== "string" || item.activeRunId.trim().length === 0)) {
-                throw new GoalPlanPatchError("in_progress Todo activeRunId must be non-empty when present");
-            }
-        } else if (item.activeRunId !== undefined) {
-            throw new GoalPlanPatchError("only in_progress Todo may have activeRunId");
-        }
+        if (item.status === "in_progress") inProgress += 1;
     });
     if (inProgress > GOAL_PLAN_MAX_IN_PROGRESS) {
         throw new GoalPlanPatchError("GoalPlan allows at most one in_progress Todo");
@@ -205,152 +212,7 @@ function cloneItem(item: GoalPlanItem): GoalPlanItem {
         content: item.content,
         position: item.position,
         status: item.status,
-        ...(item.activeRunId === undefined ? {} : { activeRunId: item.activeRunId }),
     };
-}
-
-function clearActiveRunId(item: GoalPlanItem): GoalPlanItem {
-    const { activeRunId: _activeRunId, ...withoutActiveRunId } = item;
-    return withoutActiveRunId;
-}
-
-function requireRunBindingId(value: string, label: string): void {
-    if (typeof value !== "string" || value.trim().length === 0) {
-        throw new GoalPlanPatchError(`${label} must be non-empty`);
-    }
-}
-
-function reduceRuntimePlanStatus(
-    plan: GoalPlan,
-    todoId: string,
-    status: Extract<GoalPlanStatus, "in_progress" | "completed" | "pending">,
-): GoalPlan {
-    const result = reduceGoalPlan(plan, {
-        baseRevision: plan.revision,
-        operations: [{ type: "update", id: todoId, status }],
-    });
-    if (!result.ok) {
-        throw new GoalPlanPatchError(result.error.message);
-    }
-    return result.plan;
-}
-
-/**
- * 把一个待处理 Todo 绑定到当前执行 Run。
- *
- * @remarks
- * 绑定由 Runtime 创建 Run 时调用，不接受模型提供的 `activeRunId`。该操作要求
- * Todo 仍为 `pending`，并递增一次 plan revision；返回的计划只会把目标项置为
- * `in_progress` 并写入当前 Run ID。
- *
- * @param plan - 当前已提交的 GoalPlan。
- * @param todoId - Runtime 选择的 Todo ID。
- * @param runId - 新建 Run 的稳定 ID。
- * @returns 绑定后的新计划。
- * @throws GoalPlanPatchError 当 Todo 不存在、状态不是 pending、Run ID 为空或计划不合法时。
- * @example
- * ```ts
- * const plan = bindGoalPlanTodo(currentPlan, "todo-1", "run-2");
- * ```
- */
-export function bindGoalPlanTodo(
-    plan: GoalPlan,
-    todoId: string,
-    runId: string,
-): GoalPlan {
-    requireRunBindingId(todoId, "todoId");
-    requireRunBindingId(runId, "runId");
-    assertValidGoalPlan(plan);
-    const item = plan.items.find((candidate) => candidate.id === todoId);
-    if (item === undefined) {
-        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
-    }
-    if (item.status !== "pending") {
-        throw new GoalPlanPatchError(`Todo ${todoId} must be pending before Run binding`);
-    }
-    if (plan.items.some((candidate) => candidate.status === "in_progress")) {
-        throw new GoalPlanPatchError("GoalPlan already has an in_progress Todo");
-    }
-    const nextPlan = reduceRuntimePlanStatus(plan, todoId, "in_progress");
-    const boundPlan: GoalPlan = {
-        ...nextPlan,
-        items: nextPlan.items.map((candidate) => candidate.id === todoId
-            ? { ...candidate, activeRunId: runId }
-            : candidate),
-    };
-    assertValidGoalPlan(boundPlan);
-    return boundPlan;
-}
-
-/**
- * 以当前 Run 的完成证据为前置条件，把绑定 Todo 标记为 completed。
- *
- * @remarks
- * 该函数只负责校验并生成计划状态；证据校验由 Runner 在调用前完成。Todo 必须
- * 仍为 `in_progress` 且 `activeRunId` 与当前 Run 完全匹配，防止旧 Run 或跨 Goal
- * 的完成声明勾选计划。
- *
- * @param plan - 当前已提交的 GoalPlan。
- * @param todoId - 当前 Run 承接的 Todo ID。
- * @param runId - 提交完成声明的当前 Run ID。
- * @returns 清除 activeRunId 并置为 completed 的新计划。
- * @throws GoalPlanPatchError 当绑定不存在、状态不匹配或计划不合法时。
- * @example
- * ```ts
- * const plan = completeGoalPlanTodo(currentPlan, "todo-1", "run-2");
- * ```
- */
-export function completeGoalPlanTodo(
-    plan: GoalPlan,
-    todoId: string,
-    runId: string,
-): GoalPlan {
-    requireRunBindingId(todoId, "todoId");
-    requireRunBindingId(runId, "runId");
-    assertValidGoalPlan(plan);
-    const item = plan.items.find((candidate) => candidate.id === todoId);
-    if (item === undefined) {
-        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
-    }
-    if (item.status !== "in_progress" || item.activeRunId !== runId) {
-        throw new GoalPlanPatchError(`Todo ${todoId} is not bound to Run ${runId}`);
-    }
-    const completedPlan = reduceRuntimePlanStatus(plan, todoId, "completed");
-    assertValidGoalPlan(completedPlan);
-    return completedPlan;
-}
-
-/**
- * 释放失败或取消 Run 对 Todo 的占用，使该 Todo 可以被后续 Run 重试。
- *
- * @param plan - 当前已提交的 GoalPlan。
- * @param todoId - 失败 Run 承接的 Todo ID。
- * @param runId - 失败或取消的当前 Run ID。
- * @returns 清除绑定并恢复为 pending 的新计划。
- * @throws GoalPlanPatchError 当 Todo 不再由该 Run 承接时。
- * @example
- * ```ts
- * const plan = releaseGoalPlanTodo(currentPlan, "todo-1", "run-2");
- * ```
- */
-export function releaseGoalPlanTodo(
-    plan: GoalPlan,
-    todoId: string,
-    runId: string,
-): GoalPlan {
-    requireRunBindingId(todoId, "todoId");
-    requireRunBindingId(runId, "runId");
-    assertValidGoalPlan(plan);
-    const item = plan.items.find((candidate) => candidate.id === todoId);
-    if (item === undefined) {
-        throw new GoalPlanPatchError(`unknown Todo ID: ${todoId}`);
-    }
-    if (item.status !== "in_progress" || item.activeRunId !== runId) {
-        throw new GoalPlanPatchError(`Todo ${todoId} is not bound to Run ${runId}`);
-    }
-    const pendingPlan = reduceRuntimePlanStatus(plan, todoId, "pending");
-    assertValidGoalPlan(pendingPlan);
-    return pendingPlan;
 }
 
 /**
@@ -359,12 +221,12 @@ export function releaseGoalPlanTodo(
  * @remarks
  * 所有操作先在临时数组中校验，任何一个操作失败都返回原 plan 与稳定错误；成功时
  * revision 只增加一次。新增 Todo 的 ID 始终由 Runtime 的 `idFactory` 生成。
- * 绑定 activeRunId、以及基于当前 Run Evidence 完成 Todo，由 Runtime 生命周期协调器
- * 通过独立的状态提交完成，不接受模型 Patch 直接写入。
+ * 状态变更不包含 Run 身份或执行授权；调用方必须在进入 reducer 前完成对应授权和
+ * Observation 校验。
  *
  * @param plan - 当前已提交的 GoalPlan。
  * @param patch - 带 baseRevision 的结构化增量操作。
- * @param options - 模式、容量和 Runtime ID 分配策略。
+ * @param options - 容量和 Runtime ID 分配策略。
  * @returns 成功的新计划或失败时的原计划。
  * @example
  * ```ts
@@ -384,7 +246,6 @@ export function reduceGoalPlan(
     } catch (error) {
         return fail(plan, error instanceof Error ? error.message : "invalid current GoalPlan");
     }
-    if (options.mode === "normal") return fail(plan, "GoalPlan updates require Plan Mode");
     if (!Number.isInteger(patch.baseRevision) || patch.baseRevision < 0) {
         return fail(plan, "patch.baseRevision must be a non-negative integer");
     }
@@ -444,9 +305,7 @@ export function reduceGoalPlan(
                     if (operation.status === "in_progress" && items.some((item) => item.status === "in_progress" && item.id !== current.id)) {
                         throw new GoalPlanPatchError("GoalPlan allows at most one in_progress Todo");
                     }
-                    next = operation.status === "in_progress"
-                        ? { ...next, status: operation.status }
-                        : clearActiveRunId({ ...next, status: operation.status });
+                    next = { ...next, status: operation.status };
                 }
                 items[index] = next;
                 return;
@@ -457,7 +316,7 @@ export function reduceGoalPlan(
                 if (!canTransition(current.status, "cancelled")) {
                     throw new GoalPlanPatchError(`cannot cancel Todo in ${current.status} state`);
                 }
-                items[index] = clearActiveRunId({ ...current, status: "cancelled" });
+                items[index] = { ...current, status: "cancelled" };
                 return;
             }
 

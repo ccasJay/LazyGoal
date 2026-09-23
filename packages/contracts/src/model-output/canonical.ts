@@ -670,8 +670,8 @@ export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingM
  *
  * @remarks
  * `baseRevision` 与操作列表由 Runtime 的 GoalPlan reducer 原子校验；模型只能引用
- * 已投影的 Todo ID，不能提交新增 ID、activeRunId 或完成证据。可选 Working Memory
- * Patch 仍属于当前 Run，与 GoalPlan 更新保持独立。
+ * 已投影的 Todo ID，不能提交 Run 归属或完成证据。可选 Working Memory Patch 仍属于
+ * 当前 Run，与 GoalPlan 更新保持独立。
  *
  * @example
  * ```ts

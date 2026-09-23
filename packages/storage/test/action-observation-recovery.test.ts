@@ -86,11 +86,11 @@ function createExecutingGoal(input: {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: "验证 Action/Observation 恢复",
                     completionCriteria: [],
-                },
-            },
+                } },
         },
     };
 }

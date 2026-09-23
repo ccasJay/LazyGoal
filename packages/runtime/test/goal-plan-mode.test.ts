@@ -39,7 +39,7 @@ function goal(): Goal {
     });
 }
 
-test("GoalCoordinator.enterPlanMode materializes an empty GoalPlan atomically", async () => {
+test("GoalCoordinator.enterPlanMode switches the current Run without materializing GoalPlan", async () => {
     const store = new InMemoryGoalStore();
     const initial = goal();
     await store.save(initial);
@@ -53,8 +53,8 @@ test("GoalCoordinator.enterPlanMode materializes an empty GoalPlan atomically", 
     const result = await coordinator.enterPlanMode({ goalId: initial.id, runId: initial.state.run.id });
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.goal.state.mode, "plan");
-    assert.deepEqual(result.goal.state.goalPlan, { revision: 0, items: [] });
+    assert.equal(result.goal.state.run.mode, "plan");
+    assert.equal(result.goal.state.goalPlan, undefined);
     assert.deepEqual(result.goal.state.messages, initial.state.messages);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "plan_mode_entered",
@@ -62,7 +62,7 @@ test("GoalCoordinator.enterPlanMode materializes an empty GoalPlan atomically", 
     ]);
 
     const restored = await store.restore(initial.id);
-    assert.equal(restored?.state.mode, "plan");
+    assert.equal(restored?.state.run.mode, "plan");
 });
 
 test("GoalCoordinator.enterPlanMode is idempotent and rejects a running Run", async () => {
@@ -76,7 +76,7 @@ test("GoalCoordinator.enterPlanMode is idempotent and rejects a running Run", as
     const second = await coordinator.enterPlanMode({ goalId: initial.id, runId: initial.state.run.id });
     assert.equal(second.ok, true);
     if (!second.ok) return;
-    assert.equal(second.goal.state.goalPlan?.revision, 0);
+    assert.equal(second.goal.state.goalPlan, undefined);
 
     const running = {
         ...second.goal,
