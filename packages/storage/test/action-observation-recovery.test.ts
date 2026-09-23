@@ -86,11 +86,11 @@ function createExecutingGoal(input: {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: "验证 Action/Observation 恢复",
                     completionCriteria: [],
-                },
-            },
+                } },
         },
     };
 }
@@ -140,6 +140,7 @@ test("跨进程 Action 生命周期按 pendingAction→Tool→Observation 顺序
         assert.equal(parsed.result.state?.stepCount, 2);
         assert.deepEqual(parsed.observedActionIds, ["action-lifecycle"]);
         assert.deepEqual(parsed.events, [
+            "restore",
             "restore",
             "save:running:0:none",
             "executor:0",

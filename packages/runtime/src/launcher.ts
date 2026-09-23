@@ -1,7 +1,7 @@
 import type { AgentProfileRegistry } from "./agent-profile";
 import {
     createGoal,
-    type GoalMode,
+    type RunMode,
     type GoalModelSelection,
     type GoalProtocolValidator,
 } from "./domain";
@@ -51,7 +51,7 @@ export interface LaunchRequest {
     /** 非负 executing Step 上限；`0` 或省略表示无限。 */
     readonly maxSteps?: number;
     /** 新 Goal 是否直接以 Plan Mode 启动；省略时为普通模式。 */
-    readonly mode?: GoalMode;
+    readonly mode?: RunMode;
     /** 可选的初始模型选择状态；未提供时由 createGoal 赋予默认基准。 */
     readonly modelSelection?: GoalModelSelection | undefined;
 }

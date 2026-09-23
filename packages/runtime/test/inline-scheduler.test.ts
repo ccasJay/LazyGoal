@@ -42,6 +42,7 @@ test("delegates one explicit RunRef and returns the Runner success result unchan
         ok: true,
         state: {
             id: "run-1",
+            mode: "normal",
             status: "completed",
             stepCount: 1,
             committedThroughSequence: 0,
@@ -114,6 +115,7 @@ test("forwards transient Action authorization without persisting or changing it"
         ok: true,
         state: {
             id: "run-1",
+            mode: "normal",
             status: "waiting",
             stepCount: 0,
             committedThroughSequence: 0,

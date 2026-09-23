@@ -82,10 +82,10 @@ export interface SessionScreenProps {
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
     /** 回答 Agent 发起的 ask_user 结构化问卷。 */
     readonly onAnswerAskUser?: (requestId: string, answers: readonly AskUserAnswer[]) => void | Promise<void>;
-    /** 批准任务提案并推进执行。 */
-    readonly onApproveTask?: (requestId?: string) => void | Promise<void>;
-    /** 对任务提案提出反馈。 */
-    readonly onFeedbackTask?: (requestId: string | undefined, feedback: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 批准任务并推进执行。 */
+    readonly onApproveTask?: (requestId: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 提交反馈并重新规划。 */
+    readonly onFeedbackTask?: (requestId: string, feedback: string) => void | Promise<void>;
 }
 
 /**
@@ -144,13 +144,8 @@ export function SessionScreen({
                     <MarkdownRenderer content={session.streamingTail.content} />
                 </Box>
             ) : null}
-            {session.goal.state.mode === "plan" && session.goal.state.goalPlan !== undefined ? (
-                <PlanPanel
-                    plan={session.goal.state.goalPlan}
-                    {...(session.goal.state.run.todoId === undefined
-                        ? {}
-                        : { activeRunTodoId: session.goal.state.run.todoId })}
-                />
+            {session.goal.state.goalPlan !== undefined ? (
+                <PlanPanel plan={session.goal.state.goalPlan} />
             ) : null}
             <ActiveDrawer
                 session={session}
@@ -198,10 +193,10 @@ export interface ActiveDrawerProps {
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
     /** 回答 Agent 发起的 ask_user 结构化问卷。 */
     readonly onAnswerAskUser?: (requestId: string, answers: readonly AskUserAnswer[]) => void | Promise<void>;
-    /** 批准任务提案并推进执行。 */
-    readonly onApproveTask?: (requestId?: string) => void | Promise<void>;
-    /** 对任务提案提出反馈。 */
-    readonly onFeedbackTask?: (requestId: string | undefined, feedback: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 批准任务并推进执行。 */
+    readonly onApproveTask?: (requestId: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 提交反馈并重新规划。 */
+    readonly onFeedbackTask?: (requestId: string, feedback: string) => void | Promise<void>;
 }
 
 /**
@@ -382,11 +377,13 @@ function SessionInteraction({
         );
     }
 
-    if (session.waitingFor === "task_approval" && session.proposal !== undefined) {
+    if (session.waitingFor === "task_approval"
+        && session.proposal !== undefined
+        && session.proposalRequestId !== undefined) {
         return (
             <TaskProposalPanel
                 proposal={session.proposal}
-                {...(session.proposalRequestId !== undefined ? { requestId: session.proposalRequestId } : {})}
+                requestId={session.proposalRequestId}
                 {...(session.approvalRequest !== undefined ? { approvalRequest: session.approvalRequest } : {})}
                 busy={session.busy}
                 onApprove={(reqId) => onApproveTask?.(reqId)}

@@ -99,7 +99,6 @@ function createDependencies<TTask, TOutcome>(
         }),
     };
     let modelCalls = 0;
-    let taskDescriptor: BenchmarkTaskDescriptor | undefined;
     return {
         benchmarkId: "fake-benchmark",
         workspaceRoot: "/workspace",
@@ -109,33 +108,9 @@ function createDependencies<TTask, TOutcome>(
             generate: async () => {
                 modelCalls += 1;
                 if (modelCalls === 1) {
-                    assert.ok(taskDescriptor, "the task descriptor must be available before the first model call");
                     return {
                         content: JSON.stringify({
                             result: {
-                                kind: "task_proposal",
-                                task: {
-                                    objective: taskDescriptor.objective,
-                                    completionCriteria: taskDescriptor.completionCriteria.map((criterion) => {
-                                        const normalized = typeof criterion === "string"
-                                            ? { text: criterion }
-                                            : criterion;
-                                        return {
-                                            text: normalized.text,
-                                            acceptance: normalized.acceptance ?? null,
-                                        };
-                                    }),
-                                },
-                                approvalRequest: "Benchmark task is ready for execution.",
-                                memoryPatch: null,
-                            },
-                        }),
-                    };
-                }
-                return {
-                    content: JSON.stringify({
-                        result: modelCalls === 2
-                            ? {
                                 kind: "tool_call",
                                 action: {
                                     actionId: "benchmark-evidence-1",
@@ -143,16 +118,18 @@ function createDependencies<TTask, TOutcome>(
                                     input: {},
                                 },
                                 memoryPatch: null,
-                            }
-                            : {
-                                kind: "complete",
-                                summary: "done",
-                                completionEvidence: [{
-                                    criterionIndex: 0,
-                                    evidenceSequences: [latestObservationSequence(trajectoryStore)],
-                                }],
-                                memoryPatch: null,
                             },
+                        }),
+                    };
+                }
+                return {
+                    content: JSON.stringify({
+                        result: {
+                            kind: "complete",
+                            summary: "done",
+                            evidenceSequences: [latestObservationSequence(trajectoryStore)],
+                            memoryPatch: null,
+                        },
                     }),
                 };
             },
@@ -160,10 +137,7 @@ function createDependencies<TTask, TOutcome>(
         renderer: { render: () => "system" },
         contextCompactor: { compact: async (units) => units },
         adapter: {
-            describeTask: (task) => {
-                taskDescriptor = adapter.describeTask(task);
-                return taskDescriptor;
-            },
+            describeTask: (task) => adapter.describeTask(task),
             createEpisode: async (task, context) => {
                 const episode = await adapter.createEpisode(task, context);
                 return {
@@ -194,7 +168,7 @@ function latestObservationSequence(
     return observation.sequence;
 }
 
-test("runs a task through unified proposal approval and execution", async () => {
+test("runs a normal Run with benchmark context and no task proposal approval", async () => {
     type Task = { readonly prompt: string };
     type Outcome = { readonly answer: number };
     let created = 0;
@@ -203,7 +177,10 @@ test("runs a task through unified proposal approval and execution", async () => 
         describeTask: (task) => ({
             intent: task.prompt,
             objective: "Return the expected answer",
-            completionCriteria: ["The test environment confirms the answer"],
+            completionCriteria: [
+                "The test environment confirms the answer",
+                "A second criterion remains context rather than a Runtime gate",
+            ],
             maxSteps: 5,
         }),
         createEpisode: async (_task, context) => {
@@ -233,7 +210,9 @@ test("runs a task through unified proposal approval and execution", async () => 
     assert.equal(result.goal.state.workflow.phase, "executing");
     assert.equal(result.goal.state.run.id, "run-fake");
     assert.equal(result.goal.state.run.status, "completed");
-    assert.equal(result.goal.state.mode, "normal");
+    assert.equal(result.goal.state.run.mode, "normal");
+    assert.equal(result.goal.state.run.approvedTask, undefined);
+    assert.equal(result.goal.state.run.pendingInteraction, undefined);
     assert.equal(result.goal.state.goalPlan, undefined);
     assert.deepEqual(result.goal.state.completedRuns, []);
     assert.deepEqual(new Set(trajectoryStore.events.map((event) => event.runId)), new Set(["run-fake"]));
@@ -241,11 +220,19 @@ test("runs a task through unified proposal approval and execution", async () => 
     assert.equal(result.model.runStatus, "completed");
     assert.deepEqual(result.outcome, { answer: 42 });
     assert.equal(result.runner?.ok, true);
+    const benchmarkMessage = result.goal.state.messages.find((message) => message.role === "user");
+    assert.ok(benchmarkMessage);
+    assert.match(benchmarkMessage.content, /Return the expected answer/);
+    assert.match(benchmarkMessage.content, /The test environment confirms the answer/);
+    assert.match(benchmarkMessage.content, /A second criterion remains context rather than a Runtime gate/);
+    assert.equal(trajectoryStore.events.some((event) => event.eventType === "task_approved"), false);
+    assert.equal(trajectoryStore.events.filter((event) =>
+        event.eventType === "decision_received" && event.payload.decision.kind === "task_proposal").length, 0);
     assert.deepEqual(
         trajectoryStore.events
             .filter((event) => event.eventType === "task_approved")
             .map((event) => event.payload.type),
-        ["task_approved"],
+        [],
     );
 });
 
@@ -298,12 +285,12 @@ test("aggregates normalized usage across model calls and counts missing usage ca
             return {
                 content: JSON.stringify({
                     result: {
-                        kind: "task_proposal",
-                        task: {
-                            objective: "Aggregate model usage",
-                            completionCriteria: [{ text: "The environment accepts completion", acceptance: null }],
+                        kind: "tool_call",
+                        action: {
+                            actionId: "benchmark-evidence-1",
+                            toolId: "benchmark_evidence",
+                            input: {},
                         },
-                        approvalRequest: "Approve the benchmark task.",
                         memoryPatch: null,
                     },
                 }),
@@ -315,7 +302,7 @@ test("aggregates normalized usage across model calls and counts missing usage ca
                     result: {
                         kind: "tool_call",
                         action: {
-                            actionId: "benchmark-evidence-1",
+                            actionId: "benchmark-evidence-2",
                             toolId: "benchmark_evidence",
                             input: {},
                         },
@@ -331,44 +318,29 @@ test("aggregates normalized usage across model calls and counts missing usage ca
             return {
                 content: JSON.stringify({
                     result: {
-                        kind: "tool_call",
-                        action: {
-                            actionId: "benchmark-evidence-2",
-                            toolId: "benchmark_evidence",
-                            input: {},
-                        },
+                        kind: "complete",
+                        summary: "done",
+                        evidenceSequences: [latestObservationSequence(trajectoryStore)],
                         memoryPatch: null,
                     },
                 }),
-            };
-        }
-        return {
-            content: JSON.stringify({
-                result: {
-                    kind: "complete",
-                    summary: "done",
-                    completionEvidence: [{
-                        criterionIndex: 0,
-                        evidenceSequences: [latestObservationSequence(trajectoryStore)],
-                    }],
-                    memoryPatch: null,
+                providerMetadata: {
+                    usage: { inputTokens: 50, outputTokens: 5 },
                 },
-            }),
-            providerMetadata: {
-                usage: { inputTokens: 50, outputTokens: 5 },
-            },
+            };
         };
+        throw new Error("unexpected model call");
     };
     const root = new HeadlessCompositionRoot(dependencies);
 
     const result = await root.run({ id: "usage-aggregation" });
 
     assert.equal(result.model.completed, true);
-    assert.equal(modelCalls, 4);
+    assert.equal(modelCalls, 3);
     assert.deepEqual(result.model.usage, {
         inputTokens: 150,
         outputTokens: 25,
-        missingCalls: 2,
+        missingCalls: 1,
     });
 });
 
@@ -472,7 +444,7 @@ test("preserves the primary failure when execution and cleanup both fail", async
         content: JSON.stringify({
             kind: "complete",
             summary: "done",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [] }],
+            evidenceSequences: [],
         }),
     });
     const root = new HeadlessCompositionRoot(dependencies);
@@ -516,7 +488,7 @@ test("keeps abort semantics and closes an episode exactly once", async () => {
             content: JSON.stringify({
                 kind: "complete",
                 summary: "should not commit",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [] }],
+                evidenceSequences: [],
             }),
         };
     };
@@ -776,7 +748,7 @@ test("validateTaskDescriptor normalizes string and structured criteria and valid
     );
 });
 
-test("injects structured completion criteria with acceptance into Goal Task during headless execution", async () => {
+test("passes structured benchmark criteria as context without making them Runtime completion gates", async () => {
     type Task = { readonly prompt: string };
     type Outcome = { readonly ok: boolean };
 
@@ -806,35 +778,11 @@ test("injects structured completion criteria with acceptance into Goal Task duri
     const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies(adapter, trajectoryStore);
 
-    // Provide completionEvidence referencing both criteria
+    // One committed Observation satisfies Runtime completion even though both descriptor criteria remain context.
     let modelCalls = 0;
     dependencies.llmAdapter.generate = async () => {
         modelCalls += 1;
         if (modelCalls === 1) {
-            return {
-                content: JSON.stringify({
-                    result: {
-                        kind: "task_proposal",
-                        task: {
-                            objective: "Complete task with verifiable evidence",
-                            completionCriteria: [
-                                { text: "String criterion", acceptance: null },
-                                {
-                                    text: "Evidence produced by tool",
-                                    acceptance: {
-                                        expectToolId: "benchmark_evidence",
-                                        expectOutcome: "success",
-                                    },
-                                },
-                            ],
-                        },
-                        approvalRequest: "Approve the benchmark task.",
-                        memoryPatch: null,
-                    },
-                }),
-            };
-        }
-        if (modelCalls === 2) {
             return {
                 content: JSON.stringify({
                     result: {
@@ -855,16 +803,7 @@ test("injects structured completion criteria with acceptance into Goal Task duri
                 result: {
                     kind: "complete",
                     summary: "done",
-                    completionEvidence: [
-                        {
-                            criterionIndex: 0,
-                            evidenceSequences: [obsSeq],
-                        },
-                        {
-                            criterionIndex: 1,
-                            evidenceSequences: [obsSeq],
-                        },
-                    ],
+                    evidenceSequences: [obsSeq],
                     memoryPatch: null,
                 },
             }),
@@ -875,19 +814,15 @@ test("injects structured completion criteria with acceptance into Goal Task duri
     const result = await root.run({ prompt: "Verify structured criteria injection" });
 
     assert.equal(result.model.completed, true);
-    assert.equal(result.goal.state.workflow.phase, "executing");
-    if (result.goal.state.workflow.phase === "executing") {
-        assert.deepEqual(result.goal.state.workflow.task.completionCriteria, [
-            { text: "String criterion" },
-            {
-                text: "Evidence produced by tool",
-                acceptance: {
-                    expectToolId: "benchmark_evidence",
-                    expectOutcome: "success",
-                },
-            },
-        ]);
-    }
+    assert.equal(result.goal.state.run.mode, "normal");
+    assert.equal(result.goal.state.run.approvedTask, undefined);
+    assert.equal(result.goal.state.run.pendingInteraction, undefined);
+    const benchmarkMessage = result.goal.state.messages.find((message) => message.role === "user");
+    assert.ok(benchmarkMessage);
+    assert.match(benchmarkMessage.content, /String criterion/);
+    assert.match(benchmarkMessage.content, /Evidence produced by tool/);
+    assert.match(benchmarkMessage.content, /expectToolId/);
+    assert.equal(modelCalls, 2);
 });
 
 test("fails before creating episode when task descriptor requires an unauthorized tool", async () => {
@@ -948,18 +883,8 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         req.resume();
         calls += 1;
         const result = calls === 1
-            ? {
-                kind: "task_proposal",
-                task: {
-                    objective: "Record evidence",
-                    completionCriteria: [{ text: "Record evidence", acceptance: null }],
-                },
-                approvalRequest: "Approve the benchmark task.",
-                memoryPatch: null,
-            }
-            : calls === 2
-                ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
-                : { kind: "complete", summary: "done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [latestObservationSequence(trajectoryStore)] }], memoryPatch: null };
+            ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
+            : { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null };
         res.setHeader("Content-Type", "text/event-stream");
         res.end(`data: ${JSON.stringify({
             id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", content: JSON.stringify({ result }) }, finish_reason: "stop" }],
@@ -979,8 +904,8 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         const root = new HeadlessCompositionRoot({ ...dependencies, llmAdapter });
         const result = await root.run({ id: "pi-usage" });
         assert.equal(result.model.completed, true);
-        assert.equal(calls, 3);
-        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 3 });
+        assert.equal(calls, 2);
+        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 2 });
     } finally {
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

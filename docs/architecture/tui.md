@@ -6,15 +6,15 @@ TUI 负责输入、渲染和会话导航，不复制 Runtime 状态机，也不�
 
 ## 页面与命令
 
-Launcher 仍负责 Home、Intent、Goal Select、Settings 和 Inspector 页面。创建或恢复 Goal 后直接进入 Session；创建期间首次成功保存的快照会立即把 Controller 从 Intent 切换到 Session，Launcher 后续等待 Coordinator 推进时，Store 的每次成功提交都继续更新该会话。Controller 将 `answerAskUser`、`approveTask`、`feedbackTask`、`approveAction`、`rejectAction` 和普通消息映射到 Coordinator；请求 ID、Action ID 和当前 Goal/Run 由 Controller 与 Runtime 共同校验。waiting 状态的普通消息调用 `resume`，completed 状态的普通消息调用 `continue`，不通过自然语言判断是否复用 Run。`/plan` 只触发后端 `enterPlanMode`，不会进入 Goal messages。
+Launcher 仍负责 Home、Intent、Goal Select、Settings 和 Inspector 页面。创建或恢复 Goal 后直接进入 Session；创建期间首次成功保存的快照会立即把 Controller 从 Intent 切换到 Session，Launcher 后续等待 Coordinator 推进时，Store 的每次成功提交都继续更新该会话。Controller 将 `answerAskUser`、`approveTask`、`feedbackTask`、`approveAction`、`rejectAction` 和普通消息映射到 Coordinator；请求 ID、Action ID 和当前 Goal/Run 由 Controller 与 Runtime 共同校验。任务提案审批面板仅由当前 Run 的 `pendingInteraction` 驱动。waiting 状态的普通消息调用 `resume`，completed 状态的普通消息调用 `continue`，不通过自然语言判断是否复用 Run。`/plan` 为当前或下一 Run 选择一次性 Plan 模式，不会进入 Goal messages。
 
 Session 的 `ActiveDrawer` 按等待点选择交互：
 
 - `AskUserPanel` 支持计划期/执行期模式、单选、多选和 `Other` 文本；
-- `TaskProposalPanel` 展示 objective、完成条件和批准提示，支持批准或反馈；
+- `TaskProposalPanel` 只在当前等待点为任务审批时展示 objective、完成条件和批准提示，并支持批准或反馈；
 - Action 审批抽屉展示 Tool 输入并支持批准/拒绝；
 - blocked、终态、错误和清理状态使用同一 Session 页面投影。
-- Plan Mode 由 Goal Snapshot 的 `goalPlan` 投影到只读 [`PlanPanel`](../../packages/tui/src/plan-panel.tsx)；普通模式不显示计划。completed Run 保留“Start the next Run”输入，失败和取消终态不接受新的 Run 输入。
+- 已提交的 GoalPlan 从 Goal Snapshot 投影到只读 [`PlanPanel`](../../packages/tui/src/plan-panel.tsx)，独立于当前 Run 模式；计划不存在时不推测生成。completed Run 保留“Start the next Run”输入，失败和取消终态不接受新的 Run 输入。
 
 ## 统一时间线与流式输出
 

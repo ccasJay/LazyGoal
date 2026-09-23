@@ -188,6 +188,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
             runIdGenerator: () => "run-current",
         });
 
+        await root.controller.dispatch({ kind: "enterPlanMode" });
         await root.controller.dispatch({
             kind: "create",
             intent: "Verify the current workflow",
@@ -219,12 +220,13 @@ test("Composition Root carries Memory through task approval into Executing", asy
         if (initialPlanningView.proposal?.objective !== "Initial proposal") {
             throw new Error("Expected the first planning proposal");
         }
+        if (initialPlanningView.proposalRequestId === undefined) {
+            throw new Error("Expected the first proposal request ID");
+        }
 
         await root.controller.dispatch({
             kind: "feedbackTask",
-            ...(initialPlanningView.proposalRequestId === undefined
-                ? {}
-                : { requestId: initialPlanningView.proposalRequestId }),
+            requestId: initialPlanningView.proposalRequestId,
             feedback: "Please use the approved wording.",
         });
         const revisedPlanningView = root.controller.getSnapshot();
@@ -236,6 +238,9 @@ test("Composition Root carries Memory through task approval into Executing", asy
         }
         if (revisedPlanningView.proposal?.objective !== "Approved proposal") {
             throw new Error("Expected the revised planning proposal");
+        }
+        if (revisedPlanningView.proposalRequestId === undefined) {
+            throw new Error("Expected the revised proposal request ID");
         }
         assertCurrentDefinition(revisedPlanningView.goal.definition);
 
@@ -258,9 +263,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
 
         await root.controller.dispatch({
             kind: "approveTask",
-            ...(revisedPlanningView.proposalRequestId === undefined
-                ? {}
-                : { requestId: revisedPlanningView.proposalRequestId }),
+            requestId: revisedPlanningView.proposalRequestId,
         });
         const completedView = root.controller.getSnapshot();
 
@@ -462,11 +465,21 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
             runIdGenerator: () => "run-invalid-wire",
         });
 
+        await root.controller.dispatch({ kind: "enterPlanMode" });
         await root.controller.dispatch({
             kind: "create",
             intent: "Test invalid wire response handling",
         });
-        await root.controller.dispatch({ kind: "approveTask" });
+        const proposalView = root.controller.getSnapshot();
+        if (proposalView.screen !== "session"
+            || proposalView.waitingFor !== "task_approval"
+            || proposalView.proposalRequestId === undefined) {
+            throw new Error("Expected a task proposal with a stable request ID before approval");
+        }
+        await root.controller.dispatch({
+            kind: "approveTask",
+            requestId: proposalView.proposalRequestId,
+        });
         const failedView = root.controller.getSnapshot();
 
         assert.equal(failedView.screen, "session");

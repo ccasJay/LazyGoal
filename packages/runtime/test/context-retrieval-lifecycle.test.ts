@@ -81,12 +81,13 @@ function runningGoal(committedThroughSequence = 0): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "检索历史上下文", completionCriteria: [] },
             },
             run: {
                 ...created.state.run,
                 status: "running",
                 committedThroughSequence,
+
+                mode: "plan", approvedTask: { objective: "检索历史上下文", completionCriteria: [] },
             },
         },
     };

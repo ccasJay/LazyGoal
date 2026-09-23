@@ -30,7 +30,7 @@ lazygoal eval prompt --request <request.json>
 准备镜像、容器、Worker 和 preflight；沙箱就绪后把同一个挂载切换为带初始 Goal
 的 SessionController，会话结束或清理失败后统一卸载。该路径构建
 `tools-worker-entry` 提供 Tool RPC；ACP Worker 仅用于 Headless 评测，不能作为
-透明代理的工具服务。
+透明代理的工具服务。`auto` / `review` 只控制 Action 审批和用户交互阻塞，不承担任务提案审批。
 
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
@@ -71,9 +71,8 @@ Root 为每个 Goal 固定冻结 Prompt Bundle v1、`structured@1`、`trajectory
 `bm25-lite@1`，并把同一 `TrajectoryModelContextAssembler` 注入 `LLMStepExecutor`；
 模型上下文因此从当前 Trajectory Snapshot 组装。benchmark 目前只装配 Trajectory 层，
 不自动创建 Cold Trajectory 索引或 Lookup Port；需要检索的 benchmark 必须额外提供该依赖。
-任务描述符 `BenchmarkTaskDescriptor.completionCriteria` 支持纯文本与携带验收声明的结构化条件；Root 在启动前执行结构校验与 Profile 工具白名单授权检查，将声明注入 Goal Task。基础设施重试追加新的 Attempt，不覆盖原始记录。报告的成功事实只有环境返回的
-`won=true`，模型 `complete` 与验收声明不能覆盖环境失败。
-通用 Headless Root 为每个 task 创建一个 Goal 和一个 Run，自动批准首轮任务提案后在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。当前 benchmark descriptor 仍创建 normal Goal，因此不会隐式 materialize GoalPlan。
+任务描述符 `BenchmarkTaskDescriptor.objective` 与 `completionCriteria` 会作为初始用户消息中的执行上下文提供给 Agent；criteria 支持纯文本与携带验收声明的结构化条件，不转换为 `Run.approvedTask`，也不成为 Runtime 完成门槛。Runtime 的 `complete` 仍须按当前 Run 已提交 Observation Evidence 校验；Benchmark 的最终成功由环境评分决定，模型完成声明不能覆盖环境结果。基础设施重试追加新的 Attempt，不覆盖原始记录。
+通用 Headless Root 为每个 task 创建普通 Run，不生成任务提案或自动批准任务，并在该 Run 的 waiting 或终态返回；它不会因为 GoalPlan 仍有 pending Todo 而串行创建后继 Run。后继 Run 只能由持久化 Goal 的显式 `GoalCoordinator.continue` 触发。GoalPlan 是否存在独立于 Run 模式。
 
 GAIA ACP Worker 的默认 `maxSteps` 为 `0`，表示不设置 Runtime 步数上限；只有调用方显式配置正数时才会产生 `max_steps_exceeded`。Worker 仅将该真实 Runtime 终态映射为 ACP `max_turn_requests`，普通完成/等待映射为 `end_turn`，取消映射为 `cancelled`；由模型自身决策行为引起的终止（如 `INVALID_AGENT_DECISION`）与单任务超时（`TASK_TIMEOUT`）在 GAIA Supervisor 中统一判定为未作答领域失败（`status: "completed"`, `correct: false`，作为 badcase 保留轨迹），其他 Runtime 或清理错误保留为基础设施失败，不伪装成受支持终态。外部用户主动发起的取消信号（`signal`）则保持全局取消（`status: "cancelled"`）。
 

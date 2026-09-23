@@ -102,7 +102,7 @@ export interface TuiSandboxRunOptions<TTask, TArtifact, TOutcome = unknown> {
     readonly spec: EnvironmentSpec<TTask, TArtifact>;
     /** 宿主本次尝试输出根目录。 */
     readonly outputDirectory: string;
-    /** 执行模式（"auto" 或 "review"），默认 "review"。 */
+    /** Action 审批与用户交互模式（"auto" 或 "review"），默认 "review"；不控制任务提案审批。 */
     readonly mode?: TuiExecutionMode;
     /** Agent Profile。 */
     readonly profile: AgentProfile;
@@ -434,7 +434,20 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                 const goal = createGoal({
                     ...DEFAULT_PROTOCOLS,
                     id: goalId,
-                    intent: options.descriptor.intent,
+                    intent: [
+                        options.descriptor.intent,
+                        "",
+                        `Benchmark objective: ${options.descriptor.objective}`,
+                        "Benchmark completion criteria (agent context; the environment outcome remains authoritative):",
+                        ...options.descriptor.completionCriteria.map((criterion) => {
+                            const normalized = typeof criterion === "string" ? { text: criterion } : criterion;
+                            const acceptance = normalized.acceptance === undefined
+                                ? ""
+                                : ` (Acceptance: ${JSON.stringify(normalized.acceptance)})`;
+                            return `- ${normalized.text}${acceptance}`;
+                        }),
+                        "These criteria do not become Runtime completion requirements.",
+                    ].join("\n"),
                     profile: options.profile,
                     runId,
                     maxSteps: options.maxSteps ?? options.descriptor.maxSteps,
@@ -470,7 +483,7 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                 });
                 app?.setController?.(sessionController);
 
-                // 统一执行流：模型先提交任务提案；auto 模式自动批准，review 模式交给 TUI。
+                // Benchmark 固定使用普通 Run；auto/review 只决定现有 Action 与用户交互处理方式。
                 let progress = await coordinator.advance({ goalId, runId }, { signal });
                 while (!signal.aborted) {
                     if (!progress.ok) {
@@ -484,25 +497,7 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                     }
 
                     if (progress.kind === "waiting") {
-                        if (progress.waitingFor === "task_approval") {
-                            if (mode === "auto") {
-                                progress = await coordinator.resume({
-                                    ref: { goalId, runId },
-                                    action: { kind: "approve_task" },
-                                }, { signal });
-                                continue;
-                            }
-                            if (app !== undefined) {
-                                await app.waitUntilExit().catch(() => undefined);
-                                const latest = await gate.restore(goalId);
-                                if (latest?.state.run.status === "completed"
-                                    || latest?.state.run.status === "failed"
-                                    || latest?.state.run.status === "cancelled") {
-                                    terminalGoal = latest;
-                                }
-                            }
-                            break;
-                        } else if (progress.waitingFor === "action_approval") {
+                        if (progress.waitingFor === "action_approval") {
                             if (mode === "auto") {
                                 // auto 模式下由 policy 自动放行；如仍遇到 approval 则说明异常
                                 autoBlocked = true;
@@ -535,6 +530,10 @@ export async function runTuiWithSandbox<TTask, TArtifact, TOutcome = unknown>(
                                     terminalGoal = latest;
                                 }
                             }
+                            break;
+                        } else {
+                            autoBlocked = true;
+                            runErrors.push(`Benchmark Run entered unsupported interaction: ${progress.waitingFor}`);
                             break;
                         }
                     }

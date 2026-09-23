@@ -51,9 +51,8 @@ function createExecutingGoal(): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: mockTask,
             },
-            run: { ...created.state.run, status: "running" },
+            run: { ...created.state.run, status: "running" , mode: "plan", approvedTask: mockTask },
             messages: [],
         },
     };

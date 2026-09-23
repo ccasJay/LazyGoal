@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createEmptyGoalPlan,
     reduceGoalPlan,
     GoalCoordinator,
     transition,
@@ -49,7 +50,7 @@ function completedGoal(mode: "normal" | "plan"): Goal {
     if (!completed.ok) throw new Error(completed.error.message);
 
     const plan = mode === "plan"
-        ? reduceGoalPlan(created.state.goalPlan!, {
+        ? reduceGoalPlan(createEmptyGoalPlan(), {
             baseRevision: 0,
             operations: [{ type: "add", content: "下一项工作" }],
         }, { idFactory: () => "todo-1" })
@@ -60,8 +61,11 @@ function completedGoal(mode: "normal" | "plan"): Goal {
         ...created,
         state: {
             ...created.state,
-            workflow: { phase: "executing", task },
-            run: completed.state,
+            workflow: { phase: "executing" },
+            run: {
+                ...completed.state,
+                ...(mode === "plan" ? { approvedTask: task } : {}),
+            },
             ...(plan === undefined ? {} : { goalPlan: plan.plan }),
         },
     };
@@ -121,7 +125,7 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
     const persisted = await store.restore(initial.id);
     assert.ok(persisted);
     assert.equal(persisted.state.run.id, "run-2");
-    assert.equal(persisted.state.run.todoId, undefined);
+    assert.equal(persisted.state.run.mode, "normal");
     assert.deepEqual(persisted.state.messages.at(-1), {
         role: "user",
         content: "继续处理新的输入",
@@ -134,7 +138,7 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
     }]);
 });
 
-test("Plan Mode continue binds the first pending Todo and keeps normal mode plan-free", async () => {
+test("continuing a Plan Run defaults to normal mode and preserves its independent GoalPlan", async () => {
     const store = new InMemoryGoalStore();
     const initial = completedGoal("plan");
     await store.save(initial);
@@ -155,20 +159,19 @@ test("Plan Mode continue binds the first pending Todo and keeps normal mode plan
     assert.equal(result.kind, "waiting");
     const persisted = await store.restore(initial.id);
     assert.ok(persisted);
-    assert.equal(persisted.state.mode, "plan");
+    assert.equal(persisted.state.run.mode, "normal");
     assert.equal(persisted.state.run.id, "run-2");
-    assert.equal(persisted.state.run.todoId, "todo-1");
     assert.deepEqual(persisted.state.goalPlan?.items, [{
         id: "todo-1",
         content: "下一项工作",
         position: 0,
-        status: "in_progress",
-        activeRunId: "run-2",
+        status: "pending",
     }]);
-    assert.equal(persisted.state.goalPlan?.revision, 2);
+    assert.equal(persisted.state.goalPlan?.revision, 1);
+    assert.equal(persisted.state.nextRunMode, undefined);
 });
 
-test("continue only accepts completed current Run, non-empty input and an available pending Todo", async () => {
+test("continue only requires a completed current Run and non-empty input", async () => {
     const store = new InMemoryGoalStore();
     const initial = completedGoal("normal");
     await store.save(initial);
@@ -228,12 +231,15 @@ test("continue only accepts completed current Run, non-empty input and an availa
         scheduler: new WaitingScheduler(store),
         runIdGenerator: () => "run-3",
     });
-    const noTodo = requireFailure(await noTodoCoordinator.continue(
+    const noTodo = await noTodoCoordinator.continue(
         { goalId: completedTodo.id, runId: completedTodo.state.run.id },
         "继续",
-    ));
-    assert.equal(noTodo.error.code, "INVALID_GOAL_INPUT");
-    assert.equal((await store.restore(completedTodo.id))?.state.run.id, "run-1");
+    );
+    assert.equal(noTodo.ok, true);
+    const continued = await store.restore(completedTodo.id);
+    assert.equal(continued?.state.run.id, "run-3");
+    assert.equal(continued?.state.run.mode, "normal");
+    assert.deepEqual(continued?.state.goalPlan, completedTodo.state.goalPlan);
 });
 
 test("同一 Goal 的并发 continue 只消费一次 completed Run", async () => {

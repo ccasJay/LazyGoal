@@ -42,8 +42,9 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
      * 是否为只读工具。
      *
      * @remarks
-     * 声明为 `true` 的工具可在任务批准前由模型自主调用。该字段是能力分类的唯一
-     * 事实源；实现者仍须保证工具不会修改工作区、配置或外部可变状态。
+     * `true` 表示实现者声明该工具不会修改工作区、配置或外部可变状态。此分类不授予
+     * Profile 权限，也不会按任务审批状态门控工具调用；Profile、Tool Policy 与 Action
+     * 审批仍决定调用能否执行。
      */
     readonly isReadOnly: boolean;
 }

@@ -6,9 +6,9 @@ LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal
 
 | 概念 | 含义 |
 | --- | --- |
-| Goal | 由冻结 definition 与可变 state 组成的可恢复 Session 聚合；持有会话消息、Plan Mode/GoalPlan 和 Run 历史 |
-| Run | Goal 内一次执行边界，拥有独立 `runId`；completed 后由显式输入创建后继 Run |
-| Task | 模型提出、用户批准后固定到 Goal workflow 的目标与完成条件 |
+| Goal | 由冻结 definition 与可变 state 组成的可恢复 Session 聚合；持有会话消息、独立 GoalPlan、下一 Run 的一次性模式选择和 Run 历史 |
+| Run | Goal 内一次执行边界，拥有独立 `runId`、模式和可选获批任务；completed 后由显式输入创建后继 Run |
+| Task | Plan Run 的提案经用户批准后保存在该 Run 的目标与完成条件；普通 Run 直接以用户请求为目标 |
 | Step | 一次 Run 内已提交的 Agent 决策或 Tool Action/Observation 周期；序号只在 Run 内递增 |
 | Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
 | Working Memory | 从已提交 Trajectory 的 accepted Patch 临时归约出的上下文 |
@@ -41,22 +41,23 @@ flowchart LR
 
 ## 主流程
 
-1. Launcher 校验 intent、Profile、协议组合和持久化依赖，创建 `phase: "executing"` 的 Goal；任务尚未批准时 `workflow.task` 缺省，默认不 materialize GoalPlan。
-2. `/plan` 作为控制 Effect 在安全边界进入 Plan Mode；GoalCoordinator 持有 GoalPlan，模型只在该模式获得计划更新分支，TUI 只读投影同一 Snapshot。
-3. Coordinator 调用统一 Runner。模型在同一决策协议中可以提问、提交普通只读 Tool Action、提出任务提案或请求历史 Context Lookup。
-4. `ask_user` 与 `task_proposal` 都保存为可恢复的 `pendingInteraction`。用户回答、批准或反馈后，Coordinator 先保存再继续；waiting 输入恢复同一 Run，completed 输入先归档历史并提交新 Run。
-5. 任务批准后，Runner 继续处理普通 Tool、Lookup、完成、等待和失败决策；Tool 权限、输入、Policy 与 Evidence 由 Runtime 再次校验。Plan Mode 下一个执行 Run 只承接一个 Todo，完成证据与 Todo completed 在同一提交边界写入。
-6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 通过 Store 提交通知和流式转录构造统一时间线。
+1. Launcher 校验 intent、Profile、协议组合和持久化依赖，默认创建普通 Run；GoalPlan 可缺省，也可保留已有计划。
+2. `/plan` 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成时，将一次性选择保存为 `nextRunMode`，由下一 Run 消费。
+3. Coordinator 调用统一 Runner。普通 Run 直接处理用户请求；Plan Run 的 Prompt 要求先提出任务提案，但 Runtime 仍按现有 Profile、Tool Policy 和 Action 审批授权已暴露的业务 Tool。
+4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 输入先归档历史并提交新 Run。
+5. 获批 Plan Run 可通过受模式能力授权的计划 Tool 更新 GoalPlan。一个 Run 可依次更新多个 Todo；标记 Todo 完成必须引用当前 Run 已提交 Observation。Run 终态独立于未完成 Todo，后者保留原状态且不会自动创建下一 Run。
+6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 从已提交的 Goal、Run 与计划状态投影交互面板和统一时间线。
 
 实时事件通过独立的 `execution-stream` Core 旁路发送：它只分配 Goal/Run 内 cursor、执行可见性过滤、增量合并和慢订阅者关闭，不拥有 Goal 状态转换、Trajectory 写入、Provider/Tool 调用或 UI 渲染。Runtime 负责把生命周期和提交边界映射成领域事件；Agent/LLM 负责把模型流归一化后发布；Tool 可选地发布输出分片；TUI 订阅这些通用事件并维护瞬时活动视图，恢复仍以 Snapshot/Trajectory 为准。
 
 ## 跨模块不变量
 
-- Goal workflow 只有 `executing`；`workflow.task` 缺省表示任务尚未批准，存在时表示已批准任务。
-- 未批准任务时，模型只能看到 `ask_user`、任务提案、Lookup 和显式只读 Tool；副作用 Tool 必须等任务批准。只读 Tool 仍走普通 `stage_action`、执行和 `observe_action`，并计入 Step。
+- Goal workflow 只有 `executing`；Run 持有 `mode` 和可选 `approvedTask`，GoalPlan 独立于当前模式。
+- 普通 Run 不产生任务审批等待；Plan Prompt 的提案顺序不是 Tool 硬门控，未批准前的业务 Tool 仍由既有 Profile、Tool Policy 和 Action 审批控制。
 - Runtime 独占状态转换、持久化、Tool 授权和 Evidence 校验；Agent 不保存 Goal，也不决定 Runtime ID、Step、Epoch 或审批状态。
 - `goalId` 定位 Session，`runId` 标识执行实例；恢复时二者必须同时匹配。
-- `Goal.mode` 与 `GoalPlan` 由 Runtime/Storage 持有；normal Goal 不包含 GoalPlan，Plan Mode 的一个执行 Run 只能绑定一个 Todo。
+- `/plan` 选择当前或下一 Run 的模式且只消费一次；后续 Run 只由用户新输入创建。
+- GoalPlan Todo 不绑定 Run；同一 Run 可以顺序推进多个 Todo，旧 Run 或未提交 Observation 不能完成 Todo。
 - 跨 Run 历史必须携带完整 `(goalId, runId)` 来源；旧 Run 的 Lookup 结果不能成为当前 Run 的完成 Evidence。
 - `pendingInteraction` 与 `pendingAction` 的等待点可持久化恢复；请求 ID、Goal/Run 身份和提交边界必须匹配。
 - Working Memory 只从已提交 Trajectory 重建；原始事实账本不被 Compact 覆盖。

@@ -48,8 +48,8 @@ function createPendingActionGoal(): Goal {
             ...initial.state,
             workflow: {
                 phase: "executing",
-                task,
             },
+            run: { ...initial.state.run, mode: "plan", approvedTask: task },
             messages: [],
         },
     };

@@ -3,11 +3,8 @@ import { test } from "node:test";
 
 import {
     assertValidGoalPlan,
-    bindGoalPlanTodo,
-    completeGoalPlanTodo,
     createEmptyGoalPlan,
     GoalPlanPatchError,
-    releaseGoalPlanTodo,
     reduceGoalPlan,
 } from "../src/index";
 
@@ -126,7 +123,7 @@ test("GoalPlan reducer exposes a stable domain error for malformed persisted sta
     );
 });
 
-test("Runtime binds, completes and releases one Todo with an exact Run identity", () => {
+test("GoalPlan lifecycle changes do not persist a Run identity", () => {
     const initial = reduceGoalPlan(createEmptyGoalPlan(), {
         baseRevision: 0,
         operations: [{ type: "add", content: "执行一个 Todo" }],
@@ -134,35 +131,31 @@ test("Runtime binds, completes and releases one Todo with an exact Run identity"
     assert.equal(initial.ok, true);
     if (!initial.ok) return;
 
-    const bound = bindGoalPlanTodo(initial.plan, "todo-1", "run-1");
-    assert.deepEqual(bound.items, [{
+    const started = reduceGoalPlan(initial.plan, {
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "in_progress" }],
+    });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    assert.deepEqual(started.plan.items, [{
         id: "todo-1",
         content: "执行一个 Todo",
         position: 0,
         status: "in_progress",
-        activeRunId: "run-1",
     }]);
-    assert.equal(bound.revision, 2);
+    assert.equal(started.plan.revision, 2);
 
-    const completed = completeGoalPlanTodo(bound, "todo-1", "run-1");
-    assert.deepEqual(completed.items, [{
+    const completed = reduceGoalPlan(started.plan, {
+        baseRevision: 2,
+        operations: [{ type: "update", id: "todo-1", status: "completed" }],
+    });
+    assert.equal(completed.ok, true);
+    if (!completed.ok) return;
+    assert.deepEqual(completed.plan.items, [{
         id: "todo-1",
         content: "执行一个 Todo",
         position: 0,
         status: "completed",
     }]);
-    assert.equal(completed.revision, 3);
-
-    assert.throws(
-        () => completeGoalPlanTodo(bound, "todo-1", "old-run"),
-        GoalPlanPatchError,
-    );
-
-    const retried = releaseGoalPlanTodo(bound, "todo-1", "run-1");
-    assert.deepEqual(retried.items, [{
-        id: "todo-1",
-        content: "执行一个 Todo",
-        position: 0,
-        status: "pending",
-    }]);
+    assert.equal(completed.plan.revision, 3);
 });

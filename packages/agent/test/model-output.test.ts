@@ -34,6 +34,7 @@ const executingNoToolBundle = createModelOutputContractBundle({
 const unapprovedBundle = createModelOutputContractBundle({
     kind: "executing",
     taskPresent: false,
+    planMode: true,
 });
 
 const checkpointBundle = createModelOutputContractBundle({

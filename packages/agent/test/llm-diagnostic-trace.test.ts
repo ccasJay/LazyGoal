@@ -46,14 +46,15 @@ function createGoalForPhase(): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: "验证诊断",
-                    completionCriteria: [{ text: "Trace 可读" }],
-                },
             },
             run: {
                 ...created.state.run,
                 status: "running",
+
+                mode: "plan", approvedTask: {
+                    objective: "验证诊断",
+                    completionCriteria: [{ text: "Trace 可读" }],
+                },
             },
         },
     };

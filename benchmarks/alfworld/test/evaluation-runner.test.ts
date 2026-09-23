@@ -273,26 +273,24 @@ function decision(content: unknown): string {
     return JSON.stringify(content);
 }
 
-function taskProposal(): unknown {
-    return {
-        kind: "task_proposal",
-        task: {
-            objective: "Complete ALFWorld task task-1",
-            completionCriteria: [{
-                text: "The environment reports won=true",
-                acceptance: null,
-            }],
-        },
-        approvalRequest: "Approve the ALFWorld task.",
-        memoryPatch: null,
+function latestObservationSequence(request: { readonly messages: readonly { readonly content: unknown }[] }): number {
+    const content = request.messages.at(-1)?.content;
+    if (typeof content !== "string") throw new TypeError("expected serialized execution context");
+    const context = JSON.parse(content) as {
+        trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
     };
+    const sequence = context.trajectoryContext?.hot
+        ?.flatMap((unit) => unit.events ?? [])
+        .filter((event) => event.eventType === "tool_finished")
+        .at(-1)?.sequence;
+    if (typeof sequence !== "number") throw new Error("current Run Observation was not included in model context");
+    return sequence;
 }
 
 test("ALFWorld adapter runs through the headless Root with authorized tools and facts", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         let closed = 0;
         const responses: unknown[] = [
-            taskProposal(),
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -304,17 +302,20 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
             {
                 kind: "complete",
                 summary: "environment won",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [24] }],
+                evidenceSequences: [],
             },
         ];
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => {
+                generate: async (request) => {
                     const next = responses.shift();
                     if (next === undefined) throw new Error("fake LLM responses exhausted");
-                    return { content: decision(next) };
+                    const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
+                        ? { ...next, evidenceSequences: [latestObservationSequence(request)] }
+                        : next;
+                    return { content: decision(output) };
                 },
             },
             renderer: { render: () => "system" },
@@ -363,7 +364,7 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 4 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
         });
         assert.equal(result.failure, undefined);
         assert.equal(closed, 1);
@@ -373,7 +374,6 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
 test("ALFWorld model completion without an environment win remains evaluator-owned", async () => {
     await withTempPersistence(async (persistenceRoot) => {
         const responses: unknown[] = [
-            taskProposal(),
             {
                 kind: "tool_call",
                 action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
@@ -381,7 +381,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             {
                 kind: "complete",
                 summary: "claimed",
-                completionEvidence: [{ criterionIndex: 0, evidenceSequences: [17] }],
+                evidenceSequences: [],
             },
         ];
         let responseIndex = 0;
@@ -389,9 +389,13 @@ test("ALFWorld model completion without an environment win remains evaluator-own
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: async () => ({
-                    content: decision(responses[responseIndex++ % responses.length]),
-                }),
+                generate: async (request) => {
+                    const next = responses[responseIndex++ % responses.length];
+                    const output = typeof next === "object" && next !== null && "kind" in next && next.kind === "complete"
+                        ? { ...next, evidenceSequences: [latestObservationSequence(request)] }
+                        : next;
+                    return { content: decision(output) };
+                },
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },
@@ -422,7 +426,7 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         assert.deepEqual(result.model, {
             runStatus: "completed",
             completed: true,
-            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 3 },
+            usage: { inputTokens: 0, outputTokens: 0, missingCalls: 2 },
         });
         assert.equal(result.failure, undefined);
 
@@ -441,20 +445,12 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: (() => {
-                    let calls = 0;
-                    return async () => {
-                        calls += 1;
-                        return {
-                            content: decision(calls === 1
-                                ? taskProposal()
-                                : {
-                                    kind: "tool_call",
-                                    action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
-                                }),
-                        };
-                    };
-                })(),
+                generate: async () => ({
+                    content: decision({
+                        kind: "tool_call",
+                        action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
+                    }),
+                }),
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },
@@ -504,11 +500,11 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
                         calls += 1;
                         return {
                             content: decision(calls === 1
-                                ? taskProposal()
-                                : {
+                                ? {
                                     kind: "tool_call",
                                     action: { actionId: "reset-1", toolId: "alfworld_reset", input: {} },
-                                }),
+                                }
+                                : { kind: "fail", error: "model failed" }),
                         };
                     };
                 })(),
@@ -530,17 +526,7 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
             profile,
             adapter: {
                 structuredOutputMode: "strict" as const,
-                generate: (() => {
-                    let calls = 0;
-                    return async () => {
-                        calls += 1;
-                        return {
-                            content: decision(calls === 1
-                                ? taskProposal()
-                                : { kind: "fail", error: "model failed" }),
-                        };
-                    };
-                })(),
+                generate: async () => ({ content: decision({ kind: "fail", error: "model failed" }) }),
             },
             renderer: { render: () => "system" },
             contextCompactor: { compact: async (units) => units },

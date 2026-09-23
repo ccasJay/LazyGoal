@@ -35,7 +35,7 @@ test("createGoal 创建直接进入 executing 阶段的全新 Goal，无 task，
     const goal = createGoal(buildSampleGoalInput());
 
     assert.equal(goal.state.workflow.phase, "executing");
-    assert.equal(goal.state.workflow.task, undefined);
+    assert.equal(goal.state.run.approvedTask, undefined);
     assert.equal(goal.state.run.status, "created");
     assert.equal(goal.state.run.stepCount, 0);
     assert.equal(goal.state.run.lastStep, undefined);
@@ -46,6 +46,7 @@ test("createGoal 创建直接进入 executing 阶段的全新 Goal，无 task，
 test("transition 处理 stage_interaction (ask_user) 进入 waiting，且不增加 Step", () => {
     let run: RunState = {
         id: "run-1",
+        mode: "normal",
         status: "running",
         stepCount: 0,
         committedThroughSequence: 0,
@@ -107,6 +108,7 @@ test("transition 处理 stage_interaction (ask_user) 进入 waiting，且不增�
 test("transition 处理 stage_interaction (task_approval) 进入 waiting，且与 pendingAction 互斥", () => {
     let run: RunState = {
         id: "run-1",
+        mode: "plan",
         status: "running",
         stepCount: 0,
         committedThroughSequence: 0,
@@ -115,6 +117,7 @@ test("transition 处理 stage_interaction (task_approval) 进入 waiting，且�
 
     const taskApprovalInteraction: PendingInteractionTaskApproval = {
         kind: "task_approval",
+        requestId: "proposal-1",
         proposal: {
             objective: "执行自动化测试",
             completionCriteria: [{ text: "全部通过" }],

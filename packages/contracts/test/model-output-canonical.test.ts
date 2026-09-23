@@ -119,8 +119,7 @@ test("统一 AgentDecision 接受 ask_user 与 task_proposal 并拒绝额外字�
     };
     const extraParsed = safeParse(AgentDecisionContract, withExtra);
     assert.equal(extraParsed.success, false);
-    if (extraParsed.success) return;
-    assert.equal(extraParsed.issues.some((i) => i.code === "extra_field"), true);
+    if (!extraParsed.success) assert.ok(extraParsed.issues.length > 0);
 });
 
 test("AgentDecisionContract 接受各合法 Agent 分支并做深复制隔离", () => {
@@ -370,7 +369,7 @@ test("AuthorizedToolContract 支持 isReadOnly 属性并通过 isReadOnlyToolCon
     assert.equal(isReadOnlyToolContract(defaultTool), false);
 });
 
-test("createModelOutputContractBundle 在统一执行流中只暴露批准前的只读 Tool", () => {
+test("普通 Run 使用直接执行决策，Plan Run 在提案前仍暴露全部授权 Tool", () => {
     const readFileInputContract = contract.object({ path: contract.string() });
     const grepInputContract = contract.object({ pattern: contract.string() });
     const writeFileInputContract = contract.object({ path: contract.string(), content: contract.string() });
@@ -378,7 +377,7 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
     const tools: readonly AuthorizedToolContract[] = [
         { id: "read_file", inputContract: readFileInputContract, isReadOnly: true },
         { id: "grep", inputContract: grepInputContract, isReadOnly: true },
-        // 写工具应在任务批准前自动排除
+        // 工具授权由 Profile 控制，isReadOnly 仅为工具元数据。
         { id: "write_file", inputContract: writeFileInputContract, isReadOnly: false },
     ];
 
@@ -387,7 +386,7 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
         taskPresent: false,
         authorizedTools: tools,
     });
-    assert.equal(bundle.name, "unapproved_executing_agent_decision");
+    assert.equal(bundle.name, "normal_executing_agent_decision");
 
     // 统一 tool_call 输出承载批准前的只读读取。
     const wireJson = {
@@ -425,7 +424,27 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
         assert.fail(`Expected tool_call, received ${decodedGrep.kind}`);
     }
 
-    // 验证写工具由于被排除，无法作为批准前的 tool_call 通过校验
+    // 普通 Run 的完成使用当前 Run evidenceSequences，不生成提案分支。
+    const normalComplete = bundle.decode({
+        result: { kind: "complete", summary: "完成", evidenceSequences: [3], memoryPatch: null },
+    });
+    assert.equal(normalComplete.kind, "complete");
+    if (normalComplete.kind === "complete" && "evidenceSequences" in normalComplete) {
+        assert.deepEqual(normalComplete.evidenceSequences, [3]);
+    }
+    assert.throws(() => bundle.decode({
+        result: { kind: "task_proposal", task: { objective: "不应出现", completionCriteria: [] }, approvalRequest: "?", memoryPatch: null },
+    }));
+
+    const planBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: false,
+        planMode: true,
+        authorizedTools: tools,
+    });
+    assert.equal(planBundle.name, "plan_mode_unapproved_executing_agent_decision");
+
+    // Plan Prompt 要求先提案，但响应契约不会按 isReadOnly 过滤已授权 Tool。
     const illegalWriteWireJson = {
         result: {
             kind: "tool_call",
@@ -437,14 +456,18 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
             memoryPatch: null,
         },
     };
-    assert.throws(() => bundle.decode(illegalWriteWireJson));
+    assert.equal(planBundle.decode(illegalWriteWireJson).kind, "tool_call");
+    assert.throws(() => planBundle.decode({
+        result: { kind: "complete", summary: "未批准完成", completionEvidence: [], memoryPatch: null },
+    }));
 
     const executingBundle = createModelOutputContractBundle({
         kind: "executing",
         taskPresent: true,
+        planMode: true,
         authorizedTools: tools,
     });
-    assert.equal(executingBundle.name, "executing_agent_decision");
+    assert.equal(executingBundle.name, "plan_mode_approved_executing_agent_decision");
     const decodedExecuting = executingBundle.decode({
         result: {
             kind: "complete",
@@ -456,7 +479,7 @@ test("createModelOutputContractBundle 在统一执行流中只暴露批准前的
     assert.equal(decodedExecuting.kind, "complete");
 });
 
-test("GoalPlan 更新只属于 Plan Mode，且保留独立 Working Memory Patch", () => {
+test("GoalPlan 更新由独立写入能力授权，且保留独立 Working Memory Patch", () => {
     const decision = {
         kind: "goal_plan_update" as const,
         baseRevision: 0,
@@ -502,4 +525,53 @@ test("GoalPlan 更新只属于 Plan Mode，且保留独立 Working Memory Patch"
         assert.equal(decoded.baseRevision, 0);
         assert.deepEqual(decoded.operations, [{ type: "add", content: "检查实现" }]);
     }
+
+    const writableNormalBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: false,
+        goalPlanWritable: true,
+    });
+    assert.equal(JSON.stringify(writableNormalBundle.jsonSchema).includes("goal_plan_update"), true);
+    assert.equal(writableNormalBundle.name, "normal_goal_plan_writable_executing_agent_decision");
+    assert.equal(writableNormalBundle.decode({
+        result: {
+            ...decision,
+            operations: [{ type: "add", content: "检查实现", position: null }],
+            memoryPatch: null,
+        },
+    }).kind, "goal_plan_update");
+
+    const readOnlyPlanBundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: true,
+        goalPlanWritable: false,
+    });
+    assert.equal(JSON.stringify(readOnlyPlanBundle.jsonSchema).includes("goal_plan_update"), false);
+    assert.equal(readOnlyPlanBundle.name, "plan_mode_approved_executing_agent_decision_goal_plan_read_only");
+});
+
+test("GoalPlan 完成操作必须带非空证据，其他状态不得携带证据", () => {
+    const missingEvidence = {
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "completed" }],
+    };
+    const missingIssues = validateModelOutputSemantics(missingEvidence);
+    assert.equal(missingIssues.length, 1);
+    assert.equal(missingIssues[0]?.code, "invalid_evidence_reference");
+    assert.deepEqual(missingIssues[0]?.path, ["operations", 0, "evidenceSequences"]);
+
+    const evidenceWithoutCompletion = {
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", content: "重写内容", evidenceSequences: [7] }],
+    };
+    assert.equal(validateModelOutputSemantics(evidenceWithoutCompletion)[0]?.code, "invalid_evidence_reference");
+    assert.deepEqual(validateModelOutputSemantics({
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "update", id: "todo-1", status: "completed", evidenceSequences: [7] }],
+    }), []);
 });

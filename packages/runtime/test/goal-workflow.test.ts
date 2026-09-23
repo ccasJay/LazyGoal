@@ -169,6 +169,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
             goalId: ref.goalId,
             intent: "Build resumable persistence",
             profileId: profile.id,
+            mode: "plan",
         },
         {
             profiles: new SingleProfileRegistry(),
@@ -182,7 +183,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     assert.equal(launched.phase, "executing");
     assert.equal(launched.waitingFor, "ask_user");
     assert.equal(launched.goal.state.run.stepCount, 0);
-    assert.equal(launched.goal.state.workflow.task, undefined);
+    assert.equal(launched.goal.state.run.approvedTask, undefined);
     assert.equal(launched.goal.state.run.pendingInteraction?.kind, "ask_user");
 
     const askUserInteraction = launched.goal.state.run.pendingInteraction;
@@ -213,8 +214,11 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
         assert.equal(proposed.goal.state.run.lastStep.action.actionId, "workflow-read-1");
         assert.equal(proposed.goal.state.run.lastStep.observation.kind, "success");
     }
-    assert.equal(proposed.goal.state.workflow.task, undefined);
+    assert.equal(proposed.goal.state.run.approvedTask, undefined);
     assert.equal(proposed.goal.state.run.pendingInteraction?.kind, "task_approval");
+    const pendingProposal = proposed.goal.state.run.pendingInteraction;
+    if (pendingProposal?.kind !== "task_approval") assert.fail("Expected a pending task proposal");
+    const requestId = pendingProposal.requestId;
 
     const trajectory = await trajectoryStoreFor(store).read({
         goalId: ref.goalId,
@@ -226,14 +230,14 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     events.length = 0;
     const blocked = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "approve_task" },
+        action: { kind: "approve_task", requestId },
     }));
 
     assert.equal(blocked.kind, "waiting");
     assert.equal(blocked.phase, "executing");
     assert.equal(blocked.waitingFor, "blocked");
     assert.equal(blocked.goal.state.run.stepCount, 2);
-    assert.deepEqual(blocked.goal.state.workflow.task, {
+    assert.deepEqual(blocked.goal.state.run.approvedTask, {
         objective: "Implement JSON session persistence",
         completionCriteria: [],
     });

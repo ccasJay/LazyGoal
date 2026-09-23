@@ -95,12 +95,7 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
         result: {
             kind: "complete",
             summary: "任务已完成",
-            completionEvidence: [
-                {
-                    criterionIndex: 0,
-                    evidenceSequences: [1, 2],
-                },
-            ],
+            evidenceSequences: [1, 2],
             memoryPatch: null, // optional 字段占位 null
         },
     };
@@ -117,7 +112,7 @@ test("decodeWireResult 递归消除 optional 占位 null，保留业务合法 nu
         result: {
             kind: "complete",
             summary: "任务已完成",
-            completionEvidence: [],
+            evidenceSequences: [],
             memoryPatch: {
                 protocolVersion: 1,
                 operations: [],
@@ -283,8 +278,8 @@ test("decodeWireResult 生成稳定深复制并隔离输入引用", () => {
 });
 
 test("createModelOutputContractBundle 支持统一执行请求与上下文检查点", () => {
-    const unapprovedBundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false });
-    assert.equal(unapprovedBundle.name, "unapproved_executing_agent_decision");
+    const unapprovedBundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false, planMode: true });
+    assert.equal(unapprovedBundle.name, "plan_mode_unapproved_executing_agent_decision");
     assert.equal("$schema" in unapprovedBundle.jsonSchema, false);
     assert(unapprovedBundle.shapeGuide.includes("Respond with a JSON object conforming to the following schema:"));
 
@@ -309,7 +304,7 @@ test("createModelOutputContractBundle 支持统一执行请求与上下文检查
     }
 
     const executingBundle = createModelOutputContractBundle({ kind: "executing" });
-    assert.equal(executingBundle.name, "executing_agent_decision");
+    assert.equal(executingBundle.name, "normal_executing_agent_decision");
     const executingDecoded = executingBundle.decode({
         result: {
             kind: "wait",

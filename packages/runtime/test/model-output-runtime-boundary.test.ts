@@ -42,11 +42,11 @@ function createExecutingGoal(id: string): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: "Test objective",
                     completionCriteria: [{ text: "Test criteria" }],
-                },
-            },
+                } },
         },
     };
 }

@@ -53,12 +53,11 @@ function createStepGoal(): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...goal.state.run, status: "running" , mode: "plan", approvedTask: {
                     objective: goal.definition.intent,
                     completionCriteria: [{ text: "The adapter receives the signal" }],
-                },
-            },
-            run: { ...goal.state.run, status: "running" },
+                } },
         },
     };
 }

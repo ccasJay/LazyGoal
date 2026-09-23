@@ -57,16 +57,17 @@ function createTestGoal(id: string, stepCount = 0): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: "Test objective",
-                    completionCriteria: [{ text: "Criteria 1" }],
-                },
             },
             run: {
                 ...created.state.run,
                 status: "running",
                 stepCount,
                 ...(lastStep !== undefined ? { lastStep } : {}),
+
+                mode: "plan", approvedTask: {
+                    objective: "Test objective",
+                    completionCriteria: [{ text: "Criteria 1" }],
+                },
             },
         },
     };

@@ -8,11 +8,12 @@ import {
     GoalCoordinator,
     InlineScheduler,
     Runner,
+    TrajectoryCheckpointCommitter,
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentProfile,
     CompletionCriterion,
@@ -81,6 +82,40 @@ class RecordingGoalStore implements GoalStore {
     }
 }
 
+class SaveLatchGoalStore implements GoalStore {
+    private readonly delegate = new InMemoryGoalStore();
+    private predicate: ((goal: Goal) => boolean) | undefined;
+    private enteredResolve!: () => void;
+    private releaseResolve!: () => void;
+    readonly entered = new Promise<void>((resolve) => {
+        this.enteredResolve = resolve;
+    });
+    private readonly released = new Promise<void>((resolve) => {
+        this.releaseResolve = resolve;
+    });
+
+    arm(predicate: (goal: Goal) => boolean): void {
+        this.predicate = predicate;
+    }
+
+    release(): void {
+        this.releaseResolve();
+    }
+
+    async save(goal: Goal): Promise<void> {
+        if (this.predicate?.(goal) === true) {
+            this.predicate = undefined;
+            this.enteredResolve();
+            await this.released;
+        }
+        await this.delegate.save(goal);
+    }
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return this.delegate.restore(goalId);
+    }
+}
+
 class FakeScheduler implements RunScheduler {
     readonly receivedRefs: RunRef[] = [];
     readonly receivedOptions: (RunExecutionOptions | undefined)[] = [];
@@ -135,6 +170,7 @@ function createAskUserWaitingGoal(): Goal {
             ],
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "ask_user",
@@ -180,6 +216,7 @@ function createTaskApprovalWaitingGoal(
             ],
             run: {
                 ...goal.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -347,11 +384,11 @@ function createExecutingGoal(
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: input.objective,
                     completionCriteria: input.completionCriteria.map((criterion) => ({ ...criterion })),
-                },
-            },
+                } },
             messages: [],
         },
     };
@@ -713,10 +750,83 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     assert.equal(executedActionId, "action-approval");
 });
 
+test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
+    for (const winner of ["plan", "run_started"] as const) {
+        const store = new SaveLatchGoalStore();
+        const initial = createInitialGoal();
+        await store.save(initial);
+        const trajectoryStore = new InMemoryTrajectoryStore();
+        const checkpointCommitter = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
+        const observedModes: string[] = [];
+        const runner = new Runner({
+            store,
+            trajectoryStore,
+            checkpointCommitter,
+            executor: {
+                async execute({ goal }) {
+                    observedModes.push(goal.state.run.mode);
+                    return goal.state.run.mode === "plan"
+                        ? {
+                            kind: "task_proposal",
+                            task: { objective: "完成本次请求", completionCriteria: [{ text: "请求已处理" }] },
+                            approvalRequest: "请批准任务提案",
+                        }
+                        : { kind: "wait", reason: "等待本次运行结束" };
+                },
+            },
+        });
+        const coordinator = new GoalCoordinator({
+            store,
+            trajectoryStore,
+            checkpointCommitter,
+            scheduler: new InlineScheduler(runner),
+        });
+        const ref = { goalId: initial.id, runId: initial.state.run.id };
+
+        if (winner === "plan") {
+            store.arm((saved) => saved.state.run.status === "created" && saved.state.run.mode === "plan");
+            const planPromise = coordinator.enterPlanMode(ref);
+            await store.entered;
+            const runPromise = runner.run(ref);
+            store.release();
+
+            const [planResult, runResult] = await Promise.all([planPromise, runPromise]);
+            assert.equal(planResult.ok, true);
+            assert.equal(runResult.ok, true);
+            if (runResult.ok) assert.equal(runResult.state.status, "waiting");
+            assert.deepEqual(observedModes, ["plan"]);
+            assert.deepEqual(trajectoryStore.events
+                .filter((event) => event.payload.type === "plan_mode_entered" || event.payload.type === "run_started")
+                .map((event) => event.payload.type), ["plan_mode_entered", "run_started"]);
+        } else {
+            store.arm((saved) => saved.state.run.status === "running");
+            const runPromise = runner.run(ref);
+            await store.entered;
+            const planPromise = coordinator.enterPlanMode(ref);
+            store.release();
+
+            const [runResult, planResult] = await Promise.all([runPromise, planPromise]);
+            assert.equal(runResult.ok, true);
+            if (runResult.ok) assert.equal(runResult.state.status, "waiting");
+            assert.deepEqual(observedModes, ["normal"]);
+            assert.deepEqual(planResult, {
+                ok: false,
+                error: {
+                    code: "PLAN_MODE_BUSY",
+                    message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+                },
+            });
+            assert.deepEqual(trajectoryStore.events
+                .filter((event) => event.payload.type === "plan_mode_entered" || event.payload.type === "run_started")
+                .map((event) => event.payload.type), ["run_started"]);
+        }
+    }
+});
+
 test("rejects Action controls with the wrong waiting type or actionId without side effects", async () => {
     const actions = [
         { kind: "message", content: "直接继续" },
-        { kind: "approve" },
+        { kind: "approve", requestId: "stale" },
         { kind: "approve_action", actionId: "action-other" },
         {
             kind: "reject_action",
@@ -785,7 +895,6 @@ test("saves an ask_user answer before continuing and preserves its original text
                 ...current.state,
                 workflow: {
                     phase: "executing" as const,
-                    task: { objective: "Done", completionCriteria: [] },
                 },
                 run: {
                     ...current.state.run,
@@ -795,6 +904,8 @@ test("saves an ask_user answer before continuing and preserves its original text
                         result: { kind: "complete" as const, summary: "Done", completionEvidence: [] },
                     },
                     stepCount: 1,
+
+                    mode: "plan" as const, approvedTask: { objective: "Done", completionCriteria: [] },
                 },
             },
         };
@@ -842,6 +953,7 @@ test("saves task proposal feedback without the current proposal before replannin
                 ...current.state,
                 run: {
                     ...current.state.run,
+                    mode: "plan" as const,
                     status: "waiting" as const,
                     pendingInteraction: {
                         kind: "task_approval" as const,
@@ -866,17 +978,27 @@ test("saves task proposal feedback without the current proposal before replannin
 
     const result = requireSuccess(await coordinator.resume({
         ref: { goalId: waiting.id, runId: waiting.state.run.id },
-        action: { kind: "message", content: "Encrypt snapshots at rest" },
+        action: {
+            kind: "feedback_task",
+            requestId: "prop-1",
+            feedback: "Encrypt snapshots at rest",
+        },
     }));
 
     assert.equal(result.kind, "waiting");
     assert.equal(result.phase, "executing");
     assert.equal(result.waitingFor, "task_approval");
-    assert.equal(result.goal.state.workflow.task, undefined);
+    assert.equal(result.goal.state.run.approvedTask, undefined);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_resumed",
+        "task_feedback_received",
         "state_committed",
     ]);
+    const feedbackEvent = trajectory.events.find((event) => event.eventType === "task_feedback_received");
+    assert.equal(
+        feedbackEvent?.payload.type === "task_feedback_received" ? feedbackEvent.payload.requestId : undefined,
+        "prop-1",
+    );
 });
 
 test("saves an approved proposal as the final task before scheduling execution", async () => {
@@ -892,10 +1014,8 @@ test("saves an approved proposal as the final task before scheduling execution",
     const scheduler = new FakeScheduler(async (ref) => {
         const approved = await store.restore(ref.goalId);
         assert.ok(approved);
-        assert.deepEqual(approved.state.workflow, {
-            phase: "executing",
-            task: proposal,
-        });
+        assert.deepEqual(approved.state.workflow, { phase: "executing" });
+        assert.deepEqual(approved.state.run.approvedTask, proposal);
         const completedRun = applyRunTransition(approved.state.run, {
             kind: "decision",
             decision: {
@@ -918,7 +1038,7 @@ test("saves an approved proposal as the final task before scheduling execution",
 
     const result = requireSuccess(await coordinator.resume({
         ref: { goalId: waiting.id, runId: waiting.state.run.id },
-        action: { kind: "approve" },
+        action: { kind: "approve", requestId: "prop-1" },
     }));
 
     assert.ok(events.indexOf("save:executing") < events.indexOf("schedule:goal-1"));
@@ -936,7 +1056,7 @@ test("rejects empty or mismatched task interactions without side effects", async
         },
         {
             goal: createAskUserWaitingGoal(),
-            action: { kind: "approve" } as const,
+            action: { kind: "approve", requestId: "stale" } as const,
             code: "INVALID_GOAL_INPUT",
         },
         {
@@ -946,7 +1066,7 @@ test("rejects empty or mismatched task interactions without side effects", async
         },
         {
             goal: createInitialGoal(),
-            action: { kind: "approve" } as const,
+            action: { kind: "approve", requestId: "stale" } as const,
             code: "GOAL_NOT_WAITING",
         },
     ] as const;
@@ -1082,7 +1202,7 @@ test("saves a blocked user message and running state before scheduling", async (
 
 test("rejects invalid blocked actions without saving or scheduling", async () => {
     for (const action of [
-        { kind: "approve" } as const,
+        { kind: "approve", requestId: "stale" } as const,
         { kind: "message", content: "   " } as const,
     ]) {
         const waiting = createExecutingWaitingGoal();

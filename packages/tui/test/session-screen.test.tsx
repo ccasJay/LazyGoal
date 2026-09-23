@@ -52,11 +52,11 @@ function executingGoal(id = "goal-executing"): Goal {
             ...created.state,
             workflow: {
                 phase: "executing",
-                task: {
+            },
+            run: { ...created.state.run, mode: "plan", approvedTask: {
                     objective: "Inspect the repository",
                     completionCriteria: [{ text: "Report the repository structure" }],
-                },
-            },
+                } },
         },
     };
 }
@@ -495,21 +495,20 @@ test("SessionScreen renders terminal summary and accepts input for the next Run"
     assert.deepEqual(events, ["message"]);
 });
 
-test("SessionScreen projects GoalPlan only in Plan Mode and marks the current Todo Run", () => {
+test("SessionScreen projects an existing GoalPlan in both Run modes without binding a Todo to the Run", () => {
     const goal = executingGoal("goal-plan-panel");
     const planGoal: Goal = {
         ...goal,
         state: {
             ...goal.state,
-            mode: "plan",
             goalPlan: {
                 revision: 2,
                 items: [
-                    { id: "todo-1", content: "Inspect sources", position: 0, status: "in_progress", activeRunId: goal.state.run.id },
+                    { id: "todo-1", content: "Inspect sources", position: 0, status: "in_progress" },
                     { id: "todo-2", content: "Write report", position: 1, status: "pending" },
                 ],
             },
-            run: { ...goal.state.run, todoId: "todo-1" },
+            run: { ...goal.state.run, mode: "plan" },
         },
     };
     const planFrame = render(
@@ -522,11 +521,11 @@ test("SessionScreen projects GoalPlan only in Plan Mode and marks the current To
     ).lastFrame() ?? "";
     assert.match(planFrame, /Plan/);
     assert.match(planFrame, /Inspect sources/);
-    assert.match(planFrame, /current Run/);
+    assert.doesNotMatch(planFrame, /current Run/);
 
     const normalGoal: Goal = {
         ...planGoal,
-        state: { ...planGoal.state, mode: "normal" },
+        state: { ...planGoal.state, run: { ...planGoal.state.run, mode: "normal" } },
     };
     const normalFrame = render(
         <SessionScreen
@@ -536,7 +535,7 @@ test("SessionScreen projects GoalPlan only in Plan Mode and marks the current To
             onRejectAction={() => undefined}
         />,
     ).lastFrame() ?? "";
-    assert.doesNotMatch(normalFrame, /Inspect sources/);
+    assert.match(normalFrame, /Inspect sources/);
 });
 
 const step1: UiStepSummary = {

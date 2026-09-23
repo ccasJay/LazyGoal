@@ -34,7 +34,6 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
             executionPolicy: { maxSteps: 30 },
         },
         state: {
-            mode: "normal",
             modelSelection: {
                 provider: "openai",
                 modelId: "gpt-4o",
@@ -43,10 +42,6 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
             },
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: intent,
-                    completionCriteria: [{ text: "done" }],
-                },
             },
             messages: [
                 { role: "user", content: intent },
@@ -74,6 +69,11 @@ function createValidSnapshotJson(id: string, intent: string, profileId = "test-p
                     number: 1,
                     conversationStartIndex: 0,
                     openedAtSequence: 1,
+                },
+
+                mode: "plan", approvedTask: {
+                    objective: intent,
+                    completionCriteria: [{ text: "done" }],
                 },
             },
             completedRuns: [],

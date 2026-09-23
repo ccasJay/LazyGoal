@@ -83,12 +83,13 @@ function createTestGoal(): Goal {
                 ...created.state,
                 workflow: {
                     phase: "executing",
-                    task: { objective: "测试任务", completionCriteria: [] },
                 },
                 run: {
                     ...created.state.run,
                     status: "running",
                     committedThroughSequence: 0,
+
+                    mode: "plan", approvedTask: { objective: "测试任务", completionCriteria: [] },
                 },
             },
         };

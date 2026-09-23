@@ -47,7 +47,9 @@ import {
  * @remarks
  * 该描述只包含 LazyGoal 构造 Goal 所需的通用字段，不应携带 benchmark 专用
  * Manifest、环境句柄或评分结果。`maxSteps` 直接冻结到 Goal 的执行策略中。
- * `completionCriteria` 支持简写纯文本字符串或携带验收声明的结构化 {@link CompletionCriterion}。
+ * `objective` 与 `completionCriteria` 会作为执行上下文提供给 Agent；Runtime 不会将
+ * benchmark completion criteria 转换为获批任务或 Run 完成门槛。`completionCriteria` 支持
+ * 简写纯文本字符串或携带验收声明的结构化 {@link CompletionCriterion}。
  *
  * @example
  * ```ts
@@ -68,9 +70,9 @@ import {
 export interface BenchmarkTaskDescriptor {
     /** 创建 Goal 时保存的原始任务意图。 */
     readonly intent: string;
-    /** 批准后冻结到 Goal 的任务目标。 */
+    /** 提供给 Agent 的 benchmark 任务目标上下文。 */
     readonly objective: string;
-    /** 批准后冻结到 Goal 的可验证完成条件，支持纯文本或结构化验收声明。 */
+    /** Agent 执行上下文与 Benchmark 环境评分输入；不成为 Runtime 完成门槛。 */
     readonly completionCriteria: readonly (string | CompletionCriterion)[];
     /** executing 阶段允许的最大 Step 数；`0` 表示不按数量限制。 */
     readonly maxSteps: number;
@@ -444,10 +446,10 @@ export interface HeadlessCompositionRootDependencies<TTask, TOutcome> {
  * 将一个 benchmark task 装配为完整 headless LazyGoal 执行。
  *
  * @remarks
- * Root 的边界是单 task、单次执行。它从统一 executing 生命周期开始，由模型提交
- * 任务提案，再由 headless 调用方自动批准并继续执行。所有 Runtime 组件共享
- * Persistence Adapter 返回的 Port 实例；Root 不解析 Manifest、环境协议或 benchmark
- * 评分。
+ * Root 的边界是单 task、单次普通 Run。descriptor 的目标与完成条件作为 Agent 执行
+ * 上下文传入；Root 不创建任务提案或批准任务，也不把完成条件作为 Runtime 门槛。
+ * 所有 Runtime 组件共享 Persistence Adapter 返回的 Port 实例；Root 不解析 Manifest、
+ * 环境协议或 benchmark 评分。
  *
  * @example
  * ```ts
@@ -575,11 +577,24 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                     : { protocolValidator: this.dependencies.protocolValidator }),
                 checkpointCommitter,
             });
-            const ref = { goalId, runId };
+            const intent = [
+                descriptor.intent,
+                "",
+                `Benchmark objective: ${descriptor.objective}`,
+                "Benchmark completion criteria (agent context; the environment outcome remains authoritative):",
+                ...descriptor.completionCriteria.map((criterion) => {
+                    const normalized = typeof criterion === "string" ? { text: criterion } : criterion;
+                    const acceptance = normalized.acceptance === undefined
+                        ? ""
+                        : ` (Acceptance: ${JSON.stringify(normalized.acceptance)})`;
+                    return `- ${normalized.text}${acceptance}`;
+                }),
+                "These criteria do not become Runtime completion requirements.",
+            ].join("\n");
             const launched = await launch(
                 {
                     goalId,
-                    intent: descriptor.intent,
+                    intent,
                     profileId: this.dependencies.profile.id,
                     maxSteps: descriptor.maxSteps,
                 },
@@ -596,12 +611,10 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
                 },
                 control,
             );
-            const progress = await this.approveTaskProposal(
-                launched,
-                coordinator,
-                ref,
-                options.signal,
-            );
+            if (!launched.ok) {
+                throw new Error(`${launched.error.code}: ${launched.error.message}`);
+            }
+            const progress = launched;
             const goal = await bindings.goalStore.restore(goalId);
 
             if (goal === undefined || goal.state.run.id !== runId) {
@@ -657,30 +670,6 @@ export class HeadlessCompositionRoot<TTask, TOutcome> {
         return result;
     }
 
-    private async approveTaskProposal(
-        launched: Awaited<ReturnType<typeof launch>>,
-        coordinator: Pick<GoalCoordinator, "resume">,
-        ref: { readonly goalId: string; readonly runId: string },
-        signal: AbortSignal | undefined,
-    ): Promise<GoalProgressResult> {
-        if (
-            !launched.ok
-            || launched.kind !== "waiting"
-            || launched.phase !== "executing"
-            || launched.waitingFor !== "task_approval"
-        ) {
-            if (launched.ok) return launched;
-            throw new Error(`${launched.error.code}: ${launched.error.message}`);
-        }
-
-        return coordinator.resume(
-            {
-                ref,
-                action: { kind: "approve_task" },
-            },
-            toExecutionControl(signal),
-        );
-    }
 }
 
 /**

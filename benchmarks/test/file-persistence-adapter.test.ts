@@ -202,7 +202,7 @@ test("reads trajectory using the latest Goal Snapshot boundary", async () => {
             runId: "run-1",
             phase: "executing",
             eventType: "run_waiting",
-            payload: { type: "run_waiting", reason: "task_approval" },
+            payload: { type: "run_waiting", reason: "task_approval", requestId: "request-1" },
         });
 
         const view = await readHeadlessTrajectoryAtSnapshot(

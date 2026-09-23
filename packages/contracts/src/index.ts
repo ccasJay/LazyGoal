@@ -41,6 +41,7 @@ export {
     BlockerCreateContract,
     BlockerUpdateContract,
     CompleteAgentDecisionContract,
+    NormalCompleteAgentDecisionContract,
     CompletionAcceptanceContract,
     CompletionEvidenceContract,
     CompletionCriterionContract,
@@ -162,6 +163,7 @@ export type {
 } from "./model-output/factory";
 export {
     SystemCompleteTaskDeclaration,
+    SystemCompleteRunDeclaration,
     SystemWaitForInputDeclaration,
     SystemFailGoalDeclaration,
     SystemContextLookupDeclaration,
@@ -175,6 +177,7 @@ export {
     decodePhaseToolCall,
 } from "./model-output/system-tools";
 export type {
+    AskUserTool,
     SystemToolDeclaration,
 } from "./model-output/system-tools";
 export {

@@ -57,7 +57,8 @@ export interface UiError {
  *
  * @remarks
  * 命令只描述用户意图，不携带 Goal 状态；Controller 负责读取最新快照并
- * 映射到 Launcher、Coordinator、Store 或 Catalog。
+ * 映射到 Launcher、Coordinator、Store 或 Catalog。任务批准和反馈命令必须携带
+ * 当前任务提案的 request ID，避免旧交互操作新提案。
  *
  * @example
  * ```ts
@@ -71,10 +72,10 @@ export type UiCommand =
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }
     | { readonly kind: "enterPlanMode" }
-    | { readonly kind: "approveTask"; readonly requestId?: string }
+    | { readonly kind: "approveTask"; readonly requestId: string }
     | {
         readonly kind: "feedbackTask";
-        readonly requestId?: string;
+        readonly requestId: string;
         readonly feedback: string;
     }
     | {
@@ -445,7 +446,7 @@ export interface UiSessionViewModel {
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
     readonly terminal?: UiTerminalSummary;
-    /** Plan Mode 下由 Goal Snapshot 投影的当前计划；普通模式始终省略。 */
+    /** Goal Snapshot 中已提交的当前计划；计划独立于 Run 模式显示。 */
     readonly goalPlan?: Goal["state"]["goalPlan"];
     readonly error?: UiError;
     readonly notice?: UiNotice;
@@ -757,11 +758,12 @@ export interface SessionCoordinator {
         control?: ExecutionControl,
     ) => Promise<GoalProgressResult>;
     /**
-     * 在安全等待边界进入后端 Plan Mode。
+     * 为未启动的当前 Run 或已完成 Run 的下一 Run 选择 Plan Mode。
      *
      * @param ref - 当前 Goal 与 Run 的关联键。
      * @param control - 可选调用级中止控制。
-     * @returns 模式切换后的等待点、终态或稳定错误。
+     * @returns 模式选择后的最新等待点、终态或稳定错误；`run_started` 已提交的普通
+     *   Run 不会被改写。
      * @example
      * ```ts
      * await coordinator.enterPlanMode({ goalId: "goal-1", runId: "run-1" });
