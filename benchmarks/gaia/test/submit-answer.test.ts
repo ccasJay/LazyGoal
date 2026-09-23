@@ -95,3 +95,8 @@ test("Worker 工具注册表包含且仅包含四个工具", () => {
     assert.equal(registry.get("grep"), undefined);
 });
 
+test("SubmitAnswerTool 声明 isReadOnly 为 true，确保在未提案阶段即可作为交卷探针调用", () => {
+    const tool = new SubmitAnswerTool({ taskId: "gaia-task-003" });
+    assert.equal(tool.definition.isReadOnly, true);
+});
+
