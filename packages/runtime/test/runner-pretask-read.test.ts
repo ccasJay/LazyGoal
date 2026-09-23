@@ -10,6 +10,7 @@ import {
     InMemoryToolRegistry,
     type AgentDecision,
     type AgentProfile,
+    type Goal,
     type StepExecutionInput,
     type StepExecutor,
     type Tool,
@@ -451,7 +452,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
 
 });
 
-test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且无 pendingAction", async () => {
+test("Plan 提案未批准时不按 isReadOnly 新增 Tool 门控，仍由 Tool Policy 决定", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
@@ -498,31 +499,294 @@ test("安全拦截: 任务未批准时非只读工具被拒绝，零副作用且
     });
     await store.save(goal);
 
-    stepExecutor.enqueue({
-        kind: "tool_call",
-        action: {
-            actionId: "action-write-forbidden",
-            toolId: "write_file",
-            input: { path: "hello.txt", content: "forbidden" },
+    stepExecutor.enqueue(
+        {
+            kind: "tool_call",
+            action: {
+                actionId: "action-write-before-proposal",
+                toolId: "write_file",
+                input: { path: "hello.txt", content: "authorized by policy" },
+            },
         },
-    });
+        {
+            kind: "task_proposal",
+            task: { objective: "继续完成请求", completionCriteria: [{ text: "文件已写入" }] },
+            approvalRequest: "请批准后续任务",
+        },
+    );
 
     const result = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(result.ok, true);
-    assert.equal(result.kind, "terminal");
-    if (result.kind === "terminal") {
-        assert.equal(result.goal.state.run.status, "failed");
+    assert.equal(result.kind, "waiting");
+    if (result.kind === "waiting") {
+        assert.equal(result.waitingFor, "task_approval");
     }
 
-    // 零副作用验证
-    assert.equal(writeExecuted, false);
-    assert.equal(policyEvaluated, false);
+    assert.equal(writeExecuted, true);
+    assert.equal(policyEvaluated, true);
 
-    // 验证持久化快照无 pendingAction 且 stepCount 为 0
+    // 工具结果已提交，提案等待点随后持久化；模式本身不授予或撤销 Tool 权限。
     const latestGoal = await store.restore(goal.id);
     assert.ok(latestGoal !== undefined);
-    assert.equal(latestGoal.state.run.stepCount, 0);
+    assert.equal(latestGoal.state.run.stepCount, 1);
     assert.equal(latestGoal.state.run.pendingAction, undefined);
+    assert.equal(latestGoal.state.run.pendingInteraction?.kind, "task_approval");
+});
+
+test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完成", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = trajectoryStoreFor(store);
+    let writeExecuted = false;
+    let policyEvaluated = false;
+    let step = 0;
+    const executor: StepExecutor = {
+        async execute({ goal: currentGoal }) {
+            step += 1;
+            if (step === 1) {
+                return {
+                    kind: "tool_call",
+                    action: {
+                        actionId: "action-normal-write",
+                        toolId: "write_file",
+                        input: { path: "direct.txt", content: "normal run" },
+                    },
+                };
+            }
+            const evidenceSequence = currentGoal.state.run.committedThroughSequence;
+            assert.ok(evidenceSequence !== undefined && evidenceSequence > 0);
+            return {
+                kind: "complete",
+                summary: "当前请求已完成",
+                evidenceSequences: [evidenceSequence],
+            };
+        },
+    };
+    const runner = new Runner({
+        store,
+        executor,
+        toolRegistry: new InMemoryToolRegistry([
+            createToolRegistration(createMockTool(WRITE_FILE_DEFINITION, {
+                async execute(input) {
+                    writeExecuted = true;
+                    return { kind: "success", output: input, summary: "wrote file" };
+                },
+            })),
+        ]),
+        toolPolicy: {
+            evaluate: () => {
+                policyEvaluated = true;
+                return "allow";
+            },
+        },
+        trajectoryStore,
+    });
+    const coordinator = new GoalCoordinator({ store, scheduler: new InlineScheduler(runner), trajectoryStore });
+    const goal = createGoal({
+        id: "goal-normal-direct-execution",
+        intent: "直接写入并验证请求",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-normal-direct-execution",
+    });
+    await store.save(goal);
+
+    const result = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "terminal");
+    if (result.kind === "terminal") assert.equal(result.goal.state.run.status, "completed");
+    assert.equal(writeExecuted, true);
+    assert.equal(policyEvaluated, true);
+    const persisted = await store.restore(goal.id);
+    assert.ok(persisted !== undefined);
+    assert.equal(persisted.state.run.mode, "normal");
+    assert.equal(persisted.state.run.approvedTask, undefined);
+    assert.equal(persisted.state.run.pendingInteraction, undefined);
+});
+
+test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation 时要求引用证据", async () => {
+    const pureStore = new InMemoryGoalStore();
+    const pureTrajectory = trajectoryStoreFor(pureStore);
+    const pureExecutor = new QueueStepExecutor();
+    pureExecutor.enqueue({ kind: "complete", summary: "无需外部工具即可回答", evidenceSequences: [] });
+    const pureRunner = new Runner({ store: pureStore, executor: pureExecutor, trajectoryStore: pureTrajectory });
+    const pureCoordinator = new GoalCoordinator({
+        store: pureStore,
+        scheduler: new InlineScheduler(pureRunner),
+        trajectoryStore: pureTrajectory,
+    });
+    const pureGoal = createGoal({
+        id: "goal-normal-pure-answer",
+        intent: "回答简单问题",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-normal-pure-answer",
+    });
+    await pureStore.save(pureGoal);
+    const pureResult = await pureCoordinator.advance({ goalId: pureGoal.id, runId: pureGoal.state.run.id });
+    assert.equal(pureResult.ok, true);
+    assert.equal(pureResult.kind, "terminal");
+    if (pureResult.kind === "terminal") assert.equal(pureResult.goal.state.run.status, "completed");
+
+    const observedStore = new InMemoryGoalStore();
+    const observedTrajectory = trajectoryStoreFor(observedStore);
+    const observedExecutor = new QueueStepExecutor();
+    observedExecutor.enqueue(
+        {
+            kind: "tool_call",
+            action: {
+                actionId: "action-normal-unreferenced",
+                toolId: "write_file",
+                input: { path: "observed.txt", content: "written" },
+            },
+        },
+        { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
+    );
+    const observedRunner = new Runner({
+        store: observedStore,
+        executor: observedExecutor,
+        toolRegistry: new InMemoryToolRegistry([
+            createToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
+        ]),
+        toolPolicy: { evaluate: () => "allow" },
+        trajectoryStore: observedTrajectory,
+    });
+    const observedCoordinator = new GoalCoordinator({
+        store: observedStore,
+        scheduler: new InlineScheduler(observedRunner),
+        trajectoryStore: observedTrajectory,
+    });
+    const observedGoal = createGoal({
+        id: "goal-normal-missing-evidence",
+        intent: "调用工具后完成",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-normal-missing-evidence",
+    });
+    await observedStore.save(observedGoal);
+    const observedResult = await observedCoordinator.advance({ goalId: observedGoal.id, runId: observedGoal.state.run.id });
+    assert.equal(observedResult.ok, true);
+    assert.equal(observedResult.kind, "terminal");
+    if (observedResult.kind === "terminal") {
+        assert.equal(observedResult.goal.state.run.status, "failed");
+        assert.equal(observedResult.goal.state.run.stopReason?.kind, "execution_error");
+        if (observedResult.goal.state.run.stopReason?.kind === "execution_error") {
+            assert.equal(observedResult.goal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
+            assert.match(observedResult.goal.state.run.stopReason.message, /must cite current Run Tool\/Observation evidence/);
+        }
+    }
+});
+
+test("普通 Run 继续允许 ask_user 形成可恢复等待点", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = trajectoryStoreFor(store);
+    const executor = new QueueStepExecutor();
+    executor.enqueue({
+        kind: "ask_user",
+        questions: [{
+            header: "部署环境",
+            question: "目标环境是什么？",
+            multiSelect: false,
+            options: [{ label: "测试" }, { label: "生产" }],
+        }],
+    });
+    const runner = new Runner({ store, executor, trajectoryStore });
+    const coordinator = new GoalCoordinator({ store, scheduler: new InlineScheduler(runner), trajectoryStore });
+    const goal = createGoal({
+        id: "goal-normal-ask-user",
+        intent: "部署应用",
+        promptBundleVersion: 1,
+        profile,
+        memoryProtocol: { kind: "structured", version: 1 },
+        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+        runId: "run-normal-ask-user",
+    });
+    await store.save(goal);
+
+    const result = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.kind, "waiting");
+    if (result.kind === "waiting") assert.equal(result.waitingFor, "ask_user");
+    const persisted = await store.restore(goal.id);
+    assert.ok(persisted !== undefined);
+    assert.equal(persisted.state.run.approvedTask, undefined);
+    assert.equal(persisted.state.run.pendingInteraction?.kind, "ask_user");
+});
+
+test("Runtime 按 Run 模式拒绝普通提案、普通 GoalPlan 更新与未批准 Plan 完成", async () => {
+    const runDecision = async (
+        id: string,
+        mode: "normal" | "plan",
+        decision: AgentDecision,
+        goalPlan?: Goal["state"]["goalPlan"],
+    ) => {
+        const store = new InMemoryGoalStore();
+        const trajectoryStore = trajectoryStoreFor(store);
+        const executor = new QueueStepExecutor();
+        executor.enqueue(decision);
+        const runner = new Runner({ store, executor, trajectoryStore });
+        const coordinator = new GoalCoordinator({ store, scheduler: new InlineScheduler(runner), trajectoryStore });
+        const created = createGoal({
+            id,
+            intent: "校验 Run 决策权限",
+            promptBundleVersion: 1,
+            profile,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+            runId: `${id}-run`,
+            mode,
+        });
+        const goal = goalPlan === undefined
+            ? created
+            : { ...created, state: { ...created.state, goalPlan } };
+        await store.save(goal);
+        const result = await coordinator.advance({ goalId: id, runId: goal.state.run.id });
+        assert.equal(result.ok, true);
+        assert.equal(result.kind, "terminal");
+        const persisted = await store.restore(id);
+        assert.ok(persisted !== undefined);
+        assert.equal(persisted.state.run.status, "failed");
+        return persisted;
+    };
+
+    const proposal = await runDecision("goal-normal-proposal-rejected", "normal", {
+        kind: "task_proposal",
+        task: { objective: "不应生成审批", completionCriteria: [] },
+        approvalRequest: "请批准",
+    });
+    assert.equal(proposal.state.run.pendingInteraction, undefined);
+    assert.equal(proposal.state.run.approvedTask, undefined);
+
+    const existingPlan = {
+        revision: 1,
+        items: [{ id: "todo-existing", content: "保持原样", position: 0, status: "pending" as const }],
+    };
+    const planUpdate = await runDecision("goal-normal-plan-update-rejected", "normal", {
+        kind: "goal_plan_update",
+        baseRevision: 1,
+        operations: [{ type: "add", content: "未授权修改" }],
+    }, existingPlan);
+    assert.deepEqual(planUpdate.state.goalPlan, existingPlan);
+
+    const earlyComplete = await runDecision("goal-plan-early-complete-rejected", "plan", {
+        kind: "complete",
+        summary: "未批准却完成",
+        completionEvidence: [],
+    });
+    assert.equal(earlyComplete.state.run.approvedTask, undefined);
+    assert.equal(earlyComplete.state.run.pendingInteraction, undefined);
 });
 
 test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step，但 ask_user 依然等待用户", async () => {

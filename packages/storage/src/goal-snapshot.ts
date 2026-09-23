@@ -147,6 +147,12 @@ export type GoalSnapshotStructuredDecisionResultV1 =
     | {
         readonly kind: "complete";
         readonly summary: string;
+        readonly evidenceSequences: readonly number[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
         readonly completionEvidence: readonly GoalSnapshotCompletionEvidenceV1[];
         readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
     }
@@ -636,7 +642,13 @@ const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
     }).strict(),
 ]);
 
-const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
+const StructuredDecisionResultSchema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        summary: NonEmptyStringSchema,
+        evidenceSequences: z.array(z.number().int().nonnegative()),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
     z.object({
         kind: z.literal("complete"),
         summary: NonEmptyStringSchema,

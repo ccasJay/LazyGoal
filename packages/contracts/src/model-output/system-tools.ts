@@ -10,7 +10,6 @@ import {
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
-    ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
@@ -190,6 +189,13 @@ export const SystemCompleteTaskInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
+/** 普通 Run 完成工具参数契约。 */
+export const SystemCompleteRunInputContract = contract.object({
+    summary: contract.string(),
+    evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
+    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
+});
+
 /** Executing 阶段挂起等待工具参数契约。 */
 export const SystemWaitForInputInputContract = contract.object({
     reason: contract.string(),
@@ -247,6 +253,18 @@ export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision>
         kind: "complete",
         summary: args.summary,
         completionEvidence: args.completionEvidence,
+        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
+    }),
+);
+
+export const SystemCompleteRunDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
+    "system_complete_task",
+    "Declare that the current Run's user request is complete. Cite current Run committed Tool/Observation evidence when available; do not cite user answers or historical facts.",
+    SystemCompleteRunInputContract,
+    (args: { summary: string; evidenceSequences: number[]; memoryPatch?: unknown }): AgentDecision => ({
+        kind: "complete",
+        summary: args.summary,
+        evidenceSequences: args.evidenceSequences,
         ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
     }),
 );
@@ -425,13 +443,14 @@ export function createExecutingToolDeclarations(
  * 构造统一执行流中的系统与业务工具声明集合。
  *
  * @remarks
- * 根据是否已批准最终任务进行门控：
- * - 任务未批准（计划期）：只暴露只读业务工具，系统工具仅允许 ask_user、task_proposal 和 context_lookup；
- * - 任务已批准（执行期）：暴露全部授权业务工具，系统工具允许 complete、wait、fail、context_lookup 和 ask_user。
+ * 按 Run 模式与任务审批状态派生决策工具：
+ * - 普通模式：暴露全部授权业务工具与普通完成、wait、fail、lookup、ask_user；
+ * - Plan 未批准：暴露全部授权业务工具与 ask_user、task_proposal、lookup；
+ * - Plan 已批准：暴露全部授权业务工具与逐条件完成、wait、fail、lookup、ask_user。
  *
  * @param authorizedTools - 当前 Goal 授权的业务工具列表。
  * @param taskPresent - 是否已批准固定 GoalTask。
- * @param planMode - 是否处于后端控制的 Plan Mode；为 true 时额外暴露 GoalPlan 更新工具。
+ * @param planMode - 是否处于当前 Run 的 Plan Mode；为 true 时暴露 GoalPlan 更新工具。
  * @returns 对应状态下的工具声明列表。
  *
  * @example
@@ -444,16 +463,26 @@ export function createUnifiedToolDeclarations(
     taskPresent: boolean,
     planMode = false,
 ): readonly SystemToolDeclaration<AgentDecision>[] {
-    if (!taskPresent) {
-        const readOnlyTools = authorizedTools
-            .filter(t => t.isReadOnly === true)
-            .map(t => createExecutingBusinessToolDeclaration(t));
+    if (!planMode) {
+        const businessTools = authorizedTools.map(t => createExecutingBusinessToolDeclaration(t));
         return [
-            ...readOnlyTools,
+            ...businessTools,
+            SystemCompleteRunDeclaration,
+            SystemWaitForInputDeclaration,
+            SystemFailGoalDeclaration,
+            SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
+            SystemAskUserDeclaration,
+        ];
+    }
+
+    if (!taskPresent) {
+        const businessTools = authorizedTools.map(t => createExecutingBusinessToolDeclaration(t));
+        return [
+            ...businessTools,
             SystemAskUserDeclaration,
             SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
-            ...(planMode ? [SystemUpdateGoalPlanDeclaration] : []),
+            SystemUpdateGoalPlanDeclaration,
         ];
     }
 

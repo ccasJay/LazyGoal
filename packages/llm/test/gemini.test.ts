@@ -119,8 +119,8 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
     assert.deepEqual(capturedInput.config?.responseSchema, dummySchema);
 });
 
-test("Gemini preserves valid native completion evidence without rewriting", async () => {
-    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [] });
+test("Gemini preserves valid Plan completion evidence without rewriting", async () => {
+    const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: true, planMode: true, authorizedTools: [] });
     const value = { result: { kind: "complete", summary: "Verified fix", memoryPatch: null,
         completionEvidence: [{ criterionIndex: 0, evidenceSequences: [96] }] } };
     const adapter = createAdapter("strict");
@@ -134,6 +134,8 @@ test("Gemini preserves valid native completion evidence without rewriting", asyn
 test("Gemini preserves and rejects invalid completion evidence formats", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
+        taskPresent: true,
+        planMode: true,
         authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
     });
     const adapter = createAdapter("strict");
@@ -213,7 +215,7 @@ test("Gemini normalizes tool call and removes extraneous summary field", async (
 });
 
 test("Gemini normalizes sentinel values and missing action into complete", async () => {
-    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [] });
+    const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: true, planMode: true, authorizedTools: [] });
     const text = JSON.stringify({
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
@@ -546,6 +548,8 @@ test("Gemini strict Schema generates nullable required properties and unconstrai
     try {
         const bundle = createModelOutputContractBundle({
             kind: "executing",
+            taskPresent: true,
+            planMode: true,
             authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
         });
         const adapter = createAdapter("strict");
@@ -585,6 +589,8 @@ test("Gemini strict Schema generates nullable required properties and unconstrai
 test("Gemini restores response and strips null properties for all branches", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
+        taskPresent: true,
+        planMode: true,
         authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
     });
     const adapter = createAdapter("strict");
@@ -691,7 +697,7 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
 });
 
 test("Gemini in two_stage mode restores sentinel values when structuredOutput is provided", async () => {
-    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [] });
+    const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: true, planMode: true, authorizedTools: [] });
     const text = JSON.stringify({
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
@@ -705,10 +711,11 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
     assert.equal(decoded.memoryPatch, undefined);
 });
 
-test("Gemini preserves unified read-only tool_call branch before task approval", async () => {
+test("Gemini preserves authorized Tool calls in Plan Mode before task approval", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
         taskPresent: false,
+        planMode: true,
         authorizedTools: [{
             id: "grep",
             inputContract: contract.object({

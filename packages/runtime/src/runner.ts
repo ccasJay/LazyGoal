@@ -303,13 +303,6 @@ function prepareToolAction(
         );
     }
 
-    if (goal.state.run.approvedTask === undefined && !registration.definition.isReadOnly) {
-        throw new RunnerExecutionError(
-            "TOOL_NOT_AUTHORIZED",
-            `Tool "${action.toolId}" is not allowed before task is approved: only read-only tools are allowed`,
-        );
-    }
-
     let prepared: PreparedToolResult;
 
     try {
@@ -1186,19 +1179,75 @@ export class Runner {
         decision: AgentDecision,
         session: WorkingMemorySession,
     ): void {
-        if (decision.kind !== "complete") return;
         if (goal.state.workflow.phase !== "executing") {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
-                "structured complete requires an executing Goal Task",
+                "structured decisions require an executing Goal",
             );
         }
 
+        const run = goal.state.run;
         const task = goal.state.run.approvedTask;
+        if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "task_proposal is only allowed before approval in Plan Mode",
+            );
+        }
+        if (decision.kind === "goal_plan_update" && run.mode !== "plan") {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "goal_plan_update requires Plan Mode",
+            );
+        }
+
+        if (run.mode === "plan" && task === undefined) {
+            if (["complete", "wait", "fail"].includes(decision.kind)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    `${decision.kind} is not allowed before a Plan task is approved`,
+                );
+            }
+            return;
+        }
+
+        if (decision.kind !== "complete") return;
+
+        if (run.mode === "normal") {
+            if (!("evidenceSequences" in decision) || !Array.isArray(decision.evidenceSequences)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "normal complete must include evidenceSequences",
+                );
+            }
+            if (decision.evidenceSequences.length > 0) {
+                try {
+                    session.validateEvidence(decision.evidenceSequences);
+                } catch (error) {
+                    throw new RunnerExecutionError(
+                        "INVALID_AGENT_DECISION",
+                        error instanceof Error ? error.message : String(error),
+                    );
+                }
+            }
+
+            const evidenceIndex = session.evidenceIndex;
+            const hasBusinessObservation = [...evidenceIndex.events.values()].some((event) =>
+                event.payload.type === "tool_finished",
+            );
+            if (hasBusinessObservation && decision.evidenceSequences.length === 0) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "normal complete must cite current Run Tool/Observation evidence",
+                );
+            }
+            return;
+        }
+
         if (task === undefined) {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
-                "structured complete requires an approved Goal Task",
+                "Plan complete requires an approved Goal Task",
             );
         }
 
@@ -1911,7 +1960,7 @@ export class Runner {
 
                     // 未批准任务时，当前协议尚未允许 fail Decision 形成执行 Step。
                     // 直接记录稳定执行错误，保持无任务快照仍满足 stepCount/lastStep 不变量。
-                    if (goal.state.run.approvedTask === undefined) {
+                    if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
@@ -2151,12 +2200,12 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "task_proposal") {
-                    if (goal.state.run.approvedTask !== undefined) {
+                    if (goal.state.run.mode !== "plan" || goal.state.run.approvedTask !== undefined) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
                                 "INVALID_AGENT_DECISION",
-                                "task_proposal is not allowed after task has already been approved",
+                                "task_proposal is only allowed before approval in Plan Mode",
                             ),
                             control,
                         );
@@ -2475,16 +2524,6 @@ export class Runner {
 
                 let terminalFact: TrajectoryEventDraft;
                 if (normalized.decision.kind === "complete") {
-                    if (goal.state.run.approvedTask === undefined) {
-                        return this.stopWithExecutionError(
-                            goal,
-                            new RunnerExecutionError(
-                                "INVALID_AGENT_DECISION",
-                                "complete decision is not allowed before task is approved",
-                            ),
-                            control,
-                        );
-                    }
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,

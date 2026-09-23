@@ -725,22 +725,11 @@ export const ToolCallAgentDecisionContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/**
- * 任务完成决策契约。
- *
- * @example
- * ```ts
- * const complete = {
- *     kind: "complete",
- *     summary: "全部完成",
- *     completionEvidence: [],
- * };
- * ```
- */
-export const CompleteAgentDecisionContract = contract.object({
+/** 普通 Run 的完成决策契约。 */
+export const NormalCompleteAgentDecisionContract = contract.object({
     kind: contract.literal("complete"),
     summary: contract.string(),
-    completionEvidence: contract.array(CompletionEvidenceContract),
+    evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
@@ -789,13 +778,30 @@ export const ExecutingToolCallAgentDecisionContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
-/** Executing 阶段任务完成决策契约。 */
+/** Plan Run 获批后的逐条件完成决策契约。 */
 export const ExecutingCompleteAgentDecisionContract = contract.object({
     kind: contract.literal("complete"),
     summary: contract.string(),
     completionEvidence: contract.array(CompletionEvidenceContract),
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
+
+/**
+ * 通用 Agent 完成决策契约，接受普通 Run 与已批准 Plan Run 的证据形状。
+ *
+ * @example
+ * ```ts
+ * const complete = {
+ *     kind: "complete",
+ *     summary: "已完成",
+ *     evidenceSequences: [12],
+ * };
+ * ```
+ */
+export const CompleteAgentDecisionContract = contract.union([
+    NormalCompleteAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
+]);
 
 /** Executing 阶段等待决策契约。 */
 export const ExecutingWaitAgentDecisionContract = contract.object({
@@ -1087,15 +1093,16 @@ export function validateAskUserAnswers(
  * 结构化 Agent 决策契约（不含 checkpoint）。
  *
  * @remarks
- * 覆盖普通 executing 轮次允许的全部分支：tool_call、complete、wait、fail、context_lookup、ask_user、task_proposal。
+ * 覆盖跨模式 executing 决策分支：tool_call、普通与 Plan complete、wait、fail、context_lookup、ask_user 和 task_proposal。
  *
  * @example
  * ```ts
  * const parsed = safeParse(StructuredAgentDecisionContract, decision);
  * ```
  */
-export const StructuredAgentDecisionContract = contract.discriminatedUnion("kind", [
+export const StructuredAgentDecisionContract = contract.union([
     ExecutingToolCallAgentDecisionContract,
+    NormalCompleteAgentDecisionContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
@@ -1108,22 +1115,39 @@ export const StructuredAgentDecisionContract = contract.discriminatedUnion("kind
 export type StructuredAgentDecision = InferContract<typeof StructuredAgentDecisionContract>;
 
 /**
- * 普通 Executing 决策契约（与 StructuredAgentDecisionContract 等价）。
+ * 普通模式可提交的 Executing 决策契约。
+ *
+ * @example
+ * ```ts
+ * const normalComplete = {
+ *     kind: "complete",
+ *     summary: "请求已完成",
+ *     evidenceSequences: [12],
+ * };
+ * ```
  */
-export const OrdinaryExecutingDecisionContract = StructuredAgentDecisionContract;
+export const OrdinaryExecutingDecisionContract = contract.union([
+    ExecutingToolCallAgentDecisionContract,
+    NormalCompleteAgentDecisionContract,
+    ExecutingWaitAgentDecisionContract,
+    ExecutingFailAgentDecisionContract,
+    ContextLookupRequestContract,
+    AskUserAgentDecisionContract,
+]);
 
 /**
  * 未授权任何 Tool 时的 Executing 决策契约。
  *
  * @remarks
- * 省略 tool_call 分支，允许 complete、wait、fail、context_lookup、ask_user 与 task_proposal。
+ * 省略 tool_call 分支，接受普通与 Plan 的无 Tool 决策形状；具体 Run 可用分支由请求级契约包限定。
  *
  * @example
  * ```ts
  * const parsed = safeParse(NonToolExecutingDecisionContract, decision);
  * ```
  */
-export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kind", [
+export const NonToolExecutingDecisionContract = contract.union([
+    NormalCompleteAgentDecisionContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
@@ -1136,7 +1160,7 @@ export const NonToolExecutingDecisionContract = contract.discriminatedUnion("kin
  * Plan Mode Executing 决策契约。
  *
  * @remarks
- * 在普通 Executing 分支之外允许 `goal_plan_update`；普通模式的契约包不会引用
+ * 仅包含 Plan Run 的执行分支，并允许 `goal_plan_update`；普通模式的契约包不会引用
  * 此分支，因此不能通过普通模型输出修改 GoalPlan。
  *
  * @example
@@ -1174,10 +1198,11 @@ export type PlanModeExecutingDecision = InferContract<typeof PlanModeExecutingDe
  * const parsed = safeParse(AgentDecisionContract, raw);
  * ```
  */
-export const AgentDecisionContract = contract.discriminatedUnion("kind", [
+export const AgentDecisionContract = contract.union([
     ModelContextCheckpointResultContract,
     ToolCallAgentDecisionContract,
-    CompleteAgentDecisionContract,
+    NormalCompleteAgentDecisionContract,
+    ExecutingCompleteAgentDecisionContract,
     WaitAgentDecisionContract,
     FailAgentDecisionContract,
     ContextLookupRequestContract,

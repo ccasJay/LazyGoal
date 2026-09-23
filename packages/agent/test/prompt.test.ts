@@ -79,6 +79,7 @@ function createUnapprovedGoal(
         profile,
         messages,
         runId: "run-1",
+        mode: "plan",
     });
 
     return {
@@ -447,7 +448,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     );
     assert.deepEqual(
         unapprovedProjectedTools.map((t: { id: string }) => t.id),
-        [GREP_TOOL_ID, READ_FILE_TOOL_ID],
+        CURRENT_TOOL_DEFINITIONS.map((tool) => tool.id).sort(),
     );
 });
 
@@ -511,7 +512,7 @@ test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后�
     ]);
 });
 
-test("未批准任务时根据 isReadOnly 动态投影只读 ToolDefinition 并排除写工具", async () => {
+test("Plan 未批准时保留全部已授权 ToolDefinition", async () => {
     const readOnlyTool: ToolDefinition = {
         id: "read_file",
         description: "读取文件",
@@ -536,7 +537,8 @@ test("未批准任务时根据 isReadOnly 动态投影只读 ToolDefinition 并�
     await stepRequest(createUnapprovedGoal(), tools, capturingRenderer);
 
     assert.ok(contexts.length > 0);
-    assert.ok(contexts.every((context) => context.authorizedTools.length === 1 && context.authorizedTools[0]?.id === "read_file"));
+    assert.ok(contexts.every((context) => context.authorizedTools.length === 2));
+    assert.deepEqual(contexts[0]?.authorizedTools.map((tool) => tool.id), ["read_file", "write_file"]);
     assert.notStrictEqual(contexts[0]?.authorizedTools[0], readOnlyTool);
     assert.notStrictEqual(contexts[0]?.authorizedTools[0]?.inputSchema, PATH_INPUT_CONTRACT);
     assert.equal(Object.isFrozen(contexts[0]?.authorizedTools[0]?.inputSchema), true);
@@ -642,7 +644,7 @@ test("请求构建返回成对的 request 与 bundle，未批准与已批准状�
         currentWorkingMemory,
         trajectoryContextAssembler,
     );
-    assert.equal(unapprovedPlan.bundle.name, "unapproved_executing_agent_decision");
+    assert.equal(unapprovedPlan.bundle.name, "plan_mode_unapproved_executing_agent_decision");
     assert.ok(unapprovedPlan.request.messages.length > 0);
 
     // 2. 已批准执行
@@ -655,7 +657,7 @@ test("请求构建返回成对的 request 与 bundle，未批准与已批准状�
         currentWorkingMemory,
         trajectoryContextAssembler,
     );
-    assert.equal(executingPlan.bundle.name, "plan_mode_executing_agent_decision");
+    assert.equal(executingPlan.bundle.name, "plan_mode_approved_executing_agent_decision");
 });
 
 test("prompt-only 模式在尾部动态控制消息末尾注入 Shape Guide，strict 模式不注入", async () => {
@@ -816,7 +818,7 @@ test("buildStepRequest populates structuredOutput in strict mode and omits in pr
     assert.equal(promptOnlyUnapprovedPlan.request.structuredOutput, undefined);
 });
 
-test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读工具并排除写操作与未知工具", async () => {
+test("buildStepRequest 在 Plan 提案前不按 isReadOnly 过滤 Profile 已授权工具", async () => {
     const mixedTools: readonly ToolDefinition[] = [
         // 1. 内置只读工具
         {
@@ -846,7 +848,7 @@ test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读
             inputContract: BASH_INPUT_CONTRACT,
             isReadOnly: false,
         },
-        // 4. 未声明只读性的未知扩展工具（应默认被安全排除）
+        // 4. 未声明只读性的扩展工具；传入列表表示已由 Profile 授权。
         {
             id: "unknown_side_effect_tool",
             description: "未知工具",
@@ -867,15 +869,12 @@ test("buildStepRequest 在未批准任务时根据 isReadOnly 动态筛选只读
     );
 
     const systemMsg = plan.request.messages.find(m => m.role === "system")?.content ?? "";
-    assert.ok(systemMsg.includes("read_file"), "未批准任务时应包含只读工具 read_file");
-    assert.ok(systemMsg.includes("web_search"), "未批准任务时应包含只读工具 web_search");
-    assert.ok(systemMsg.includes("custom_doc_search"), "未批准任务时应自动识别并包含扩展只读工具 custom_doc_search");
-    assert.ok(!systemMsg.includes("write_file"), "未批准任务时必须严格排除写操作工具 write_file");
-    assert.ok(!systemMsg.includes("bash"), "未批准任务时必须严格排除副作用工具 bash");
-    assert.ok(!systemMsg.includes("unknown_side_effect_tool"), "未批准任务时必须排除未声明只读性的工具");
+    for (const id of ["read_file", "web_search", "custom_doc_search", "write_file", "bash", "unknown_side_effect_tool"]) {
+        assert.ok(systemMsg.includes(id), `Profile 已授权的 ${id} 应保持暴露`);
+    }
 });
 
-test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划投影", async () => {
+test("GoalPlan Tool 仅在 Plan Mode 暴露，已存在的计划在普通模式仍投影", async () => {
     const created = createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
@@ -907,7 +906,7 @@ test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划
 
     const plan = await stepPlan(goal);
     assert.ok(plan.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"));
-    assert.match(plan.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
+    assert.match(plan.request.messages[0]?.content ?? "", /GoalPlan \(read-only projection/);
     assert.match(plan.request.messages[0]?.content ?? "", /todo-1/);
 
     const createdNormal = createGoal({
@@ -922,9 +921,12 @@ test("buildStepRequest 的 Plan Mode 同时暴露 GoalPlan 工具与只读计划
         ...createdNormal,
         state: {
             ...createdNormal.state,
+            goalPlan: { revision: 1, items: [{ id: "todo-1", content: "普通模式可见", position: 0, status: "pending" }] },
             run: { ...createdNormal.state.run, status: "running" },
         },
     });
     assert.equal(normal.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"), false);
-    assert.doesNotMatch(normal.request.messages[0]?.content ?? "", /GoalPlan \(Plan Mode/);
+    assert.match(normal.request.messages[0]?.content ?? "", /GoalPlan \(read-only projection/);
+    assert.match(normal.request.messages[0]?.content ?? "", /普通模式可见/);
+    assert.doesNotMatch(normal.request.messages[0]?.content ?? "", /system_update_goal_plan/);
 });

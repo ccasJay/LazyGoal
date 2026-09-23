@@ -765,7 +765,13 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
             executor: {
                 async execute({ goal }) {
                     observedModes.push(goal.state.run.mode);
-                    return { kind: "wait", reason: "等待本次运行结束" };
+                    return goal.state.run.mode === "plan"
+                        ? {
+                            kind: "task_proposal",
+                            task: { objective: "完成本次请求", completionCriteria: [{ text: "请求已处理" }] },
+                            approvalRequest: "请批准任务提案",
+                        }
+                        : { kind: "wait", reason: "等待本次运行结束" };
                 },
             },
         });

@@ -53,7 +53,7 @@ export interface ModelTask {
 }
 
 /**
- * Plan Mode 下模型可见的单个 GoalPlan Todo 投影。
+ * 模型可见的单个 GoalPlan Todo 投影。
  *
  * @example
  * ```ts
@@ -77,11 +77,12 @@ export interface ModelGoalPlanItem {
 }
 
 /**
- * Plan Mode 下 GoalPlan 的只读模型投影。
+ * GoalPlan 的只读模型投影，可在任何 Run 模式中查看。
  *
  * @remarks
- * 此对象只用于帮助模型构造带 `baseRevision` 的 Patch；GoalPlan 的状态变更仍由
- * Runtime reducer 原子提交，Working Memory 的 `plan` 不会混入此对象。
+ * 此对象可供模型查看已提交计划；只有当前模式暴露获授权更新 Tool 时，才可用它
+ * 构造带 `baseRevision` 的 Patch。GoalPlan 状态仍由 Runtime reducer 原子提交，
+ * Working Memory 的 `plan` 不会混入此对象。
  *
  * @example
  * ```ts
@@ -115,6 +116,11 @@ export type ModelStepRecord =
     | {
         readonly kind: "decision";
         readonly result:
+            | {
+                readonly kind: "complete";
+                readonly summary: string;
+                readonly evidenceSequences: readonly number[];
+            }
             | {
                 readonly kind: "complete";
                 readonly summary: string;
@@ -374,16 +380,23 @@ export type ModelContextLookupResult =
  *
  * @remarks
  * 该 DTO 只包含构建 system prompt 所需的稳定数据：Goal 冻结的 Prompt Bundle
- * 版本、当前业务阶段、冻结 Profile 与已授权 Tool 描述。它不包含 goalId、runId、
+ * 版本、当前业务阶段与 Run 模式、冻结 Profile 与已授权 Tool 描述。它不包含 goalId、runId、
  * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
  * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
  * 不得修改它或任何 Runtime 领域状态。
+ *
+ * @example
+ * ```ts
+ * const mode = promptContext.runMode;
+ * ```
  */
 export interface PromptContext {
     /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
     readonly promptBundleVersion: 1;
     /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
     readonly phase: PromptPhase;
+    /** 当前 Run 的决策模式，决定提案审批与完成证据协议。 */
+    readonly runMode: "normal" | "plan";
     /** 冻结 Profile 的模型可读投影。 */
     readonly profile: ModelProfileView;
     /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
@@ -408,7 +421,7 @@ export interface PromptContext {
      * ```
      */
     readonly task?: ModelTask;
-    /** Plan Mode 下 Goal 级结构化计划的只读投影；普通模式省略。 */
+    /** 已提交 Goal 级结构化计划的只读投影；仅不存在计划时省略。 */
     readonly goalPlan?: ModelGoalPlan;
 }
 

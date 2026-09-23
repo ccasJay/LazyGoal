@@ -262,32 +262,34 @@ test("ask_user 恢复: 校验 requestId 与 answers，合法提交后追加用�
     assert.ok(userMsg);
 });
 
-test("任务提案门控: 任务未批准时副作用写工具被硬拦截", async () => {
-    const { store, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
+test("Plan 提案前可按既有授权执行写工具，再持久化提案等待", async () => {
+    const { store, trajectoryStore, stepExecutor, coordinator, goal, ref } = createCoordinatorTestRig();
     await store.save(goal);
 
-    // 模型尝试直接调用非只读的 write_file 工具
-    stepExecutor.enqueue({
-        kind: "tool_call",
-        action: {
-            actionId: "act-write-1",
-            toolId: "write_file",
-            input: { path: "hello.txt", content: "forbidden" },
+    stepExecutor.enqueue(
+        {
+            kind: "tool_call",
+            action: {
+                actionId: "act-write-1",
+                toolId: "write_file",
+                input: { path: "hello.txt", content: "authorized" },
+            },
         },
-    });
+        {
+            kind: "task_proposal",
+            task: { objective: "继续处理请求", completionCriteria: [{ text: "写入完成" }] },
+            approvalRequest: "请批准继续执行",
+        },
+    );
 
     const result = await coordinator.advance(ref);
-    // 应该因为 TOOL_NOT_AUTHORIZED 导致失败终态或错误中断
     assert.equal(result.ok, true);
-    if (result.ok && result.kind === "terminal") {
-        assert.equal(result.goal.state.run.status, "failed");
-        assert.equal(result.goal.state.run.stopReason?.kind, "execution_error");
-        if (result.goal.state.run.stopReason?.kind === "execution_error") {
-            assert.equal(result.goal.state.run.stopReason.code, "TOOL_NOT_AUTHORIZED");
-        }
-    } else {
-        assert.fail("Expected terminal failure due to unauthorized write tool");
-    }
+    if (!result.ok || result.kind !== "waiting") assert.fail("Expected task approval waiting point");
+    assert.equal(result.waitingFor, "task_approval");
+    assert.equal(result.goal.state.run.pendingAction, undefined);
+    assert.equal(result.goal.state.run.pendingInteraction?.kind, "task_approval");
+    const events = await trajectoryStore.read(ref);
+    assert.ok(events.some((event) => event.eventType === "tool_finished"));
 });
 
 test("任务提案反馈: feedback_task 使旧提案失效，追加反馈消息并重新规划 (不计 Step)", async () => {

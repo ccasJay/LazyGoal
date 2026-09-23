@@ -56,6 +56,7 @@ function buildView(
         prompt: {
             promptBundleVersion: (options.promptBundleVersion ?? 1) as 1,
             phase: "executing",
+            runMode: "normal",
             profile,
             authorizedTools: options.authorizedTools ?? [],
             memoryProtocol: { kind: "structured" as const, version: 1 as const },

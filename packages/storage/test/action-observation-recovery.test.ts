@@ -141,6 +141,7 @@ test("跨进程 Action 生命周期按 pendingAction→Tool→Observation 顺序
         assert.deepEqual(parsed.observedActionIds, ["action-lifecycle"]);
         assert.deepEqual(parsed.events, [
             "restore",
+            "restore",
             "save:running:0:none",
             "executor:0",
             "save:running:0:approved",

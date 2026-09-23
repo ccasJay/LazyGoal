@@ -12,7 +12,7 @@
   - 验证方式：新增/更新 Coordinator、Slash Command 与 SessionController 场景测试（待实现），包括并发竞态的两种提交顺序；运行 `npx tsx --test packages/runtime/test/goal-coordinator.test.ts packages/slash-command/test/slash-command.test.ts packages/tui/test/session-controller.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 3. 按 Run 模式生成决策能力并执行 Runtime 授权
+- [x] //TODO 3. 按 Run 模式生成决策能力并执行 Runtime 授权
   - 实现目标：更新 Agent 决策契约、Plan Prompt/投影和 Runner；普通模式以当前用户请求直接执行，Plan Prompt 要求先提案，Runtime 不按 `isReadOnly` 新增审批前 Tool 门控，批准后按任务完成条件校验。
   - 成功判据：普通模式不产生任务提案等待，仍受 Tool Policy/Action 授权和当前 Run 证据校验；Plan Prompt 明确先提案再调用业务 Tool，但未批准时 Runtime 仍按既有授权规则处理 Tool；完成仍被拒，越权 GoalPlan 决策不改变计划；`ask_user` 在两种模式继续可用。
   - 验证方式：新增/更新 Prompt、Contract、Agent 投影和 Runner 测试（待实现），验证提示内容及“未批准本身不拒绝已授权 Tool”；运行 `npx tsx --test packages/contracts/test/model-output-canonical.test.ts packages/agent/test/model-inference-projector.test.ts packages/runtime/test/runner-pretask-read.test.ts packages/runtime/test/runner.test.ts`。

@@ -8,6 +8,7 @@ import {
     createUnifiedToolDeclarations,
     decodePhaseToolCall,
     SystemCompleteTaskDeclaration,
+    SystemCompleteRunDeclaration,
     SystemWaitForInputDeclaration,
     SystemFailGoalDeclaration,
     SystemAskUserDeclaration,
@@ -19,6 +20,7 @@ import {
 test("系统函数具有严格的参数 JSON Schema 定义", () => {
     for (const decl of [
         SystemCompleteTaskDeclaration,
+        SystemCompleteRunDeclaration,
         SystemWaitForInputDeclaration,
         SystemFailGoalDeclaration,
         SystemAskUserDeclaration,
@@ -77,14 +79,14 @@ test("Executing 阶段工具集合包含业务工具与系统终态工具", () =
         memoryPatch: null,
     });
     assert.equal(completeDecision.kind, "complete");
-    if (completeDecision.kind === "complete") {
+    if (completeDecision.kind === "complete" && "completionEvidence" in completeDecision) {
         assert.equal(completeDecision.summary, "Task finished");
         assert.equal(completeDecision.completionEvidence.length, 1);
         assert.equal(completeDecision.memoryPatch, undefined);
     }
 });
 
-test("任务批准前统一执行流仅挂载只读工具与交互系统工具", () => {
+test("Plan 提案前保留全部授权业务工具，但系统决策仅允许提案和交互", () => {
     const mixedTools = [
         {
             id: "read_file",
@@ -98,16 +100,16 @@ test("任务批准前统一执行流仅挂载只读工具与交互系统工具",
         },
     ];
 
-    const decls = createUnifiedToolDeclarations(mixedTools, false);
+    const decls = createUnifiedToolDeclarations(mixedTools, false, true);
     const ids = decls.map(d => d.id);
 
     assert.ok(ids.includes("read_file"));
-    assert.ok(!ids.includes("write_file"), "写工具绝不可出现在任务批准前");
+    assert.ok(ids.includes("write_file"), "Run 模式本身不新增业务 Tool 门控");
     assert.ok(ids.includes("ask_user"));
     assert.ok(ids.includes("system_propose_task_plan"));
     assert.ok(ids.includes("system_context_lookup"));
 
-    // 只读工具在统一执行流中就是普通 tool_call。
+    // Profile 已授权的业务工具仍作为普通 tool_call。
     const read = decodePhaseToolCall(decls, "read_file", { path: "README.md" });
     assert.equal(read.kind, "tool_call");
     if (read.kind === "tool_call") {
@@ -131,14 +133,14 @@ test("任务批准前统一执行流仅挂载只读工具与交互系统工具",
     }
 });
 
-test("任务批准前统一执行流挂载只读读取与任务提案工具", () => {
+test("Plan 提案前挂载获授权读取与任务提案工具", () => {
     const decls = createUnifiedToolDeclarations([
         {
             id: "grep",
             inputContract: contract.object({ pattern: contract.string() }),
             isReadOnly: true,
         },
-    ], false);
+    ], false, true);
     const ids = decls.map(d => d.id);
 
     assert.ok(ids.includes("grep"));
@@ -161,10 +163,10 @@ test("任务批准前统一执行流挂载只读读取与任务提案工具", ()
 });
 
 test("system_update_goal_plan 只在 Plan Mode 工具包中出现并保留 Memory Patch", () => {
-    const normal = createUnifiedToolDeclarations([], true, false);
+    const normal = createUnifiedToolDeclarations([], false, false);
     assert.equal(normal.some((decl) => decl.id === "system_update_goal_plan"), false);
 
-    const plan = createUnifiedToolDeclarations([], true, true);
+    const plan = createUnifiedToolDeclarations([], false, true);
     assert.equal(plan.some((decl) => decl.id === "system_update_goal_plan"), true);
 
     const decision = decodePhaseToolCall(plan, "system_update_goal_plan", {
@@ -182,6 +184,20 @@ test("system_update_goal_plan 只在 Plan Mode 工具包中出现并保留 Memor
     if (decision.kind === "goal_plan_update") {
         assert.deepEqual(decision.operations, [{ type: "add", content: "检查现有实现" }]);
         assert.equal(decision.memoryPatch?.operations.length, 1);
+    }
+});
+
+test("普通 Run 完成声明使用当前 Run 证据序列", () => {
+    const normal = createUnifiedToolDeclarations([], false, false);
+    const decision = decodePhaseToolCall(normal, "system_complete_task", {
+        summary: "Request completed",
+        evidenceSequences: [4],
+        memoryPatch: null,
+    });
+    assert.equal(decision.kind, "complete");
+    if (decision.kind === "complete" && "evidenceSequences" in decision) {
+        assert.deepEqual(decision.evidenceSequences, [4]);
+        assert.equal("completionEvidence" in decision, false);
     }
 });
 

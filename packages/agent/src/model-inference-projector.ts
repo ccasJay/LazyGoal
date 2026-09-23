@@ -4,7 +4,7 @@ import {
     type StepRecord,
     type WorkingMemory,
 } from "../../runtime/src/domain";
-import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
@@ -33,8 +33,8 @@ import { compareCodeUnits } from "./prompting/environment";
  * @remarks
  * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
  * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
- * Snapshot；Run 状态字段、Storage schemaVersion 与瞬时执行资源不会被投影。
- * 任务未批准时，自动过滤业务工具仅暴露只读工具。
+ * Snapshot；除模型决策所需的 Run 模式外，Storage schemaVersion 与瞬时执行资源不会被投影。
+ * 业务工具列表保持 Profile 授权结果，不按审批状态或 `isReadOnly` 分类过滤。
  *
  * @example
  * ```ts
@@ -46,7 +46,7 @@ export class ModelInferenceProjector {
      * 将 Goal 完整投影为单轮推理所需的不可变输入视图。
      *
      * @param goal - 当前处于 running executing 的完整 Goal。
-     * @param tools - Profile 授权且由 Runtime 解析出的 Tool 描述列表。未批准任务时只暴露只读工具。
+     * @param tools - Profile 授权且由 Runtime 解析出的 Tool 描述列表。
      * @param workingMemory - 当前 Goal 的即时 Working Memory。
      * @param trajectoryContext - 可选的分层历史轨迹上下文。
      * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果。
@@ -85,19 +85,16 @@ export class ModelInferenceProjector {
 
         const workingContext = this.projectWorkingContext(goal);
 
-        const projectedGoalPlan = goal.state.run.mode === "plan" && goal.state.goalPlan !== undefined
+        const projectedGoalPlan = goal.state.goalPlan !== undefined
             ? projectGoalPlan(goal.state.goalPlan)
             : undefined;
-
-        const effectiveTools = goal.state.run.approvedTask === undefined
-            ? tools.filter(isReadOnlyTool)
-            : tools;
 
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion: goal.definition.promptBundleVersion,
             phase: "executing",
+            runMode: goal.state.run.mode,
             profile: projectProfile(goal),
-            authorizedTools: projectTools(effectiveTools),
+            authorizedTools: projectTools(tools),
             memoryProtocol: projectMemoryProtocol(memoryProtocol),
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),

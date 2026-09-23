@@ -196,10 +196,14 @@ function encodeDecision(result: Exclude<StepRecord, { readonly kind: "action" }>
             return {
                 kind: "complete",
                 summary: result.summary,
-                completionEvidence: result.completionEvidence.map((evidence) => ({
-                    criterionIndex: evidence.criterionIndex,
-                    evidenceSequences: [...evidence.evidenceSequences],
-                })),
+                ...( "completionEvidence" in result
+                    ? {
+                        completionEvidence: result.completionEvidence.map((evidence) => ({
+                            criterionIndex: evidence.criterionIndex,
+                            evidenceSequences: [...evidence.evidenceSequences],
+                        })),
+                    }
+                    : { evidenceSequences: [...result.evidenceSequences] }),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) }),
@@ -514,10 +518,14 @@ function decodeDecision(result: GoalSnapshotDecisionResultV1): Exclude<StepRecor
             return {
                 kind: "complete",
                 summary: result.summary,
-                completionEvidence: result.completionEvidence.map((evidence) => ({
-                    criterionIndex: evidence.criterionIndex,
-                    evidenceSequences: [...evidence.evidenceSequences],
-                })),
+                ...( "completionEvidence" in result
+                    ? {
+                        completionEvidence: result.completionEvidence.map((evidence) => ({
+                            criterionIndex: evidence.criterionIndex,
+                            evidenceSequences: [...evidence.evidenceSequences],
+                        })),
+                    }
+                    : { evidenceSequences: [...result.evidenceSequences] }),
                 ...(result.memoryPatch === undefined
                     ? {}
                     : { memoryPatch: structuredClone(result.memoryPatch) as ExecutingWorkingMemoryPatch }),

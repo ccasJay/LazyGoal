@@ -113,7 +113,11 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
                 baseRevision: 0,
                 operations: [{ type: "add", content: "先建立清单" }],
             },
-            { kind: "wait", reason: "等待用户选择下一项" },
+            {
+                kind: "task_proposal",
+                task: { objective: "执行当前计划请求", completionCriteria: [{ text: "请求已完成" }] },
+                approvalRequest: "请批准执行目标",
+            },
         ]),
     });
 
@@ -121,9 +125,10 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.state.status, "waiting");
-    assert.equal(result.state.stepCount, 2);
+    assert.equal(result.state.stepCount, 1);
     const saved = await store.restore(initial.id);
     assert.equal(saved?.state.run.mode, "plan");
+    assert.equal(saved?.state.run.pendingInteraction?.kind, "task_approval");
     assert.deepEqual(saved?.state.goalPlan, {
         revision: 1,
         items: [{ id: "todo-1-1", content: "先建立清单", position: 0, status: "pending" }],

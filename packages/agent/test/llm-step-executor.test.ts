@@ -479,7 +479,7 @@ test("LLMStepExecutor 收到非 executing 阶段分支时严格拒绝且不重�
         (error: unknown) => {
             assert.ok(error instanceof LLMResponseProtocolError);
             assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
-            assert.match(error.message, /executing_agent_decision/);
+            assert.match(error.message, /plan_mode_approved_executing_agent_decision/);
             return true;
         },
     );
@@ -594,7 +594,7 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "INVALID_LLM_RESPONSE: 响应不符合 plan_mode_executing_agent_decision 契约",
+        message: "INVALID_LLM_RESPONSE: 响应不符合 plan_mode_approved_executing_agent_decision 契约",
     });
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);

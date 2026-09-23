@@ -79,6 +79,7 @@ export async function runAgentSmoke(
     const started = await launch({
         goalId: ref.goalId, profileId: profile.id,
         intent: "Verify connectivity by calling smoke_evidence once and completing with its observation. No other work is needed.",
+        mode: "plan",
         maxSteps: 3,
     }, {
         profiles: { get: id => id === profile.id ? profile : undefined },

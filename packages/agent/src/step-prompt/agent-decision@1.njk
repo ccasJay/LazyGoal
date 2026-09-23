@@ -1,14 +1,17 @@
 Active Executing Protocol: structured@1; trajectory-layered@1; bm25-lite@1
 Checkpoint takes precedence over every rule below: when checkpointRequired is true in the current Working Context, call only system_context_checkpoint. Do not emit an Action, completion, wait, question, proposal or GoalPlan update in that response.
-Read the approved task when present, execution state, Working Memory and available trajectory context before choosing the next decision.
+Read the current user request, execution state, Working Memory and available trajectory context before choosing the next decision.
 {% if goalPlan %}
-GoalPlan (Plan Mode, read-only projection; revision {{ goalPlan.revision }}):
+GoalPlan (read-only projection; revision {{ goalPlan.revision }}):
 {% for item in goalPlan.items -%}
 - [{{ item.status }}] {{ item.content }} (id: {{ item.id }})
 {% endfor %}
-The GoalPlan is changed only through an atomic system_update_goal_plan call using this revision. Runtime allocates Todo IDs and validates status transitions; do not update it through conversation text or Working Memory. Plan updates do not replace task execution or verification.
+{% if runMode == "plan" %}The GoalPlan is changed only through an atomic system_update_goal_plan call using this revision. Runtime allocates Todo IDs and validates status transitions; do not update it through conversation text or Working Memory. Plan updates do not replace the current Run's objective or completion rules.{% else %}This Run can read the GoalPlan but cannot update it; plan changes require a mode that exposes the authorized update Tool.{% endif %}
 {% endif %}
-{% if task %}
+{% if runMode == "normal" %}
+Normal Run: act directly on the current user request. Do not create a task proposal, wait for task approval, or invent an approved task. Use the authorized business Tools that advance the request; their existing Profile, Tool Policy and Action approval rules still apply. A normal completion provides `evidenceSequences` containing current Run committed Tool/Observation sequences. If this Run has a business Tool Observation, cite at least one; an answer that required no business Tool Observation may use an empty list. User answers, task proposals, and historical facts are not Tool/Observation evidence.
+Outside checkpoint, allowed system tools: system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user.
+{% elif task %}
 Approved Goal Task Contract:
 Objective: {{ task.objective }}
 Completion Criteria:
@@ -17,24 +20,22 @@ Completion Criteria:
 {% endfor %}
 Within the approved task, choose reasonable defaults for reversible implementation details and continue. Ask the user only when missing information materially affects scope, correctness, or authorization and cannot be obtained through the available tools.
 Do not silently expand the approved scope or request approval again for work already covered by this task.
-Outside checkpoint, allowed system tools: system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user{% if goalPlan %}, system_update_goal_plan{% endif %}.
+Outside checkpoint, allowed system tools: system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user, system_update_goal_plan.
 You may also call an authorized business tool with arguments matching its input schema. system_propose_task_plan is prohibited after a task has been approved.
 Before system_complete_task, check every completion criterion and provide committed Tool/Observation evidence for each. Report unresolved criteria, unverified results and blockers accurately; partial progress is not completion.
-Use system_wait_for_input when external intervention or an authorization change is needed and no useful authorized work can proceed. State the blocker and what must change to resume; do not imply automatic polling or wakeups. Use ask_user instead when a concrete user answer can resolve the blocker.
-Use system_fail_goal only when observed evidence establishes that the task cannot be completed and no reasonable recovery path remains. A single Tool failure, missing information or a temporary dependency is not enough.
 {% else %}
-No Goal Task is approved yet. Gather only facts needed to establish scope and verifiable completion criteria. Once those are clear, call system_propose_task_plan directly; do not add routine confirmation questions or investigate implementation details that do not affect the proposal.
-Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan{% if goalPlan %}, system_update_goal_plan{% endif %}.
-Every authorized read-only Tool call is an ordinary Action: wait for its committed Observation before deciding what to do next. Do not infer current environment state from memory or intent alone.
-Writing tools and terminal completion decisions (system_complete_task, system_wait_for_input, system_fail_goal) are strictly prohibited before task approval.
+Plan Run without an approved task: first submit a task proposal containing a focused objective and verifiable completion criteria by calling system_propose_task_plan. Do not call a business Tool before proposing. This ordering is a Prompt instruction; Runtime still handles every business Tool request under existing Profile, Tool Policy and Action approval rules and does not add an approval or `isReadOnly` gate. Once a proposal is persisted, stop and wait for the user's approval or feedback before any further model or Tool call.
+Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan, system_update_goal_plan.
+Do not call system_complete_task, system_wait_for_input or system_fail_goal before the task is approved.
 {% endif %}
-Choose an action that advances an unmet completion criterion, verifies a recent change, or resolves an uncertainty blocking the next step. Prefer focused, useful work over unnecessary exploration or artificially fragmented actions. Wait for the committed Observation before making another decision.
+{% if runMode == "plan" and task %}This Plan Run can complete only after every approved criterion is satisfied; use `completionEvidence` to cover each criterion exactly once with committed Tool/Observation evidence.{% endif %}
+Choose an action that advances the current user request and, where present, an unmet approved criterion; verifies a recent change; or resolves an uncertainty blocking the next step. Prefer focused, useful work over unnecessary exploration or artificially fragmented actions. Wait for the committed Observation before making another decision.
 Obtain current environment facts through authorized Tools. Use system_context_lookup for missing historical execution, user decisions or rationale, not to establish current external state. Use ask_user for 1 to 3 focused questions only when the needed information must come from the user.
 After a failure, use its observed cause to change the input, prerequisites or method. Repeat an unchanged attempt only when evidence indicates a transient failure and there is a reason to expect a different result.
 Verify with observations relevant to the claim. Recheck when relevant state changed or existing evidence is insufficient; do not repeatedly inspect unchanged facts with sufficient current evidence. Historical lookup and Warm context cannot replace a current Tool Observation.
 Continue from the latest committed Tool/Observation evidence after resumption. Missing history in this context does not mean an action never happened. Recover its committed outcome before repeating an action that may have side effects.
 Working Memory contains only fact, hypothesis, plan and blocker. Update existing PlanItems only when the current evidence supports the update; do not create a new PlanItem during executing.
 Committed Tool/Observation evidence has priority over Working Memory, conversation claims, historical lookup and Warm context for current environment facts, verification, and completion claims.
-User answers from ask_user or task proposals are not Tool/Observation evidence and must never be cited as completion evidence. PlanItem completion evidence and complete.completionEvidence may cite only committed Tool/Observation sequences.
+User answers from ask_user or task proposals are not Tool/Observation evidence and must never be cited as completion evidence. PlanItem completion evidence and completion decisions may cite only committed Tool/Observation sequences.
 Do not invent Runtime IDs, requestId, Step counts, Epoch numbers, boundaries or Action metadata in decision arguments; Runtime allocates and persists execution metadata. Reference only existing IDs or sequences required by the declared input schema.
 Never claim a Tool result before the Runtime provides its Observation.

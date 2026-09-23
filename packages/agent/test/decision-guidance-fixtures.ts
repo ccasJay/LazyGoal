@@ -50,7 +50,14 @@ export function decisionScenarioView(scenario: Scenario): ModelInferenceView {
     const base = createGoal({ ...currentProtocols, promptBundleVersion: 1, id: "decision-eval", runId: "run-1", intent: scenario.intent, profile });
     const goal: Goal = { ...base, state: { ...base.state,
         workflow: { phase: "executing", ...(scenario.approved ? { } : {}) },
-        run: { ...base.state.run, status: "running" , mode: "plan", approvedTask: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } },
+        run: {
+            ...base.state.run,
+            status: "running",
+            mode: "plan",
+            ...(scenario.approved
+                ? { approvedTask: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } }
+                : {}),
+        },
     } };
     const view = new ModelInferenceProjector().project(goal, decisionTools, currentWorkingMemory);
     const observation = scenario.observation;
@@ -98,10 +105,12 @@ export function scoreDecision(scenario: Scenario, decision: AgentDecision): bool
             && decision.task.completionCriteria.some(c => /Welcome|banner/i.test(c.text))
             && decision.task.completionCriteria.every(c => c.acceptance === undefined || decisionTools.some(t => t.id === c.acceptance?.expectToolId))
             && decision.approvalRequest.trim().length > 0;
-        case "complete": return decision.summary.trim().length > 0 && decision.completionEvidence.length === 1
+        case "complete": return decision.summary.trim().length > 0
+            && "completionEvidence" in decision
+            && decision.completionEvidence.length === 1
             && decision.completionEvidence[0]!.criterionIndex === 0
             && decision.completionEvidence[0]!.evidenceSequences.length > 0
-            && decision.completionEvidence[0]!.evidenceSequences.every(s => s === 3 || s === 4);
+            && decision.completionEvidence[0]!.evidenceSequences.every((sequence: number) => sequence === 3 || sequence === 4);
         case "context_checkpoint": return true;
         default: return false;
     }

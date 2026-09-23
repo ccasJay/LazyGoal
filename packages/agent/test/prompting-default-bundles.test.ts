@@ -20,19 +20,29 @@ const currentProtocols = {
 
 test("决策模板允许列表与真实系统工具声明一致，禁止列表不授予能力", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
-    for (const taskPresent of [false, true]) {
-        for (const planMode of [false, true]) {
+    for (const runMode of ["normal", "plan"] as const) {
+        const states = runMode === "plan" ? [false, true] : [false];
+        for (const taskPresent of states) {
             const text = renderer.render(context({
+                runMode,
                 ...(taskPresent ? { task: { objective: "Test", completionCriteria: [{ text: "Verified" }] } } : {}),
-                ...(planMode ? { goalPlan: { revision: 2, items: [] } } : {}),
+                ...(runMode === "plan" ? { goalPlan: { revision: 2, items: [] } } : {}),
             }));
             const allowed = text.match(/^Outside checkpoint, allowed system tools: (.+)\.$/m);
             assert.ok(allowed);
             assert.deepEqual(allowed[1]!.split(", ").sort(),
-                createUnifiedToolDeclarations([], taskPresent, planMode).map(tool => tool.id).sort());
+                createUnifiedToolDeclarations([], taskPresent, runMode === "plan").map(tool => tool.id).sort());
             assert.doesNotMatch(text, /system_ask_user|system_task_proposal|contextEpoch\.control|control\.status/);
-            if (taskPresent) assert.match(text, /system_propose_task_plan is prohibited/);
-            else assert.match(text, /terminal completion decisions .* strictly prohibited/);
+            if (runMode === "normal") {
+                assert.match(text, /act directly on the current user request/);
+                assert.doesNotMatch(text, /system_propose_task_plan/);
+            } else if (taskPresent) {
+                assert.match(text, /system_propose_task_plan is prohibited/);
+            } else {
+                assert.match(text, /first submit a task proposal/);
+                assert.match(text, /This ordering is a Prompt instruction/);
+                assert.match(text, /Do not call system_complete_task, system_wait_for_input or system_fail_goal/);
+            }
         }
     }
 });
@@ -59,6 +69,7 @@ function context(overrides: Record<string, unknown> = {}) {
     return {
         promptBundleVersion: 1 as const,
         phase: "executing" as const,
+        runMode: "normal" as const,
         profile: {
             id: "profile-1",
             systemPrompt: "system",
@@ -115,22 +126,29 @@ test("默认 Renderer 可编译当前模板并拒绝历史 Bundle", async () => 
     );
 });
 
-test("v1 Prompt 明确统一执行循环、证据边界与任务状态投影", async () => {
+test("v1 Prompt 按 Run 模式规定提案、完成与证据协议", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
 
-    // 1. 无 task（仍在收集事实并等待任务批准）
-    const unapproved = renderer.render(context({ task: undefined }));
-    assert.match(unapproved, /No Goal Task is approved yet/);
-    assert.match(unapproved, /Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan/);
-    assert.match(unapproved, /Every authorized read-only Tool call is an ordinary Action/);
-    assert.match(unapproved, /Writing tools and terminal completion decisions .* are strictly prohibited/);
+    const normal = renderer.render(context({ runMode: "normal" }));
+    assert.match(normal, /act directly on the current user request/);
+    assert.match(normal, /evidenceSequences/);
+    assert.match(normal, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user/);
+    assert.doesNotMatch(normal, /system_propose_task_plan|terminal completion decisions .* prohibited/);
+
+    // Plan 未批准：先提案是 Prompt 顺序约束，Runtime 仍使用既有工具授权。
+    const unapproved = renderer.render(context({ runMode: "plan" }));
+    assert.match(unapproved, /first submit a task proposal/);
+    assert.match(unapproved, /Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan, system_update_goal_plan/);
+    assert.match(unapproved, /This ordering is a Prompt instruction/);
+    assert.match(unapproved, /Runtime still handles every business Tool request under existing Profile, Tool Policy and Action approval rules/);
+    assert.match(unapproved, /Do not call system_complete_task, system_wait_for_input or system_fail_goal/);
     assert.match(unapproved, /Committed Tool\/Observation evidence has priority/);
     assert.match(unapproved, /User answers from ask_user or task proposals are not Tool\/Observation evidence/);
     assert.match(unapproved, /must never be cited as completion evidence/);
-    assert.doesNotMatch(unapproved, /Plan Phase|probe/i);
 
-    // 2. 有 task（已批准任务）
+    // Plan 获批：仍逐条件验证提案中固定的完成条件。
     const approved = renderer.render(context({
+        runMode: "plan",
         task: {
             objective: "实现目标",
             completionCriteria: [{ text: "标准1" }],
@@ -138,7 +156,8 @@ test("v1 Prompt 明确统一执行循环、证据边界与任务状态投影", a
     }));
     assert.match(approved, /Approved Goal Task Contract:/);
     assert.match(approved, /Objective: 实现目标/);
-    assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user/);
+    assert.match(approved, /system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user, system_update_goal_plan/);
+    assert.match(approved, /completionEvidence/);
     assert.match(approved, /Continue from the latest committed Tool\/Observation evidence/);
     assert.match(approved, /system_propose_task_plan is prohibited after a task has been approved/);
     assert.match(approved, /User answers from ask_user or task proposals are not Tool\/Observation evidence/);
@@ -180,8 +199,8 @@ test("Goal-stable 根前缀确定性渲染任务契约与决策分支", async ()
         objective: "完成测试目标",
         completionCriteria: [{ text: "标准1" }, { text: "标准2" }],
     };
-    const rendered1 = renderer.render(context({ phase: "executing", task }));
-    const rendered2 = renderer.render(context({ phase: "executing", task }));
+    const rendered1 = renderer.render(context({ phase: "executing", runMode: "plan", task }));
+    const rendered2 = renderer.render(context({ phase: "executing", runMode: "plan", task }));
 
     assert.equal(rendered1, rendered2);
     assert.match(rendered1, /Approved Goal Task Contract:/);

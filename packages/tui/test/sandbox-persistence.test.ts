@@ -46,12 +46,8 @@ function createMockAdapter(): LLMAdapter {
         generate: async () => ({
             content: JSON.stringify({
                 result: {
-                    kind: "task_proposal",
-                    task: {
-                        objective: "Run the sandbox persistence attempt",
-                        completionCriteria: [],
-                    },
-                    approvalRequest: "Approve the sandbox persistence attempt.",
+                    kind: "wait",
+                    reason: "Wait for the persistence attempt to be inspected.",
                     memoryPatch: null,
                 },
             }),
