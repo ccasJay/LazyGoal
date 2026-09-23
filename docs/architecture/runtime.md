@@ -2,15 +2,15 @@
 
 ## 摘要
 
-Runtime 是控制平面：拥有 Goal/Run/Step 状态、Goal 级 Plan Mode 与 GoalPlan、统一推进循环、Trajectory、结构化 Working Memory 和持久化 Port。它不构造 Prompt、不解析供应商格式，也不读取文件系统。
+Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan、统一推进循环、Trajectory、结构化 Working Memory 和持久化 Port。它不构造 Prompt、不解析供应商格式，也不读取文件系统。
 
 ## 职责速查
 
 | 组件 | 负责 | 不负责 |
 | --- | --- | --- |
-| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Task、Run、Action/Observation 和交互等待契约 | I/O 和模型调用 |
+| [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Run 模式与获批 Task、Action/Observation 和交互等待契约 | I/O 和模型调用 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
-| [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、Plan Mode 入口、waiting resume、completed continue、Run/ Todo 绑定、提交等待点并委派 Scheduler | 直接执行 Tool |
+| [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、Run 模式选择、waiting resume、completed continue、提交等待点并委派 Scheduler | 直接执行 Tool |
 | [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读 Tool、Tool 授权、Action/Observation、Evidence 和 Run 转换 | 供应商协议和 UI |
 | [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
@@ -21,18 +21,19 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Goal 级 Plan Mode 与 G
 
 ## 状态与推进
 
-Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存 `mode`、Plan Mode 下的 GoalPlan、完整 messages 和 `completedRuns`；Run 是一次执行边界，Step 是 Run 内已提交的一次推进。Goal 创建时可以没有 `workflow.task`；这表示模型尚未提出或用户尚未批准任务。批准后 Task 固定在 workflow 中。Run 独立保存 `status`、`stepCount`、最新 Step、`pendingAction`、`pendingInteraction`、Context Epoch、Trajectory 提交边界、Working Memory revision 和可选 `todoId`。
+Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 
-`/plan` 只通过 Coordinator 在安全边界把 Goal 切换为 Plan Mode 并 materialize GoalPlan。Plan Mode 下一个执行 Run 只绑定一个 Todo；Todo 完成与当前 Run 的完成证据在同一 Checkpoint 中提交。普通模式不会 materialize GoalPlan。
+无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
-waiting 输入调用 `resume` 并保留当前 Run；completed 输入调用 `continue`，在追加用户消息前归档上一 Run、保存新 Run，再交给现有 Scheduler。`continue` 不判断自然语言语义，也不会因为存在 pending Todo 自动启动下一 Run。
+waiting 输入调用 `resume` 并保留当前 Run；completed 输入调用 `continue`，在追加用户消息前归档上一 Run、保存新 Run，再交给现有 Scheduler。只有用户提交新输入才会创建后续 Run；未完成 Todo 不会自动推进。
 
-统一 Runner 根据模型决策推进：
+统一 Runner 按当前 Run 模式和获批任务推进：
 
-- 未批准任务：允许 `ask_user`、`task_proposal`、历史 Context Lookup 和 `isReadOnly` Tool；副作用 Tool 不会进入可执行分支。
-- 已批准任务：允许普通 Tool、Context Lookup、`complete`、`wait`、`fail` 和执行期 `ask_user`。
-- 只读 Tool 与副作用 Tool 统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径；任务批准前只开放只读 Tool，且每次完成的 `observe_action` 都计入 Step。
-- `task_proposal` 进入 `task_approval` 等待点；反馈移除当前提案并重新请求；批准把提案复制为最终 Task。
+- 普通 Run 直接以当前用户请求为目标，不等待任务提案；完成声明按当前 Run 已提交的 Tool/Observation Evidence 校验。
+- Plan Run 未批准时，Prompt 要求先提交 `task_proposal`，但 Runtime 不以 `isReadOnly` 或未批准状态增加业务 Tool 门控；现有 Profile、Tool Policy 和 Action 审批仍决定 Tool 权限。该 Run 在获批前不能完成。
+- 提案进入持久化的 `task_approval` 等待点后停止模型和 Tool 调用；反馈使旧提案失效并重新请求，批准后将任务保存在当前 Run 的 `approvedTask`。
+- 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
+- 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
 
 每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
@@ -43,11 +44,11 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-
 
 Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 的消息区间和提交边界只描述历史，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
-`pendingInteraction` 保存问卷/任务提案的完整请求、模式和关联 ID；恢复时必须验证 Goal、Run、request ID 与当前等待状态。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
+`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 
 ## 关键错误边界
 
-- AgentDecision 无法通过当前 Wire/Canonical Contract、Evidence 或当前 task 门控时，返回 `INVALID_AGENT_DECISION`，不执行副作用。
+- AgentDecision 无法通过当前 Wire/Canonical Contract、Evidence 或 Run 模式能力校验时，返回 `INVALID_AGENT_DECISION`，不执行由该决策请求的副作用。
 - Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
 - Context Lookup 只允许历史 Conversation、执行事实或决策理由；结果保留来源 Run 边界，旧 Run 的命中不能成为当前 Run 的完成 Evidence；当前环境必须重新调用 Tool。
