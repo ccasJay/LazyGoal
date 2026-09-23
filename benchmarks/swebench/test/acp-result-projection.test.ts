@@ -204,53 +204,29 @@ function completionAdapter(): LLMAdapter {
         structuredOutputMode: "strict",
         generate: async (request) => {
             calls += 1;
-            if (calls === 1) {
-                return {
-                    content: JSON.stringify({
-                        result: taskProposalDecision(),
-                    }),
-                };
-            }
-            if (calls === 2) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
+            if (calls === 1) return { content: JSON.stringify({ result: toolDecision("write-1") }) };
             const context = JSON.parse(request.messages.at(-1)?.content ?? "{}") as {
                 trajectoryContext?: { hot?: readonly { events?: readonly { eventType?: string; sequence?: number }[] }[] };
             };
             const sequence = context.trajectoryContext?.hot
                 ?.flatMap((unit) => unit.events ?? [])
-                .filter((event) => event.eventType === "observation_recorded")
+                .filter((event) => event.eventType === "tool_finished")
                 .at(-1)?.sequence;
-            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [sequence] }], memoryPatch: null } }) };
+            return { content: JSON.stringify({ result: { kind: "complete", summary: "done", evidenceSequences: [sequence], memoryPatch: null } }) };
         },
     };
 }
 
 function oneToolAdapter(): LLMAdapter {
-    let calls = 0;
     return {
         structuredOutputMode: "strict",
         generate: async () => {
-            calls += 1;
             return {
                 content: JSON.stringify({
-                    result: calls === 1 ? taskProposalDecision() : toolDecision("write-max"),
+                    result: toolDecision("write-max"),
                 }),
             };
         },
-    };
-}
-
-function taskProposalDecision(): unknown {
-    return {
-        kind: "task_proposal",
-        task: {
-            objective: "Resolve the reported issue",
-            completionCriteria: [{
-                text: "The requested repository change is implemented and verified in /testbed.",
-                acceptance: null,
-            }],
-        },
-        approvalRequest: "Approve the repository task.",
-        memoryPatch: null,
     };
 }
 

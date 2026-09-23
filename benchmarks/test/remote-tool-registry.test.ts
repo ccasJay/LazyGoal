@@ -55,7 +55,7 @@ function createMemoryPipe(): {
 }
 
 function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile): Goal {
-    const created = createGoal({
+    return createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
         id: goalId,
@@ -64,19 +64,6 @@ function createTestGoal(goalId: string, runId: string, runProfile: AgentProfile)
         runId,
         maxSteps: 3,
     });
-    return {
-        ...created,
-        state: {
-            ...created.state,
-            workflow: {
-                phase: "executing",
-                task: {
-                    objective: "Test remote execution",
-                    completionCriteria: [],
-                },
-            },
-        },
-    };
 }
 
 test("remote ToolRegistration 的 prepare 阶段绝不向 Worker 发送 execute 消息", async () => {
@@ -156,10 +143,15 @@ test("真实 Runner 驱动远端代理执行工具，宿主同名工具不被调
                 };
             }
 
+            const latestObservation = [...trajectoryStore.events].reverse().find((event) =>
+                event.goalId === input.goal.id
+                && event.runId === input.goal.state.run.id
+                && event.eventType === "tool_finished");
+            if (latestObservation === undefined) throw new Error("remote Tool Observation was not committed");
             return {
                 kind: "complete",
                 summary: "Remote read verified",
-                completionEvidence: [],
+                evidenceSequences: [latestObservation.sequence],
             };
         },
     };

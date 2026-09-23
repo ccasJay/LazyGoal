@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentDecision, LLMAdapter, StepExecutionInput, StepExecutor } from "../../packages/agent/src/index.js";
 import type { ExitPort } from "../../packages/runtime/src/index.js";
+import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     runTuiWithSandbox,
     type EnvironmentSpec,
@@ -77,47 +78,22 @@ const mockAdapter: LLMAdapter = {
         mockAdapterCalls.set(key, calls);
         return {
             content: JSON.stringify({
-                result: calls === 1
-                    ? taskProposalWire("Fixed")
-                    : {
-                        kind: "complete",
-                        summary: "Done",
-                        completionEvidence: [],
-                        memoryPatch: null,
-                    },
+                result: {
+                    kind: "complete",
+                    summary: "Done",
+                    evidenceSequences: [],
+                    memoryPatch: null,
+                },
             }),
         };
     },
 };
 
-function taskProposalWire(objective: string): Record<string, unknown> {
-    return {
-        kind: "task_proposal",
-        task: { objective, completionCriteria: [] },
-        approvalRequest: "Approve the benchmark task.",
-        memoryPatch: null,
-    };
-}
-
-function taskProposalDecision(objective: string): AgentDecision {
-    return {
-        kind: "task_proposal",
-        task: { objective, completionCriteria: [] },
-        approvalRequest: "Approve the benchmark task.",
-    };
-}
-
-function withTaskProposal(
+function withDirectExecution(
     next: (input: StepExecutionInput) => Promise<AgentDecision> | AgentDecision,
-    objective = "Fixed",
 ): StepExecutor {
-    let proposed = false;
     return {
         async execute(input) {
-            if (!proposed) {
-                proposed = true;
-                return taskProposalDecision(objective);
-            }
             return next(input);
         },
     };
@@ -224,7 +200,7 @@ test("参数校验：非法 mode 或空 outputDirectory 在容器创建前快速
     assert.equal(calls.length, 0);
 });
 
-test("正常完成：auto 模式下自动通过任务提案，执行完成并收集产物，删除容器并返回退出码 0", async (t) => {
+test("正常完成：auto 模式直接运行普通 Run 并收集产物", async (t) => {
     const outputDir = await mkdtemp(join(tmpdir(), "runner-normal-"));
     t.after(() => rm(outputDir, { recursive: true, force: true }));
 
@@ -243,11 +219,11 @@ test("正常完成：auto 模式下自动通过任务提案，执行完成并收
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             return {
                 kind: "complete",
                 summary: "Task finished successfully",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
         });
 
@@ -300,7 +276,7 @@ test("Ctrl-C/SIGINT：执行中收到 SIGINT 冻结 Gate，中止执行，有界
     };
 
     // 模拟长时间执行中的 StepExecutor，在执行中触发 SIGINT
-    const mockExecutor = withTaskProposal(async (input: StepExecutionInput) => {
+    const mockExecutor = withDirectExecution(async (input: StepExecutionInput) => {
             calls.push("executor:step");
             // 触发 SIGINT 模拟用户按 Ctrl-C
             process.emit("SIGINT");
@@ -364,11 +340,11 @@ test("清理失败：环境容器删除失败时返回退出码 1，status 为 i
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             return {
                 kind: "complete",
                 summary: "Done",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
         });
 
@@ -402,12 +378,9 @@ test("清理失败：环境容器删除失败时返回退出码 1，status 为 i
     assert.ok(result.errors.length > 0);
 });
 
-test("统一执行流：模型任务提案获批后继续执行", async (t) => {
+test("auto 与 review 都直接执行普通 Run，不创建或批准任务提案", async (t) => {
     const outputDir = await mkdtemp(join(tmpdir(), "runner-det-prep-"));
     t.after(() => rm(outputDir, { recursive: true, force: true }));
-
-    const calls: string[] = [];
-    const container = customContainer(calls);
 
     const spec: EnvironmentSpec<{ id: string }, null> = {
         benchmarkId: "swebench",
@@ -420,45 +393,59 @@ test("统一执行流：模型任务提案获批后继续执行", async (t) => {
         },
     };
 
-    const mockExecutor = withTaskProposal(async (input: StepExecutionInput) => {
+    for (const mode of ["auto", "review"] as const) {
+        const calls: string[] = [];
+        const store = new InMemoryGoalStore();
+        const mockExecutor = withDirectExecution(async (input: StepExecutionInput) => {
             calls.push("executor:step");
-            // 验证任务提案获批后仍处于统一 executing 生命周期
             assert.equal(input.goal.state.workflow.phase, "executing");
-            assert.equal(input.goal.state.workflow.task?.objective, "Fix bug");
+            assert.equal(input.goal.state.run.mode, "normal");
+            assert.equal(input.goal.state.run.approvedTask, undefined);
+            assert.match(input.goal.state.messages[0]?.content ?? "", /Fix bug/);
+            assert.match(input.goal.state.messages[0]?.content ?? "", /Criteria 1/);
             return {
                 kind: "complete",
                 summary: "Deterministic execution finished",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
-        }, "Fix bug");
+        });
 
-    const result = await runTuiWithSandbox({
-        benchmarkId: "swebench",
-        goalId: "unique-goal-123",
-        runId: "unique-run-456",
-        task: { id: "task-det-prep" },
-        descriptor: {
-            intent: "Fix specific bug",
-            objective: "Fix bug",
-            completionCriteria: ["Criteria 1"],
-            maxSteps: 10,
-        },
-        spec,
-        outputDirectory: outputDir,
-        mode: "auto",
-        profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
-        adapter: mockAdapter,
-        stepExecutor: mockExecutor,
-        container,
-        render: () => ({
-            waitUntilExit: async () => {},
-            unmount: () => {},
-        }),
-    });
+        const goalId = `unique-goal-${mode}`;
+        const result = await runTuiWithSandbox({
+            benchmarkId: "swebench",
+            goalId,
+            runId: `unique-run-${mode}`,
+            task: { id: `task-direct-${mode}` },
+            descriptor: {
+                intent: "Fix specific bug",
+                objective: "Fix bug",
+                completionCriteria: ["Criteria 1"],
+                maxSteps: 10,
+            },
+            spec,
+            outputDirectory: outputDir,
+            mode,
+            profile: { id: "p1", systemPrompt: "s", instructions: [], toolIds: [] },
+            adapter: mockAdapter,
+            stepExecutor: mockExecutor,
+            store,
+            container: customContainer(calls),
+            render: () => ({
+                waitUntilExit: async () => {},
+                unmount: () => {},
+            }),
+        });
 
-    assert.equal(result.exitCode, 0);
-    assert.equal(result.status, "completed");
-    assert.ok(calls.includes("executor:step"));
+        assert.equal(result.exitCode, 0);
+        assert.equal(result.status, "completed");
+        assert.ok(calls.includes("executor:step"));
+        const goal = await store.restore(goalId);
+        assert.ok(goal);
+        assert.equal(goal.state.run.mode, "normal");
+        assert.equal(goal.state.run.approvedTask, undefined);
+        assert.equal(goal.state.run.pendingInteraction, undefined);
+        assert.equal(goal.state.goalPlan, undefined);
+    }
 });
 
 test("auto 模式遇用户输入阻塞时以未完成结果退出且返回退出码 1", async (t) => {
@@ -479,7 +466,7 @@ test("auto 模式遇用户输入阻塞时以未完成结果退出且返回退出
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             calls.push("executor:wait");
             return {
                 kind: "wait",
@@ -534,12 +521,12 @@ test("GAIA 错误答案：正常完成返回退出码 0，Attempt 与摘要显�
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             calls.push("executor:step");
             return {
                 kind: "complete",
                 summary: "Answer submitted",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
         });
 
@@ -616,12 +603,12 @@ test("SWE-bench 补丁导出：Attempt 与摘要显示 gradingStatus=pending 且
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             calls.push("executor:step");
             return {
                 kind: "complete",
                 summary: "Bug fixed",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
         });
 
@@ -688,11 +675,11 @@ test("必要产物缺失：requireArtifact 开启且未产生必要产物时返�
         },
     };
 
-    const mockExecutor = withTaskProposal(async () => {
+    const mockExecutor = withDirectExecution(async () => {
             return {
                 kind: "complete",
                 summary: "Done without submitting",
-                completionEvidence: [],
+                evidenceSequences: [],
             };
         });
 
