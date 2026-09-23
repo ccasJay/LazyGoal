@@ -742,3 +742,36 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
     assert.equal(decoded.kind, "tool_call");
     assert.equal(decoded.memoryPatch, undefined);
 });
+
+test("Gemini strips evidenceSequences residue from a tool_call in normal mode", async () => {
+    const bundle = createModelOutputContractBundle({
+        kind: "executing",
+        taskPresent: true,
+        planMode: false,
+        authorizedTools: [{
+            id: "read_file",
+            inputContract: contract.object({ path: contract.string() }),
+        }],
+    });
+    const text = JSON.stringify({
+        result: {
+            kind: "tool_call",
+            action: { actionId: "act_read_question", toolId: "read_file", input: { path: "question.txt" } },
+            memoryPatch: "__lazygoal_null__",
+            evidenceSequences: [],
+            summary: null,
+        },
+    });
+    const adapter = createAdapter("strict");
+    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
+    const wire = JSON.parse(response.content);
+    assert.equal(wire.result.kind, "tool_call");
+    assert.equal(wire.result.memoryPatch, null);
+    assert.equal(wire.result.evidenceSequences, undefined);
+    assert.equal(wire.result.summary, undefined);
+    const decoded = bundle.decode(wire);
+    assert.equal(decoded.kind, "tool_call");
+    assert.equal(decoded.memoryPatch, undefined);
+});
+

@@ -332,16 +332,6 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
         if (result.action !== undefined && result.action !== null && typeof result.action === "object") {
             result.kind = "tool_call";
             delete result.type;
-            delete result.summary;
-            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
-                delete result.completionEvidence;
-            }
-            delete result.reason;
-            delete result.error;
-            delete result.need;
-            delete result.question;
-            delete result.questions;
-            delete result.filters;
         } else if (result.action === null || result.action === undefined) {
             delete result.action;
             if (result.kind === "tool_call" && typeof result.summary === "string") {
@@ -349,68 +339,35 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
             }
         }
 
-        // 2. 根据确定或纠正后的 kind 清理多余空字段与哨兵值
-        if (result.kind === "complete") {
-            delete result.action;
-            delete result.reason;
-            delete result.error;
-            delete result.need;
-            delete result.question;
-            delete result.questions;
-            delete result.filters;
-            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
-                delete result.completionEvidence;
-            }
-        } else if (result.kind === "tool_call") {
-            delete result.summary;
-            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
-                delete result.completionEvidence;
-            }
-            delete result.reason;
-            delete result.error;
-            delete result.need;
-            delete result.question;
-            delete result.filters;
-        } else if (result.kind === "wait") {
-            delete result.action;
-            delete result.summary;
-            delete result.completionEvidence;
-            delete result.error;
-            delete result.need;
-            delete result.question;
-            delete result.filters;
-        } else if (result.kind === "fail") {
-            delete result.action;
-            delete result.summary;
-            delete result.completionEvidence;
-            delete result.reason;
-            delete result.need;
-            delete result.question;
-            delete result.filters;
-        } else if (result.kind === "context_lookup") {
-            delete result.action;
-            delete result.summary;
-            delete result.completionEvidence;
-            delete result.reason;
-            delete result.error;
-        }
-
-        // 清理非 complete 分支残留的 completionEvidence
+        // 2. 根据确定或纠正后的 kind 清理多余跨分支字段与哨兵值
         if (result.kind !== "complete") {
             if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
                 delete result.completionEvidence;
             }
-        }
-
-        // 清理常见非对应分支残留的 null 字段
-        if (result.summary === null && result.kind !== "complete") {
+            delete result.evidenceSequences;
             delete result.summary;
+        } else if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
+            delete result.completionEvidence;
         }
-        if (result.reason === null && result.kind !== "wait") {
+        if (result.kind !== "tool_call") {
+            delete result.action;
+        }
+        if (result.kind !== "wait") {
             delete result.reason;
         }
-        if (result.error === null && result.kind !== "fail") {
+        if (result.kind !== "fail") {
             delete result.error;
+        }
+        if (result.kind !== "context_lookup") {
+            delete result.need;
+            delete result.question;
+            delete result.filters;
+        }
+        if (result.kind !== "ask_user") {
+            delete result.questions;
+        }
+        if (result.kind !== "task_proposal") {
+            delete result.task;
         }
     }
 
