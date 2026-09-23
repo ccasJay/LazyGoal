@@ -7,11 +7,12 @@ import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 /** GAIA Worker 只允许使用的结构化输出模式。 */
 export const GAIA_STRUCTURED_OUTPUT_MODE = "strict" as const;
 
-/** GAIA Worker 支持且仅支持的四个工具 ID 列表。 */
+/** GAIA Worker 支持且仅支持的五个工具 ID 列表。 */
 export const GAIA_PROFILE_TOOL_IDS = Object.freeze([
     "read_file",
     "web_search",
     "web_fetch",
+    "bash",
     "submit_answer",
 ] as const);
 
@@ -20,10 +21,11 @@ export const GAIA_WORKER_PROFILE: AgentProfile = Object.freeze({
     id: "gaia-worker-profile",
     name: "GAIA QA evaluation agent",
     description: "Container profile for GAIA question answering evaluation.",
-    systemPrompt: "You are an AI assistant solving a GAIA benchmark question. Read question.txt using its workspace-relative path (do not prefix it with /workspace), use available tools (read_file, web_search, web_fetch) to research facts, and call submit_answer exactly once with your final answer.",
+    systemPrompt: "You are an AI assistant solving a GAIA benchmark question. Read question.txt using its workspace-relative path (do not prefix it with /workspace), use available tools (read_file, web_search, web_fetch, bash) to research facts and perform calculations, and call submit_answer exactly once with your final answer.",
     instructions: Object.freeze([
         "Inspect question.txt, files, and attachments in the workspace using read_file with workspace-relative paths.",
         "Search information online using web_search and web_fetch.",
+        "Execute bash commands and Python scripts using bash for calculations, data analysis, and file processing.",
         "Submit your final answer using submit_answer as soon as you have found the answer.",
         "You may call submit_answer only once. After submitting, your task is completed.",
     ]),

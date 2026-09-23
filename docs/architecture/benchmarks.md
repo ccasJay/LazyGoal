@@ -35,8 +35,8 @@ lazygoal eval prompt --request <request.json>
 入口按 Profile → Manifest → 领域环境配置的顺序校验配置，全部通过后才构造模型
 Adapter 和容器 Worker。ALFWorld 的 Python/sidecar 预检在容器内完成；SWE-bench 的
 官方 harness 预检仍在宿主评分边界完成。GAIA 使用 managed 镜像安装 Python 文件处理库，
-通过 `preflight` 验证依赖，任务通过宿主代理 `web_search`/`web_fetch` 工具及容器内
-`submit_answer` 工具作答。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
+通过 `preflight` 验证依赖，任务通过宿主代理 `web_search`/`web_fetch` 工具、容器内
+`bash` 计算工具及容器内 `submit_answer` 工具作答。模型使用与 CLI 相同的 [配置解析与工厂](./llm.md#配置)，
 不支持的 provider/mode、未知目录模型及容量错误均在 Episode 与 Goal 创建前失败。报告写到 `--report` 指定的 JSON 文件，未指定时只写
 stdout；诊断和配置错误写 stderr。成功率低于阈值时仍保留完整报告并返回非零码。
 SWE-bench 使用单次容器作答、补丁导出与独立官方评分；生命周期、产物与限制见

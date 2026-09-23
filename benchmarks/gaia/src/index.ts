@@ -39,6 +39,9 @@ export {
     type SubmitAnswerToolOptions,
 } from "./submit-answer";
 export {
+    GaiaBashTool,
+} from "./bash";
+export {
     GAIA_TOOL_IDS,
     GAIA_READONLY_TOOL_IDS,
     getGaiaToolManifest,

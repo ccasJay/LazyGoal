@@ -3,6 +3,7 @@ import {
     type ToolRegistration,
 } from "../../../packages/runtime/src/index.js";
 import {
+    BASH_TOOL_ID,
     READ_FILE_TOOL_ID,
     ReadFileTool,
     WEB_FETCH_TOOL_ID,
@@ -16,12 +17,14 @@ import {
 import { compileJsonSchema } from "../../../packages/contracts/src/index.js";
 import type { ToolManifestEntry, ToolRpcBackendPort } from "../../src/tool-rpc.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
+import { GaiaBashTool } from "./bash.js";
 
 /** GAIA 支持的标准工具唯一标识列表。 */
 export const GAIA_TOOL_IDS = Object.freeze([
     READ_FILE_TOOL_ID,
     WEB_SEARCH_TOOL_ID,
     WEB_FETCH_TOOL_ID,
+    BASH_TOOL_ID,
     SUBMIT_ANSWER_TOOL_ID,
 ] as const);
 
@@ -30,16 +33,17 @@ export const GAIA_READONLY_TOOL_IDS = Object.freeze([
     READ_FILE_TOOL_ID,
     WEB_SEARCH_TOOL_ID,
     WEB_FETCH_TOOL_ID,
+    BASH_TOOL_ID,
 ] as const);
 
 /**
  * 获取 GAIA 标准沙箱工具的声明元数据清单。
  *
  * @remarks
- * 返回包含 read_file, web_search, web_fetch, submit_answer 四个工具的
+ * 返回包含 read_file, web_search, web_fetch, bash, submit_answer 五个工具的
  * ID、描述、JSON Schema 及重放策略。
  *
- * @returns 固定的四工具清单数组。
+ * @returns 固定的五工具清单数组。
  *
  * @example
  * ```ts
@@ -53,6 +57,7 @@ export function getGaiaToolManifest(): readonly ToolManifestEntry[] {
         new ReadFileTool(dummyRoot),
         new WebSearchTool(async () => []),
         new WebFetchTool(async () => ""),
+        new GaiaBashTool(dummyRoot),
         new SubmitAnswerTool({ taskId: "dummy-task" }),
     ];
 
@@ -131,6 +136,7 @@ export function createGaiaToolRegistrations(
         createToolRegistration(new ReadFileTool(options.workspaceRoot)),
         createToolRegistration(new WebSearchTool(searchBackend)),
         createToolRegistration(new WebFetchTool(fetchHandler)),
+        createToolRegistration(new GaiaBashTool(options.workspaceRoot)),
         createToolRegistration(submitAnswerTool),
     ];
 }

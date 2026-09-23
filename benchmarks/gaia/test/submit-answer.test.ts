@@ -68,28 +68,33 @@ test("submit_answer 首次调用写入答案文件并返回成功，第二次调
     }
 });
 
-test("Worker 工具注册表包含且仅包含四个工具", () => {
+test("Worker 工具注册表包含且仅包含五个工具", () => {
     const registry = createGaiaWorkerToolRegistry({
         taskId: "gaia-task-002",
         workspaceRoot: "/tmp/workspace",
     });
 
-    // 验证 Profile 声明四个工具
+    // 验证 Profile 声明五个工具
     assert.deepEqual(GAIA_PROFILE_TOOL_IDS, [
         "read_file",
         "web_search",
         "web_fetch",
+        "bash",
         "submit_answer",
     ]);
     assert.deepEqual(GAIA_WORKER_PROFILE.toolIds, GAIA_PROFILE_TOOL_IDS);
 
-    // 验证注册表中正好有这四个工具，且没有多余工具
+    // 验证注册表中正好有这五个工具，且没有多余工具
     for (const toolId of GAIA_PROFILE_TOOL_IDS) {
         assert.ok(registry.get(toolId) !== undefined, `Missing tool: ${toolId}`);
     }
 
-    // 确保没有无关工具（如 bash、write_file、edit_file、grep 等）
-    assert.equal(registry.get("bash"), undefined);
+    // 确保 bash 工具声明为 isReadOnly: true（免任务提案阶段可用）
+    const bashTool = registry.get("bash");
+    assert.ok(bashTool !== undefined);
+    assert.equal(bashTool.definition.isReadOnly, true);
+
+    // 确保没有无关工具（如 write_file、edit_file、grep 等）
     assert.equal(registry.get("write_file"), undefined);
     assert.equal(registry.get("edit_file"), undefined);
     assert.equal(registry.get("grep"), undefined);

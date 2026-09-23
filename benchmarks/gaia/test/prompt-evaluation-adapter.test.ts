@@ -37,6 +37,7 @@ const candidateProfile: AgentProfile = {
     instructions: [
         "Use read_file for local evidence.",
         "Use web_search and web_fetch when external evidence is required.",
+        "Use bash for calculations and script execution.",
         "Call submit_answer exactly once with the final answer.",
     ],
 };
@@ -344,7 +345,7 @@ test("GAIA Worker 允许工具引用位于 systemPrompt 或 instructions 中", (
     const metadata = baseMetadata();
     const profileWithToolsInSystemPrompt: AgentProfile = {
         ...GAIA_WORKER_PROFILE,
-        systemPrompt: "Solve using read_file, web_search, web_fetch, and submit_answer.",
+        systemPrompt: "Solve using read_file, web_search, web_fetch, bash, and submit_answer.",
         instructions: [
             "Inspect workspace files using workspace-relative paths.",
             "Search online facts when necessary.",
