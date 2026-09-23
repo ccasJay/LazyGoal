@@ -43,6 +43,8 @@ type Goal = {
   tag: string;
   messages: Message[];
   stream?: string;
+  streamPaused?: boolean;
+  pendingKind?: "approval" | "answer" | undefined;
 };
 const initialGoals: Goal[] = [
   {
@@ -105,6 +107,7 @@ const initialGoals: Goal[] = [
     title: "Approve the execution plan",
     description: "Review the proposed workspace changes.",
     status: "Needs input",
+    pendingKind: "approval",
     steps: 1,
     total: 4,
     tag: "Planning",
@@ -121,6 +124,7 @@ const initialGoals: Goal[] = [
     title: "Clarify benchmark output location",
     description: "Choose where evaluation reports should go.",
     status: "Needs input",
+    pendingKind: "answer",
     steps: 1,
     total: 3,
     tag: "Benchmarks",
@@ -229,12 +233,17 @@ function App() {
       (category === "All categories" || g.tag === category),
   );
 
+  function toggleGoalSelection(goalId: number) {
+    setSelected((current) => (current === goalId ? null : goalId));
+    setExpanded(false);
+  }
+
   useEffect(() => {
     const timer = window.setInterval(
       () =>
         setGoals((current) =>
           current.map((g) => {
-            if (!g.stream || g.status !== "Running") return g;
+            if (!g.stream || g.status !== "Running" || g.streamPaused) return g;
             const amount = Math.min(4, g.stream.length);
             const messages = [...g.messages];
             const last = messages[messages.length - 1];
@@ -280,6 +289,8 @@ function App() {
           ? {
               ...g,
               status: "Running",
+              streamPaused: false,
+              pendingKind: undefined,
               messages: [...g.messages, { role: "user", text: text.trim() }],
               stream:
                 "I’ve received your direction. In the connected version, the Runtime will continue this goal here. This preview demonstrates the same streaming session experience using sample output.",
@@ -289,6 +300,21 @@ function App() {
     );
     setDrafts((current) => ({ ...current, [goal.id]: "" }));
     setFollow(true);
+  }
+  function startGoal() {
+    if (!goal || goal.status !== "Ready") return;
+    setGoals((current) =>
+      current.map((g) =>
+        g.id === goal.id
+          ? {
+              ...g,
+              status: "Running",
+              stream:
+                "I’ve started this goal. The sample session will now show how live progress appears in the timeline.",
+            }
+          : g,
+      ),
+    );
   }
   function createGoal() {
     if (!title.trim()) return;
@@ -553,7 +579,7 @@ function App() {
                       className={
                         "goal-row " + (selected === g.id ? "active" : "")
                       }
-                      onClick={() => setSelected(g.id)}
+                      onClick={() => toggleGoalSelection(g.id)}
                     >
                       <span>
                         <small>LG-{g.id}</small>
@@ -594,12 +620,17 @@ function App() {
                                 "goal-card " +
                                 (g.id === selected ? "is-selected" : "")
                               }
-                              onClick={() => setSelected(g.id)}
+                              onClick={() => toggleGoalSelection(g.id)}
                               aria-pressed={g.id === selected}
                             >
                               <div className="card-meta">
                                 <span>LG-{g.id}</span>
-                                {g.status === "Running" ? (
+                                {g.streamPaused ? (
+                                  <span className="paused-mini">
+                                    <Pause size={11} />
+                                    Paused
+                                  </span>
+                                ) : g.status === "Running" ? (
                                   <span className="live-mini">
                                     <span />
                                     Live
@@ -615,7 +646,7 @@ function App() {
                               {g.status === "Needs input" && (
                                 <div className="attention">
                                   <CircleHelp size={12} />
-                                  {g.id === 22
+                                  {g.pendingKind === "approval"
                                     ? "Plan approval requested"
                                     : "Waiting for your answer"}
                                 </div>
@@ -846,9 +877,11 @@ function App() {
                       {goal.status === "Running" && (
                         <div className="live-status">
                           <span className="pulse" />
-                          {goal.stream
-                            ? "Working on your goal…"
-                            : "Demo stream finished"}
+                          {goal.streamPaused
+                            ? "Preview stream paused"
+                            : goal.stream
+                              ? "Working on your goal…"
+                              : "Demo stream finished"}
                           <span>Sample session</span>
                         </div>
                       )}
@@ -868,22 +901,22 @@ function App() {
                   </button>
                 )}
                 <div className="composer-area">
-                  {goal.status === "Needs input" && (
+                  {goal.status === "Needs input" && goal.pendingKind && (
                     <div className="approval">
                       <div>
                         <CircleHelp size={15} />
                         <strong>
-                          {goal.id === 22
+                          {goal.pendingKind === "approval"
                             ? "Your approval is needed"
                             : "Your answer is needed"}
                         </strong>
                       </div>
                       <p>
-                        {goal.id === 22
+                        {goal.pendingKind === "approval"
                           ? "Review the proposed plan above to continue."
                           : "Reply below to give the agent direction."}
                       </p>
-                      {goal.id === 22 && (
+                      {goal.pendingKind === "approval" && (
                         <button
                           onClick={() =>
                             send("Approved. Continue with this plan.")
@@ -896,10 +929,7 @@ function App() {
                     </div>
                   )}
                   {goal.status === "Ready" && (
-                    <button
-                      className="start-goal"
-                      onClick={() => send("Start this goal.")}
-                    >
+                    <button className="start-goal" onClick={startGoal}>
                       <Play size={13} />
                       Start goal
                     </button>
@@ -945,18 +975,26 @@ function App() {
                         <button
                           type="button"
                           className="send"
-                          aria-label="Pause demo stream"
+                          aria-label={
+                            goal.streamPaused
+                              ? "Resume demo stream"
+                              : "Pause demo stream"
+                          }
                           onClick={() =>
                             setGoals((current) =>
                               current.map((g) =>
                                 g.id === goal.id
-                                  ? { ...g, status: "Needs input" }
+                                  ? { ...g, streamPaused: !g.streamPaused }
                                   : g,
                               ),
                             )
                           }
                         >
-                          <Pause size={14} />
+                          {goal.streamPaused ? (
+                            <Play size={14} />
+                          ) : (
+                            <Pause size={14} />
+                          )}
                         </button>
                       ) : (
                         <button
