@@ -119,6 +119,7 @@ class FakeLauncher implements SessionLauncher {
 
 class FakeCoordinator implements SessionCoordinator {
     readonly advanceRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
+    readonly planModeRefs: Array<{ readonly goalId: string; readonly runId: string }> = [];
     readonly resumeRequests: ResumeGoalRequest[] = [];
     readonly continueRequests: Array<{
         readonly ref: { readonly goalId: string; readonly runId: string };
@@ -135,6 +136,13 @@ class FakeCoordinator implements SessionCoordinator {
         ref: { readonly goalId: string; readonly runId: string },
     ): Promise<GoalProgressResult> {
         this.advanceRefs.push(ref);
+        return this.advanceResult;
+    }
+
+    async enterPlanMode(
+        ref: { readonly goalId: string; readonly runId: string },
+    ): Promise<GoalProgressResult> {
+        this.planModeRefs.push(ref);
         return this.advanceResult;
     }
 
@@ -234,6 +242,76 @@ test("create maps Launcher result into a session ViewModel", async () => {
     assert.equal(view.askUser?.questions[0]?.question, "Which database should be used?");
     assert.equal(view.busy, false);
     assert.ok(notifications.length >= 2);
+});
+
+test("/plan is consumed by one new Goal or selects the next Run after completion", async () => {
+    const launchedGoal = createWaitingGoal("goal-created");
+    const launcher = new FakeLauncher(waitingResult(launchedGoal));
+    const coordinator = new FakeCoordinator(waitingResult(launchedGoal));
+    const controller = new SessionController(
+        dependencies(launcher, coordinator, new FakeStore([]), new FakeCatalog([])),
+    );
+
+    await controller.dispatch({ kind: "enterPlanMode" });
+    assert.equal(controller.getSnapshot().screen, "intent_input");
+    await controller.dispatch({ kind: "create", intent: "Plan this work" });
+    await controller.dispatch({ kind: "openHome" });
+    await controller.dispatch({ kind: "create", intent: "Run normally" });
+
+    assert.equal(launcher.requests[0]?.mode, "plan");
+    assert.equal(launcher.requests[1]?.mode, undefined);
+
+    const completed = completedGoal("goal-next-plan");
+    const nextRunGoal: Goal = {
+        ...completed,
+        state: { ...completed.state, nextRunMode: "plan" },
+    };
+    const completedCoordinator = new FakeCoordinator({
+        ok: true,
+        kind: "terminal",
+        phase: "executing",
+        goal: nextRunGoal,
+    });
+    const completedController = new SessionController({
+        ...dependencies(
+            launcher,
+            completedCoordinator,
+            new FakeStore([completed]),
+            new FakeCatalog([]),
+        ),
+        initialGoal: completed,
+    });
+
+    await completedController.dispatch({ kind: "enterPlanMode" });
+    assert.deepEqual(completedCoordinator.planModeRefs, [{
+        goalId: completed.id,
+        runId: completed.state.run.id,
+    }]);
+    assert.equal(sessionView(completedController).goal.state.nextRunMode, "plan");
+});
+
+test("a persisted Plan launch consumes the pending mode even if the first Run reports an error", async () => {
+    const savedGoal = createWaitingGoal("goal-created");
+    const launcher = new FakeLauncher({
+        ok: false,
+        error: { code: "RUN_NOT_FOUND", message: "Run could not be advanced" },
+    });
+    const controller = new SessionController(
+        dependencies(
+            launcher,
+            new FakeCoordinator(waitingResult(savedGoal)),
+            new FakeStore([savedGoal]),
+            new FakeCatalog([]),
+        ),
+    );
+
+    await controller.dispatch({ kind: "enterPlanMode" });
+    await controller.dispatch({ kind: "create", intent: "Plan once" });
+    await controller.dispatch({ kind: "openHome" });
+    await controller.dispatch({ kind: "create", intent: "Run normally next time" });
+
+    assert.equal(launcher.requests[0]?.mode, "plan");
+    assert.equal(launcher.requests[1]?.mode, undefined);
 });
 
 test("普通只读 Action 通过 Goal 快照提交后固化步骤", async () => {
@@ -877,6 +955,7 @@ test("session derives proposal and approvalRequest from task_approval pendingInt
             ...base.state,
             run: {
                 ...base.state.run,
+                mode: "plan",
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
@@ -1050,7 +1129,6 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
             ...pendingGoal.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "Execute", completionCriteria: [] },
             },
             run: {
                 ...pendingGoal.state.run,
@@ -1059,6 +1137,8 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
                     status: "awaiting_approval",
                     action: { actionId: "act-99", toolId: "bash", input: {} },
                 },
+
+                mode: "plan", approvedTask: { objective: "Execute", completionCriteria: [] },
             },
         },
     };
@@ -1120,11 +1200,11 @@ test("YOLO keeps advancement serialized and switches to Confirm during an in-fli
     const { pendingInteraction: _pendingInteraction, ...runWithoutPendingInteraction } = base.state.run;
     const goal: Goal = { ...base, state: { ...base.state,
         workflow: { phase: "executing",
-            task: { objective: "Review files", completionCriteria: [] } },
+},
         run: { ...runWithoutPendingInteraction, status: "waiting", pendingAction: {
             status: "awaiting_approval",
             action: { actionId: "act-1", toolId: "bash", input: {} },
-        } },
+        } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
     } };
     const result: GoalProgressResult = { ok: true, kind: "waiting", phase: "executing",
         waitingFor: "action_approval", goal };
@@ -1171,10 +1251,10 @@ test("YOLO publishes busy snapshots throughout consecutive approvals", async () 
         ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
         goal: { ...base, state: { ...base.state,
             workflow: { phase: "executing",
-                task: { objective: "Review files", completionCriteria: [] } },
+},
             run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
                 status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
-            } },
+            } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
         } },
     });
     let count = 0;

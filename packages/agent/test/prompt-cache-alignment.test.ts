@@ -54,6 +54,7 @@ function createExecutingGoal(options: {
     readonly stepCount?: number;
     readonly lastStep?: StepRecord;
     readonly workflow?: Goal["state"]["workflow"];
+    readonly unapproved?: boolean;
 } = {}): Goal {
     const goal = createGoal({
         ...currentProtocols,
@@ -79,13 +80,15 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: options.workflow ?? {
                 phase: "executing",
-                task,
             },
             run: {
                 ...goal.state.run,
                 status: "running",
                 stepCount: options.stepCount ?? 0,
                 ...(options.lastStep === undefined ? {} : { lastStep: options.lastStep }),
+
+                mode: "plan",
+                ...(options.unapproved === true ? {} : { approvedTask: task }),
             },
         },
     };
@@ -316,6 +319,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
     // 1. 未批准任务：只读读取与任务提案契约
     const unapprovedGoal = createExecutingGoal({
         stepCount: 0,
+        unapproved: true,
         workflow: {
             phase: "executing",
         },

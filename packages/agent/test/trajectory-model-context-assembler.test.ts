@@ -477,7 +477,6 @@ test("Assembler 默认 fixed input 按原始 Conversation 索引保留当前 Epo
             ...base.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "执行", completionCriteria: [] },
             },
             run: {
                 ...base.state.run,
@@ -488,6 +487,8 @@ test("Assembler 默认 fixed input 按原始 Conversation 索引保留当前 Epo
                     conversationStartIndex: 2,
                     openedAtSequence: 0,
                 },
+
+                mode: "plan", approvedTask: { objective: "执行", completionCriteria: [] },
             },
         },
     };
@@ -574,12 +575,13 @@ function layeredExecutingGoal(committedThroughSequence: number): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: { objective: "layered", completionCriteria: [] },
             },
             run: {
                 ...goal.state.run,
                 status: "running",
                 committedThroughSequence,
+
+                mode: "plan", approvedTask: { objective: "layered", completionCriteria: [] },
             },
         },
     };

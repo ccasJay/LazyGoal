@@ -119,6 +119,7 @@ export type GoalSnapshotGoalPlanPatchOperationV1 =
         readonly id: string;
         readonly content?: string | undefined;
         readonly status?: "pending" | "in_progress" | "completed" | "cancelled" | undefined;
+        readonly evidenceSequences?: readonly number[] | undefined;
     }
     | {
         readonly type: "reorder";
@@ -144,6 +145,12 @@ export interface GoalSnapshotContextLookupFiltersV1 {
 
 /** Snapshot 中的结构化 Agent Decision 结果。 */
 export type GoalSnapshotStructuredDecisionResultV1 =
+    | {
+        readonly kind: "complete";
+        readonly summary: string;
+        readonly evidenceSequences: readonly number[];
+        readonly memoryPatch?: GoalSnapshotMemoryPatchV1 | undefined;
+    }
     | {
         readonly kind: "complete";
         readonly summary: string;
@@ -223,11 +230,28 @@ export interface GoalSnapshotContextEpochV1 {
     readonly openedAtSequence: number;
 }
 
-/** Snapshot 中的 Run 状态。 */
+/**
+ * Snapshot 中的 Run 状态。
+ *
+ * @remarks
+ * Run 自己持有模式与已批准任务；它不引用 GoalPlan Todo。
+ *
+ * @example
+ * ```ts
+ * const run: GoalSnapshotRunStateV1 = {
+ *   id: "run-1",
+ *   mode: "normal",
+ *   status: "created",
+ *   stepCount: 0,
+ *   committedThroughSequence: 0,
+ *   contextEpoch: { version: 1, number: 0, conversationStartIndex: 0, openedAtSequence: 0 },
+ * };
+ * ```
+ */
 export interface GoalSnapshotRunStateV1 {
     readonly id: string;
-    /** Plan Mode 下承接的 GoalPlan Todo；普通 Run 省略。 */
-    readonly todoId?: string | undefined;
+    readonly mode: "normal" | "plan";
+    readonly approvedTask?: GoalSnapshotTaskV1 | undefined;
     readonly status:
         | "created"
         | "running"
@@ -245,13 +269,23 @@ export interface GoalSnapshotRunStateV1 {
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
 
-/** Snapshot 中的 GoalPlan Todo。 */
+/**
+ * Snapshot 中的 GoalPlan Todo。
+ *
+ * @remarks Todo 只保存计划进度，不绑定执行 Run。
+ *
+ * @example
+ * ```ts
+ * const item: GoalSnapshotGoalPlanItemV1 = {
+ *   id: "todo-1", content: "检查实现", position: 0, status: "pending",
+ * };
+ * ```
+ */
 export interface GoalSnapshotGoalPlanItemV1 {
     readonly id: string;
     readonly content: string;
     readonly position: number;
     readonly status: "pending" | "in_progress" | "completed" | "cancelled";
-    readonly activeRunId?: string | undefined;
 }
 
 /** Snapshot 中的 GoalPlan。 */
@@ -260,10 +294,19 @@ export interface GoalSnapshotGoalPlanV1 {
     readonly items: readonly GoalSnapshotGoalPlanItemV1[];
 }
 
-/** Snapshot 中已归档 completed Run 的最小历史摘要。 */
+/**
+ * Snapshot 中已归档 Run 的最小历史摘要。
+ *
+ * @example
+ * ```ts
+ * const run: GoalSnapshotCompletedRunV1 = {
+ *   runId: "run-1", stepCount: 2, committedThroughSequence: 8,
+ *   messageRange: { start: 0, end: 2 },
+ * };
+ * ```
+ */
 export interface GoalSnapshotCompletedRunV1 {
     readonly runId: string;
-    readonly todoId?: string | undefined;
     readonly stepCount: number;
     readonly committedThroughSequence: number;
     readonly messageRange: { readonly start: number; readonly end: number };
@@ -330,12 +373,13 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
 }
 
 /**
- * Snapshot 中持久化等待任务提案批准的挂起交互。
+ * Snapshot 中持久化绑定当前 Run 与 request ID 的任务提案批准等待点。
  *
  * @example
  * ```ts
  * const pending: GoalSnapshotPendingInteractionTaskApprovalV1 = {
  *     kind: "task_approval",
+ *     requestId: "proposal-1",
  *     proposal: { objective: "重构模块", completionCriteria: [] },
  *     approvalRequest: "请确认任务目标",
  * };
@@ -343,7 +387,7 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
  */
 export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
     readonly kind: "task_approval";
-    readonly requestId?: string | undefined;
+    readonly requestId: string;
     readonly proposal: GoalSnapshotTaskV1;
     readonly approvalRequest: string;
 }
@@ -356,7 +400,6 @@ export type GoalSnapshotPendingInteractionV1 =
 /** Snapshot 中的工作流状态，仅保留统一 executing 阶段。 */
 export type GoalSnapshotWorkflowV1 = {
     readonly phase: "executing";
-    readonly task?: GoalSnapshotTaskV1 | undefined;
 };
 
 /** Snapshot 中持久化的模型选择状态。 */
@@ -371,9 +414,21 @@ export interface GoalSnapshotModelSelectionV1 {
         | { readonly kind: "token-encoding"; readonly encoding: "cl100k_base" | "o200k_base" };
 }
 
-/** Snapshot 中的 Goal 状态。 */
+/**
+ * Snapshot 中的 Goal 状态。
+ *
+ * @remarks 模式和已批准任务属于 Run；GoalPlan 与当前 Run 模式独立保存。
+ *
+ * @example
+ * ```ts
+ * const state: GoalSnapshotStateV1 = {
+ *   workflow: { phase: "executing" }, messages: [],
+ *   run, modelSelection, completedRuns: [],
+ * };
+ * ```
+ */
 export interface GoalSnapshotStateV1 {
-    readonly mode: "normal" | "plan";
+    readonly nextRunMode?: "plan" | undefined;
     readonly workflow: GoalSnapshotWorkflowV1;
     readonly messages: readonly GoalSnapshotMessageV1[];
     readonly run: GoalSnapshotRunStateV1;
@@ -574,9 +629,17 @@ const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
         id: NonEmptyStringSchema,
         content: NonEmptyStringSchema.optional(),
         status: z.enum(["pending", "in_progress", "completed", "cancelled"]).optional(),
+        evidenceSequences: z.array(z.number().int().nonnegative().safe()).optional(),
     }).strict().refine(
         (operation) => operation.content !== undefined || operation.status !== undefined,
         { message: "update operation must change content or status" },
+    ).refine(
+        (operation) => operation.status !== "completed"
+            || (operation.evidenceSequences !== undefined && operation.evidenceSequences.length > 0),
+        { message: "completed Todo update must cite current Run evidence" },
+    ).refine(
+        (operation) => operation.status === "completed" || operation.evidenceSequences === undefined,
+        { message: "evidenceSequences is only valid when completing a Todo" },
     ),
     z.object({
         type: z.literal("reorder"),
@@ -589,7 +652,13 @@ const GoalPlanPatchOperationSchema = z.discriminatedUnion("type", [
     }).strict(),
 ]);
 
-const StructuredDecisionResultSchema = z.discriminatedUnion("kind", [
+const StructuredDecisionResultSchema = z.union([
+    z.object({
+        kind: z.literal("complete"),
+        summary: NonEmptyStringSchema,
+        evidenceSequences: z.array(z.number().int().nonnegative()),
+        memoryPatch: MemoryPatchSchema.optional(),
+    }).strict(),
     z.object({
         kind: z.literal("complete"),
         summary: NonEmptyStringSchema,
@@ -671,7 +740,7 @@ const PendingInteractionAskUserSchema = z.object({
 
 const PendingInteractionTaskApprovalSchema = z.object({
     kind: z.literal("task_approval"),
-    requestId: NonEmptyStringSchema.optional(),
+    requestId: NonEmptyStringSchema,
     proposal: GoalSnapshotTaskSchema,
     approvalRequest: NonEmptyStringSchema,
 }).strict();
@@ -683,7 +752,6 @@ const PendingInteractionSchema = z.discriminatedUnion("kind", [
 
 const WorkflowSchema = z.object({
     phase: z.literal("executing"),
-    task: GoalSnapshotTaskSchema.optional(),
 }).strict();
 
 const ContextEpochSchema = z.object({
@@ -723,7 +791,6 @@ const GoalPlanItemSchema = z.object({
     content: NonEmptyStringSchema,
     position: z.number().int().nonnegative(),
     status: z.enum(["pending", "in_progress", "completed", "cancelled"]),
-    activeRunId: NonEmptyStringSchema.optional(),
 }).strict();
 
 const GoalPlanSchema = z.object({
@@ -733,7 +800,6 @@ const GoalPlanSchema = z.object({
 
 const CompletedRunSchema = z.object({
     runId: NonEmptyStringSchema,
-    todoId: NonEmptyStringSchema.optional(),
     stepCount: z.number().int().nonnegative(),
     committedThroughSequence: z.number().int().nonnegative(),
     messageRange: z.object({
@@ -766,12 +832,13 @@ const GoalSnapshotV1BaseSchema = z.object({
         }).strict(),
     }).strict(),
     state: z.object({
-        mode: z.enum(["normal", "plan"]),
+        nextRunMode: z.literal("plan").optional(),
         workflow: WorkflowSchema,
         messages: z.array(GoalSnapshotMessageSchema),
         run: z.object({
             id: NonEmptyStringSchema,
-            todoId: NonEmptyStringSchema.optional(),
+            mode: z.enum(["normal", "plan"]),
+            approvedTask: GoalSnapshotTaskSchema.optional(),
             status: z.enum([
                 "created",
                 "running",
@@ -810,12 +877,16 @@ function validateSnapshotInvariants(
     goal: z.infer<typeof GoalSnapshotV1BaseSchema>,
     context: z.RefinementCtx,
 ): void {
-    const { run, workflow } = goal.state;
-    if (goal.state.mode === "normal" && goal.state.goalPlan !== undefined) {
-        addInvariantIssue(context, "normal Goal cannot contain a GoalPlan", ["state", "goalPlan"]);
+    const { run } = goal.state;
+    const pendingTaskApproval = run.pendingInteraction?.kind === "task_approval";
+    if (run.mode === "normal" && run.approvedTask !== undefined) {
+        addInvariantIssue(context, "normal Run cannot contain an approved task", ["state", "run", "approvedTask"]);
     }
-    if (goal.state.mode === "plan" && goal.state.goalPlan === undefined) {
-        addInvariantIssue(context, "Plan Mode Goal requires a GoalPlan", ["state", "goalPlan"]);
+    if (pendingTaskApproval && run.mode !== "plan") {
+        addInvariantIssue(context, "task approval requires a Plan Run", ["state", "run", "pendingInteraction"]);
+    }
+    if (pendingTaskApproval && run.approvedTask !== undefined) {
+        addInvariantIssue(context, "pending task approval cannot coexist with an approved task", ["state", "run"]);
     }
     if (goal.state.goalPlan !== undefined) {
         const ids = new Set<string>();
@@ -825,20 +896,8 @@ function validateSnapshotInvariants(
             ids.add(item.id);
             if (item.position !== index) addInvariantIssue(context, "GoalPlan positions must be contiguous", ["state", "goalPlan", "items", index, "position"]);
             if (item.status === "in_progress") inProgress += 1;
-            if (item.status !== "in_progress" && item.activeRunId !== undefined) {
-                addInvariantIssue(context, "Only in_progress Todo may have activeRunId", ["state", "goalPlan", "items", index, "activeRunId"]);
-            }
         }
         if (inProgress > 1) addInvariantIssue(context, "GoalPlan allows at most one in_progress Todo", ["state", "goalPlan", "items"]);
-        if (run.todoId !== undefined) {
-            const bound = goal.state.goalPlan.items.find((item) => item.id === run.todoId);
-            if (bound === undefined) addInvariantIssue(context, "Run.todoId must reference a GoalPlan Todo", ["state", "run", "todoId"]);
-            if (bound?.activeRunId !== undefined && bound.activeRunId !== run.id) {
-                addInvariantIssue(context, "GoalPlan activeRunId must match current Run", ["state", "goalPlan"]);
-            }
-        }
-    } else if (run.todoId !== undefined) {
-        addInvariantIssue(context, "normal Run cannot contain todoId", ["state", "run", "todoId"]);
     }
     let previousRunEnd = 0;
     for (const [index, history] of goal.state.completedRuns.entries()) {
@@ -851,7 +910,7 @@ function validateSnapshotInvariants(
     const step = run.lastStep;
     const result = step?.kind === "decision" ? step.result : undefined;
 
-    if (result?.kind === "goal_plan_update" && goal.state.mode !== "plan") {
+    if (result?.kind === "goal_plan_update" && run.mode !== "plan") {
         addInvariantIssue(
             context,
             "goal_plan_update requires Plan Mode",

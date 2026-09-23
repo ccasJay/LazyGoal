@@ -429,13 +429,13 @@ export class SessionController {
             case "approveTask":
                 await this.resumeSession({
                     kind: "approve_task",
-                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                    requestId: command.requestId,
                 });
                 return;
             case "feedbackTask":
                 await this.resumeSession({
                     kind: "feedback_task",
-                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                    requestId: command.requestId,
                     feedback: command.feedback,
                 });
                 return;
@@ -554,6 +554,7 @@ export class SessionController {
             } catch (error: unknown) {
                 const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
                 if (savedGoal !== undefined) {
+                    this.pendingLaunchMode = "normal";
                     this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
                     this.setError(toUiError(error));
                     return;
@@ -564,6 +565,7 @@ export class SessionController {
             if (!result.ok) {
                 const savedGoal = await this.restoreAfterLaunchFailure(request.goalId);
                 if (savedGoal !== undefined) {
+                    this.pendingLaunchMode = "normal";
                     this.setSnapshot(this.toSessionView(savedGoal, undefined, false));
                     this.setError(result.error);
                     return;
@@ -1389,7 +1391,7 @@ export class SessionController {
                 ? {}
                 : { pendingAction: snapshot.state.run.pendingAction }),
             ...(terminal === undefined ? {} : { terminal }),
-            ...(snapshot.state.mode === "plan" && snapshot.state.goalPlan !== undefined
+            ...(snapshot.state.run.mode === "plan" && snapshot.state.goalPlan !== undefined
                 ? { goalPlan: snapshot.state.goalPlan }
                 : {}),
         };
@@ -1870,7 +1872,7 @@ function deriveProposal(goal: Goal): GoalTask | undefined {
     if (interaction?.kind === "task_approval") {
         return interaction.proposal;
     }
-    return goal.state.workflow.task;
+    return goal.state.run.approvedTask;
 }
 
 function deriveBlockedReason(goal: Goal): string | undefined {

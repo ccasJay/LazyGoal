@@ -7,6 +7,7 @@ import {
     type AgentDecision,
     AskUserAgentDecisionContract,
     ContextLookupRequestContract,
+    NormalCompleteAgentDecisionContract,
     ExecutingCompleteAgentDecisionContract,
     ExecutingFailAgentDecisionContract,
     ExecutingWaitAgentDecisionContract,
@@ -47,7 +48,7 @@ export interface AuthorizedToolContract {
      * 是否为只读工具。
      *
      * @remarks
-     * 声明为 `true` 的工具在任务批准前可被模型自主调用，且对工作区无任何副作用。默认为 `false`。
+     * 该标记是工具元数据，不决定模型工具暴露或 Runtime 授权；传入契约包的工具应已由 Profile 授权。
      */
     readonly isReadOnly?: boolean;
 }
@@ -82,8 +83,10 @@ export type ModelOutputRequest =
         readonly kind: "executing";
         readonly authorizedTools?: readonly AuthorizedToolContract[];
         readonly taskPresent?: boolean;
-        /** 只有 Plan Mode 才允许模型提交 GoalPlan Patch。 */
+        /** 当前 Run 是否按 Plan Mode 的任务提案生命周期执行。 */
         readonly planMode?: boolean;
+        /** 当前模式是否获授权提交 GoalPlan Patch；独立于任务提案生命周期。 */
+        readonly goalPlanWritable?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -186,9 +189,10 @@ function validateAndSortAuthorizedTools(
  * 创建请求级模型输出契约包。
  *
  * @remarks
- * 1. 统一 Executing 生命周期依据是否已批准任务动态组合：
- *    - 未批准任务时只派生只读工具的 `tool_call` 分支，并保留 ask_user、task_proposal、lookup；
- *    - 已批准任务时派生全部授权工具及 complete、wait、fail、lookup、ask_user；
+ * 1. 统一 Executing 生命周期依据 Run 模式与任务批准状态动态组合：
+ *    - 普通模式暴露全部已授权工具及普通完成、等待、失败、lookup、ask_user；
+ *    - Plan 未批准时暴露全部已授权工具及 ask_user、task_proposal、lookup；
+ *    - Plan 已批准时暴露全部已授权工具及逐条件完成、等待、失败、lookup、ask_user；
  * 2. Executing 阶段依据授权 Tool 集合动态组合：
  *    - 授权工具按稳定 Tool ID 码点序派生，每个 tool 绑定专属 `tool_call` 分支；
  *    - 空集合或未配置 Tool 时直接省略 `tool_call` 分支；
@@ -219,30 +223,42 @@ export function createModelOutputContractBundle(
         case "executing": {
             const taskPresent = request.taskPresent !== false;
             const planMode = request.planMode === true;
+            const goalPlanWritable = request.goalPlanWritable ?? planMode;
             name = planMode
-                ? "plan_mode_executing_agent_decision"
-                : taskPresent
-                    ? "executing_agent_decision"
-                    : "unapproved_executing_agent_decision";
+                ? taskPresent
+                    ? "plan_mode_approved_executing_agent_decision"
+                    : "plan_mode_unapproved_executing_agent_decision"
+                : goalPlanWritable
+                    ? "normal_goal_plan_writable_executing_agent_decision"
+                    : "normal_executing_agent_decision";
+            if (planMode && request.goalPlanWritable === false) {
+                name = `${name}_goal_plan_read_only`;
+            }
             const sortedTools = validateAndSortAuthorizedTools(request.authorizedTools);
-            const effectiveTools = taskPresent
-                ? sortedTools
-                : sortedTools.filter(isReadOnlyToolContract);
+            const effectiveTools = sortedTools;
 
-            const nonToolCanonicalBranches: Contract<unknown>[] = taskPresent
-                ? [
-                    ExecutingCompleteAgentDecisionContract,
+            const nonToolCanonicalBranches: Contract<unknown>[] = planMode
+                ? taskPresent
+                    ? [
+                        ExecutingCompleteAgentDecisionContract,
+                        ExecutingWaitAgentDecisionContract,
+                        ExecutingFailAgentDecisionContract,
+                        ContextLookupRequestContract,
+                        AskUserAgentDecisionContract,
+                    ]
+                    : [
+                        AskUserAgentDecisionContract,
+                        TaskProposalAgentDecisionContract,
+                        ContextLookupRequestContract,
+                    ]
+                : [
+                    NormalCompleteAgentDecisionContract,
                     ExecutingWaitAgentDecisionContract,
                     ExecutingFailAgentDecisionContract,
                     ContextLookupRequestContract,
                     AskUserAgentDecisionContract,
-                ]
-                : [
-                    AskUserAgentDecisionContract,
-                    TaskProposalAgentDecisionContract,
-                    ContextLookupRequestContract,
                 ];
-            if (planMode) {
+            if (goalPlanWritable) {
                 nonToolCanonicalBranches.push(GoalPlanUpdateAgentDecisionContract);
             }
             const nonToolWireBranches = nonToolCanonicalBranches.map((c) => deriveWireContract(c));

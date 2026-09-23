@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    bindGoalPlanTodo,
     createGoal,
+    createEmptyGoalPlan,
     createRun,
+    createToolRegistration,
+    InMemoryToolRegistry,
     reduceGoalPlan,
     Runner,
     transition,
@@ -14,9 +16,12 @@ import {
     type GoalTask,
     type StepExecutionInput,
     type StepExecutor,
+    type Tool,
+    type ToolDefinition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { contract } from "../../contracts/src/index";
 
 const profile: AgentProfile = {
     id: "plan-run-profile",
@@ -28,6 +33,23 @@ const profile: AgentProfile = {
 const task: GoalTask = {
     objective: "执行计划项",
     completionCriteria: [],
+};
+
+const OBSERVATION_TOOL_INPUT = contract.object({});
+const OBSERVATION_TOOL_DEFINITION: ToolDefinition<typeof OBSERVATION_TOOL_INPUT> = {
+    id: "record_observation",
+    description: "产生可引用的当前 Run Observation",
+    inputContract: OBSERVATION_TOOL_INPUT,
+    isReadOnly: true,
+};
+
+const observationTool: Tool<typeof OBSERVATION_TOOL_INPUT> = {
+    definition: OBSERVATION_TOOL_DEFINITION,
+    replayPolicy: "safe",
+    validate: () => ({ ok: true }),
+    async execute() {
+        return { kind: "success", output: { verified: true }, summary: "已生成验证 Observation" };
+    },
 };
 
 class SequenceExecutor implements StepExecutor {
@@ -43,6 +65,54 @@ class SequenceExecutor implements StepExecutor {
     }
 }
 
+class TodoCompletionExecutor implements StepExecutor {
+    private index = 0;
+
+    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {}
+
+    async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+        this.index += 1;
+        if (this.index === 1) {
+            return {
+                kind: "tool_call",
+                action: { actionId: "observation-action", toolId: OBSERVATION_TOOL_DEFINITION.id, input: {} },
+            };
+        }
+        if (this.index === 2) {
+            const observations = this.trajectory.events.filter((candidate) =>
+                candidate.goalId === goal.id
+                && candidate.runId === goal.state.run.id
+                && candidate.eventType === "observation_recorded");
+            const event = observations[observations.length - 1];
+            if (event === undefined) throw new Error("current Run Observation was not committed");
+            return {
+                kind: "goal_plan_update",
+                baseRevision: goal.state.goalPlan?.revision ?? 0,
+                operations: [
+                    { type: "update", id: "todo-1", status: "in_progress" },
+                    {
+                        type: "update",
+                        id: "todo-1",
+                        status: "completed",
+                        evidenceSequences: [event.sequence],
+                    },
+                ],
+            };
+        }
+        return { kind: "complete", summary: "Run 已完成", completionEvidence: [] };
+    }
+}
+
+function withObservationTool(goal: Goal): Goal {
+    return {
+        ...goal,
+        definition: {
+            ...goal.definition,
+            profile: { ...goal.definition.profile, toolIds: [OBSERVATION_TOOL_DEFINITION.id] },
+        },
+    };
+}
+
 function planGoal(
     runStatus: "running" | "created" = "running",
     decisionTask: GoalTask | undefined = task,
@@ -56,23 +126,25 @@ function planGoal(
         runId: "run-1",
         mode: "plan",
     });
-    const added = reduceGoalPlan(created.state.goalPlan!, {
+    const added = reduceGoalPlan(createEmptyGoalPlan(), {
         baseRevision: 0,
         operations: [{ type: "add", content: "执行计划项" }],
     }, { idFactory: () => "todo-1" });
     if (!added.ok) throw new Error(added.error.message);
-    const bound = bindGoalPlanTodo(added.plan, "todo-1", "run-1");
     const run = runStatus === "running"
-        ? transition(createRun("run-1", "todo-1"), { kind: "start" })
-        : { ok: true as const, state: createRun("run-1", "todo-1") };
+        ? transition(createRun("run-1", "plan"), { kind: "start" })
+        : { ok: true as const, state: createRun("run-1", "plan") };
     if (!run.ok) throw new Error(run.error.message);
     return {
         ...created,
         state: {
             ...created.state,
-            workflow: { phase: "executing", ...(decisionTask === undefined ? {} : { task: decisionTask }) },
-            goalPlan: bound,
-            run: run.state,
+            workflow: { phase: "executing" },
+            goalPlan: added.plan,
+            run: {
+                ...run.state,
+                ...(decisionTask === undefined ? {} : { approvedTask: decisionTask }),
+            },
         },
     };
 }
@@ -89,15 +161,14 @@ function emptyPlanGoal(): Goal {
     });
 }
 
-test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer result", async () => {
+test("首次成功 GoalPlan Patch 才创建计划，并作为非终态 Step 持久化", async () => {
     const store = new InMemoryGoalStore();
     const created = emptyPlanGoal();
     const initial = {
         ...created,
         state: {
             ...created.state,
-            goalPlan: { revision: 0, items: [] },
-            run: createRun("run-plan-update"),
+            run: createRun("run-plan-update", "plan"),
         },
     };
     await store.save(initial);
@@ -111,7 +182,11 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
                 baseRevision: 0,
                 operations: [{ type: "add", content: "先建立清单" }],
             },
-            { kind: "wait", reason: "等待用户选择下一项" },
+            {
+                kind: "task_proposal",
+                task: { objective: "执行当前计划请求", completionCriteria: [{ text: "请求已完成" }] },
+                approvalRequest: "请批准执行目标",
+            },
         ]),
     });
 
@@ -119,9 +194,10 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.state.status, "waiting");
-    assert.equal(result.state.stepCount, 2);
+    assert.equal(result.state.stepCount, 1);
     const saved = await store.restore(initial.id);
-    assert.equal(saved?.state.mode, "plan");
+    assert.equal(saved?.state.run.mode, "plan");
+    assert.equal(saved?.state.run.pendingInteraction?.kind, "task_approval");
     assert.deepEqual(saved?.state.goalPlan, {
         revision: 1,
         items: [{ id: "todo-1-1", content: "先建立清单", position: 0, status: "pending" }],
@@ -138,7 +214,28 @@ test("Plan Mode goal_plan_update is a non-terminal Step and persists the reducer
     ]);
 });
 
-test("当前 Run 的完成证据通过后，Run 与 Todo 在同一提交中完成", async () => {
+test("首次失败 GoalPlan Patch 不创建计划", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = emptyPlanGoal();
+    await store.save(initial);
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectoryStoreFor(store),
+        executor: new SequenceExecutor([{
+            kind: "goal_plan_update",
+            baseRevision: 0,
+            operations: [{ type: "reorder", id: "unknown-todo", position: 0 }],
+        }]),
+    }).run({ goalId: initial.id, runId: initial.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.goalPlan, undefined);
+});
+
+test("当前 Run 完成后，GoalPlan Todo 状态独立保留", async () => {
     const store = new InMemoryGoalStore();
     const initial = planGoal();
     await store.save(initial);
@@ -158,24 +255,22 @@ test("当前 Run 的完成证据通过后，Run 与 Todo 在同一提交中完�
     assert.equal(result.state.status, "completed");
     const saved = await store.restore(initial.id);
     assert.equal(saved?.state.run.status, "completed");
-    assert.equal(saved?.state.run.todoId, "todo-1");
     assert.deepEqual(saved?.state.goalPlan?.items, [{
         id: "todo-1",
         content: "执行计划项",
         position: 0,
-        status: "completed",
+        status: "pending",
     }]);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "decision_received",
         "run_completed",
-        "goal_plan_updated",
         "context_epoch_closed",
         "memory_patch_accepted",
         "state_committed",
     ]);
 });
 
-test("失败 Run 释放 Todo 绑定并保持 pending，不能伪装成 completed", async () => {
+test("失败 Run 不隐式改变 GoalPlan Todo", async () => {
     const store = new InMemoryGoalStore();
     const initial = planGoal();
     await store.save(initial);
@@ -197,7 +292,7 @@ test("失败 Run 释放 Todo 绑定并保持 pending，不能伪装成 completed
     }]);
 });
 
-test("模型不能用 GoalPlan Patch 绕过当前 Run Evidence 直接完成 Todo", async () => {
+test("GoalPlan Patch 缺少完成证据时拒绝且不改变 Todo", async () => {
     const store = new InMemoryGoalStore();
     const initial = planGoal();
     await store.save(initial);
@@ -215,5 +310,127 @@ test("模型不能用 GoalPlan Patch 绕过当前 Run Evidence 直接完成 Todo
     if (!result.ok) return;
     assert.equal(result.state.status, "failed");
     const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.goalPlan?.items[0]?.status, "pending");
+});
+
+test("GoalPlan Todo 可以引用当前 Run 已提交 Observation 完成", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = withObservationTool(planGoal());
+    await store.save(initial);
+    const trajectory = trajectoryStoreFor(store);
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectory,
+        toolRegistry: new InMemoryToolRegistry([createToolRegistration(observationTool)]),
+        executor: new TodoCompletionExecutor(trajectory),
+    }).run({ goalId: initial.id, runId: initial.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "completed");
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.goalPlan?.items[0]?.status, "completed");
+    const recordedObservation = trajectory.events.find((event) =>
+        event.runId === initial.state.run.id && event.eventType === "observation_recorded");
+    const updateFact = trajectory.events.find((event) => event.eventType === "goal_plan_updated");
+    assert.ok(recordedObservation);
+    assert.ok(updateFact);
+    if (updateFact?.payload.type === "goal_plan_updated") {
+        assert.deepEqual(updateFact.payload.operations[1], {
+            type: "update",
+            id: "todo-1",
+            status: "completed",
+            evidenceSequences: [recordedObservation.sequence],
+        });
+    }
+});
+
+test("旧 Run 的 Observation 不能让 GoalPlan Patch 部分生效", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = planGoal();
+    await store.save(initial);
+    const trajectory = trajectoryStoreFor(store);
+    const oldObservation = await trajectory.append({
+        goalId: initial.id,
+        runId: "run-old",
+        phase: "executing",
+        eventType: "observation_recorded",
+        payload: {
+            type: "observation_recorded",
+            actionId: "old-action",
+            observation: { kind: "success", output: "旧结果", summary: "旧 Run 结果" },
+        },
+    });
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: new SequenceExecutor([{
+            kind: "goal_plan_update",
+            baseRevision: initial.state.goalPlan!.revision,
+            operations: [
+                { type: "update", id: "todo-1", status: "in_progress" },
+                {
+                    type: "update",
+                    id: "todo-1",
+                    status: "completed",
+                    evidenceSequences: [oldObservation.sequence],
+                },
+            ],
+        }]),
+    }).run({ goalId: initial.id, runId: initial.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.goalPlan?.revision, initial.state.goalPlan?.revision);
+    assert.equal(saved?.state.goalPlan?.items[0]?.status, "pending");
+});
+
+test("未提交 Observation 不能让 GoalPlan Patch 部分生效", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = planGoal();
+    await store.save(initial);
+    const trajectory = trajectoryStoreFor(store);
+    class UncommittedEvidenceExecutor implements StepExecutor {
+        async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
+            const event = await trajectory.append({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "observation_recorded",
+                payload: {
+                    type: "observation_recorded",
+                    actionId: "uncommitted-action",
+                    observation: { kind: "success", output: "tail", summary: "未提交结果" },
+                },
+            });
+            return {
+                kind: "goal_plan_update",
+                baseRevision: goal.state.goalPlan?.revision ?? 0,
+                operations: [
+                    { type: "update", id: "todo-1", status: "in_progress" },
+                    {
+                        type: "update",
+                        id: "todo-1",
+                        status: "completed",
+                        evidenceSequences: [event.sequence],
+                    },
+                ],
+            };
+        }
+    }
+
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: new UncommittedEvidenceExecutor(),
+    }).run({ goalId: initial.id, runId: initial.state.run.id });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    const saved = await store.restore(initial.id);
+    assert.equal(saved?.state.goalPlan?.revision, initial.state.goalPlan?.revision);
     assert.equal(saved?.state.goalPlan?.items[0]?.status, "pending");
 });

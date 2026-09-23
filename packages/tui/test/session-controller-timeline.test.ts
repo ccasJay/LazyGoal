@@ -99,14 +99,15 @@ function createExecutingGoal(id = "goal-1"): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: "Execute task",
-                    completionCriteria: [],
-                },
             },
             run: {
                 ...goal.state.run,
                 status: "running",
+
+                mode: "plan", approvedTask: {
+                    objective: "Execute task",
+                    completionCriteria: [],
+                },
             },
             messages: [
                 {

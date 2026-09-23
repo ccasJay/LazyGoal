@@ -10,7 +10,6 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
-import { bindGoalPlanTodo, createEmptyGoalPlan } from "./goal-plan";
 import { createRun } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
@@ -48,6 +47,7 @@ import {
     type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
+import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 
 function isStreamDeltaKind(kind: string): boolean {
     return kind.endsWith("_delta");
@@ -134,12 +134,12 @@ export type GoalProgressErrorCode =
  * @remarks
  * 统一执行生命周期支持以下用户操作：
  * - `message`: 向普通 wait/blocked 等待追加用户消息；
- * - `approve_task`: 批准当前任务提案并将其固定为最终任务，推进执行；
- * - `feedback_task`: 对当前任务提案提供反馈，使旧提案失效并重新规划；
+ * - `approve_task`: 携带当前提案的 `requestId` 批准任务并推进执行；
+ * - `feedback_task`: 携带当前提案的 `requestId` 提供反馈，使旧提案失效并重新规划；
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
  * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
  * - `reject_action`: 拒绝待审批的工具调用并记录原因。
- * 兼容分支 `approve` 与 `approve_task` 行为一致。
+ * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
  *
  * @example
  * ```ts
@@ -151,8 +151,8 @@ export type GoalProgressErrorCode =
  */
 export type GoalUserAction =
     | { readonly kind: "message"; readonly content: string }
-    | { readonly kind: "approve_task"; readonly requestId?: string }
-    | { readonly kind: "feedback_task"; readonly requestId?: string; readonly feedback: string }
+    | { readonly kind: "approve_task"; readonly requestId: string }
+    | { readonly kind: "feedback_task"; readonly requestId: string; readonly feedback: string }
     | {
         readonly kind: "answer_ask_user";
         readonly requestId: string;
@@ -164,7 +164,7 @@ export type GoalUserAction =
         readonly actionId: string;
         readonly reason: string;
     }
-    | { readonly kind: "approve"; readonly requestId?: string };
+    | { readonly kind: "approve"; readonly requestId: string };
 
 /**
  * 恢复等待中 Goal 所需的稳定关联键与用户操作。
@@ -173,7 +173,7 @@ export type GoalUserAction =
  * ```ts
  * const request: ResumeGoalRequest = {
  *   ref: { goalId: "goal-1", runId: "run-1" },
- *   action: { kind: "approve_task" },
+ *   action: { kind: "approve_task", requestId: "proposal-1" },
  * };
  * ```
  */
@@ -321,12 +321,14 @@ export class GoalCoordinator {
     }
 
     /**
-     * 在安全输入边界把现有 Goal 切换到后端 Plan Mode。
+     * 为未启动的当前 Run 或已完成 Run 的下一次 Run 选择 Plan Mode。
      *
      * @remarks
-     * 模式和空 GoalPlan 由 Coordinator 在同一 Snapshot 提交边界写入；命令文本
-     * 不会成为 Goal 消息或 Run Step。重复调用是幂等的。模型/Tool 正在执行的
-     * `running` Run 会被拒绝，避免在执行中改变模型契约。
+     * 同一 Goal 的模式选择与 `run_started` 提交按 Store 实例上的串行边界线性化。
+     * 未启动 Run 的模式和事件一起提交；已完成 Run 只把一次性选择写入
+     * `nextRunMode`，由后续 Run 创建时消费。命令文本不会成为 Goal 消息或 Run
+     * Step。重复选择不重复写入。已经提交 `run_started` 的普通 Run 及其它非终态
+     * 等待点不能再切换；Trajectory 中存在未提交的 `run_started` 时也会拒绝。
      *
      * @param ref - Goal 与当前 Run 的关联键。
      * @param control - 当前调用共享的可选中止控制。
@@ -340,56 +342,75 @@ export class GoalCoordinator {
         ref: RunRef,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
-        throwIfAborted(control);
-        const goal = await this.restore(ref, control);
-        throwIfAborted(control);
-        if (goal === undefined) return this.runNotFound(ref);
-        this.validateGoalProtocol(goal);
-        if (goal.state.run.status === "running") {
-            return {
-                ok: false,
-                error: {
-                    code: "PLAN_MODE_BUSY",
-                    message: "Plan Mode cannot be entered while the current Run is executing",
+        return withRunModeSelectionGate(this.store, ref.goalId, async () => {
+            throwIfAborted(control);
+            const goal = await this.restore(ref, control);
+            throwIfAborted(control);
+            if (goal === undefined) return this.runNotFound(ref);
+            this.validateGoalProtocol(goal);
+
+            if (goal.state.run.status === "completed") {
+                if (goal.state.nextRunMode === "plan") {
+                    return { ok: true, kind: "terminal", phase: "executing", goal };
+                }
+                const nextGoal: Goal = {
+                    ...goal,
+                    state: { ...goal.state, nextRunMode: "plan" },
+                };
+                const saved = await this.checkpointCommitter.saveCheckpoint(nextGoal, control);
+                return { ok: true, kind: "terminal", phase: "executing", goal: saved };
+            }
+
+            if (goal.state.run.mode === "plan") {
+                return goal.state.run.status === "waiting"
+                    ? this.executingWaitingResult(goal)
+                    : { ok: true, kind: "terminal", phase: "executing", goal };
+            }
+
+            if (goal.state.run.status !== "created") {
+                return this.planModeBusy();
+            }
+
+            if (this.trajectoryStore !== undefined) {
+                const boundary = await this.trajectoryStore.readWithBoundary(
+                    { goalId: goal.id, runId: goal.state.run.id },
+                    goal.state.run.committedThroughSequence ?? 0,
+                );
+                if (boundary.uncommittedTail.some((event) => event.payload.type === "run_started")) {
+                    return this.planModeBusy();
+                }
+            }
+
+            const planGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    run: { ...goal.state.run, mode: "plan" },
                 },
             };
-        }
-        if ((goal.state.mode ?? "normal") === "plan" && goal.state.goalPlan !== undefined) {
-            return goal.state.run.status === "waiting"
-                ? this.executingWaitingResult(goal)
-                : goal.state.run.status === "created"
-                    ? {
-                        ok: true,
-                        kind: "terminal",
-                        phase: "executing",
-                        goal,
-                    }
-                    : {
-                        ok: true,
-                        kind: "terminal",
-                        phase: "executing",
-                        goal,
-                    };
-        }
+            const committed = await this.checkpointCommitter.commit(planGoal, {
+                facts: [{
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "plan_mode_entered",
+                    payload: { type: "plan_mode_entered" },
+                }],
+                ...(control === undefined ? {} : { control }),
+            });
+            this.publishCommittedEvents(committed, committed.events);
+            return { ok: true, kind: "terminal", phase: "executing", goal: committed.goal };
+        });
+    }
 
-        const planGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                mode: "plan",
-                goalPlan: goal.state.goalPlan ?? createEmptyGoalPlan(),
+    private planModeBusy(): GoalProgressResult {
+        return {
+            ok: false,
+            error: {
+                code: "PLAN_MODE_BUSY",
+                message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
             },
         };
-        await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            eventType: "plan_mode_entered",
-            payload: { type: "plan_mode_entered" },
-        }, control);
-        const saved = await this.saveCheckpoint(planGoal, control);
-        if (saved.state.run.status === "waiting") return this.executingWaitingResult(saved);
-        return { ok: true, kind: "terminal", phase: "executing", goal: saved };
     }
 
     /**
@@ -460,11 +481,11 @@ export class GoalCoordinator {
      *
      * @remarks
      * `continue` 只接受当前 `completed` Run 和非空输入。它在同一个 Goal 内先
-     * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并在 Plan Mode
-     * 绑定 position 最前的 pending Todo；完整 Snapshot 成功后才调用 Scheduler。
-     * waiting Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个
-     * Coordinator 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被
-     * 两次消费。
+     * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
+     * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
+     * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
+     * Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个 Coordinator
+     * 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被两次消费。
      *
      * @param ref - 当前已完成 Run 的 Goal/Run 关联键。
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
@@ -485,113 +506,95 @@ export class GoalCoordinator {
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
         return this.withContinuationGate(ref.goalId, async () => {
-            throwIfAborted(control);
-            if (newInput.trim().length === 0) {
-                return this.invalidGoalInput("Continuation input must not be empty");
-            }
+            const preparation = await withRunModeSelectionGate(
+                this.store,
+                ref.goalId,
+                async (): Promise<
+                    | { readonly progress: GoalProgressResult }
+                    | { readonly nextRef: RunRef }
+                > => {
+                    throwIfAborted(control);
+                    if (newInput.trim().length === 0) {
+                        return { progress: this.invalidGoalInput("Continuation input must not be empty") };
+                    }
 
-            const goal = await this.restore(ref, control);
-            throwIfAborted(control);
-            if (goal === undefined) return this.runNotFound(ref);
-            this.validateGoalProtocol(goal);
+                    const goal = await this.restore(ref, control);
+                    throwIfAborted(control);
+                    if (goal === undefined) return { progress: this.runNotFound(ref) };
+                    this.validateGoalProtocol(goal);
 
-            if (goal.state.run.status !== "completed") {
-                return this.goalNotCompleted(ref);
-            }
+                    if (goal.state.run.status !== "completed") {
+                        return { progress: this.goalNotCompleted(ref) };
+                    }
 
-            const runId = this.runIdGenerator();
-            if (
-                typeof runId !== "string"
-                || runId.trim().length === 0
-                || runId === goal.state.run.id
-                || (goal.state.completedRuns ?? []).some((record) => record.runId === runId)
-            ) {
-                return this.invalidGoalInput("Run ID generator returned a duplicate or empty ID");
-            }
+                    const runId = this.runIdGenerator();
+                    if (
+                        typeof runId !== "string"
+                        || runId.trim().length === 0
+                        || runId === goal.state.run.id
+                        || (goal.state.completedRuns ?? []).some((record) => record.runId === runId)
+                    ) {
+                        return {
+                            progress: this.invalidGoalInput("Run ID generator returned a duplicate or empty ID"),
+                        };
+                    }
 
-            const priorMessages = goal.state.messages;
-            const priorHistory = goal.state.completedRuns ?? [];
-            const historyEnd = priorMessages.length;
-            const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
-            const history: CompletedRunRecord = {
-                runId: goal.state.run.id,
-                ...(goal.state.run.todoId === undefined ? {} : { todoId: goal.state.run.todoId }),
-                stepCount: goal.state.run.stepCount,
-                committedThroughSequence: goal.state.run.committedThroughSequence,
-                messageRange: {
-                    start: previousRangeEnd,
-                    end: historyEnd,
-                },
-            };
-
-            const mode = goal.state.mode ?? "normal";
-            let nextPlan = goal.state.goalPlan;
-            let todoId: string | undefined;
-            let planFact: TrajectoryEventDraft | undefined;
-            if (mode === "plan") {
-                if (nextPlan === undefined) {
-                    return this.invalidGoalInput("Plan Mode Goal is missing its GoalPlan");
-                }
-                const pendingTodo = nextPlan.items.find((item) => item.status === "pending");
-                if (pendingTodo === undefined) {
-                    return this.invalidGoalInput("Plan Mode has no pending Todo to continue");
-                }
-                todoId = pendingTodo.id;
-                nextPlan = bindGoalPlanTodo(nextPlan, todoId, runId);
-                planFact = {
-                    goalId: goal.id,
-                    runId,
-                    phase: goal.state.workflow.phase,
-                    eventType: "goal_plan_updated",
-                    payload: {
-                        type: "goal_plan_updated",
-                        revision: nextPlan.revision,
-                        operations: [{ type: "update", id: todoId, status: "in_progress" }],
-                    },
-                };
-            } else if (nextPlan !== undefined) {
-                return this.invalidGoalInput("Normal Mode Goal cannot contain a GoalPlan");
-            }
-
-            const nextRun = createRun(runId, todoId);
-            const nextGoal: Goal = {
-                ...goal,
-                state: {
-                    ...goal.state,
-                    messages: [
-                        ...priorMessages,
-                        { role: "user", content: newInput },
-                    ],
-                    run: nextRun,
-                    ...(nextPlan === undefined ? {} : { goalPlan: nextPlan }),
-                    completedRuns: [...priorHistory, history],
-                },
-            };
-
-            throwIfAborted(control);
-            const committed = await this.checkpointCommitter.commit(nextGoal, {
-                facts: [
-                    {
-                        goalId: goal.id,
-                        runId,
-                        phase: goal.state.workflow.phase,
-                        eventType: "run_created",
-                        payload: {
-                            type: "run_created",
-                            ...(todoId === undefined ? {} : { todoId }),
+                    const priorMessages = goal.state.messages;
+                    const priorHistory = goal.state.completedRuns ?? [];
+                    const historyEnd = priorMessages.length;
+                    const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
+                    const history: CompletedRunRecord = {
+                        runId: goal.state.run.id,
+                        stepCount: goal.state.run.stepCount,
+                        committedThroughSequence: goal.state.run.committedThroughSequence,
+                        messageRange: {
+                            start: previousRangeEnd,
+                            end: historyEnd,
                         },
-                    },
-                    ...(planFact === undefined ? [] : [planFact]),
-                ],
-                ...(control === undefined ? {} : { control }),
-            });
-            this.publishCommittedEvents(committed, committed.events);
-            throwIfAborted(control);
+                    };
 
-            const nextRef = { goalId: goal.id, runId };
-            const scheduled = await this.scheduler.schedule(nextRef, undefined, control);
+                    const nextRunMode = goal.state.nextRunMode ?? "normal";
+                    const nextRun = createRun(runId, nextRunMode);
+                    const { nextRunMode: _consumedNextRunMode, ...stateWithoutNextRunMode } = goal.state;
+                    const nextGoal: Goal = {
+                        ...goal,
+                        state: {
+                            ...stateWithoutNextRunMode,
+                            messages: [
+                                ...priorMessages,
+                                { role: "user", content: newInput },
+                            ],
+                            run: nextRun,
+                            completedRuns: [...priorHistory, history],
+                        },
+                    };
+
+                    throwIfAborted(control);
+                    const committed = await this.checkpointCommitter.commit(nextGoal, {
+                        facts: [
+                            {
+                                goalId: goal.id,
+                                runId,
+                                phase: goal.state.workflow.phase,
+                                eventType: "run_created",
+                                payload: {
+                                    type: "run_created",
+                                    mode: nextRun.mode,
+                                },
+                            },
+                        ],
+                        ...(control === undefined ? {} : { control }),
+                    });
+                    this.publishCommittedEvents(committed, committed.events);
+                    throwIfAborted(control);
+                    return { nextRef: { goalId: goal.id, runId } };
+                },
+            );
+            if ("progress" in preparation) return preparation.progress;
+
+            const scheduled = await this.scheduler.schedule(preparation.nextRef, undefined, control);
             throwIfAborted(control);
-            return this.afterSchedule(nextRef, scheduled, control);
+            return this.afterSchedule(preparation.nextRef, scheduled, control);
         });
     }
 
@@ -601,10 +604,13 @@ export class GoalCoordinator {
      * @remarks
      * 交互恢复处理逻辑：
      * - `ask_user`: 校验 requestId 和答案结构，写入 `ask_user_answered` 事实并解除等待；
-     * - `task_approval`: 批准将提案固定为最终任务并推进 ContextEpoch；反馈追加用户消息并重新规划；
+     * - `task_approval`: 批准或反馈必须匹配当前提案 requestId。批准固定任务并推进
+     *   ContextEpoch；反馈写入用户消息与 Trajectory，使旧请求失效后在同一 Run 重新规划；
      * - `approve_action`/`reject_action`: 审核待处理的工具调用；
      * - `message`: 解除因 wait 决策引起的 blocked 等待。
-     * 所有恢复分支均先保存最新 Goal 快照，再调用 {@link advance}。
+     * Goal/Run 引用不匹配时返回 `RUN_NOT_FOUND`；任务请求 ID 过期时返回
+     * `INVALID_GOAL_INPUT`，两者均保留当前等待点。有效恢复先保存快照，再调用
+     * {@link advance}。
      *
      * @param request - 当前 RunRef 与用户操作。
      * @param control - 当前 Goal 推进调用共享的中止控制。
@@ -615,7 +621,7 @@ export class GoalCoordinator {
      * ```ts
      * const result = await coordinator.resume({
      *   ref: { goalId: "g-1", runId: "r-1" },
-     *   action: { kind: "approve_task" },
+     *   action: { kind: "approve_task", requestId: "proposal-1" },
      * });
      * ```
      */
@@ -722,11 +728,11 @@ export class GoalCoordinator {
                     request.action.kind === "approve_task"
                     || request.action.kind === "approve"
                 ) {
-                    if (
-                        request.action.requestId !== undefined
-                        && pendingInteraction.requestId !== undefined
-                        && request.action.requestId !== pendingInteraction.requestId
-                    ) {
+                    if (request.action.requestId.trim().length === 0) {
+                        return this.invalidGoalInput("Task approval requestId must not be empty");
+                    }
+
+                    if (request.action.requestId !== pendingInteraction.requestId) {
                         return this.invalidGoalInput(
                             `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
                         );
@@ -749,11 +755,10 @@ export class GoalCoordinator {
                         ...epoch.goal,
                         state: {
                             ...epoch.goal.state,
-                            workflow: {
-                                phase: "executing",
-                                task: cloneTask(proposal),
+                            run: {
+                                ...resolvedRun.state,
+                                approvedTask: cloneTask(proposal),
                             },
-                            run: resolvedRun.state,
                         },
                     };
 
@@ -773,6 +778,7 @@ export class GoalCoordinator {
                         eventType: "task_approved",
                         payload: {
                             type: "task_approved",
+                            requestId: pendingInteraction.requestId,
                             task: proposal,
                         },
                     }, control);
@@ -781,24 +787,18 @@ export class GoalCoordinator {
                     return this.advance(request.ref, control);
                 }
 
-                if (
-                    request.action.kind === "feedback_task"
-                    || request.action.kind === "message"
-                ) {
-                    const feedbackText = request.action.kind === "feedback_task"
-                        ? request.action.feedback
-                        : request.action.content;
+                if (request.action.kind === "feedback_task") {
+                    const feedbackText = request.action.feedback;
 
                     if (feedbackText.trim().length === 0) {
                         return this.invalidGoalInput("Feedback must not be empty");
                     }
 
-                    if (
-                        request.action.kind === "feedback_task"
-                        && request.action.requestId !== undefined
-                        && pendingInteraction.requestId !== undefined
-                        && request.action.requestId !== pendingInteraction.requestId
-                    ) {
+                    if (request.action.requestId.trim().length === 0) {
+                        return this.invalidGoalInput("Task feedback requestId must not be empty");
+                    }
+
+                    if (request.action.requestId !== pendingInteraction.requestId) {
                         return this.invalidGoalInput(
                             `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
                         );
@@ -835,13 +835,24 @@ export class GoalCoordinator {
                         eventType: "run_resumed",
                         payload: { type: "run_resumed" },
                     }, control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "task_feedback_received",
+                        payload: {
+                            type: "task_feedback_received",
+                            requestId: pendingInteraction.requestId,
+                            feedback: feedbackText,
+                        },
+                    }, control);
 
                     await this.saveCheckpoint(resumedGoal, control);
                     return this.advance(request.ref, control);
                 }
 
                 return this.invalidGoalInput(
-                    "task_approval interaction requires approve_task, feedback_task, or message",
+                    "task_approval interaction requires request-bound approve_task or feedback_task",
                 );
             }
 

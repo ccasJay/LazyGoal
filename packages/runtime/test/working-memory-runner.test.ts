@@ -100,15 +100,16 @@ function executingGoal(id: string): Goal {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: "Read a file",
-                    completionCriteria: [{ text: "A Tool observation confirms the read" }],
-                },
             },
             run: {
                 ...goal.state.run,
                 status: "running",
                 committedThroughSequence: 0,
+
+                mode: "plan", approvedTask: {
+                    objective: "Read a file",
+                    completionCriteria: [{ text: "A Tool observation confirms the read" }],
+                },
             },
         },
     };

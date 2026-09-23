@@ -1,30 +1,30 @@
 # 实施计划
 
-- [ ] //TODO 1. 将模式与任务归属迁移到 Run 持久化模型
+- [x] //TODO 1. 将模式与任务归属迁移到 Run 持久化模型
   - 实现目标：调整 Runtime Domain、Snapshot Schema/Codec 和 Trajectory 契约，保存 `Run.mode`、`Run.approvedTask`、可选 `Goal.nextRunMode` 与独立 GoalPlan；移除 Goal 级模式/任务和 Todo/Run 持久绑定，沿用当前协议形状。
   - 成功判据：新状态经 Snapshot 保存、恢复后字段归属不变；旧开发期字段或不一致的模式/审批状态被明确拒绝，且不触发兼容迁移。
   - 验证方式：更新 Snapshot、交互等待点和 Trajectory 契约测试；运行 `npx tsx --test packages/storage/test/goal-snapshot-current.test.ts packages/storage/test/goal-snapshot-interaction.test.ts packages/runtime/test/trajectory.test.ts`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [4.4](./requirements.md#req-4-4), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 实现 `/plan` 对当前或下一 Run 的一次性选择
+- [x] //TODO 2. 实现 `/plan` 对当前或下一 Run 的一次性选择
   - 实现目标：接通 Slash Command、Launcher、GoalCoordinator 和 SessionController，使新 Goal、尚未执行的 Run、已完成 Run 分别按设计设置当前或下一 Run 模式。
   - 成功判据：在持久化 `run_started` 提交前接受切换、提交后无副作用拒绝；并发命令与 Run 启动按提交顺序得到唯一结果；重复命令幂等，重启后待用选择仍只消费一次。
   - 验证方式：新增/更新 Coordinator、Slash Command 与 SessionController 场景测试（待实现），包括并发竞态的两种提交顺序；运行 `npx tsx --test packages/runtime/test/goal-coordinator.test.ts packages/slash-command/test/slash-command.test.ts packages/tui/test/session-controller.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [7.1](./requirements.md#req-7-1)_
 
-- [ ] //TODO 3. 按 Run 模式生成决策能力并执行 Runtime 授权
+- [x] //TODO 3. 按 Run 模式生成决策能力并执行 Runtime 授权
   - 实现目标：更新 Agent 决策契约、Plan Prompt/投影和 Runner；普通模式以当前用户请求直接执行，Plan Prompt 要求先提案，Runtime 不按 `isReadOnly` 新增审批前 Tool 门控，批准后按任务完成条件校验。
   - 成功判据：普通模式不产生任务提案等待，仍受 Tool Policy/Action 授权和当前 Run 证据校验；Plan Prompt 明确先提案再调用业务 Tool，但未批准时 Runtime 仍按既有授权规则处理 Tool；完成仍被拒，越权 GoalPlan 决策不改变计划；`ask_user` 在两种模式继续可用。
   - 验证方式：新增/更新 Prompt、Contract、Agent 投影和 Runner 测试（待实现），验证提示内容及“未批准本身不拒绝已授权 Tool”；运行 `npx tsx --test packages/contracts/test/model-output-canonical.test.ts packages/agent/test/model-inference-projector.test.ts packages/runtime/test/runner-pretask-read.test.ts packages/runtime/test/runner.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 4. 将任务提案审批与反馈固定到当前 Run
+- [x] //TODO 4. 将任务提案审批与反馈固定到当前 Run
   - 实现目标：调整 Coordinator、Runner、Trajectory 和待交互 Snapshot，使提案等待、反馈、旧请求失效及批准后的任务保存都绑定当前 Goal/Run/request ID。
   - 成功判据：批准只保存当前 Run 的任务目标与完成条件并继续执行；反馈使旧提案失效且恢复同一 Run；过期或跨 Run 响应无副作用并保留当前有效等待点。
   - 验证方式：新增/更新提案批准、反馈、恢复与过期请求测试（待实现）；运行 `npx tsx --test packages/runtime/test/goal-coordinator-task-interaction.test.ts packages/runtime/test/goal-coordinator.test.ts packages/storage/test/goal-snapshot-interaction.test.ts`。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [6.1](./requirements.md#req-6-1), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 5. 通过模式能力授权并按需提交 GoalPlan 更新
+- [x] //TODO 5. 通过模式能力授权并按需提交 GoalPlan 更新
   - 实现目标：让模式能力决定 GoalPlan Tool 的暴露与 Runtime 校验；仅首次成功 Patch 时创建计划，维持稳定 Todo ID、revision 原子性，并为 Todo 完成操作校验当前 Run 的证据引用。
   - 成功判据：无权模式的更新在无副作用情况下拒绝；失败或过期 Patch 不创建计划、不部分提交；完成 Todo 只接受当前 Run 已提交 Observation 引用，旧 Run、未提交或无效引用时整个 Patch 被拒绝；已有计划在普通模式保留且可读，计划内容不改变任务审批或业务 Tool 权限。
   - 验证方式：新增/更新 Contract、Reducer、Runner 和 Snapshot 测试（待实现）；运行 `npx tsx --test packages/runtime/test/goal-plan.test.ts packages/runtime/test/goal-plan-mode.test.ts packages/storage/test/goal-plan-snapshot.test.ts`。

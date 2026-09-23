@@ -1,7 +1,7 @@
 import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
-import { isReadOnlyTool, type ToolDefinition } from "../../runtime/src/tool";
+import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
     ConversationContextUnitAdapter,
@@ -204,10 +204,10 @@ export async function buildStepRequest(
     );
 
     const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
-    const taskPresent = !isInitialCheckpoint && goal.state.workflow.task !== undefined;
-    const planMode = !isInitialCheckpoint && (goal.state.mode ?? "normal") === "plan";
-    const effectiveTools = taskPresent ? tools : tools.filter(isReadOnlyTool);
-    const authorizedToolContracts = effectiveTools.map((t) => ({
+    const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
+    const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
+    const goalPlanWritable = !isInitialCheckpoint && assembled.prompt.goalPlanWritable;
+    const authorizedToolContracts = tools.map((t) => ({
         id: t.id,
         inputContract: t.inputContract,
         isReadOnly: t.isReadOnly,
@@ -220,11 +220,12 @@ export async function buildStepRequest(
             authorizedTools: authorizedToolContracts,
             taskPresent,
             planMode,
+            goalPlanWritable,
         }) as unknown as ModelOutputContractBundle<AgentDecision>);
 
     const toolDeclarations = isInitialCheckpoint
         ? createCheckpointToolDeclarations()
-        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent, planMode);
+        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent, planMode, goalPlanWritable);
 
     return renderFinalRequest(
         assembled,

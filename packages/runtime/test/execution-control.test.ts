@@ -57,14 +57,15 @@ function createExecutingGoal(
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task: {
-                    objective: goal.definition.intent,
-                    completionCriteria: [{ text: "Abort is not converted into a failure" }],
-                },
             },
             run: {
                 ...goal.state.run,
                 status: "running",
+
+                mode: "plan", approvedTask: {
+                    objective: goal.definition.intent,
+                    completionCriteria: [{ text: "Abort is not converted into a failure" }],
+                },
             },
         },
     };

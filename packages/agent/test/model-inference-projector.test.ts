@@ -153,7 +153,6 @@ function createExecutingGoal(options: {
             ...goal.state,
             workflow: {
                 phase: "executing",
-                task,
             },
             run: {
                 ...goal.state.run,
@@ -165,6 +164,8 @@ function createExecutingGoal(options: {
                 ...(options.pendingAction === undefined
                     ? {}
                     : { pendingAction: options.pendingAction }),
+
+                mode: "plan", approvedTask: task,
             },
         },
     };
@@ -259,13 +260,15 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
     assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
     assert.equal(view.prompt.phase, "executing");
+    assert.equal(view.prompt.runMode, "normal");
+    assert.equal(view.prompt.goalPlanWritable, false);
     assert.equal(view.prompt.profile.id, "profile-1");
     assert.deepEqual(view.workingContext, { phase: "executing", intent, execution: { stepCount: 0 } });
     assert.deepEqual(view.workingMemory, currentWorkingMemory);
     assert.equal(view.contextEpoch.epochNumber, 0);
 });
 
-test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory plan", () => {
+test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working Memory plan", () => {
     const goal = createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
@@ -287,14 +290,14 @@ test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory p
                     content: "检查现有实现",
                     position: 0,
                     status: "in_progress",
-                    activeRunId: "run-plan-1",
                 }],
             },
-            run: { ...goal.state.run, status: "running", todoId: "todo-1" },
+            run: { ...goal.state.run, status: "running", mode: "plan" },
         },
     };
 
     const view = project(planGoal, [], currentWorkingMemory);
+    assert.equal(view.prompt.goalPlanWritable, true);
     assert.deepEqual(view.prompt.goalPlan, {
         revision: 2,
         items: [{
@@ -302,14 +305,27 @@ test("Projector 仅在 Plan Mode 投影 GoalPlan，且不混入 Working Memory p
             content: "检查现有实现",
             position: 0,
             status: "in_progress",
-            activeRunId: "run-plan-1",
         }],
     });
     assert.deepEqual(view.workingMemory.plan, currentWorkingMemory.plan);
     assert.equal(Object.isFrozen(view.prompt.goalPlan), true);
 
-    const normalView = project(createExecutingGoal(), [], currentWorkingMemory);
-    assert.equal("goalPlan" in normalView.prompt, false);
+    const normalGoal = createUnapprovedGoal();
+    const savedPlan = planGoal.state.goalPlan;
+    assert.ok(savedPlan !== undefined);
+    const goalWithPlan: Goal = {
+        ...normalGoal,
+        state: {
+            ...normalGoal.state,
+            goalPlan: savedPlan,
+            run: { ...normalGoal.state.run, mode: "normal" },
+        },
+    };
+    const normalView = project(goalWithPlan, [], currentWorkingMemory);
+    assert.deepEqual(normalView.prompt.goalPlan, view.prompt.goalPlan);
+    assert.equal(normalView.prompt.runMode, "normal");
+    assert.equal(normalView.prompt.goalPlanWritable, false);
+    assert.deepEqual(normalView.workingMemory.plan, currentWorkingMemory.plan);
 });
 
 test("Projector 只投影 executing 阶段的任务与有界执行记忆", () => {

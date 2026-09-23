@@ -28,15 +28,15 @@ export interface TaskProposalPanelProps {
     /** 待批准的任务提案。 */
     readonly proposal?: GoalTask;
     /** 当前任务提案的稳定关联请求标识。 */
-    readonly requestId?: string;
+    readonly requestId: string;
     /** Agent 发起的定制化审批提示文案。 */
     readonly approvalRequest?: string;
     /** 是否正在推进或等待异步操作。 */
     readonly busy: boolean;
-    /** 批准当前任务提案并推进执行的回调。 */
-    readonly onApprove: (requestId?: string) => void | Promise<void>;
-    /** 提供反馈要求重新规划的回调。 */
-    readonly onFeedback: (requestId: string | undefined, feedback: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 批准任务并推进执行的回调。 */
+    readonly onApprove: (requestId: string) => void | Promise<void>;
+    /** 使用当前提案 request ID 提交反馈并重新规划的回调。 */
+    readonly onFeedback: (requestId: string, feedback: string) => void | Promise<void>;
     /** Slash 命令派发产生的副作用回调。 */
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }

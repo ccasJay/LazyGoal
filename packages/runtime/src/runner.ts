@@ -62,11 +62,10 @@ import {
 } from "./execution-control";
 import { transition } from "./transition";
 import {
-    completeGoalPlanTodo,
+    createEmptyGoalPlan,
     reduceGoalPlan,
-    releaseGoalPlanTodo,
 } from "./goal-plan";
-import type { GoalPlan } from "./goal-plan";
+import { canUpdateGoalPlan } from "./run-mode-capabilities";
 import {
     TrajectoryAppendError,
     allocateDiagnosticTraceRecord,
@@ -105,6 +104,7 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
+import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -301,13 +301,6 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_FOUND",
             `Authorized Tool "${action.toolId}" is not registered`,
-        );
-    }
-
-    if (goal.state.workflow.task === undefined && !registration.definition.isReadOnly) {
-        throw new RunnerExecutionError(
-            "TOOL_NOT_AUTHORIZED",
-            `Tool "${action.toolId}" is not allowed before task is approved: only read-only tools are allowed`,
         );
     }
 
@@ -688,30 +681,57 @@ export class Runner {
             return this.actionNotAuthorized(ref, options.authorizedActionId);
         }
 
-        const contextLookupResult = options.contextLookupResult
-            ?? await this.restoreContextLookupResult(goal, effectiveControl);
-
         if (goal.state.run.status === "created") {
-            throwIfAborted(effectiveControl);
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "run_started",
-                payload: { type: "run_started" },
-            }, effectiveControl);
-            const runningGoal = this.withRun(
-                goal,
-                this.applyTransition(goal.state.run, { kind: "start" }),
-            );
-            const checkpoint = await this.saveCheckpoint(runningGoal, effectiveControl);
+            const start = await withRunModeSelectionGate(this.store, goal.id, async () => {
+                throwIfAborted(effectiveControl);
+                const latestGoal = await this.restore(ref, effectiveControl);
+                throwIfAborted(effectiveControl);
+                if (latestGoal === undefined) return { kind: "missing" as const };
+                this.validateGoalProtocol(latestGoal);
+                if (latestGoal.state.run.status !== "created") {
+                    return { kind: "already_started" as const, goal: latestGoal };
+                }
+                if (!this.hasMatchingTransientAuthorization(latestGoal, options)) {
+                    return {
+                        kind: "unauthorized" as const,
+                        result: this.actionNotAuthorized(ref, options.authorizedActionId),
+                    };
+                }
+
+                const runningGoal = this.withRun(
+                    latestGoal,
+                    this.applyTransition(latestGoal.state.run, { kind: "start" }),
+                );
+                const committed = await this.checkpointCommitter.commit(runningGoal, {
+                    facts: [{
+                        goalId: latestGoal.id,
+                        runId: latestGoal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_started",
+                        payload: { type: "run_started" },
+                    }],
+                    ...(effectiveControl === undefined ? {} : { control: effectiveControl }),
+                });
+                this.publishCommittedEvents(committed);
+                return { kind: "started" as const, goal: committed.goal };
+            });
+
+            if (start.kind === "missing") return this.runNotFound(ref);
+            if (start.kind === "unauthorized") return start.result;
+            if (start.kind === "already_started") return { ok: true, state: start.goal.state.run };
+
+            const contextLookupResult = options.contextLookupResult
+                ?? await this.restoreContextLookupResult(start.goal, effectiveControl);
             return this.runLoop(
-                checkpoint,
+                start.goal,
                 options.authorizedActionId,
                 effectiveControl,
                 contextLookupResult,
             );
         }
+
+        const contextLookupResult = options.contextLookupResult
+            ?? await this.restoreContextLookupResult(goal, effectiveControl);
 
         return this.runLoop(
             goal,
@@ -1160,20 +1180,75 @@ export class Runner {
         decision: AgentDecision,
         session: WorkingMemorySession,
     ): void {
-        if (decision.kind !== "complete") return;
-        const workflow = goal.state.workflow;
-        if (workflow.phase !== "executing") {
+        if (goal.state.workflow.phase !== "executing") {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
-                "structured complete requires an executing Goal Task",
+                "structured decisions require an executing Goal",
             );
         }
 
-        const task = workflow.task;
+        const run = goal.state.run;
+        const task = goal.state.run.approvedTask;
+        if (decision.kind === "task_proposal" && (run.mode !== "plan" || task !== undefined)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "task_proposal is only allowed before approval in Plan Mode",
+            );
+        }
+        if (decision.kind === "goal_plan_update" && !canUpdateGoalPlan(run.mode)) {
+            throw new RunnerExecutionError(
+                "INVALID_AGENT_DECISION",
+                "goal_plan_update is not authorized in the current Run mode",
+            );
+        }
+
+        if (run.mode === "plan" && task === undefined) {
+            if (["complete", "wait", "fail"].includes(decision.kind)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    `${decision.kind} is not allowed before a Plan task is approved`,
+                );
+            }
+            return;
+        }
+
+        if (decision.kind !== "complete") return;
+
+        if (run.mode === "normal") {
+            if (!("evidenceSequences" in decision) || !Array.isArray(decision.evidenceSequences)) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "normal complete must include evidenceSequences",
+                );
+            }
+            if (decision.evidenceSequences.length > 0) {
+                try {
+                    session.validateEvidence(decision.evidenceSequences);
+                } catch (error) {
+                    throw new RunnerExecutionError(
+                        "INVALID_AGENT_DECISION",
+                        error instanceof Error ? error.message : String(error),
+                    );
+                }
+            }
+
+            const evidenceIndex = session.evidenceIndex;
+            const hasBusinessObservation = [...evidenceIndex.events.values()].some((event) =>
+                event.payload.type === "tool_finished",
+            );
+            if (hasBusinessObservation && decision.evidenceSequences.length === 0) {
+                throw new RunnerExecutionError(
+                    "INVALID_AGENT_DECISION",
+                    "normal complete must cite current Run Tool/Observation evidence",
+                );
+            }
+            return;
+        }
+
         if (task === undefined) {
             throw new RunnerExecutionError(
                 "INVALID_AGENT_DECISION",
-                "structured complete requires an approved Goal Task",
+                "Plan complete requires an approved Goal Task",
             );
         }
 
@@ -1475,91 +1550,46 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         throwIfAborted(control);
-        const released = this.releaseBoundPlanTodo(goal);
         const lifecyclePatch = await this.createTerminalLifecyclePatch(
-            released.goal,
-            released.planFact === undefined ? 1 : 2,
+            goal,
+            1,
             control,
         );
         const executionErrorFact: TrajectoryEventDraft = {
-            goalId: released.goal.id,
-            runId: released.goal.state.run.id,
-            phase: released.goal.state.workflow.phase,
-            ...(released.goal.state.run.pendingAction === undefined
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: goal.state.workflow.phase,
+            ...(goal.state.run.pendingAction === undefined
                 ? {}
-                : { actionId: released.goal.state.run.pendingAction.action.actionId }),
+                : { actionId: goal.state.run.pendingAction.action.actionId }),
             eventType: "execution_error",
             payload: {
                 type: "execution_error",
                 code: error.code,
                 message: error.message,
-                ...(released.goal.state.run.pendingAction === undefined
+                ...(goal.state.run.pendingAction === undefined
                     ? {}
-                    : { actionId: released.goal.state.run.pendingAction.action.actionId }),
+                    : { actionId: goal.state.run.pendingAction.action.actionId }),
             },
         };
-        const failedRun = this.applyTransition(released.goal.state.run, {
+        const failedRun = this.applyTransition(goal.state.run, {
             kind: "execution_error",
             code: error.code,
             message: error.message,
         });
-        const failedGoal = this.withRun(released.goal, failedRun);
+        const failedGoal = this.withRun(goal, failedRun);
         const closedEpochFact = this.contextEpochClosedFact(failedGoal, "run_failed");
 
         const checkpoint = await this.commitDecision(
             failedGoal,
             [
                 executionErrorFact,
-                ...(released.planFact === undefined ? [] : [released.planFact]),
                 ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
             ],
             lifecyclePatch,
             control,
         );
         return { ok: true, state: checkpoint.state.run };
-    }
-
-    private releaseBoundPlanTodo(
-        goal: Goal,
-    ): { readonly goal: Goal; readonly planFact?: TrajectoryEventDraft } {
-        if (
-            (goal.state.mode ?? "normal") !== "plan"
-            || goal.state.goalPlan === undefined
-            || goal.state.run.todoId === undefined
-        ) {
-            return { goal };
-        }
-
-        const nextPlan = releaseGoalPlanTodo(
-            goal.state.goalPlan,
-            goal.state.run.todoId,
-            goal.state.run.id,
-        );
-        const nextGoal: Goal = {
-            ...goal,
-            state: {
-                ...goal.state,
-                goalPlan: nextPlan,
-            },
-        };
-        return {
-            goal: nextGoal,
-            planFact: {
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: goal.state.workflow.phase,
-                eventType: "goal_plan_updated",
-                payload: {
-                    type: "goal_plan_updated",
-                    revision: nextPlan.revision,
-                    operations: [{
-                        type: "update",
-                        id: goal.state.run.todoId,
-                        status: "pending",
-                    }],
-                },
-            },
-        };
     }
 
     private contextEpochClosedFact(
@@ -1834,14 +1864,13 @@ export class Runner {
 
             if (maxSteps > 0 && goal.state.run.stepCount >= maxSteps) {
                 throwIfAborted(control);
-                const released = this.releaseBoundPlanTodo(goal);
                 const lifecyclePatch = await this.createTerminalLifecyclePatch(
-                    released.goal,
-                    released.planFact === undefined ? 1 : 2,
+                    goal,
+                    1,
                     control,
                 );
-                const failedGoal = this.withRun(released.goal, {
-                    ...released.goal.state.run,
+                const failedGoal = this.withRun(goal, {
+                    ...goal.state.run,
                     status: "failed",
                     stopReason: { kind: "max_steps_exceeded" },
                 });
@@ -1850,8 +1879,8 @@ export class Runner {
                     failedGoal,
                     [
                         {
-                            goalId: released.goal.id,
-                            runId: released.goal.state.run.id,
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
                             phase: "executing",
                             eventType: "run_failed",
                             payload: {
@@ -1860,7 +1889,6 @@ export class Runner {
                                 message: "The configured maximum step count was exceeded",
                             },
                         },
-                        ...(released.planFact === undefined ? [] : [released.planFact]),
                         ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
                     ],
                     lifecyclePatch,
@@ -1933,7 +1961,7 @@ export class Runner {
 
                     // 未批准任务时，当前协议尚未允许 fail Decision 形成执行 Step。
                     // 直接记录稳定执行错误，保持无任务快照仍满足 stepCount/lastStep 不变量。
-                    if (goal.state.workflow.task === undefined) {
+                    if (goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
@@ -1966,9 +1994,8 @@ export class Runner {
                         kind: "decision",
                         decision,
                     });
-                    const released = this.releaseBoundPlanTodo(goal);
                     const nextGoal = this.appendDecisionMessage(
-                        this.withRun(released.goal, nextRun),
+                        this.withRun(goal, nextRun),
                         decision,
                     );
 
@@ -1976,7 +2003,6 @@ export class Runner {
                     goal = await this.commitDecision(
                         nextGoal,
                         [
-                            ...(released.planFact === undefined ? [] : [released.planFact]),
                             ...(closedEpochFact === undefined ? [] : [closedEpochFact]),
                         ],
                         undefined,
@@ -2122,7 +2148,7 @@ export class Runner {
 
                 if (normalized.decision.kind === "ask_user") {
                     const normalizedReq = normalizeAskUserRequest(normalized.decision.questions);
-                    const mode: "plan" | "execution" = goal.state.workflow.task === undefined ? "plan" : "execution";
+                    const mode: "plan" | "execution" = goal.state.run.approvedTask === undefined ? "plan" : "execution";
                     const pendingInteraction: PendingInteractionAskUser = {
                         kind: "ask_user",
                         requestId: normalizedReq.requestId,
@@ -2175,20 +2201,21 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "task_proposal") {
-                    if (goal.state.workflow.task !== undefined) {
+                    if (goal.state.run.mode !== "plan" || goal.state.run.approvedTask !== undefined) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
                                 "INVALID_AGENT_DECISION",
-                                "task_proposal is not allowed after task has already been approved",
+                                "task_proposal is only allowed before approval in Plan Mode",
                             ),
                             control,
                         );
                     }
 
+                    const requestId = `proposal-${randomUUID()}`;
                     const pendingInteraction: PendingInteractionTaskApproval = {
                         kind: "task_approval",
-                        requestId: `proposal-${randomUUID()}`,
+                        requestId,
                         proposal: normalized.decision.task,
                         approvalRequest: normalized.decision.approvalRequest,
                     };
@@ -2226,6 +2253,7 @@ export class Runner {
                         payload: {
                             type: "run_waiting",
                             reason: "task_approval",
+                            requestId,
                         },
                     };
 
@@ -2379,39 +2407,59 @@ export class Runner {
 
                 if (normalized.decision.kind === "goal_plan_update") {
                     if (
-                        (goal.state.mode ?? "normal") !== "plan"
-                        || goal.state.goalPlan === undefined
+                        !canUpdateGoalPlan(goal.state.run.mode)
+                        || (goal.state.goalPlan === undefined && normalized.decision.baseRevision !== 0)
                     ) {
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
                                 "INVALID_AGENT_DECISION",
-                                "goal_plan_update requires Plan Mode",
+                                "goal_plan_update is not authorized in the current Run mode",
                             ),
                             control,
                         );
                     }
 
-                    if (normalized.decision.operations.some((operation) =>
-                        operation.type === "update" && operation.status === "completed"
-                    )) {
+                    try {
+                        for (const operation of normalized.decision.operations) {
+                            if (operation.type !== "update") continue;
+                            if (operation.status === "completed") {
+                                if (
+                                    operation.evidenceSequences === undefined
+                                    || operation.evidenceSequences.length === 0
+                                ) {
+                                    throw new RunnerExecutionError(
+                                        "INVALID_AGENT_DECISION",
+                                        "completed Todo update must cite current Run evidence",
+                                    );
+                                }
+                                session.validateEvidence(operation.evidenceSequences);
+                            } else if (operation.evidenceSequences !== undefined) {
+                                throw new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    "GoalPlan evidence is only valid when completing a Todo",
+                                );
+                            }
+                        }
+                    } catch (error) {
                         return this.stopWithExecutionError(
                             goal,
-                            new RunnerExecutionError(
-                                "INVALID_AGENT_DECISION",
-                                "Todo completion requires the current Run completion evidence",
-                            ),
+                            error instanceof RunnerExecutionError
+                                ? error
+                                : new RunnerExecutionError(
+                                    "INVALID_AGENT_DECISION",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
                             control,
                         );
                     }
 
                     const reduced = reduceGoalPlan(
-                        goal.state.goalPlan,
+                        goal.state.goalPlan ?? createEmptyGoalPlan(),
                         {
                             baseRevision: normalized.decision.baseRevision,
                             operations: normalized.decision.operations,
                         },
-                        { mode: "plan" },
                     );
                     if (!reduced.ok) {
                         return this.stopWithExecutionError(
@@ -2499,70 +2547,7 @@ export class Runner {
                 );
 
                 let terminalFact: TrajectoryEventDraft;
-                let planTerminalFact: TrajectoryEventDraft | undefined;
                 if (normalized.decision.kind === "complete") {
-                    if (goal.state.workflow.task === undefined) {
-                        return this.stopWithExecutionError(
-                            goal,
-                            new RunnerExecutionError(
-                                "INVALID_AGENT_DECISION",
-                                "complete decision is not allowed before task is approved",
-                            ),
-                            control,
-                        );
-                    }
-                    if ((goal.state.mode ?? "normal") === "plan") {
-                        if (goal.state.goalPlan === undefined || goal.state.run.todoId === undefined) {
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "INVALID_AGENT_DECISION",
-                                    "Plan Mode complete requires a Run-bound Todo",
-                                ),
-                                control,
-                            );
-                        }
-                        let completedPlan: GoalPlan;
-                        try {
-                            completedPlan = completeGoalPlanTodo(
-                                goal.state.goalPlan,
-                                goal.state.run.todoId,
-                                goal.state.run.id,
-                            );
-                        } catch (error) {
-                            return this.stopWithExecutionError(
-                                goal,
-                                new RunnerExecutionError(
-                                    "INVALID_AGENT_DECISION",
-                                    error instanceof Error ? error.message : String(error),
-                                ),
-                                control,
-                            );
-                        }
-                        nextGoal = {
-                            ...nextGoal,
-                            state: {
-                                ...nextGoal.state,
-                                goalPlan: completedPlan,
-                            },
-                        };
-                        planTerminalFact = {
-                            goalId: goal.id,
-                            runId: goal.state.run.id,
-                            phase: "executing",
-                            executionUnitId,
-                            eventType: "goal_plan_updated",
-                            payload: {
-                                type: "goal_plan_updated",
-                                revision: completedPlan.revision,
-                                operations: [{
-                                    type: "update",
-                                    id: goal.state.run.todoId,
-                                    status: "completed",
-                                }],
-                            },
-                        };
-                    }
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2581,12 +2566,10 @@ export class Runner {
                         payload: { type: "run_waiting", reason: normalized.decision.reason },
                     };
                 } else if (normalized.decision.kind === "fail") {
-                    const released = this.releaseBoundPlanTodo(goal);
                     nextGoal = this.appendDecisionMessage(
-                        this.withRun(released.goal, nextRun),
+                        this.withRun(goal, nextRun),
                         normalized.decision,
                     );
-                    planTerminalFact = released.planFact;
                     terminalFact = {
                         goalId: goal.id,
                         runId: goal.state.run.id,
@@ -2613,7 +2596,6 @@ export class Runner {
                     nextGoal,
                     [
                         terminalFact,
-                        ...(planTerminalFact === undefined ? [] : [planTerminalFact]),
                         ...(normalized.decision.kind === "complete" || normalized.decision.kind === "fail"
                             ? (() => {
                                 const closed = this.contextEpochClosedFact(

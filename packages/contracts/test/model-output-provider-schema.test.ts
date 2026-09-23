@@ -84,17 +84,18 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     });
     assert.equal(hasToolCall, false);
 
-    // taskPresent 为 false（未批准任务/计划期）：只暴露只读工具 + ask_user, task_proposal, context_lookup
+    // Plan Run 未批准：全部授权工具 + ask_user, task_proposal, context_lookup, goal_plan_update
     const readOnlyTool = { ...readFileTool, isReadOnly: true };
     const unapprovedBundle = createModelOutputContractBundle({
         kind: "executing",
         taskPresent: false,
+        planMode: true,
         authorizedTools: [writeFileTool, readOnlyTool, editFileTool],
     });
     const unapprovedResultProp = (unapprovedBundle.jsonSchema.properties as Record<string, unknown>).result as Record<string, unknown>;
     const unapprovedAnyOf = unapprovedResultProp.anyOf as Array<Record<string, unknown>>;
-    // 只有 1 个只读工具 (read_file) + 3 个 non-tool (ask_user, task_proposal, context_lookup) = 4 个分支
-    assert.equal(unapprovedAnyOf.length, 4);
+    // 3 个业务工具 + 4 个 non-tool 分支 (ask_user, task_proposal, context_lookup, goal_plan_update)
+    assert.equal(unapprovedAnyOf.length, 7);
 });
 
 test("Executing Schema、Shape Guide 与 decode 均拒绝 create_plan_item，并允许合法更新", () => {
