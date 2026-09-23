@@ -18,7 +18,7 @@
   - 验证方式：新增/更新 Prompt、Contract、Agent 投影和 Runner 测试（待实现），验证提示内容及“未批准本身不拒绝已授权 Tool”；运行 `npx tsx --test packages/contracts/test/model-output-canonical.test.ts packages/agent/test/model-inference-projector.test.ts packages/runtime/test/runner-pretask-read.test.ts packages/runtime/test/runner.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1)_
 
-- [ ] //TODO 4. 将任务提案审批与反馈固定到当前 Run
+- [x] //TODO 4. 将任务提案审批与反馈固定到当前 Run
   - 实现目标：调整 Coordinator、Runner、Trajectory 和待交互 Snapshot，使提案等待、反馈、旧请求失效及批准后的任务保存都绑定当前 Goal/Run/request ID。
   - 成功判据：批准只保存当前 Run 的任务目标与完成条件并继续执行；反馈使旧提案失效且恢复同一 Run；过期或跨 Run 响应无副作用并保留当前有效等待点。
   - 验证方式：新增/更新提案批准、反馈、恢复与过期请求测试（待实现）；运行 `npx tsx --test packages/runtime/test/goal-coordinator-task-interaction.test.ts packages/runtime/test/goal-coordinator.test.ts packages/storage/test/goal-snapshot-interaction.test.ts`。

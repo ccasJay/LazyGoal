@@ -89,7 +89,12 @@ export async function runAgentSmoke(
     if (started.kind !== "waiting" || started.phase !== "executing" || started.waitingFor !== "task_approval") {
         throw new Error("Smoke execution did not produce a task proposal awaiting approval");
     }
-    const execution = await coordinator.resume({ ref, action: { kind: "approve_task" } }, control);
+    const pending = started.goal.state.run.pendingInteraction;
+    if (pending?.kind !== "task_approval") throw new Error("Smoke task proposal did not persist its requestId");
+    const execution = await coordinator.resume({
+        ref,
+        action: { kind: "approve_task", requestId: pending.requestId },
+    }, control);
     if (!execution.ok) throw new Error(`${execution.error.code}: ${execution.error.message}`);
     const goal = await store.restore(ref.goalId);
     if (goal?.state.run.status !== "completed" || toolCalls !== 1) {

@@ -107,6 +107,7 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
     };
     const approvalInteraction: PendingInteractionTaskApproval = {
         kind: "task_approval",
+        requestId: "proposal-1",
         proposal: taskProposal,
         approvalRequest: "请确认任务目标与完成条件",
     };
@@ -125,11 +126,23 @@ test("Snapshot round-trip: 处于 task_approval 等待批准的 Goal 能够完�
     };
 
     const encoded = goalSnapshotCodec.encode(waitingGoal);
+    const missingRequestId = structuredClone(encoded);
+    const pendingApproval = missingRequestId.state.run.pendingInteraction;
+    assert.equal(pendingApproval?.kind, "task_approval");
+    if (pendingApproval?.kind === "task_approval") {
+        Reflect.deleteProperty(pendingApproval, "requestId");
+    }
+    assert.throws(
+        () => goalSnapshotCodec.decode(missingRequestId),
+        GoalSnapshotProtocolError,
+    );
+
     const decoded = goalSnapshotCodec.decode(encoded);
 
     assert.deepEqual(decoded, waitingGoal);
     assert.equal(decoded.state.run.pendingInteraction?.kind, "task_approval");
     if (decoded.state.run.pendingInteraction?.kind === "task_approval") {
+        assert.equal(decoded.state.run.pendingInteraction.requestId, "proposal-1");
         assert.equal(decoded.state.run.pendingInteraction.approvalRequest, "请确认任务目标与完成条件");
         assert.equal(decoded.state.run.pendingInteraction.proposal.objective, "重构持久化层");
         assert.equal(decoded.state.run.pendingInteraction.proposal.completionCriteria.length, 2);
@@ -164,6 +177,7 @@ test("快照不变量: pendingAction 与 pendingInteraction 互斥拒绝", () =>
                 },
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-2",
                     proposal: taskProposal,
                     approvalRequest: "请批准",
                 },
@@ -192,6 +206,7 @@ test("快照不变量: pendingInteraction 必须处于 waiting 状态", () => {
                 status: "running",
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-3",
                     proposal: { objective: "目标", completionCriteria: [{ text: "条件" }] },
                     approvalRequest: "请批准",
                 },
@@ -222,6 +237,7 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
                 status: "created",
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-4",
                     proposal: task,
                     approvalRequest: "请批准",
                 },
@@ -247,6 +263,7 @@ test("快照不变量: terminal 或 created 状态不得含有 pendingInteractio
                 },
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-5",
                     proposal: task,
                     approvalRequest: "请批准",
                 },
@@ -336,7 +353,7 @@ test("历史 Preparation 快照在 decode 时 fail-closed 拒绝", () => {
     );
 });
 
-test("Trajectory: 支持 ask_user_answered 与 task_approved 事件，拒绝旧 preparation 事件", () => {
+test("Trajectory: 任务等待、批准与反馈绑定 requestId，拒绝旧 preparation 事件", () => {
     const askUserDraft: TrajectoryEventDraft = {
         goalId: "goal-1",
         runId: "run-1",
@@ -360,6 +377,7 @@ test("Trajectory: 支持 ask_user_answered 与 task_approved 事件，拒绝旧 
         eventType: "task_approved",
         payload: {
             type: "task_approved",
+            requestId: "proposal-1",
             task: {
                 objective: "目标",
                 completionCriteria: [{ text: "完成条件" }],
@@ -368,6 +386,37 @@ test("Trajectory: 支持 ask_user_answered 与 task_approved 事件，拒绝旧 
     };
     assertValidTrajectoryEventDraft(taskApprovedDraft);
     assert.equal(classifyTrajectoryEvent(taskApprovedDraft), "lifecycle");
+
+    const taskWaitingDraft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing",
+        eventType: "run_waiting",
+        payload: {
+            type: "run_waiting",
+            reason: "task_approval",
+            requestId: "proposal-1",
+        },
+    };
+    assertValidTrajectoryEventDraft(taskWaitingDraft);
+    assert.throws(() => assertValidTrajectoryEventDraft({
+        ...taskWaitingDraft,
+        payload: { type: "run_waiting", reason: "task_approval" },
+    }));
+
+    const taskFeedbackDraft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing",
+        eventType: "task_feedback_received",
+        payload: {
+            type: "task_feedback_received",
+            requestId: "proposal-1",
+            feedback: "缩小验收范围",
+        },
+    };
+    assertValidTrajectoryEventDraft(taskFeedbackDraft);
+    assert.equal(classifyTrajectoryEvent(taskFeedbackDraft), "lifecycle");
 
     // 旧 preparation_input_recorded 事件被拒绝
     const legacyInputDraft = {

@@ -134,12 +134,12 @@ export type GoalProgressErrorCode =
  * @remarks
  * 统一执行生命周期支持以下用户操作：
  * - `message`: 向普通 wait/blocked 等待追加用户消息；
- * - `approve_task`: 批准当前任务提案并将其固定为最终任务，推进执行；
- * - `feedback_task`: 对当前任务提案提供反馈，使旧提案失效并重新规划；
+ * - `approve_task`: 携带当前提案的 `requestId` 批准任务并推进执行；
+ * - `feedback_task`: 携带当前提案的 `requestId` 提供反馈，使旧提案失效并重新规划；
  * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
  * - `approve_action`: 批准待审批的工具调用（附带一次性授权）；
  * - `reject_action`: 拒绝待审批的工具调用并记录原因。
- * 兼容分支 `approve` 与 `approve_task` 行为一致。
+ * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
  *
  * @example
  * ```ts
@@ -151,8 +151,8 @@ export type GoalProgressErrorCode =
  */
 export type GoalUserAction =
     | { readonly kind: "message"; readonly content: string }
-    | { readonly kind: "approve_task"; readonly requestId?: string }
-    | { readonly kind: "feedback_task"; readonly requestId?: string; readonly feedback: string }
+    | { readonly kind: "approve_task"; readonly requestId: string }
+    | { readonly kind: "feedback_task"; readonly requestId: string; readonly feedback: string }
     | {
         readonly kind: "answer_ask_user";
         readonly requestId: string;
@@ -164,7 +164,7 @@ export type GoalUserAction =
         readonly actionId: string;
         readonly reason: string;
     }
-    | { readonly kind: "approve"; readonly requestId?: string };
+    | { readonly kind: "approve"; readonly requestId: string };
 
 /**
  * 恢复等待中 Goal 所需的稳定关联键与用户操作。
@@ -173,7 +173,7 @@ export type GoalUserAction =
  * ```ts
  * const request: ResumeGoalRequest = {
  *   ref: { goalId: "goal-1", runId: "run-1" },
- *   action: { kind: "approve_task" },
+ *   action: { kind: "approve_task", requestId: "proposal-1" },
  * };
  * ```
  */
@@ -604,10 +604,13 @@ export class GoalCoordinator {
      * @remarks
      * 交互恢复处理逻辑：
      * - `ask_user`: 校验 requestId 和答案结构，写入 `ask_user_answered` 事实并解除等待；
-     * - `task_approval`: 批准将提案固定为最终任务并推进 ContextEpoch；反馈追加用户消息并重新规划；
+     * - `task_approval`: 批准或反馈必须匹配当前提案 requestId。批准固定任务并推进
+     *   ContextEpoch；反馈写入用户消息与 Trajectory，使旧请求失效后在同一 Run 重新规划；
      * - `approve_action`/`reject_action`: 审核待处理的工具调用；
      * - `message`: 解除因 wait 决策引起的 blocked 等待。
-     * 所有恢复分支均先保存最新 Goal 快照，再调用 {@link advance}。
+     * Goal/Run 引用不匹配时返回 `RUN_NOT_FOUND`；任务请求 ID 过期时返回
+     * `INVALID_GOAL_INPUT`，两者均保留当前等待点。有效恢复先保存快照，再调用
+     * {@link advance}。
      *
      * @param request - 当前 RunRef 与用户操作。
      * @param control - 当前 Goal 推进调用共享的中止控制。
@@ -618,7 +621,7 @@ export class GoalCoordinator {
      * ```ts
      * const result = await coordinator.resume({
      *   ref: { goalId: "g-1", runId: "r-1" },
-     *   action: { kind: "approve_task" },
+     *   action: { kind: "approve_task", requestId: "proposal-1" },
      * });
      * ```
      */
@@ -725,11 +728,11 @@ export class GoalCoordinator {
                     request.action.kind === "approve_task"
                     || request.action.kind === "approve"
                 ) {
-                    if (
-                        request.action.requestId !== undefined
-                        && pendingInteraction.requestId !== undefined
-                        && request.action.requestId !== pendingInteraction.requestId
-                    ) {
+                    if (request.action.requestId.trim().length === 0) {
+                        return this.invalidGoalInput("Task approval requestId must not be empty");
+                    }
+
+                    if (request.action.requestId !== pendingInteraction.requestId) {
                         return this.invalidGoalInput(
                             `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
                         );
@@ -775,6 +778,7 @@ export class GoalCoordinator {
                         eventType: "task_approved",
                         payload: {
                             type: "task_approved",
+                            requestId: pendingInteraction.requestId,
                             task: proposal,
                         },
                     }, control);
@@ -783,24 +787,18 @@ export class GoalCoordinator {
                     return this.advance(request.ref, control);
                 }
 
-                if (
-                    request.action.kind === "feedback_task"
-                    || request.action.kind === "message"
-                ) {
-                    const feedbackText = request.action.kind === "feedback_task"
-                        ? request.action.feedback
-                        : request.action.content;
+                if (request.action.kind === "feedback_task") {
+                    const feedbackText = request.action.feedback;
 
                     if (feedbackText.trim().length === 0) {
                         return this.invalidGoalInput("Feedback must not be empty");
                     }
 
-                    if (
-                        request.action.kind === "feedback_task"
-                        && request.action.requestId !== undefined
-                        && pendingInteraction.requestId !== undefined
-                        && request.action.requestId !== pendingInteraction.requestId
-                    ) {
+                    if (request.action.requestId.trim().length === 0) {
+                        return this.invalidGoalInput("Task feedback requestId must not be empty");
+                    }
+
+                    if (request.action.requestId !== pendingInteraction.requestId) {
                         return this.invalidGoalInput(
                             `Submitted requestId "${request.action.requestId}" does not match pendingInteraction requestId "${pendingInteraction.requestId}"`,
                         );
@@ -837,13 +835,24 @@ export class GoalCoordinator {
                         eventType: "run_resumed",
                         payload: { type: "run_resumed" },
                     }, control);
+                    await this.appendTrajectory({
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "task_feedback_received",
+                        payload: {
+                            type: "task_feedback_received",
+                            requestId: pendingInteraction.requestId,
+                            feedback: feedbackText,
+                        },
+                    }, control);
 
                     await this.saveCheckpoint(resumedGoal, control);
                     return this.advance(request.ref, control);
                 }
 
                 return this.invalidGoalInput(
-                    "task_approval interaction requires approve_task, feedback_task, or message",
+                    "task_approval interaction requires request-bound approve_task or feedback_task",
                 );
             }
 

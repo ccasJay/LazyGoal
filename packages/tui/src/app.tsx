@@ -147,11 +147,11 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                     })}
                     onApproveTask={(requestId) => dispatch({
                         kind: "approveTask",
-                        ...(requestId !== undefined ? { requestId } : {}),
+                        requestId,
                     })}
                     onFeedbackTask={(requestId, feedback) => dispatch({
                         kind: "feedbackTask",
-                        ...(requestId !== undefined ? { requestId } : {}),
+                        requestId,
                         feedback,
                     })}
                 />

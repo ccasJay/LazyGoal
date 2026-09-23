@@ -604,12 +604,14 @@ export interface PendingInteractionAskUser {
  * 等待用户审查并批准任务提案的挂起状态。
  *
  * @remarks
- * 包含 Agent 提出的任务目标、验收标准与审批提示。
+ * 包含当前 Run 的稳定请求 ID、Agent 提出的任务目标、验收标准与审批提示。
+ * 用户恢复交互时必须回传相同 request ID；反馈或批准后该 ID 立即失效。
  *
  * @example
  * ```ts
  * const interaction: PendingInteractionTaskApproval = {
  *     kind: "task_approval",
+ *     requestId: "proposal-1",
  *     proposal: task,
  *     approvalRequest: "请确认任务目标",
  * };
@@ -617,7 +619,7 @@ export interface PendingInteractionAskUser {
  */
 export interface PendingInteractionTaskApproval {
     readonly kind: "task_approval";
-    readonly requestId?: string;
+    readonly requestId: string;
     readonly proposal: GoalTask;
     readonly approvalRequest: string;
 }

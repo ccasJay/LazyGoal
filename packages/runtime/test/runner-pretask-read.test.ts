@@ -848,6 +848,10 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     const initialResult = await coordinator.advance({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(initialResult.ok, true);
     assert.equal(initialResult.kind, "waiting");
+    if (!initialResult.ok || initialResult.kind !== "waiting") assert.fail();
+    const pendingProposal = initialResult.goal.state.run.pendingInteraction;
+    if (pendingProposal?.kind !== "task_approval") assert.fail("Expected a pending task proposal");
+    const proposalRequestId = pendingProposal.requestId;
 
     // 2. 用户批准任务
     // 模型在此后执行：首先写文件（YOLO 自动放行），然后发起 ask_user 提问
@@ -878,7 +882,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
 
     const afterApproveResult = await coordinator.resume({
         ref: { goalId: goal.id, runId: goal.state.run.id },
-        action: { kind: "approve_task" },
+        action: { kind: "approve_task", requestId: proposalRequestId },
     });
 
     // 验证写工具在 YOLO 下已被执行且已累加 Step

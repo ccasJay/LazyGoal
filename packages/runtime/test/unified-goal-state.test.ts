@@ -117,6 +117,7 @@ test("transition 处理 stage_interaction (task_approval) 进入 waiting，且�
 
     const taskApprovalInteraction: PendingInteractionTaskApproval = {
         kind: "task_approval",
+        requestId: "proposal-1",
         proposal: {
             objective: "执行自动化测试",
             completionCriteria: [{ text: "全部通过" }],

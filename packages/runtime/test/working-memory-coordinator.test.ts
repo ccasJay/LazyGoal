@@ -166,6 +166,7 @@ test("task proposal feedback clears pending interaction and resumes execution", 
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-old",
                     proposal: { objective: "旧任务", completionCriteria: [] },
                     approvalRequest: "请批准",
                 },
@@ -194,6 +195,7 @@ test("task proposal feedback clears pending interaction and resumes execution", 
                                 status: "waiting",
                                 pendingInteraction: {
                                     kind: "task_approval",
+                                    requestId: "proposal-new",
                                     proposal: { objective: "新任务方案", completionCriteria: [] },
                                     approvalRequest: "新方案批准吗？",
                                 },
@@ -210,7 +212,11 @@ test("task proposal feedback clears pending interaction and resumes execution", 
 
     const result = await coordinator.resume({
         ref: ref(waiting),
-        action: { kind: "message", content: "请换一个方案" },
+        action: {
+            kind: "feedback_task",
+            requestId: "proposal-old",
+            feedback: "请换一个方案",
+        },
     });
     assert.equal(result.ok, true);
     assert.equal(scheduled, true);
@@ -239,6 +245,7 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-approval",
                     proposal: { objective: "获批任务", completionCriteria: [] },
                     approvalRequest: "批准吗",
                 },
@@ -284,7 +291,7 @@ test("task proposal approval promotes proposal to task and hands to Scheduler", 
 
     const result = await coordinator.resume({
         ref: ref(waiting),
-        action: { kind: "approve_task" },
+        action: { kind: "approve_task", requestId: "proposal-approval" },
     });
     assert.equal(result.ok, true);
     assert.ok(scheduledWithGoal);

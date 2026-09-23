@@ -22,7 +22,22 @@ import type { ToolObservation } from "./tool";
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
 export type TrajectoryPhase = "executing";
 
-/** Domain Event 的稳定事件类型集合。 */
+/**
+ * Domain Event 的稳定事实载荷集合。
+ *
+ * @remarks
+ * 每个事件信封绑定一个 Goal 与 Run。任务审批等待、批准和反馈额外携带同一交互的
+ * `requestId`，消费者可据此识别过期操作；反馈或批准不会改变事件所属 Run。
+ *
+ * @example
+ * ```ts
+ * const feedback: TrajectoryEventPayload = {
+ *     type: "task_feedback_received",
+ *     requestId: "proposal-1",
+ *     feedback: "缩小验收范围",
+ * };
+ * ```
+ */
 export type TrajectoryEventPayload =
     | {
         readonly type: "goal_created";
@@ -47,7 +62,13 @@ export type TrajectoryEventPayload =
     }
     | {
         readonly type: "task_approved";
+        readonly requestId: string;
         readonly task: GoalTask;
+    }
+    | {
+        readonly type: "task_feedback_received";
+        readonly requestId: string;
+        readonly feedback: string;
     }
     | {
         readonly type: "decision_received";
@@ -127,6 +148,7 @@ export type TrajectoryEventPayload =
     | {
         readonly type: "run_waiting";
         readonly reason: string;
+        readonly requestId?: string;
     }
     | {
         readonly type: "run_completed";
@@ -544,6 +566,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "goal_plan_updated",
     "ask_user_answered",
     "task_approved",
+    "task_feedback_received",
     "decision_received",
     "context_lookup_requested",
     "context_lookup_completed",
@@ -657,9 +680,10 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
     }
     if (eventType === "task_approved") {
-        if (Object.keys(payload).some((key) => !["type", "task"].includes(key))) {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "task"].includes(key))) {
             throw new TrajectoryProtocolError("task_approved contains unknown fields");
         }
+        assertNonEmptyString(payload.requestId, "task_approved.requestId");
         if (
             !isRecord(payload.task)
             || typeof payload.task.objective !== "string"
@@ -667,6 +691,24 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             || !Array.isArray(payload.task.completionCriteria)
         ) {
             throw new TrajectoryProtocolError("task_approved task is invalid");
+        }
+    }
+    if (eventType === "task_feedback_received") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "feedback"].includes(key))) {
+            throw new TrajectoryProtocolError("task_feedback_received contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "task_feedback_received.requestId");
+        assertNonEmptyString(payload.feedback, "task_feedback_received.feedback");
+    }
+    if (eventType === "run_waiting") {
+        if (Object.keys(payload).some((key) => !["type", "reason", "requestId"].includes(key))) {
+            throw new TrajectoryProtocolError("run_waiting contains unknown fields");
+        }
+        assertNonEmptyString(payload.reason, "run_waiting.reason");
+        if (payload.reason === "task_approval") {
+            assertNonEmptyString(payload.requestId, "run_waiting.requestId");
+        } else if (payload.requestId !== undefined) {
+            throw new TrajectoryProtocolError("run_waiting.requestId is only valid for task_approval");
         }
     }
     if (eventType === "context_epoch_advanced") {
@@ -880,6 +922,7 @@ export function classifyTrajectoryEvent(
         case "plan_mode_entered":
         case "ask_user_answered":
         case "task_approved":
+        case "task_feedback_received":
             return "lifecycle";
         case "goal_plan_updated":
             return "decision";

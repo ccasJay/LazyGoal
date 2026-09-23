@@ -429,13 +429,13 @@ export class SessionController {
             case "approveTask":
                 await this.resumeSession({
                     kind: "approve_task",
-                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                    requestId: command.requestId,
                 });
                 return;
             case "feedbackTask":
                 await this.resumeSession({
                     kind: "feedback_task",
-                    ...(command.requestId !== undefined ? { requestId: command.requestId } : {}),
+                    requestId: command.requestId,
                     feedback: command.feedback,
                 });
                 return;

@@ -155,9 +155,9 @@ function encodePendingInteraction(
         case "task_approval":
             return {
                 kind: "task_approval",
+                requestId: interaction.requestId,
                 proposal: encodeTask(interaction.proposal),
                 approvalRequest: interaction.approvalRequest,
-                ...(interaction.requestId === undefined ? {} : { requestId: interaction.requestId }),
             };
     }
 }
@@ -477,9 +477,9 @@ function decodePendingInteraction(
         case "task_approval":
             return {
                 kind: "task_approval",
+                requestId: interaction.requestId,
                 proposal: decodeTask(interaction.proposal),
                 approvalRequest: interaction.approvalRequest,
-                ...(interaction.requestId === undefined ? {} : { requestId: interaction.requestId }),
             };
     }
 }

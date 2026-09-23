@@ -396,6 +396,7 @@ test("GoalSnapshotCodec restores the complete Runtime State for every phase", ()
                 status: "waiting",
                 pendingInteraction: {
                     kind: "task_approval",
+                    requestId: "proposal-1",
                     proposal: {
                         objective: "准备后的任务",
                         completionCriteria: [{ text: "批准后执行" }],

@@ -57,7 +57,8 @@ export interface UiError {
  *
  * @remarks
  * 命令只描述用户意图，不携带 Goal 状态；Controller 负责读取最新快照并
- * 映射到 Launcher、Coordinator、Store 或 Catalog。
+ * 映射到 Launcher、Coordinator、Store 或 Catalog。任务批准和反馈命令必须携带
+ * 当前任务提案的 request ID，避免旧交互操作新提案。
  *
  * @example
  * ```ts
@@ -71,10 +72,10 @@ export type UiCommand =
     | { readonly kind: "selectGoal"; readonly goalId: string }
     | { readonly kind: "submitMessage"; readonly content: string }
     | { readonly kind: "enterPlanMode" }
-    | { readonly kind: "approveTask"; readonly requestId?: string }
+    | { readonly kind: "approveTask"; readonly requestId: string }
     | {
         readonly kind: "feedbackTask";
-        readonly requestId?: string;
+        readonly requestId: string;
         readonly feedback: string;
     }
     | {

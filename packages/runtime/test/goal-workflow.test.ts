@@ -216,6 +216,9 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     }
     assert.equal(proposed.goal.state.run.approvedTask, undefined);
     assert.equal(proposed.goal.state.run.pendingInteraction?.kind, "task_approval");
+    const pendingProposal = proposed.goal.state.run.pendingInteraction;
+    if (pendingProposal?.kind !== "task_approval") assert.fail("Expected a pending task proposal");
+    const requestId = pendingProposal.requestId;
 
     const trajectory = await trajectoryStoreFor(store).read({
         goalId: ref.goalId,
@@ -227,7 +230,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
     events.length = 0;
     const blocked = requireSuccess(await coordinator.resume({
         ref,
-        action: { kind: "approve_task" },
+        action: { kind: "approve_task", requestId },
     }));
 
     assert.equal(blocked.kind, "waiting");

@@ -826,7 +826,7 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
 test("rejects Action controls with the wrong waiting type or actionId without side effects", async () => {
     const actions = [
         { kind: "message", content: "直接继续" },
-        { kind: "approve" },
+        { kind: "approve", requestId: "stale" },
         { kind: "approve_action", actionId: "action-other" },
         {
             kind: "reject_action",
@@ -978,7 +978,11 @@ test("saves task proposal feedback without the current proposal before replannin
 
     const result = requireSuccess(await coordinator.resume({
         ref: { goalId: waiting.id, runId: waiting.state.run.id },
-        action: { kind: "message", content: "Encrypt snapshots at rest" },
+        action: {
+            kind: "feedback_task",
+            requestId: "prop-1",
+            feedback: "Encrypt snapshots at rest",
+        },
     }));
 
     assert.equal(result.kind, "waiting");
@@ -987,8 +991,14 @@ test("saves task proposal feedback without the current proposal before replannin
     assert.equal(result.goal.state.run.approvedTask, undefined);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_resumed",
+        "task_feedback_received",
         "state_committed",
     ]);
+    const feedbackEvent = trajectory.events.find((event) => event.eventType === "task_feedback_received");
+    assert.equal(
+        feedbackEvent?.payload.type === "task_feedback_received" ? feedbackEvent.payload.requestId : undefined,
+        "prop-1",
+    );
 });
 
 test("saves an approved proposal as the final task before scheduling execution", async () => {
@@ -1028,7 +1038,7 @@ test("saves an approved proposal as the final task before scheduling execution",
 
     const result = requireSuccess(await coordinator.resume({
         ref: { goalId: waiting.id, runId: waiting.state.run.id },
-        action: { kind: "approve" },
+        action: { kind: "approve", requestId: "prop-1" },
     }));
 
     assert.ok(events.indexOf("save:executing") < events.indexOf("schedule:goal-1"));
@@ -1046,7 +1056,7 @@ test("rejects empty or mismatched task interactions without side effects", async
         },
         {
             goal: createAskUserWaitingGoal(),
-            action: { kind: "approve" } as const,
+            action: { kind: "approve", requestId: "stale" } as const,
             code: "INVALID_GOAL_INPUT",
         },
         {
@@ -1056,7 +1066,7 @@ test("rejects empty or mismatched task interactions without side effects", async
         },
         {
             goal: createInitialGoal(),
-            action: { kind: "approve" } as const,
+            action: { kind: "approve", requestId: "stale" } as const,
             code: "GOAL_NOT_WAITING",
         },
     ] as const;
@@ -1192,7 +1202,7 @@ test("saves a blocked user message and running state before scheduling", async (
 
 test("rejects invalid blocked actions without saving or scheduling", async () => {
     for (const action of [
-        { kind: "approve" } as const,
+        { kind: "approve", requestId: "stale" } as const,
         { kind: "message", content: "   " } as const,
     ]) {
         const waiting = createExecutingWaitingGoal();

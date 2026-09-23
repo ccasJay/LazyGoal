@@ -2211,9 +2211,10 @@ export class Runner {
                         );
                     }
 
+                    const requestId = `proposal-${randomUUID()}`;
                     const pendingInteraction: PendingInteractionTaskApproval = {
                         kind: "task_approval",
-                        requestId: `proposal-${randomUUID()}`,
+                        requestId,
                         proposal: normalized.decision.task,
                         approvalRequest: normalized.decision.approvalRequest,
                     };
@@ -2251,6 +2252,7 @@ export class Runner {
                         payload: {
                             type: "run_waiting",
                             reason: "task_approval",
+                            requestId,
                         },
                     };
 

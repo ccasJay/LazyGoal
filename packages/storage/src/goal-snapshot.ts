@@ -372,12 +372,13 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
 }
 
 /**
- * Snapshot 中持久化等待任务提案批准的挂起交互。
+ * Snapshot 中持久化绑定当前 Run 与 request ID 的任务提案批准等待点。
  *
  * @example
  * ```ts
  * const pending: GoalSnapshotPendingInteractionTaskApprovalV1 = {
  *     kind: "task_approval",
+ *     requestId: "proposal-1",
  *     proposal: { objective: "重构模块", completionCriteria: [] },
  *     approvalRequest: "请确认任务目标",
  * };
@@ -385,7 +386,7 @@ export interface GoalSnapshotPendingInteractionAskUserV1 {
  */
 export interface GoalSnapshotPendingInteractionTaskApprovalV1 {
     readonly kind: "task_approval";
-    readonly requestId?: string | undefined;
+    readonly requestId: string;
     readonly proposal: GoalSnapshotTaskV1;
     readonly approvalRequest: string;
 }
@@ -730,7 +731,7 @@ const PendingInteractionAskUserSchema = z.object({
 
 const PendingInteractionTaskApprovalSchema = z.object({
     kind: z.literal("task_approval"),
-    requestId: NonEmptyStringSchema.optional(),
+    requestId: NonEmptyStringSchema,
     proposal: GoalSnapshotTaskSchema,
     approvalRequest: NonEmptyStringSchema,
 }).strict();
