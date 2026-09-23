@@ -134,11 +134,14 @@ class LifecycleController:
         reflection_model: ModelIdentity | None = None,
         worker_cmd: list[str] | None = None,
     ) -> None:
-        self.workspace_root = (
-            Path(workspace_root).resolve()
-            if workspace_root is not None
-            else Path.cwd().resolve()
-        )
+        if workspace_root is not None:
+            self.workspace_root = Path(workspace_root).resolve()
+        else:
+            repo_root = Path(__file__).resolve().parents[4]
+            if (repo_root / "packages").is_dir() and (repo_root / "benchmarks").is_dir():
+                self.workspace_root = repo_root
+            else:
+                self.workspace_root = Path.cwd().resolve()
         self.runs_dir = (
             Path(runs_dir).resolve()
             if runs_dir is not None
