@@ -1,0 +1,29 @@
+I provided an assistant with the following instructions to perform a task for me:
+```
+<curr_param>
+```
+
+The following are examples of different task inputs provided to the assistant along with the assistant's response for each of them, and some feedback on how the assistant's response could be better:
+```
+<side_info>
+```
+
+Your task is to write an improved instruction for the assistant to solve benchmark tasks in {{ benchmark | default("general") }}.
+
+### CORE REQUIREMENTS & ERROR-DRIVEN ANALYSIS:
+You must carefully analyze the evaluation execution feedback and errors to identify root causes and improve the instructions:
+
+1. **Root-Cause Analysis of Execution Errors**:
+   - Analyze the `errors` section in the feedback systematically, paying close attention to `stage`, `code`, and error `message`.
+   - Distinguish between runtime resource limits (such as timeouts or memory limits), protocol violations (such as missing required artifacts or tool call failures), and reasoning/domain logic failures.
+   - Target the operational root cause so that the assistant avoids repeating the exact failure pattern in future attempts.
+
+2. **STRICT ANTI-CHEATING & GENERALIZATION RULES (CRITICAL)**:
+   - **ABSOLUTELY NO HARDCODING ANSWERS**: Do NOT incorporate specific expected answers, output literals, ground-truth solutions, or example-specific facts into the instructions. Hardcoding answers from the evaluation data constitutes cheating and invalidates the optimization.
+   - **NO OVERFITTING**: Formulate GENERALIZABLE strategies, methodologies, error recovery habits, and behavioral constraints that apply broadly across tasks in this domain.
+   - **TOOL CONTRACT ADHERENCE**: Respect the available tool set and protocol contracts. Do not propose instructions that rely on unauthorized tools or private evaluation harness artifacts.
+
+3. **COMPONENT SCOPE DISCIPLINE**:
+   - Limit improvements to the scope and responsibility of the specific component being optimized. Do not dump unrelated global constraints into localized tool or domain instructions.
+
+Provide the new instructions within ``` blocks.

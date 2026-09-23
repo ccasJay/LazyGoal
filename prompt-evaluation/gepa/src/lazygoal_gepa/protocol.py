@@ -460,6 +460,7 @@ class GEPARunRequest:
     valset: tuple[GEPAExampleRequest, ...] | None = None
     reflection_minibatch_size: int | None = None
     seed: int | None = None
+    reflection_prompt_template: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -480,6 +481,10 @@ class GEPARunRequest:
             data["seed"] = self.seed
         else:
             data["seed"] = None
+        if self.reflection_prompt_template is not None:
+            data["reflectionPromptTemplate"] = self.reflection_prompt_template
+        else:
+            data["reflectionPromptTemplate"] = None
         return data
 
 
@@ -527,7 +532,12 @@ def parse_run_request(
         raise GEPARunProtocolError("GEPA run request must be an object")
 
     required_keys = {"protocol", "benchmark", "trainset", "maxMetricCalls"}
-    optional_keys = {"valset", "reflectionMinibatchSize", "seed"}
+    optional_keys = {
+        "valset",
+        "reflectionMinibatchSize",
+        "seed",
+        "reflectionPromptTemplate",
+    }
     actual_keys = set(data)
     missing = sorted(required_keys - actual_keys)
     unknown = sorted(actual_keys - required_keys - optional_keys)
@@ -575,6 +585,19 @@ def parse_run_request(
         if not isinstance(seed, int) or isinstance(seed, bool):
             raise GEPARunProtocolError(f"seed must be an integer, got {seed!r}")
 
+    reflection_prompt_template_raw = data.get("reflectionPromptTemplate")
+    if reflection_prompt_template_raw is not None:
+        if (
+            not isinstance(reflection_prompt_template_raw, str)
+            or not reflection_prompt_template_raw.strip()
+        ):
+            raise GEPARunProtocolError(
+                "reflectionPromptTemplate must be a non-empty string when present"
+            )
+        reflection_prompt_template = reflection_prompt_template_raw.strip()
+    else:
+        reflection_prompt_template = None
+
     trainset_raw = data["trainset"]
     if not isinstance(trainset_raw, list) or len(trainset_raw) == 0:
         raise DatasetValidationError("trainset must be a non-empty list")
@@ -617,6 +640,7 @@ def parse_run_request(
         valset=valset,
         reflection_minibatch_size=reflection_minibatch_size,
         seed=seed,
+        reflection_prompt_template=reflection_prompt_template,
     )
 
     if check_manifests:

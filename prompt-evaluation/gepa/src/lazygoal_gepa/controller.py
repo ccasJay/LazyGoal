@@ -36,6 +36,7 @@ from .errors import (
 from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
+from .prompt_template import load_and_render_reflection_prompt_template
 from .protocol import GEPARunRequest, read_run_request
 from .reporter import ReportNotReadyError, read_run_report
 from .store import RunState, RunStore
@@ -179,6 +180,13 @@ class LifecycleController:
 
         req = read_run_request(request_path, check_manifests=True)
 
+        if req.reflection_prompt_template is not None:
+            load_and_render_reflection_prompt_template(
+                req.reflection_prompt_template,
+                benchmark=req.benchmark,
+                workspace_root=self.workspace_root,
+            )
+
         if not self.profile_path.is_file():
             raise ProfileValidationError(
                 f"Target profile file does not exist: {self.profile_path}"
@@ -191,6 +199,7 @@ class LifecycleController:
         return {
             "valid": True,
             "benchmark": req.benchmark,
+            "reflectionPromptTemplate": req.reflection_prompt_template,
             "sampleCount": {
                 "train": len(req.trainset),
                 "validation": len(req.valset) if req.valset is not None else len(req.trainset),

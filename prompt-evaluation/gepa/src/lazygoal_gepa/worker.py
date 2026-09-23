@@ -34,6 +34,7 @@ from .errors import (
 )
 from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazygoal_executable
 from .ownership import RunOwnership
+from .prompt_template import load_and_render_reflection_prompt_template
 from .publisher import ProfilePublisher
 from .reporter import generate_and_save_run_report
 from .store import RunStore, atomic_write_json
@@ -266,6 +267,14 @@ def run_gepa_worker(
         gepa_dir = resolved_run_dir / "gepa"
         gepa_dir.mkdir(parents=True, exist_ok=True)
 
+        rendered_reflection_template: str | None = None
+        if manifest.request.reflection_prompt_template is not None:
+            rendered_reflection_template = load_and_render_reflection_prompt_template(
+                manifest.request.reflection_prompt_template,
+                benchmark=manifest.request.benchmark,
+                workspace_root=resolved_workspace,
+            )
+
         # Execute official gepa.optimize
         result: GEPAResult = gepa.optimize(
             seed_candidate=manifest.seed_candidate,
@@ -273,6 +282,7 @@ def run_gepa_worker(
             valset=valset,
             adapter=adapter,
             reflection_lm=reflection_client,
+            reflection_prompt_template=rendered_reflection_template,
             max_metric_calls=manifest.request.max_metric_calls,
             reflection_minibatch_size=manifest.request.reflection_minibatch_size,
             run_dir=str(gepa_dir),
