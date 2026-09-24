@@ -323,13 +323,18 @@ export async function runTuaBenchWorker(): Promise<void> {
         await connection.closed;
     } finally {
         await adapter?.close().catch(() => undefined);
-        await mux.close();
+        await mux.close().catch(() => undefined);
+        try { process.stdin.destroy(); } catch {}
     }
 }
 
 if (process.argv[1] !== undefined && (process.argv[1].endsWith("worker.mjs") || process.argv[1].endsWith("worker-entry.ts"))) {
-    void runTuaBenchWorker().catch((error: unknown) => {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        process.exitCode = 1;
-    });
+    void runTuaBenchWorker()
+        .then(() => {
+            process.exit(0);
+        })
+        .catch((error: unknown) => {
+            process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+            process.exit(1);
+        });
 }

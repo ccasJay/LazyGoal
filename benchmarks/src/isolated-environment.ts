@@ -758,7 +758,7 @@ export class IsolatedEnvironment {
     ): EnvironmentHandle {
         const run = this.runProcess;
         const readProcessSnapshot = async (): Promise<ReadonlySet<string>> => {
-            const output = requireSuccess(await run("docker", ["top", containerName, "-eo", "pid=,lstart="], {
+            const output = requireSuccess(await run("docker", ["top", containerName, "-eo", "pid,lstart"], {
                 timeoutMs: 10_000,
                 signal,
                 maxBytes: 256 * 1024,
@@ -812,11 +812,16 @@ export class IsolatedEnvironment {
                 if (baseline === undefined) {
                     throw new Error("Agent process baseline was not captured before scoring");
                 }
-                const current = await readProcessSnapshot();
-                const remaining = [...current].filter((process) => !baseline.has(process));
-                if (remaining.length > 0) {
-                    throw new Error(`TUA scoring isolation failed: ${remaining.length} Agent process(es) remain`);
+                const deadline = Date.now() + 3_000;
+                let remaining: string[] = [];
+                while (true) {
+                    const current = await readProcessSnapshot();
+                    remaining = [...current].filter((process) => !baseline.has(process));
+                    if (remaining.length === 0) return;
+                    if (Date.now() >= deadline) break;
+                    await new Promise((resolve) => setTimeout(resolve, 100));
                 }
+                throw new Error(`TUA scoring isolation failed: ${remaining.length} Agent process(es) remain: ${remaining.join(", ")}`);
             },
             copyInto: async (source: string, target: string) => {
                 requireSuccess(await run("docker", ["cp", source, `${containerName}:${target}`], { timeoutMs: 60_000, signal }), "Copy environment input");

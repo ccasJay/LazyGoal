@@ -124,6 +124,7 @@ export class TuaBenchEnvironmentSpec
         const cleanup = [
             ...targets.map((target) => shellQuote(target)),
             shellQuote("/logs/verifier"),
+            shellQuote("/tests"),
         ];
         requireCommandSuccess(await env.execAsRoot(
             `rm -rf -- ${cleanup.join(" ")}`,
@@ -214,8 +215,14 @@ export class TuaBenchEnvironmentSpec
             ), "Prepare private TUA verifier directory");
             // Staging occurs only after the Agent process snapshot proves quiescence.
             await env.copyInto(taskDir, privateTaskRoot);
+
+            const taskOwnerUid = (await env.execAsRoot(`stat -c '%u' ${shellQuote(privateTaskRoot)} 2>/dev/null || echo 0`)).stdout.trim() || "0";
+            if (taskOwnerUid !== "0") {
+                await env.execAsUser(taskOwnerUid, `chmod -R a+rwX ${shellQuote(privateTaskRoot)} 2>/dev/null || true`).catch(() => undefined);
+            }
+
             requireCommandSuccess(await env.execAsRoot(
-                `chmod 0711 ${shellQuote(privateRoot)} && chmod -R a+rX ${shellQuote(privateTaskRoot)} && chmod 0755 /logs && chmod 0777 /logs/verifier`,
+                `chmod 0711 ${shellQuote(privateRoot)} && chmod -R a+rwX ${shellQuote(privateTaskRoot)} 2>/dev/null || true; chmod 0755 /logs && chmod 0777 /logs/verifier && if [ -d ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} ]; then ln -sfn ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} /tests; fi`,
             ), "Set TUA verifier execution permissions");
             execResult = await env.execAsUser(
                 verifierUser,
@@ -223,7 +230,7 @@ export class TuaBenchEnvironmentSpec
                 { timeoutMs },
             );
             if (execResult.code !== 0) {
-                throw new Error(`Official TUA verifier exited with code ${execResult.code}`);
+                throw new Error(`Official TUA verifier exited with code ${execResult.code}: ${execResult.stderr || execResult.stdout}`);
             }
             const rewardRead = await env.execAsRoot("cat /logs/verifier/reward.txt");
             if (rewardRead.code !== 0) throw new Error("Official TUA verifier did not produce reward.txt");
@@ -232,8 +239,21 @@ export class TuaBenchEnvironmentSpec
             reward = parsed.reward;
             rewardRaw = rewardRead.stdout.trim();
         } finally {
-            const cleanupResult = await env.execAsRoot(`rm -rf -- ${shellQuote(privateRoot)}`);
-            if (cleanupResult.code !== 0) throw new Error("Could not remove the private TUA verifier directory");
+            try {
+                const taskOwnerUid = (await env.execAsRoot(`stat -c '%u' ${shellQuote(privateTaskRoot)} 2>/dev/null || echo 0`)).stdout.trim() || "0";
+                if (taskOwnerUid !== "0") {
+                    await env.execAsUser(
+                        taskOwnerUid,
+                        `chmod -R u+rwX ${shellQuote(privateTaskRoot)} 2>/dev/null; rm -rf ${shellQuote(privateTaskRoot)}/* ${shellQuote(privateTaskRoot)}/.* 2>/dev/null || true`,
+                    ).catch(() => undefined);
+                }
+            } catch {
+                // 忽略属主探测失败，继续由 root 清理
+            }
+            const cleanupResult = await env.execAsRoot(
+                `rm -f /tests && chmod -R u+rwX ${shellQuote(privateRoot)} 2>/dev/null; rm -rf -- ${shellQuote(privateRoot)}`,
+            );
+            if (cleanupResult.code !== 0) throw new Error(`Could not remove the private TUA verifier directory: ${cleanupResult.stderr}`);
         }
 
         const domainResult = evaluateTuaBenchReward(
@@ -293,5 +313,5 @@ function shellQuote(value: string): string {
 }
 
 function requireCommandSuccess(result: { readonly code: number; readonly stdout: string; readonly stderr: string }, operation: string): void {
-    if (result.code !== 0) throw new Error(`${operation} failed with exit code ${result.code}`);
+    if (result.code !== 0) throw new Error(`${operation} failed with exit code ${result.code}: ${result.stderr}`);
 }
