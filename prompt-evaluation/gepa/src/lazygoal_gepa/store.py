@@ -321,7 +321,8 @@ class RunStore:
         target_lifecycle_status = updates.get("lifecycle_status", current.lifecycle_status)
         if current.lifecycle_status in TERMINAL_LIFECYCLE_STATUSES:
             is_valid_resume = (
-                current.lifecycle_status == "stopped" and target_lifecycle_status == "starting"
+                current.lifecycle_status in ("stopped", "failed")
+                and target_lifecycle_status == "starting"
             )
             if not is_valid_resume and target_lifecycle_status not in TERMINAL_LIFECYCLE_STATUSES:
                 target_lifecycle_status = current.lifecycle_status
