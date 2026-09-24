@@ -14,6 +14,7 @@ import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from lazygoal_gepa.candidate import (
@@ -40,6 +41,7 @@ from lazygoal_gepa.controller import (
 )
 from lazygoal_gepa.errors import (
     ConfigurationError,
+    DatasetValidationError,
     GEPARunProtocolError,
     RunStoreError,
     WorkerAlreadyRunningError,
@@ -48,6 +50,46 @@ from lazygoal_gepa.ownership import OwnerInfo, RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import GEPARunRequest, parse_run_request
 from lazygoal_gepa.reporter import generate_and_save_run_report
 from lazygoal_gepa.store import RunStore, atomic_write_json
+
+
+def _tua_inspection_fixture() -> dict[str, Any]:
+    task_ids = ("train-doc", "validation-doc", "holdout-doc")
+    tasks = {
+        task_id: {
+            "taskId": task_id,
+            "taskFamily": "document",
+            "networkMode": "public" if task_id == "holdout-doc" else "none",
+            "agentTimeoutSec": 600,
+            "verifierTimeoutSec": 600,
+            "resourceDigest": "c" * 64,
+            "imageDigest": f"sha256:{'d' * 64}",
+        }
+        for task_id in task_ids
+    }
+    return {
+        "sourceRevision": "a" * 40,
+        "datasetDigest": "b" * 64,
+        "workingTreeDirty": False,
+        "changedPaths": [],
+        "tasks": tasks,
+        "partitions": {
+            "train": {
+                "taskIds": ["train-doc"],
+                "taskFamilies": ["document"],
+                "networkTasks": [],
+            },
+            "validation": {
+                "taskIds": ["validation-doc"],
+                "taskFamilies": ["document"],
+                "networkTasks": [],
+            },
+            "holdout": {
+                "taskIds": ["holdout-doc"],
+                "taskFamilies": ["document"],
+                "networkTasks": ["holdout-doc"],
+            },
+        },
+    }
 
 
 class LifecycleControllerTests(unittest.TestCase):
@@ -319,6 +361,95 @@ class LifecycleControllerTests(unittest.TestCase):
         # default profile path must not alter the frozen target.
         status = get_run_status(result["runId"], runs_root=self.runs_dir)
         self.assertEqual(status["runId"], result["runId"])
+
+    def test_tua_preflight_inspects_partitions_before_model_resolution_and_freezes_identity(self) -> None:
+        request_path = self.workspace_root / "tua-request.json"
+        request_data = {
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }
+        request_path.write_text(json.dumps(request_data), encoding="utf-8")
+        inspection = _tua_inspection_fixture()
+        calls: list[str] = []
+        expected_dataset = request_data["tuaDataset"]
+
+        def inspect_cli(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            self.assertEqual(command[1:4], ["gepa", "inspect-tua", "--request"])
+            inspector_request = json.loads(Path(command[4]).read_text(encoding="utf-8"))
+            self.assertEqual(inspector_request, {"tuaDataset": expected_dataset})
+            calls.append("inspect")
+            return subprocess.CompletedProcess(command, 0, json.dumps(inspection), "")
+
+        controller = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            profile_path=self.profile_path,
+            working_model=ModelIdentity("default", "working-model", "openai"),
+            reflection_model=ModelIdentity("reflection", "reflection-model", "openai"),
+            worker_cmd=[sys.executable, "-c", "pass"],
+        )
+        original_profile = self.profile_path.read_bytes()
+        original_models = controller._models
+
+        def resolve_models() -> tuple[ModelIdentity, ModelIdentity]:
+            calls.append("models")
+            return original_models()
+
+        with patch("lazygoal_gepa.controller.subprocess.run", side_effect=inspect_cli):
+            with patch.object(controller, "_models", side_effect=resolve_models):
+                preflight = controller.preflight(request_path)
+                self.assertEqual(calls, ["inspect", "models"])
+                self.assertEqual(preflight["sampleCount"], {"train": 1, "validation": 1})
+                self.assertEqual(preflight["tuaDatasetInspection"], inspection)
+                self.assertEqual(preflight["finalComparison"]["tuaHoldoutTrials"], 3)
+                self.assertEqual(preflight["costEstimate"]["status"], "unknown")
+                self.assertFalse(preflight["estimatedSideEffects"]["willMutateProfile"])
+                self.assertEqual(self.profile_path.read_bytes(), original_profile)
+
+                with patch("lazygoal_gepa.controller.launch_detached_worker", return_value=12345):
+                    started = controller.start(request_path, yes=True)
+
+        manifest = controller.store.read_manifest(started["runId"])
+        self.assertEqual(manifest.tua_dataset_inspection, inspection)
+        self.assertEqual(calls, ["inspect", "models", "inspect", "models", "models"])
+
+    def test_tua_preflight_rejects_inspector_failure_before_model_resolution(self) -> None:
+        request_path = self.workspace_root / "tua-invalid-request.json"
+        request_path.write_text(json.dumps({
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root / "TUA-Bench"),
+                "trainTaskIds": ["missing-task"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }), encoding="utf-8")
+        controller = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            profile_path=self.profile_path,
+        )
+        failed = subprocess.CompletedProcess(
+            ["lazygoal", "gepa", "inspect-tua"], 2, "", "TUA task does not exist: missing-task"
+        )
+        with patch("lazygoal_gepa.controller.subprocess.run", return_value=failed):
+            with patch.object(controller, "_models") as resolve_models:
+                with self.assertRaisesRegex(DatasetValidationError, "missing-task"):
+                    controller.preflight(request_path)
+                resolve_models.assert_not_called()
 
     # -------------------------------------------------------------------------
     # 3. 只读 status 测试

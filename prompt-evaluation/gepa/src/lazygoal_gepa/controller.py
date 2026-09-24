@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
@@ -19,6 +21,7 @@ from .candidate import (
     ModelIdentity,
     TargetProfileSnapshot,
     _fingerprint,
+    _validate_tua_dataset_inspection,
     extract_seed_candidate,
     load_agent_profile,
 )
@@ -36,6 +39,7 @@ from .errors import (
 from .home import resolve_lazygoal_home, resolve_workspace_home
 from .ownership import OwnerInfo, RunOwnership, WorkerHealth, is_pid_alive
 from .model_resolver import resolve_model_identities
+from .models import resolve_lazygoal_executable
 from .prompt_template import load_and_render_reflection_prompt_template
 from .protocol import GEPARunRequest, read_run_request
 from .reporter import ReportNotReadyError, read_run_report
@@ -48,6 +52,10 @@ class ConfirmationRequiredError(LazyGoalGEPAError):
 
 class ProfileDriftError(LazyGoalGEPAError):
     """Raised when the target profile has drifted from its frozen digest during resume."""
+
+
+_TUA_INSPECTION_MAX_OUTPUT_CHARS = 4 * 1024 * 1024
+_TUA_INSPECTION_MAX_DIAGNOSTIC_CHARS = 4 * 1024
 
 
 def launch_detached_worker(
@@ -178,10 +186,11 @@ class LifecycleController:
         return self._models()[1]
 
     def preflight(self, request_path: Path | str) -> dict[str, Any]:
-        """Perform read-only preflight consistency checks without creating files or processes."""
+        """检查 Run 输入；TUA 请求会经只读 Inspector 校验本地数据与镜像身份。"""
         ensure_gepa_compatibility()
 
         req = read_run_request(request_path, check_manifests=True)
+        tua_dataset_inspection = self._inspect_tua_dataset(req)
 
         if req.reflection_prompt_template is not None:
             load_and_render_reflection_prompt_template(
@@ -199,13 +208,24 @@ class LifecycleController:
 
         working_model, reflection_model = self._models()
 
-        return {
+        train_count = (
+            len(req.tua_dataset.train_task_ids)
+            if req.tua_dataset is not None
+            else len(req.trainset)
+        )
+        validation_count = (
+            len(req.tua_dataset.validation_task_ids)
+            if req.tua_dataset is not None
+            else len(req.valset) if req.valset is not None else len(req.trainset)
+        )
+
+        result: dict[str, Any] = {
             "valid": True,
             "benchmark": req.benchmark,
             "reflectionPromptTemplate": req.reflection_prompt_template,
             "sampleCount": {
-                "train": len(req.trainset),
-                "validation": len(req.valset) if req.valset is not None else len(req.trainset),
+                "train": train_count,
+                "validation": validation_count,
             },
             "maxMetricCalls": req.max_metric_calls,
             "targetProfile": {
@@ -220,12 +240,86 @@ class LifecycleController:
                 "reflection": reflection_model.to_dict(),
             },
             "estimatedSideEffects": {
-                "willMutateProfile": True,
+                "willMutateProfile": req.publication_policy != "candidate-only",
                 "targetProfilePath": str(self.profile_path),
                 "incursLlmCosts": True,
                 "incursContainerExecution": True,
             },
         }
+        if req.tua_dataset is not None:
+            assert tua_dataset_inspection is not None
+            assert req.final_comparison is not None
+            result["tuaDatasetInspection"] = tua_dataset_inspection
+            result["finalComparison"] = req.final_comparison.to_dict()
+            result["costEstimate"] = {
+                "status": "unknown",
+                "reason": "Provider and container pricing cannot be reliably inferred from the run request.",
+            }
+            result["estimatedSideEffects"]["publicationPolicy"] = req.publication_policy
+        return result
+
+    def _inspect_tua_dataset(self, req: GEPARunRequest) -> dict[str, Any] | None:
+        if req.tua_dataset is None:
+            return None
+
+        request_payload = {"tuaDataset": req.tua_dataset.to_dict()}
+        task_count = (
+            len(req.tua_dataset.train_task_ids)
+            + len(req.tua_dataset.validation_task_ids)
+            + len(req.tua_dataset.holdout_task_ids)
+        )
+        timeout_seconds = max(60, task_count * 30 + 30)
+        try:
+            executable = resolve_lazygoal_executable(self.workspace_root)
+            with tempfile.TemporaryDirectory(prefix="lazygoal-gepa-tua-preflight-") as temporary:
+                request_file = Path(temporary) / "inspect-request.json"
+                request_file.write_text(
+                    json.dumps(request_payload, ensure_ascii=False, separators=(",", ":")),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        str(executable),
+                        "gepa",
+                        "inspect-tua",
+                        "--request",
+                        str(request_file),
+                    ],
+                    cwd=str(self.workspace_root),
+                    env=os.environ.copy(),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=timeout_seconds,
+                )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise DatasetValidationError(
+                f"Could not inspect TUA GEPA dataset: {error}"
+            ) from error
+
+        if completed.returncode != 0:
+            diagnostic = completed.stderr.strip()[:_TUA_INSPECTION_MAX_DIAGNOSTIC_CHARS]
+            raise DatasetValidationError(
+                "TUA GEPA dataset inspection failed"
+                + (f": {diagnostic}" if diagnostic else f" (exit {completed.returncode})")
+            )
+        output = completed.stdout.strip()
+        if not output or len(output) > _TUA_INSPECTION_MAX_OUTPUT_CHARS or "\n" in output:
+            raise DatasetValidationError(
+                "TUA GEPA dataset inspector returned invalid bounded output"
+            )
+        try:
+            inspection = json.loads(output)
+            return _validate_tua_dataset_inspection(inspection, req)
+        except ProfileValidationError as error:
+            raise DatasetValidationError(
+                f"TUA GEPA dataset inspector returned invalid data: {error}"
+            ) from error
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise DatasetValidationError(
+                f"TUA GEPA dataset inspector returned invalid data: {error}"
+            ) from error
 
     def start(
         self,
@@ -240,7 +334,7 @@ class LifecycleController:
                 "the default profile upon completion. Re-run with --yes to confirm."
             )
 
-        self.preflight(request_path)
+        preflight = self.preflight(request_path)
         working_model, reflection_model = self._models()
         req = read_run_request(request_path, check_manifests=True)
         snapshot, frozen_digest = load_agent_profile(self.profile_path)
@@ -267,6 +361,7 @@ class LifecycleController:
             seed_candidate_id=seed_candidate_id,
             working_model=working_model,
             reflection_model=reflection_model,
+            tua_dataset_inspection=preflight.get("tuaDatasetInspection"),
         )
 
         run_dir = self.store.initialize_run(manifest)

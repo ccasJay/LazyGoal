@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -20,6 +21,7 @@ import {
 } from "../../alfworld/src/worker-config.js";
 import { GaiaPromptEvaluationAdapter } from "../../gaia/src/prompt-evaluation-adapter.js";
 import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../../gaia/src/worker-entry.js";
+import { inspectTuaGepaDataset, type TuaGepaDatasetRequest } from "../../tua-bench/src/gepa-inspector.js";
 import { buildBenchmarkWorker } from "../worker-builder.js";
 import { resolveBenchmarkHomePaths } from "../default-paths.js";
 import {
@@ -46,6 +48,60 @@ type ProductionAdapterFactory = (
     workspaceRoot: string,
     env: NodeJS.ProcessEnv,
 ) => Promise<ProductionAdapter>;
+
+/**
+ * 以只读方式检查 GEPA 请求中的 TUA 数据集，并输出机器可读快照。
+ *
+ * @param argv - `gepa inspect-tua --request <path>` 参数。
+ * @returns 零表示预检成功；无效请求或数据资源缺失返回非零。
+ * @example
+ * ```ts
+ * const exitCode = await runGepaInspectTuaCli([
+ *   "gepa", "inspect-tua", "--request", "/tmp/gepa-request.json",
+ * ]);
+ * ```
+ */
+export async function runGepaInspectTuaCli(argv: readonly string[]): Promise<number> {
+    try {
+        const parsed = parseArgs({
+            args: [...argv.slice(2)],
+            options: { request: { type: "string" } },
+            allowPositionals: false,
+            strict: true,
+        });
+        const requestPath = parsed.values.request;
+        if (typeof requestPath !== "string" || requestPath.trim() === "") {
+            throw new Error("Usage: lazygoal gepa inspect-tua --request <path>");
+        }
+        const raw: unknown = JSON.parse(await readFile(resolve(requestPath), "utf8"));
+        if (raw === null || typeof raw !== "object" || !("tuaDataset" in raw)) {
+            throw new Error("GEPA request is missing tuaDataset");
+        }
+        const dataset = (raw as { readonly tuaDataset: unknown }).tuaDataset;
+        if (!isTuaGepaDatasetRequest(dataset)) {
+            throw new Error("GEPA request tuaDataset is malformed");
+        }
+        const inspection = await inspectTuaGepaDataset(dataset);
+        process.stdout.write(`${JSON.stringify(inspection)}\n`);
+        return 0;
+    } catch (error: unknown) {
+        process.stderr.write(`${errorMessage(error)}\n`);
+        return 2;
+    }
+}
+
+function isTuaGepaDatasetRequest(value: unknown): value is TuaGepaDatasetRequest {
+    if (value === null || typeof value !== "object") return false;
+    const record = value as Record<string, unknown>;
+    return typeof record.repoRoot === "string"
+        && record.repoRoot.trim() !== ""
+        && Array.isArray(record.trainTaskIds)
+        && record.trainTaskIds.every((taskId) => typeof taskId === "string")
+        && Array.isArray(record.validationTaskIds)
+        && record.validationTaskIds.every((taskId) => typeof taskId === "string")
+        && Array.isArray(record.holdoutTaskIds)
+        && record.holdoutTaskIds.every((taskId) => typeof taskId === "string");
+}
 
 const PRODUCTION_ADAPTER_FACTORIES: ReadonlyMap<string, ProductionAdapterFactory> = new Map([
     ["alfworld", createAlfworldPromptEvaluationAdapter],
@@ -306,15 +362,18 @@ if (entrypoint === fileURLToPath(import.meta.url)) {
     const rawArgv = process.argv.slice(2);
     const isReflect = rawArgv[0] === "gepa" && rawArgv[1] === "reflect";
     const isResolveModels = rawArgv[0] === "gepa" && rawArgv[1] === "resolve-models";
+    const isInspectTua = rawArgv[0] === "gepa" && rawArgv[1] === "inspect-tua";
     const runner = isReflect
         ? runGepaReflectCli(rawArgv)
         : isResolveModels
         ? runGepaResolveModelsCli(rawArgv)
+        : isInspectTua
+        ? runGepaInspectTuaCli(rawArgv)
         : runPromptEvaluationCli(rawArgv);
     void runner.then((code) => {
         process.exitCode = code;
     }).catch((error: unknown) => {
         process.stderr.write(`${errorMessage(error)}\n`);
-        process.exitCode = isReflect || isResolveModels ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
+        process.exitCode = isReflect || isResolveModels || isInspectTua ? 1 : PROMPT_EVALUATION_EXIT_CODES.infrastructureError;
     });
 }

@@ -140,6 +140,14 @@ Python 生命周期控制器为每次运行创建
 反思及结果产物。`status`/`report` 只读取这些权威文件；它们不会从日志或私有
 checkpoint 推导成功状态。每个 Run 同时最多一个 Worker。
 
+TUA GEPA 请求的只读预检由 Python 控制器调用 LazyGoal CLI 的 TUA Inspector 完成。Inspector
+校验显式 train/validation/holdout 集合的互斥性、任务族覆盖、所选任务资源及本机镜像，返回
+TUA 源 revision、任务资源摘要、镜像身份、网络任务和时限；返回值不包含任务指令或验证器正文。
+预检把该摘要与试次计划一起展示，`start` 将其冻结到 `run.json`。镜像检查只读取本机 Docker
+元数据，不拉取镜像或启动容器；数据问题在模型调用前失败。TUA 的 Prompt Evaluation 执行、
+candidate-only 发布和最终对照生命周期仍须由各自的接入部分提供，数据预检本身不代表可运行完整
+TUA GEPA 优化。
+
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
 `[gepa].reflection_profile` 绑定另一个 LLM Profile，仅执行无 Tool 的文本反思。两者的
