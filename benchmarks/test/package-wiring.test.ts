@@ -25,8 +25,9 @@ test("GEPA TUA 数据检查走 TypeScript CLI，其它控制面命令走 Python"
     assert.match(source, /const isGepaReflect = argv\[0\] === "gepa" && argv\[1\] === "reflect";/);
     assert.match(source, /const isGepaResolveModels = argv\[0\] === "gepa" && argv\[1\] === "resolve-models";/);
     assert.match(source, /const isGepaInspectTua = argv\[0\] === "gepa" && argv\[1\] === "inspect-tua";/);
-    assert.match(source, /const isGepaLifecycle = argv\[0\] === "gepa" && !isGepaReflect && !isGepaResolveModels && !isGepaInspectTua;/);
-    assert.match(source, /isPromptEval \|\| isGepaReflect \|\| isGepaResolveModels \|\| isGepaInspectTua/);
+    assert.match(source, /const isGepaAuditTuaCandidate = argv\[0\] === "gepa" && argv\[1\] === "audit-tua-candidate";/);
+    assert.match(source, /const isGepaLifecycle = argv\[0\] === "gepa" && !isGepaReflect && !isGepaResolveModels && !isGepaInspectTua && !isGepaAuditTuaCandidate;/);
+    assert.match(source, /isPromptEval \|\| isGepaReflect \|\| isGepaResolveModels \|\| isGepaInspectTua \|\| isGepaAuditTuaCandidate/);
     assert.match(source, /lazygoal_gepa\.cli/);
     assert.match(source, /LAZYGOAL_GEPA_PYTHON/);
 });

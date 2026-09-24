@@ -21,6 +21,7 @@ from gepa.core.result import GEPAResult
 from gepa.core.state import GEPAState
 
 from .adapter import LazyGoalGEPAAdapter
+from .candidate_audit import TuaCandidateLeakAuditor
 from .candidate import (
     CandidateCodec,
     ModelIdentity,
@@ -226,7 +227,19 @@ def run_gepa_worker(
             output_directory=adapter_output_dir,
             lazygoal_executable=executable,
         )
-        adapter = LazyGoalGEPAAdapter(config)
+        candidate_auditor = None
+        if manifest.request.tua_dataset is not None:
+            candidate_auditor = TuaCandidateLeakAuditor(
+                repo_root=Path(manifest.request.tua_dataset.repo_root),
+                task_ids=(
+                    *manifest.request.tua_dataset.train_task_ids,
+                    *manifest.request.tua_dataset.validation_task_ids,
+                ),
+                executable=executable,
+                workspace_root=resolved_workspace,
+                audit_directory=resolved_run_dir / "candidate-audits",
+            )
+        adapter = LazyGoalGEPAAdapter(config, candidate_auditor=candidate_auditor)
 
         reflection_client = ReflectionLMClient(
             reflection_model=manifest.reflection_model,
@@ -285,6 +298,7 @@ def run_gepa_worker(
             reflection_prompt_template=rendered_reflection_template,
             max_metric_calls=manifest.request.max_metric_calls,
             reflection_minibatch_size=manifest.request.reflection_minibatch_size,
+            module_selector="all" if manifest.request.tua_dataset is not None else "round_robin",
             run_dir=str(gepa_dir),
             seed=manifest.request.seed if manifest.request.seed is not None else 0,
             display_progress_bar=False,

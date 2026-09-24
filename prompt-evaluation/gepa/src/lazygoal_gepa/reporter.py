@@ -23,6 +23,11 @@ _TERMINAL_STATUSES = frozenset({"stopped", "succeeded", "publish_blocked", "fail
 _PUBLICATION_STATUSES = frozenset({"pending", "published", "unchanged", "blocked", "failed"})
 _REDACTED = "[REDACTED]"
 _MAX_DIAGNOSTIC_CHARS = 4_096
+_CANDIDATE_ID = re.compile(r"[0-9a-f]{64}\Z")
+_AUDIT_COMPONENT = re.compile(r"(?:system_prompt|instruction_[0-9]{3})\Z")
+_AUDIT_MATCH_KINDS = frozenset(
+    {"task_id", "private_filename", "expected_answer", "verifier_content"}
+)
 
 # These patterns intentionally consume the complete credential value.  Replacing only
 # the marker (for example, ``sk-``) leaves the token suffix in the persisted report.
@@ -168,6 +173,7 @@ def _validate_report_schema(
             "metrics",
             "candidates",
             "scores",
+            "candidateAudit",
             "artifacts",
             "publication",
             "complete",
@@ -289,6 +295,56 @@ def _validate_report_schema(
     if "seedScore" in scores or "scoreGain" in scores or "initialScore" in scores:
         raise _schema_error("scores contains unsupported derived fields")
 
+    candidate_audit = _mapping(data, "candidateAudit")
+    _exact_keys(
+        candidate_audit,
+        {"status", "candidateId", "positiveConclusionBlocked", "findings"},
+        "candidateAudit",
+    )
+    audit_status = _string(candidate_audit, "status")
+    if audit_status not in {"not_applicable", "clear", "blocked", "missing"}:
+        raise _schema_error("candidateAudit status is invalid")
+    candidate_id = _string(candidate_audit, "candidateId", allow_none=True)
+    if candidate_id is not None and not _CANDIDATE_ID.fullmatch(candidate_id):
+        raise _schema_error("candidateAudit candidateId is invalid")
+    if manifest.request.tua_dataset is not None and candidate_id != state.best_candidate_id:
+        raise _schema_error("candidateAudit candidateId does not match state.json")
+    blocked = candidate_audit.get("positiveConclusionBlocked")
+    if not isinstance(blocked, bool):
+        raise _schema_error("candidateAudit positiveConclusionBlocked must be boolean")
+    findings = candidate_audit.get("findings")
+    if not isinstance(findings, list):
+        raise _schema_error("candidateAudit findings must be an array")
+    allowed_task_ids = set()
+    if manifest.request.tua_dataset is not None:
+        allowed_task_ids.update(manifest.request.tua_dataset.train_task_ids)
+        allowed_task_ids.update(manifest.request.tua_dataset.validation_task_ids)
+    for finding in findings:
+        if not isinstance(finding, dict):
+            raise _schema_error("candidateAudit finding must be an object")
+        _exact_keys(finding, {"taskId", "component", "matchKind"}, "candidateAudit finding")
+        task_id = _string(finding, "taskId")
+        component = _string(finding, "component")
+        match_kind = _string(finding, "matchKind")
+        if (
+            task_id not in allowed_task_ids
+            or not _AUDIT_COMPONENT.fullmatch(component)
+            or match_kind not in _AUDIT_MATCH_KINDS
+        ):
+            raise _schema_error("candidateAudit finding is invalid")
+    if manifest.request.tua_dataset is None:
+        if audit_status != "not_applicable" or blocked or findings:
+            raise _schema_error("candidateAudit must be not_applicable outside TUA runs")
+    elif audit_status == "blocked":
+        if not blocked or not findings:
+            raise _schema_error("blocked candidateAudit must contain findings")
+    elif audit_status == "clear":
+        if blocked or findings or candidate_id is None:
+            raise _schema_error("clear candidateAudit must identify an unblocked candidate")
+    elif audit_status == "missing":
+        if not blocked or findings:
+            raise _schema_error("missing candidateAudit must block positive conclusions")
+
     artifacts = _mapping(data, "artifacts")
     _exact_keys(
         artifacts,
@@ -299,12 +355,13 @@ def _validate_report_schema(
             "gepaRunDir",
             "reportPath",
             "workerLogPath",
+            "candidateAuditsPath",
         },
         "artifacts",
     )
     for key in ("baseProfilePath", "gepaRunDir", "reportPath", "workerLogPath"):
         _string(artifacts, key)
-    for key in ("bestProfilePath", "officialStatePath"):
+    for key in ("bestProfilePath", "officialStatePath", "candidateAuditsPath"):
         _string(artifacts, key, allow_none=True)
 
     publication = _mapping(data, "publication")
@@ -398,6 +455,8 @@ def generate_and_save_run_report(
             "message": _sanitize_string(state.error_message or ""),
         }
 
+    candidate_audit = _load_candidate_audit_summary(resolved_run_dir, manifest, state)
+
     train_count = len(manifest.request.trainset)
     val_count = (
         len(manifest.request.valset)
@@ -457,6 +516,7 @@ def generate_and_save_run_report(
         "scores": {
             "bestScore": state.best_score,
         },
+        "candidateAudit": candidate_audit,
         "artifacts": {
             "baseProfilePath": str(base_profile_path),
             "bestProfilePath": str(best_profile_path) if best_profile_path.is_file() else None,
@@ -464,6 +524,11 @@ def generate_and_save_run_report(
             "gepaRunDir": str(resolved_run_dir / "gepa"),
             "reportPath": str(report_path),
             "workerLogPath": str(worker_log_path),
+            "candidateAuditsPath": (
+                str(resolved_run_dir / "candidate-audits")
+                if manifest.request.tua_dataset is not None
+                else None
+            ),
         },
         "publication": {
             "status": state.publication_status,
@@ -486,6 +551,78 @@ def generate_and_save_run_report(
 
     atomic_write_json(report_path, report_data)
     return report_data
+
+
+def _load_candidate_audit_summary(
+    run_dir: Path,
+    manifest: FrozenRunManifest,
+    state: RunState,
+) -> dict[str, Any]:
+    if manifest.request.tua_dataset is None:
+        return {
+            "status": "not_applicable",
+            "candidateId": None,
+            "positiveConclusionBlocked": False,
+            "findings": [],
+        }
+
+    candidate_id = state.best_candidate_id
+    missing = {
+        "status": "missing",
+        "candidateId": candidate_id,
+        "positiveConclusionBlocked": True,
+        "findings": [],
+    }
+    if candidate_id is None or not _CANDIDATE_ID.fullmatch(candidate_id):
+        return missing
+
+    audit_path = run_dir / "candidate-audits" / f"{candidate_id}.json"
+    try:
+        value: Any = json.loads(audit_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return missing
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise _schema_error("candidate audit artifact could not be read") from error
+
+    if not isinstance(value, dict) or set(value) != {
+        "candidateId",
+        "auditedTaskIds",
+        "findings",
+        "positiveConclusionBlocked",
+    }:
+        raise _schema_error("candidate audit artifact fields are invalid")
+    task_ids = [
+        *manifest.request.tua_dataset.train_task_ids,
+        *manifest.request.tua_dataset.validation_task_ids,
+    ]
+    if value["candidateId"] != candidate_id or value["auditedTaskIds"] != task_ids:
+        raise _schema_error("candidate audit artifact identity does not match the run")
+    findings = value["findings"]
+    if not isinstance(findings, list):
+        raise _schema_error("candidate audit artifact findings are invalid")
+    for finding in findings:
+        if not isinstance(finding, dict) or set(finding) != {"taskId", "component", "matchKind"}:
+            raise _schema_error("candidate audit artifact finding fields are invalid")
+        task_id = finding["taskId"]
+        component = finding["component"]
+        match_kind = finding["matchKind"]
+        if (
+            task_id not in task_ids
+            or not isinstance(component, str)
+            or not _AUDIT_COMPONENT.fullmatch(component)
+            or not isinstance(match_kind, str)
+            or match_kind not in _AUDIT_MATCH_KINDS
+        ):
+            raise _schema_error("candidate audit artifact finding is invalid")
+    blocked = bool(findings)
+    if value["positiveConclusionBlocked"] is not blocked:
+        raise _schema_error("candidate audit artifact conclusion flag is inconsistent")
+    return {
+        "status": "blocked" if blocked else "clear",
+        "candidateId": candidate_id,
+        "positiveConclusionBlocked": blocked,
+        "findings": findings,
+    }
 
 
 def read_run_report(run_dir: Path | str) -> dict[str, Any]:

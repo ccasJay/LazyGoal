@@ -8,6 +8,9 @@ import type { TuaBenchTaskDefinition } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 const SHA256 = /^sha256:[a-f0-9]{64}$/u;
+const CANDIDATE_ID = /^(?:sha256:)?[a-f0-9]{64}$/u;
+const PRIVATE_PATH = /(?:^|[\\/_.-])(?:answers?|solutions?|expected|gold|oracle|secret|private|verifier|grader|test|tests)(?:$|[\\/_.-])/iu;
+const ANSWER_PATH = /(?:^|[\\/_.-])(?:answers?|solutions?|expected|gold|oracle|secret)(?:$|[\\/_.-])/iu;
 
 /**
  * TUA GEPA 预检所需的显式数据源和任务分组。
@@ -129,6 +132,88 @@ export interface TuaGepaInspectorDependencies {
         readonly revision: string;
         readonly changedPaths: readonly string[];
     }>;
+}
+
+/**
+ * TUA 训练/验证任务的 Prompt 泄漏审计请求。
+ *
+ * @remarks
+ * 任务集合只允许包含 GEPA 训练和验证任务。候选指纹使用 GEPA codec 的 SHA-256，
+ * 审计器不会读取请求集合以外的任务目录。
+ *
+ * @example
+ * ```ts
+ * const request: TuaGepaCandidateAuditRequest = {
+ *   repoRoot: "/data/TUA-Bench",
+ *   taskIds: ["train-doc", "validation-doc"],
+ *   candidateId: "a".repeat(64),
+ *   systemPrompt: "Solve the task carefully.",
+ *   instructions: ["Use authorized tools."],
+ * };
+ * ```
+ */
+export interface TuaGepaCandidateAuditRequest {
+    /** 本机 TUA-Bench 仓库根目录。 */
+    readonly repoRoot: string;
+    /** 仅允许传入 GEPA 训练和验证任务；最终预留集不得进入候选选择。 */
+    readonly taskIds: readonly string[];
+    /** 候选内容的稳定 SHA-256 身份。 */
+    readonly candidateId: string;
+    /** 候选 systemPrompt。 */
+    readonly systemPrompt: string;
+    /** 候选完整 instructions。 */
+    readonly instructions: readonly string[];
+}
+
+/**
+ * 候选与已知任务私有事实发生字面匹配时的脱敏原因。
+ *
+ * @remarks
+ * 只记录任务、候选组件和匹配类别；不含答案、私有路径或 verifier 片段。
+ *
+ * @example
+ * ```ts
+ * const finding: TuaGepaCandidateAuditFinding = {
+ *   taskId: "train-doc",
+ *   component: "instruction_000",
+ *   matchKind: "expected_answer",
+ * };
+ * ```
+ */
+export interface TuaGepaCandidateAuditFinding {
+    /** 匹配到的 TUA 任务 ID。 */
+    readonly taskId: string;
+    /** 命中的 GEPA 候选组件。 */
+    readonly component: string;
+    /** 匹配类别；不返回任何匹配文本或私有文件内容。 */
+    readonly matchKind: "task_id" | "private_filename" | "expected_answer" | "verifier_content";
+}
+
+/**
+ * TUA 候选的脱敏泄漏审计结果。
+ *
+ * @remarks
+ * 任一命中都阻断该候选的正向审阅结论；无命中只表示指定训练/验证集未发现字面匹配。
+ *
+ * @example
+ * ```ts
+ * const result: TuaGepaCandidateAuditResult = {
+ *   candidateId: "a".repeat(64),
+ *   auditedTaskIds: ["train-doc"],
+ *   findings: [],
+ *   positiveConclusionBlocked: false,
+ * };
+ * ```
+ */
+export interface TuaGepaCandidateAuditResult {
+    /** 与请求中候选一致的稳定身份。 */
+    readonly candidateId: string;
+    /** 本次实际检查的任务 ID；不含 holdout。 */
+    readonly auditedTaskIds: readonly string[];
+    /** 不含命中原文的审计原因。 */
+    readonly findings: readonly TuaGepaCandidateAuditFinding[];
+    /** 有任一 finding 时必须阻断候选的正向晋升结论。 */
+    readonly positiveConclusionBlocked: boolean;
 }
 
 /**
@@ -256,6 +341,131 @@ export async function inspectTuaGepaDataset(
     };
 }
 
+/**
+ * 在 TUA 数据源内做候选 Prompt 字面泄漏检查。
+ *
+ * @remarks
+ * 仅读取传入的 train/validation 任务；调用方不得把 holdout ID 交给本函数。匹配结果只返回任务、候选组件和类别，不返回答案或 verifier 原文。此检查用于发现已知字面泄漏，不证明候选不存在语义过拟合。
+ *
+ * @param request - TUA 源、训练/验证任务及两个候选 Prompt 字段。
+ * @returns 可持久化的脱敏审计结果；有命中时禁止形成正向晋升结论。
+ * @throws 任务源、任务目录或候选请求无效时抛出错误。
+ * @example
+ * ```ts
+ * const audit = await auditTuaGepaCandidate({
+ *   repoRoot: "/data/TUA-Bench",
+ *   taskIds: ["train-doc", "validation-doc"],
+ *   candidateId: "a".repeat(64),
+ *   systemPrompt: "Solve the task carefully.",
+ *   instructions: ["Use only authorized tools."],
+ * });
+ * console.log(audit.positiveConclusionBlocked);
+ * ```
+ */
+export async function auditTuaGepaCandidate(
+    request: TuaGepaCandidateAuditRequest,
+): Promise<TuaGepaCandidateAuditResult> {
+    if (typeof request.repoRoot !== "string" || request.repoRoot.trim() === "") {
+        throw new Error("TUA candidate audit repoRoot must be a non-empty path");
+    }
+    if (!CANDIDATE_ID.test(request.candidateId)) throw new Error("TUA candidate audit candidateId is invalid");
+    if (typeof request.systemPrompt !== "string" || request.systemPrompt.trim() === "") {
+        throw new Error("TUA candidate audit systemPrompt must be non-empty");
+    }
+    const taskIds = normalizeIds(request.taskIds, "taskIds");
+    const instructions = normalizeCandidateInstructions(request.instructions);
+    const repoRoot = await realpath(path.resolve(request.repoRoot)).catch(() => {
+        throw new Error(`TUA-Bench repository does not exist: ${path.resolve(request.repoRoot)}`);
+    });
+    const tasksRoot = await realpath(path.join(repoRoot, "tasks")).catch(() => {
+        throw new Error("TUA candidate audit could not resolve the task root");
+    });
+    if (!isWithin(repoRoot, tasksRoot)) throw new Error("TUA task root escapes the selected repository");
+    const manifest = await loadTuaBenchManifest(repoRoot);
+    const tasksById = new Map<string, TuaBenchTaskDefinition[]>();
+    for (const task of manifest.tasks) {
+        const tasks = tasksById.get(task.taskId) ?? [];
+        tasks.push(task);
+        tasksById.set(task.taskId, tasks);
+    }
+
+    const components = [
+        { name: "system_prompt", text: request.systemPrompt },
+        ...instructions.map((text, index) => ({ name: `instruction_${String(index).padStart(3, "0")}`, text })),
+    ];
+    const findings = new Map<string, TuaGepaCandidateAuditFinding>();
+    for (const taskId of taskIds) {
+        const matches = tasksById.get(taskId) ?? [];
+        if (matches.length !== 1) throw new Error(`TUA task does not exist or is ambiguous: ${taskId}`);
+        const task = matches[0]!;
+        const taskRoot = path.resolve(task.taskDir);
+        if (!isWithin(tasksRoot, taskRoot)) {
+            throw new Error(`TUA task path escapes the selected repository: ${task.taskId}`);
+        }
+        const taskEntry = await lstat(taskRoot).catch(() => null);
+        if (taskEntry === null || !taskEntry.isDirectory() || taskEntry.isSymbolicLink()) {
+            throw new Error(`TUA task path is not a regular directory: ${task.taskId}`);
+        }
+        const realTaskRoot = await realpath(taskRoot);
+        if (!isWithin(tasksRoot, realTaskRoot)) {
+            throw new Error(`TUA task path escapes the selected repository: ${task.taskId}`);
+        }
+        for (const component of components) {
+            if (containsTaskId(component.text, task.taskId)) {
+                addAuditFinding(findings, taskId, component.name, "task_id");
+            }
+        }
+
+        const files = await listRegularTaskFiles(realTaskRoot);
+        const verifierPath = task.verifierPath ?? "tests/test.sh";
+        const verifierAbsolute = path.resolve(realTaskRoot, verifierPath);
+        if (!isWithin(realTaskRoot, verifierAbsolute)) {
+            throw new Error(`TUA task ${task.taskId} has an unsafe verifier path`);
+        }
+        const verifierRelative = path.relative(realTaskRoot, verifierAbsolute).split(path.sep).join("/");
+        for (const file of files) {
+            const isVerifier = file.relative === verifierRelative;
+            const isAnswerSource = ANSWER_PATH.test(file.relative);
+            if (PRIVATE_PATH.test(file.relative)) {
+                for (const name of [file.relative, path.posix.basename(file.relative)]) {
+                    for (const component of components) {
+                        if (containsLiteral(component.text, name)) {
+                            addAuditFinding(findings, taskId, component.name, "private_filename");
+                        }
+                    }
+                }
+            }
+            if (!isVerifier && !isAnswerSource) continue;
+            const content = await readFile(file.absolute, "utf8");
+            const markers = isAnswerSource
+                ? answerMarkers(content)
+                : verifierMarkers(content);
+            const matchKind = isAnswerSource ? "expected_answer" : "verifier_content";
+            for (const marker of markers) {
+                for (const component of components) {
+                    if (containsLiteral(component.text, marker)) {
+                        addAuditFinding(findings, taskId, component.name, matchKind);
+                    }
+                }
+            }
+        }
+        if (!files.some((file) => file.relative === verifierRelative)) {
+            throw new Error(`TUA task ${taskId} is missing verifier resource ${verifierRelative}`);
+        }
+    }
+
+    const orderedFindings = [...findings.values()].sort((left, right) =>
+        left.taskId.localeCompare(right.taskId)
+        || left.component.localeCompare(right.component)
+        || left.matchKind.localeCompare(right.matchKind));
+    return {
+        candidateId: request.candidateId,
+        auditedTaskIds: taskIds,
+        findings: orderedFindings,
+        positiveConclusionBlocked: orderedFindings.length > 0,
+    };
+}
+
 function normalizeIds(ids: readonly string[], field: string): readonly string[] {
     if (!Array.isArray(ids) || ids.length === 0) throw new Error(`${field} must be a non-empty task ID list`);
     const seen = new Set<string>();
@@ -266,6 +476,99 @@ function normalizeIds(ids: readonly string[], field: string): readonly string[] 
         seen.add(id);
     }
     return Object.freeze([...ids]);
+}
+
+function normalizeCandidateInstructions(instructions: readonly string[]): readonly string[] {
+    if (!Array.isArray(instructions) || instructions.length === 0) {
+        throw new Error("TUA candidate audit instructions must be a non-empty string list");
+    }
+    return instructions.map((instruction, index) => {
+        if (typeof instruction !== "string" || instruction.trim() === "") {
+            throw new Error(`TUA candidate audit instruction ${index} must be non-empty`);
+        }
+        return instruction;
+    });
+}
+
+async function listRegularTaskFiles(taskRoot: string): Promise<readonly { readonly relative: string; readonly absolute: string }[]> {
+    const files: { relative: string; absolute: string }[] = [];
+    const visit = async (directory: string): Promise<void> => {
+        const entries = await readdir(directory, { withFileTypes: true });
+        entries.sort((left, right) => left.name.localeCompare(right.name));
+        for (const entry of entries) {
+            const absolute = path.join(directory, entry.name);
+            if (entry.isSymbolicLink()) continue;
+            if (entry.isDirectory()) await visit(absolute);
+            else if (entry.isFile()) {
+                files.push({
+                    absolute,
+                    relative: path.relative(taskRoot, absolute).split(path.sep).join("/"),
+                });
+            }
+        }
+    };
+    await visit(taskRoot);
+    return files;
+}
+
+function answerMarkers(content: string): readonly string[] {
+    const values = new Set<string>();
+    const add = (value: unknown): void => {
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+            const text = String(value).trim();
+            if (text.length >= 2) values.add(text);
+        } else if (Array.isArray(value)) {
+            value.forEach(add);
+        } else if (value !== null && typeof value === "object") {
+            Object.values(value as Record<string, unknown>).forEach(add);
+        }
+    };
+    try {
+        add(JSON.parse(content) as unknown);
+    } catch {
+        for (const line of content.split(/\r?\n/u)) {
+            const text = line.trim();
+            if (text.length >= 2) values.add(text);
+        }
+    }
+    return [...values];
+}
+
+function verifierMarkers(content: string): readonly string[] {
+    return [...new Set(content.split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => normalizeForMatch(line).length >= 24))];
+}
+
+function containsTaskId(candidate: string, taskId: string): boolean {
+    const escaped = taskId.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escaped}(?:$|[^\\p{L}\\p{N}_])`, "iu").test(candidate);
+}
+
+function containsLiteral(candidate: string, marker: string): boolean {
+    const normalizedCandidate = normalizeForMatch(candidate);
+    const normalizedMarker = normalizeForMatch(marker);
+    if (!normalizedMarker) return false;
+    if (/^[\p{L}\p{N}_-]+$/u.test(normalizedMarker)) {
+        const escaped = normalizedMarker.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+        return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escaped}(?:$|[^\\p{L}\\p{N}_])`, "iu")
+            .test(normalizedCandidate);
+    }
+    return normalizedCandidate.includes(normalizedMarker);
+}
+
+function normalizeForMatch(value: string): string {
+    return value.normalize("NFKC").toLocaleLowerCase("en-US").replace(/\s+/gu, " ").trim();
+}
+
+function addAuditFinding(
+    findings: Map<string, TuaGepaCandidateAuditFinding>,
+    taskId: string,
+    component: string,
+    matchKind: TuaGepaCandidateAuditFinding["matchKind"],
+): void {
+    const key = `${taskId}\0${component}\0${matchKind}`;
+    findings.set(key, { taskId, component, matchKind });
 }
 
 function describePartition(

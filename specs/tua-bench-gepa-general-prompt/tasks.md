@@ -7,7 +7,7 @@
   - 验证方式：待实现 TUA manifest 与预检测试；覆盖有效清单、无效分组及无模型/容器/Profile 副作用。入口参考 `benchmarks/tua-bench/test/manifest-loader.test.ts`、`prompt-evaluation/gepa/tests/test_protocol.py` 与 `prompt-evaluation/gepa/tests/test_lifecycle_controller.py`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [4.1](./requirements.md#req-4-1)_
 
-- [ ] //TODO 2. 冻结种子并让两个 Prompt 字段进入各环境候选
+- [x] //TODO 2. 冻结种子并让两个 Prompt 字段进入各环境候选
 
   - 实现目标：从指定 default Profile 固化 seed 的 `systemPrompt` 与完整 `instructions`，让 GEPA 同时编码和变异两者，并将候选字段覆盖到 TUA、GAIA、ALFWorld 各自受信任的 benchmark Profile。
   - 成功判据：seed 与候选执行时都实际携带两个对应字段；Profile 身份、工具与授权、Prompt Bundle、输出契约和完成证据规则保持 benchmark 基线值；包含标准答案、验证器私有内容或已知任务硬编码解法的候选被阻断正向结论并带有报告原因。
@@ -58,7 +58,7 @@
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
 | [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3) | 给出版本固定且互斥、家族覆盖完整的三组任务时预检成功并记录归属；缺失、重复、未知、资源不全、交叉或覆盖不足时在模型调用前拒绝 | TUA 数据检查与预检离线测试（待实现） |
-| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3)、[2.4](./requirements.md#req-2-4) | seed 冻结两个字段；GEPA 候选可同时变化两字段并抵达各 Worker；其他 Profile 能力不变；任务答案或 verifier 泄漏候选无法获得正向结论 | 候选/派生/Worker 测试（待实现），检查产物中的字段差异及审计原因 |
+| [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3)、[2.4](./requirements.md#req-2-4) | seed 冻结两个字段；GEPA 候选可同时变化两字段并抵达各 Worker；其他 Profile 能力不变；任务答案或 verifier 泄漏候选无法获得正向结论 | candidate codec 与 GEPA `module_selector=all` 测试；TUA/GAIA/ALFWorld Profile 注入测试；TUA 字面审计命中、未命中及脱敏报告测试 |
 | [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.4](./requirements.md#req-3-4) | 官方部分与零 reward 保留为有效分数；Agent 无法访问评分私有素材；无效 reward 或隔离失败成为无分数错误 | TUA 隔离身份与评分测试（待实现）；检查 `metricScore` 与故障状态 |
 | [3.3](./requirements.md#req-3-3)、[3.5](./requirements.md#req-3-5) | 反思输入不含验证器、答案、原始评分输出和 holdout；取消不成为领域零分且不会再调度新任务 | 反思投影与生命周期取消测试（待实现），检查完整模型输入及调度记录 |
 | [4.1](./requirements.md#req-4-1) | 只读预检列出分组、模型、预算、联网范围与副作用，但没有容器启动、模型调用或 Profile 写入 | 预检副作用测试（待实现），使用 fake 模型/容器和 Profile 快照 |

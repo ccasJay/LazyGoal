@@ -54,6 +54,7 @@ class ReflectionTests(unittest.TestCase):
         self.candidate = {
             "system_prompt": "Initial system prompt",
             "instruction_000": "Initial instruction",
+            "instruction_001": "Initial second instruction",
         }
         self.adapter = LazyGoalGEPAAdapter(
             LazyGoalGEPAConfig(
@@ -129,6 +130,7 @@ class ReflectionTests(unittest.TestCase):
                 adapter=self.adapter,
                 reflection_lm=reflection_lm,
                 reflection_minibatch_size=1,
+                module_selector="all",
                 max_metric_calls=6,
                 display_progress_bar=False,
                 logger=QuietLogger(),
@@ -138,6 +140,9 @@ class ReflectionTests(unittest.TestCase):
         self.assertGreaterEqual(result.num_candidates, 2)
         self.assertTrue(reflection_lm.prompts)
         self.assertIn("improved", " ".join(result.best_candidate.values()))
+        self.assertIn("improved", result.best_candidate["system_prompt"])
+        self.assertIn("improved", result.best_candidate["instruction_000"])
+        self.assertIn("improved", result.best_candidate["instruction_001"])
         self.assertEqual(result.val_aggregate_scores[result.best_idx], 1.0)
 
 

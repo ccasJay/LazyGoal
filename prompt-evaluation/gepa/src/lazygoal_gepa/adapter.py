@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
 from .candidate import CandidateCodec
+from .candidate_audit import CandidateAuditor
 from .client import PromptEvaluationClient
 from .compatibility import ensure_gepa_compatibility
 from .dataset import DatasetValidator
@@ -70,9 +71,11 @@ class LazyGoalGEPAAdapter(
         dataset_validator: DatasetValidator | None = None,
         directory_manager: InvocationDirectoryManager | None = None,
         client: PromptEvaluationClient | None = None,
+        candidate_auditor: CandidateAuditor | None = None,
     ) -> None:
         ensure_gepa_compatibility()
         self._config = config
+        self._candidate_auditor = candidate_auditor
         self._candidate_codec = candidate_codec or CandidateCodec()
         self._dataset_validator = dataset_validator or DatasetValidator()
         self._directory_manager = directory_manager or InvocationDirectoryManager(
@@ -91,6 +94,12 @@ class LazyGoalGEPAAdapter(
     ) -> EvaluationBatch[LazyGoalEvaluationTrajectory, LazyGoalEvaluationOutput]:
         prompt = self._candidate_codec.decode(candidate)
         examples = self._dataset_validator.validate_batch(self._config, batch)
+        if self._config.benchmark_id == "tua-bench" and self._candidate_auditor is None:
+            raise PromptEvaluationInfrastructureError(
+                "TUA candidate audit is required before benchmark evaluation"
+            )
+        if self._candidate_auditor is not None:
+            self._candidate_auditor.audit(prompt)
         invocation = self._directory_manager.create_invocation(prompt.candidate_id)
 
         outputs: list[LazyGoalEvaluationOutput] = []

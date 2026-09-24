@@ -96,6 +96,9 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 [`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation/cli.ts) 接受当前版本的单候选
 JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
 派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
+TUA Worker 的 ACP metadata 也可携带成对的基准与候选 Profile，并在创建 Headless Root 前
+以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。TUA Prompt Evaluation
+adapter 尚未注册到公共 CLI，因此该 Worker 能力目前不构成完整的 TUA 评测入口。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
 CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
@@ -122,6 +125,11 @@ benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Pytho
 后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
 有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
 GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
+TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 seed 中的 `system_prompt`
+和全部 `instruction_NNN` 组件；其他 benchmark 保持 `round_robin`。每个 TUA 候选在评测前
+经 TUA Inspector 对显式训练与验证任务做字面泄漏审计，安全结果保存在 Run 的
+`candidate-audits/`。终态报告只输出命中任务、Prompt 组件和类别；最佳候选命中或缺少审计
+都会阻断正向结论。审计不读取 holdout，也不声称排除语义层面的任务过拟合。
 GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
 `dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
 split 和自动发现不进入该生命周期。

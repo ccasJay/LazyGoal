@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { inspectTuaGepaDataset } from "../src/gepa-inspector.js";
+import { fileURLToPath } from "node:url";
+import { auditTuaGepaCandidate, inspectTuaGepaDataset } from "../src/gepa-inspector.js";
 
 const imageId = `sha256:${"a".repeat(64)}`;
 
@@ -30,7 +33,7 @@ describe("TUA GEPA dataset inspector", () => {
             assert.equal("instruction" in (inspection.tasks["train-doc"] ?? {}), false);
             assert.equal("task" in (inspection.tasks["train-doc"] ?? {}), false);
             assert.match(inspection.tasks["train-doc"]?.resourceDigest ?? "", /^[a-f0-9]{64}$/u);
-            assert.equal(JSON.stringify(inspection).includes("SECRET_VERIFIER_TEXT"), false);
+            assert.equal(JSON.stringify(inspection).includes("private_verifier_marker_7642"), false);
         } finally {
             await rm(root, { recursive: true, force: true });
         }
@@ -96,6 +99,83 @@ describe("TUA GEPA dataset inspector", () => {
             await rm(root, { recursive: true, force: true });
         }
     });
+
+    it("blocks literal task, answer, verifier and private filename leakage without returning matched text", async () => {
+        const root = await makeRepo();
+        try {
+            const systemPrompt = "Solve train-doc carefully.";
+            const instructions = [
+                "Use answer/expected.json and run_private_verifier_marker_7642_before_authoritative_score.",
+                "The expected answer is private_expected_answer_91371.",
+            ];
+            const audit = await auditTuaGepaCandidate({
+                repoRoot: root,
+                taskIds: ["train-doc", "validation-doc"],
+                candidateId: candidateId(systemPrompt, instructions),
+                systemPrompt,
+                instructions,
+            });
+
+            assert.deepEqual(audit.auditedTaskIds, ["train-doc", "validation-doc"]);
+            assert.equal(audit.positiveConclusionBlocked, true);
+            assert.deepEqual(new Set(audit.findings.map((finding) => finding.matchKind)), new Set([
+                "task_id",
+                "private_filename",
+                "expected_answer",
+                "verifier_content",
+            ]));
+            const serialized = JSON.stringify(audit);
+            assert.equal(serialized.includes("private_expected_answer_91371"), false);
+            assert.equal(serialized.includes("private_verifier_marker_7642"), false);
+            assert.equal(serialized.includes("answer/expected.json"), false);
+            assert.equal(serialized.includes("holdout-doc"), false);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
+
+    it("allows a clean candidate and rejects missing or duplicated audit task IDs", async () => {
+        const root = await makeRepo();
+        try {
+            const systemPrompt = "Solve the task using authorized tools.";
+            const instructions = ["Inspect the workspace and verify the final state."];
+            const request = {
+                repoRoot: root,
+                taskIds: ["train-doc", "validation-doc"],
+                candidateId: candidateId(systemPrompt, instructions),
+                systemPrompt,
+                instructions,
+            };
+            const audit = await auditTuaGepaCandidate(request);
+            assert.deepEqual(audit.findings, []);
+            assert.equal(audit.positiveConclusionBlocked, false);
+
+            const requestPath = path.join(root, "audit-request.json");
+            await writeFile(requestPath, JSON.stringify(request));
+            const cliOutput = execFileSync(process.execPath, [
+                fileURLToPath(new URL("../../../bin/lazygoal.cjs", import.meta.url)),
+                "gepa",
+                "audit-tua-candidate",
+                "--request",
+                requestPath,
+            ], { cwd: root, encoding: "utf8" });
+            const cliResult = JSON.parse(cliOutput) as typeof audit;
+            assert.equal(cliResult.candidateId, request.candidateId);
+            assert.deepEqual(cliResult.auditedTaskIds, ["train-doc", "validation-doc"]);
+            assert.deepEqual(cliResult.findings, []);
+
+            await assert.rejects(() => auditTuaGepaCandidate({
+                ...request,
+                taskIds: ["missing-task"],
+            }), /does not exist or is ambiguous/iu);
+            await assert.rejects(() => auditTuaGepaCandidate({
+                ...request,
+                taskIds: ["train-doc", "train-doc"],
+            }), /duplicate task ID/iu);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    });
 });
 
 function dependencies() {
@@ -130,7 +210,19 @@ async function makeRepo(): Promise<string> {
             `[verifier]`,
             `script = "tests/test.sh"`,
         ].join("\n"));
-        await writeFile(path.join(directory, "tests", "test.sh"), "SECRET_VERIFIER_TEXT");
+        await writeFile(path.join(directory, "tests", "test.sh"), "run_private_verifier_marker_7642_before_authoritative_score");
+        if (task.taskId === "train-doc") {
+            await mkdir(path.join(directory, "answer"), { recursive: true });
+            await writeFile(path.join(directory, "answer", "expected.json"), JSON.stringify({
+                expected: "private_expected_answer_91371",
+            }));
+        }
     }
     return root;
+}
+
+function candidateId(systemPrompt: string, instructions: readonly string[]): string {
+    return createHash("sha256")
+        .update(JSON.stringify({ systemPrompt, instructions }), "utf8")
+        .digest("hex");
 }
