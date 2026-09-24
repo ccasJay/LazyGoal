@@ -800,12 +800,7 @@ def _verify_run_inputs(
     inspection_request_path = run_directory / "final-comparison" / "inspect-tua-request.json"
     atomic_write_json(
         inspection_request_path,
-        {
-            "repoRoot": dataset.repo_root,
-            "trainTaskIds": list(dataset.train_task_ids),
-            "validationTaskIds": list(dataset.validation_task_ids),
-            "holdoutTaskIds": list(dataset.holdout_task_ids),
-        },
+        {"tuaDataset": dataset.to_dict()},
     )
     try:
         inspector = subprocess.run(
@@ -819,15 +814,19 @@ def _verify_run_inputs(
             cwd=str(workspace_root),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             timeout=120,
             check=False,
         )
         if inspector.returncode != 0:
+            import sys
+            sys.stderr.write(f"Final comparison inspect-tua failed with code {inspector.returncode}: {inspector.stderr}\n")
             return False, "tua_dataset_inspection_failed"
         current_inspection = json.loads(inspector.stdout)
-    except (OSError, subprocess.TimeoutExpired, UnicodeError, json.JSONDecodeError):
+    except (OSError, subprocess.TimeoutExpired, UnicodeError, json.JSONDecodeError) as error:
+        import sys
+        sys.stderr.write(f"Final comparison inspect-tua exception: {error}\n")
         return False, "tua_dataset_inspection_failed"
 
     if current_inspection != manifest.tua_dataset_inspection:

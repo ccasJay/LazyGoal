@@ -82,12 +82,11 @@ export async function runGepaInspectTuaCli(argv: readonly string[]): Promise<num
             throw new Error("Usage: lazygoal gepa inspect-tua --request <path>");
         }
         const raw: unknown = JSON.parse(await readFile(resolve(requestPath), "utf8"));
-        if (raw === null || typeof raw !== "object" || !("tuaDataset" in raw)) {
-            throw new Error("GEPA request is missing tuaDataset");
-        }
-        const dataset = (raw as { readonly tuaDataset: unknown }).tuaDataset;
+        const dataset = (raw !== null && typeof raw === "object" && "tuaDataset" in raw)
+            ? (raw as { readonly tuaDataset: unknown }).tuaDataset
+            : raw;
         if (!isTuaGepaDatasetRequest(dataset)) {
-            throw new Error("GEPA request tuaDataset is malformed");
+            throw new Error("GEPA request tuaDataset is missing or malformed");
         }
         const inspection = await inspectTuaGepaDataset(dataset);
         process.stdout.write(`${JSON.stringify(inspection)}\n`);

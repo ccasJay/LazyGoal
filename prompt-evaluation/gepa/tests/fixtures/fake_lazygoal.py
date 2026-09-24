@@ -11,10 +11,11 @@ def main():
     if sys.argv[1:3] == ["gepa", "inspect-tua"]:
         request_path = Path(sys.argv[4])
         request = json.loads(request_path.read_text(encoding="utf-8"))
+        dataset = request.get("tuaDataset", request)
         partitions = {
-            "train": request["trainTaskIds"],
-            "validation": request["validationTaskIds"],
-            "holdout": request["holdoutTaskIds"],
+            "train": dataset["trainTaskIds"],
+            "validation": dataset["validationTaskIds"],
+            "holdout": dataset["holdoutTaskIds"],
         }
         task_ids = [
             task_id
