@@ -305,6 +305,7 @@ class FrozenRunManifest:
     working_model: ModelIdentity
     reflection_model: ModelIdentity
     tua_dataset_inspection: dict[str, Any] | None = None
+    preflight_input_digest: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = {
@@ -323,6 +324,8 @@ class FrozenRunManifest:
         }
         if self.tua_dataset_inspection is not None:
             data["tuaDatasetInspection"] = self.tua_dataset_inspection
+        if self.preflight_input_digest is not None:
+            data["preflightInputDigest"] = self.preflight_input_digest
         return data
 
 
@@ -465,6 +468,14 @@ def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
     tua_dataset_inspection = _validate_tua_dataset_inspection(
         data.get("tuaDatasetInspection"), request
     )
+    preflight_input_digest = data.get("preflightInputDigest")
+    if preflight_input_digest is not None and (
+        not isinstance(preflight_input_digest, str)
+        or not _SHA256_HEX.fullmatch(preflight_input_digest)
+    ):
+        raise ProfileValidationError("preflightInputDigest must be a SHA-256 digest")
+    if request.tua_dataset is not None and preflight_input_digest is None:
+        raise ProfileValidationError("TUA run manifest requires preflightInputDigest")
 
     target_profile_raw = data.get("targetProfile")
     if not isinstance(target_profile_raw, dict):
@@ -530,6 +541,7 @@ def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
         working_model=working_model,
         reflection_model=reflection_model,
         tua_dataset_inspection=tua_dataset_inspection,
+        preflight_input_digest=preflight_input_digest,
     )
 
 

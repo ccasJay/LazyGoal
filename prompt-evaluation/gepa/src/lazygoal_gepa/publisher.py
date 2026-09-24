@@ -93,7 +93,7 @@ class ProfilePublisher:
         """保存并尝试发布 GEPA 最佳候选，返回可序列化的发布摘要。"""
 
         try:
-            prompt = CandidateCodec().decode(best_candidate)
+            candidate_id, best_profile_data = self._candidate_profile_data(best_candidate)
         except Exception as error:
             return PublicationResult(
                 status="failed",
@@ -102,18 +102,6 @@ class ProfilePublisher:
                 error_code="publish_failed",
                 error_message=f"Invalid best candidate: {error}",
             )
-
-        candidate_id = prompt.candidate_id
-        best_profile = AgentProfileSnapshot(
-            schema_version=self.base_profile.schema_version,
-            id=self.base_profile.id,
-            name=self.base_profile.name,
-            description=self.base_profile.description,
-            system_prompt=prompt.system_prompt,
-            instructions=prompt.instructions,
-            tool_ids=self.base_profile.tool_ids,
-        )
-        best_profile_data = best_profile.to_dict()
 
         try:
             _atomic_write_json(self.best_profile_path, best_profile_data)
@@ -151,8 +139,9 @@ class ProfilePublisher:
             )
 
         if (
-            prompt.system_prompt == self.base_profile.system_prompt
-            and prompt.instructions == self.base_profile.instructions
+            best_profile_data["systemPrompt"] == self.base_profile.system_prompt
+            and tuple(best_profile_data["instructions"])
+            == self.base_profile.instructions
         ):
             return PublicationResult(
                 status="unchanged",
@@ -181,6 +170,28 @@ class ProfilePublisher:
             best_profile_path=self.best_profile_path,
             candidate_id=candidate_id,
         )
+
+    def save_candidate_artifact(self, best_candidate: Mapping[str, str]) -> str:
+        """Persist a candidate Profile artifact without reading or changing the target Profile."""
+        candidate_id, profile_data = self._candidate_profile_data(best_candidate)
+        _atomic_write_json(self.best_profile_path, profile_data)
+        return candidate_id
+
+    def _candidate_profile_data(
+        self,
+        best_candidate: Mapping[str, str],
+    ) -> tuple[str, dict[str, Any]]:
+        prompt = CandidateCodec().decode(best_candidate)
+        profile = AgentProfileSnapshot(
+            schema_version=self.base_profile.schema_version,
+            id=self.base_profile.id,
+            name=self.base_profile.name,
+            description=self.base_profile.description,
+            system_prompt=prompt.system_prompt,
+            instructions=prompt.instructions,
+            tool_ids=self.base_profile.tool_ids,
+        )
+        return prompt.candidate_id, profile.to_dict()
 
 
 def _json_bytes(data: Any) -> bytes:

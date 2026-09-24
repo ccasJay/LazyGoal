@@ -32,6 +32,7 @@ PublicationStatus: TypeAlias = Literal[
     "pending",
     "published",
     "unchanged",
+    "candidate_only",
     "blocked",
     "failed",
 ]
@@ -58,7 +59,7 @@ TERMINAL_LIFECYCLE_STATUSES: frozenset[str] = frozenset(
 )
 
 VALID_PUBLICATION_STATUSES: frozenset[str] = frozenset(
-    ("pending", "published", "unchanged", "blocked", "failed")
+    ("pending", "published", "unchanged", "candidate_only", "blocked", "failed")
 )
 
 _RUN_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+\Z")
@@ -264,7 +265,11 @@ class RunStore:
             candidate_count=1,
             best_score=None,
             best_candidate_id=None,
-            publication_status="pending",
+            publication_status=(
+                "candidate_only"
+                if manifest.request.publication_policy == "candidate-only"
+                else "pending"
+            ),
             error_code=None,
             error_message=None,
             created_at=manifest.created_at,

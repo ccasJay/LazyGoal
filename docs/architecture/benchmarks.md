@@ -145,8 +145,9 @@ split 和自动发现不进入该生命周期。
 
 GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由普通 TUI 或 benchmark
 Composition Root 持有。公开机器接口为 `preflight`、`start`、`status`、`stop`、`resume`
-和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`，因为它们可能产生模型和
-容器费用，并在成功后触及 LazyGoal Home 的 default Agent Profile。
+和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`。TUA 还要求携带对应当前
+`preflight` 的 `confirmationDigest`，以拒绝确认后发生的请求、数据、模型或 Profile 漂移。
+TUA 候选运行只保存产物，不改写本机 default Profile；其他 GEPA benchmark 仍按各自发布策略处理。
 
 Python 生命周期控制器为每次运行创建
 `~/.lazygoal/workspaces/<workspace-id>/gepa/runs/<runId>/`，其中 `run.json` 和 `request.json` 是冻结身份，
@@ -158,10 +159,18 @@ checkpoint 推导成功状态。每个 Run 同时最多一个 Worker。
 TUA GEPA 请求的只读预检由 Python 控制器调用 LazyGoal CLI 的 TUA Inspector 完成。Inspector
 校验显式 train/validation/holdout 集合的互斥性、任务族覆盖、所选任务资源及本机镜像，返回
 TUA 源 revision、任务资源摘要、镜像身份、网络任务和时限；返回值不包含任务指令或验证器正文。
-预检把该摘要与试次计划一起展示，`start` 将其冻结到 `run.json`。镜像检查只读取本机 Docker
-元数据，不拉取镜像或启动容器；数据问题在模型调用前失败。TUA 的 run 生命周期、候选物化、
-candidate-only 报告与最终跨环境对照仍在接入中；数据预检和单任务 Prompt Evaluation 尚不构成完整
-TUA GEPA 优化入口。
+预检把该摘要、模型与 Profile 身份、每任务时限、GEPA 预算及轮次停止阈值一起展示，并将
+输入摘要冻结到 `run.json`。`start` 与 `resume` 只有在确认当前 `confirmationDigest` 后才会启动
+Worker；镜像检查只读取本机 Docker 元数据，不拉取镜像或启动容器。Worker 按冻结任务 ID 生成单任务
+Prompt Evaluation Manifest，TUA 数据集及候选身份漂移会阻止恢复。
+
+GEPA 的 metric-call stopper 只在迭代边界检查。TUA 预检显示实际 reflection minibatch；未显式
+配置时最多使用三条训练任务，训练集更小时缩小到其任务数，显式配置超过训练集则拒绝。
+Worker 为一轮预留父候选和子候选训练批次，
+以及一次完整验证集评测，并据此降低传给官方 GEPA 的停止阈值，使实际评测调用不超过请求预算；
+任务级 Agent/verifier 时限由冻结的 TUA 任务定义执行。停止、失败和恢复保留已提交的 GEPA
+checkpoint 与最佳候选 artifact。TUA 正常完成报告为 `candidate_only`；它表示候选产物完整，
+不表示 Prompt 已发布。最终 TUA holdout 与跨环境对照仍在接入中。
 
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
@@ -173,11 +182,12 @@ Profile、模型身份和凭据边界在 Run manifest 中冻结，恢复时必�
 目标 Profile 摘要未漂移且 checkpoint 可读时复用同一 `run_dir`，并重新要求确认。
 
 发布不是普通评测的副作用。生命周期产物和报告区分最佳 Profile artifact、publication
-状态与 `complete`；只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
+状态与 `complete`；对于允许发布的 benchmark，只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
 Worker 才会原子更新
 `~/.lazygoal/agent-profiles/default.json` 的 `systemPrompt` 与完整 `instructions`。停止、失败、
 外部 Profile 修改或写入失败不得覆盖当前 Profile；此类结果保留最佳 artifact 并报告
-`publish_blocked`（或对应失败分类）。真实双模型 smoke 不进入默认回归。
+`publish_blocked`（或对应失败分类）。TUA GEPA 固定使用 candidate-only，不调用发布器；成功运行
+仅表示候选 artifact 与报告完整，必须经人工审阅后再决定是否内置。真实双模型 smoke 不进入默认回归。
 
 GAIA 真实端到端闸门由 [`lazygoal-gepa-gaia-e2e`](../../prompt-evaluation/gepa/src/lazygoal_gepa/gaia_e2e.py)
 提供，根脚本为 `npm run e2e:gaia-real`。它要求调用方同时提供单任务 GAIA

@@ -12,6 +12,8 @@ from lazygoal_gepa.protocol import (
     parse_event_stream,
     parse_run_request,
     read_run_request,
+    gepa_metric_call_threshold,
+    gepa_reflection_minibatch_size,
     validate_gaia_minimal_request,
 )
 
@@ -98,6 +100,91 @@ class GEPARunProtocolTests(unittest.TestCase):
         assert request.valset is not None
         self.assertEqual(len(request.valset), 1)
         self.assertEqual(request.valset[0].sample_id, "s-val")
+
+    def test_tua_gepa_metric_budget_reserves_both_reflection_batches(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc", "train-sheet", "train-web", "train-code"],
+                "validationTaskIds": ["validation-doc", "validation-sheet"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        threshold, reserve = gepa_metric_call_threshold(
+            request,
+            train_count=4,
+            validation_count=2,
+        )
+
+        self.assertEqual(reserve, 8)
+        self.assertEqual(threshold, 13)
+
+    def test_tua_gepa_metric_budget_must_cover_seed_validation(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 1,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc", "validation-sheet"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        with self.assertRaisesRegex(GEPARunProtocolError, "initial full validation"):
+            gepa_metric_call_threshold(request, train_count=1, validation_count=2)
+
+    def test_tua_default_reflection_batch_shrinks_to_trainset(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        self.assertEqual(
+            gepa_reflection_minibatch_size(request, train_count=1),
+            1,
+        )
+        self.assertEqual(
+            gepa_metric_call_threshold(request, train_count=1, validation_count=1),
+            (18, 3),
+        )
+
+    def test_tua_explicit_reflection_batch_cannot_exceed_trainset(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "reflectionMinibatchSize": 2,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        with self.assertRaisesRegex(GEPARunProtocolError, "cannot exceed"):
+            gepa_reflection_minibatch_size(request, train_count=1)
 
     def test_parse_tua_gepa_request_and_default_holdout_trials(self) -> None:
         data = {

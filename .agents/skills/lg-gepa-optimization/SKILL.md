@@ -12,10 +12,11 @@ description: 在 LazyGoal 仓库中启动 GEPA Prompt 自进化、优化 default
 | 用户意图 | 前置条件 | 命令 | 确认要求 |
 |---|---|---|---|
 | 检查新运行 | 用户提供的 request，或足以构造 request 的数据 | `lazygoal gepa preflight --request <path>` | 无 |
-| 启动新运行 | 当次成功的 preflight | `lazygoal gepa start --request <path> --yes` | 必须批准当次摘要 |
+| 检查 TUA 恢复 | 精确 `runId` | `lazygoal gepa preflight --run <runId>` | 无；只读漂移与当前状态检查 |
+| 启动新运行 | 当次成功的 preflight | `lazygoal gepa start --request <path> --yes [--confirm-digest <digest>]` | 必须批准当次摘要；TUA 必须传当次 digest |
 | 查询进度 | 精确 `runId` | `lazygoal gepa status --run <runId>` | 无 |
 | 请求停止 | 精确 `runId` | `lazygoal gepa stop --run <runId>` | 无；只请求协作停止 |
-| 恢复运行 | 精确 `runId` 和刚读取的 status | `lazygoal gepa resume --run <runId> --yes` | 必须批准当前恢复摘要 |
+| 恢复运行 | 精确 `runId` 和新鲜的恢复 preflight | `lazygoal gepa resume --run <runId> --yes [--confirm-digest <digest>]` | 必须批准当前恢复摘要；TUA 必须传当次 digest |
 | 等待运行结束 | 精确 `runId` | `lazygoal gepa wait --run <runId> [--timeout-seconds <sec>]` | 无 |
 | 查看终态报告 | 精确 `runId` | `lazygoal gepa report --run <runId>` | 无 |
 
@@ -47,6 +48,8 @@ description: 在 LazyGoal 仓库中启动 GEPA Prompt 自进化、优化 default
 
 `benchmark` 只接受当前 CLI 支持的值；不要靠本 Skill 猜测。每个 Manifest 必须恰含一个与 `taskId` 一致的任务。省略 validation 时 CLI 以 trainset 作为 validation；不要把空数组当作省略。
 
+TUA 请求必须提供 `tuaDataset` 中的 train、validation、holdout ID 分组和 `candidate-only` 发布策略。Worker 从冻结的 `repoRoot` 与任务 ID 生成单任务 Manifest；TUA 最终 holdout trials 与 GEPA `maxMetricCalls` 是两份独立计划。
+
 始终先运行 preflight。它是只读检查，不等于启动授权。失败时：
 
 1. 报告 CLI 返回的错误类型，以及相关 request、Manifest、模型配置或目标 Profile 路径。
@@ -60,10 +63,12 @@ preflight 成功后，展示当次返回值中的：
 - benchmark 和 train/validation 样本数；
 - `maxMetricCalls`；
 - Working LM 与 Reflection LM 的 profile、provider 和 model；
-- 目标 `.lazygoal/profiles/default.json`；
-- 本次运行会产生模型费用和容器执行，成功发布会整体替换目标 Profile 的 `systemPrompt + instructions`。
+- `targetProfile` 中 CLI 返回的目标 Profile 路径；
+- 本次运行会产生模型费用和容器执行，以及成功运行的 Profile 发布影响。
+- TUA 还需展示所有任务时限、`reflectionMinibatchSize`、`maxMetricCalls`、`gepaStopThreshold` 和 `iterationEvaluationReserve`；有效停止阈值会为完整 GEPA 迭代预留评测调用。
+- TUA 的 `publicationPolicy` 固定为 `candidate-only`：运行只保存候选和报告，不改写目标或仓库内置 Profile。
 
-询问用户是否批准这份当前摘要。只有紧接这份摘要的明确批准才可执行 `start --yes`；旧请求、旧 Run 或笼统的 GEPA 授权都不能复用。用户拒绝或未明确回答时停止，不调用 start。
+询问用户是否批准这份当前摘要。只有紧接这份摘要的明确批准才可执行 `start --yes`；TUA 同时必须将该摘要里的 `confirmationDigest` 原样传给 `--confirm-digest`。旧请求、旧 Run 或笼统的 GEPA 授权都不能复用。用户拒绝或未明确回答时停止，不调用 start。
 
 start 成功后只报告 CLI 返回的 `runId`、`lifecycleStatus` 和 `runDir`，并说明后台 Worker 已接管；`starting` 不表示优化完成。不要回显 `workerPid`，除非用户明确需要诊断非敏感运行信息。
 
@@ -81,9 +86,9 @@ stop 只写协作停止标记。返回 `stop_requested` 时表述为“已请求
 
 ### 恢复
 
-恢复前先对同一精确 `runId` 调用 status。展示当前状态、Worker health、预算已用/上限、候选与最佳分数、冻结模型和目标 Profile 发布影响；冻结摘要无法从 status 确认时，说明 CLI 将在 resume 中校验，但不要读取内部 manifest 补齐。
+恢复前先对同一精确 `runId` 调用 status。展示当前状态、Worker health、预算已用/上限、候选与最佳分数、冻结模型和目标 Profile 发布影响。TUA 必须再调用 `preflight --run <runId>`，核验输入身份并取得新的 `confirmationDigest`；digest 覆盖当前 Run 状态，因此状态变化后旧摘要不能用于恢复。不要读取内部 manifest 补齐。
 
-只有用户明确批准这份当前恢复摘要后才执行 `resume --yes`。start 的批准、另一个 Run 的批准或恢复前的旧 status 都无效。Worker 仍 active/stale/lost、Run 已成功或发布阻塞、Profile 或模型漂移、checkpoint 缺失/损坏时，保留 Run 并报告 CLI 阻塞；不要自行修补 checkpoint、状态或 Profile，也不要自动重跑。
+只有用户明确批准这份当前恢复摘要后才执行 `resume --yes`；TUA 还须传入这次 `preflight --run` 的 digest。start 的批准、另一个 Run 的批准或恢复前的旧 status 都无效。Worker 仍 active/stale/lost、Run 已成功或发布阻塞、Profile 或模型漂移、checkpoint 缺失/损坏时，保留 Run 并报告 CLI 阻塞；不要自行修补 checkpoint、状态或 Profile，也不要自动重跑。
 
 ## 终态报告
 
@@ -96,7 +101,7 @@ stop 只写协作停止标记。返回 `stop_requested` 时表述为“已请求
 - terminal status、publication status 和错误分类；
 - 一个与当前状态紧邻的最小下一步。
 
-优化完成和发布完成是两个事实。只有 terminal status 为 `succeeded` 且 publication 为 `published` 或 `unchanged`，才说明运行完整成功。`publish_blocked` 表示优化产物仍保留，但目标 Profile 在运行期间变化、未被覆盖；提供 best Profile artifact 路径，不建议绕过摘要保护或强制覆盖。
+优化完成和发布完成是两个事实。允许发布的 benchmark 只有 terminal status 为 `succeeded` 且 publication 为 `published` 或 `unchanged`，才说明发布流程完整成功。TUA `succeeded + candidate_only` 表示 GEPA 候选与报告已保存，目标 Profile 未改变，仍需人工审阅。`publish_blocked` 表示优化产物仍保留，但目标 Profile 在运行期间变化、未被覆盖；提供 best Profile artifact 路径，不建议绕过摘要保护或强制覆盖。
 
 report 尚未就绪时可先用 status 查询快照，或用 wait 阻塞等待至终态；不要在模型层循环轮询，也不要在缺乏明确终态时安排无限期 scheduler。
 

@@ -15,7 +15,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from lazygoal_gepa.candidate import (
     AgentProfileSnapshot,
@@ -411,16 +411,198 @@ class LifecycleControllerTests(unittest.TestCase):
                 self.assertEqual(preflight["sampleCount"], {"train": 1, "validation": 1})
                 self.assertEqual(preflight["tuaDatasetInspection"], inspection)
                 self.assertEqual(preflight["finalComparison"]["tuaHoldoutTrials"], 3)
+                self.assertEqual(preflight["executionLimits"]["maxMetricCalls"], 20)
+                self.assertEqual(preflight["executionLimits"]["reflectionMinibatchSize"], 1)
+                self.assertEqual(preflight["executionLimits"]["iterationEvaluationReserve"], 3)
+                self.assertEqual(preflight["executionLimits"]["gepaStopThreshold"], 18)
+                self.assertEqual(
+                    preflight["executionLimits"]["taskTimeouts"][0]["agentTimeoutSec"],
+                    600,
+                )
+                self.assertRegex(preflight["confirmationDigest"], r"^[0-9a-f]{64}$")
+                self.assertRegex(preflight["inputDigest"], r"^[0-9a-f]{64}$")
                 self.assertEqual(preflight["costEstimate"]["status"], "unknown")
                 self.assertFalse(preflight["estimatedSideEffects"]["willMutateProfile"])
                 self.assertEqual(self.profile_path.read_bytes(), original_profile)
 
                 with patch("lazygoal_gepa.controller.launch_detached_worker", return_value=12345):
-                    started = controller.start(request_path, yes=True)
+                    started = controller.start(
+                        request_path,
+                        yes=True,
+                        confirmation_digest=preflight["confirmationDigest"],
+                    )
 
         manifest = controller.store.read_manifest(started["runId"])
         self.assertEqual(manifest.tua_dataset_inspection, inspection)
-        self.assertEqual(calls, ["inspect", "models", "inspect", "models", "models"])
+        self.assertEqual(manifest.preflight_input_digest, preflight["inputDigest"])
+        self.assertEqual(
+            calls,
+            ["inspect", "models", "inspect", "models", "models", "inspect"],
+        )
+
+    def test_tua_start_rechecks_inspector_identity_after_confirmation(self) -> None:
+        request_path = self.workspace_root / "tua-inspector-drift-request.json"
+        request_path.write_text(json.dumps({
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }), encoding="utf-8")
+        inspection = _tua_inspection_fixture()
+        changed_inspection = dict(inspection)
+        changed_inspection["datasetDigest"] = "9" * 64
+        inspections = iter((inspection, inspection, changed_inspection))
+        controller = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            profile_path=self.profile_path,
+            working_model=ModelIdentity("default", "working-model", "openai"),
+            reflection_model=ModelIdentity("reflection", "reflection-model", "openai"),
+        )
+
+        with patch(
+            "lazygoal_gepa.controller.subprocess.run",
+            side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                command, 0, json.dumps(next(inspections)), ""
+            ),
+        ):
+            preflight = controller.preflight(request_path)
+            with patch("lazygoal_gepa.controller.launch_detached_worker") as launch:
+                with self.assertRaisesRegex(ConfirmationRequiredError, "identity changed"):
+                    controller.start(
+                        request_path,
+                        yes=True,
+                        confirmation_digest=preflight["confirmationDigest"],
+                    )
+                launch.assert_not_called()
+
+    def test_tua_start_rejects_a_changed_preflight_summary(self) -> None:
+        request_path = self.workspace_root / "tua-request-drift.json"
+        request_data = {
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }
+        request_path.write_text(json.dumps(request_data), encoding="utf-8")
+        controller = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            profile_path=self.profile_path,
+            working_model=ModelIdentity("default", "working-model", "openai"),
+            reflection_model=ModelIdentity("reflection", "reflection-model", "openai"),
+        )
+        inspection = _tua_inspection_fixture()
+        with patch(
+            "lazygoal_gepa.controller.subprocess.run",
+            side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                command, 0, json.dumps(inspection), ""
+            ),
+        ):
+            confirmed = controller.preflight(request_path)
+            request_data["maxMetricCalls"] = 21
+            request_path.write_text(json.dumps(request_data), encoding="utf-8")
+            with patch("lazygoal_gepa.controller.launch_detached_worker") as launch:
+                with self.assertRaises(ConfirmationRequiredError):
+                    controller.start(
+                        request_path,
+                        yes=True,
+                        confirmation_digest=confirmed["confirmationDigest"],
+                    )
+                launch.assert_not_called()
+
+    def test_tua_resume_confirmation_tracks_run_state_and_rejects_data_drift(self) -> None:
+        request_path = self.workspace_root / "tua-resume-request.json"
+        request_path.write_text(json.dumps({
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }), encoding="utf-8")
+        inspection = _tua_inspection_fixture()
+        controller = LifecycleController(
+            workspace_root=self.workspace_root,
+            runs_dir=self.runs_dir,
+            profile_path=self.profile_path,
+            working_model=ModelIdentity("default", "working-model", "openai"),
+            reflection_model=ModelIdentity("reflection", "reflection-model", "openai"),
+        )
+
+        with (
+            patch(
+                "lazygoal_gepa.controller.subprocess.run",
+                side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                    command, 0, json.dumps(inspection), ""
+                ),
+            ),
+            patch("lazygoal_gepa.controller.launch_detached_worker", return_value=12345),
+        ):
+            start_preflight = controller.preflight(request_path)
+            started = controller.start(
+                request_path,
+                yes=True,
+                confirmation_digest=start_preflight["confirmationDigest"],
+            )
+
+        run_id = started["runId"]
+        self.store.update_state(run_id, lifecycle_status="stopped")
+        with patch(
+            "lazygoal_gepa.controller.subprocess.run",
+            side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                command, 0, json.dumps(inspection), ""
+            ),
+        ):
+            resume_preflight = controller.preflight_resume(run_id)
+        self.assertEqual(resume_preflight["lifecycleStatus"], "stopped")
+        self.assertFalse(resume_preflight["estimatedSideEffects"]["willMutateProfile"])
+
+        self.store.update_state(run_id, metric_calls=1)
+        with patch(
+            "lazygoal_gepa.controller.subprocess.run",
+            side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                command, 0, json.dumps(inspection), ""
+            ),
+        ):
+            with self.assertRaises(ConfirmationRequiredError):
+                controller.resume(
+                    run_id,
+                    yes=True,
+                    confirmation_digest=resume_preflight["confirmationDigest"],
+                )
+        self.assertEqual(self.store.read_state(run_id).metric_calls, 1)
+        self.assertFalse(self.store.has_stop_request(run_id))
+
+        changed_inspection = dict(inspection)
+        changed_inspection["datasetDigest"] = "9" * 64
+        with patch(
+            "lazygoal_gepa.controller.subprocess.run",
+            side_effect=lambda command, **kwargs: subprocess.CompletedProcess(
+                command, 0, json.dumps(changed_inspection), ""
+            ),
+        ):
+            with self.assertRaisesRegex(DatasetValidationError, "drifted"):
+                controller.preflight_resume(run_id)
 
     def test_tua_preflight_rejects_inspector_failure_before_model_resolution(self) -> None:
         request_path = self.workspace_root / "tua-invalid-request.json"
@@ -708,6 +890,60 @@ class LifecycleControllerTests(unittest.TestCase):
         preflight_obj = json.loads(lines[0])
         self.assertTrue(preflight_obj["valid"])
         self.assertEqual(preflight_obj["benchmark"], "alfworld")
+
+        resume_preflight = MagicMock()
+        resume_preflight.preflight_resume.return_value = {"valid": True, "runId": "run-tua"}
+        stdout_buf = io.StringIO()
+        with patch("lazygoal_gepa.cli.LifecycleController", return_value=resume_preflight):
+            with patch("sys.stdout", stdout_buf):
+                self.assertEqual(cli_main([
+                    "preflight",
+                    "--run",
+                    "run-tua",
+                    "--workspace-root",
+                    str(self.workspace_root),
+                ]), 0)
+        resume_preflight.preflight_resume.assert_called_once_with("run-tua")
+        self.assertEqual(json.loads(stdout_buf.getvalue())["runId"], "run-tua")
+
+        confirmed_controller = MagicMock()
+        confirmed_controller.start.return_value = {"runId": "run-tua", "lifecycleStatus": "starting"}
+        with patch("lazygoal_gepa.cli.LifecycleController", return_value=confirmed_controller):
+            with patch("sys.stdout", io.StringIO()):
+                self.assertEqual(cli_main([
+                    "start",
+                    "--request",
+                    str(self.request_path),
+                    "--yes",
+                    "--confirm-digest",
+                    "reviewed-digest",
+                ]), 0)
+        confirmed_controller.start.assert_called_once_with(
+            str(self.request_path),
+            yes=True,
+            confirmation_digest="reviewed-digest",
+        )
+
+        resume_controller = MagicMock()
+        resume_controller.resume.return_value = {
+            "runId": "run-tua",
+            "lifecycleStatus": "starting",
+        }
+        with patch("lazygoal_gepa.cli.LifecycleController", return_value=resume_controller):
+            with patch("sys.stdout", io.StringIO()):
+                self.assertEqual(cli_main([
+                    "resume",
+                    "--run",
+                    "run-tua",
+                    "--yes",
+                    "--confirm-digest",
+                    "reviewed-resume-digest",
+                ]), 0)
+        resume_controller.resume.assert_called_once_with(
+            "run-tua",
+            yes=True,
+            confirmation_digest="reviewed-resume-digest",
+        )
 
         custom_profile_path = self.profile_dir / "cli-custom.json"
         custom_profile_data = dict(self.profile_data)

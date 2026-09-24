@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import gepa
+from gepa.core.adapter import EvaluationBatch
 from gepa.core.callbacks import (
     BudgetUpdatedEvent,
     GEPACallback,
@@ -20,7 +21,7 @@ from gepa.core.callbacks import (
 from gepa.core.result import GEPAResult
 from gepa.core.state import GEPAState
 
-from .adapter import LazyGoalGEPAAdapter
+from .adapter import LazyGoalEvaluationOutput, LazyGoalGEPAAdapter
 from .candidate_audit import TuaCandidateLeakAuditor
 from .candidate import (
     CandidateCodec,
@@ -37,6 +38,12 @@ from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazyg
 from .ownership import RunOwnership
 from .prompt_template import load_and_render_reflection_prompt_template
 from .publisher import ProfilePublisher
+from .protocol import (
+    GEPAExampleRequest,
+    GEPARunRequest,
+    gepa_metric_call_threshold,
+    gepa_reflection_minibatch_size,
+)
 from .reporter import generate_and_save_run_report
 from .store import RunStore, atomic_write_json
 
@@ -126,10 +133,12 @@ class WorkerProgressCallback(GEPACallback):
         run_id: str,
         store: RunStore,
         ownership: RunOwnership,
+        candidate_writer: ProfilePublisher | None = None,
     ) -> None:
         self.run_id = run_id
         self.store = store
         self.ownership = ownership
+        self.candidate_writer = candidate_writer
         self._codec = CandidateCodec()
 
     def on_iteration_end(self, event: IterationEndEvent) -> None:
@@ -153,6 +162,7 @@ class WorkerProgressCallback(GEPACallback):
         scores = getattr(state, "program_full_scores_val_set", None)
         best_score = None
         best_candidate_id = None
+        best_candidate: dict[str, str] | None = None
 
         if scores and len(scores) > 0:
             max_score = max(scores)
@@ -163,8 +173,12 @@ class WorkerProgressCallback(GEPACallback):
                 try:
                     prompt = self._codec.decode(best_cand)
                     best_candidate_id = prompt.candidate_id
+                    best_candidate = best_cand
                 except Exception:
                     best_candidate_id = f"cand_{best_index}"
+
+        if self.candidate_writer is not None and best_candidate is not None:
+            best_candidate_id = self.candidate_writer.save_candidate_artifact(best_candidate)
 
         self.store.update_state(
             self.run_id,
@@ -173,6 +187,137 @@ class WorkerProgressCallback(GEPACallback):
             best_score=best_score,
             best_candidate_id=best_candidate_id,
         )
+
+
+class _ResumeSeedEvaluationAdapter:
+    """Reuse a frozen GEPA checkpoint instead of re-running its discarded seed evaluation."""
+
+    def __init__(
+        self,
+        adapter: LazyGoalGEPAAdapter,
+        *,
+        seed_candidate: dict[str, str],
+        validation_examples: list[LazyGoalEvaluationExample],
+    ) -> None:
+        self._adapter = adapter
+        self._seed_candidate = seed_candidate
+        self._validation_identity = tuple(
+            (
+                example.sample_id,
+                example.task_id,
+                str(example.manifest_path.resolve()),
+            )
+            for example in validation_examples
+        )
+        self._pending_seed_evaluation = True
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._adapter, name)
+
+    def evaluate(
+        self,
+        batch: list[LazyGoalEvaluationExample],
+        candidate: dict[str, str],
+        capture_traces: bool = False,
+    ) -> EvaluationBatch[Any, LazyGoalEvaluationOutput]:
+        if not self._pending_seed_evaluation:
+            return self._adapter.evaluate(batch, candidate, capture_traces)
+        if (
+            capture_traces
+            or candidate != self._seed_candidate
+            or tuple(
+                (
+                    example.sample_id,
+                    example.task_id,
+                    str(example.manifest_path.resolve()),
+                )
+                for example in batch
+            )
+            != self._validation_identity
+        ):
+            raise RunStoreError(
+                "GEPA resume attempted an unexpected initial seed evaluation"
+            )
+        self._pending_seed_evaluation = False
+        return EvaluationBatch(
+            outputs=[
+                LazyGoalEvaluationOutput(
+                    sample_id=example.sample_id,
+                    task_id=example.task_id,
+                    status="failed",
+                    domain_result=None,
+                    attempt_path=None,
+                )
+                for example in batch
+            ],
+            scores=[0.0 for _ in batch],
+            num_metric_calls=0,
+        )
+
+
+def _persist_best_candidate_from_checkpoint(
+    gepa_dir: Path,
+    candidate_writer: ProfilePublisher,
+    expected_seed_candidate: dict[str, str],
+) -> dict[str, Any]:
+    state = GEPAState.load(str(gepa_dir))
+    candidates = getattr(state, "program_candidates", [])
+    if not candidates or candidates[0] != expected_seed_candidate:
+        raise RunStoreError(
+            "TUA GEPA checkpoint seed does not match the frozen run manifest",
+            code="checkpoint_corrupted",
+        )
+    scores = getattr(state, "program_full_scores_val_set", None)
+    recovered: dict[str, Any] = {
+        "metric_calls": getattr(state, "total_num_evals", 0),
+        "candidate_count": len(candidates),
+    }
+    if not candidates or not scores:
+        return recovered
+
+    best_index = max(range(len(scores)), key=scores.__getitem__)
+    if best_index >= len(candidates):
+        return recovered
+    best_candidate = candidates[best_index]
+    recovered.update(
+        best_score=float(scores[best_index]),
+        best_candidate_id=candidate_writer.save_candidate_artifact(best_candidate),
+    )
+    return recovered
+
+
+def _materialize_tua_examples(
+    request: GEPARunRequest,
+    run_dir: Path,
+) -> tuple[tuple[GEPAExampleRequest, ...], tuple[GEPAExampleRequest, ...] | None]:
+    if request.tua_dataset is None or request.trainset:
+        return request.trainset, request.valset
+
+    manifest_dir = run_dir / "tua-manifests"
+    train_examples: list[GEPAExampleRequest] = []
+    validation_examples: list[GEPAExampleRequest] = []
+    for partition, task_ids, destination in (
+        ("train", request.tua_dataset.train_task_ids, train_examples),
+        ("validation", request.tua_dataset.validation_task_ids, validation_examples),
+    ):
+        for index, task_id in enumerate(task_ids):
+            manifest_path = manifest_dir / f"{partition}-{index:04d}.json"
+            atomic_write_json(
+                manifest_path,
+                {
+                    "benchmark": "tua-bench",
+                    "repoRoot": request.tua_dataset.repo_root,
+                    "tasks": [{"taskId": task_id}],
+                },
+            )
+            destination.append(
+                GEPAExampleRequest(
+                    sample_id=f"{partition}-{index:04d}",
+                    task_id=task_id,
+                    manifest_path=str(manifest_path.resolve()),
+                )
+            )
+    return tuple(train_examples), tuple(validation_examples)
 
 
 def run_gepa_worker(
@@ -227,6 +372,22 @@ def run_gepa_worker(
             output_directory=adapter_output_dir,
             lazygoal_executable=executable,
         )
+        candidate_only = manifest.request.publication_policy == "candidate-only"
+        profile_publisher = ProfilePublisher(
+            target_path=manifest.target_profile.profile_path,
+            frozen_digest=manifest.target_profile.frozen_digest,
+            base_profile=manifest.target_profile.profile,
+            artifacts_dir=resolved_run_dir / "artifacts",
+        )
+        if candidate_only:
+            seed_candidate_id = profile_publisher.save_candidate_artifact(
+                manifest.seed_candidate
+            )
+            store.update_state(
+                run_id,
+                candidate_count=1,
+                best_candidate_id=seed_candidate_id,
+            )
         candidate_auditor = None
         if manifest.request.tua_dataset is not None:
             candidate_auditor = TuaCandidateLeakAuditor(
@@ -252,8 +413,13 @@ def run_gepa_worker(
             run_id=run_id,
             store=store,
             ownership=ownership,
+            candidate_writer=profile_publisher if candidate_only else None,
         )
 
+        request_trainset, request_valset = _materialize_tua_examples(
+            manifest.request,
+            resolved_run_dir,
+        )
         trainset = [
             LazyGoalEvaluationExample(
                 sample_id=item.sample_id,
@@ -261,7 +427,7 @@ def run_gepa_worker(
                 task_id=item.task_id,
                 manifest_path=Path(item.manifest_path),
             )
-            for item in manifest.request.trainset
+            for item in request_trainset
         ]
         valset = (
             [
@@ -271,14 +437,39 @@ def run_gepa_worker(
                     task_id=item.task_id,
                     manifest_path=Path(item.manifest_path),
                 )
-                for item in manifest.request.valset
+                for item in request_valset
             ]
-            if manifest.request.valset is not None
+            if request_valset is not None
             else None
         )
 
         gepa_dir = resolved_run_dir / "gepa"
         gepa_dir.mkdir(parents=True, exist_ok=True)
+
+        checkpoint_path = gepa_dir / "gepa_state.bin"
+        if candidate_only and checkpoint_path.is_file():
+            checkpoint = GEPAState.load(str(gepa_dir))
+            checkpoint_candidates = getattr(checkpoint, "program_candidates", [])
+            if not checkpoint_candidates or checkpoint_candidates[0] != manifest.seed_candidate:
+                raise RunStoreError(
+                    "TUA GEPA checkpoint seed does not match the frozen run manifest",
+                    code="checkpoint_corrupted",
+                )
+            if getattr(checkpoint, "total_num_evals", 0) > manifest.request.max_metric_calls:
+                raise RunStoreError(
+                    "TUA GEPA checkpoint metric calls exceed the frozen run budget",
+                    code="checkpoint_corrupted",
+                )
+            if valset is None:
+                raise RunStoreError(
+                    "TUA GEPA resume requires a materialized validation set",
+                    code="checkpoint_corrupted",
+                )
+            adapter = _ResumeSeedEvaluationAdapter(
+                adapter,
+                seed_candidate=manifest.seed_candidate,
+                validation_examples=valset,
+            )
 
         rendered_reflection_template: str | None = None
         if manifest.request.reflection_prompt_template is not None:
@@ -288,6 +479,23 @@ def run_gepa_worker(
                 workspace_root=resolved_workspace,
             )
 
+        # GEPA checks max_metric_calls only between iterations. For TUA, reserve
+        # the parent and child reflection batches plus a full validation batch
+        # so an in-flight iteration cannot cross the declared run budget.
+        gepa_stop_threshold, _ = gepa_metric_call_threshold(
+            manifest.request,
+            train_count=len(trainset),
+            validation_count=(
+                len(valset)
+                if valset is not None
+                else len(trainset)
+            ),
+        )
+        reflection_minibatch_size = gepa_reflection_minibatch_size(
+            manifest.request,
+            train_count=len(trainset),
+        )
+
         # Execute official gepa.optimize
         result: GEPAResult = gepa.optimize(
             seed_candidate=manifest.seed_candidate,
@@ -296,8 +504,8 @@ def run_gepa_worker(
             adapter=adapter,
             reflection_lm=reflection_client,
             reflection_prompt_template=rendered_reflection_template,
-            max_metric_calls=manifest.request.max_metric_calls,
-            reflection_minibatch_size=manifest.request.reflection_minibatch_size,
+            max_metric_calls=gepa_stop_threshold,
+            reflection_minibatch_size=reflection_minibatch_size,
             module_selector="all" if manifest.request.tua_dataset is not None else "round_robin",
             run_dir=str(gepa_dir),
             seed=manifest.request.seed if manifest.request.seed is not None else 0,
@@ -320,7 +528,7 @@ def run_gepa_worker(
                     f"Checkpoint is corrupted for run {run_id!r}: {exc}",
                     code="checkpoint_corrupted",
                 ) from exc
-            best_cand_id = None
+            best_cand_id = manifest.seed_candidate_id if candidate_only else None
             best_score = None
             if result.best_candidate is not None:
                 try:
@@ -329,6 +537,10 @@ def run_gepa_worker(
                     pass
             if result.val_aggregate_scores:
                 best_score = result.val_aggregate_scores[result.best_idx]
+            if candidate_only and result.best_candidate is not None:
+                best_cand_id = profile_publisher.save_candidate_artifact(
+                    result.best_candidate
+                )
 
             store.update_state(
                 run_id,
@@ -338,6 +550,7 @@ def run_gepa_worker(
                 candidate_count=len(result.candidates),
                 best_score=best_score,
                 best_candidate_id=best_cand_id,
+                publication_status=("candidate_only" if candidate_only else "pending"),
             )
             generate_and_save_run_report(resolved_run_dir)
             return 0
@@ -352,7 +565,7 @@ def run_gepa_worker(
             store.update_state(
                 run_id,
                 lifecycle_status="failed",
-                publication_status="failed",
+                publication_status=("candidate_only" if candidate_only else "failed"),
                 metric_calls=result.total_metric_calls,
                 candidate_count=len(result.candidates),
                 best_score=best_score,
@@ -362,12 +575,21 @@ def run_gepa_worker(
             generate_and_save_run_report(resolved_run_dir)
             return 1
 
-        publication = ProfilePublisher(
-            target_path=manifest.target_profile.profile_path,
-            frozen_digest=manifest.target_profile.frozen_digest,
-            base_profile=manifest.target_profile.profile,
-            artifacts_dir=resolved_run_dir / "artifacts",
-        ).publish(result.best_candidate)
+        if candidate_only:
+            best_cand_id = profile_publisher.save_candidate_artifact(result.best_candidate)
+            store.update_state(
+                run_id,
+                lifecycle_status="succeeded",
+                publication_status="candidate_only",
+                metric_calls=result.total_metric_calls,
+                candidate_count=len(result.candidates),
+                best_score=best_score,
+                best_candidate_id=best_cand_id,
+            )
+            generate_and_save_run_report(resolved_run_dir)
+            return 0
+
+        publication = profile_publisher.publish(result.best_candidate)
         best_cand_id = publication.candidate_id
 
         if publication.status == "conflict":
@@ -392,6 +614,20 @@ def run_gepa_worker(
         return 0 if lifecycle_status == "succeeded" else 1
 
     except Exception as exc:
+        recovered_state: dict[str, Any] = {}
+        if (
+            "manifest" in locals()
+            and manifest.request.publication_policy == "candidate-only"
+            and "profile_publisher" in locals()
+        ):
+            try:
+                recovered_state = _persist_best_candidate_from_checkpoint(
+                    resolved_run_dir / "gepa",
+                    profile_publisher,
+                    manifest.seed_candidate,
+                )
+            except Exception:
+                recovered_state = {}
         checkpoint_error = isinstance(exc, RunStoreError) and exc.code in {
             "checkpoint_failed",
             "checkpoint_corrupted",
@@ -428,6 +664,7 @@ def run_gepa_worker(
                 lifecycle_status="failed",
                 error_code=error_code,
                 error_message=str(exc),
+                **recovered_state,
             )
             generate_and_save_run_report(resolved_run_dir)
         except Exception:

@@ -20,7 +20,9 @@ class ReportNotReadyError(LazyGoalGEPAError):
 
 
 _TERMINAL_STATUSES = frozenset({"stopped", "succeeded", "publish_blocked", "failed"})
-_PUBLICATION_STATUSES = frozenset({"pending", "published", "unchanged", "blocked", "failed"})
+_PUBLICATION_STATUSES = frozenset(
+    {"pending", "published", "unchanged", "candidate_only", "blocked", "failed"}
+)
 _REDACTED = "[REDACTED]"
 _MAX_DIAGNOSTIC_CHARS = 4_096
 _CANDIDATE_ID = re.compile(r"[0-9a-f]{64}\Z")
@@ -86,6 +88,21 @@ def _schema_error(detail: str) -> RunStoreError:
     """Build a non-sensitive report schema error."""
 
     return RunStoreError(f"Report schema is invalid: {detail}", code="corrupted")
+
+
+def _request_dataset_counts(manifest: FrozenRunManifest) -> tuple[int, int]:
+    if manifest.request.tua_dataset is not None:
+        return (
+            len(manifest.request.tua_dataset.train_task_ids),
+            len(manifest.request.tua_dataset.validation_task_ids),
+        )
+    train_count = len(manifest.request.trainset)
+    validation_count = (
+        len(manifest.request.valset)
+        if manifest.request.valset is not None
+        else train_count
+    )
+    return train_count, validation_count
 
 
 def _mapping(data: dict[str, Any], key: str) -> dict[str, Any]:
@@ -200,12 +217,7 @@ def _validate_report_schema(
     _exact_keys(dataset, {"benchmark", "trainCount", "validationCount"}, "dataset")
     if _string(dataset, "benchmark") != manifest.request.benchmark:
         raise _schema_error("dataset benchmark does not match run.json")
-    expected_train = len(manifest.request.trainset)
-    expected_validation = (
-        len(manifest.request.valset)
-        if manifest.request.valset is not None
-        else expected_train
-    )
+    expected_train, expected_validation = _request_dataset_counts(manifest)
     if _integer(dataset, "trainCount") != expected_train:
         raise _schema_error("dataset trainCount does not match run.json")
     if _integer(dataset, "validationCount") != expected_validation:
@@ -400,6 +412,7 @@ def _validate_report_schema(
     complete = state.lifecycle_status == "succeeded" and state.publication_status in {
         "published",
         "unchanged",
+        "candidate_only",
     }
     if data.get("complete") is not complete:
         raise _schema_error("complete does not match optimization and publication state")
@@ -457,12 +470,7 @@ def generate_and_save_run_report(
 
     candidate_audit = _load_candidate_audit_summary(resolved_run_dir, manifest, state)
 
-    train_count = len(manifest.request.trainset)
-    val_count = (
-        len(manifest.request.valset)
-        if manifest.request.valset is not None
-        else train_count
-    )
+    train_count, val_count = _request_dataset_counts(manifest)
 
     report_data: dict[str, Any] = {
         "protocol": "gepa-run@1",
@@ -535,10 +543,9 @@ def generate_and_save_run_report(
             "targetPath": manifest.target_profile.profile_path,
             "updatedAt": state.updated_at,
         },
-        # `succeeded` describes optimization only.  A run is complete only after
-        # publication has been durably marked `published` or `unchanged`.
+        # TUA candidate-only runs complete when the artifact is retained without publication.
         "complete": state.lifecycle_status == "succeeded"
-        and state.publication_status in {"published", "unchanged"},
+        and state.publication_status in {"published", "unchanged", "candidate_only"},
         "error": error_obj,
         "timestamps": {
             "createdAt": manifest.created_at,

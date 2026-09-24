@@ -564,6 +564,59 @@ class GEPARunRequest:
         return data
 
 
+def gepa_reflection_minibatch_size(
+    request: GEPARunRequest,
+    *,
+    train_count: int,
+) -> int | None:
+    if request.tua_dataset is None:
+        return request.reflection_minibatch_size
+    if train_count <= 0:
+        raise GEPARunProtocolError(
+            "TUA GEPA requires a non-empty materialized train set"
+        )
+    configured_batch_size = request.reflection_minibatch_size or 3
+    if (
+        request.reflection_minibatch_size is not None
+        and request.reflection_minibatch_size > train_count
+    ):
+        raise GEPARunProtocolError(
+            "TUA GEPA reflectionMinibatchSize cannot exceed the training task count"
+        )
+    return min(configured_batch_size, train_count)
+
+
+def gepa_metric_call_threshold(
+    request: GEPARunRequest,
+    *,
+    train_count: int,
+    validation_count: int,
+) -> tuple[int, int]:
+    """Return GEPA's iteration-boundary threshold and worst-case iteration reserve."""
+    if request.tua_dataset is None:
+        return request.max_metric_calls, 0
+    if train_count <= 0 or validation_count <= 0:
+        raise GEPARunProtocolError(
+            "TUA GEPA requires non-empty materialized train and validation sets"
+        )
+    if request.max_metric_calls < validation_count:
+        raise GEPARunProtocolError(
+            "TUA GEPA maxMetricCalls must cover the initial full validation evaluation"
+        )
+
+    training_batch_size = gepa_reflection_minibatch_size(
+        request,
+        train_count=train_count,
+    )
+    assert training_batch_size is not None
+    # The official proposer evaluates both the selected parent and its child on
+    # the reflection minibatch, then the engine may fully evaluate that child
+    # on validation. GEPA checks its stopper only between iterations.
+    iteration_reserve = 2 * training_batch_size + validation_count
+    threshold = max(1, request.max_metric_calls - iteration_reserve + 1)
+    return threshold, iteration_reserve
+
+
 def validate_gaia_minimal_request(request: GEPARunRequest) -> None:
     """Validate the bounded GAIA Level 1/2 GEPA lifecycle configuration.
 

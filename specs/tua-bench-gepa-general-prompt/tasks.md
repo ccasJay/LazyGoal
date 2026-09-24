@@ -28,7 +28,7 @@
   - 验证方式：`test_reflection.py` 断言 TUA 反思记录只含安全字段且不含敏感标记；`test_adapter.py` 覆盖官方分数与状态一致性、基础设施故障停止批次及取消后不再调度任务。完整 adapter 回归通过；真实 Docker/TUA 任务未运行。
   - _Requirements: [3.3](./requirements.md#req-3-3), [3.5](./requirements.md#req-3-5)_
 
-- [ ] //TODO 5. 将 TUA GEPA 运行限制为可确认、可恢复的候选产出
+- [x] //TODO 5. 将 TUA GEPA 运行限制为可确认、可恢复的候选产出
 
   - 实现目标：为真实 start/resume 固定预检摘要确认、评测预算与任务时限，保存已完成评测和候选，并使 TUA 运行走 candidate-only 生命周期。
   - 成功判据：未确认或预检内容已漂移的 start/resume 被拒绝；预算、时限或取消边界阻止后续新任务；中断恢复复用身份匹配的有效结果；TUA 运行完成、停止或失败时均保存现有候选与结果且不调用 `ProfilePublisher.publish()`、不改变本机 default Profile 或仓库内置默认值。
@@ -62,7 +62,7 @@
 | [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.4](./requirements.md#req-3-4) | 官方部分与零 reward 保留为有效分数；Agent 无法访问评分私有素材；无效 reward 或隔离失败成为无分数错误 | TUA 环境/评分/Prompt Evaluation 测试、共享隔离进程快照测试与 Python GEPA protocol/score 测试 |
 | [3.3](./requirements.md#req-3-3)、[3.5](./requirements.md#req-3-5) | TUA 反思只接收任务族、reward、完成状态和通用阶段；验证器、答案、原始输出、任务标识与 holdout 不进入记录；基础设施故障不计零分，取消停止后续调度 | `test_reflection.py` 断言完整安全记录并扫描敏感标记；`test_adapter.py` 验证缺分/状态不一致被拒、基础设施错误抛出及取消只请求一个任务 |
 | [4.1](./requirements.md#req-4-1) | 只读预检列出分组、模型、预算、联网范围与副作用，但没有容器启动、模型调用或 Profile 写入 | 预检副作用测试（待实现），使用 fake 模型/容器和 Profile 快照 |
-| [4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | start/resume 需确认当前预检且受预算/时限约束；取消后不启动新任务；恢复保留有效事实，所有终态均不发布 Profile | GEPA controller/worker 恢复测试（待实现），比较 Profile 摘要并断言 Publisher 未调用 |
+| [4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | start/resume 必须确认当前 TUA 预检；GEPA 轮次预算为父/子训练批次与全验证预留调用；任务时限来自冻结任务定义；checkpoint 身份匹配时恢复且不重跑已提交 seed 验证；完成、停止和失败都保存候选并保持 Profile 不变 | `test_lifecycle_controller.py` 验证 digest 与输入漂移门；`test_protocol.py` 验证迭代预算边界；`test_worker_orchestration.py` 使用 fake CLI 跑 GEPA 并检查预算上限、checkpoint 恢复、候选 artifact 和 Profile 字节不变 |
 | [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | 最佳候选和 seed 在 TUA holdout、GAIA、ALFWorld 用同一候选字段与可比计划运行；TUA 默认每任务各 3 次；缺失或不可比的组标为未完成 | 最终对照器 fake Attempt 测试（待实现）；真实端到端见 [7.2](./requirements.md#req-7-2) |
 | [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | 候选、差异、身份、预算、逐组原始指标、故障、成本、晋升门槛、证据不足和未覆盖场景均可审阅，且无凭据/私有评分泄漏 | 报告 fixture 测试（待实现）；人工检查一次生成报告与候选产物 |
 | [7.1](./requirements.md#req-7-1) | 默认回归在无真实模型、Docker 和外部数据服务时覆盖主要契约 | `npm run test:gepa-adapter`、`npm --prefix benchmarks test`、`npm test`；执行环境无凭据与容器依赖 |
@@ -74,3 +74,5 @@
 TODO 3 验证通过（2026-09-24）：`npm --prefix benchmarks test` 275 项通过；`npm run test:gepa-adapter` 176 项通过。覆盖 Agent 身份对评分路径的探测、Agent 新增进程未退出时拒绝评分、verifier 仅在退出证明后暂存执行、零/部分/完整 reward 保真、缺失/非法/非有限 reward 无分数，以及 Python GEPA 对 `metricScore=0` 的处理。未运行真实 Docker/TUA 任务；`npm run typecheck` 仍被仓库既有 TypeScript 错误阻断，其中 `benchmarks/src/isolated-environment.ts` 的 `pullAndInspect` 类型错误位于本次未改代码。
 
 TODO 4 验证通过（2026-09-24）：`npm run test:gepa-adapter` 179 项通过。TUA 反思记录仅保留组件当前文本、任务族、官方 reward、通过状态和 allowlist 阶段名；验证器/答案/holdout 标记、错误原文与代码、样本/任务标识和产物路径均未进入反思记录。缺少官方 `metricScore` 或 reward/status 不一致会作为协议故障停止；基础设施错误和取消不记零分，取消后批次不再启动第二个任务。未运行真实 Docker/TUA 任务。
+
+TODO 5 验证通过（2026-09-24）：`npm run test:gepa-adapter` 189 项通过。TUA start/resume 使用当前 `confirmationDigest` 并在启动前复核数据身份；预检公开任务时限、有效 reflection minibatch、请求预算、GEPA 轮次停止阈值和预留调用。离线 Worker 根据冻结的 TUA 分组生成单任务 Manifest，运行官方 GEPA 时将父/子训练批次与全验证评测纳入每轮预算预留；checkpoint seed 身份不符或预算越界时拒绝恢复，匹配的 checkpoint 恢复不会重复执行初始化 seed validation。成功、停止和失败路径保留 candidate-only artifact，且不调用发布器或改变 Profile。未运行真实模型、Docker 或 TUA 任务。
