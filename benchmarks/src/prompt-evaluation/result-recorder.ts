@@ -115,6 +115,11 @@ function parseTaskResult(value: unknown): PromptEvaluationTaskResult {
         || !isArtifactLocator(value.artifactLocator)
         || !Array.isArray(value.errors)
         || value.domainResult === undefined
+        || (value.metricScore !== undefined
+            && (typeof value.metricScore !== "number" || !Number.isFinite(value.metricScore)))
+        || (value.metricScore !== undefined && value.domainResult === null)
+        || ((value.status === "infrastructure_error" || value.status === "cancelled")
+            && value.metricScore !== undefined)
         || ((value.status === "infrastructure_error" || value.status === "cancelled")
             && value.domainResult !== null)) {
         throw new TypeError("Invalid PromptEvaluationTaskResult");
@@ -136,6 +141,7 @@ function parseTaskResult(value: unknown): PromptEvaluationTaskResult {
         taskId: value.taskId,
         status: value.status,
         domainResult: value.domainResult,
+        ...(value.metricScore === undefined ? {} : { metricScore: value.metricScore }),
         attemptPath: value.attemptPath,
         artifactLocator: value.artifactLocator,
         errors,

@@ -55,7 +55,7 @@ def main():
             else "failed"
         )
     exit_code = 0
-    if mode == "infrastructure":
+    if mode in ("infrastructure", "metric_score_infrastructure"):
         result_status = "infrastructure_error"
         task_status = "infrastructure_error"
         exit_code = 1
@@ -100,6 +100,11 @@ def main():
                 "taskId": "other-task" if mode == "task_mismatch" else task_id,
                 "status": task_status,
                 "domainResult": domain_result if authoritative else None,
+                **(
+                    {"metricScore": 0.0 if mode == "zero_metric_score" else 0.35}
+                    if mode in ("metric_score", "zero_metric_score") and authoritative
+                    else {}
+                ),
                 "attemptPath": str(output_directory / "attempt.json")
                 if authoritative
                 else None,
@@ -118,6 +123,12 @@ def main():
     }
     if mode == "unknown_result_field":
         result["unexpected"] = True
+    elif mode == "invalid_metric_score":
+        result["tasks"][0]["metricScore"] = "0.5"
+    elif mode == "nonfinite_metric_score":
+        result["tasks"][0]["metricScore"] = float("inf")
+    elif mode == "metric_score_infrastructure":
+        result["tasks"][0]["metricScore"] = 0.5
 
     result_path.parent.mkdir(parents=True, exist_ok=True)
     if mode == "corrupt_result":

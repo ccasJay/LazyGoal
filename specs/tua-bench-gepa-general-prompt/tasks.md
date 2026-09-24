@@ -14,11 +14,11 @@
   - 验证方式：待实现候选派生与 Worker 注入测试；以确定性 fake adapter 断言两个字段抵达执行端且冻结字段不变，并测试候选审计命中与未命中。入口参考 `prompt-evaluation/gepa/tests/test_candidate.py`、`prompt-evaluation/gepa/tests/test_adapter.py`、`benchmarks/gaia/test/prompt-evaluation-adapter.test.ts`、`benchmarks/alfworld/test/prompt-evaluation-adapter.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 3. 隔离 TUA 验证器并向 GEPA 提供官方连续 reward
+- [x] //TODO 3. 隔离 TUA 验证器并向 GEPA 提供官方连续 reward
 
   - 实现目标：调整 TUA 环境中评分脚本和私有答案素材的生命周期，在 Agent 与其子进程退出后由受信任评分边界执行验证器，并把有效官方数值 reward 传入 Prompt Evaluation 的 `metricScore`。
   - 成功判据：Agent 运行期间不能读取或改写评分专用文件；合法部分 reward 原值参与 GEPA 优化，完整完成状态仍按官方阈值判断；缺失、非法 reward 或隔离无法证明时产生无分数的评分/基础设施故障，不补成领域零分。
-  - 验证方式：待实现隔离与评分测试；覆盖 reward 为 0、部分值、完整值、非有限值、缺失值，以及 Agent 无权访问 verifier 的执行身份。入口参考 `benchmarks/tua-bench/test/environment-spec.test.ts`、`benchmarks/tua-bench/test/scoring.test.ts`、`benchmarks/tua-bench/test/adapter.test.ts`。
+  - 验证方式：隔离与评分离线测试覆盖 reward 为 0、部分值、完整值、非有限值、缺失值、Agent 身份探针、Agent 子进程未退出时拒绝评分及 `metricScore` 的零值保真；执行 `npm --prefix benchmarks test` 与 `npm run test:gepa-adapter`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.4](./requirements.md#req-3-4)_
 
 - [ ] //TODO 4. 限制 GEPA 反思反馈并区分任务、故障与取消
@@ -59,7 +59,7 @@
 |---|---|---|
 | [1.1](./requirements.md#req-1-1)、[1.2](./requirements.md#req-1-2)、[1.3](./requirements.md#req-1-3) | 给出版本固定且互斥、家族覆盖完整的三组任务时预检成功并记录归属；缺失、重复、未知、资源不全、交叉或覆盖不足时在模型调用前拒绝 | TUA 数据检查与预检离线测试（待实现） |
 | [2.1](./requirements.md#req-2-1)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3)、[2.4](./requirements.md#req-2-4) | seed 冻结两个字段；GEPA 候选可同时变化两字段并抵达各 Worker；其他 Profile 能力不变；任务答案或 verifier 泄漏候选无法获得正向结论 | candidate codec 与 GEPA `module_selector=all` 测试；TUA/GAIA/ALFWorld Profile 注入测试；TUA 字面审计命中、未命中及脱敏报告测试 |
-| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.4](./requirements.md#req-3-4) | 官方部分与零 reward 保留为有效分数；Agent 无法访问评分私有素材；无效 reward 或隔离失败成为无分数错误 | TUA 隔离身份与评分测试（待实现）；检查 `metricScore` 与故障状态 |
+| [3.1](./requirements.md#req-3-1)、[3.2](./requirements.md#req-3-2)、[3.4](./requirements.md#req-3-4) | 官方部分与零 reward 保留为有效分数；Agent 无法访问评分私有素材；无效 reward 或隔离失败成为无分数错误 | TUA 环境/评分/Prompt Evaluation 测试、共享隔离进程快照测试与 Python GEPA protocol/score 测试 |
 | [3.3](./requirements.md#req-3-3)、[3.5](./requirements.md#req-3-5) | 反思输入不含验证器、答案、原始评分输出和 holdout；取消不成为领域零分且不会再调度新任务 | 反思投影与生命周期取消测试（待实现），检查完整模型输入及调度记录 |
 | [4.1](./requirements.md#req-4-1) | 只读预检列出分组、模型、预算、联网范围与副作用，但没有容器启动、模型调用或 Profile 写入 | 预检副作用测试（待实现），使用 fake 模型/容器和 Profile 快照 |
 | [4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | start/resume 需确认当前预检且受预算/时限约束；取消后不启动新任务；恢复保留有效事实，所有终态均不发布 Profile | GEPA controller/worker 恢复测试（待实现），比较 Profile 摘要并断言 Publisher 未调用 |
@@ -71,4 +71,4 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+TODO 3 验证通过（2026-09-24）：`npm --prefix benchmarks test` 275 项通过；`npm run test:gepa-adapter` 176 项通过。覆盖 Agent 身份对评分路径的探测、Agent 新增进程未退出时拒绝评分、verifier 仅在退出证明后暂存执行、零/部分/完整 reward 保真、缺失/非法/非有限 reward 无分数，以及 Python GEPA 对 `metricScore=0` 的处理。未运行真实 Docker/TUA 任务；`npm run typecheck` 仍被仓库既有 TypeScript 错误阻断，其中 `benchmarks/src/isolated-environment.ts` 的 `pullAndInspect` 类型错误位于本次未改代码。

@@ -82,6 +82,41 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         )
         self.assertEqual(self.counter.read_text(encoding="utf-8"), "4")
 
+    def test_uses_metric_score_verbatim_for_domain_results(self) -> None:
+        class StaticClient:
+            def evaluate_one(self, example, prompt, invocation):
+                score = 0.0 if example.task_id.endswith("zero") else 0.375
+                return LazyGoalEvaluationRecord(
+                    evaluation_id="eval-metric-score",
+                    result_path=self.root / "result.json",
+                    task=PromptEvaluationTaskRecord(
+                        task_id=example.task_id,
+                        status="failed",
+                        domain_result={"reward": score, "passed": False},
+                        attempt_path=None,
+                        artifact_locator=None,
+                        errors=(),
+                        metric_score=score,
+                    ),
+                )
+
+            def __init__(self, root: Path) -> None:
+                self.root = root
+
+        adapter = LazyGoalGEPAAdapter(
+            self.adapter._config,
+            client=StaticClient(self.root),  # type: ignore[arg-type]
+        )
+        evaluation = adapter.evaluate(
+            [self._example("sample-partial", "task-partial"), self._example("sample-zero", "task-zero")],
+            self.candidate,
+            capture_traces=True,
+        )
+
+        self.assertEqual(evaluation.scores, [0.375, 0.0])
+        assert evaluation.trajectories is not None
+        self.assertEqual([item.score for item in evaluation.trajectories], [0.375, 0.0])
+
     def test_infrastructure_failure_stops_before_later_samples(self) -> None:
         batch = [self._example("sample-1", "task-1"), self._example("sample-2", "task-2")]
 

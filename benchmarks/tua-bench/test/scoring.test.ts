@@ -27,6 +27,11 @@ describe("TuaBench Scoring & Grade", () => {
             const invalidRes = parseRewardFile("invalid_num");
             assert.equal(invalidRes.reward, null);
             assert.match(invalidRes.error ?? "", /非有效数值/);
+
+            assert.equal(parseRewardFile("0.25\n").reward, 0.25);
+            assert.equal(parseRewardFile("0.5 trailing").reward, null);
+            assert.equal(parseRewardFile("Infinity").reward, null);
+            assert.equal(parseRewardFile("1e999").reward, null);
         });
     });
 
@@ -53,6 +58,13 @@ describe("TuaBench Scoring & Grade", () => {
             assert.equal(res.passed, null);
             assert.equal(res.reward, null);
             assert.equal(res.verifierError, "exit code 1: syntax error");
+        });
+
+        it("不把非有限数值转换成领域结果或零分", () => {
+            const result = evaluateTuaBenchReward(Number.POSITIVE_INFINITY);
+            assert.equal(result.passed, null);
+            assert.equal(result.reward, null);
+            assert.match(result.verifierError ?? "", /有限数值/);
         });
     });
 
@@ -170,4 +182,3 @@ describe("TuaBench Scoring & Grade", () => {
         });
     });
 });
-

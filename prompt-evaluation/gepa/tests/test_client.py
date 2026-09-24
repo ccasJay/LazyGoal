@@ -69,6 +69,13 @@ class PromptEvaluationClientTests(unittest.TestCase):
                     ["Instruction one"],
                 )
 
+    def test_reads_optional_continuous_metric_score_including_zero(self) -> None:
+        for mode, expected_score in (("metric_score", 0.35), ("zero_metric_score", 0.0)):
+            with self.subTest(mode=mode):
+                record = self._evaluate(mode)
+                self.assertEqual(record.task.status, "passed")
+                self.assertEqual(record.task.metric_score, expected_score)
+
     def test_accepts_arbitrary_benchmark_identity_in_request_and_result(self) -> None:
         benchmark_id = "custom-benchmark"
         example = LazyGoalEvaluationExample(
@@ -96,6 +103,9 @@ class PromptEvaluationClientTests(unittest.TestCase):
             "task_mismatch",
             "exit_mismatch",
             "unknown_result_field",
+            "invalid_metric_score",
+            "nonfinite_metric_score",
+            "metric_score_infrastructure",
         )
         for mode in modes:
             with self.subTest(mode=mode):

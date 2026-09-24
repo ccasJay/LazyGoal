@@ -21,6 +21,8 @@ import {
 } from "../../alfworld/src/worker-config.js";
 import { GaiaPromptEvaluationAdapter } from "../../gaia/src/prompt-evaluation-adapter.js";
 import { GAIA_ACP_WORKER_PROMPT_ASSETS } from "../../gaia/src/worker-entry.js";
+import { TuaBenchPromptEvaluationAdapter } from "../../tua-bench/src/prompt-evaluation-adapter.js";
+import { TUA_BENCH_ACP_WORKER_PROMPT_ASSETS } from "../../tua-bench/src/worker-entry.js";
 import {
     auditTuaGepaCandidate,
     inspectTuaGepaDataset,
@@ -170,6 +172,7 @@ function isTuaGepaCandidateAuditRequest(value: unknown): value is TuaGepaCandida
 const PRODUCTION_ADAPTER_FACTORIES: ReadonlyMap<string, ProductionAdapterFactory> = new Map([
     ["alfworld", createAlfworldPromptEvaluationAdapter],
     ["gaia", createGaiaPromptEvaluationAdapter],
+    ["tua-bench", createTuaBenchPromptEvaluationAdapter],
 ]);
 
 /** `eval prompt` CLI 的可注入边界。 */
@@ -373,6 +376,20 @@ async function createGaiaPromptEvaluationAdapter(
         promptAssets: GAIA_ACP_WORKER_PROMPT_ASSETS,
     });
     return new GaiaPromptEvaluationAdapter({ workerArtifact }) as unknown as ProductionAdapter;
+}
+
+async function createTuaBenchPromptEvaluationAdapter(
+    workspaceRoot: string,
+    env: NodeJS.ProcessEnv,
+): Promise<ProductionAdapter> {
+    const paths = await resolveBenchmarkHomePaths(workspaceRoot, "tua-bench", env);
+    const workerArtifact = await buildBenchmarkWorker({
+        projectRoot: workspaceRoot,
+        entryPoint: resolve(workspaceRoot, "benchmarks/tua-bench/src/worker-entry.ts"),
+        cacheDirectory: join(paths.cacheDirectory, "worker"),
+        promptAssets: TUA_BENCH_ACP_WORKER_PROMPT_ASSETS,
+    });
+    return new TuaBenchPromptEvaluationAdapter({ workerArtifact }) as unknown as ProductionAdapter;
 }
 
 async function createAlfworldPromptEvaluationAdapter(

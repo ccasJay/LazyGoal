@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -70,6 +71,7 @@ class PromptEvaluationTaskRecord:
     attempt_path: str | None
     artifact_locator: PromptEvaluationArtifactLocator | None
     errors: tuple[BoundedError, ...]
+    metric_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -302,7 +304,7 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
             "artifactLocator",
             "errors",
         },
-        optional=set(),
+        optional={"metricScore"},
         context="task result",
     )
     status = record["status"]
@@ -313,6 +315,20 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
         raise PromptEvaluationProtocolError(
             "Prompt Evaluation non-domain task status must have null domainResult"
         )
+    metric_score_raw = record.get("metricScore")
+    metric_score: float | None = None
+    if "metricScore" in record:
+        if (
+            status not in ("passed", "failed")
+            or domain_result is None
+            or isinstance(metric_score_raw, bool)
+            or not isinstance(metric_score_raw, (int, float))
+            or not math.isfinite(float(metric_score_raw))
+        ):
+            raise PromptEvaluationProtocolError(
+                "Prompt Evaluation metricScore must be finite and accompany a domain result"
+            )
+        metric_score = float(metric_score_raw)
     attempt_path = record["attemptPath"]
     if attempt_path is not None and not _is_non_empty_string(attempt_path):
         raise PromptEvaluationProtocolError("Prompt Evaluation attemptPath is invalid")
@@ -326,6 +342,7 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
         attempt_path=cast(str | None, attempt_path),
         artifact_locator=_parse_artifact_locator(record["artifactLocator"]),
         errors=tuple(_parse_bounded_error(error) for error in errors_value),
+        metric_score=metric_score,
     )
 
 

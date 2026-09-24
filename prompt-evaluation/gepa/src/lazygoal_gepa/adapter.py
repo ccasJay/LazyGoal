@@ -121,7 +121,11 @@ class LazyGoalGEPAAdapter(
                 raise PromptEvaluationProtocolError(
                     f"Prompt Evaluation returned an unsupported domain status for sample {example.sample_id!r}"
                 )
-            score = 1.0 if record.task.status == "passed" else 0.0
+            score = (
+                record.task.metric_score
+                if record.task.metric_score is not None
+                else 1.0 if record.task.status == "passed" else 0.0
+            )
             outputs.append(
                 LazyGoalEvaluationOutput(
                     sample_id=example.sample_id,

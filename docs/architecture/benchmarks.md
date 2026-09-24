@@ -3,8 +3,8 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA 和 SWE-bench
-Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
+通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA、TUA-Bench
+和 SWE-bench Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
 sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
 [`benchmarks/src/`](../../benchmarks/src/)，具体 benchmark 只声明环境和评分适配。
 
@@ -95,10 +95,11 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 
 [`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation/cli.ts) 接受当前版本的单候选
 JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
-派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
+派生并校验冻结字段，ALFWorld、GAIA 和 TUA Worker 在创建 Headless Root 前再次校验同一 Profile。
 TUA Worker 的 ACP metadata 也可携带成对的基准与候选 Profile，并在创建 Headless Root 前
-以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。TUA Prompt Evaluation
-adapter 尚未注册到公共 CLI，因此该 Worker 能力目前不构成完整的 TUA 评测入口。
+以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。注册的 TUA Prompt
+Evaluation adapter 通过单任务 Manifest 和统一隔离容器执行 Agent，并在 Agent 结束后运行 verifier。
+评分前隔离层比较宿主进程快照；Agent 阶段的新增进程仍存活、评分素材残留或无法检查时，评测失败且不返回分数。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
 CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
@@ -107,8 +108,11 @@ ID 集合，且只实例化请求指定的 factory。协议与结果持久化将
 
 [`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
 任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
-只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
+只信任答案评分，TUA 保留有限官方 reward；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
 `0`，基础设施失败、请求校验失败和取消分别返回 `1`、`2`、`130`。
+TUA 单任务清单包含 `repoRoot` 和一个 `taskId`，任务定义由 TUA 仓库 Manifest 加载。
+Agent 工作区不会收到验证器与评分目录；宿主进程快照证明 Agent 新增进程退出后，adapter 才在临时目录暂存并以配置用户运行 verifier。
+缺失或无效 reward、非零 verifier 退出和进程隔离失败不产生 `metricScore`。
 
 每个任务原子提交带候选哈希与模型身份的 Attempt；整次评测在
 `<outputDirectory>/evaluations/<evaluationId>/result.json` 原子提交汇总。stdout JSON Lines 事件
@@ -121,8 +125,9 @@ ID 集合，且只实例化请求指定的 factory。协议与结果持久化将
 候选组件和跨进程结果身份，不枚举 benchmark ID，也不解释领域 Manifest 或 Profile。
 benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Python adapter 按 batch
 顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
-取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
-后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
+取值。TUA 使用有限官方 `metricScore` 原值（包含零与部分分）；其他 benchmark 的领域
+`passed/failed` 分别映射为 `1.0/0.0`。协议、基础设施和取消错误不计分并立即停止后续样本。
+反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
 有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
 GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
 TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 seed 中的 `system_prompt`
@@ -152,9 +157,9 @@ TUA GEPA 请求的只读预检由 Python 控制器调用 LazyGoal CLI 的 TUA In
 校验显式 train/validation/holdout 集合的互斥性、任务族覆盖、所选任务资源及本机镜像，返回
 TUA 源 revision、任务资源摘要、镜像身份、网络任务和时限；返回值不包含任务指令或验证器正文。
 预检把该摘要与试次计划一起展示，`start` 将其冻结到 `run.json`。镜像检查只读取本机 Docker
-元数据，不拉取镜像或启动容器；数据问题在模型调用前失败。TUA 的 Prompt Evaluation 执行、
-candidate-only 发布和最终对照生命周期仍须由各自的接入部分提供，数据预检本身不代表可运行完整
-TUA GEPA 优化。
+元数据，不拉取镜像或启动容器；数据问题在模型调用前失败。TUA 的 run 生命周期、候选物化、
+candidate-only 报告与最终跨环境对照仍在接入中；数据预检和单任务 Prompt Evaluation 尚不构成完整
+TUA GEPA 优化入口。
 
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过

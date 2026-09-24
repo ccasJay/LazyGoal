@@ -103,6 +103,7 @@ export type PromptEvaluationTaskStatus =
  *   taskId: "task-1",
  *   status: "failed",
  *   domainResult: { won: false },
+ *   metricScore: 0.5,
  *   attemptPath: "/tmp/attempt.json",
  *   artifactLocator: null,
  *   errors: [],
@@ -116,6 +117,8 @@ export interface PromptEvaluationTaskResult<TDomain = unknown> {
     readonly status: PromptEvaluationTaskStatus;
     /** benchmark 自己拥有的领域结果；基础设施失败或取消时为 `null`。 */
     readonly domainResult: TDomain | null;
+    /** benchmark adapter 提供的有限连续评分；省略时由 GEPA 按 passed/failed 使用 1/0。 */
+    readonly metricScore?: number;
     /** 已提交 Attempt 的绝对路径；尚未提交时为 `null`。 */
     readonly attemptPath: string | null;
     /** Goal Snapshot、Trajectory 与可选 Trace 的稳定定位。 */

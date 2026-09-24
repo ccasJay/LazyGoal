@@ -20,10 +20,11 @@ export function parseRewardFile(content: string): { readonly reward: number | nu
     if (trimmed.length === 0) {
         return { reward: null, error: "Reward 文件内容为空" };
     }
-    const parsed = parseFloat(trimmed);
-    if (Number.isNaN(parsed)) {
-        return { reward: null, error: `非有效数值内容：${trimmed}` };
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/u.test(trimmed)) {
+        return { reward: null, error: "非有效数值内容" };
     }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed)) return { reward: null, error: "Reward 必须为有限数值" };
     return { reward: parsed };
 }
 
@@ -50,16 +51,16 @@ export function evaluateTuaBenchReward(
     let passed: boolean | null = null;
     let finalError: string | null = verifierError;
 
-    if (reward !== null) {
+    if (reward !== null && Number.isFinite(reward)) {
         passed = reward >= 1.0;
     } else if (finalError === null) {
-        finalError = "Reward 未能成功获取";
+        finalError = reward === null ? "Reward 未能成功获取" : "Reward 必须为有限数值";
     }
 
     return {
         taskFamily,
         passed,
-        reward,
+        reward: passed === null ? null : reward,
         verifierOutput,
         verifierError: finalError,
     };
@@ -262,4 +263,3 @@ export async function gradeTuaBenchAttempts(
         byFamily,
     };
 }
-
