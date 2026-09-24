@@ -34,6 +34,7 @@ from .errors import (
     PromptEvaluationProtocolError,
     RunStoreError,
 )
+from .final_comparison import BASE_PROFILE_IDS, FinalComparisonExecutor
 from .models import LazyGoalEvaluationExample, LazyGoalGEPAConfig, resolve_lazygoal_executable
 from .ownership import RunOwnership
 from .prompt_template import load_and_render_reflection_prompt_template
@@ -366,7 +367,10 @@ def run_gepa_worker(
 
         config = LazyGoalGEPAConfig(
             benchmark_id=manifest.request.benchmark,
-            base_profile_id=manifest.target_profile.profile_id,
+            base_profile_id=BASE_PROFILE_IDS.get(
+                manifest.request.benchmark,
+                manifest.target_profile.profile_id,
+            ),
             model_config_id=manifest.working_model.profile_name,
             model_id=manifest.working_model.model_id,
             output_directory=adapter_output_dir,
@@ -577,6 +581,43 @@ def run_gepa_worker(
 
         if candidate_only:
             best_cand_id = profile_publisher.save_candidate_artifact(result.best_candidate)
+            comparison = FinalComparisonExecutor(
+                manifest,
+                resolved_run_dir,
+                executable=executable,
+                workspace_root=resolved_workspace,
+                stop_requested=lambda: store.has_stop_request(run_id),
+            ).execute(result.best_candidate)
+            if comparison["status"] == "stopped":
+                store.update_state(
+                    run_id,
+                    lifecycle_status="stopped",
+                    stop_requested=True,
+                    metric_calls=result.total_metric_calls,
+                    candidate_count=len(result.candidates),
+                    best_score=best_score,
+                    best_candidate_id=best_cand_id,
+                    publication_status="candidate_only",
+                )
+                generate_and_save_run_report(resolved_run_dir)
+                return 0
+            if comparison["status"] == "incomplete":
+                store.update_state(
+                    run_id,
+                    lifecycle_status="failed",
+                    metric_calls=result.total_metric_calls,
+                    candidate_count=len(result.candidates),
+                    best_score=best_score,
+                    best_candidate_id=best_cand_id,
+                    publication_status="candidate_only",
+                    error_code="final_comparison_incomplete",
+                    error_message=(
+                        "Final comparison did not produce a complete paired result; "
+                        "the candidate and completed attempts were preserved."
+                    ),
+                )
+                generate_and_save_run_report(resolved_run_dir)
+                return 1
             store.update_state(
                 run_id,
                 lifecycle_status="succeeded",

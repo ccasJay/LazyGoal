@@ -945,19 +945,18 @@ def _parse_final_comparison(
 ) -> FinalComparisonRequest:
     if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
         raise GEPARunProtocolError("finalComparison must be an object")
-    required = {"tuaHoldoutTrials"}
-    optional = {"gaia", "alfworld"}
-    missing = sorted(required - set(value))
-    unknown = sorted(set(value) - required - optional)
-    if missing or unknown:
+    allowed = {"tuaHoldoutTrials", "gaia", "alfworld"}
+    unknown = sorted(set(value) - allowed)
+    if unknown:
         details = []
-        if missing:
-            details.append("missing fields: " + ", ".join(missing))
         if unknown:
             details.append("unknown fields: " + ", ".join(unknown))
         raise GEPARunProtocolError("finalComparison " + "; ".join(details))
 
-    holdout_trials = _positive_integer(value["tuaHoldoutTrials"], "finalComparison.tuaHoldoutTrials")
+    holdout_trials = _positive_integer(
+        value.get("tuaHoldoutTrials", 3),
+        "finalComparison.tuaHoldoutTrials",
+    )
     return FinalComparisonRequest(
         tua_holdout_trials=holdout_trials,
         gaia=_parse_comparison_environment(value.get("gaia"), "gaia", base_dir),

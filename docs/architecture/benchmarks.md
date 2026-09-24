@@ -170,7 +170,20 @@ Worker 为一轮预留父候选和子候选训练批次，
 以及一次完整验证集评测，并据此降低传给官方 GEPA 的停止阈值，使实际评测调用不超过请求预算；
 任务级 Agent/verifier 时限由冻结的 TUA 任务定义执行。停止、失败和恢复保留已提交的 GEPA
 checkpoint 与最佳候选 artifact。TUA 正常完成报告为 `candidate_only`；它表示候选产物完整，
-不表示 Prompt 已发布。最终 TUA holdout 与跨环境对照仍在接入中。
+不表示 Prompt 已发布。
+
+GEPA 选定最佳候选后，Worker 重新核对 TUA Inspector 与请求中引用的 Manifest 摘要，再运行冻结的
+最终对照计划。TUA holdout 每个任务默认对 seed 与候选各运行三次；GAIA、ALFWorld 使用请求中的
+任务和试次数。每个 Attempt 都通过该 benchmark 自己的 Prompt Evaluation adapter、基准 Profile、
+工具权限和评分器执行，同一配对共享任务 Manifest 与 Working LM 身份。GEPA metric-call 预算不包括
+收尾对照试次。
+
+`final-comparison/plan.json` 冻结候选、模型、任务、Manifest 摘要和试次计划；`attempts/` 按
+benchmark、任务、trial 与 seed/candidate 分开原子提交权威领域状态和分数，TUA 保存官方 reward，
+GAIA/ALFWorld 保存各自 passed/failed 映射分。对照摘要写入 `final-comparison/result.json`，
+区分完整、未完成、停止和证据不足，不保存标准答案或 verifier 正文。恢复时会复用身份匹配的有效
+领域结果并继续缺失项；基础设施失败保留为无分数结果，停止标记阻止启动下一项。当前摘要是独立于
+生命周期 `report.json` 的产物。
 
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过

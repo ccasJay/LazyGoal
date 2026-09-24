@@ -8,6 +8,48 @@ from pathlib import Path
 
 def main():
     mode = os.environ.get("LAZYGOAL_GEPA_FAKE_MODE", "passed")
+    if sys.argv[1:3] == ["gepa", "inspect-tua"]:
+        request_path = Path(sys.argv[4])
+        request = json.loads(request_path.read_text(encoding="utf-8"))
+        partitions = {
+            "train": request["trainTaskIds"],
+            "validation": request["validationTaskIds"],
+            "holdout": request["holdoutTaskIds"],
+        }
+        task_ids = [
+            task_id
+            for partition_ids in partitions.values()
+            for task_id in partition_ids
+        ]
+        tasks = {
+            task_id: {
+                "taskId": task_id,
+                "taskFamily": "document",
+                "networkMode": "none",
+                "agentTimeoutSec": 600,
+                "verifierTimeoutSec": 600,
+                "resourceDigest": "d" * 64,
+                "imageDigest": "sha256:" + "e" * 64,
+            }
+            for task_id in task_ids
+        }
+        inspection = {
+            "sourceRevision": "b" * 40,
+            "datasetDigest": "c" * 64,
+            "workingTreeDirty": False,
+            "changedPaths": [],
+            "tasks": tasks,
+            "partitions": {
+                name: {
+                    "taskIds": task_ids,
+                    "taskFamilies": ["document"],
+                    "networkTasks": [],
+                }
+                for name, task_ids in partitions.items()
+            },
+        }
+        print(json.dumps(inspection))
+        return 0
     if mode == "invalid_request":
         sys.stderr.write("fixture rejected request\n")
         return 2
@@ -69,6 +111,9 @@ def main():
         exit_code = 1
 
     authoritative = task_status in ("passed", "failed")
+    metric_score = None
+    if request["benchmark"]["id"] == "tua-bench" and authoritative:
+        metric_score = 1.0 if task_status == "passed" else 0.35
     if mode == "tua_sensitive":
         domain_result = {
             "taskFamily": "document",
@@ -115,9 +160,14 @@ def main():
                         "metricScore": 0.0
                         if mode == "zero_metric_score"
                         else 0.35
+                        if mode in ("metric_score", "tua_sensitive")
+                        else metric_score
                     }
                     if (
-                        mode in ("metric_score", "zero_metric_score", "tua_sensitive")
+                        (
+                            mode in ("metric_score", "zero_metric_score", "tua_sensitive")
+                            or request["benchmark"]["id"] == "tua-bench"
+                        )
                         and authoritative
                     )
                     else {}

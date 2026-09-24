@@ -26,6 +26,7 @@ from lazygoal_gepa.candidate import (
     extract_seed_candidate,
 )
 from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
+from lazygoal_gepa.controller import _preflight_input_digest, _request_artifact_digests
 from lazygoal_gepa.errors import PromptEvaluationInfrastructureError
 from lazygoal_gepa.ownership import RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import GEPAExampleRequest, GEPARunRequest, parse_run_request
@@ -294,9 +295,14 @@ class WorkerOrchestrationTests(unittest.TestCase):
             self.assertEqual(run_gepa_worker(run_dir, workspace_root=self.workspace_root), 0)
             first_run_calls = int(counter_path.read_text(encoding="utf-8"))
             first_state = self.store.read_state(run_id)
+            gepa_evaluation_count = len(list((run_dir / "adapter").rglob("request.json")))
+            final_comparison_count = len(
+                list((run_dir / "final-comparison" / "evaluations").rglob("request.json"))
+            )
             self.assertEqual(optimize.call_args.kwargs["max_metric_calls"], 2)
             self.assertLessEqual(first_state.metric_calls, manifest.request.max_metric_calls)
-            self.assertLessEqual(first_run_calls, manifest.request.max_metric_calls)
+            self.assertLessEqual(gepa_evaluation_count, manifest.request.max_metric_calls)
+            self.assertEqual(final_comparison_count, 6)
             self.assertEqual(first_state.publication_status, "candidate_only")
             self.assertTrue((run_dir / "tua-manifests" / "train-0000.json").is_file())
             report = read_run_report(run_dir)
@@ -332,6 +338,7 @@ class WorkerOrchestrationTests(unittest.TestCase):
             patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
             patch("lazygoal_gepa.worker.gepa.optimize", return_value=result),
             patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor"),
+            patch("lazygoal_gepa.worker.LazyGoalGEPAAdapter") as adapter_factory,
             patch("lazygoal_gepa.worker.ProfilePublisher.publish") as publish,
         ):
             code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
@@ -350,6 +357,20 @@ class WorkerOrchestrationTests(unittest.TestCase):
             json.loads((run_dir / "artifacts" / "best-profile.json").read_text())["systemPrompt"],
             candidate["system_prompt"],
         )
+        comparison_requests = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (run_dir / "final-comparison" / "evaluations").rglob("request.json")
+        ]
+        self.assertEqual(adapter_factory.call_args.args[0].base_profile_id, "tua-bench-worker-profile")
+        self.assertEqual(len(comparison_requests), 6)
+        self.assertTrue(all(
+            item["candidate"]["baseProfileId"] == "tua-bench-worker-profile"
+            for item in comparison_requests
+        ))
+        comparison = json.loads(
+            (run_dir / "final-comparison" / "result.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(comparison["status"], "insufficient_evidence")
         self.assertTrue(read_run_report(run_dir)["complete"])
         publish.assert_not_called()
 
@@ -528,6 +549,17 @@ class WorkerOrchestrationTests(unittest.TestCase):
             instructions=tuple(self.profile_data["instructions"]),
             tool_ids=tuple(self.profile_data["toolIds"]),
         )
+        working_model = ModelIdentity(profile_name="default", model_id="default")
+        reflection_model = ModelIdentity(profile_name="gepa-reflection", model_id="reflection")
+        artifact_digests = _request_artifact_digests(request, self.workspace_root)
+        frozen_input_digest = _preflight_input_digest(
+            request,
+            profile_digest=self.profile_digest,
+            working_model=working_model,
+            reflection_model=reflection_model,
+            tua_dataset_inspection=inspection,
+            artifact_digests=artifact_digests,
+        )
         return FrozenRunManifest(
             protocol="gepa-run@1",
             run_id=run_id,
@@ -542,10 +574,10 @@ class WorkerOrchestrationTests(unittest.TestCase):
             ),
             seed_candidate=extract_seed_candidate(snapshot),
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection"),
+            working_model=working_model,
+            reflection_model=reflection_model,
             tua_dataset_inspection=inspection,
-            preflight_input_digest="f" * 64,
+            preflight_input_digest=frozen_input_digest,
         )
 
     def test_worker_records_unchanged_publication(self) -> None:

@@ -112,7 +112,7 @@ class GEPARunProtocolTests(unittest.TestCase):
                 "validationTaskIds": ["validation-doc", "validation-sheet"],
                 "holdoutTaskIds": ["holdout-doc"],
             },
-            "finalComparison": {"tuaHoldoutTrials": 3},
+            "finalComparison": {},
             "publicationPolicy": "candidate-only",
         })
 
@@ -197,7 +197,7 @@ class GEPARunProtocolTests(unittest.TestCase):
                 "validationTaskIds": ["validation-doc"],
                 "holdoutTaskIds": ["holdout-doc"],
             },
-            "finalComparison": {"tuaHoldoutTrials": 3},
+            "finalComparison": {},
             "publicationPolicy": "candidate-only",
         }
 
@@ -214,6 +214,12 @@ class GEPARunProtocolTests(unittest.TestCase):
         assert request.final_comparison is not None
         self.assertEqual(request.final_comparison.tua_holdout_trials, 3)
         self.assertEqual(request.publication_policy, "candidate-only")
+
+        explicit = dict(data)
+        explicit["finalComparison"] = {"tuaHoldoutTrials": 7}
+        overridden = parse_run_request(explicit)
+        assert overridden.final_comparison is not None
+        self.assertEqual(overridden.final_comparison.tua_holdout_trials, 7)
 
     def test_tua_request_rejects_partition_overlap_and_invalid_trial_plan(self) -> None:
         base = {
