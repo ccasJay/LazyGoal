@@ -127,8 +127,10 @@ benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Pytho
 顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
 取值。TUA 使用有限官方 `metricScore` 原值（包含零与部分分）；其他 benchmark 的领域
 `passed/failed` 分别映射为 `1.0/0.0`。协议、基础设施和取消错误不计分并立即停止后续样本。
-反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
-有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
+TUA 反思只接收任务族、官方 reward、完成状态和有界通用阶段诊断，不暴露任务标识、答案、
+验证器内容、错误原文或产物路径；其他 benchmark 的反思轨迹保留有界结果投影和产物路径。
+两者都不读取完整 Diagnostic Trace；进程输出有大小上限，持久化前会脱敏继承环境中的凭据值。
+adapter 的确定性测试进入根回归，真实
 GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
 TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 seed 中的 `system_prompt`
 和全部 `instruction_NNN` 组件；其他 benchmark 保持 `round_robin`。每个 TUA 候选在评测前

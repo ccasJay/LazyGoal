@@ -80,10 +80,15 @@ class TuaCandidateLeakAuditorTests(unittest.TestCase):
                     task=PromptEvaluationTaskRecord(
                         task_id=example.task_id,
                         status="passed",
-                        domain_result={"reward": 1.0},
+                        domain_result={
+                            "taskFamily": "document",
+                            "passed": True,
+                            "reward": 1.0,
+                        },
                         attempt_path=None,
                         artifact_locator=None,
                         errors=(),
+                        metric_score=1.0,
                     ),
                 )
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
@@ -121,17 +122,30 @@ class LazyGoalGEPAAdapter(
                 raise PromptEvaluationProtocolError(
                     f"Prompt Evaluation returned an unsupported domain status for sample {example.sample_id!r}"
                 )
-            score = (
-                record.task.metric_score
-                if record.task.metric_score is not None
-                else 1.0 if record.task.status == "passed" else 0.0
-            )
+            domain_result = record.task.domain_result
+            if self._config.benchmark_id == "tua-bench":
+                if record.task.metric_score is None:
+                    raise PromptEvaluationProtocolError(
+                        "TUA domain result is missing its official metricScore"
+                    )
+                score = record.task.metric_score
+                domain_result = _tua_domain_projection(
+                    domain_result,
+                    record.task.status,
+                    score,
+                )
+            else:
+                score = (
+                    record.task.metric_score
+                    if record.task.metric_score is not None
+                    else 1.0 if record.task.status == "passed" else 0.0
+                )
             outputs.append(
                 LazyGoalEvaluationOutput(
                     sample_id=example.sample_id,
                     task_id=example.task_id,
                     status=record.task.status,
-                    domain_result=record.task.domain_result,
+                    domain_result=domain_result,
                     attempt_path=record.task.attempt_path,
                 )
             )
@@ -144,7 +158,7 @@ class LazyGoalGEPAAdapter(
                         candidate_id=prompt.candidate_id,
                         status=record.task.status,
                         score=score,
-                        domain_result=record.task.domain_result,
+                        domain_result=domain_result,
                         errors=record.task.errors,
                         attempt_path=record.task.attempt_path,
                         artifact_locator=record.task.artifact_locator,
@@ -196,6 +210,11 @@ class LazyGoalGEPAAdapter(
         records: dict[str, list[Mapping[str, Any]]] = {
             component: [] for component in components_to_update
         }
+        record_factory = (
+            _tua_reflective_record
+            if self._config.benchmark_id == "tua-bench"
+            else _reflective_record
+        )
         for index, (output, score, trajectory) in enumerate(
             zip(
                 eval_batch.outputs,
@@ -219,7 +238,7 @@ class LazyGoalGEPAAdapter(
                 )
             for component in components_to_update:
                 records[component].append(
-                    _reflective_record(
+                    record_factory(
                         component,
                         candidate[component],
                         output,
@@ -232,6 +251,20 @@ class LazyGoalGEPAAdapter(
 _MAX_JSON_DEPTH = 6
 _MAX_COLLECTION_ITEMS = 50
 _MAX_STRING_CHARACTERS = 2_000
+_TUA_REFLECTION_ERROR_STAGES = frozenset(
+    {
+        "container_start",
+        "worker_inject",
+        "environment_prepare",
+        "preflight",
+        "transport",
+        "agent",
+        "cancel",
+        "artifact_collect",
+        "cleanup",
+        "prompt_evaluation_runner",
+    }
+)
 
 
 def _reflective_record(
@@ -285,6 +318,87 @@ def _reflective_record(
         "Feedback": _bounded_json(feedback),
         "Score": trajectory.score,
         "Artifacts": _bounded_json(artifacts),
+    }
+
+
+def _tua_domain_projection(
+    value: JSONValue,
+    status: TaskStatus,
+    score: float,
+) -> dict[str, JSONValue]:
+    if not isinstance(value, dict):
+        raise PromptEvaluationProtocolError(
+            "TUA domain result must contain its official reward projection"
+        )
+    task_family = value.get("taskFamily")
+    passed = value.get("passed")
+    reward = value.get("reward")
+    if (
+        not isinstance(task_family, str)
+        or not task_family.strip()
+        or type(passed) is not bool
+        or isinstance(reward, bool)
+        or not isinstance(reward, (int, float))
+        or not math.isfinite(float(reward))
+    ):
+        raise PromptEvaluationProtocolError(
+            "TUA domain result has an invalid official reward projection"
+        )
+    numeric_reward = float(reward)
+    if (
+        numeric_reward != score
+        or passed != (numeric_reward >= 1.0)
+        or passed != (status == "passed")
+    ):
+        raise PromptEvaluationProtocolError(
+            "TUA status and official reward projection are inconsistent"
+        )
+    return {
+        "taskFamily": task_family,
+        "passed": passed,
+        "reward": numeric_reward,
+    }
+
+
+def _tua_reflective_record(
+    component: str,
+    component_text: str,
+    output: LazyGoalEvaluationOutput,
+    trajectory: LazyGoalEvaluationTrajectory,
+) -> Mapping[str, Any]:
+    if trajectory.status not in ("passed", "failed"):
+        raise ReflectiveDatasetError(
+            "TUA reflection requires a completed domain evaluation"
+        )
+    domain_result = _tua_domain_projection(
+        output.domain_result,
+        output.status,
+        trajectory.score,
+    )
+    diagnostics: list[dict[str, str]] = []
+    seen_stages: set[str] = set()
+    for error in trajectory.errors:
+        stage = (
+            error.stage
+            if error.stage in _TUA_REFLECTION_ERROR_STAGES
+            else "evaluation"
+        )
+        if stage not in seen_stages:
+            diagnostics.append({"stage": stage})
+            seen_stages.add(stage)
+        if len(diagnostics) >= _MAX_COLLECTION_ITEMS:
+            break
+    return {
+        "Inputs": _bounded_json(
+            {"component": component, "currentText": component_text}
+        ),
+        "Generated Outputs": _bounded_json(domain_result),
+        "Feedback": {
+            "status": trajectory.status,
+            "diagnostics": diagnostics,
+        },
+        "Score": trajectory.score,
+        "Artifacts": {},
     }
 
 

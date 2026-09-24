@@ -46,6 +46,8 @@ def main():
     task_status = "failed" if mode == "failed" else "passed"
     if mode == "status_by_task":
         task_status = "passed" if task_id.endswith("pass") else "failed"
+    elif mode == "tua_sensitive":
+        task_status = "failed"
     elif mode == "score_if_improved":
         component_texts = [request["candidate"]["systemPrompt"]]
         component_texts.extend(request["candidate"]["instructions"])
@@ -67,15 +69,23 @@ def main():
         exit_code = 1
 
     authoritative = task_status in ("passed", "failed")
-    domain_result = (
-        {
+    if mode == "tua_sensitive":
+        domain_result = {
+            "taskFamily": "document",
+            "passed": False,
+            "reward": 0.35,
+            "verifierOutput": "PRIVATE_VERIFIER_OUTPUT_MARKER",
+            "answer": "PRIVATE_ANSWER_MARKER",
+            "holdoutTaskIds": ["PRIVATE_HOLDOUT_TASK_MARKER"],
+        }
+    elif mode == "large_domain":
+        domain_result = {
             "success": task_status == "passed",
             "detail": "x" * 5000,
             "items": list(range(80)),
         }
-        if mode == "large_domain"
-        else {"success": task_status == "passed"}
-    )
+    else:
+        domain_result = {"success": task_status == "passed"}
     result = {
         "protocol": "prompt-evaluation@1",
         "evaluationId": evaluation_id,
@@ -101,22 +111,51 @@ def main():
                 "status": task_status,
                 "domainResult": domain_result if authoritative else None,
                 **(
-                    {"metricScore": 0.0 if mode == "zero_metric_score" else 0.35}
-                    if mode in ("metric_score", "zero_metric_score") and authoritative
+                    {
+                        "metricScore": 0.0
+                        if mode == "zero_metric_score"
+                        else 0.35
+                    }
+                    if (
+                        mode in ("metric_score", "zero_metric_score", "tua_sensitive")
+                        and authoritative
+                    )
                     else {}
                 ),
-                "attemptPath": str(output_directory / "attempt.json")
+                "attemptPath": (
+                    "/tmp/PRIVATE_HOLDOUT_TASK_MARKER/attempt.json"
+                    if mode == "tua_sensitive"
+                    else str(output_directory / "attempt.json")
+                )
                 if authoritative
                 else None,
-                "artifactLocator": None,
+                "artifactLocator": (
+                    {
+                        "goalSnapshot": "PRIVATE_HOLDOUT_SNAPSHOT_MARKER",
+                        "trajectory": "PRIVATE_HOLDOUT_TRAJECTORY_MARKER",
+                        "diagnosticTrace": "PRIVATE_HOLDOUT_TRACE_MARKER",
+                    }
+                    if mode == "tua_sensitive"
+                    else None
+                ),
                 "errors": [
                     {
-                        "stage": "fixture",
-                        "message": "infrastructure failed",
-                        "code": "FIXTURE_FAILURE",
+                        "stage": (
+                            "agent" if mode == "tua_sensitive" else "fixture"
+                        ),
+                        "message": (
+                            "PRIVATE_VERIFIER_OUTPUT_MARKER PRIVATE_ANSWER_MARKER"
+                            if mode == "tua_sensitive"
+                            else "infrastructure failed"
+                        ),
+                        "code": (
+                            "PRIVATE_PRIVATE_PATH_MARKER"
+                            if mode == "tua_sensitive"
+                            else "FIXTURE_FAILURE"
+                        ),
                     }
                 ]
-                if task_status == "infrastructure_error"
+                if task_status == "infrastructure_error" or mode == "tua_sensitive"
                 else [],
             }
         ],
