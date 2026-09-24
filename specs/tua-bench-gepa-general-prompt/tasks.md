@@ -42,7 +42,7 @@
   - 验证方式：待实现最终对照器测试；以合成 Attempt 验证 3 次默认、次数覆盖、配对条件及每环境原生评分，另覆盖不完整与不可比结果。入口参考 `prompt-evaluation/gepa/tests/test_gaia_e2e.py`、`benchmarks/gaia/test/prompt-evaluation-adapter.test.ts`、`benchmarks/alfworld/test/prompt-evaluation-adapter.test.ts`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 7. 生成可审阅报告并覆盖离线回归契约
+- [x] //TODO 7. 生成可审阅报告并覆盖离线回归契约
 
   - 实现目标：持久化完整候选、Prompt 差异、数据/模型/预算身份、逐任务族及逐环境配对指标、故障、成本和未覆盖场景，并将上述契约纳入无需真实模型、Docker 或外部数据服务的默认自动化回归。
   - 成功判据：报告保留原始 reward、通过状态、计划/有效次数、可取得的成本与用量，明确证据不足和不建议晋升阈值，不泄露凭据、答案或验证器私有内容，不自动写入默认 Prompt；默认回归覆盖预检、候选冻结、评分/故障分类、隔离和报告逻辑。
@@ -64,7 +64,7 @@
 | [4.1](./requirements.md#req-4-1) | 只读预检列出分组、模型、预算、联网范围与副作用，但没有容器启动、模型调用或 Profile 写入 | 预检副作用测试（待实现），使用 fake 模型/容器和 Profile 快照 |
 | [4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3) | start/resume 必须确认当前 TUA 预检；GEPA 轮次预算为父/子训练批次与全验证预留调用；任务时限来自冻结任务定义；checkpoint 身份匹配时恢复且不重跑已提交 seed 验证；完成、停止和失败都保存候选并保持 Profile 不变 | `test_lifecycle_controller.py` 验证 digest 与输入漂移门；`test_protocol.py` 验证迭代预算边界；`test_worker_orchestration.py` 使用 fake CLI 跑 GEPA 并检查预算上限、checkpoint 恢复、候选 artifact 和 Profile 字节不变 |
 | [5.1](./requirements.md#req-5-1)、[5.2](./requirements.md#req-5-2)、[5.3](./requirements.md#req-5-3) | 最佳候选和 seed 在 TUA holdout、GAIA、ALFWorld 用同一候选字段与可比计划运行；TUA 默认每任务各 3 次；缺失或不可比的组标为未完成 | `prompt-evaluation/gepa/tests/test_final_comparison.py` 使用 fake Prompt Evaluation CLI 验证配对、原生 Profile、试次覆盖、恢复及不足/故障；真实端到端见 [7.2](./requirements.md#req-7-2) |
-| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | 候选、差异、身份、预算、逐组原始指标、故障、成本、晋升门槛、证据不足和未覆盖场景均可审阅，且无凭据/私有评分泄漏 | 报告 fixture 测试（待实现）；人工检查一次生成报告与候选产物 |
+| [6.1](./requirements.md#req-6-1)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3)、[6.4](./requirements.md#req-6-4) | 候选、差异、身份、预算、逐组原始指标、故障、成本、晋升门槛、证据不足和未覆盖场景均可审阅，且无凭据/私有评分泄漏 | `prompt-evaluation/gepa/tests/test_tua_report.py` 生成并校验完整、缺证据、回归、审计命中与凭据脱敏报告；真实运行报告待 7.2 |
 | [7.1](./requirements.md#req-7-1) | 默认回归在无真实模型、Docker 和外部数据服务时覆盖主要契约 | `npm run test:gepa-adapter`、`npm --prefix benchmarks test`、`npm test`；执行环境无凭据与容器依赖 |
 | [7.2](./requirements.md#req-7-2) | 显式真实端到端证明候选注入 TUA 隔离任务、官方 reward 回收、评分状态区分、holdout/跨环境对照完成且 default Profile 未变 | 经当次预检确认后运行真实端到端验收；比对请求身份、结果产物和运行前后 Profile 摘要。此项不纳入默认回归 |
 | 仓库架构文档（`AGENTS.md`） | 如果实现改变模块职责、状态/持久化归属、跨模块数据流或生命周期，相关架构文档同步反映已实现行为 | 检查 `docs/architecture/` 中对应文档与实现一致；发现上述变化时同一变更中更新文档 |
@@ -78,3 +78,5 @@ TODO 4 验证通过（2026-09-24）：`npm run test:gepa-adapter` 179 项通过�
 TODO 5 验证通过（2026-09-24）：`npm run test:gepa-adapter` 189 项通过。TUA start/resume 使用当前 `confirmationDigest` 并在启动前复核数据身份；预检公开任务时限、有效 reflection minibatch、请求预算、GEPA 轮次停止阈值和预留调用。离线 Worker 根据冻结的 TUA 分组生成单任务 Manifest，运行官方 GEPA 时将父/子训练批次与全验证评测纳入每轮预算预留；checkpoint seed 身份不符或预算越界时拒绝恢复，匹配的 checkpoint 恢复不会重复执行初始化 seed validation。成功、停止和失败路径保留 candidate-only artifact，且不调用发布器或改变 Profile。未运行真实模型、Docker 或 TUA 任务。
 
 TODO 6 验证通过（2026-09-24）：`npm run test:gepa-adapter` 194 项通过；`npm --prefix benchmarks test` 275 项通过。最终对照使用冻结候选、任务 Manifest、模型身份和试次计划，通过 TUA、GAIA、ALFWorld 原生 Prompt Evaluation Profile 配对运行；覆盖默认三次与次数覆盖、已提交结果恢复、无分数故障和环境缺失时的证据不足。benchmark 首次全量测试有一项既有清理时序断言失败，独立复跑与随后全量复跑均通过。未运行真实模型、Docker 或 TUA 任务。
+
+TODO 7 离线验证通过（2026-09-24）；整体 Feature Verification 为 `pending-human`，证据 freshness 为 `current`。测试时 HEAD 为 `c9817ba4`；`reporter.py` 与 `test_tua_report.py` 当前内容 SHA-256 为 `3694a9bca74cdc1d03513b41605f0cd463c9e7877249e03b9981da54c5d3a4e4`；验收契约 SHA-256（`requirements.md`、`design.md` 与 `tasks.md` 的 Latest Result 前缀按文件顺序以 NUL 分隔）为 `00ec953fa394d71935fbc732af97505a2faf3895e44ea60287b4b135dd260aae`。新增 `test_tua_report.py` 4 项通过；报告投影冻结的数据集、模型、候选文本/差异、每任务族及 benchmark 配对分数、失败/覆盖状态、可用 Token 用量和未知费用，并在凭据或审计命中时脱敏候选文本。报告按权威 plan/result/Attempt 重建并校验，不会自动发布 Profile。`npm run test:gepa-adapter` 198 项、`npm --prefix benchmarks test` 275 项、`npm test` 根回归 1334 项及 scripts 14 项全部通过。Req 7.2 真实模型/Docker/TUA 运行未执行，标记为 `pending-human`，需另行确认。

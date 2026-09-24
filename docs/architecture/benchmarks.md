@@ -182,8 +182,12 @@ GEPA 选定最佳候选后，Worker 重新核对 TUA Inspector 与请求中引�
 benchmark、任务、trial 与 seed/candidate 分开原子提交权威领域状态和分数，TUA 保存官方 reward，
 GAIA/ALFWorld 保存各自 passed/failed 映射分。对照摘要写入 `final-comparison/result.json`，
 区分完整、未完成、停止和证据不足，不保存标准答案或 verifier 正文。恢复时会复用身份匹配的有效
-领域结果并继续缺失项；基础设施失败保留为无分数结果，停止标记阻止启动下一项。当前摘要是独立于
-生命周期 `report.json` 的产物。
+领域结果并继续缺失项；基础设施失败保留为无分数结果，停止标记阻止启动下一项。生命周期
+`artifacts/report.json` 从冻结请求、候选产物、审计摘要和最终对照生成可审阅投影：包含 seed/候选
+Prompt 组件差异、数据与模型身份、预算、逐任务族和逐环境配对指标、失败与覆盖情况、可得 Token 用量，
+以及明确标记为未知的费用。审计命中或凭据会使候选文本脱敏并阻断正向建议；缺失证据标为不足，满足
+离线门槛也只要求人工审阅，绝不自动发布 default Profile。`final-comparison/result.json` 与 Attempt
+仍是领域评测的权威记录，报告会校验其身份并投影，不替代它们。
 
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
