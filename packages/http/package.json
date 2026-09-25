@@ -1,0 +1,10 @@
+{
+  "name": "@lazygoal/http",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.9"
+  }
+}

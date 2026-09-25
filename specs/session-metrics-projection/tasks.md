@@ -35,7 +35,7 @@
   - 验证方式：扩充 `packages/session-metrics/test/session-metrics-service.test.ts` 并新增跨存储故障测试（待实现）；执行 `npx tsx --test packages/session-metrics/test/*.test.ts`。
   - _Requirements: [2.3](./requirements.md#req-2-3), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 6. 建立可复用的本机 HTTP 服务包
+- [x] //TODO 6. 建立可复用的本机 HTTP 服务包
 
   - 实现目标：新增基于 Hono 与 Node 适配器的 `@lazygoal/http`，提供通用子路由挂载与显式启动、关闭，不引入指标依赖。
   - 成功判据：宿主能在回环地址启动、挂载独立路由并释放端口；未挂载指标模块时不存在指标路径，监听失败明确返回给启动方。
