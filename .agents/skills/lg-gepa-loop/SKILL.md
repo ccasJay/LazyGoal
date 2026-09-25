@@ -174,3 +174,4 @@ flowchart TD
 4. **停在 Worktree**：
    - 明确指出当前分支名与 worktree 路径；
    - 提示用户审查并决定是否将该分支合入目标分支（如 `dev`）。
+
