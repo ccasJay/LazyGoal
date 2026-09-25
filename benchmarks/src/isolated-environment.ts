@@ -837,8 +837,9 @@ export class IsolatedEnvironment {
     private async pullAndInspect(image: string, platform: string, signal: AbortSignal, receive: (imageId: string) => void): Promise<void> {
         let inspectResult = await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 });
         if (inspectResult.code !== 0) {
-            requireSuccess(await this.runProcess("docker", ["pull", "--platform", platform, image], { timeoutMs: 1_200_000, signal, maxBytes: 16 * 1024, truncate: true }), "Pull isolated image");
-            inspectResult = requireSuccess(await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 }), "Inspect isolated image");
+            const pulledInspect = await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 });
+            requireSuccess(pulledInspect, "Inspect isolated image");
+            inspectResult = pulledInspect;
         }
         const inspected = inspectResult.stdout.trim();
         const [imageId, actualPlatform] = inspected.split("\t");
@@ -936,6 +937,7 @@ export class IsolatedEnvironment {
     private async injectWorker(name: string, config: WorkerEntryConfig, signal: AbortSignal): Promise<void> {
         const artifact = config.artifact;
         if (artifact === undefined) return;
+        const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
         requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.runProcess("docker", ["cp", source, `${name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
