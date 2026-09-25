@@ -54,6 +54,7 @@ function finish(
     runId: string,
     callId: string,
     usage: Extract<ModelCallMetricRecord, { recordType: "call_finished" }>["usage"],
+    decodeDurationMs?: number,
 ): ModelCallMetricRecord {
     return {
         recordType: "call_finished",
@@ -63,6 +64,7 @@ function finish(
         occurredAt: "2026-09-25T00:00:01.000Z",
         outcome: "completed",
         usage,
+        ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
     };
 }
 
@@ -143,4 +145,64 @@ test("SessionMetricsService rejects conflicting facts and distinguishes a missin
 
     await assert.rejects(service.read(goalId), SessionMetricsProjectionError);
     assert.equal(await service.read("missing-goal"), undefined);
+});
+
+test("SessionMetricsService derives cache hit rate and generation speed from eligible calls only", async () => {
+    const goalId = "goal-projection";
+    const service = serviceFor(new Map([
+        ["run-history", [
+            start(goalId, "run-history", "cache-speed"),
+            finish(goalId, "run-history", "cache-speed", {
+                source: "provider_reported", inputTokens: 100, outputTokens: 50, cachedInputTokens: 40,
+            }, 500),
+            start(goalId, "run-history", "no-cache-or-speed"),
+            finish(goalId, "run-history", "no-cache-or-speed", {
+                source: "provider_reported", inputTokens: 50, outputTokens: 10,
+            }),
+            start(goalId, "run-history", "zero-input"),
+            finish(goalId, "run-history", "zero-input", {
+                source: "provider_reported", inputTokens: 0, outputTokens: 20, cachedInputTokens: 0,
+            }, 1000),
+            start(goalId, "run-history", "cache-over-input"),
+            finish(goalId, "run-history", "cache-over-input", {
+                source: "provider_reported", inputTokens: 20, outputTokens: 10, cachedInputTokens: 21,
+            }, 1000),
+            start(goalId, "run-history", "missing-usage"),
+            finish(goalId, "run-history", "missing-usage", { source: "unavailable" }),
+        ]],
+    ]));
+
+    const snapshot = await service.read(goalId);
+
+    assert.ok(snapshot);
+    const run = snapshot.runs[0]!;
+    assert.equal(run.cacheHitRate, 0.4);
+    assert.equal(run.cacheMeasuredCalls, 1);
+    assert.equal(run.cacheExcludedCalls, 4);
+    assert.equal(run.tokensPerSecond, 80 / 2.5);
+    assert.equal(run.throughputMeasuredCalls, 3);
+    assert.equal(run.throughputExcludedCalls, 2);
+    assert.equal(snapshot.cacheHitRate, 0.4);
+    assert.equal(snapshot.tokensPerSecond, 80 / 2.5);
+});
+
+test("SessionMetricsService returns unavailable efficiency values when no call qualifies", async () => {
+    const service = serviceFor(new Map([
+        ["run-history", [
+            start("goal-projection", "run-history", "missing-cache"),
+            finish("goal-projection", "run-history", "missing-cache", {
+                source: "provider_reported", inputTokens: 10, outputTokens: 5,
+            }),
+        ]],
+    ]));
+
+    const snapshot = await service.read("goal-projection");
+
+    assert.ok(snapshot);
+    assert.equal(snapshot.cacheHitRate, null);
+    assert.equal(snapshot.cacheMeasuredCalls, 0);
+    assert.equal(snapshot.cacheExcludedCalls, 1);
+    assert.equal(snapshot.tokensPerSecond, null);
+    assert.equal(snapshot.throughputMeasuredCalls, 0);
+    assert.equal(snapshot.throughputExcludedCalls, 1);
 });

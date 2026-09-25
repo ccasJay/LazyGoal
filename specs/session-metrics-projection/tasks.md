@@ -21,7 +21,7 @@
   - 验证方式：新增 `packages/session-metrics/test/session-metrics-service.test.ts`（待实现）；执行 `npx tsx --test packages/session-metrics/test/session-metrics-service.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 4. 补齐缓存命中率与生成速度的参与范围
+- [x] //TODO 4. 补齐缓存命中率与生成速度的参与范围
 
   - 实现目标：在投影中按真实缓存读取字段、正输入量、真实输出量与正解码时长计算比率，并给出参与和排除调用数。
   - 成功判据：缺少缓存字段的调用不被当作零命中；缺少首文本增量或权威输出用量的调用不参与速度；无合格调用时两项均不可用。

@@ -9,6 +9,14 @@ import type {
 /** 当前用量覆盖程度。 */
 export type MetricsCoverage = "complete" | "partial" | "unavailable";
 
+interface RunProjection {
+    readonly metrics: RunSessionMetrics;
+    readonly cachedInputTokens: number;
+    readonly cacheInputTokens: number;
+    readonly throughputOutputTokens: number;
+    readonly decodeDurationMs: number;
+}
+
 /**
  * 一个 Run 的模型用量与 Runtime Step 数投影。
  *
@@ -21,6 +29,8 @@ export type MetricsCoverage = "complete" | "partial" | "unavailable";
  * const run: RunSessionMetrics = {
  *     runId: "run-1", stepCount: 2, reportedCalls: 1, missingCalls: 0,
  *     inputTokens: 12, outputTokens: 8, coverage: "complete",
+ *     cacheMeasuredCalls: 1, cacheExcludedCalls: 0, cacheHitRate: 0.25,
+ *     throughputMeasuredCalls: 1, throughputExcludedCalls: 0, tokensPerSecond: 8,
  * };
  * ```
  */
@@ -39,6 +49,18 @@ export interface RunSessionMetrics {
     readonly outputTokens: number | null;
     /** 该 Run 的用量覆盖状态。 */
     readonly coverage: MetricsCoverage;
+    /** 满足真实缓存读取数及正输入量条件的调用数。 */
+    readonly cacheMeasuredCalls: number;
+    /** 未满足缓存命中率条件的调用数。 */
+    readonly cacheExcludedCalls: number;
+    /** 缓存读取 token / 参与调用输入 token；无参与调用时为 `null`。 */
+    readonly cacheHitRate: number | null;
+    /** 同时具有真实输出 token 与正解码时长的调用数。 */
+    readonly throughputMeasuredCalls: number;
+    /** 未满足生成速度条件的调用数。 */
+    readonly throughputExcludedCalls: number;
+    /** 输出 token / 首文本增量至完成的秒数；无参与调用时为 `null`。 */
+    readonly tokensPerSecond: number | null;
 }
 
 /**
@@ -49,7 +71,9 @@ export interface RunSessionMetrics {
  * const snapshot: SessionMetricsSnapshot = {
  *     goalId: "goal-1", roundCount: 1, stepCount: 2,
  *     reportedCalls: 1, missingCalls: 0, inputTokens: 12,
- *     outputTokens: 8, coverage: "complete", runs: [],
+ *     outputTokens: 8, coverage: "complete", cacheMeasuredCalls: 1,
+ *     cacheExcludedCalls: 0, cacheHitRate: 0.25, throughputMeasuredCalls: 1,
+ *     throughputExcludedCalls: 0, tokensPerSecond: 8, runs: [],
  * };
  * ```
  */
@@ -70,6 +94,18 @@ export interface SessionMetricsSnapshot {
     readonly outputTokens: number | null;
     /** 全会话的用量覆盖状态。 */
     readonly coverage: MetricsCoverage;
+    /** 所有 Run 满足缓存命中率条件的调用数。 */
+    readonly cacheMeasuredCalls: number;
+    /** 所有 Run 未满足缓存命中率条件的调用数。 */
+    readonly cacheExcludedCalls: number;
+    /** 全会话缓存读取 token / 参与调用输入 token；无参与调用时为 `null`。 */
+    readonly cacheHitRate: number | null;
+    /** 所有 Run 满足生成速度条件的调用数。 */
+    readonly throughputMeasuredCalls: number;
+    /** 所有 Run 未满足生成速度条件的调用数。 */
+    readonly throughputExcludedCalls: number;
+    /** 全会话输出 token / 首文本增量至完成的秒数；无参与调用时为 `null`。 */
+    readonly tokensPerSecond: number | null;
     /** 按完成顺序排列的历史 Run，最后一项为当前 Run。 */
     readonly runs: readonly RunSessionMetrics[];
 }
@@ -109,10 +145,11 @@ export class SessionMetricsService {
         if (goal === undefined) return undefined;
 
         const runs = this.runsFor(goal);
-        const runMetrics = await Promise.all(runs.map(async ({ runId, stepCount }) => {
+        const projections = await Promise.all(runs.map(async ({ runId, stepCount }) => {
             const records = await this.metrics.read({ goalId: goal.id, runId });
             return projectRunMetrics(goal.id, runId, stepCount, records);
         }));
+        const runMetrics = projections.map(({ metrics }) => metrics);
         const reportedCalls = sumSafe(runMetrics.map((run) => run.reportedCalls), "reportedCalls");
         const missingCalls = sumSafe(runMetrics.map((run) => run.missingCalls), "missingCalls");
         const reportedRuns = runMetrics.filter((run) => run.inputTokens !== null);
@@ -122,6 +159,25 @@ export class SessionMetricsService {
         const outputTokens = reportedRuns.length === 0
             ? null
             : sumSafe(reportedRuns.map((run) => run.outputTokens!), "outputTokens");
+        const totalCalls = sumSafe(runMetrics.map((run) => run.reportedCalls + run.missingCalls), "callCount");
+        const cacheCandidates = sumSafe(runMetrics.map((run) => run.cacheMeasuredCalls), "cacheMeasuredCalls");
+        const throughputCandidates = sumSafe(runMetrics.map((run) => run.throughputMeasuredCalls), "throughputMeasuredCalls");
+        const cacheInputTokens = sumOptional(projections.map((projection) => projection.cacheInputTokens));
+        const cachedInputTokens = sumOptional(projections.map((projection) => projection.cachedInputTokens));
+        const cacheAggregateValid = cacheInputTokens !== undefined && cachedInputTokens !== undefined;
+        const cacheMeasuredCalls = cacheAggregateValid ? cacheCandidates : 0;
+        const cacheExcludedCalls = cacheAggregateValid ? totalCalls - cacheCandidates : totalCalls;
+        const cacheHitRate = !cacheAggregateValid || cacheCandidates === 0
+            ? null
+            : safeRatio(cachedInputTokens, cacheInputTokens);
+        const throughputOutputTokens = sumOptional(projections.map((projection) => projection.throughputOutputTokens));
+        const decodeDurationMs = sumFinite(projections.map((projection) => projection.decodeDurationMs));
+        const throughputAggregateValid = throughputOutputTokens !== undefined && decodeDurationMs !== undefined;
+        const throughputMeasuredCalls = throughputAggregateValid ? throughputCandidates : 0;
+        const throughputExcludedCalls = throughputAggregateValid ? totalCalls - throughputCandidates : totalCalls;
+        const tokensPerSecond = !throughputAggregateValid || throughputCandidates === 0
+            ? null
+            : safeRatio(throughputOutputTokens, decodeDurationMs / 1000);
 
         return Object.freeze({
             goalId: goal.id,
@@ -132,6 +188,12 @@ export class SessionMetricsService {
             inputTokens,
             outputTokens,
             coverage: coverageOf(reportedCalls, missingCalls),
+            cacheMeasuredCalls,
+            cacheExcludedCalls,
+            cacheHitRate,
+            throughputMeasuredCalls,
+            throughputExcludedCalls,
+            tokensPerSecond,
             runs: Object.freeze(runMetrics),
         });
     }
@@ -178,7 +240,7 @@ function projectRunMetrics(
     runId: string,
     stepCount: number,
     records: readonly ModelCallMetricRecord[],
-): RunSessionMetrics {
+): RunProjection {
     const calls = new Map<string, {
         started?: string;
         finished?: { readonly serialized: string; readonly record: ModelCallFinishedMetricRecord };
@@ -210,25 +272,67 @@ function projectRunMetrics(
     let missingCalls = 0;
     let inputTokens = 0;
     let outputTokens = 0;
+    const cacheValues: { readonly inputTokens: number; readonly cachedInputTokens: number }[] = [];
+    const throughputValues: { readonly outputTokens: number; readonly decodeDurationMs: number }[] = [];
+    const callCount = calls.size;
     for (const [callId, call] of calls) {
         const finished = call.finished?.record;
         if (finished?.outcome === "completed" && finished.usage.source === "provider_reported") {
             reportedCalls += 1;
             inputTokens = sumSafe([inputTokens, finished.usage.inputTokens], `inputTokens for ${callId}`);
             outputTokens = sumSafe([outputTokens, finished.usage.outputTokens], `outputTokens for ${callId}`);
+            const usage = finished.usage;
+            if (
+                usage.cachedInputTokens !== undefined
+                && Number.isSafeInteger(usage.cachedInputTokens)
+                && usage.cachedInputTokens >= 0
+                && usage.inputTokens > 0
+                && usage.cachedInputTokens <= usage.inputTokens
+            ) {
+                cacheValues.push({ inputTokens: usage.inputTokens, cachedInputTokens: usage.cachedInputTokens });
+            }
+            if (finished.decodeDurationMs !== undefined && finished.decodeDurationMs > 0) {
+                throughputValues.push({ outputTokens: usage.outputTokens, decodeDurationMs: finished.decodeDurationMs });
+            }
         } else {
             missingCalls += 1;
         }
     }
+    const summedCacheInputs = sumOptional(cacheValues.map(({ inputTokens }) => inputTokens));
+    const summedCachedInputs = sumOptional(cacheValues.map(({ cachedInputTokens }) => cachedInputTokens));
+    const cacheAggregateValid = summedCacheInputs !== undefined && summedCachedInputs !== undefined;
+    const cacheMeasuredCalls = cacheAggregateValid ? cacheValues.length : 0;
+    const cacheHitRate = !cacheAggregateValid || cacheMeasuredCalls === 0
+        ? null
+        : safeRatio(summedCachedInputs, summedCacheInputs);
+    const summedThroughputOutputs = sumOptional(throughputValues.map(({ outputTokens }) => outputTokens));
+    const summedDurations = sumFinite(throughputValues.map(({ decodeDurationMs: duration }) => duration));
+    const throughputAggregateValid = summedThroughputOutputs !== undefined && summedDurations !== undefined;
+    const throughputMeasuredCalls = throughputAggregateValid ? throughputValues.length : 0;
+    const tokensPerSecond = !throughputAggregateValid || throughputMeasuredCalls === 0
+        ? null
+        : safeRatio(summedThroughputOutputs, summedDurations / 1000);
 
     return Object.freeze({
-        runId,
-        stepCount,
-        reportedCalls,
-        missingCalls,
-        inputTokens: reportedCalls === 0 ? null : inputTokens,
-        outputTokens: reportedCalls === 0 ? null : outputTokens,
-        coverage: coverageOf(reportedCalls, missingCalls),
+        metrics: Object.freeze({
+            runId,
+            stepCount,
+            reportedCalls,
+            missingCalls,
+            inputTokens: reportedCalls === 0 ? null : inputTokens,
+            outputTokens: reportedCalls === 0 ? null : outputTokens,
+            coverage: coverageOf(reportedCalls, missingCalls),
+            cacheMeasuredCalls,
+            cacheExcludedCalls: callCount - cacheMeasuredCalls,
+            cacheHitRate,
+            throughputMeasuredCalls,
+            throughputExcludedCalls: callCount - throughputMeasuredCalls,
+            tokensPerSecond,
+        }),
+        cacheInputTokens: cacheAggregateValid ? summedCacheInputs : 0,
+        cachedInputTokens: cacheAggregateValid ? summedCachedInputs : 0,
+        throughputOutputTokens: throughputAggregateValid ? summedThroughputOutputs : 0,
+        decodeDurationMs: throughputAggregateValid ? summedDurations : 0,
     });
 }
 
@@ -244,4 +348,22 @@ function sumSafe(values: readonly number[], label: string): number {
         throw new SessionMetricsProjectionError(`Unsafe integer total for ${label}`);
     }
     return total;
+}
+
+function safeRatio(numerator: number, denominator: number): number | null {
+    if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) {
+        return null;
+    }
+    const ratio = numerator / denominator;
+    return Number.isFinite(ratio) ? ratio : null;
+}
+
+function sumOptional(values: readonly number[]): number | undefined {
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return Number.isSafeInteger(total) ? total : undefined;
+}
+
+function sumFinite(values: readonly number[]): number | undefined {
+    const total = values.reduce((sum, value) => sum + value, 0);
+    return Number.isFinite(total) && total > 0 ? total : values.length === 0 ? 0 : undefined;
 }

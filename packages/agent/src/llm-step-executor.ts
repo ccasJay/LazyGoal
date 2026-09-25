@@ -340,7 +340,8 @@ export class LLMStepExecutor implements StepExecutor {
             }
             response = event.response;
             if (firstTextDeltaAt !== undefined) {
-                decodeDurationMs = Math.max(0, performance.now() - firstTextDeltaAt);
+                const measuredDurationMs = performance.now() - firstTextDeltaAt;
+                if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
             }
         }
 
