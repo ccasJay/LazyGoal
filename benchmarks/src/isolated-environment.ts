@@ -592,11 +592,12 @@ export class IsolatedEnvironment {
 
             if (created && errors.length === 0 && !controller.signal.aborted
                 && (options.acp !== undefined || options.runAgent !== undefined)) {
+                const diagnosticsBuffer: string[] = [];
                 try {
                     worker = options.container !== undefined && options.openWorkerProcess === undefined
                         ? await options.container.openWorkerProcess(options.taskTimeoutMs ?? 300_000, controller.signal)
                         : await this.openWorker(containerName, workerConfig, options.openWorkerProcess, options.taskTimeoutMs ?? 300_000, controller.signal);
-                    void drainDiagnostics(worker.errorOutput);
+                    void drainDiagnostics(worker.errorOutput, (chunk) => diagnosticsBuffer.push(chunk));
                     void worker.closed.catch(() => undefined);
                     if (options.acp !== undefined) {
                         mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
@@ -634,7 +635,11 @@ export class IsolatedEnvironment {
                         pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
                         status = "failed";
                     } else {
-                        pushError(errors, "agent", error);
+                        const diag = diagnosticsBuffer.join("").trim();
+                        const err = diag && error instanceof Error && error.message.includes("Internal error")
+                            ? new Error(`Internal error: ${diag}`)
+                            : error;
+                        pushError(errors, "agent", err);
                         status = "failed";
                     }
                 }
@@ -938,7 +943,8 @@ export class IsolatedEnvironment {
         const artifact = config.artifact;
         if (artifact === undefined) return;
         const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
-        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-m", "755", "-p", "/opt/lazygoal"], options), "Create Worker directory");
+        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-m", "777", "-p", "/opt/lazygoal", "/opt/lazygoal/state"], options), "Create Worker directory");
+        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/chmod", "777", "/opt/lazygoal", "/opt/lazygoal/state"], options), "Chmod Worker directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.runProcess("docker", ["cp", source, `${name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
         }
@@ -1052,15 +1058,17 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-async function drainDiagnostics(stream: ReadableStream<Uint8Array>): Promise<void> {
+async function drainDiagnostics(stream: ReadableStream<Uint8Array>, onChunk?: (chunk: string) => void): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     try {
         while (true) {
             const chunk = await reader.read();
             if (chunk.done) break;
+            const text = decoder.decode(chunk.value);
+            onChunk?.(text);
             if (process.env.DEBUG_BENCHMARK_WORKER) {
-                process.stderr.write(decoder.decode(chunk.value));
+                process.stderr.write(text);
             }
         }
     } catch {

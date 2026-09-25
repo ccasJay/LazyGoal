@@ -295,13 +295,18 @@ export async function runTuaBenchWorker(): Promise<void> {
             return {
                 async prompt(_content, control): Promise<AcpPromptResult> {
                     if (control.signal.aborted) return { stopReason: "cancelled" };
-                    await runTuaBenchAcpTask({
-                        metadata,
-                        llmAdapter: adapter!,
-                        renderer,
-                        contextCompactor: new DropOldestContextCompactor(),
-                        signal: control.signal,
-                    });
+                    try {
+                        await runTuaBenchAcpTask({
+                            metadata,
+                            llmAdapter: adapter as unknown as LLMAdapter,
+                            renderer,
+                            contextCompactor: new DropOldestContextCompactor(),
+                            signal: control.signal,
+                        });
+                    } catch (error) {
+                        process.stderr.write(`[tua-bench worker error] ${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+                        throw error;
+                    }
                     if (control.signal.aborted) return { stopReason: "cancelled" };
                     return { stopReason: "end_turn" };
                 },
