@@ -936,11 +936,11 @@ export class IsolatedEnvironment {
     private async injectWorker(name: string, config: WorkerEntryConfig, signal: AbortSignal): Promise<void> {
         const artifact = config.artifact;
         if (artifact === undefined) return;
-        const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
-        requireSuccess(await this.runProcess("docker", ["exec", name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker directory");
+        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.runProcess("docker", ["cp", source, `${name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
         }
+        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/chmod", "-R", "a+rx", "/opt/lazygoal"], options), "Chmod Worker directory");
     }
 
     private async openWorker(name: string, config: WorkerEntryConfig, injected: InteractiveProcessRunner | undefined, timeoutMs: number, signal: AbortSignal): Promise<InteractiveProcess> {
