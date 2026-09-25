@@ -217,6 +217,7 @@ test("composition root isolates workspace, freezes the default identity, and doe
     assert.equal(root.goalsDirectory, expectedWorkspace.goalsDirectory);
     assert.equal(root.trajectoriesDirectory, expectedWorkspace.trajectoriesDirectory);
     assert.equal(root.tracesDirectory, expectedWorkspace.tracesDirectory);
+    assert.equal(root.metricsDirectory, expectedWorkspace.metricsDirectory);
     assert.equal(root.contextSidecarsDirectory, expectedWorkspace.contextSidecarsDirectory);
     assert.ok(root.trajectoryStore !== undefined);
     assert.equal((root as any).sidecarStore, undefined);

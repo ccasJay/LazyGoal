@@ -2,7 +2,7 @@
 
 > 本目录只描述当前实现；功能设计、历史决策和迁移说明保留在 `specs/`。
 
-LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`llm` 隔离供应商；`execution-stream` 只提供进程内 JSON-safe 实时事件与有界订阅；`storage` 保存当前 Snapshot；`tui` 渲染同一个 Session 时间线。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
+LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal、Run、Trajectory、Working Memory 和持久化边界；`agent` 将当前 Goal 投影为单轮模型请求；`contracts` 生成模型输出契约；`llm` 隔离供应商；`execution-stream` 只提供进程内 JSON-safe 实时事件与有界订阅；`storage` 保存当前 Snapshot 与独立模型调用指标事实；`session-metrics` 从 Goal 和调用事实投影会话统计；`http` 提供显式启动的本机路由宿主；`tui` 负责装配但不会自动监听端口。当前协议固定为 Prompt Bundle v1、`structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`，不为旧开发数据提供迁移路径。
 
 | 概念 | 含义 |
 | --- | --- |
@@ -14,6 +14,7 @@ LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal
 | Working Memory | 从已提交 Trajectory 的 accepted Patch 临时归约出的上下文 |
 | Timeline | TUI Controller 按提交顺序维护的不可变消息、Markdown Block 与步骤列表 |
 | Execution Stream | 按 Goal/Run 隔离的实时事件旁路；不写 Snapshot 或 Trajectory |
+| Session Metrics | 基于 Goal 快照和模型调用事实重新归约的查询投影；不参与 Goal 恢复 |
 
 ## 模块关系
 
@@ -37,6 +38,13 @@ flowchart LR
     T --> X
     X --> U[TUI Stream Adapter]
     X --> W[Future WebUI Adapter]
+    E -->|provider usage facts| MS[Runtime Metrics Port]
+    MS --> ST
+    C --> MC[Session Metrics Service]
+    MC --> S
+    MC --> ST
+    C --> H[HTTP Host: loopback, explicit start]
+    MC -->|mount read-only routes| H
 ```
 
 ## 主流程
@@ -56,6 +64,8 @@ flowchart LR
 - 普通 Run 不产生任务审批等待；Plan Prompt 的提案顺序不是 Tool 硬门控，未批准前的业务 Tool 仍由既有 Profile、Tool Policy 和 Action 审批控制。
 - Runtime 独占状态转换、持久化、Tool 授权和 Evidence 校验；Agent 不保存 Goal，也不决定 Runtime ID、Step、Epoch 或审批状态。
 - `goalId` 定位 Session，`runId` 标识执行实例；恢复时二者必须同时匹配。
+- 模型调用指标是独立的投影事实；查询时从 Goal 快照、JSONL 调用记录和覆盖标记重新计算，不成为 Runtime 恢复输入。
+- 通用 HTTP 宿主只负责 Hono 子路由挂载和回环监听生命周期；Session Metrics 自己定义只读 JSON/SSE 路由，TUI 组合根仅装配路由而不自动启动服务。
 - `/plan` 选择当前或下一 Run 的模式且只消费一次；后续 Run 只由用户新输入创建。
 - GoalPlan Todo 不绑定 Run；同一 Run 可以顺序推进多个 Todo，旧 Run 或未提交 Observation 不能完成 Todo。
 - 跨 Run 历史必须携带完整 `(goalId, runId)` 来源；旧 Run 的 Lookup 结果不能成为当前 Run 的完成 Evidence。
@@ -72,5 +82,7 @@ flowchart LR
 - [Contracts](./contracts.md)：Canonical/Wire 模型输出契约和 Tool 输入契约。
 - [LLM](./llm.md)：供应商无关 Adapter、配置与取消语义。
 - [Execution Stream](./execution-stream.md)：Goal/Run 实时事件 Envelope、可见性策略和进程内订阅。
+- [Session Metrics](./session-metrics.md)：用量事实、会话投影、覆盖状态与只读订阅路由。
+- [HTTP Host](./http.md)：可复用本机 HTTP 服务、路由挂载与显式生命周期。
 - [TUI](./tui.md)：Session Controller、统一时间线和交互抽屉。
 - [Benchmark Evaluation](./benchmarks.md)：Headless Root、隔离 benchmark 与 Prompt Evaluation 入口。

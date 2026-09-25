@@ -144,6 +144,19 @@ export type {
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
 export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
+export type {
+    MetricsStore,
+    ModelCallFinishedMetricRecord,
+    ModelCallMetricReadQuery,
+    ModelCallMetricRecord,
+    ModelCallStartedMetricRecord,
+    ModelCallMetricsRecorder,
+    ModelCallMetricsCoverage,
+    ModelCallMetricsCoverageStore,
+    ModelCallMetricsGap,
+    ProviderReportedModelCallUsage,
+    UnavailableModelCallUsage,
+} from "./model-call-metrics";
 export {
     DEFAULT_WORKING_MEMORY_LIMITS,
     WORKING_MEMORY_LIMITS_ERROR_CODE,

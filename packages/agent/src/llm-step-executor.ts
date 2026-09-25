@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMStreamEvent } from "../../llm/src/core/types";
+import { readNormalizedUsage } from "../../llm/src/core/usage";
 import type {
     AgentDecision,
 } from "../../runtime/src/domain";
@@ -23,7 +25,10 @@ import {
 import { LLMResponseProtocolError } from "./errors";
 import type { PromptBundleRenderer } from "./prompting/types";
 import type { TrajectoryModelContextAssembler } from "./trajectory-model-context-assembler";
-import type { DiagnosticTraceSink } from "../../runtime/src/index";
+import type {
+    DiagnosticTraceSink,
+    ModelCallMetricsRecorder,
+} from "../../runtime/src/index";
 import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "./model-context-budget";
 import {
     MutableModelBinding,
@@ -63,6 +68,8 @@ export interface LLMStepExecutorDependencies {
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** 可选的独立指标事实 Store；写入失败不会改变执行结果。 */
+    readonly metricsRecorder?: ModelCallMetricsRecorder;
     /** 当前 trajectory-layered@1 调用级上下文组装器。 */
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
     /** 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
@@ -90,6 +97,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
 
@@ -98,6 +106,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
+        this.metricsRecorder = dependencies.metricsRecorder;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
         if (dependencies.bindingProvider !== undefined) {
@@ -152,25 +161,50 @@ export class LLMStepExecutor implements StepExecutor {
         throwIfAborted(control);
 
         const startedAt = Date.now();
+        const callId = randomUUID();
+        const metricIdentity = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            callId,
+        };
         const providerRequest = modelCapabilities === undefined
             ? plan.request
             : { ...plan.request, maxOutputTokens: modelCapabilities.maxOutputTokens };
         await recordLlmRequest(this.traceSink, goal, providerRequest);
+        await this.appendModelMetric({
+            recordType: "call_started",
+            ...metricIdentity,
+            occurredAt: new Date().toISOString(),
+        });
         let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
+        let decodeDurationMs: number | undefined;
 
         try {
             if (adapter.stream === undefined) {
                 response = await adapter.generate(providerRequest, control);
                 this.publishFallbackModelEvents(input, response);
             } else {
-                response = await this.consumeModelStream(
+                const streamed = await this.consumeModelStream(
                     adapter,
                     providerRequest,
                     input,
                     control,
                 );
+                response = streamed.response;
+                decodeDurationMs = streamed.decodeDurationMs;
             }
+            throwIfAborted(control);
         } catch (error) {
+            await this.appendModelMetric({
+                recordType: "call_finished",
+                ...metricIdentity,
+                occurredAt: new Date().toISOString(),
+                outcome: isExecutionAbortedError(error) || control?.signal?.aborted
+                    ? "cancelled"
+                    : "failed",
+                usage: { source: "unavailable" },
+            });
             await recordLlmError(
                 this.traceSink,
                 goal,
@@ -188,7 +222,17 @@ export class LLMStepExecutor implements StepExecutor {
 
             throw error;
         }
-        throwIfAborted(control);
+        const usage = readNormalizedUsage(response.providerMetadata);
+        await this.appendModelMetric({
+            recordType: "call_finished",
+            ...metricIdentity,
+            occurredAt: new Date().toISOString(),
+            outcome: "completed",
+            usage: usage === undefined
+                ? { source: "unavailable" }
+                : { source: "provider_reported", ...usage },
+            ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
+        });
         await recordLlmResponse(
             this.traceSink,
             goal,
@@ -274,28 +318,51 @@ export class LLMStepExecutor implements StepExecutor {
         request: Parameters<LLMAdapter["generate"]>[0],
         input: StepExecutionInput,
         control: StepExecutionInput["control"],
-    ): Promise<LLMResponse> {
+    ): Promise<{ readonly response: LLMResponse; readonly decodeDurationMs?: number }> {
         if (adapter.stream === undefined) {
             const response = await adapter.generate(request, control);
             this.publishFallbackModelEvents(input, response);
-            return response;
+            return { response };
         }
 
         let response: LLMResponse | undefined;
+        let firstTextDeltaAt: number | undefined;
+        let decodeDurationMs: number | undefined;
         for await (const event of adapter.stream.call(adapter, request, control)) {
             throwIfAborted(control);
+            if (event.kind === "assistant_text_delta" && event.text.length > 0 && firstTextDeltaAt === undefined) {
+                firstTextDeltaAt = performance.now();
+            }
             this.publishModelStreamEvent(input, event);
             if (event.kind !== "completed") continue;
             if (response !== undefined) {
                 throw new LLMResponseProtocolError("LLM stream produced multiple completed responses");
             }
             response = event.response;
+            if (firstTextDeltaAt !== undefined) {
+                const measuredDurationMs = performance.now() - firstTextDeltaAt;
+                if (measuredDurationMs > 0) decodeDurationMs = measuredDurationMs;
+            }
         }
 
         if (response === undefined) {
             throw new LLMResponseProtocolError("LLM stream ended without a completed response");
         }
-        return response;
+        return {
+            response,
+            ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
+        };
+    }
+
+    private async appendModelMetric(
+        record: Parameters<ModelCallMetricsRecorder["record"]>[0],
+    ): Promise<void> {
+        if (this.metricsRecorder === undefined) return;
+        try {
+            await this.metricsRecorder.record(record);
+        } catch {
+            // 指标是独立观察通道；写入故障不得改变 Agent 决策语义。
+        }
     }
 
     private publishFallbackModelEvents(input: StepExecutionInput, response: LLMResponse): void {
