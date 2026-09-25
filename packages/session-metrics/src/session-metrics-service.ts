@@ -3,11 +3,26 @@ import type { GoalStore } from "../../runtime/src/goal-store";
 import type {
     MetricsStore,
     ModelCallFinishedMetricRecord,
+    ModelCallMetricsCoverageStore,
+    ModelCallMetricsGap,
+    ModelCallMetricsRecorder,
     ModelCallMetricRecord,
 } from "../../runtime/src/model-call-metrics";
 
 /** 当前用量覆盖程度。 */
 export type MetricsCoverage = "complete" | "partial" | "unavailable";
+
+/**
+ * 实时指标订阅中的快照或可恢复读取错误。
+ *
+ * @example
+ * ```ts
+ * const update: SessionMetricsWatchEvent = { kind: "snapshot", snapshot };
+ * ```
+ */
+export type SessionMetricsWatchEvent =
+    | { readonly kind: "snapshot"; readonly snapshot: SessionMetricsSnapshot }
+    | { readonly kind: "error"; readonly error: unknown };
 
 interface RunProjection {
     readonly metrics: RunSessionMetrics;
@@ -123,15 +138,76 @@ export interface SessionMetricsSnapshot {
  * const snapshot = await service.read("goal-1");
  * ```
  */
-export class SessionMetricsService {
+export class SessionMetricsService implements ModelCallMetricsRecorder {
+    private readonly activeCalls = new Set<string>();
+    private readonly processGaps = new Map<string, Map<string, ModelCallMetricsGap>>();
+    private readonly revisions = new Map<string, number>();
+    private readonly waiters = new Map<string, Set<() => void>>();
     /**
      * @param goals - 当前及已完成 Goal 快照的读取边界。
      * @param metrics - 每个 Goal/Run 调用事实的读取边界。
      */
     constructor(
         private readonly goals: Pick<GoalStore, "restore">,
-        private readonly metrics: Pick<MetricsStore, "read">,
+        private readonly metrics: MetricsStore,
+        private readonly coverageStore: ModelCallMetricsCoverageStore,
     ) {}
+
+    /**
+     * 为新建 Goal 持久化完整采集起点。
+     *
+     * @param goalId - 新 Goal 的稳定标识。
+     * @returns 标记持久化后 resolve；已有标记不会被覆盖。
+     * @throws 覆盖标记写入失败时 reject。
+     */
+    async initializeNewGoal(goalId: string): Promise<void> {
+        await this.coverageStore.initializeGoal(goalId, true);
+        this.signalChange(goalId);
+    }
+
+    /**
+     * 将一次模型调用事实写入 Store 并通知当前订阅者。
+     *
+     * @remarks
+     * 开始事实在写入前进入当前进程的活动集合，避免查询把正在进行的调用误报
+     * 为缺失用量。追加失败会尽力持久化缺口并保留进程内缺口状态，然后 reject；
+     * Agent 会隔离该错误，不影响 Goal 执行。
+     *
+     * @param fact - 调用开始或结束事实。
+     * @throws 指标事实写入失败；缺口标记失败也不覆盖原始写入错误。
+     */
+    async record(fact: ModelCallMetricRecord): Promise<void> {
+        const key = callKey(fact.goalId, fact.runId, fact.callId);
+        if (fact.recordType === "call_started") this.activeCalls.add(key);
+        try {
+            await this.metrics.append(fact);
+        } catch (error) {
+            if (fact.recordType === "call_finished") this.activeCalls.delete(key);
+            this.rememberGap(fact);
+            try {
+                await this.coverageStore.recordGap({
+                    goalId: fact.goalId,
+                    runId: fact.runId,
+                    callId: fact.callId,
+                });
+            } catch {
+                // 进程内缺口仍用于当前查询；持久化失败后重启将无法获知该缺口。
+            }
+            this.signalChange(fact.goalId);
+            throw error;
+        }
+        if (fact.recordType === "call_finished") this.activeCalls.delete(key);
+        this.signalChange(fact.goalId);
+    }
+
+    /**
+     * 在 Goal 快照成功提交后唤醒订阅者重新读取。
+     *
+     * @param goalId - 已保存快照所属的 Goal。
+     */
+    notifyGoalSaved(goalId: string): void {
+        this.signalChange(goalId);
+    }
 
     /**
      * 读取一个 Goal 的会话汇总与逐 Run 指标。
@@ -144,10 +220,30 @@ export class SessionMetricsService {
         const goal = await this.goals.restore(goalId);
         if (goal === undefined) return undefined;
 
+        let coverage = await this.coverageStore.readCoverage(goal.id);
+        if (coverage === undefined) {
+            await this.coverageStore.initializeGoal(goal.id, false);
+            coverage = await this.coverageStore.readCoverage(goal.id);
+        }
+        const gaps = [
+            ...(coverage?.gaps ?? []),
+            ...(this.processGaps.get(goal.id)?.values() ?? []),
+        ];
+        const allGaps = new Map(gaps.map((gap) => [callKey(gap.goalId, gap.runId, gap.callId), gap]));
+
         const runs = this.runsFor(goal);
         const projections = await Promise.all(runs.map(async ({ runId, stepCount }) => {
             const records = await this.metrics.read({ goalId: goal.id, runId });
-            return projectRunMetrics(goal.id, runId, stepCount, records);
+            const runGaps = [...allGaps.values()].filter((gap) => gap.runId === runId);
+            return projectRunMetrics(
+                goal.id,
+                runId,
+                stepCount,
+                records,
+                runGaps,
+                this.activeCalls,
+                coverage?.historyCovered ?? false,
+            );
         }));
         const runMetrics = projections.map(({ metrics }) => metrics);
         const reportedCalls = sumSafe(runMetrics.map((run) => run.reportedCalls), "reportedCalls");
@@ -187,7 +283,7 @@ export class SessionMetricsService {
             missingCalls,
             inputTokens,
             outputTokens,
-            coverage: coverageOf(reportedCalls, missingCalls),
+            coverage: coverageOf(reportedCalls, missingCalls, coverage?.historyCovered ?? false, allGaps.size > 0),
             cacheMeasuredCalls,
             cacheExcludedCalls,
             cacheHitRate,
@@ -196,6 +292,103 @@ export class SessionMetricsService {
             tokensPerSecond,
             runs: Object.freeze(runMetrics),
         });
+    }
+
+    /**
+     * 订阅 Goal 的初始快照与后续变化。
+     *
+     * @remarks
+     * 在读取首份快照前注册更新监听器；读取期间发生变化会在首份快照后触发再次
+     * 读取。后续读取错误以 `error` 事件发送，新的通知仍可恢复订阅。提前关闭
+     * AsyncIterator 会移除监听和等待回调；HTTP 宿主可传入请求 AbortSignal，
+     * 客户端断开时立即结束等待。
+     *
+     * @param goalId - 需要订阅的 Goal 标识。
+     * @param signal - 可选的订阅取消信号。
+     * @returns 快照更新或读取错误事件；Goal 不存在时结束且不产生快照。
+     * @example
+     * ```ts
+     * for await (const update of service.watch("goal-1")) {
+     *     if (update.kind === "snapshot") render(update.snapshot);
+     * }
+     * ```
+     */
+    async *watch(goalId: string, signal?: AbortSignal): AsyncGenerator<SessionMetricsWatchEvent> {
+        const initialRevision = this.revisions.get(goalId) ?? 0;
+        let cancelWait: (() => void) | undefined;
+        const waiters = this.waiters.get(goalId) ?? new Set<() => void>();
+        this.waiters.set(goalId, waiters);
+        try {
+            if (signal?.aborted) return;
+            let initial: SessionMetricsSnapshot | undefined;
+            try {
+                initial = await this.read(goalId);
+            } catch (error) {
+                yield { kind: "error", error };
+                return;
+            }
+            if (initial === undefined || signal?.aborted) return;
+            yield { kind: "snapshot", snapshot: initial };
+
+            let observedRevision = initialRevision;
+            while (true) {
+                const currentRevision = this.revisions.get(goalId) ?? 0;
+                if (currentRevision <= observedRevision) {
+                    const wait = this.waitForChange(goalId, signal);
+                    cancelWait = wait.cancel;
+                    await wait.promise;
+                    cancelWait = undefined;
+                }
+                if (signal?.aborted) return;
+                observedRevision = this.revisions.get(goalId) ?? observedRevision;
+                try {
+                    const snapshot = await this.read(goalId);
+                    if (snapshot === undefined) return;
+                    yield { kind: "snapshot", snapshot };
+                } catch (error) {
+                    yield { kind: "error", error };
+                }
+            }
+        } finally {
+            cancelWait?.();
+            if (waiters.size === 0) this.waiters.delete(goalId);
+        }
+    }
+
+    private waitForChange(
+        goalId: string,
+        signal?: AbortSignal,
+    ): { readonly promise: Promise<void>; readonly cancel: () => void } {
+        let resolve!: () => void;
+        const promise = new Promise<void>((done) => { resolve = done; });
+        const waiters = this.waiters.get(goalId)!;
+        const wake = () => {
+            waiters.delete(wake);
+            signal?.removeEventListener("abort", wake);
+            resolve();
+        };
+        waiters.add(wake);
+        if (signal?.aborted) wake();
+        else signal?.addEventListener("abort", wake, { once: true });
+        return {
+            promise,
+            cancel: () => {
+                waiters.delete(wake);
+                signal?.removeEventListener("abort", wake);
+            },
+        };
+    }
+
+    private signalChange(goalId: string): void {
+        this.revisions.set(goalId, (this.revisions.get(goalId) ?? 0) + 1);
+        for (const wake of [...(this.waiters.get(goalId) ?? [])]) wake();
+    }
+
+    private rememberGap(fact: ModelCallMetricRecord): void {
+        const gapsForGoal = this.processGaps.get(fact.goalId) ?? new Map<string, ModelCallMetricsGap>();
+        const gap = { goalId: fact.goalId, runId: fact.runId, callId: fact.callId };
+        gapsForGoal.set(callKey(gap.goalId, gap.runId, gap.callId), gap);
+        this.processGaps.set(fact.goalId, gapsForGoal);
     }
 
     private runsFor(goal: Goal): readonly { readonly runId: string; readonly stepCount: number }[] {
@@ -240,6 +433,9 @@ function projectRunMetrics(
     runId: string,
     stepCount: number,
     records: readonly ModelCallMetricRecord[],
+    gaps: readonly ModelCallMetricsGap[],
+    activeCallIds: ReadonlySet<string>,
+    historyCovered: boolean,
 ): RunProjection {
     const calls = new Map<string, {
         started?: string;
@@ -266,6 +462,9 @@ function projectRunMetrics(
             call.finished = { serialized, record };
         }
         calls.set(record.callId, call);
+    }
+    for (const gap of gaps) {
+        calls.set(gap.callId, calls.get(gap.callId) ?? {});
     }
 
     let reportedCalls = 0;
@@ -295,7 +494,7 @@ function projectRunMetrics(
                 throughputValues.push({ outputTokens: usage.outputTokens, decodeDurationMs: finished.decodeDurationMs });
             }
         } else {
-            missingCalls += 1;
+            if (!activeCallIds.has(callKey(goalId, runId, callId))) missingCalls += 1;
         }
     }
     const summedCacheInputs = sumOptional(cacheValues.map(({ inputTokens }) => inputTokens));
@@ -321,7 +520,7 @@ function projectRunMetrics(
             missingCalls,
             inputTokens: reportedCalls === 0 ? null : inputTokens,
             outputTokens: reportedCalls === 0 ? null : outputTokens,
-            coverage: coverageOf(reportedCalls, missingCalls),
+            coverage: coverageOf(reportedCalls, missingCalls, historyCovered, gaps.length > 0),
             cacheMeasuredCalls,
             cacheExcludedCalls: callCount - cacheMeasuredCalls,
             cacheHitRate,
@@ -336,10 +535,19 @@ function projectRunMetrics(
     });
 }
 
-function coverageOf(reportedCalls: number, missingCalls: number): MetricsCoverage {
-    if (reportedCalls === 0 && missingCalls > 0) return "unavailable";
-    if (missingCalls > 0) return "partial";
+function coverageOf(
+    reportedCalls: number,
+    missingCalls: number,
+    historyCovered: boolean,
+    hasGaps: boolean,
+): MetricsCoverage {
+    if (reportedCalls === 0 && (missingCalls > 0 || !historyCovered)) return "unavailable";
+    if (missingCalls > 0 || !historyCovered || hasGaps) return "partial";
     return "complete";
+}
+
+function callKey(goalId: string, runId: string, callId: string): string {
+    return `${goalId}\u0000${runId}\u0000${callId}`;
 }
 
 function sumSafe(values: readonly number[], label: string): number {

@@ -136,3 +136,31 @@ test("JsonFileMetricsStore rejects malformed JSON and conflicting call facts", a
         await rm(directory, { recursive: true, force: true });
     }
 });
+
+test("JsonFileMetricsStore preserves first-seen history coverage and deduplicates durable gaps", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-metrics-coverage-"));
+
+    try {
+        const store = new JsonFileMetricsStore(directory);
+        await store.initializeGoal("goal-new", true);
+        await store.initializeGoal("goal-new", false);
+        await store.recordGap({ goalId: "goal-new", runId: "run-1", callId: "call-1" });
+        await store.recordGap({ goalId: "goal-new", runId: "run-1", callId: "call-1" });
+        await store.initializeGoal("goal-old", false);
+
+        const restored = new JsonFileMetricsStore(directory);
+        assert.deepEqual(await restored.readCoverage("goal-new"), {
+            goalId: "goal-new",
+            historyCovered: true,
+            gaps: [{ goalId: "goal-new", runId: "run-1", callId: "call-1" }],
+        });
+        assert.deepEqual(await restored.readCoverage("goal-old"), {
+            goalId: "goal-old",
+            historyCovered: false,
+            gaps: [],
+        });
+        assert.equal(await restored.readCoverage("goal-missing"), undefined);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});

@@ -151,6 +151,9 @@ export type {
     ModelCallMetricRecord,
     ModelCallStartedMetricRecord,
     ModelCallMetricsRecorder,
+    ModelCallMetricsCoverage,
+    ModelCallMetricsCoverageStore,
+    ModelCallMetricsGap,
     ProviderReportedModelCallUsage,
     UnavailableModelCallUsage,
 } from "./model-call-metrics";

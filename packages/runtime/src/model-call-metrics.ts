@@ -171,3 +171,66 @@ export interface ModelCallMetricsRecorder {
      */
     record(fact: ModelCallMetricRecord): Promise<void>;
 }
+
+/** 可检测但未能写入模型调用事实的指标缺口。 */
+export interface ModelCallMetricsGap {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly callId: string;
+}
+
+/**
+ * Goal 指标历史覆盖标记及可检测的调用缺口。
+ *
+ * @example
+ * ```ts
+ * const coverage: ModelCallMetricsCoverage = {
+ *     goalId: "goal-1", historyCovered: true, gaps: [],
+ * };
+ * ```
+ */
+export interface ModelCallMetricsCoverage {
+    /** Session 的稳定 Goal 标识。 */
+    readonly goalId: string;
+    /** Goal 首次接入指标时，既有历史是否已全部纳入采集。 */
+    readonly historyCovered: boolean;
+    /** 可检测到但没有对应完整调用事实的指标写入缺口。 */
+    readonly gaps: readonly ModelCallMetricsGap[];
+}
+
+/**
+ * 指标覆盖标记与写入缺口的持久化边界。
+ *
+ * @example
+ * ```ts
+ * await coverageStore.initializeGoal("goal-1", true);
+ * await coverageStore.recordGap({ goalId: "goal-1", runId: "run-1", callId: "call-1" });
+ * ```
+ */
+export interface ModelCallMetricsCoverageStore {
+    /**
+     * 首次为 Goal 建立历史覆盖状态；后续调用不得覆盖已有状态。
+     *
+     * @param goalId - Session 的稳定标识。
+     * @param historyCovered - 新建 Goal 传 `true`，首次接入的历史 Goal 传 `false`。
+     * @throws 覆盖事实无法持久化时 reject。
+     */
+    initializeGoal(goalId: string, historyCovered: boolean): Promise<void>;
+
+    /**
+     * 持久记录一次指标事实写入失败。
+     *
+     * @param gap - 发生写入失败的 Goal、Run 与调用标识。
+     * @throws 缺口标记无法持久化时 reject。
+     */
+    recordGap(gap: ModelCallMetricsGap): Promise<void>;
+
+    /**
+     * 读取 Goal 的历史覆盖标记与已知写入缺口。
+     *
+     * @param goalId - Session 的稳定标识。
+     * @returns 持久化状态；尚无任何标记时返回 `undefined`。
+     * @throws 覆盖记录损坏或底层读取失败时 reject。
+     */
+    readCoverage(goalId: string): Promise<ModelCallMetricsCoverage | undefined>;
+}

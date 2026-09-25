@@ -28,7 +28,7 @@
   - 验证方式：扩充 `packages/session-metrics/test/session-metrics-service.test.ts`（待实现）；执行 `npx tsx --test packages/session-metrics/test/session-metrics-service.test.ts`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 5. 接入运行中订阅、接入标记与故障覆盖语义
+- [x] //TODO 5. 接入运行中订阅、接入标记与故障覆盖语义
 
   - 实现目标：让指标服务在事实写入和 Goal 快照提交后发布新快照，持久标识未覆盖历史，并明确报告可检测的记录缺口。
   - 成功判据：订阅交接期间的更新不会丢失；新 Run 与 Step 提交产生更新，未结束调用不贡献最终用量；重启后旧会话和已知缺口仍显示非完整覆盖，写入故障不影响 Goal 提交。

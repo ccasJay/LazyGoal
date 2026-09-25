@@ -8,6 +8,9 @@ import { z } from "zod";
 
 import type {
     MetricsStore,
+    ModelCallMetricsCoverage,
+    ModelCallMetricsCoverageStore,
+    ModelCallMetricsGap,
     ModelCallMetricReadQuery,
     ModelCallMetricRecord,
 } from "../../runtime/src/index";
@@ -42,6 +45,22 @@ const ModelCallMetricRecordSchema = z.discriminatedUnion("recordType", [
         decodeDurationMs: z.number().positive().finite().optional(),
     }).strict(),
 ]);
+const ModelCallMetricsCoverageRecordSchema = z.discriminatedUnion("recordType", [
+    z.object({
+        recordType: z.literal("goal_initialized"),
+        goalId: IdentifierSchema,
+        historyCovered: z.boolean(),
+        occurredAt: z.string().datetime({ offset: true }),
+    }).strict(),
+    z.object({
+        recordType: z.literal("call_gap"),
+        goalId: IdentifierSchema,
+        runId: IdentifierSchema,
+        callId: IdentifierSchema,
+        occurredAt: z.string().datetime({ offset: true }),
+    }).strict(),
+]);
+type ModelCallMetricsCoverageRecord = z.infer<typeof ModelCallMetricsCoverageRecordSchema>;
 
 /** JSONL 记录违反当前调用指标协议时的错误代码。 */
 export const MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE =
@@ -79,8 +98,9 @@ export class ModelCallMetricStoreProtocolError extends Error {
  * const records = await store.read({ goalId: "goal-1", runId: "run-1" });
  * ```
  */
-export class JsonFileMetricsStore implements MetricsStore {
+export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCoverageStore {
     private readonly appendQueues = new Map<string, Promise<unknown>>();
+    private readonly coverageQueues = new Map<string, Promise<unknown>>();
 
     /** @param directory - 指标 JSONL 根目录；追加时按需创建子目录。 */
     constructor(private readonly directory: string) {}
@@ -198,12 +218,152 @@ export class JsonFileMetricsStore implements MetricsStore {
         return Object.freeze(records);
     }
 
+    /**
+     * 首次为 Goal 持久化历史覆盖状态；后续调用保留既有状态。
+     *
+     * @param goalId - Session 的稳定标识。
+     * @param historyCovered - 新建 Goal 为 `true`，既有历史 Goal 为 `false`。
+     * @throws 目录或 JSONL 写入失败时 reject。
+     */
+    initializeGoal(goalId: string, historyCovered: boolean): Promise<void> {
+        this.assertIdentifier(goalId, "goalId");
+        return this.enqueueCoverage(goalId, async () => {
+            if (await this.readCoverage(goalId) !== undefined) return;
+            await this.appendCoverageRecord({
+                recordType: "goal_initialized",
+                goalId,
+                historyCovered,
+                occurredAt: new Date().toISOString(),
+            });
+        });
+    }
+
+    /**
+     * 追加一个可检测的指标写入缺口；相同调用缺口只记录一次。
+     *
+     * @param gap - 发生事实写入失败的 Goal、Run 与调用标识。
+     * @throws 缺口记录无法持久化时 reject。
+     */
+    recordGap(gap: ModelCallMetricsGap): Promise<void> {
+        this.assertIdentifier(gap.goalId, "goalId");
+        this.assertIdentifier(gap.runId, "runId");
+        this.assertIdentifier(gap.callId, "callId");
+        return this.enqueueCoverage(gap.goalId, async () => {
+            if (await this.readCoverage(gap.goalId) === undefined) {
+                await this.appendCoverageRecord({
+                    recordType: "goal_initialized",
+                    goalId: gap.goalId,
+                    historyCovered: false,
+                    occurredAt: new Date().toISOString(),
+                });
+            }
+            const coverage = await this.readCoverage(gap.goalId);
+            if (coverage?.gaps.some((existing) => existing.runId === gap.runId && existing.callId === gap.callId)) {
+                return;
+            }
+            await this.appendCoverageRecord({
+                recordType: "call_gap",
+                ...gap,
+                occurredAt: new Date().toISOString(),
+            });
+        });
+    }
+
+    /**
+     * 严格读取 Goal 的覆盖标记与已知写入缺口。
+     *
+     * @param goalId - Session 的稳定标识。
+     * @returns 覆盖状态；没有标记文件时返回 `undefined`。
+     * @throws 损坏、未知或身份不匹配的覆盖记录时抛出协议错误；文件系统错误原样传播。
+     */
+    async readCoverage(goalId: string): Promise<ModelCallMetricsCoverage | undefined> {
+        this.assertIdentifier(goalId, "goalId");
+        let contents: string;
+        try {
+            contents = await readFile(this.coverageFilePath(goalId), "utf8");
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+            throw error;
+        }
+
+        const lines = contents.split("\n");
+        if (lines.at(-1) === "") lines.pop();
+        let historyCovered: boolean | undefined;
+        const gaps = new Map<string, ModelCallMetricsGap>();
+        for (let index = 0; index < lines.length; index += 1) {
+            let decoded: unknown;
+            try {
+                decoded = JSON.parse(lines[index]!);
+            } catch {
+                throw new ModelCallMetricStoreProtocolError(
+                    `Invalid model call metric coverage JSON at line ${index + 1}`,
+                );
+            }
+            const parsed = ModelCallMetricsCoverageRecordSchema.safeParse(decoded);
+            if (!parsed.success || parsed.data.goalId !== goalId) {
+                throw new ModelCallMetricStoreProtocolError(
+                    `Invalid model call metric coverage record at line ${index + 1}`,
+                );
+            }
+            const record = parsed.data as ModelCallMetricsCoverageRecord;
+            if (record.recordType === "goal_initialized") {
+                if (historyCovered !== undefined && historyCovered !== record.historyCovered) {
+                    throw new ModelCallMetricStoreProtocolError("Conflicting Goal metric coverage markers");
+                }
+                historyCovered = record.historyCovered;
+            } else {
+                const key = JSON.stringify([record.runId, record.callId]);
+                gaps.set(key, { goalId: record.goalId, runId: record.runId, callId: record.callId });
+            }
+        }
+        if (historyCovered === undefined) {
+            throw new ModelCallMetricStoreProtocolError("Metric coverage file is missing its Goal marker");
+        }
+        return Object.freeze({
+            goalId,
+            historyCovered,
+            gaps: Object.freeze([...gaps.values()]),
+        });
+    }
+
+    private enqueueCoverage<T>(goalId: string, operation: () => Promise<T>): Promise<T> {
+        const previous = this.coverageQueues.get(goalId) ?? Promise.resolve();
+        const pending = previous.catch(() => undefined).then(operation);
+        let tracked: Promise<unknown>;
+        tracked = pending
+            .catch(() => undefined)
+            .finally(() => {
+                if (this.coverageQueues.get(goalId) === tracked) {
+                    this.coverageQueues.delete(goalId);
+                }
+            });
+        this.coverageQueues.set(goalId, tracked);
+        return pending;
+    }
+
+    private async appendCoverageRecord(record: ModelCallMetricsCoverageRecord): Promise<void> {
+        const parsed = ModelCallMetricsCoverageRecordSchema.safeParse(record);
+        if (!parsed.success) {
+            throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
+        }
+        await mkdir(join(this.directory, this.encode(record.goalId)), { recursive: true, mode: 0o700 });
+        await appendFile(
+            this.coverageFilePath(record.goalId),
+            `${JSON.stringify(parsed.data)}\n`,
+            { encoding: "utf8", mode: 0o600 },
+        );
+    }
+
     private filePath(goalId: string, runId: string): string {
         return join(
             this.directory,
             this.encode(goalId),
             `${this.encode(runId)}.jsonl`,
         );
+    }
+
+    private coverageFilePath(goalId: string): string {
+        return join(this.directory, this.encode(goalId), "coverage.jsonl");
     }
 
     private keyFor(goalId: string, runId: string): string {
