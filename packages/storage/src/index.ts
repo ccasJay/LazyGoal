@@ -56,6 +56,11 @@ export {
 } from "./goal-store";
 export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export {
+    JsonFileMetricsStore,
+    MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE,
+    ModelCallMetricStoreProtocolError,
+} from "./json-file-metrics-store";
+export {
     JsonFileDiagnosticTraceSink,
 } from "./json-file-diagnostic-trace-sink";
 export {
