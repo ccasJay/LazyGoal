@@ -8,3 +8,4 @@ export type {
     SessionMetricsSnapshot,
     SessionMetricsWatchEvent,
 } from "./session-metrics-service";
+export { createSessionMetricsRoutes } from "./session-metrics-http";

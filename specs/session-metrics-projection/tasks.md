@@ -42,7 +42,7 @@
   - 验证方式：新增 `packages/http/test/http-service.test.ts`（待实现）；执行 `npx tsx --test packages/http/test/http-service.test.ts` 和 `npm run check:dependencies`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 7. 实现指标 JSON 与 SSE 路由及本机读取边界
+- [x] //TODO 7. 实现指标 JSON 与 SSE 路由及本机读取边界
 
   - 实现目标：由 `@lazygoal/session-metrics` 向 HTTP 宿主挂载只读快照与更新路由，处理不存在、读取错误、订阅取消和慢客户端。
   - 成功判据：JSON 查询返回完整快照或可区分错误；SSE 首份快照后持续更新；断开或阻塞的客户端不拖慢执行，非 GET、非法 Host 与跨域浏览器请求不能读取或修改指标。
