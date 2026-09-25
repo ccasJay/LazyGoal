@@ -49,7 +49,7 @@
   - 验证方式：新增 `packages/session-metrics/test/session-metrics-http.test.ts`（待实现）；执行 `npx tsx --test packages/session-metrics/test/session-metrics-http.test.ts`。
   - _Requirements: [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 8. 接入实际运行组合入口并验证跨层行为
+- [x] //TODO 8. 接入实际运行组合入口并验证跨层行为
 
   - 实现目标：在 `packages/tui/src/cli.tsx` 的现有组合入口连接指标 Store、Recorder、Goal 提交通知与投影服务；集成测试显式启动 HTTP 宿主。
   - 成功判据：一次实际 Goal 执行产生可由已挂载指标路由读取的 Run 指标；重启后读取值与已记录事实一致，指标或 HTTP 故障不改变 Goal 结果与恢复状态，TUI 不自动监听端口。
@@ -84,4 +84,9 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+**状态：通过。执行时间：2026-09-25 11:48 UTC。被测代码：`feature/session-metrics-projection`，TODO 8 提交。**
+
+- TODO 8 集成测试：`packages/session-metrics/test/session-metrics.integration.test.ts` 通过。真实组合根执行一个 Goal；HTTP 由测试显式启动；运行中 JSON 查询排除未结束调用，完成后读到供应商 token 用量和 1 Step；端口绑定失败不改变 Goal 执行，宿主可重试；使用同一数据目录重建组合根后，历史用量和 Step 数一致。
+- 路径与安全：`packages/tui/test/cli.test.ts`、`packages/tui/test/sandbox-persistence.test.ts`、`packages/llm/test/xdg.test.ts` 和 `packages/storage/test/session-metrics-store.test.ts` 覆盖默认/自定义指标目录及 POSIX 文件权限。
+- 定向验证：Session Metrics、HTTP、Storage、LLM 路径与 TUI 组合根测试共 53 项通过。
+- 全量验证：`npx tsc --noEmit`、`npm run check:dependencies`、`npx tsx --test packages/agent/test/*.test.ts packages/llm/test/*.test.ts packages/runtime/test/*.test.ts packages/tools/test/*.test.ts packages/tui/test/*.test.tsx`（725 项）、`npm test`（回归测试与 scripts 检查全部通过）及 `git diff --check` 均通过。

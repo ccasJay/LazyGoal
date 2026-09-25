@@ -77,6 +77,7 @@ test("resolveWorkspaceHomePaths 对同一 realpath 生成稳定 workspace ID", a
     const second = await resolveWorkspaceHomePaths(home, link);
     assert.equal(first.workspaceId, second.workspaceId);
     assert.equal(first.workspaceDirectory, second.workspaceDirectory);
+    assert.equal(first.metricsDirectory, join(first.workspaceDirectory, "metrics"));
 });
 
 test("resolveWorkspaceHomePaths 为不同 checkout 隔离并在路径移动后生成新 ID", async () => {

@@ -42,9 +42,12 @@ import {
     JsonFileDiagnosticTraceSink,
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
+    JsonFileMetricsStore,
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
+import { createHttpService, type HttpService } from "../../http/src/index";
+import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
     createDefaultPromptBundleRenderer,
@@ -341,7 +344,7 @@ export interface CompositionRootOptions {
      * 独立持久化根目录。
      *
      * @remarks
-     * 传入时，goals, trajectories, traces, context-sidecars 将被重定向到该目录下；
+     * 传入时，goals、trajectories、traces、metrics、context-sidecars 将被重定向到该目录下；
      * 省略时使用当前 workspace 对应的 LazyGoal Home 目录。
      *
      * @example
@@ -446,9 +449,10 @@ export interface CompositionRootOptions {
  *
  * @remarks
  * 所有 Runtime、Tool 和 Controller 共享同一个 workspace 级 Store、Adapter
- * 和 Profile Registry；Store 目录是 LazyGoal Home 下当前 workspace 的 `goals`。
- * 构造根本身不会创建该目录或写入 Goal，第一次写入只会由合法 `create` 命令
- * 触发。一个根只暴露一个 SessionController，因而一个进程只推进一个 Goal。
+ * 和 Profile Registry；安全数据目录和 Workspace Manifest 在构造时准备，但不写入
+ * Goal。根会装配指标只读路由，但不会启动 HTTP 监听；调用方可显式启动其
+ * `httpService`。第一次 Goal 写入只会由合法 `create` 命令触发。一个根只暴露
+ * 一个 SessionController，因而一个进程只推进一个 Goal。
  *
  * @example
  * ```ts
@@ -467,6 +471,8 @@ export interface CompositionRoot {
     readonly trajectoriesDirectory: string;
     /** 项目级 Diagnostic Trace JSONL 目录。 */
     readonly tracesDirectory: string;
+    /** 项目级模型调用指标与覆盖标记 JSONL 目录。 */
+    readonly metricsDirectory: string;
     /** 项目级可删除 Warm Context Sidecar 目录。 */
     readonly contextSidecarsDirectory: string;
     /** 已校验的供应商、模型、显式凭据及固定输出模式；若显式注入 adapter 且未配置环境变量则可能为 undefined。 */
@@ -515,6 +521,10 @@ export interface CompositionRoot {
     readonly retrievalIndexStore: JsonFileContextRetrievalIndexStore;
     /** 共享的独立诊断 Trace Sink。 */
     readonly traceSink: JsonFileDiagnosticTraceSink;
+    /** 持久化的模型调用指标事实与历史覆盖 Store。 */
+    readonly metricsStore: JsonFileMetricsStore;
+    /** 已挂载指标只读路由但尚未启动的可选本机 HTTP 服务。 */
+    readonly httpService: HttpService;
     /** Launcher、Coordinator 与 Runner 共享的 Prompt/Memory 协议校验器。 */
     readonly protocolValidator: GoalProtocolValidator;
     /** structured@1 Patch 接受时共享的不可变限制配置。 */
@@ -632,6 +642,9 @@ export async function createCompositionRoot(
         "trajectories",
     );
     const tracesDirectory = join(dataDirectory, "traces");
+    const metricsDirectory = dataDirectory === workspaceHomePaths.workspaceDirectory
+        ? workspaceHomePaths.metricsDirectory
+        : join(dataDirectory, "metrics");
     const contextSidecarsDirectory = join(
         dataDirectory,
         "context-sidecars",
@@ -747,6 +760,24 @@ export async function createCompositionRoot(
         : workspaceHomePaths.benchmarksDirectory;
     const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
     const store = new AggregatedGoalStore(primaryGoalStore, benchmarksDirectory);
+    const metricsStore = new JsonFileMetricsStore(metricsDirectory);
+    const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
+    const metricsAwareGoalStore: GoalStore = {
+        async save(goal) {
+            await store.save(goal);
+        },
+        async restore(goalId) {
+            const goal = await store.restore(goalId);
+            if (goal !== undefined) {
+                try {
+                    await sessionMetricsService.initializeExistingGoal(goalId);
+                } catch {
+                    // 缺少覆盖标记时，后续指标查询会保守地报告历史未覆盖。
+                }
+            }
+            return goal;
+        },
+    };
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
@@ -759,12 +790,23 @@ export async function createCompositionRoot(
         trajectoryStore,
         policy: modelContextPolicy,
     });
-    const notifyingStore = new NotifyingGoalStore(store);
+    const notifyingStore = new NotifyingGoalStore(metricsAwareGoalStore);
+    const unsubscribeMetricUpdates = notifyingStore.onSave((goal) => {
+        sessionMetricsService.notifyGoalSaved(goal.id);
+    });
+    const httpService = createHttpService();
+    httpService.mount("/", createSessionMetricsRoutes(sessionMetricsService));
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
     const workingMemoryLimits: WorkingMemoryLimits = DEFAULT_WORKING_MEMORY_LIMITS;
     const abortController = options.abortController ?? new AbortController();
     const resources = new ManagedResourceRegistry();
+    resources.register({
+        async close() {
+            unsubscribeMetricUpdates();
+            await httpService.close();
+        },
+    });
     const checkpointCommitter = new TrajectoryCheckpointCommitter({
         store: checkpointStore,
         trajectoryStore,
@@ -803,6 +845,7 @@ export async function createCompositionRoot(
             renderer,
             contextCompactor,
             traceSink,
+            metricsRecorder: sessionMetricsService,
             trajectoryContextAssembler,
             ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
         }),
@@ -832,7 +875,12 @@ export async function createCompositionRoot(
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
     const launcher: SessionLauncher = {
-        launch(request, control) {
+        async launch(request, control) {
+            try {
+                await sessionMetricsService.initializeNewGoal(request.goalId);
+            } catch {
+                // 指标覆盖标记属于旁路；失败后查询会保守地报告历史覆盖不可用。
+            }
             return launch(
                 request,
                 {
@@ -980,6 +1028,7 @@ export async function createCompositionRoot(
         goalsDirectory,
         trajectoriesDirectory,
         tracesDirectory,
+        metricsDirectory,
         contextSidecarsDirectory,
         ...(llmConfig === undefined ? {} : { llmConfig }),
         conversationCharBudget,
@@ -1000,6 +1049,8 @@ export async function createCompositionRoot(
         contextLookupService,
         retrievalIndexStore,
         traceSink,
+        metricsStore,
+        httpService,
         protocolValidator,
         workingMemoryLimits,
         checkpointCommitter,

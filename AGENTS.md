@@ -20,8 +20,11 @@ prompt-evaluation/ External prompt optimization integrations
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
   agent/         Agent prompts, response schemas, and the unified LLM step executor
+  execution-stream/ Process-local Goal/Run events and bounded subscriptions
+  http/          Reusable loopback HTTP service lifecycle and route mounting
   llm/           LLM configuration, native strict adapters, and pi-ai multi-provider integration
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
+  session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
   tools/         Agent tools such as filesystem, shell, and workspace utilities
   tui/           React Ink terminal UI, screens, session controller, and CLI integration

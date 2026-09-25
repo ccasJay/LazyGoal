@@ -1,5 +1,6 @@
 import {
     appendFile,
+    chmod,
     mkdir,
     readFile,
 } from "node:fs/promises";
@@ -123,15 +124,13 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         const filePath = this.filePath(record.goalId, record.runId);
         const previous = this.appendQueues.get(key) ?? Promise.resolve();
         const operation = previous.catch(() => undefined).then(async () => {
-            await mkdir(join(this.directory, this.encode(record.goalId)), {
-                recursive: true,
-                mode: 0o700,
-            });
+            await this.ensureGoalDirectory(record.goalId);
             await appendFile(
                 filePath,
                 `${JSON.stringify(parsed.data)}\n`,
                 { encoding: "utf8", mode: 0o600 },
             );
+            if (process.platform !== "win32") await chmod(filePath, 0o600);
         });
         let tracked: Promise<unknown>;
         tracked = operation
@@ -346,12 +345,23 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         if (!parsed.success) {
             throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
         }
-        await mkdir(join(this.directory, this.encode(record.goalId)), { recursive: true, mode: 0o700 });
+        await this.ensureGoalDirectory(record.goalId);
+        const filePath = this.coverageFilePath(record.goalId);
         await appendFile(
-            this.coverageFilePath(record.goalId),
+            filePath,
             `${JSON.stringify(parsed.data)}\n`,
             { encoding: "utf8", mode: 0o600 },
         );
+        if (process.platform !== "win32") await chmod(filePath, 0o600);
+    }
+
+    private async ensureGoalDirectory(goalId: string): Promise<void> {
+        const goalDirectory = join(this.directory, this.encode(goalId));
+        await mkdir(goalDirectory, { recursive: true, mode: 0o700 });
+        if (process.platform !== "win32") {
+            await chmod(this.directory, 0o700);
+            await chmod(goalDirectory, 0o700);
+        }
     }
 
     private filePath(goalId: string, runId: string): string {

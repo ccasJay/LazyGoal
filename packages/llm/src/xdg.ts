@@ -50,6 +50,8 @@ export interface WorkspaceHomePaths {
     readonly trajectoriesDirectory: string;
     /** 诊断 Trace 目录。 */
     readonly tracesDirectory: string;
+    /** 模型调用指标与覆盖标记目录。 */
+    readonly metricsDirectory: string;
     /** Context Sidecar 目录。 */
     readonly contextSidecarsDirectory: string;
     /** Benchmark 运行根目录。 */
@@ -144,7 +146,7 @@ export function resolveLazyGoalHomePaths(
  *
  * @param home - 已解析的 LazyGoal Home。
  * @param workspaceRoot - workspace 根目录。
- * @returns 当前 workspace 的 Store、benchmark、GEPA 与 cache 路径。
+ * @returns 当前 workspace 的 Store、模型调用指标、benchmark、GEPA 与 cache 路径。
  * @throws 底层 `realpath` 无法解析 workspace 时传播文件系统错误。
  * @example
  * ```ts
@@ -167,6 +169,7 @@ export async function resolveWorkspaceHomePaths(
         goalsDirectory: join(workspaceDirectory, "goals"),
         trajectoriesDirectory: join(workspaceDirectory, "trajectories"),
         tracesDirectory: join(workspaceDirectory, "traces"),
+        metricsDirectory: join(workspaceDirectory, "metrics"),
         contextSidecarsDirectory: join(workspaceDirectory, "context-sidecars"),
         benchmarksDirectory: join(workspaceDirectory, "benchmarks"),
         gepaDirectory: join(workspaceDirectory, "gepa"),
@@ -269,6 +272,7 @@ export async function ensureSecureWorkspaceDirectories(
         paths.goalsDirectory,
         paths.trajectoriesDirectory,
         paths.tracesDirectory,
+        paths.metricsDirectory,
         paths.contextSidecarsDirectory,
         paths.benchmarksDirectory,
         paths.gepaDirectory,

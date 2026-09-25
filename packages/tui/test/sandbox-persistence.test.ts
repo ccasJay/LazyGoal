@@ -98,6 +98,7 @@ test("虚拟工作区持久化将 Store/Trace/Sidecar 隔离到 dataDirectory �
     assert.equal(root1.goalsDirectory, join(attempt1Dir, "goals"));
     assert.equal(root1.trajectoriesDirectory, join(attempt1Dir, "trajectories"));
     assert.equal(root1.tracesDirectory, join(attempt1Dir, "traces"));
+    assert.equal(root1.metricsDirectory, join(attempt1Dir, "metrics"));
     assert.equal(root1.contextSidecarsDirectory, join(attempt1Dir, "context-sidecars"));
 
     await root1.controller.dispatch({ kind: "create", intent: "Run attempt 1" });

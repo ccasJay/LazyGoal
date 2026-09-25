@@ -166,6 +166,21 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
     }
 
     /**
+     * 为首次恢复的 Goal 建立保守的历史覆盖状态。
+     *
+     * @remarks
+     * 已存在的标记不会被覆盖；旧 Goal 缺少标记时会记录为历史未覆盖。调用方
+     * 可捕获该方法的存储错误并继续恢复，后续指标查询会再次尝试。
+     *
+     * @param goalId - 正在恢复的 Goal 标识。
+     * @throws 覆盖标记写入失败时 reject。
+     */
+    async initializeExistingGoal(goalId: string): Promise<void> {
+        await this.coverageStore.initializeGoal(goalId, false);
+        this.signalChange(goalId);
+    }
+
+    /**
      * 将一次模型调用事实写入 Store 并通知当前订阅者。
      *
      * @remarks

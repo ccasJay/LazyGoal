@@ -3,6 +3,7 @@ import {
     mkdtemp,
     readFile,
     rm,
+    stat,
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -60,6 +61,11 @@ test("JsonFileMetricsStore persists numeric call facts and restores them in orde
         const jsonl = await readFile(filePath, "utf8");
         assert.equal(jsonl.includes("prompt"), false);
         assert.equal(jsonl.includes("response"), false);
+        if (process.platform !== "win32") {
+            assert.equal((await stat(directory)).mode & 0o777, 0o700);
+            assert.equal((await stat(goalDirectory)).mode & 0o777, 0o700);
+            assert.equal((await stat(filePath)).mode & 0o777, 0o600);
+        }
 
         const restored = new JsonFileMetricsStore(directory);
         const expected = [start, finish];
@@ -147,6 +153,11 @@ test("JsonFileMetricsStore preserves first-seen history coverage and deduplicate
         await store.recordGap({ goalId: "goal-new", runId: "run-1", callId: "call-1" });
         await store.recordGap({ goalId: "goal-new", runId: "run-1", callId: "call-1" });
         await store.initializeGoal("goal-old", false);
+
+        if (process.platform !== "win32") {
+            const coveragePath = join(directory, Buffer.from("goal-new", "utf8").toString("base64url"), "coverage.jsonl");
+            assert.equal((await stat(coveragePath)).mode & 0o777, 0o600);
+        }
 
         const restored = new JsonFileMetricsStore(directory);
         assert.deepEqual(await restored.readCoverage("goal-new"), {

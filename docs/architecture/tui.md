@@ -38,7 +38,9 @@ TUI 只保证单进程内命令串行化；跨进程租约、历史 Snapshot 查
 
 TUI 从 `LAZYGOAL_HOME` 解析全局配置、LLM Profile 和 Agent Profile；缺失时使用
 `~/.lazygoal`。当前 workspace 的真实路径经 SHA-256 归一化为 workspace ID，Goal、Trajectory、
-Trace、Context Sidecar、benchmark 历史和 GEPA Run 写入
+Trace、模型调用指标、Context Sidecar、benchmark 历史和 GEPA Run 写入
 `~/.lazygoal/workspaces/<workspace-id>/`。普通 Goal 与 benchmark 历史只从当前 workspace
 发现；显式数据目录仍可由测试、导出或容器调用方覆盖。组装成功后写入
 `workspace.json` 身份清单，身份不一致会快速失败。
+
+Composition Root 装配 `SessionMetricsService`、指标 JSONL Store 和只读路由，并将服务挂载到可复用的 HTTP Host。它只创建和配置宿主；端口监听由调用方显式执行 `httpService.start(port)`，因此 TUI 正常启动不会打开监听端口。Goal 保存通知与模型调用 Recorder 唤醒指标订阅；关闭时资源注册表取消通知并关闭已启动的 HTTP 服务。
