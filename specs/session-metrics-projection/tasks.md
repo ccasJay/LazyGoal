@@ -14,7 +14,7 @@
   - 验证方式：新增 `packages/agent/test/llm-step-executor-metrics.test.ts`（待实现）；执行 `npx tsx --test packages/agent/test/llm-step-executor-metrics.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 3. 实现 Goal 与 Run 的计数、用量及覆盖状态投影
+- [x] //TODO 3. 实现 Goal 与 Run 的计数、用量及覆盖状态投影
 
   - 实现目标：在 `@lazygoal/session-metrics` 从 Goal 快照和调用事实生成按 Run 与 Goal 汇总的快照，并按 `callId` 去重。
   - 成功判据：多 Run、空 Run 和同 Run 恢复得到正确轮数与 Step 合计；真实 token 与缺失调用分别统计，全部缺失时合计不可用。

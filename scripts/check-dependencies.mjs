@@ -8,7 +8,8 @@ import { pathToFileURL } from "node:url";
  * contracts 与 execution-stream 是无出站依赖的基础包；其它 package 可以单向依赖它们。
  * runtime 只依赖 contracts 和 execution-stream；llm 复用 runtime 的中止原语并可
  * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
- * runtime、llm（agent）和 execution-stream；tui 是组合根，可导入全部实现。
+ * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
+ * 端口读取 Goal 与调用指标；tui 是组合根，可导入全部实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
@@ -19,6 +20,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     llm: ["runtime", "contracts", "execution-stream"],
     storage: ["runtime", "contracts"],
     agent: ["runtime", "llm", "contracts", "execution-stream"],
+    "session-metrics": ["runtime"],
     tools: ["runtime", "contracts", "execution-stream"],
     tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream"],
 };
