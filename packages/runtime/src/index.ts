@@ -150,6 +150,7 @@ export type {
     ModelCallMetricReadQuery,
     ModelCallMetricRecord,
     ModelCallStartedMetricRecord,
+    ModelCallMetricsRecorder,
     ProviderReportedModelCallUsage,
     UnavailableModelCallUsage,
 } from "./model-call-metrics";

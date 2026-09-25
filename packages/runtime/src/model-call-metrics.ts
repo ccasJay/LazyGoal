@@ -146,3 +146,28 @@ export interface MetricsStore {
      */
     read(query: ModelCallMetricReadQuery): Promise<readonly ModelCallMetricRecord[]>;
 }
+
+/**
+ * Agent 向会话指标系统报告模型调用事实的边界。
+ *
+ * @remarks
+ * 实现负责隔离持久化与通知故障；Agent 调用后仍独立捕获异常，确保观测通道
+ * 不改变模型调用和 Goal 推进结果。
+ *
+ * @example
+ * ```ts
+ * const recorder: ModelCallMetricsRecorder = {
+ *     async record(fact) { await store.append(fact); },
+ * };
+ * ```
+ */
+export interface ModelCallMetricsRecorder {
+    /**
+     * 报告一次模型调用开始或结束的事实。
+     *
+     * @param fact - 不含 Prompt、响应正文或凭据的调用记录。
+     * @returns 记录已交给指标系统后 resolve。
+     * @throws 指标接收或持久化失败时可以 reject；调用方必须将该错误与执行结果隔离。
+     */
+    record(fact: ModelCallMetricRecord): Promise<void>;
+}

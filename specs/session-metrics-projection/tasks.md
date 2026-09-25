@@ -7,7 +7,7 @@
   - 验证方式：新增 `packages/storage/test/session-metrics-store.test.ts`（待实现）；执行 `npx tsx --test packages/storage/test/session-metrics-store.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 2. 在模型调用边界记录可信用量与生成计时
+- [x] //TODO 2. 在模型调用边界记录可信用量与生成计时
 
   - 实现目标：让 `LLMStepExecutor` 在每次 Adapter 调用前后记录事实，并在真实流式文本增量与完成事件之间计算解码时长；隔离指标写入故障。
   - 成功判据：原生 Provider 上报用量进入事实，pi-ai 诊断数与无用量调用记为缺失；非流式回退、无文本流及记录失败不产生虚假的速度或改变 Step 结果。
