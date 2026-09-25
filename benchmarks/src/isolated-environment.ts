@@ -944,7 +944,6 @@ export class IsolatedEnvironment {
         if (artifact === undefined) return;
         const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
         requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-m", "777", "-p", "/opt/lazygoal", "/opt/lazygoal/state"], options), "Create Worker directory");
-        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/chmod", "777", "/opt/lazygoal", "/opt/lazygoal/state"], options), "Chmod Worker directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.runProcess("docker", ["cp", source, `${name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
         }
