@@ -16,6 +16,16 @@ async function nextFrame(): Promise<void> {
     });
 }
 
+async function waitForCondition(condition: () => boolean, timeoutMs = 2000): Promise<void> {
+    const start = Date.now();
+    while (!condition()) {
+        if (Date.now() - start >= timeoutMs) {
+            assert.equal(condition(), true);
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    }
+}
+
 async function waitForFrame(
     instance: { lastFrame(): string | undefined },
     pattern: RegExp,
@@ -77,7 +87,7 @@ test("ModelSelector renders loading state and handles ESC cancellation", async (
     assert.match(frame, /Press ESC to cancel/);
 
     instance.stdin.write("\u001b");
-    await nextFrame();
+    await waitForCondition(() => cancelled);
     assert.equal(cancelled, true);
 });
 
@@ -178,7 +188,7 @@ test("ModelSelector renders error state and handles ESC", async () => {
     assert.match(frame, /Press ESC to return/);
 
     instance.stdin.write("\u001b");
-    await nextFrame();
+    await waitForCondition(() => cancelled);
     assert.equal(cancelled, true);
 });
 
