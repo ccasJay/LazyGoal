@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -216,6 +217,7 @@ class RunStore:
 
     def __init__(self, runs_dir: Path | str) -> None:
         self.runs_dir = Path(runs_dir).resolve()
+        self._lock = threading.RLock()
 
     def get_run_dir(self, run_id: str) -> Path:
         """Validate run_id and return absolute path to run directory."""
@@ -315,37 +317,38 @@ class RunStore:
     def update_state(self, run_id: str, **updates: Any) -> RunState:
         """Atomically update specific fields of state.json and refresh updatedAt."""
 
-        current = self.read_state(run_id)
-        run_dir = self.get_run_dir(run_id)
+        with self._lock:
+            current = self.read_state(run_id)
+            run_dir = self.get_run_dir(run_id)
 
-        target_lifecycle_status = updates.get("lifecycle_status", current.lifecycle_status)
-        if current.lifecycle_status in TERMINAL_LIFECYCLE_STATUSES:
-            is_valid_resume = (
-                current.lifecycle_status in ("stopped", "failed")
-                and target_lifecycle_status == "starting"
-            )
-            if not is_valid_resume and target_lifecycle_status not in TERMINAL_LIFECYCLE_STATUSES:
-                target_lifecycle_status = current.lifecycle_status
+            target_lifecycle_status = updates.get("lifecycle_status", current.lifecycle_status)
+            if current.lifecycle_status in TERMINAL_LIFECYCLE_STATUSES:
+                is_valid_resume = (
+                    current.lifecycle_status in ("stopped", "failed")
+                    and target_lifecycle_status == "starting"
+                )
+                if not is_valid_resume and target_lifecycle_status not in TERMINAL_LIFECYCLE_STATUSES:
+                    target_lifecycle_status = current.lifecycle_status
 
-        new_values = {
-            "run_id": current.run_id,
-            "lifecycle_status": target_lifecycle_status,
-            "stop_requested": updates.get("stop_requested", current.stop_requested),
-            "metric_calls": updates.get("metric_calls", current.metric_calls),
-            "max_metric_calls": updates.get("max_metric_calls", current.max_metric_calls),
-            "candidate_count": updates.get("candidate_count", current.candidate_count),
-            "best_score": updates.get("best_score", current.best_score),
-            "best_candidate_id": updates.get("best_candidate_id", current.best_candidate_id),
-            "publication_status": updates.get("publication_status", current.publication_status),
-            "error_code": updates.get("error_code", current.error_code),
-            "error_message": updates.get("error_message", current.error_message),
-            "created_at": current.created_at,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
+            new_values = {
+                "run_id": current.run_id,
+                "lifecycle_status": target_lifecycle_status,
+                "stop_requested": updates.get("stop_requested", current.stop_requested),
+                "metric_calls": updates.get("metric_calls", current.metric_calls),
+                "max_metric_calls": updates.get("max_metric_calls", current.max_metric_calls),
+                "candidate_count": updates.get("candidate_count", current.candidate_count),
+                "best_score": updates.get("best_score", current.best_score),
+                "best_candidate_id": updates.get("best_candidate_id", current.best_candidate_id),
+                "publication_status": updates.get("publication_status", current.publication_status),
+                "error_code": updates.get("error_code", current.error_code),
+                "error_message": updates.get("error_message", current.error_message),
+                "created_at": current.created_at,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
 
-        updated_state = RunState(**new_values)
-        atomic_write_json(run_dir / "state.json", updated_state.to_dict())
-        return updated_state
+            updated_state = RunState(**new_values)
+            atomic_write_json(run_dir / "state.json", updated_state.to_dict())
+            return updated_state
 
     def get_stop_file_path(self, run_id: str) -> Path:
         """Return the official cooperative stop file path."""
@@ -368,10 +371,11 @@ class RunStore:
             pass
         stop_path.touch(exist_ok=True)
         try:
-            current = self.read_state(run_id)
-            if current.lifecycle_status in TERMINAL_LIFECYCLE_STATUSES:
-                return
-            self.update_state(run_id, stop_requested=True, lifecycle_status="stop_requested")
+            with self._lock:
+                current = self.read_state(run_id)
+                if current.lifecycle_status in TERMINAL_LIFECYCLE_STATUSES:
+                    return
+                self.update_state(run_id, stop_requested=True, lifecycle_status="stop_requested")
         except RunStoreError:
             pass
 

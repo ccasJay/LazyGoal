@@ -162,15 +162,30 @@ class ReflectionTests(unittest.TestCase):
 
         self.assertEqual(
             record["Inputs"],
-            {"component": "system_prompt", "currentText": self.candidate["system_prompt"]},
+            {
+                "agentRole": "goal-driven coding and reasoning agent solving a task in a sandboxed container",
+                "taskFamily": "document",
+                "taskContext": (
+                    "Autonomous agent execution in an industrial Linux container (code analysis, numerical modeling, scientific computing, physics simulation)"
+                ),
+            },
         )
         self.assertEqual(
             record["Generated Outputs"],
-            {"taskFamily": "document", "passed": False, "reward": 0.35},
+            {
+                "executionStatus": "failed",
+                "completionOutcome": "goal_not_achieved",
+            },
         )
         self.assertEqual(
             record["Feedback"],
-            {"status": "failed", "diagnostics": [{"stage": "agent"}]},
+            {
+                "taskFamily": "document",
+                "officialReward": 0.35,
+                "passed": False,
+                "status": "failed",
+                "diagnostics": [{"stage": "agent"}],
+            },
         )
         self.assertEqual(record["Score"], 0.35)
         self.assertEqual(record["Artifacts"], {})

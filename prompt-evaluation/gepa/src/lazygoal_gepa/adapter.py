@@ -388,15 +388,36 @@ def _tua_reflective_record(
             seen_stages.add(stage)
         if len(diagnostics) >= _MAX_COLLECTION_ITEMS:
             break
-    return {
-        "Inputs": _bounded_json(
-            {"component": component, "currentText": component_text}
+    del component, component_text
+    task_family = str(domain_result["taskFamily"])
+    inputs: dict[str, Any] = {
+        "agentRole": "goal-driven coding and reasoning agent solving a task in a sandboxed container",
+        "taskFamily": task_family,
+        "taskContext": (
+            "Autonomous agent execution in a browser environment (DOM inspection, UI interaction, web search, data extraction)"
+            if task_family == "browser"
+            else "Autonomous agent execution in an industrial Linux container (code analysis, numerical modeling, scientific computing, physics simulation)"
         ),
-        "Generated Outputs": _bounded_json(domain_result),
-        "Feedback": {
-            "status": trajectory.status,
-            "diagnostics": diagnostics,
-        },
+    }
+    generated_outputs: dict[str, Any] = {
+        "executionStatus": trajectory.status,
+        "completionOutcome": (
+            "completed_successfully"
+            if trajectory.status == "passed"
+            else "goal_not_achieved"
+        ),
+    }
+    feedback: dict[str, Any] = {
+        "taskFamily": task_family,
+        "officialReward": domain_result["reward"],
+        "passed": domain_result["passed"],
+        "status": trajectory.status,
+        "diagnostics": diagnostics,
+    }
+    return {
+        "Inputs": _bounded_json(inputs),
+        "Generated Outputs": _bounded_json(generated_outputs),
+        "Feedback": _bounded_json(feedback),
         "Score": trajectory.score,
         "Artifacts": {},
     }
