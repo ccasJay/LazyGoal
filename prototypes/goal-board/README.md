@@ -17,4 +17,4 @@ For layout-only work, run `npm run dev --prefix prototypes/goal-board`. Vite pre
 
 ## Browser acceptance
 
-Run `npm run test:e2e --prefix prototypes/goal-board`. The test starts Vite, a controlled local API, and headless Chrome or Chromium to check saved state, temporary activity, a structured answer, authorization-free preview behavior, and the narrow session layout. Set `CHROME_BIN` if the browser executable is not in a standard location.
+Run `npm run test:e2e --prefix prototypes/goal-board`. It builds the page, then uses headless Chrome or Chromium to check both the isolated layout preview and a real local Composition Root backed by temporary workspace and data directories. The real service test uses a deterministic model and a controlled Tool to exercise creation, authorization, structured answers and action approval, stream disconnect, process restart, saved history, and one follow-up Run. Set `CHROME_BIN` if the browser executable is not in a standard location.

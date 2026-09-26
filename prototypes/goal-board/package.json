@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build --outDir ../../packages/browser/static --emptyOutDir",
-    "test:e2e": "node --test e2e/*.test.mjs"
+    "test:e2e": "npm run build && node --test e2e/*.test.mjs"
   },
   "dependencies": {
     "react": "^19.1.1",

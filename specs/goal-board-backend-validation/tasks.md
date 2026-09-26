@@ -56,7 +56,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-recovery.test.ts` 与受控工具重启场景；执行 `npx tsx --test packages/browser/test/browser-recovery.test.ts`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [7.2](./requirements.md#req-7-2)_
 
-- [ ] //TODO 9. 建立隔离工作区的可重复浏览器验收场景
+- [x] //TODO 9. 建立隔离工作区的可重复浏览器验收场景
 
   - 实现目标：增加确定性模型与受控工具的浏览器自动化入口，覆盖完整单会话和授权、审批、断线、重启的组合路径。
   - 成功判据：重复运行产生相同提交事实；非法请求不推进 Goal，步骤和工具动作不重复；既有 TUI/Runtime 入口行为通过回归。
@@ -89,4 +89,6 @@
 
 ### Latest Result
 
-未执行。实施后记录各验收结果、证据位置、测试时间、代码与契约状态及整体时效。
+2026-09-26 完成验收。`npm run test:e2e --prefix prototypes/goal-board` 通过 2/2 场景，并先执行 TypeScript 检查和 Vite 静态构建；真实 Runtime 场景以临时 HOME、workspace、Snapshot/Trajectory 目录运行，覆盖授权拒绝、单 Goal 创建、结构化回答、错误 Action 拒绝、工具获批后恰好执行一次、服务断开与进程重启、后继 Run 以及页面重载后读取已提交状态。受控工具输出未出现在浏览器 DTO 或页面中。详见 [`prototypes/goal-board/e2e/runtime.test.mjs`](../../prototypes/goal-board/e2e/runtime.test.mjs) 与 [`prototypes/goal-board/e2e/test-service.ts`](../../prototypes/goal-board/e2e/test-service.ts)。
+
+`npm test` 最终通过：GEPA 198 项、项目测试 1,386 项、脚本测试 14 项；`npm run check:dependencies` 通过（173 个源文件）；`git diff --check` 通过。首次全量测试因本 worktree 未安装 `benchmarks/package.json` 已声明但 `benchmarks/package-lock.json` 未记录的 `smol-toml` 而失败；补装到被忽略的本地 `benchmarks/node_modules` 后重跑通过，未修改依赖清单或锁文件。
