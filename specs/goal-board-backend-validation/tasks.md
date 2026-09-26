@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-projection.test.ts`；执行 `npx tsx --test packages/browser/test/browser-projection.test.ts`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [5.1](./requirements.md#req-5-1), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 3. 实现创建 Goal 与单活动会话的命令受理
+- [x] //TODO 3. 实现创建 Goal 与单活动会话的命令受理
 
   - 实现目标：校验 wire 输入，按稳定 Goal ID 处理创建重试，并将一次受理的长时执行交给现有 Launcher；锁定当前活动 Goal。
   - 成功判据：有效意图产生一个已持久化 Goal；失败不生成假条目；重复或并发请求不创建第二个 Goal，切换查看对象不启动其他 Goal。

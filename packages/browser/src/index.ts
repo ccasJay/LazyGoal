@@ -5,8 +5,16 @@ export {
 } from "./browser-session-access";
 export {
     createBrowserGoalRoutes,
-    type BrowserGoalReadPort,
+    type BrowserGoalApiPort,
 } from "./browser-goal-routes";
+export {
+    BrowserGoalCommandService,
+    type BrowserCreateGoalCommand,
+    type BrowserCreateGoalResult,
+    type BrowserGoalCommandDependencies,
+    type BrowserGoalLauncher,
+    type BrowserGoalSaveNotifications,
+} from "./browser-goal-command-service";
 export {
     listBrowserGoals,
     projectBrowserGoalList,

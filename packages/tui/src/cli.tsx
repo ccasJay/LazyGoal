@@ -52,6 +52,7 @@ import {
     type HttpServiceMiddleware,
 } from "../../http/src/index";
 import {
+    BrowserGoalCommandService,
     createBrowserGoalRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -598,6 +599,21 @@ export interface CompositionRoot {
     readonly shutdownCoordinator: ShutdownCoordinator;
     /** 使用共享 Store 和 Adapter 的 GoalCoordinator。 */
     readonly coordinator: GoalCoordinator;
+    /**
+     * 使用当前 Profile、Checkpoint Gate 与 Coordinator 的 Goal Launcher。
+     *
+     * @remarks
+     * 浏览器创建命令复用此 Launcher；它保存真实初始快照后继续自动推进，且使用
+     * Composition Root 的共享取消信号。
+     *
+     * @example
+     * ```ts
+     * const result = await root.launcher.launch({
+     *     goalId: "goal-1", intent: "检查项目", profileId: root.profile.id,
+     * });
+     * ```
+     */
+    readonly launcher: SessionLauncher;
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
     /** Controller 创建新 Goal 时使用的 ID 生成器。 */
@@ -1122,6 +1138,7 @@ export async function createCompositionRoot(
         modelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
+        launcher,
         controller,
         goalIdGenerator,
         runIdGenerator,
@@ -1527,6 +1544,13 @@ async function runBrowserSessionCli(
     process.on("SIGINT", onSigint);
     try {
         const staticDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../browser/static");
+        const commandService = new BrowserGoalCommandService({
+            store: root.workspaceGoalStore,
+            saveNotifications: root.notifyingStore,
+            launcher: root.launcher,
+            profileId: root.profile.id,
+            control: { signal: root.abortController.signal },
+        });
         root.httpService.mount("/", createBrowserGoalRoutes({
             list: () => listBrowserGoals(root.workspaceGoalStore),
             read: (goalId) => readBrowserGoalSession(
@@ -1534,6 +1558,7 @@ async function runBrowserSessionCli(
                 root.workspaceGoalStore,
                 root.readWorkspaceTrajectory,
             ),
+            create: (command) => commandService.create(command),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);

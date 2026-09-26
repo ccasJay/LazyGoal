@@ -236,6 +236,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
             if (goalId === "broken") throw new Error("corrupt snapshot internals");
             return undefined;
         },
+        async create() {
+            return { ok: false as const, error: "goal_create_failed" as const };
+        },
     };
     const routes = createBrowserGoalRoutes(port);
 
@@ -250,4 +253,55 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
     const listFailure = await routes.request("http://localhost/api/goals");
     assert.equal(listFailure.status, 500);
     assert.deepEqual(await listFailure.json(), { error: "goal_list_unavailable" });
+});
+
+test("创建路由仅接受有限大小的严格 JSON 意图与稳定 Goal ID", async () => {
+    const calls: Array<{ goalId: string; intent: string }> = [];
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async create(command) {
+            calls.push(command);
+            return {
+                ok: true as const,
+                goalId: command.goalId,
+                runId: "run-created-1",
+                existing: false,
+            };
+        },
+    });
+    const send = (body: string) => routes.request("http://localhost/api/goals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body,
+    });
+
+    const extraField = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查", profileId: "admin" }));
+    assert.equal(extraField.status, 400);
+    assert.deepEqual(await extraField.json(), { error: "invalid_goal_input" });
+    const emptyIntent = await send(JSON.stringify({ goalId: "goal-create-1", intent: "  " }));
+    assert.equal(emptyIntent.status, 400);
+    const invalidId = await send(JSON.stringify({ goalId: "goal with spaces", intent: "检查" }));
+    assert.equal(invalidId.status, 400);
+    const malformed = await send("{invalid json");
+    assert.equal(malformed.status, 400);
+    assert.equal(calls.length, 0);
+
+    const accepted = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查当前项目" }));
+    assert.equal(accepted.status, 202);
+    assert.deepEqual(await accepted.json(), {
+        goalId: "goal-create-1",
+        runId: "run-created-1",
+        existing: false,
+    });
+    assert.deepEqual(calls, [{ goalId: "goal-create-1", intent: "检查当前项目" }]);
+
+    const unsupportedMedia = await routes.request("http://localhost/api/goals", {
+        method: "POST",
+        body: JSON.stringify({ goalId: "goal-create-3", intent: "检查" }),
+    });
+    assert.equal(unsupportedMedia.status, 415);
+    const tooLarge = await send(JSON.stringify({ goalId: "goal-create-2", intent: "x".repeat(20_000) }));
+    assert.equal(tooLarge.status, 413);
+    assert.equal(calls.length, 1);
 });
