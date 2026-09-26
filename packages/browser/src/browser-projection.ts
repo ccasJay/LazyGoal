@@ -400,7 +400,6 @@ function projectBrowserSteps(
         let actionStatus: BrowserSessionStep["actionStatus"];
         let status: BrowserSessionStep["status"] = "recorded";
         let summary: string | undefined;
-        let observed = false;
 
         for (const event of events) {
             const payload = event.payload;
@@ -418,7 +417,6 @@ function projectBrowserSteps(
                 actionStatus = "rejected";
                 status = "rejected";
             } else if (payload.type === "observation_recorded") {
-                observed = true;
                 if (payload.observation.kind === "success") {
                     status = "completed";
                     summary = boundedText(payload.observation.summary, MAX_STEP_SUMMARY_LENGTH);
@@ -428,14 +426,9 @@ function projectBrowserSteps(
                 } else {
                     status = "rejected";
                 }
-            } else if (payload.type === "tool_finished" && !observed) {
-                if (payload.observation.kind === "success") {
-                    status = "completed";
-                    summary = boundedText(payload.observation.summary, MAX_STEP_SUMMARY_LENGTH);
-                } else {
-                    status = "failed";
-                    summary = boundedText(payload.observation.message, MAX_STEP_SUMMARY_LENGTH);
-                }
+            } else if (payload.type === "tool_finished") {
+                // A recovery checkpoint can adopt an old uncommitted tail; without the
+                // persisted Observation it must not present a Tool result as a saved Step.
                 toolId = payload.toolId;
             }
         }

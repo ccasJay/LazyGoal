@@ -108,6 +108,17 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     });
     await waitForExpression(socket, "document.querySelector('.session') === null");
     assert.notEqual(await value(socket, "document.querySelector('.goal-card') === null"), true);
+
+    mock.resetToUnknownAction();
+    await navigate(socket, `${webUrl}/?session=recovery#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.goal-card').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Action result needs review')");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Approve action'))"), true);
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
@@ -183,6 +194,19 @@ function createMockApi() {
     authorizedRequests: () => authorizedRequestCount,
     resetToWaiting() {
       session = interactionSession();
+      currentListItem = listItem("waiting");
+      liveTransitionSent = true;
+    },
+    resetToUnknownAction() {
+      session = {
+        ...interactionSession(),
+        pendingInteraction: undefined,
+        pendingAction: {
+          actionId: "action-unknown",
+          toolId: "workspace.write_file",
+          status: "outcome_unknown",
+        },
+      };
       currentListItem = listItem("waiting");
       liveTransitionSent = true;
     },

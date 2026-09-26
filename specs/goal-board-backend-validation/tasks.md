@@ -49,7 +49,7 @@
   - 验证方式：待实现的浏览器组件与视口测试，入口 `npm run test:e2e --prefix prototypes/goal-board`；执行 `npm run build --prefix prototypes/goal-board`。
   - _Requirements: [1.5](./requirements.md#req-1-5), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3)_
 
-- [ ] //TODO 8. 固化重启恢复与未知工具结果的处理
+- [x] //TODO 8. 固化重启恢复与未知工具结果的处理
 
   - 实现目标：页面重载和服务重启后仅依据最新已提交状态恢复视图，展示结果未知的动作等待，并阻止连接事件触发工具重放。
   - 成功判据：同一 Goal 的消息、步骤、等待请求和计划可重建；工具执行边界重启后遵守现有重放策略，不可重放动作不被再次执行。

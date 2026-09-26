@@ -43,10 +43,10 @@ function createTestGoal(): Goal {
 
 function event(
     sequence: number,
-    eventType: "decision_received" | "action_staged" | "tool_finished",
+    eventType: "decision_received" | "action_staged" | "tool_finished" | "observation_recorded",
 ): TrajectoryEvent {
-    const executionUnitId = sequence === 4 ? "uncommitted-unit" : "unit-1";
-    const stepIndex = sequence === 4 ? 2 : 1;
+    const executionUnitId = sequence === 5 ? "uncommitted-unit" : "unit-1";
+    const stepIndex = sequence === 5 ? 2 : 1;
     if (eventType === "decision_received") {
         return allocateImmutableEvent({
             goalId: "goal-real-1",
@@ -90,6 +90,28 @@ function event(
         }, sequence);
     }
 
+    if (eventType === "tool_finished") {
+        return allocateImmutableEvent({
+            goalId: "goal-real-1",
+            runId: "run-real-1",
+            phase: "executing",
+            executionUnitId,
+            stepIndex,
+            actionId: "action-1",
+            eventType,
+            payload: {
+                type: eventType,
+                actionId: "action-1",
+                toolId: "read_file",
+                observation: {
+                    kind: "success",
+                    output: "PRIVATE_RAW_TOOL_OUTPUT",
+                    summary: "读取了一个文件",
+                },
+            },
+        }, sequence);
+    }
+
     return allocateImmutableEvent({
         goalId: "goal-real-1",
         runId: "run-real-1",
@@ -101,7 +123,6 @@ function event(
         payload: {
             type: eventType,
             actionId: "action-1",
-            toolId: "read_file",
             observation: {
                 kind: "success",
                 output: "PRIVATE_RAW_TOOL_OUTPUT",
@@ -178,8 +199,9 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         event(1, "decision_received"),
         event(2, "action_staged"),
         event(3, "tool_finished"),
+        event(4, "observation_recorded"),
     ];
-    const tail = [event(4, "decision_received")];
+    const tail = [event(5, "decision_received")];
     const result: Readonly<TrajectoryReadResult> = { committed, uncommittedTail: tail };
 
     const session = await readBrowserGoalSession(
