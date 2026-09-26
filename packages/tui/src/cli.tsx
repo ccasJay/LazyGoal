@@ -53,6 +53,7 @@ import {
 } from "../../http/src/index";
 import {
     BrowserGoalCommandService,
+    BrowserGoalStreamService,
     createBrowserGoalRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -1552,6 +1553,11 @@ async function runBrowserSessionCli(
             profileId: root.profile.id,
             control: { signal: root.abortController.signal },
         });
+        const streamService = new BrowserGoalStreamService({
+            store: root.workspaceGoalStore,
+            saveNotifications: root.notifyingStore,
+            publisher: root.executionStream,
+        });
         root.httpService.mount("/", createBrowserGoalRoutes({
             list: () => listBrowserGoals(root.workspaceGoalStore),
             read: (goalId) => readBrowserGoalSession(
@@ -1562,6 +1568,7 @@ async function runBrowserSessionCli(
             create: (command) => commandService.create(command),
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
+            openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);

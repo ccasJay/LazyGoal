@@ -270,6 +270,9 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
             calls.push({ goalId, ...command });
             return { ok: true as const, goalId, runId: "run-next", existing: false };
         },
+        async openStream() {
+            return { ok: false as const, error: "goal_not_found" as const };
+        },
     });
     const send = (goalId: string, body: unknown) => routes.request(
         `http://localhost/api/goals/${goalId}/messages`,

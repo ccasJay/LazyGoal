@@ -9,6 +9,10 @@ import type {
     BrowserGoalMessageCommand,
     BrowserGoalMessageResult,
 } from "./browser-goal-command-service";
+import type {
+    BrowserGoalLiveFeed,
+    BrowserGoalStreamOpenResult,
+} from "./browser-goal-stream";
 
 const MAX_COMMAND_BODY_BYTES = 16 * 1024;
 const MAX_GOAL_ID_LENGTH = 128;
@@ -30,6 +34,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     create: async () => ({ ok: false, error: "goal_create_failed" }),
  *     interact: async () => ({ ok: false, error: "interaction_failed" }),
  *     message: async () => ({ ok: false, error: "message_failed" }),
+ *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
  */
@@ -75,14 +80,24 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 读取失败时拒绝。
      */
     message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
+    /**
+     * 打开精确绑定到最新 Goal/Run 的实时进展流。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param runId - 查询中的当前 Run 身份。
+     * @param signal - HTTP 请求断开时结束订阅的取消信号。
+     * @returns 安全事件流或 Goal/Run 稳定拒绝码。
+     * @throws 正式 Snapshot 读取失败时拒绝。
+     */
+    openStream(goalId: string, runId: string, signal?: AbortSignal): Promise<BrowserGoalStreamOpenResult>;
 }
 
 /**
- * 创建同源 Goal 列表、会话读取、创建、结构化交互和普通消息 API。
+ * 创建同源 Goal 列表、会话读取、命令和实时事件 API。
  *
  * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
  * @returns 提供列表/详情读取、`POST /api/goals` 和
- *   `POST /api/goals/:goalId/interactions` 与 `POST /api/goals/:goalId/messages` 的 Hono 应用。
+ *   创建/交互/消息路由、会话事件流路由和 Hono 应用。
  * @remarks
  * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
  * 不回传存储错误文本，也不保留浏览器旧状态。外层 BrowserSessionAccess 中间件负责授权。
@@ -181,6 +196,33 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         } catch {
             return context.json({ error: "message_failed" }, 500);
         }
+    });
+
+    routes.get("/api/goals/:goalId/events", async (context) => {
+        const goalId = context.req.param("goalId");
+        const query = new URL(context.req.url).searchParams;
+        const runIds = query.getAll("runId");
+        const runId = runIds[0];
+        if (
+            !isWireId(goalId, MAX_GOAL_ID_LENGTH)
+            || query.size !== 1
+            || runIds.length !== 1
+            || runId === undefined
+            || !isWireId(runId, 256)
+        ) {
+            return context.json({ error: "invalid_stream_identity" }, 400);
+        }
+        let opened: BrowserGoalStreamOpenResult;
+        try {
+            opened = await source.openStream(goalId, runId, context.req.raw.signal);
+        } catch {
+            return context.json({ error: "stream_unavailable" }, 500);
+        }
+        if (!opened.ok) {
+            const status = opened.error === "goal_not_found" ? 404 : 409;
+            return context.json({ error: opened.error, refresh: true }, status);
+        }
+        return createEventStreamResponse(opened.feed);
     });
 
     return routes;
@@ -449,4 +491,39 @@ function messageErrorStatus(
         || error === "message_conflict") return 409;
     if (error === "message_failed") return 500;
     return 400;
+}
+
+function createEventStreamResponse(
+    feed: BrowserGoalLiveFeed,
+): Response {
+    const encoder = new TextEncoder();
+    const iterator = feed.events[Symbol.asyncIterator]();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            try {
+                const next = await iterator.next();
+                if (next.done) {
+                    if (!cancelled) controller.close();
+                    feed.close();
+                    return;
+                }
+                controller.enqueue(encoder.encode(`event: update\ndata: ${JSON.stringify(next.value)}\n\n`));
+            } catch {
+                if (!cancelled) controller.error(new Error("browser event stream failed"));
+                feed.close();
+            }
+        },
+        cancel() {
+            cancelled = true;
+            feed.close();
+        },
+    });
+    return new Response(body, {
+        headers: {
+            "cache-control": "no-cache, no-transform",
+            "content-type": "text/event-stream; charset=utf-8",
+            "x-accel-buffering": "no",
+        },
+    });
 }

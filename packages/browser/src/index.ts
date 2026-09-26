@@ -32,3 +32,13 @@ export {
     type BrowserSessionRun,
     type BrowserSessionStep,
 } from "./browser-projection";
+export {
+    BrowserGoalStreamService,
+    type BrowserGoalExecutionEvent,
+    type BrowserGoalExecutionStream,
+    type BrowserGoalExecutionSubscription,
+    type BrowserGoalLiveEvent,
+    type BrowserGoalLiveFeed,
+    type BrowserGoalStreamDependencies,
+    type BrowserGoalStreamOpenResult,
+} from "./browser-goal-stream";

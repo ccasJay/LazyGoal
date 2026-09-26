@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-messages.test.ts`；执行 `npx tsx --test packages/browser/test/browser-messages.test.ts`。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3)_
 
-- [ ] //TODO 6. 接入公开实时事件与提交后刷新通知
+- [x] //TODO 6. 接入公开实时事件与提交后刷新通知
 
   - 实现目标：向获准连接发送当前 Goal/Run 的安全实时进展和快照重读通知，限制输出并在断线后从最新提交状态重建。
   - 成功判据：旧 Run、旧连接和 reasoning 事件不进入当前视图；已提交步骤替换对应临时活动，文本流结束及流故障都不伪造 Run 终态。
