@@ -17,7 +17,7 @@ const MAX_PENDING_LIVE_EVENTS = 128;
  *     type: "activity",
  *     goalId: "goal-1",
  *     runId: "run-1",
- *     activity: { kind: "assistant_text_delta", text: "正在检查" },
+ *     activity: { kind: "assistant_text_delta", text: "正在检查", truncated: false },
  * };
  * ```
  */
@@ -28,7 +28,11 @@ export type BrowserGoalLiveEvent =
         readonly runId: string;
         readonly activity:
             | { readonly kind: "assistant_text_delta"; readonly text: string; readonly truncated: boolean }
-            | { readonly kind: "model_started" | "model_completed" | "step_started" | "tool_started" | "tool_finished" };
+            | { readonly kind: "model_started" }
+            | { readonly kind: "model_completed" }
+            | { readonly kind: "step_started" }
+            | { readonly kind: "tool_started" }
+            | { readonly kind: "tool_finished" };
     }
     | { readonly type: "snapshot_changed"; readonly goalId: string; readonly runId: string }
     | { readonly type: "refresh_required"; readonly goalId: string; readonly runId: string };

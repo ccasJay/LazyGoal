@@ -42,7 +42,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-stream.test.ts`；执行 `npx tsx --test packages/browser/test/browser-stream.test.ts`。
   - _Requirements: [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [5.3](./requirements.md#req-5-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 7. 用真实会话状态替换原型模拟状态和交互
+- [x] //TODO 7. 用真实会话状态替换原型模拟状态和交互
 
   - 实现目标：沿用原型主要宽窄屏布局，接入真实列表、会话、实时活动及当前等待表单；隐藏或禁用范围外的模拟操作。
   - 成功判据：宽窄屏均可从卡片进入和返回真实会话；无虚构计划或完成状态，普通文本不能代替回答和审批。

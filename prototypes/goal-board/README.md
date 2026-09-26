@@ -1,17 +1,20 @@
-# Goal board prototype
+# Goal board
 
-A standalone React + TypeScript + Vite preview. Each card represents a Goal; selecting it opens its streaming Session on the right.
+The React board reads real Goal summaries and saved sessions through the same-origin local browser service. It supports opening a session, viewing committed messages and steps, following temporary activity, answering the current structured request, and continuing a completed Goal. The page does not keep sample Goals or persist browser-side session state.
+
+## Build and run
+
+Build the page into the static directory served by `lazygoal web`, then start the local service:
 
 ```sh
-cd prototypes/goal-board
-npm ci
-npm run dev
+npm run build --prefix prototypes/goal-board
+node bin/lazygoal.cjs web
 ```
 
-Open the local URL printed by Vite. `npm run build` checks types and builds the preview.
+Open the one-time local link printed by the command. Its fragment contains the short-lived browser access token; use the link only in the local browser session.
 
-Try selecting goals, searching, filtering for input, expanding or resizing the session, opening tool output, approving the sample plan, sending a message, and creating a goal. On a narrow screen, close the session to return to the board. The resize separator also supports left/right arrow keys.
+For layout-only work, run `npm run dev --prefix prototypes/goal-board`. Vite preview has no authenticated API connection, so the board shows a local-service connection instruction instead of sample data.
 
-All data and streaming output are simulated in browser memory and reset on refresh. Approval and messages never execute tools or write Goal snapshots. Running cards remain running after sample output finishes; streaming completion is not Goal completion. This prototype is independent of the Runtime and React Ink TUI. The Google Fonts stylesheet is optional; system fonts are the fallback.
+## Browser acceptance
 
-Additional preview components include Board/List views, category filters, a project selector with an empty Sandbox, Plan and Details session panels, and workspace settings. Compact mode keeps all cards at 176px; standard mode uses 196px. Tool visibility and the agent profile label update immediately. Plan milestones are illustrative; settings and project assignments exist only in browser memory.
+Run `npm run test:e2e --prefix prototypes/goal-board`. The test starts Vite, a controlled local API, and headless Chrome or Chromium to check saved state, temporary activity, a structured answer, authorization-free preview behavior, and the narrow session layout. Set `CHROME_BIN` if the browser executable is not in a standard location.

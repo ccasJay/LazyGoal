@@ -1,215 +1,367 @@
-import { useEffect, useRef } from "react";
-import { Check, Circle, Clock3, Settings2, X } from "lucide-react";
+import { useState } from "react";
+import { Check, Circle, CircleHelp, Clock3, X, Zap } from "lucide-react";
 
-type GoalSummary = {
-  id: number;
-  title: string;
-  description: string;
-  status: string;
-  steps: number;
-  total: number;
-  tag: string;
-};
+import type {
+  BrowserGoalInteractionCommand,
+  BrowserGoalSession,
+} from "../../../packages/browser/src/index";
+
+type SessionTab = "Activity" | "Plan" | "Details";
 
 export function GoalDetails({
-  goal,
+  session,
   tab,
 }: {
-  goal: GoalSummary;
-  tab: "Plan" | "Details";
+  session: BrowserGoalSession;
+  tab: Exclude<SessionTab, "Activity">;
 }) {
-  const stages = [
-    "Understand the objective",
-    "Inspect the workspace",
-    "Implement the changes",
-    "Verify the result",
-    "Summarize the outcome",
-  ];
-  return (
-    <div className="detail-panel" key={goal.id}>
-      {tab === "Plan" ? (
-        <>
-          <div className="panel-heading">
-            <h3>Execution plan</h3>
-            <span>
-              {goal.steps}/{goal.total}
-            </span>
-          </div>
-          <p className="panel-description">
-            Sample milestones for this goal. Execution updates the plan as work
-            progresses.
-          </p>
-          <progress
-            aria-label="Goal progress"
-            value={goal.steps}
-            max={goal.total}
-          />
+  if (tab === "Plan") {
+    const plan = session.goalPlan;
+    if (plan === undefined) return null;
+    return (
+      <div className="detail-panel">
+        <div className="panel-heading">
+          <h3>Execution plan</h3>
+          <span>Revision {plan.revision}</span>
+        </div>
+        {plan.items.length === 0 ? (
+          <div className="panel-empty">No plan items are saved for this Goal.</div>
+        ) : (
           <ol className="plan-list">
-            {Array.from({ length: goal.total }, (_, i) => (
-              <li key={i} className={i < goal.steps ? "done" : ""}>
+            {plan.items.map((item) => (
+              <li key={item.id} className={item.status === "completed" ? "done" : ""}>
                 <span className="plan-marker">
-                  {i < goal.steps ? (
-                    <Check size={14} />
-                  ) : i === goal.steps && goal.status === "Running" ? (
-                    <Clock3 size={14} />
-                  ) : (
-                    <Circle size={14} />
-                  )}
+                  {item.status === "completed" ? <Check size={14} />
+                    : item.status === "in_progress" ? <Clock3 size={14} />
+                      : item.status === "cancelled" ? <X size={14} />
+                        : <Circle size={14} />}
                 </span>
                 <div>
-                  <strong>{stages[Math.min(i, stages.length - 1)]}</strong>
-                  <small>
-                    {i < goal.steps
-                      ? "Completed"
-                      : i === goal.steps && goal.status === "Running"
-                        ? "In progress"
-                        : "Pending"}
-                  </small>
+                  <strong>{item.content}</strong>
+                  <small>{planStatus(item.status)}</small>
                 </div>
               </li>
             ))}
           </ol>
-          <div className="info-box">
-            Plan progress is separate from permission to execute. Review
-            approval requests in Activity.
-          </div>
-        </>
-      ) : (
-        <>
-          <div className="panel-heading">
-            <h3>Goal details</h3>
-            <span>LG-{goal.id}</span>
-          </div>
-          <label className="field-label">Objective</label>
-          <p className="objective-text">{goal.title}</p>
-          <p className="panel-description">{goal.description}</p>
-          <dl className="property-list">
-            <div>
-              <dt>Status</dt>
-              <dd>{goal.status}</dd>
-            </div>
-            <div>
-              <dt>Category</dt>
-              <dd>{goal.tag}</dd>
-            </div>
-            <div>
-              <dt>Session</dt>
-              <dd>Run 01</dd>
-            </div>
-            <div>
-              <dt>Progress</dt>
-              <dd>
-                {goal.steps} of {goal.total} steps
-              </dd>
-            </div>
-            <div>
-              <dt>Storage</dt>
-              <dd>Browser memory</dd>
-            </div>
-          </dl>
-          <h3 className="section-title">Completion criteria</h3>
-          <div className="criterion">
-            <Circle size={14} />
-            <span>The objective is met and its result can be verified.</span>
-          </div>
-          <div className="info-box">
-            This is a UI preview. Plan items and completion criteria are
-            illustrative, not Runtime records.
-          </div>
-        </>
+        )}
+      </div>
+    );
+  }
+
+  const currentRun = session.runs.find((run) => run.current);
+  return (
+    <div className="detail-panel">
+      <div className="panel-heading">
+        <h3>Goal details</h3>
+        <span>{session.goalId}</span>
+      </div>
+      <label className="field-label">Objective</label>
+      <p className="objective-text">{session.intent}</p>
+      <dl className="property-list">
+        <div>
+          <dt>Run status</dt>
+          <dd>{runStatusLabel(session.runStatus)}</dd>
+        </div>
+        <div>
+          <dt>Current Run</dt>
+          <dd>{session.currentRunId}</dd>
+        </div>
+        <div>
+          <dt>Committed steps</dt>
+          <dd>{currentRun?.stepCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Earlier Runs</dt>
+          <dd>{session.runs.filter((run) => !run.current).length}</dd>
+        </div>
+        <div>
+          <dt>Saved messages</dt>
+          <dd>{session.messages.length}</dd>
+        </div>
+      </dl>
+      {session.historyTruncated && (
+        <div className="info-box">Older session history is omitted from this view.</div>
       )}
     </div>
   );
 }
 
-export function SettingsDialog({
-  open,
-  onClose,
-  compact,
-  setCompact,
-  showTools,
-  setShowTools,
-  agent,
-  setAgent,
+export function WaitingInteraction({
+  session,
+  busy,
+  onSubmit,
 }: {
-  open: boolean;
-  onClose: () => void;
-  compact: boolean;
-  setCompact: (value: boolean) => void;
-  showTools: boolean;
-  setShowTools: (value: boolean) => void;
-  agent: string;
-  setAgent: (value: string) => void;
+  session: BrowserGoalSession;
+  busy: boolean;
+  onSubmit: (command: BrowserGoalInteractionCommand) => void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    if (open) ref.current?.showModal();
-    else ref.current?.close();
-  }, [open]);
+  const interaction = session.pendingInteraction;
+  if (interaction?.kind === "ask_user") {
+    return (
+      <AskUserForm
+        key={`${session.currentRunId}:${interaction.requestId}`}
+        session={session}
+        busy={busy}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  if (interaction?.kind === "task_approval") {
+    return (
+      <TaskApprovalForm
+        key={`${session.currentRunId}:${interaction.requestId}`}
+        session={session}
+        busy={busy}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  const action = session.pendingAction;
+  if (action !== undefined && action.status !== "approved") {
+    return (
+      <ActionApprovalForm
+        key={`${session.currentRunId}:${action.actionId}`}
+        session={session}
+        busy={busy}
+        onSubmit={onSubmit}
+      />
+    );
+  }
+  return null;
+}
+
+function AskUserForm({
+  session,
+  busy,
+  onSubmit,
+}: {
+  session: BrowserGoalSession;
+  busy: boolean;
+  onSubmit: (command: BrowserGoalInteractionCommand) => void;
+}) {
+  const interaction = session.pendingInteraction;
+  if (interaction?.kind !== "ask_user") return null;
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [otherText, setOtherText] = useState<Record<string, string>>({});
+  const canSubmit = interaction.questions.length > 0 && interaction.questions.every((question) =>
+    (selected[question.id]?.length ?? 0) > 0 || (otherText[question.id]?.trim().length ?? 0) > 0);
+
   return (
-    <dialog
-      ref={ref}
-      className="settings-dialog"
-      onCancel={onClose}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="dialog-heading">
-        <h2>
-          <Settings2 size={19} />
-          Workspace settings
-        </h2>
-        <button className="icon" aria-label="Close settings" onClick={onClose}>
-          <X size={18} />
+    <section className="approval structured-form">
+      <div className="approval-heading">
+        <CircleHelp size={15} />
+        <strong>Your answer is needed</strong>
+      </div>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        onSubmit({
+          kind: "answer_ask_user",
+          runId: session.currentRunId,
+          requestId: interaction.requestId,
+          answers: interaction.questions.map((question) => ({
+            questionId: question.id,
+            optionIds: selected[question.id] ?? [],
+            ...(otherText[question.id]?.trim()
+              ? { otherText: otherText[question.id]!.trim() }
+              : {}),
+          })),
+        });
+      }}>
+        {interaction.questions.map((question) => (
+          <fieldset className="question" key={question.id}>
+            <legend>{question.header}</legend>
+            <p>{question.question}</p>
+            <div className="question-options">
+              {question.options.map((option) => {
+                const checked = (selected[question.id] ?? []).includes(option.id);
+                return (
+                  <label className="answer-option" key={option.id}>
+                    <input
+                      type={question.multiSelect ? "checkbox" : "radio"}
+                      name={`question-${question.id}`}
+                      checked={checked}
+                      disabled={busy}
+                      onChange={() => setSelected((current) => {
+                        const previous = current[question.id] ?? [];
+                        const next = question.multiSelect
+                          ? checked
+                            ? previous.filter((id) => id !== option.id)
+                            : [...previous, option.id]
+                          : [option.id];
+                        return { ...current, [question.id]: next };
+                      })}
+                    />
+                    <span>{option.label}
+                      {option.description && <small>{option.description}</small>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <label className="other-answer">
+              <span>Other answer</span>
+              <input
+                value={otherText[question.id] ?? ""}
+                disabled={busy}
+                onChange={(event) => setOtherText((current) => ({
+                  ...current,
+                  [question.id]: event.target.value,
+                }))}
+              />
+            </label>
+          </fieldset>
+        ))}
+        <button className="approval-primary" disabled={busy || !canSubmit} type="submit">
+          <Check size={13} /> Submit answer
         </button>
-      </div>
-      <p>Make this workspace feel like yours.</p>
-      <h3 className="section-title">Appearance</h3>
-      <label className="setting-row">
-        <span>
-          <strong>Compact cards</strong>
-          <small>Keep equal card sizes with less space between rows.</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={compact}
-          onChange={(e) => setCompact(e.target.checked)}
-        />
-      </label>
-      <label className="setting-row">
-        <span>
-          <strong>Show tool activity</strong>
-          <small>Include tool calls in the session waterfall.</small>
-        </span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={showTools}
-          onChange={(e) => setShowTools(e.target.checked)}
-        />
-      </label>
-      <h3 className="section-title">Agent profile</h3>
-      <label className="field-label" htmlFor="profile-setting">
-        Default profile
-      </label>
-      <select
-        id="profile-setting"
-        value={agent}
-        onChange={(e) => setAgent(e.target.value)}
-      >
-        <option>Default agent</option>
-        <option>Code reviewer</option>
-        <option>Research assistant</option>
-      </select>
-      <div className="info-box">
-        Profile selection changes the preview label only. No model requests are
-        made. Preferences reset on refresh.
-      </div>
-      <button className="primary" onClick={onClose}>
-        Done
-      </button>
-    </dialog>
+      </form>
+    </section>
   );
+}
+
+function TaskApprovalForm({
+  session,
+  busy,
+  onSubmit,
+}: {
+  session: BrowserGoalSession;
+  busy: boolean;
+  onSubmit: (command: BrowserGoalInteractionCommand) => void;
+}) {
+  const interaction = session.pendingInteraction;
+  const [feedback, setFeedback] = useState("");
+  if (interaction?.kind !== "task_approval") return null;
+
+  return (
+    <section className="approval structured-form">
+      <div className="approval-heading">
+        <CircleHelp size={15} />
+        <strong>Review the proposed task</strong>
+      </div>
+      <p>{interaction.approvalRequest}</p>
+      <h4>{interaction.objective}</h4>
+      {interaction.completionCriteria.length > 0 && (
+        <ul className="criteria-list">
+          {interaction.completionCriteria.map((criterion, index) => <li key={index}>{criterion}</li>)}
+        </ul>
+      )}
+      <button
+        className="approval-primary"
+        disabled={busy}
+        onClick={() => onSubmit({
+          kind: "approve_task",
+          runId: session.currentRunId,
+          requestId: interaction.requestId,
+        })}
+      >
+        <Check size={13} /> Approve task
+      </button>
+      <form className="feedback-form" onSubmit={(event) => {
+        event.preventDefault();
+        if (!feedback.trim()) return;
+        onSubmit({
+          kind: "feedback_task",
+          runId: session.currentRunId,
+          requestId: interaction.requestId,
+          feedback: feedback.trim(),
+        });
+      }}>
+        <label htmlFor="task-feedback">Or send feedback</label>
+        <textarea
+          id="task-feedback"
+          value={feedback}
+          disabled={busy}
+          onChange={(event) => setFeedback(event.target.value)}
+          placeholder="Describe what should change…"
+        />
+        <button disabled={busy || !feedback.trim()} type="submit">Send feedback</button>
+      </form>
+    </section>
+  );
+}
+
+function ActionApprovalForm({
+  session,
+  busy,
+  onSubmit,
+}: {
+  session: BrowserGoalSession;
+  busy: boolean;
+  onSubmit: (command: BrowserGoalInteractionCommand) => void;
+}) {
+  const action = session.pendingAction;
+  const [reason, setReason] = useState("");
+  if (action === undefined || action.status === "approved") return null;
+  const recovery = action.status === "outcome_unknown";
+
+  return (
+    <section className="approval structured-form">
+      <div className="approval-heading">
+        <CircleHelp size={15} />
+        <strong>{recovery ? "Action result needs review" : "Your approval is needed"}</strong>
+      </div>
+      <p>
+        {recovery
+          ? "The previous result could not be confirmed. Review this action before choosing what to do."
+          : "LazyGoal wants to run a workspace action."}
+      </p>
+      <div className="action-summary">
+        <Zap size={14} />
+        <span>{action.toolId}</span>
+        <small>{action.actionId}</small>
+      </div>
+      <button
+        className="approval-primary"
+        disabled={busy}
+        onClick={() => onSubmit({
+          kind: "approve_action",
+          runId: session.currentRunId,
+          actionId: action.actionId,
+        })}
+      >
+        <Check size={13} /> Approve action
+      </button>
+      <form className="feedback-form" onSubmit={(event) => {
+        event.preventDefault();
+        if (!reason.trim()) return;
+        onSubmit({
+          kind: "reject_action",
+          runId: session.currentRunId,
+          actionId: action.actionId,
+          reason: reason.trim(),
+        });
+      }}>
+        <label htmlFor="action-reason">Or reject with a reason</label>
+        <textarea
+          id="action-reason"
+          value={reason}
+          disabled={busy}
+          onChange={(event) => setReason(event.target.value)}
+          placeholder="Explain why this action should not run…"
+        />
+        <button disabled={busy || !reason.trim()} type="submit">Reject action</button>
+      </form>
+    </section>
+  );
+}
+
+function planStatus(status: string): string {
+  switch (status) {
+    case "in_progress": return "In progress";
+    case "completed": return "Completed";
+    case "cancelled": return "Cancelled";
+    default: return "Pending";
+  }
+}
+
+export function runStatusLabel(status: BrowserGoalSession["runStatus"]): string {
+  switch (status) {
+    case "created": return "Ready";
+    case "running": return "Running";
+    case "waiting": return "Needs input";
+    case "completed": return "Completed";
+    case "failed": return "Failed";
+    case "cancelled": return "Cancelled";
+  }
 }

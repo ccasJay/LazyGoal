@@ -1,442 +1,403 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowDown,
   ArrowUp,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   Clock3,
   Folder,
   GitBranch,
   LayoutGrid,
+  List,
   Maximize2,
   Minimize2,
   MoreHorizontal,
+  PanelLeftClose,
   Plus,
   Search,
   Terminal,
   X,
   Zap,
-  PanelLeftClose,
-  Play,
-  Pause,
 } from "lucide-react";
-import "./style.css";
-import { GoalDetails, SettingsDialog } from "./panels";
-import { Settings2, List, SlidersHorizontal, Inbox } from "lucide-react";
 
-type Status = "Ready" | "Running" | "Needs input" | "Completed";
-type Message = {
-  role: "user" | "agent" | "tool";
-  text: string;
-  detail?: string;
-};
-type Goal = {
-  id: number;
-  title: string;
-  description: string;
-  status: Status;
-  steps: number;
-  total: number;
-  tag: string;
-  messages: Message[];
-  stream?: string;
-  streamPaused?: boolean;
-  pendingKind?: "approval" | "answer" | undefined;
-};
-const initialGoals: Goal[] = [
-  {
-    id: 24,
-    title: "Add resumable goal sessions",
-    description: "Restore a goal exactly where it left off.",
-    status: "Running",
-    steps: 3,
-    total: 5,
-    tag: "Runtime",
-    messages: [
-      {
-        role: "user",
-        text: "Add resumable goal sessions. Preserve the conversation and continue from the last committed step after a restart.",
-      },
-      {
-        role: "agent",
-        text: "I’ll follow the existing snapshot boundary so recovery preserves both the execution state and conversation history.",
-      },
-      {
-        role: "tool",
-        text: "Read session-controller.ts",
-        detail:
-          "SessionController hydrates committed messages and steps from the latest Goal snapshot.\n\nRecovery must not replay a tool action that has already been committed.",
-      },
-      {
-        role: "agent",
-        text: "The session already restores committed messages. I’m checking the handoff between snapshot recovery and the next execution step.",
-      },
-      {
-        role: "tool",
-        text: "Inspect recovery tests",
-        detail:
-          '$ rg "restore|resume" packages/runtime/test\n\nFound recovery coverage for checkpoints, pending approvals, and completed steps.',
-      },
-    ],
-    stream:
-      "I’m adding a recovery scenario that interrupts the session after a committed step. The resumed session should keep its history, skip completed work, and continue with the next action.",
-  },
-  {
-    id: 23,
-    title: "Stream tool activity into the timeline",
-    description: "Show live output as each tool runs.",
-    status: "Running",
-    steps: 2,
-    total: 4,
-    tag: "Session",
-    messages: [
-      { role: "user", text: "Show tool activity in the session timeline." },
-      {
-        role: "agent",
-        text: "I’m tracing tool events through the execution stream.",
-      },
-    ],
-    stream:
-      "The live activity belongs in the session tail. Once the step commits, it becomes a stable timeline entry without duplicating the output.",
-  },
-  {
-    id: 22,
-    title: "Approve the execution plan",
-    description: "Review the proposed workspace changes.",
-    status: "Needs input",
-    pendingKind: "approval",
-    steps: 1,
-    total: 4,
-    tag: "Planning",
-    messages: [
-      { role: "user", text: "Improve workspace configuration discovery." },
-      {
-        role: "agent",
-        text: "I propose using the current workspace identity to discover its configuration, then adding a focused recovery check. Please approve this plan or send feedback before I continue.",
-      },
-    ],
-  },
-  {
-    id: 21,
-    title: "Clarify benchmark output location",
-    description: "Choose where evaluation reports should go.",
-    status: "Needs input",
-    pendingKind: "answer",
-    steps: 1,
-    total: 3,
-    tag: "Benchmarks",
-    messages: [
-      {
-        role: "agent",
-        text: "Should evaluation reports stay inside the workspace data directory? Send your preferred location to continue.",
-      },
-    ],
-  },
-  {
-    id: 20,
-    title: "Improve completion evidence",
-    description: "Make every completed goal verifiable.",
-    status: "Ready",
-    steps: 0,
-    total: 3,
-    tag: "Runtime",
-    messages: [
-      {
-        role: "user",
-        text: "Improve the presentation of completion evidence.",
-      },
-    ],
-  },
-  {
-    id: 19,
-    title: "Polish empty session states",
-    description: "Give new goals a clear starting point.",
-    status: "Ready",
-    steps: 0,
-    total: 2,
-    tag: "Session",
-    messages: [{ role: "user", text: "Polish empty session states." }],
-  },
-  {
-    id: 18,
-    title: "Unify model profile selection",
-    description: "Use the same profile across a goal session.",
-    status: "Completed",
-    steps: 4,
-    total: 4,
-    tag: "Models",
-    messages: [
-      { role: "user", text: "Unify model profile selection." },
-      {
-        role: "agent",
-        text: "The prototype goal is complete. Profile selection is consistent across this sample session. All four example checks passed.",
-      },
-    ],
-  },
-  {
-    id: 17,
-    title: "Document snapshot ownership",
-    description: "Clarify the persistence boundary.",
-    status: "Completed",
-    steps: 2,
-    total: 2,
-    tag: "Docs",
-    messages: [
-      {
-        role: "agent",
-        text: "The sample documentation task is complete. Snapshot ownership and recovery boundaries are documented.",
-      },
-    ],
-  },
+import type {
+  BrowserGoalInteractionCommand,
+  BrowserGoalListItem,
+  BrowserGoalSession,
+} from "../../../packages/browser/src/index";
+import { BrowserApiError, browserApi } from "./api";
+import { GoalDetails, runStatusLabel, WaitingInteraction } from "./panels";
+import "./style.css";
+
+type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "Stopped";
+type SessionTab = "Activity" | "Plan" | "Details";
+type BoardView = "board" | "list";
+
+const statuses: readonly GoalStatus[] = [
+  "Ready",
+  "Running",
+  "Needs input",
+  "Completed",
+  "Stopped",
 ];
-const statuses: Status[] = ["Ready", "Running", "Needs input", "Completed"];
-const statusClass = (status: Status) => status.toLowerCase().replace(" ", "-");
+
+function statusFromRun(status: BrowserGoalListItem["runStatus"]): GoalStatus {
+  switch (status) {
+    case "created": return "Ready";
+    case "running": return "Running";
+    case "waiting": return "Needs input";
+    case "completed": return "Completed";
+    case "failed":
+    case "cancelled": return "Stopped";
+  }
+}
+
+function statusClass(status: GoalStatus): string {
+  return status.toLowerCase().replaceAll(" ", "-");
+}
 
 function App() {
-  const [goals, setGoals] = useState(initialGoals);
-  const [selected, setSelected] = useState<number | null>(() =>
-    window.innerWidth <= 760 ? null : 24,
-  );
-  const [sessionTab, setSessionTab] = useState<"Activity" | "Plan" | "Details">(
-    "Activity",
-  );
-  const [view, setView] = useState<"board" | "list">("board");
-  const [settings, setSettings] = useState(false);
-  const [compact, setCompact] = useState(false);
-  const [showTools, setShowTools] = useState(true);
-  const [agent, setAgent] = useState("Default agent");
-  const [project, setProject] = useState("LazyGoal");
-  const [goalProjects, setGoalProjects] = useState<Record<number, string>>({});
-  const [category, setCategory] = useState("All categories");
+  const [goals, setGoals] = useState<readonly BrowserGoalListItem[]>([]);
+  const [goalsLoading, setGoalsLoading] = useState(true);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const [session, setSession] = useState<BrowserGoalSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [boardView, setBoardView] = useState<BoardView>("board");
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState(false);
-  const [drafts, setDrafts] = useState<Record<number, string>>({});
+  const [needsInputOnly, setNeedsInputOnly] = useState(false);
+  const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
   const [expanded, setExpanded] = useState(false);
   const [sidebar, setSidebar] = useState(true);
   const [width, setWidth] = useState(440);
-  const [newGoal, setNewGoal] = useState(false);
-  const [title, setTitle] = useState("");
   const [follow, setFollow] = useState(true);
+  const [showTools, setShowTools] = useState(true);
+  const [liveText, setLiveText] = useState("");
+  const [liveActivity, setLiveActivity] = useState<string | null>(null);
+  const [streamConnected, setStreamConnected] = useState(false);
+  const [newGoalOpen, setNewGoalOpen] = useState(false);
+  const [newGoalIntent, setNewGoalIntent] = useState("");
+  const [newGoalError, setNewGoalError] = useState<string | null>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const modal = useRef<HTMLDialogElement>(null);
-  const goal = goals.find((g) => g.id === selected);
-  const draft = goal ? (drafts[goal.id] ?? "") : "";
-  const visible = goals.filter(
-    (g) =>
-      `${g.title} ${g.tag}`.toLowerCase().includes(search.toLowerCase()) &&
-      (!filter || g.status === "Needs input") &&
-      (project === "All projects" ||
-        (goalProjects[g.id] ?? "LazyGoal") === project) &&
-      (category === "All categories" || g.tag === category),
-  );
-
-  function toggleGoalSelection(goalId: number) {
-    setSelected((current) => (current === goalId ? null : goalId));
-    setExpanded(false);
-  }
+  const latestSession = useRef<BrowserGoalSession | null>(null);
+  const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
+  const currentRun = session?.runs.find((run) => run.current);
+  const visibleGoals = useMemo(() => goals.filter((goal) => {
+    const matchesSearch = goal.intent.toLowerCase().includes(search.toLowerCase());
+    return matchesSearch && (!needsInputOnly || goal.runStatus === "waiting");
+  }), [goals, needsInputOnly, search]);
+  const canSendText = session !== null
+    && session.pendingInteraction === undefined
+    && session.pendingAction === undefined
+    && (session.runStatus === "waiting" || session.runStatus === "completed");
 
   useEffect(() => {
-    const timer = window.setInterval(
-      () =>
-        setGoals((current) =>
-          current.map((g) => {
-            if (!g.stream || g.status !== "Running" || g.streamPaused) return g;
-            const amount = Math.min(4, g.stream.length);
-            const messages = [...g.messages];
-            const last = messages[messages.length - 1];
-            if (last?.role === "agent" && last.detail === "stream")
-              messages[messages.length - 1] = {
-                ...last,
-                text: last.text + g.stream.slice(0, amount),
-              };
-            else
-              messages.push({
-                role: "agent",
-                text: g.stream.slice(0, amount),
-                detail: "stream",
-              });
-            return { ...g, messages, stream: g.stream.slice(amount) };
-          }),
-        ),
-      65,
-    );
-    return () => clearInterval(timer);
+    if (!browserApi.hasAccessToken) {
+      setGoalsLoading(false);
+      setSessionError("Open the local link printed by `lazygoal web` to connect this board.");
+      return;
+    }
+    const controller = new AbortController();
+    void browserApi.listGoals(controller.signal).then((result) => {
+      setGoals(result);
+      setSessionError(null);
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setSessionError(errorMessage(error));
+    }).finally(() => {
+      if (!controller.signal.aborted) setGoalsLoading(false);
+    });
+    return () => controller.abort();
   }, []);
+
   useEffect(() => {
-    if (follow && timeline.current)
-      timeline.current.scrollTop = timeline.current.scrollHeight;
-  }, [goal?.messages, follow, selected]);
+    if (selectedGoalId === null) {
+      latestSession.current = null;
+      setSession(null);
+      setSessionLoading(false);
+      if (browserApi.hasAccessToken) setSessionError(null);
+      setLiveText("");
+      setLiveActivity(null);
+      setStreamConnected(false);
+      return;
+    }
+    const controller = new AbortController();
+    let active = true;
+    latestSession.current = null;
+    setSession(null);
+    setSessionLoading(true);
+    setSessionError(null);
+    setCommandError(null);
+    setLiveText("");
+    setLiveActivity(null);
+    void browserApi.readGoal(selectedGoalId, controller.signal).then((next) => {
+      if (!active) return;
+      latestSession.current = next;
+      setSession(next);
+      setSessionTab("Activity");
+      setExpanded(false);
+    }).catch((error: unknown) => {
+      if (active && !controller.signal.aborted) setSessionError(errorMessage(error));
+    }).finally(() => {
+      if (active) setSessionLoading(false);
+    });
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedGoalId]);
+
   useEffect(() => {
-    setFollow(true);
-    setSessionTab("Activity");
-  }, [selected]);
+    if (
+      selectedGoalId === null
+      || session === null
+      || session.goalId !== selectedGoalId
+      || sessionLoading
+    ) return;
+    const controller = new AbortController();
+    let active = true;
+    setStreamConnected(false);
+
+    const refreshLatest = async () => {
+      const previous = latestSession.current;
+      const next = await browserApi.readGoal(selectedGoalId, controller.signal);
+      if (!active) return;
+      latestSession.current = next;
+      setSession(next);
+      setSessionError(null);
+      if (previous !== null && (
+        next.messages.length > previous.messages.length
+        || committedStepCount(next) > committedStepCount(previous)
+      )) setLiveText("");
+      void browserApi.listGoals(controller.signal).then(setGoals).catch(() => undefined);
+    };
+
+    const delay = () => new Promise<void>((resolve) => {
+      const timeout = window.setTimeout(resolve, 800);
+      controller.signal.addEventListener("abort", () => {
+        window.clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+    });
+
+    const listen = async () => {
+      while (active && !controller.signal.aborted) {
+        try {
+          for await (const event of browserApi.events(
+            selectedGoalId,
+            session.currentRunId,
+            controller.signal,
+          )) {
+            if (!active) return;
+            setStreamConnected(true);
+            if (event.type === "snapshot_changed" || event.type === "refresh_required") {
+              await refreshLatest();
+              continue;
+            }
+            switch (event.activity.kind) {
+              case "assistant_text_delta": {
+                const text = event.activity.text;
+                setLiveActivity("A response is being generated");
+                setLiveText((current) => (current + text).slice(-8_000));
+                break;
+              }
+              case "model_started":
+                setLiveActivity("Runtime is working on this Goal");
+                break;
+              case "model_completed":
+                setLiveActivity("Waiting for the saved result");
+                break;
+              case "step_started":
+                setLiveActivity("A new execution step has started");
+                break;
+              case "tool_started":
+                setLiveActivity("A workspace action has started");
+                break;
+              case "tool_finished":
+                setLiveActivity("Workspace action finished; waiting for saved state");
+                break;
+            }
+          }
+          if (active && !controller.signal.aborted) {
+            setStreamConnected(false);
+            await refreshLatest();
+            await delay();
+          }
+        } catch (error) {
+          if (!active || controller.signal.aborted) return;
+          setStreamConnected(false);
+          if (error instanceof BrowserApiError && error.refresh) {
+            try {
+              await refreshLatest();
+            } catch {
+              // The next connection attempt will retry the official Snapshot read.
+            }
+          }
+          await delay();
+        }
+      }
+    };
+
+    void listen();
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [selectedGoalId, session?.currentRunId, session?.goalId, sessionLoading]);
+
   useEffect(() => {
-    if (newGoal) {
+    if (follow && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight;
+  }, [session?.messages, currentRun?.steps, liveText, follow, selectedGoalId]);
+
+  useEffect(() => {
+    if (newGoalOpen) {
       modal.current?.showModal();
       modal.current?.querySelector("textarea")?.focus();
-    } else modal.current?.close();
-  }, [newGoal]);
+    } else {
+      modal.current?.close();
+    }
+  }, [newGoalOpen]);
 
-  function send(text: string) {
-    if (!goal || !text.trim()) return;
+  async function refreshGoals() {
+    setGoalsLoading(true);
+    try {
+      setGoals(await browserApi.listGoals());
+      setSessionError(null);
+    } catch (error) {
+      setSessionError(errorMessage(error));
+    } finally {
+      setGoalsLoading(false);
+    }
+  }
+
+  async function refreshSelectedSession() {
+    if (selectedGoalId === null) return;
+    const hasVisibleSession = latestSession.current !== null;
+    if (!hasVisibleSession) setSessionLoading(true);
+    try {
+      const next = await browserApi.readGoal(selectedGoalId);
+      const previous = latestSession.current;
+      latestSession.current = next;
+      setSession(next);
+      setSessionError(null);
+      if (previous !== null && (
+        next.messages.length > previous.messages.length
+        || committedStepCount(next) > committedStepCount(previous)
+      )) setLiveText("");
+      await refreshGoals();
+    } catch (error) {
+      setSessionError(errorMessage(error));
+    } finally {
+      if (!hasVisibleSession) setSessionLoading(false);
+    }
+  }
+
+  function toggleGoalSelection(goalId: string) {
+    setSelectedGoalId((current) => current === goalId ? null : goalId);
+    setExpanded(false);
     setSessionTab("Activity");
-    setGoals((current) =>
-      current.map((g) =>
-        g.id === goal.id
-          ? {
-              ...g,
-              status: "Running",
-              streamPaused: false,
-              pendingKind: undefined,
-              messages: [...g.messages, { role: "user", text: text.trim() }],
-              stream:
-                "I’ve received your direction. In the connected version, the Runtime will continue this goal here. This preview demonstrates the same streaming session experience using sample output.",
-            }
-          : g,
-      ),
-    );
-    setDrafts((current) => ({ ...current, [goal.id]: "" }));
-    setFollow(true);
   }
-  function startGoal() {
-    if (!goal || goal.status !== "Ready") return;
-    setGoals((current) =>
-      current.map((g) =>
-        g.id === goal.id
-          ? {
-              ...g,
-              status: "Running",
-              stream:
-                "I’ve started this goal. The sample session will now show how live progress appears in the timeline.",
-            }
-          : g,
-      ),
-    );
+
+  async function createGoal() {
+    const intent = newGoalIntent.trim();
+    if (!intent || commandBusy) return;
+    setCommandBusy(true);
+    setNewGoalError(null);
+    try {
+      const result = await browserApi.createGoal({ goalId: crypto.randomUUID(), intent });
+      setNewGoalOpen(false);
+      setNewGoalIntent("");
+      setSelectedGoalId(result.goalId);
+      await refreshGoals();
+    } catch (error) {
+      setNewGoalError(errorMessage(error));
+    } finally {
+      setCommandBusy(false);
+    }
   }
-  function createGoal() {
-    if (!title.trim()) return;
-    const id = Math.max(...goals.map((g) => g.id)) + 1;
-    setGoals((current) => [
-      ...current,
-      {
-        id,
-        title: title.trim(),
-        description: "Ready to start a new session.",
-        status: "Ready",
-        steps: 0,
-        total: 1,
-        tag: "New goal",
-        messages: [{ role: "user", text: title.trim() }],
-      },
-    ]);
-    setGoalProjects((current) => ({
-      ...current,
-      [id]: project === "All projects" ? "LazyGoal" : project,
-    }));
-    setCategory("All categories");
-    setSelected(id);
-    setSearch("");
-    setFilter(false);
-    setTitle("");
-    setNewGoal(false);
+
+  async function submitMessage(content: string) {
+    const trimmed = content.trim();
+    if (!session || !trimmed || !canSendText || commandBusy) return;
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      await browserApi.sendMessage(session.goalId, {
+        runId: session.currentRunId,
+        content: trimmed,
+      });
+      await refreshSelectedSession();
+    } catch (error) {
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally {
+      setCommandBusy(false);
+    }
   }
+
+  async function submitInteraction(command: BrowserGoalInteractionCommand) {
+    if (!session || commandBusy) return;
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      await browserApi.interact(session.goalId, command);
+      await refreshSelectedSession();
+    } catch (error) {
+      setCommandError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally {
+      setCommandBusy(false);
+    }
+  }
+
+  const sessionTabs: readonly SessionTab[] = session?.goalPlan === undefined
+    ? ["Activity", "Details"]
+    : ["Activity", "Plan", "Details"];
 
   return (
-    <div className={"app " + (compact ? "compact" : "")}>
+    <div className="app">
       {sidebar && (
         <aside className="sidebar">
           <div className="brand">
-            <span className="brand-icon">
-              <Zap size={19} fill="currentColor" />
-            </span>
+            <span className="brand-icon"><Zap size={19} fill="currentColor" /></span>
             LazyGoal
-            <button
-              className="icon muted"
-              aria-label="Hide sidebar"
-              onClick={() => setSidebar(false)}
-            >
+            <button className="icon muted" aria-label="Hide sidebar" onClick={() => setSidebar(false)}>
               <PanelLeftClose size={16} />
             </button>
           </div>
           <div className="workspace">
-            <span className="workspace-avatar">S</span>
-            <div>
-              Sawyer’s workspace<small>Personal workspace</small>
-            </div>
+            <span className="workspace-avatar">LG</span>
+            <div>Local workspace<small>Current project</small></div>
           </div>
           <div className="nav-label">Workspace</div>
           <button
-            className={"nav " + (!filter ? "selected" : "")}
-            onClick={() => {
-              setSearch("");
-              setFilter(false);
-              setProject("All projects");
-              setCategory("All categories");
-            }}
+            className={`nav ${!needsInputOnly ? "selected" : ""}`}
+            onClick={() => setNeedsInputOnly(false)}
           >
             <LayoutGrid size={16} />
             All goals<span>{goals.length}</span>
           </button>
           <button
-            className={"nav " + (filter ? "active" : "")}
-            onClick={() => setFilter(!filter)}
+            className={`nav ${needsInputOnly ? "selected" : ""}`}
+            onClick={() => setNeedsInputOnly((value) => !value)}
           >
             <CircleHelp size={16} />
             Needs input
-            <span className="amber">
-              {goals.filter((g) => g.status === "Needs input").length}
-            </span>
-          </button>
-          <div className="nav-label projects-label">Projects</div>
-          <label className="project-picker">
-            <Folder size={15} />
-            <select
-              aria-label="Select project"
-              value={project}
-              onChange={(e) => {
-                setProject(e.target.value);
-                setSelected(null);
-                setExpanded(false);
-                setSearch("");
-                setFilter(false);
-                setCategory("All categories");
-              }}
-            >
-              <option>All projects</option>
-              <option>LazyGoal</option>
-              <option>Sandbox</option>
-            </select>
-          </label>
-          <div className="project-path">
-            {project === "All projects"
-              ? "2 local projects"
-              : "~/Project/" + project}
-          </div>
-          <button
-            className="nav settings-nav"
-            onClick={() => setSettings(true)}
-          >
-            <Settings2 size={16} />
-            Settings
+            <span className="amber">{goals.filter((goal) => goal.runStatus === "waiting").length}</span>
           </button>
           <div className="sidebar-bottom">
-            <div className="prototype-label">
-              <span className="dot" />
-              Interactive prototype
+            <div className="connection-label">
+              <span className={`dot ${browserApi.hasAccessToken ? "connected" : ""}`} />
+              {browserApi.hasAccessToken ? "Local Runtime" : "Not connected"}
             </div>
-            <p>
-              Sample goals · local preview
-              <br />
-              Changes reset on refresh
-            </p>
+            <p>Goals and session history come from the current workspace.</p>
             <div className="profile">
-              <span className="avatar">SL</span>
-              <div>
-                Sawyer Lau<small>Personal account</small>
-              </div>
+              <span className="avatar">LG</span>
+              <div>LazyGoal<small>Local session</small></div>
             </div>
           </div>
         </aside>
@@ -445,77 +406,53 @@ function App() {
         <header className="topbar">
           <div className="breadcrumb">
             {!sidebar && (
-              <button
-                className="icon"
-                aria-label="Show sidebar"
-                onClick={() => setSidebar(true)}
-              >
+              <button className="icon" aria-label="Show sidebar" onClick={() => setSidebar(true)}>
                 <LayoutGrid size={16} />
               </button>
             )}
             <Folder size={15} />
-            <span>{project}</span>
+            <span>Workspace</span>
             <ChevronRight size={13} />
             <strong>Goals</strong>
+            {activeGoal && <><ChevronRight size={13} /><strong className="breadcrumb-current">{activeGoal.intent}</strong></>}
           </div>
           <div className="header-actions">
-            <span className="preview-badge">UI preview</span>
-            <button
-              className="icon"
-              aria-label="Open settings"
-              onClick={() => setSettings(true)}
-            >
-              <Settings2 size={16} />
-            </button>
+            <span className={`runtime-state ${browserApi.hasAccessToken ? "connected" : ""}`}>
+              <span className="dot" />
+              {browserApi.hasAccessToken ? "Local Runtime" : "Preview only"}
+            </span>
           </div>
         </header>
-        <div className="content">
-          {(!expanded || !goal) && (
+        <div className={`content ${activeGoal ? "session-open" : ""}`}>
+          {(!expanded || !activeGoal) && (
             <section className="board-area">
               <div className="board-title">
                 <div>
-                  <h1>
-                    Goals{" "}
-                    <span>
-                      {
-                        goals.filter(
-                          (g) =>
-                            project === "All projects" ||
-                            (goalProjects[g.id] ?? "LazyGoal") === project,
-                        ).length
-                      }
-                    </span>
-                  </h1>
-                  <p>A little direction. Steady progress.</p>
+                  <h1>Goals <span>{goals.length}</span></h1>
+                  <p>Choose a Goal to open its saved session.</p>
                 </div>
-                <button className="primary" onClick={() => setNewGoal(true)}>
-                  <Plus size={15} />
-                  New goal
+                <button className="primary" onClick={() => {
+                  setNewGoalError(null);
+                  setNewGoalOpen(true);
+                }} disabled={!browserApi.hasAccessToken}>
+                  <Plus size={15} /> New goal
                 </button>
               </div>
               <div className="toolbar">
                 <div className="view-switch" aria-label="Goal view">
-                  <button
-                    aria-pressed={view === "board"}
-                    onClick={() => setView("board")}
-                  >
-                    <LayoutGrid size={14} />
-                    Board
+                  <button aria-pressed={boardView === "board"} onClick={() => setBoardView("board")}>
+                    <LayoutGrid size={14} /> Board
                   </button>
-                  <button
-                    aria-pressed={view === "list"}
-                    onClick={() => setView("list")}
-                  >
-                    <List size={14} />
-                    List
+                  <button aria-pressed={boardView === "list"} onClick={() => setBoardView("list")}>
+                    <List size={14} /> List
                   </button>
                 </div>
                 <button
-                  className={"filter " + (filter ? "on" : "")}
-                  onClick={() => setFilter(!filter)}
+                  className={`filter ${needsInputOnly ? "on" : ""}`}
+                  aria-pressed={needsInputOnly}
+                  onClick={() => setNeedsInputOnly((value) => !value)}
                 >
-                  <CircleHelp size={13} />
-                  Needs input
+                  <CircleHelp size={13} /> Needs input
                 </button>
                 <label className="search">
                   <Search size={14} />
@@ -523,171 +460,82 @@ function App() {
                     aria-label="Search goals"
                     placeholder="Search goals…"
                     value={search}
-                    onChange={(e) => setSearch(e.target.value)}
+                    onChange={(event) => setSearch(event.target.value)}
                   />
                 </label>
+                <button className="icon refresh-button" aria-label="Refresh goals" onClick={() => void refreshGoals()}>
+                  <Clock3 size={14} />
+                </button>
               </div>
               <div className="filter-row">
-                <SlidersHorizontal size={13} />
-                <select
-                  aria-label="Filter category"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                >
-                  <option>All categories</option>
-                  {Array.from(new Set(goals.map((g) => g.tag))).map((tag) => (
-                    <option key={tag}>{tag}</option>
-                  ))}
-                </select>
-                <span>{visible.length} goals</span>
-                {(search || filter || category !== "All categories") && (
-                  <button
-                    onClick={() => {
-                      setSearch("");
-                      setFilter(false);
-                      setCategory("All categories");
-                    }}
-                  >
-                    Clear filters
-                  </button>
+                <span>{visibleGoals.length} matching goals</span>
+                {(search || needsInputOnly) && (
+                  <button onClick={() => { setSearch(""); setNeedsInputOnly(false); }}>Clear filters</button>
                 )}
               </div>
-              {visible.length === 0 ? (
-                <div className="board-empty">
-                  <Inbox size={30} />
-                  <h2>
-                    {project === "Sandbox" && !search && !filter
-                      ? "A fresh workspace"
-                      : "No matching goals"}
-                  </h2>
-                  <p>Create a goal or adjust your filters to get started.</p>
-                  <button className="primary" onClick={() => setNewGoal(true)}>
-                    <Plus size={14} />
-                    New goal
-                  </button>
+              {sessionError && selectedGoalId === null && (
+                <div className="page-error" role="alert">
+                  <span>{sessionError}</span>
+                  {browserApi.hasAccessToken && <button onClick={() => void refreshGoals()}>Retry</button>}
                 </div>
-              ) : view === "list" ? (
+              )}
+              {goalsLoading ? (
+                <div className="board-empty"><span className="loading-mark" /><p>Loading saved Goals…</p></div>
+              ) : goals.length === 0 && !sessionError ? (
+                <div className="board-empty">
+                  <InboxIcon />
+                  <h2>No saved Goals yet</h2>
+                  <p>Create a Goal to start a real session in this workspace.</p>
+                  <button className="primary" onClick={() => setNewGoalOpen(true)} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
+                </div>
+              ) : visibleGoals.length === 0 && !sessionError ? (
+                <div className="board-empty">
+                  <Search size={26} />
+                  <h2>No matching Goals</h2>
+                  <p>Clear the search or input filter to see saved Goals.</p>
+                </div>
+              ) : boardView === "list" ? (
                 <div className="goal-table">
-                  <div className="list-heading">
-                    <span>Goal</span>
-                    <span>Status</span>
-                    <span>Progress</span>
-                  </div>
-                  {visible.map((g) => (
-                    <button
-                      key={g.id}
-                      className={
-                        "goal-row " + (selected === g.id ? "active" : "")
-                      }
-                      onClick={() => toggleGoalSelection(g.id)}
-                    >
-                      <span>
-                        <small>LG-{g.id}</small>
-                        <strong>{g.title}</strong>
-                        <em>{g.tag}</em>
-                      </span>
-                      <span className={"status-pill " + statusClass(g.status)}>
-                        <span className="status-dot" />
-                        {g.status}
-                      </span>
-                      <span>
-                        {g.steps}/{g.total}
-                      </span>
-                    </button>
-                  ))}
+                  <div className="list-heading"><span>Goal</span><span>Status</span><span>Updated</span></div>
+                  {visibleGoals.map((goal) => <GoalRow
+                    key={goal.goalId}
+                    goal={goal}
+                    selected={selectedGoalId === goal.goalId}
+                    onSelect={() => toggleGoalSelection(goal.goalId)}
+                  />)}
                 </div>
               ) : (
                 <div className="board">
-                  {statuses.map((status) => (
-                    <section
-                      className={"column " + statusClass(status)}
-                      key={status}
-                    >
-                      <div className="column-heading">
-                        <span className="status-dot" />
-                        <h2>{status}</h2>
-                        <span className="count">
-                          {visible.filter((g) => g.status === status).length}
-                        </span>
-                      </div>
-                      <div className="cards">
-                        {visible
-                          .filter((g) => g.status === status)
-                          .map((g) => (
-                            <button
-                              key={g.id}
-                              className={
-                                "goal-card " +
-                                (g.id === selected ? "is-selected" : "")
-                              }
-                              onClick={() => toggleGoalSelection(g.id)}
-                              aria-pressed={g.id === selected}
-                            >
-                              <div className="card-meta">
-                                <span>LG-{g.id}</span>
-                                {g.streamPaused ? (
-                                  <span className="paused-mini">
-                                    <Pause size={11} />
-                                    Paused
-                                  </span>
-                                ) : g.status === "Running" ? (
-                                  <span className="live-mini">
-                                    <span />
-                                    Live
-                                  </span>
-                                ) : g.status === "Completed" ? (
-                                  <Check size={13} />
-                                ) : (
-                                  <MoreHorizontal size={15} />
-                                )}
-                              </div>
-                              <h3>{g.title}</h3>
-                              <p>{g.description}</p>
-                              {g.status === "Needs input" && (
-                                <div className="attention">
-                                  <CircleHelp size={12} />
-                                  {g.pendingKind === "approval"
-                                    ? "Plan approval requested"
-                                    : "Waiting for your answer"}
-                                </div>
-                              )}
-                              <div className="card-footer">
-                                <span className="tag">{g.tag}</span>
-                                <span>
-                                  {g.steps}/{g.total}
-                                  <span className="mini-progress">
-                                    <i
-                                      style={{
-                                        width: `${(g.steps / g.total) * 100}%`,
-                                      }}
-                                    />
-                                  </span>
-                                </span>
-                              </div>
-                            </button>
-                          ))}
-                        {visible.filter((g) => g.status === status).length ===
-                          0 && (
-                          <div className="empty-column">No goals here</div>
-                        )}
-                      </div>
-                    </section>
-                  ))}
+                  {statuses.map((status) => {
+                    const statusGoals = visibleGoals.filter((item) => statusFromRun(item.runStatus) === status);
+                    return (
+                      <section className={`column ${statusClass(status)}`} key={status}>
+                        <div className="column-heading">
+                          <span className="status-dot" />
+                          <h2>{status}</h2>
+                          <span className="count">{statusGoals.length}</span>
+                        </div>
+                        <div className="cards">
+                          {statusGoals.map((goal) => <GoalCard
+                            key={goal.goalId}
+                            goal={goal}
+                            selected={selectedGoalId === goal.goalId}
+                            onSelect={() => toggleGoalSelection(goal.goalId)}
+                          />)}
+                          {statusGoals.length === 0 && <div className="empty-column">No goals here</div>}
+                        </div>
+                      </section>
+                    );
+                  })}
                 </div>
               )}
               <footer className="board-footer">
-                <span>
-                  <span className="dot blue" />
-                  {goals.filter((g) => g.status === "Running").length} goals
-                  running
-                </span>
-                <span>
-                  Select a goal to open its session <ChevronRight size={12} />
-                </span>
+                <span><span className="dot blue" />{goals.filter((goal) => goal.runStatus === "running").length} running</span>
+                <span>Select a Goal to open its session <ChevronRight size={12} /></span>
               </footer>
             </section>
           )}
-          {goal && (
+          {activeGoal && (
             <>
               <div
                 className="resize-handle"
@@ -698,381 +546,340 @@ function App() {
                 aria-valuemin={340}
                 aria-valuemax={720}
                 tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-                    e.preventDefault();
-                    setWidth((w) =>
-                      Math.max(
-                        340,
-                        Math.min(720, w + (e.key === "ArrowLeft" ? 20 : -20)),
-                      ),
-                    );
+                onKeyDown={(event) => {
+                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                  event.preventDefault();
+                  setWidth((current) => Math.max(340, Math.min(720, current + (event.key === "ArrowLeft" ? 20 : -20))));
+                }}
+                onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+                onPointerMove={(event) => {
+                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                    setWidth(Math.max(340, Math.min(720, window.innerWidth - event.clientX)));
                   }
                 }}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (e.currentTarget.hasPointerCapture(e.pointerId))
-                    setWidth(
-                      Math.max(
-                        340,
-                        Math.min(720, window.innerWidth - e.clientX),
-                      ),
-                    );
-                }}
-                onPointerUp={(e) =>
-                  e.currentTarget.releasePointerCapture(e.pointerId)
-                }
+                onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
               />
-              <section
-                className={"session " + (expanded ? "expanded" : "")}
-                style={{ width: expanded ? "100%" : width }}
-              >
+              <section className={`session ${expanded ? "expanded" : ""}`} style={{ width: expanded ? "100%" : width }}>
                 <header className="session-header">
                   <span>
-                    <span
-                      className={"status-dot " + statusClass(goal.status)}
-                    />
-                    LG-{goal.id}
-                    <ChevronRight size={12} />
-                    Session
+                    <span className={`status-dot ${statusClass(statusFromRun(activeGoal.runStatus))}`} />
+                    {activeGoal.goalId.slice(0, 12)}
+                    <ChevronRight size={12} /> Session
                   </span>
                   <div>
-                    <button
-                      className="icon"
-                      aria-label={
-                        expanded ? "Collapse session" : "Expand session"
-                      }
-                      onClick={() => setExpanded(!expanded)}
-                    >
-                      {expanded ? (
-                        <Minimize2 size={15} />
-                      ) : (
-                        <Maximize2 size={15} />
-                      )}
+                    <button className="icon" aria-label={expanded ? "Collapse session" : "Expand session"} onClick={() => setExpanded((value) => !value)}>
+                      {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                     </button>
-                    <button
-                      className="icon"
-                      aria-label="Close session"
-                      onClick={() => {
-                        setSelected(null);
-                        setExpanded(false);
-                      }}
-                    >
-                      <X size={17} />
-                    </button>
+                    <button className="icon" aria-label="Close session" onClick={() => {
+                      setSelectedGoalId(null);
+                      setExpanded(false);
+                    }}><X size={17} /></button>
                   </div>
                 </header>
-                <div className="session-intro">
-                  <h2>{goal.title}</h2>
-                  <div>
-                    <span className={"status-pill " + statusClass(goal.status)}>
-                      <span className="status-dot" />
-                      {goal.status}
-                    </span>
-                    <span>
-                      <GitBranch size={12} />
-                      main
-                    </span>
-                    <span>
-                      <Clock3 size={12} />
-                      Run 01
-                    </span>
+                {sessionLoading && session === null ? (
+                  <div className="session-empty"><span className="loading-mark" /><p>Loading the latest saved session…</p></div>
+                ) : sessionError ? (
+                  <div className="session-empty" role="alert">
+                    <CircleHelp size={24} />
+                    <p>{sessionError}</p>
+                    <button className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</button>
                   </div>
-                </div>
-                <div className="session-tabs">
-                  <div className="session-tab-buttons">
-                    {(["Activity", "Plan", "Details"] as const).map((tab) => (
-                      <button
-                        key={tab}
-                        aria-pressed={sessionTab === tab}
-                        onClick={() => setSessionTab(tab)}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
-                  <span className="step-count">
-                    {goal.steps} of {goal.total} steps
-                  </span>
-                </div>
-                {sessionTab !== "Activity" ? (
-                  <GoalDetails goal={goal} tab={sessionTab} />
+                ) : session === null ? (
+                  <div className="session-empty"><p>Loading session…</p></div>
                 ) : (
                   <>
-                    <div className="activity-filter">
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={showTools}
-                          onChange={(e) => setShowTools(e.target.checked)}
-                        />
-                        Tool activity
-                      </label>
-                      <span>{goal.messages.length} events</span>
-                    </div>
-                    <div
-                      className="timeline"
-                      ref={timeline}
-                      onScroll={(e) => {
-                        const el = e.currentTarget;
-                        setFollow(
-                          el.scrollHeight - el.scrollTop - el.clientHeight < 60,
-                        );
-                      }}
-                    >
-                      <div className="timeline-date">
-                        <span />
-                        Today
-                        <span />
+                    <div className="session-intro">
+                      <h2>{session.intent}</h2>
+                      <div>
+                        <span className={`status-pill ${statusClass(statusFromRun(session.runStatus))}`}>
+                          <span className="status-dot" />{runStatusLabel(session.runStatus)}
+                        </span>
+                        <span><GitBranch size={12} /> {session.currentRunId}</span>
+                        <span><Clock3 size={12} /> {currentRun?.stepCount ?? 0} saved steps</span>
                       </div>
-                      {goal.messages.map((message, index) =>
-                        message.role === "tool" ? (
-                          showTools && (
-                            <details className="tool-event" key={index}>
-                              <summary>
-                                <Terminal size={13} />
-                                <span>{message.text}</span>
-                                <Check size={12} />
-                                <ChevronRight
-                                  className="tool-chevron"
-                                  size={13}
-                                />
-                              </summary>
-                              <pre>{message.detail}</pre>
-                            </details>
-                          )
-                        ) : (
-                          <article
-                            className={"message " + message.role}
-                            key={index}
-                          >
-                            <div className="message-heading">
-                              <span
-                                className={"message-avatar " + message.role}
-                              >
-                                {message.role === "user" ? (
-                                  "S"
-                                ) : (
-                                  <Zap size={12} />
-                                )}
-                              </span>
-                              <strong>
-                                {message.role === "user" ? "You" : "LazyGoal"}
-                              </strong>
-                              <small>
-                                {message.role === "user" ? "Just now" : "Agent"}
-                              </small>
-                            </div>
-                            <div className="message-body">
-                              {message.text}
-                              {message.detail === "stream" &&
-                                index === goal.messages.length - 1 &&
-                                goal.stream && <span className="cursor" />}
-                            </div>
-                          </article>
-                        ),
-                      )}
-                      {goal.status === "Running" && (
-                        <div className="live-status">
-                          <span className="pulse" />
-                          {goal.streamPaused
-                            ? "Preview stream paused"
-                            : goal.stream
-                              ? "Working on your goal…"
-                              : "Demo stream finished"}
-                          <span>Sample session</span>
+                    </div>
+                    <div className="session-tabs">
+                      <div className="session-tab-buttons">
+                        {sessionTabs.map((tab) => (
+                          <button key={tab} aria-pressed={sessionTab === tab} onClick={() => setSessionTab(tab)}>{tab}</button>
+                        ))}
+                      </div>
+                      <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
+                        <span className="dot" />{streamConnected ? "Live" : "Reconnecting"}
+                      </span>
+                    </div>
+                    {sessionTab !== "Activity" ? (
+                      <GoalDetails session={session} tab={sessionTab} />
+                    ) : (
+                      <>
+                        <div className="activity-filter">
+                          <label>
+                            <input type="checkbox" checked={showTools} onChange={(event) => setShowTools(event.target.checked)} />
+                            Committed steps
+                          </label>
+                          <span>{session.messages.length} saved messages</span>
                         </div>
-                      )}
-                      {goal.status === "Completed" && (
-                        <div className="completion">
-                          <Check size={14} />
-                          Goal completed
+                        <div
+                          className="timeline"
+                          ref={timeline}
+                          onScroll={(event) => {
+                            const element = event.currentTarget;
+                            setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 60);
+                          }}
+                        >
+                          {session.historyTruncated && <div className="history-note">Some earlier history is omitted.</div>}
+                          {session.messages.length === 0 && <div className="timeline-date"><span />No saved messages<span /></div>}
+                          {session.messages.map((message, index) => (
+                            <article className={`message ${message.role}`} key={`${index}:${message.role}`}>
+                              <div className="message-heading">
+                                <span className={`message-avatar ${message.role}`}>
+                                  {message.role === "user" ? "You" : <Zap size={12} />}
+                                </span>
+                                <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
+                              </div>
+                              <div className="message-body">{message.content}</div>
+                            </article>
+                          ))}
+                          {liveText && (
+                            <article className="message assistant transient-message" aria-label="Uncommitted assistant activity">
+                              <div className="message-heading">
+                                <span className="message-avatar assistant"><Zap size={12} /></span>
+                                <strong>Live response</strong><small>Not saved yet</small>
+                              </div>
+                              <div className="message-body">{liveText}<span className="cursor" /></div>
+                            </article>
+                          )}
+                          {showTools && session.runs.map((run) => run.steps.length > 0 && (
+                            <section className="run-steps" key={run.runId}>
+                              <h3>{run.current ? "Current Run · committed steps" : `Earlier Run · ${run.runId}`}</h3>
+                              {run.steps.map((step) => (
+                                <details className="tool-event" key={step.executionUnitId}>
+                                  <summary>
+                                    <Terminal size={13} />
+                                    <span>{step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}`}</span>
+                                    <span className={`step-status ${step.status}`}>{step.status}</span>
+                                    <ChevronRight className="tool-chevron" size={13} />
+                                  </summary>
+                                  {step.summary && <pre>{step.summary}</pre>}
+                                </details>
+                              ))}
+                            </section>
+                          ))}
+                          {session.runStatus === "running" && (
+                            <div className="live-status" aria-live="polite">
+                              <span className="pulse" />{liveActivity ?? "Runtime is working on this Goal"}
+                              <span>{streamConnected ? "Temporary activity" : "Live connection reconnecting"}</span>
+                            </div>
+                          )}
+                          {session.runStatus === "completed" && <div className="completion"><Check size={14} />Run completed</div>}
+                          {session.runStatus === "failed" && <div className="terminal-status failed">This Run failed. Its saved history is still available.</div>}
+                          {session.runStatus === "cancelled" && <div className="terminal-status">This Run was cancelled.</div>}
                         </div>
+                      </>
+                    )}
+                    {sessionTab === "Activity" && !follow && (
+                      <button className="jump" onClick={() => setFollow(true)}><ArrowDown size={13} /> Back to latest</button>
+                    )}
+                    {commandError && (
+                      <div className="command-error" role="alert">
+                        <span>{commandError}</span>
+                        <button aria-label="Dismiss error" onClick={() => setCommandError(null)}><X size={13} /></button>
+                      </div>
+                    )}
+                    <div className="composer-area">
+                      {session.runStatus === "waiting" && (
+                        session.pendingInteraction !== undefined || session.pendingAction !== undefined
+                          ? <WaitingInteraction session={session} busy={commandBusy} onSubmit={(command) => void submitInteraction(command)} />
+                          : <MessageComposer
+                              key={session.currentRunId}
+                              busy={commandBusy}
+                              placeholder="Give direction or ask a question…"
+                              onSubmit={(content) => void submitMessage(content)}
+                            />
+                      )}
+                      {session.runStatus === "completed" && session.pendingInteraction === undefined && session.pendingAction === undefined && (
+                        <MessageComposer
+                          key={`${session.currentRunId}:continue`}
+                          busy={commandBusy}
+                          placeholder="Continue this Goal with a new task…"
+                          onSubmit={(content) => void submitMessage(content)}
+                        />
+                      )}
+                      {session.runStatus === "running" && <div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div>}
+                      {session.runStatus === "created" && <div className="composer-note">The Runtime is starting this Goal.</div>}
+                      {(session.runStatus === "failed" || session.runStatus === "cancelled") && (
+                        <div className="composer-note">Text input is unavailable for this Run.</div>
+                      )}
+                      {session.runStatus === "waiting" && session.pendingInteraction === undefined && session.pendingAction !== undefined && session.pendingAction.status === "approved" && (
+                        <div className="composer-note">The approved action is being recorded.</div>
                       )}
                     </div>
                   </>
                 )}
-                {sessionTab === "Activity" && !follow && (
-                  <button className="jump" onClick={() => setFollow(true)}>
-                    <ArrowDown size={13} />
-                    Back to latest
-                  </button>
-                )}
-                <div className="composer-area">
-                  {goal.status === "Needs input" && goal.pendingKind && (
-                    <div className="approval">
-                      <div>
-                        <CircleHelp size={15} />
-                        <strong>
-                          {goal.pendingKind === "approval"
-                            ? "Your approval is needed"
-                            : "Your answer is needed"}
-                        </strong>
-                      </div>
-                      <p>
-                        {goal.pendingKind === "approval"
-                          ? "Review the proposed plan above to continue."
-                          : "Reply below to give the agent direction."}
-                      </p>
-                      {goal.pendingKind === "approval" && (
-                        <button
-                          onClick={() =>
-                            send("Approved. Continue with this plan.")
-                          }
-                        >
-                          <Check size={13} />
-                          Approve plan
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {goal.status === "Ready" && (
-                    <button className="start-goal" onClick={startGoal}>
-                      <Play size={13} />
-                      Start goal
-                    </button>
-                  )}
-                  <form
-                    className="composer"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      send(draft);
-                    }}
-                  >
-                    <textarea
-                      aria-label="Message the goal"
-                      placeholder={
-                        goal.status === "Completed"
-                          ? "Continue this goal…"
-                          : "Give direction or ask a question…"
-                      }
-                      value={draft}
-                      onChange={(e) =>
-                        setDrafts((current) => ({
-                          ...current,
-                          [goal.id]: e.target.value,
-                        }))
-                      }
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "Enter" &&
-                          !e.shiftKey &&
-                          !e.nativeEvent.isComposing
-                        ) {
-                          e.preventDefault();
-                          send(draft);
-                        }
-                      }}
-                    />
-                    <div className="composer-tools">
-                      <span>
-                        <Zap size={12} />
-                        {agent}
-                      </span>
-                      {goal.stream && goal.status === "Running" ? (
-                        <button
-                          type="button"
-                          className="send"
-                          aria-label={
-                            goal.streamPaused
-                              ? "Resume demo stream"
-                              : "Pause demo stream"
-                          }
-                          onClick={() =>
-                            setGoals((current) =>
-                              current.map((g) =>
-                                g.id === goal.id
-                                  ? { ...g, streamPaused: !g.streamPaused }
-                                  : g,
-                              ),
-                            )
-                          }
-                        >
-                          {goal.streamPaused ? (
-                            <Play size={14} />
-                          ) : (
-                            <Pause size={14} />
-                          )}
-                        </button>
-                      ) : (
-                        <button
-                          type="submit"
-                          className="send"
-                          aria-label="Send message"
-                          disabled={!draft.trim()}
-                        >
-                          <ArrowUp size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </form>
-                  <div className="composer-hint">
-                    Enter to send · Shift + Enter for a new line
-                  </div>
-                </div>
               </section>
             </>
           )}
         </div>
       </main>
-      <SettingsDialog
-        open={settings}
-        onClose={() => setSettings(false)}
-        compact={compact}
-        setCompact={setCompact}
-        showTools={showTools}
-        setShowTools={setShowTools}
-        agent={agent}
-        setAgent={setAgent}
-      />
       <dialog
         ref={modal}
-        onCancel={() => setNewGoal(false)}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) setNewGoal(false);
-        }}
+        className="create-dialog"
+        onCancel={() => setNewGoalOpen(false)}
+        onClick={(event) => { if (event.target === event.currentTarget) setNewGoalOpen(false); }}
       >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            createGoal();
-          }}
-        >
+        <form onSubmit={(event) => { event.preventDefault(); void createGoal(); }}>
           <div className="dialog-heading">
             <h2>New goal</h2>
-            <button
-              type="button"
-              className="icon"
-              aria-label="Close new goal"
-              onClick={() => setNewGoal(false)}
-            >
-              <X size={18} />
-            </button>
+            <button type="button" className="icon" aria-label="Close new goal" onClick={() => setNewGoalOpen(false)}><X size={18} /></button>
           </div>
           <p>What would you like to accomplish?</p>
-          <div className="creation-context">
-            <Folder size={13} />
-            {project === "All projects" ? "LazyGoal" : project}
-            <span>{agent}</span>
-          </div>
           <textarea
-            autoFocus
             aria-label="Goal objective"
-            placeholder="Describe your goal…"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Describe the outcome you want…"
+            value={newGoalIntent}
+            disabled={commandBusy}
+            onChange={(event) => setNewGoalIntent(event.target.value)}
           />
-          <small>This preview stores goals until you refresh.</small>
-          <button className="primary" disabled={!title.trim()} type="submit">
-            <Plus size={14} />
-            Create goal
+          {newGoalError && <div className="dialog-error" role="alert">{newGoalError}</div>}
+          <button className="primary" disabled={commandBusy || !newGoalIntent.trim()} type="submit">
+            <Plus size={14} />{commandBusy ? "Creating…" : "Create goal"}
           </button>
         </form>
       </dialog>
     </div>
   );
+}
+
+function GoalCard({
+  goal,
+  selected,
+  onSelect,
+}: {
+  goal: BrowserGoalListItem;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const status = statusFromRun(goal.runStatus);
+  return (
+    <button className={`goal-card ${selected ? "is-selected" : ""}`} onClick={onSelect} aria-pressed={selected}>
+      <div className="card-meta">
+        <span>{goal.goalId.slice(0, 12)}</span>
+        {status === "Running" ? <span className="live-mini"><span />Live</span>
+          : status === "Completed" ? <Check size={13} />
+            : status === "Needs input" ? <CircleHelp size={13} className="amber" />
+              : <MoreHorizontal size={15} />}
+      </div>
+      <h3>{goal.intent}</h3>
+      <p>{status === "Needs input" ? "Waiting for a response or approval." : `Run ${goal.runId}`}</p>
+      <div className="card-footer">
+        <span className={`status-pill ${statusClass(status)}`}><span className="status-dot" />{status}</span>
+        <time dateTime={goal.updatedAt} title={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
+      </div>
+    </button>
+  );
+}
+
+function GoalRow({
+  goal,
+  selected,
+  onSelect,
+}: {
+  goal: BrowserGoalListItem;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const status = statusFromRun(goal.runStatus);
+  return (
+    <button className={`goal-row ${selected ? "active" : ""}`} onClick={onSelect} aria-pressed={selected}>
+      <span><small>{goal.goalId.slice(0, 12)}</small><strong>{goal.intent}</strong></span>
+      <span className={`status-pill ${statusClass(status)}`}><span className="status-dot" />{status}</span>
+      <time dateTime={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
+    </button>
+  );
+}
+
+function MessageComposer({
+  busy,
+  placeholder,
+  onSubmit,
+}: {
+  busy: boolean;
+  placeholder: string;
+  onSubmit: (content: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  function submit() {
+    if (busy || !draft.trim()) return;
+    onSubmit(draft);
+    setDraft("");
+  }
+  return (
+    <>
+      <form className="composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+        <textarea
+          aria-label="Message the Goal"
+          placeholder={placeholder}
+          value={draft}
+          disabled={busy}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <div className="composer-tools">
+          <span><Zap size={12} /> Local Runtime</span>
+          <button type="submit" className="send" aria-label="Send message" disabled={busy || !draft.trim()}>
+            {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
+          </button>
+        </div>
+      </form>
+      <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>
+    </>
+  );
+}
+
+function InboxIcon() {
+  return <div className="empty-icon"><Folder size={26} /></div>;
+}
+
+function committedStepCount(value: BrowserGoalSession): number {
+  return value.runs.reduce((total, run) => total + run.steps.length, 0);
+}
+
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Updated";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof BrowserApiError) {
+    switch (error.code) {
+      case "unauthorized": return "This browser link has expired. Restart `lazygoal web` and open its new link.";
+      case "goal_busy": return "Another Goal is still active. Wait for it to stop at a waiting point.";
+      case "goal_not_found": return "This Goal is no longer available in the current workspace.";
+      case "stale_run":
+      case "stale_request":
+      case "action_not_waiting":
+      case "goal_not_waiting": return "The session changed. The latest saved state is being loaded.";
+      case "structured_interaction_required": return "Use the answer or approval form shown for this request.";
+      case "request_too_large": return "This request is too long. Shorten it and try again.";
+      case "goal_id_conflict": return "A Goal with this request identity already exists.";
+      case "invalid_goal_input":
+      case "invalid_message": return "Enter a non-empty Goal or message.";
+      default: return `The local service could not complete this request (${error.code}).`;
+    }
+  }
+  if (error instanceof Error && error.message === "browser_session_token_missing") {
+    return "Open the local link printed by `lazygoal web` to connect this board.";
+  }
+  if (error instanceof Error && error.message === "Failed to fetch") {
+    return "Could not reach the local service. Check that LazyGoal is still running, then retry.";
+  }
+  return "Could not load the latest saved state. Retry to reconnect.";
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

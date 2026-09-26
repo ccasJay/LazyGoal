@@ -2,7 +2,7 @@
 
 ## 职责
 
-[`@lazygoal/browser`](../../packages/browser/src/index.ts) 负责本机浏览器入口的短期能力令牌、Host/Origin 检查、安全响应头、静态资源路由，以及正式工作区 Goal 列表和会话只读投影。它不拥有 Goal 状态、Runtime 命令或持久化。
+[`@lazygoal/browser`](../../packages/browser/src/index.ts) 负责本机浏览器入口的短期能力令牌、Host/Origin 检查、安全响应头、静态资源路由、正式工作区 Goal 投影、类型化命令和实时事件。它不拥有 Goal 状态或持久化。
 
 ## 入口与访问边界
 
@@ -20,6 +20,8 @@
 
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。默认 CLI 仍启动 TUI。
 
-## 当前限制
+## 页面交互
 
-当前页面仍是静态占位页，尚未调用读取、创建、交互、消息或事件 API。后续范围见 [Goal 看板单会话后端验证 Spec](../../specs/goal-board-backend-validation/requirements.md)。
+React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息和结构化交互接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图只使用接口返回的已提交消息、步骤、可选计划和当前等待请求。实时文本与活动单独显示，快照刷新后以新提交事实为准。
+
+`npm run dev --prefix prototypes/goal-board` 只启动无后端授权的布局预览，不代理正式 Runtime API。真实操作须先构建静态页，再从 `lazygoal web` 打印的本机入口打开。页面不提供模拟 Goal、示例计划、虚构完成状态、项目分配或设置操作。
