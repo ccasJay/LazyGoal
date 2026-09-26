@@ -12,6 +12,9 @@ export {
     type BrowserCreateGoalCommand,
     type BrowserCreateGoalResult,
     type BrowserGoalCommandDependencies,
+    type BrowserGoalInteractionCommand,
+    type BrowserGoalInteractionCoordinator,
+    type BrowserGoalInteractionResult,
     type BrowserGoalLauncher,
     type BrowserGoalSaveNotifications,
 } from "./browser-goal-command-service";

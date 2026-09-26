@@ -1548,6 +1548,7 @@ async function runBrowserSessionCli(
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
             launcher: root.launcher,
+            coordinator: root.coordinator,
             profileId: root.profile.id,
             control: { signal: root.abortController.signal },
         });
@@ -1559,6 +1560,7 @@ async function runBrowserSessionCli(
                 root.readWorkspaceTrajectory,
             ),
             create: (command) => commandService.create(command),
+            interact: (goalId, command) => commandService.interact(goalId, command),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);

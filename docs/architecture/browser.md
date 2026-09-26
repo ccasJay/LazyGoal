@@ -12,8 +12,10 @@
 
 `POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID 与非空意图；Profile 和执行策略仍由本机决定。同 ID、同意图的重试复用在途受理或已有快照，不同意图冲突；另一个 Goal 正在运行时拒绝新建。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
 
+`POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。服务端在转交 Coordinator 前再次检查等待类型和身份；每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
+
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。默认 CLI 仍启动 TUI。
 
 ## 当前限制
 
-当前页面仍是静态占位页，尚未调用读取或创建 API。结构化回答、任务提案和 Action 审批、后续 Run 输入及 Execution Stream 订阅尚未接入。后续范围见 [Goal 看板单会话后端验证 Spec](../../specs/goal-board-backend-validation/requirements.md)。
+当前页面仍是静态占位页，尚未调用读取、创建或交互 API。普通消息、completed 后创建后续 Run 的输入及 Execution Stream 订阅尚未接入。后续范围见 [Goal 看板单会话后端验证 Spec](../../specs/goal-board-backend-validation/requirements.md)。

@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-commands.test.ts` 创建和并发场景；执行 `npx tsx --test packages/browser/test/browser-commands.test.ts`。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.4](./requirements.md#req-1-4), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 4. 接入结构化回答、任务提案和工具动作审批
+- [x] //TODO 4. 接入结构化回答、任务提案和工具动作审批
 
   - 实现目标：把带当前 Goal/Run、`requestId` 或 `actionId` 的类型化操作映射到 `GoalCoordinator.resume`，只在匹配的等待点接受。
   - 成功判据：回答、提案批准/反馈及动作批准/拒绝分别推进当前 Run；旧请求、重复提交和错配身份保持快照不变，同一 Action 不重复执行。

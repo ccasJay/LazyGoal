@@ -15,6 +15,7 @@ import {
     createBrowserGoalRoutes,
     listBrowserGoals,
     readBrowserGoalSession,
+    type BrowserGoalInteractionCommand,
     type BrowserGoalListItem,
 } from "../src/index";
 
@@ -239,6 +240,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
         async create() {
             return { ok: false as const, error: "goal_create_failed" as const };
         },
+        async interact() {
+            return { ok: false as const, error: "interaction_failed" as const };
+        },
     };
     const routes = createBrowserGoalRoutes(port);
 
@@ -255,8 +259,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
     assert.deepEqual(await listFailure.json(), { error: "goal_list_unavailable" });
 });
 
-test("创建路由仅接受有限大小的严格 JSON 意图与稳定 Goal ID", async () => {
+test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async () => {
     const calls: Array<{ goalId: string; intent: string }> = [];
+    const interactions: Array<{ goalId: string; command: BrowserGoalInteractionCommand }> = [];
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
         async read() { return undefined; },
@@ -268,6 +273,13 @@ test("创建路由仅接受有限大小的严格 JSON 意图与稳定 Goal ID", 
                 runId: "run-created-1",
                 existing: false,
             };
+        },
+        async interact(goalId, command) {
+            interactions.push({ goalId, command });
+            if ("requestId" in command && command.requestId === "old-request") {
+                return { ok: false as const, error: "stale_request" as const };
+            }
+            return { ok: true as const, goalId, runId: command.runId, existing: false };
         },
     });
     const send = (body: string) => routes.request("http://localhost/api/goals", {
@@ -295,6 +307,42 @@ test("创建路由仅接受有限大小的严格 JSON 意图与稳定 Goal ID", 
         existing: false,
     });
     assert.deepEqual(calls, [{ goalId: "goal-create-1", intent: "检查当前项目" }]);
+
+    const interaction = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            kind: "answer_ask_user",
+            runId: "run-1",
+            requestId: "ask-1",
+            answers: [{ questionId: "q-1", optionIds: ["o-2"] }],
+        }),
+    });
+    assert.equal(interaction.status, 202);
+    assert.deepEqual(interactions, [{
+        goalId: "goal-create-1",
+        command: {
+            kind: "answer_ask_user",
+            runId: "run-1",
+            requestId: "ask-1",
+            answers: [{ questionId: "q-1", optionIds: ["o-2"] }],
+        },
+    }]);
+    const stale = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "approve_task", runId: "run-1", requestId: "old-request" }),
+    });
+    assert.equal(stale.status, 409);
+    assert.deepEqual(await stale.json(), { error: "stale_request", refresh: true });
+    assert.equal(interactions.length, 2);
+    const plainTextMessage = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "message", runId: "run-1", content: "approve plan" }),
+    });
+    assert.equal(plainTextMessage.status, 400);
+    assert.equal(interactions.length, 2);
 
     const unsupportedMedia = await routes.request("http://localhost/api/goals", {
         method: "POST",
