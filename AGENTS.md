@@ -11,6 +11,8 @@ LazyGoal is a goal-driven, resumable agent runtime. It turns user intent into a 
 ```text
 bin/             CLI entrypoint and executable wiring for `lazygoal`
 scripts/         Repository maintenance and validation utilities
+prototypes/      Standalone UI experiments, separate from the production Runtime
+  goal-board/     React browser prototype with simulated Goals and streaming Sessions
 benchmarks/      Explicit headless benchmark evaluation
   src/            Shared Headless Composition Root and persistence wiring
   alfworld/       ALFWorld TextWorld tasks, sidecar, tools, and reports
