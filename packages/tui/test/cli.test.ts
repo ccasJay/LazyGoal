@@ -46,10 +46,45 @@ test("parseCliArgs routes the supported entry intents", () => {
     assert.deepEqual(parseCliArgs([]), { kind: "home" });
     assert.deepEqual(parseCliArgs(["-c"]), { kind: "continueLatest" });
     assert.deepEqual(parseCliArgs(["resume"]), { kind: "resume" });
+    assert.deepEqual(parseCliArgs(["web"]), { kind: "browser" });
     assert.throws(
         () => parseCliArgs(["-c", "resume"]),
         /Invalid command line arguments/,
     );
+    assert.throws(
+        () => parseCliArgs(["web", "resume"]),
+        /Invalid command line arguments/,
+    );
+});
+
+test("web CLI starts an authorized loopback server without mounting Ink", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-browser-"));
+    await writeDefaultProfile(workspace);
+    const exitCodes: number[] = [];
+    const outputs: string[] = [];
+    const errors: string[] = [];
+    const exitCode = await runCli(["web"], {
+        cwd: workspace,
+        env: environment(join(workspace, "lazygoal-home")),
+        exitPort: { exit: (code) => { exitCodes.push(code); } },
+        gracePeriodMs: 0,
+        writeError: (message) => errors.push(message),
+        writeOutput: (message) => {
+            outputs.push(message);
+            process.emit("SIGINT");
+        },
+        render: (() => {
+            throw new Error("web must not render Ink");
+        }) as never,
+    });
+
+    assert.equal(exitCode, 130);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(exitCodes, [130]);
+    assert.equal(outputs.length, 1);
+    assert.match(outputs[0] ?? "", /^http:\/\/127\.0\.0\.1:\d+\/#[-_A-Za-z0-9]{40,}$/);
+    const origin = new URL(outputs[0] ?? "").origin;
+    await assert.rejects(fetch(origin));
 });
 
 test("readLlmConfig reports every missing variable before creating a root", () => {

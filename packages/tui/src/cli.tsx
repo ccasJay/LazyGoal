@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import React, { useRef, useSyncExternalStore } from "react";
 import { useInput, render as inkRender } from "ink";
 
@@ -46,7 +46,15 @@ import {
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
-import { createHttpService, type HttpService } from "../../http/src/index";
+import {
+    createHttpService,
+    type HttpService,
+    type HttpServiceMiddleware,
+} from "../../http/src/index";
+import {
+    createBrowserSessionAccess,
+    createBrowserStaticRoutes,
+} from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
@@ -256,13 +264,14 @@ export type CliCommand =
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "resume" }
+    | { readonly kind: "browser" }
     | { readonly kind: "inspect"; readonly goalId?: string; readonly dir?: string };
 
 /**
  * 使用 Node `parseArgs` 解析 CLI 参数。
  *
  * @param argv - 不包含 Node 和 bin 路径的参数数组。
- * @returns 空参数、`-c`、`resume` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
+ * @returns 空参数、`-c`、`resume`、`web` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
@@ -271,6 +280,7 @@ export type CliCommand =
  * parseCliArgs(["inspect"]); // { kind: "inspect" }
  * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
  * parseCliArgs(["inspect", "--dir", "/tmp/lazygoal-workspace/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: "/tmp/lazygoal-workspace/benchmarks/run" }
+ * parseCliArgs(["web"]); // { kind: "browser" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -305,6 +315,11 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         return { kind: "resume" };
     }
 
+    if (!hasContinue && parsed.positionals.length === 1
+        && parsed.positionals[0] === "web" && customDir === undefined) {
+        return { kind: "browser" };
+    }
+
     if (!hasContinue && parsed.positionals.length >= 1
         && parsed.positionals[0] === "inspect") {
         if (parsed.positionals.length === 1) {
@@ -321,7 +336,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         return { kind: "home" };
     }
 
-    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [--dir <dir>] [goalId]]");
+    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|web|inspect [--dir <dir>] [goalId]]");
 }
 
 /**
@@ -420,6 +435,8 @@ export interface CompositionRootOptions {
     readonly goalIdGenerator?: () => string;
     /** 新 Run 的 ID 生成器；默认使用 `randomUUID`。 */
     readonly runIdGenerator?: () => string;
+    /** 在指标与其他 HTTP 路由前运行的可选请求访问中间件。 */
+    readonly httpMiddleware?: HttpServiceMiddleware;
     /** 关闭时请求退出的端口；默认调用 `process.exit(130)`。 */
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；默认 2 秒。 */
@@ -794,7 +811,11 @@ export async function createCompositionRoot(
     const unsubscribeMetricUpdates = notifyingStore.onSave((goal) => {
         sessionMetricsService.notifyGoalSaved(goal.id);
     });
-    const httpService = createHttpService();
+    const httpService = createHttpService(
+        options.httpMiddleware === undefined
+            ? {}
+            : { middleware: options.httpMiddleware },
+    );
     httpService.mount("/", createSessionMetricsRoutes(sessionMetricsService));
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
@@ -1096,6 +1117,8 @@ export interface CliRunOptions {
     readonly render?: typeof inkRender;
     /** 输出 CLI 错误；默认写入 stderr。 */
     readonly writeError?: (message: string) => void;
+    /** 输出 CLI 正常信息；默认写入 stdout。 */
+    readonly writeOutput?: (message: string) => void;
     /** 关闭时使用的退出端口；测试可注入记录器避免结束当前进程。 */
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
@@ -1249,6 +1272,9 @@ export async function runCli(
     }
 
     let root: CompositionRoot;
+    const browserAccess = command.kind === "browser"
+        ? createBrowserSessionAccess()
+        : undefined;
 
     try {
         root = await createCompositionRoot({
@@ -1258,11 +1284,14 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
+            ...(browserAccess === undefined
+                ? {}
+                : { httpMiddleware: browserAccess.middleware }),
             ...(command.kind === "inspect" && command.dir !== undefined
                 ? { benchmarksDirectory: command.dir }
                 : {}),
             initialScreen: options.initialScreen ?? (
-                command.kind === "home"
+                command.kind === "home" || command.kind === "browser"
                     ? "home"
                     : command.kind === "inspect" && command.goalId !== undefined
                         ? "inspector"
@@ -1279,6 +1308,19 @@ export async function runCli(
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
         return 1;
+    }
+
+    if (command.kind === "browser" && browserAccess !== undefined) {
+        try {
+            return await runBrowserSessionCli(
+                root,
+                browserAccess,
+                options.writeOutput ?? ((message) => console.log(message)),
+            );
+        } catch (error: unknown) {
+            writeError(toErrorMessage(error));
+            return 1;
+        }
     }
 
     if (command.kind === "continueLatest") {
@@ -1421,6 +1463,47 @@ export async function runCli(
             root.abortController.abort();
             app?.unmount();
             if (app !== undefined) await app.waitUntilExit();
+            await root.resources.closeAll();
+        }
+    }
+}
+
+async function runBrowserSessionCli(
+    root: CompositionRoot,
+    access: ReturnType<typeof createBrowserSessionAccess>,
+    writeOutput: (message: string) => void,
+): Promise<number> {
+    let shutdownPromise: Promise<void> | undefined;
+    let resolveShutdownSignal: (() => void) | undefined;
+    const shutdownSignal = new Promise<void>((resolveSignal) => {
+        resolveShutdownSignal = resolveSignal;
+    });
+    const onSigint = (): void => {
+        if (shutdownPromise !== undefined) return;
+        root.controller.beginShutdown();
+        shutdownPromise = root.shutdownCoordinator.shutdown();
+        void shutdownPromise.then(
+            () => resolveShutdownSignal?.(),
+            () => resolveShutdownSignal?.(),
+        );
+    };
+
+    process.on("SIGINT", onSigint);
+    try {
+        const staticDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../browser/static");
+        root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
+        const address = await root.httpService.start(0);
+        access.bindOrigin(address.origin);
+        writeOutput(access.createLaunchUrl(address.origin));
+        await shutdownSignal;
+        await shutdownPromise;
+        return 130;
+    } finally {
+        process.off("SIGINT", onSigint);
+        root.controller.dispose();
+        if (shutdownPromise === undefined) {
+            root.checkpointStore.freeze();
+            root.abortController.abort();
             await root.resources.closeAll();
         }
     }

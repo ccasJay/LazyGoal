@@ -23,7 +23,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     agent: ["runtime", "llm", "contracts", "execution-stream"],
     "session-metrics": ["runtime", "http"],
     tools: ["runtime", "contracts", "execution-stream"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http"],
+    browser: ["http"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

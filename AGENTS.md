@@ -24,6 +24,7 @@ packages/        Private `@lazygoal/*` workspaces
   agent/         Agent prompts, response schemas, and the unified LLM step executor
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
+  browser/       Local browser session access control and static page routes
   llm/           LLM configuration, native strict adapters, and pi-ai multi-provider integration
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
