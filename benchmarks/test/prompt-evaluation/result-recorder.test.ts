@@ -33,6 +33,7 @@ function result(evaluationId: string): PromptEvaluationResultV1 {
                 taskId: "task-1",
                 status: "failed",
                 domainResult: { won: false },
+                metricScore: 0.375,
                 attemptPath: "/tmp/attempt-1.json",
                 artifactLocator: {
                     goalSnapshot: "/tmp/goal.json",
@@ -66,6 +67,7 @@ test("PromptEvaluationResultRecorder atomically preserves completed and unfinish
         ["task-2", "cancelled", null],
     ]);
     assert.equal(restored.tasks[0]?.artifactLocator?.goalSnapshot, "/tmp/goal.json");
+    assert.equal(restored.tasks[0]?.metricScore, 0.375);
     assert.equal((await readFile(path, "utf8")).endsWith("\n"), true);
 });
 
@@ -86,6 +88,19 @@ test("PromptEvaluationResultRecorder rejects mismatched identities and fake infr
             taskId: "task-1",
             status: "infrastructure_error",
             domainResult: { won: false },
+            metricScore: 0.5,
+            attemptPath: null,
+            artifactLocator: null,
+            errors: [],
+        }],
+    }), /Invalid PromptEvaluationTaskResult/u);
+    await assert.rejects(recorder.commit({
+        ...invalid,
+        tasks: [{
+            taskId: "task-1",
+            status: "failed",
+            domainResult: { won: false },
+            metricScore: Number.POSITIVE_INFINITY,
             attemptPath: null,
             artifactLocator: null,
             errors: [],

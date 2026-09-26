@@ -16,6 +16,7 @@ from lazygoal_gepa import (
     LazyGoalGEPAConfig,
     PromptEvaluationCancelled,
     PromptEvaluationInfrastructureError,
+    PromptEvaluationProtocolError,
 )
 from lazygoal_gepa.client import LazyGoalEvaluationRecord
 from lazygoal_gepa.protocol import PromptEvaluationTaskRecord
@@ -82,6 +83,41 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         )
         self.assertEqual(self.counter.read_text(encoding="utf-8"), "4")
 
+    def test_uses_metric_score_verbatim_for_domain_results(self) -> None:
+        class StaticClient:
+            def evaluate_one(self, example, prompt, invocation):
+                score = 0.0 if example.task_id.endswith("zero") else 0.375
+                return LazyGoalEvaluationRecord(
+                    evaluation_id="eval-metric-score",
+                    result_path=self.root / "result.json",
+                    task=PromptEvaluationTaskRecord(
+                        task_id=example.task_id,
+                        status="failed",
+                        domain_result={"reward": score, "passed": False},
+                        attempt_path=None,
+                        artifact_locator=None,
+                        errors=(),
+                        metric_score=score,
+                    ),
+                )
+
+            def __init__(self, root: Path) -> None:
+                self.root = root
+
+        adapter = LazyGoalGEPAAdapter(
+            self.adapter._config,
+            client=StaticClient(self.root),  # type: ignore[arg-type]
+        )
+        evaluation = adapter.evaluate(
+            [self._example("sample-partial", "task-partial"), self._example("sample-zero", "task-zero")],
+            self.candidate,
+            capture_traces=True,
+        )
+
+        self.assertEqual(evaluation.scores, [0.375, 0.0])
+        assert evaluation.trajectories is not None
+        self.assertEqual([item.score for item in evaluation.trajectories], [0.375, 0.0])
+
     def test_infrastructure_failure_stops_before_later_samples(self) -> None:
         batch = [self._example("sample-1", "task-1"), self._example("sample-2", "task-2")]
 
@@ -94,6 +130,22 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         ):
             with self.assertRaises(PromptEvaluationInfrastructureError):
                 self.adapter.evaluate(batch, self.candidate)
+
+        self.assertEqual(self.counter.read_text(encoding="utf-8"), "1")
+        self.assertEqual(len(list((self.root / "output").glob("**/request.json"))), 1)
+
+    def test_cancelled_evaluation_stops_before_later_samples_without_a_score(self) -> None:
+        batch = [self._example("sample-1", "task-1"), self._example("sample-2", "task-2")]
+
+        with patch.dict(
+            os.environ,
+            {
+                "LAZYGOAL_GEPA_FAKE_MODE": "cancelled",
+                "LAZYGOAL_GEPA_FAKE_COUNTER": str(self.counter),
+            },
+        ):
+            with self.assertRaises(PromptEvaluationCancelled):
+                self.adapter.evaluate(batch, self.candidate, capture_traces=True)
 
         self.assertEqual(self.counter.read_text(encoding="utf-8"), "1")
         self.assertEqual(len(list((self.root / "output").glob("**/request.json"))), 1)
@@ -123,6 +175,63 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         )
         with self.assertRaises(PromptEvaluationInfrastructureError):
             adapter.evaluate([self._example("sample-infrastructure", "task-infrastructure")], self.candidate)
+
+    def test_tua_requires_official_score_and_threshold_consistent_domain_status(self) -> None:
+        class AcceptingCandidateAuditor:
+            def audit(self, prompt):
+                del prompt
+                return {}
+
+        config = LazyGoalGEPAConfig(
+            benchmark_id="tua-bench",
+            base_profile_id="tua-bench-worker",
+            model_config_id="default",
+            model_id="model-1",
+            output_directory=self.root / "tua-output",
+            lazygoal_executable=self.executable,
+        )
+        example = self._example(
+            "sample-tua-score-contract",
+            "task-tua-score-contract",
+            benchmark_id="tua-bench",
+        )
+        cases = (
+            (None, 0.35, False),
+            (1.0, 1.0, True),
+        )
+        for metric_score, reward, passed in cases:
+            with self.subTest(metric_score=metric_score, reward=reward, passed=passed):
+                class StaticClient:
+                    def evaluate_one(self, current_example, prompt, invocation):
+                        del prompt, invocation
+                        return LazyGoalEvaluationRecord(
+                            evaluation_id="eval-tua-score-contract",
+                            result_path=self.root / "result.json",
+                            task=PromptEvaluationTaskRecord(
+                                task_id=current_example.task_id,
+                                status="failed",
+                                domain_result={
+                                    "taskFamily": "document",
+                                    "passed": passed,
+                                    "reward": reward,
+                                },
+                                attempt_path=None,
+                                artifact_locator=None,
+                                errors=(),
+                                metric_score=metric_score,
+                            ),
+                        )
+
+                    def __init__(self, root: Path) -> None:
+                        self.root = root
+
+                adapter = LazyGoalGEPAAdapter(
+                    config,
+                    client=StaticClient(self.root),  # type: ignore[arg-type]
+                    candidate_auditor=AcceptingCandidateAuditor(),  # type: ignore[arg-type]
+                )
+                with self.assertRaises(PromptEvaluationProtocolError):
+                    adapter.evaluate([example], self.candidate)
 
     def test_keyboard_interrupt_terminates_current_process_and_stops_batch(self) -> None:
         batch = [self._example("sample-1", "task-1"), self._example("sample-2", "task-2")]
@@ -157,7 +266,13 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         self.assertEqual(self.counter.read_text(encoding="utf-8"), "1")
         self.assertEqual(len(list((self.root / "output").glob("**/request.json"))), 1)
 
-    def _example(self, sample_id: str, task_id: str) -> LazyGoalEvaluationExample:
+    def _example(
+        self,
+        sample_id: str,
+        task_id: str,
+        *,
+        benchmark_id: str = "alfworld",
+    ) -> LazyGoalEvaluationExample:
         manifest = self.root / f"{sample_id}.json"
         manifest.write_text(
             json.dumps({"tasks": [{"taskId": task_id}]}),
@@ -165,7 +280,7 @@ class LazyGoalGEPAAdapterTests(unittest.TestCase):
         )
         return LazyGoalEvaluationExample(
             sample_id=sample_id,
-            benchmark_id="alfworld",
+            benchmark_id=benchmark_id,
             task_id=task_id,
             manifest_path=manifest,
         )

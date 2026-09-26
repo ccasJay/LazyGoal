@@ -109,6 +109,52 @@ test("IsolatedEnvironment can drive an ACP-ready Worker callback after preflight
     assert.equal(callbackCalled, true);
 });
 
+test("trusted process snapshots reject scoring while an Agent child process remains", async (t) => {
+    const output = await mkdtemp(join(tmpdir(), "lazygoal-process-quiescence-"));
+    t.after(() => rm(output, { recursive: true, force: true }));
+    let topCount = 0;
+    const environment = new IsolatedEnvironment({
+        run: async (_command, args) => {
+            if (args[0] === "image") return { code: 0, stdout: `sha256:${"a".repeat(64)}\n`, stderr: "" };
+            if (args[0] === "top") {
+                topCount += 1;
+                const baseline = "1 Mon Jan 1 00:00:00 2026\n";
+                return {
+                    code: 0,
+                    stdout: topCount === 1 ? baseline : `${baseline}99 Mon Jan 1 00:01:00 2026\n`,
+                    stderr: "",
+                };
+            }
+            return { code: 0, stdout: "", stderr: "" };
+        },
+        interactiveRun: async () => fakeInteractive(),
+    });
+    const spec: EnvironmentSpec<{ id: string }, { readonly scored: true }> = {
+        benchmarkId: "process-quiescence",
+        resolveImage: () => ({ mode: "custom", image: "fixture:latest" }),
+        getWorkerEntryConfig: () => ({ cwd: "/work" }),
+        async prepareEnvironment() {},
+        async preflight(handle) {
+            await handle.captureAgentProcessBaseline?.();
+            return { ok: true };
+        },
+        async collectArtifacts(handle) {
+            await handle.assertAgentProcessesExited?.();
+            return { scored: true };
+        },
+    };
+    const result = await environment.run({
+        task: { id: "task" },
+        spec,
+        outputDirectory: output,
+        runAgent: async () => {},
+    });
+
+    assert.equal(result.status, "infrastructure_error");
+    assert.equal(result.artifact, null);
+    assert.match(result.errors.map((error) => error.message).join(" "), /Agent process\(es\) remain/u);
+});
+
 function fakeHandle(workdir: string, signal: AbortSignal, calls: string[]): EnvironmentHandle {
     return {
         workdir,
@@ -374,4 +420,3 @@ test("IsolatedEnvironment taskTimeoutMs 超时时标记为 failed 并记录 TASK
     assert.ok(timeoutError, "应当记录 TASK_TIMEOUT 错误");
     assert.equal(timeoutError.stage, "agent");
 });
-

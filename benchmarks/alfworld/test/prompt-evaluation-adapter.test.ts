@@ -74,6 +74,10 @@ test("ALFWorld Prompt Evaluation adapter forwards candidate Profile and persists
         runSupervisor: async (options) => {
             assert.deepEqual(options.baseProfile, baseProfile);
             assert.deepEqual(options.profile, candidateProfile);
+            assert.equal(options.profile?.systemPrompt, candidateProfile.systemPrompt);
+            assert.deepEqual(options.profile?.instructions, candidateProfile.instructions);
+            assert.equal(options.profile?.id, baseProfile.id);
+            assert.deepEqual(options.profile?.toolIds, baseProfile.toolIds);
             supervisorProfiles.push(options.profile!);
             return {
                 status: "completed",

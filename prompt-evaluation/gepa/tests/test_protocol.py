@@ -12,6 +12,8 @@ from lazygoal_gepa.protocol import (
     parse_event_stream,
     parse_run_request,
     read_run_request,
+    gepa_metric_call_threshold,
+    gepa_reflection_minibatch_size,
     validate_gaia_minimal_request,
 )
 
@@ -98,6 +100,181 @@ class GEPARunProtocolTests(unittest.TestCase):
         assert request.valset is not None
         self.assertEqual(len(request.valset), 1)
         self.assertEqual(request.valset[0].sample_id, "s-val")
+
+    def test_tua_gepa_metric_budget_reserves_both_reflection_batches(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc", "train-sheet", "train-web", "train-code"],
+                "validationTaskIds": ["validation-doc", "validation-sheet"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {},
+            "publicationPolicy": "candidate-only",
+        })
+
+        threshold, reserve = gepa_metric_call_threshold(
+            request,
+            train_count=4,
+            validation_count=2,
+        )
+
+        self.assertEqual(reserve, 8)
+        self.assertEqual(threshold, 13)
+
+    def test_tua_gepa_metric_budget_must_cover_seed_validation(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 1,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc", "validation-sheet"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        with self.assertRaisesRegex(GEPARunProtocolError, "initial full validation"):
+            gepa_metric_call_threshold(request, train_count=1, validation_count=2)
+
+    def test_tua_default_reflection_batch_shrinks_to_trainset(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        self.assertEqual(
+            gepa_reflection_minibatch_size(request, train_count=1),
+            1,
+        )
+        self.assertEqual(
+            gepa_metric_call_threshold(request, train_count=1, validation_count=1),
+            (18, 3),
+        )
+
+    def test_tua_explicit_reflection_batch_cannot_exceed_trainset(self) -> None:
+        request = parse_run_request({
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "reflectionMinibatchSize": 2,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        })
+
+        with self.assertRaisesRegex(GEPARunProtocolError, "cannot exceed"):
+            gepa_reflection_minibatch_size(request, train_count=1)
+
+    def test_parse_tua_gepa_request_and_default_holdout_trials(self) -> None:
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {},
+            "publicationPolicy": "candidate-only",
+        }
+
+        request = parse_run_request(data)
+
+        self.assertEqual(request.benchmark, "tua-bench")
+        self.assertEqual(request.trainset, ())
+        self.assertEqual(request.valset, None)
+        self.assertIsNotNone(request.tua_dataset)
+        assert request.tua_dataset is not None
+        self.assertEqual(request.tua_dataset.repo_root, str((self.root / "TUA-Bench").resolve()))
+        self.assertEqual(request.tua_dataset.validation_task_ids, ("validation-doc",))
+        self.assertIsNotNone(request.final_comparison)
+        assert request.final_comparison is not None
+        self.assertEqual(request.final_comparison.tua_holdout_trials, 3)
+        self.assertEqual(request.publication_policy, "candidate-only")
+
+        explicit = dict(data)
+        explicit["finalComparison"] = {"tuaHoldoutTrials": 7}
+        overridden = parse_run_request(explicit)
+        assert overridden.final_comparison is not None
+        self.assertEqual(overridden.final_comparison.tua_holdout_trials, 7)
+
+    def test_tua_request_rejects_partition_overlap_and_invalid_trial_plan(self) -> None:
+        base = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["same-task"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }
+        overlap = dict(base)
+        overlap["tuaDataset"] = {
+            **base["tuaDataset"],
+            "validationTaskIds": ["same-task"],
+        }
+        with self.assertRaisesRegex(DatasetValidationError, "both trainTaskIds and validationTaskIds"):
+            parse_run_request(overlap)
+
+        for trials in (0, -1, True, 1.5):
+            with self.subTest(trials=trials):
+                invalid = dict(base)
+                invalid["finalComparison"] = {"tuaHoldoutTrials": trials}
+                with self.assertRaisesRegex(GEPARunProtocolError, "positive integer"):
+                    parse_run_request(invalid)
+
+        invalid_policy = dict(base)
+        invalid_policy["publicationPolicy"] = "publish"
+        with self.assertRaisesRegex(GEPARunProtocolError, "candidate-only"):
+            parse_run_request(invalid_policy)
+
+    def test_tua_materialized_tasksets_must_match_the_explicit_ids(self) -> None:
+        train_m = self._write_manifest("tua-train.json", "wrong-task", benchmark="tua-bench")
+        val_m = self._write_manifest("tua-val.json", "validation-doc", benchmark="tua-bench")
+        data = {
+            "protocol": GEPA_RUN_PROTOCOL,
+            "benchmark": "tua-bench",
+            "trainset": [{"sampleId": "s-train", "taskId": "wrong-task", "manifestPath": str(train_m)}],
+            "valset": [{"sampleId": "s-val", "taskId": "validation-doc", "manifestPath": str(val_m)}],
+            "maxMetricCalls": 20,
+            "tuaDataset": {
+                "repoRoot": str(self.root / "TUA-Bench"),
+                "trainTaskIds": ["train-doc"],
+                "validationTaskIds": ["validation-doc"],
+                "holdoutTaskIds": ["holdout-doc"],
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+        }
+        with self.assertRaisesRegex(DatasetValidationError, "trainset does not match"):
+            parse_run_request(data)
 
     def test_gaia_minimal_lifecycle_bounds(self) -> None:
         train_m = self._write_manifest("train.json", "task-train")
@@ -452,4 +629,3 @@ class GEPARunProtocolTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

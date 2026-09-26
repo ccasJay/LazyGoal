@@ -14,6 +14,8 @@ from .errors import CandidateValidationError, ProfileValidationError
 from .protocol import GEPARunRequest, parse_run_request
 
 _INSTRUCTION_COMPONENT = re.compile(r"instruction_(\d{3})\Z")
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+_GIT_REVISION = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
 
 
 @dataclass(frozen=True)
@@ -302,9 +304,11 @@ class FrozenRunManifest:
     seed_candidate_id: str
     working_model: ModelIdentity
     reflection_model: ModelIdentity
+    tua_dataset_inspection: dict[str, Any] | None = None
+    preflight_input_digest: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "protocol": self.protocol,
             "runId": self.run_id,
             "createdAt": self.created_at,
@@ -318,6 +322,124 @@ class FrozenRunManifest:
                 "reflection": self.reflection_model.to_dict(),
             },
         }
+        if self.tua_dataset_inspection is not None:
+            data["tuaDatasetInspection"] = self.tua_dataset_inspection
+        if self.preflight_input_digest is not None:
+            data["preflightInputDigest"] = self.preflight_input_digest
+        return data
+
+
+def _validate_tua_dataset_inspection(
+    value: Any,
+    request: GEPARunRequest,
+) -> dict[str, Any] | None:
+    if request.tua_dataset is None:
+        if value is not None:
+            raise ProfileValidationError(
+                "tuaDatasetInspection is only valid for a TUA GEPA run"
+            )
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "sourceRevision",
+        "datasetDigest",
+        "workingTreeDirty",
+        "changedPaths",
+        "tasks",
+        "partitions",
+    }:
+        raise ProfileValidationError("TUA run manifest requires a valid tuaDatasetInspection")
+    if not isinstance(value["sourceRevision"], str) or not _GIT_REVISION.fullmatch(
+        value["sourceRevision"]
+    ):
+        raise ProfileValidationError("tuaDatasetInspection.sourceRevision is invalid")
+    if not isinstance(value["datasetDigest"], str) or not _SHA256_HEX.fullmatch(
+        value["datasetDigest"]
+    ):
+        raise ProfileValidationError("tuaDatasetInspection.datasetDigest is invalid")
+    if not isinstance(value["workingTreeDirty"], bool):
+        raise ProfileValidationError("tuaDatasetInspection.workingTreeDirty must be boolean")
+    changed_paths = value["changedPaths"]
+    if not isinstance(changed_paths, list) or not all(
+        isinstance(path, str) and path for path in changed_paths
+    ):
+        raise ProfileValidationError("tuaDatasetInspection.changedPaths must be a string array")
+    if value["workingTreeDirty"] != bool(changed_paths):
+        raise ProfileValidationError("TUA dataset dirty state does not match changed paths")
+
+    expected_partitions = {
+        "train": list(request.tua_dataset.train_task_ids),
+        "validation": list(request.tua_dataset.validation_task_ids),
+        "holdout": list(request.tua_dataset.holdout_task_ids),
+    }
+    tasks = value["tasks"]
+    partitions = value["partitions"]
+    if not isinstance(tasks, dict) or set(tasks) != {
+        task_id for task_ids in expected_partitions.values() for task_id in task_ids
+    }:
+        raise ProfileValidationError("TUA dataset inspection tasks do not match the request")
+    if not isinstance(partitions, dict) or set(partitions) != set(expected_partitions):
+        raise ProfileValidationError("TUA dataset inspection partitions are invalid")
+
+    snapshot_keys = {
+        "taskId",
+        "taskFamily",
+        "networkMode",
+        "agentTimeoutSec",
+        "verifierTimeoutSec",
+        "resourceDigest",
+        "imageDigest",
+    }
+    for task_id, task in tasks.items():
+        if not isinstance(task, dict) or set(task) != snapshot_keys:
+            raise ProfileValidationError(f"TUA task inspection {task_id!r} has invalid fields")
+        if task["taskId"] != task_id:
+            raise ProfileValidationError(f"TUA task inspection identity mismatch for {task_id!r}")
+        if not isinstance(task["taskFamily"], str) or not task["taskFamily"].strip():
+            raise ProfileValidationError(f"TUA task {task_id!r} has no task family")
+        if not isinstance(task["networkMode"], str) or task["networkMode"] not in {
+            "none",
+            "public",
+        }:
+            raise ProfileValidationError(f"TUA task {task_id!r} has invalid network mode")
+        for field in ("agentTimeoutSec", "verifierTimeoutSec"):
+            if not isinstance(task[field], int) or isinstance(task[field], bool) or task[field] <= 0:
+                raise ProfileValidationError(f"TUA task {task_id!r} has invalid {field}")
+        if not isinstance(task["resourceDigest"], str) or not _SHA256_HEX.fullmatch(
+            task["resourceDigest"]
+        ):
+            raise ProfileValidationError(f"TUA task {task_id!r} has invalid resource digest")
+        if not isinstance(task["imageDigest"], str) or not re.fullmatch(
+            r"sha256:[0-9a-f]{64}", task["imageDigest"]
+        ):
+            raise ProfileValidationError(f"TUA task {task_id!r} has invalid image digest")
+
+    for partition_name, expected_ids in expected_partitions.items():
+        partition = partitions[partition_name]
+        if not isinstance(partition, dict) or set(partition) != {
+            "taskIds",
+            "taskFamilies",
+            "networkTasks",
+        }:
+            raise ProfileValidationError(f"TUA {partition_name} partition summary is invalid")
+        if partition["taskIds"] != expected_ids:
+            raise ProfileValidationError(f"TUA {partition_name} IDs do not match the request")
+        expected_families = sorted({tasks[task_id]["taskFamily"] for task_id in expected_ids})
+        if partition["taskFamilies"] != expected_families:
+            raise ProfileValidationError(f"TUA {partition_name} task families are inconsistent")
+        expected_network_tasks = [
+            task_id for task_id in expected_ids
+            if tasks[task_id]["networkMode"] == "public"
+        ]
+        if partition["networkTasks"] != expected_network_tasks:
+            raise ProfileValidationError(f"TUA {partition_name} network tasks are inconsistent")
+
+    train_families = set(partitions["train"]["taskFamilies"])
+    for partition_name in ("validation", "holdout"):
+        if not train_families.issubset(set(partitions[partition_name]["taskFamilies"])):
+            raise ProfileValidationError(
+                f"TUA {partition_name} partition does not cover training task families"
+            )
+    return value
 
 
 def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
@@ -343,6 +465,17 @@ def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
         raise ProfileValidationError("gepaVersion must be a non-empty string")
 
     request = parse_run_request(data.get("request"))
+    tua_dataset_inspection = _validate_tua_dataset_inspection(
+        data.get("tuaDatasetInspection"), request
+    )
+    preflight_input_digest = data.get("preflightInputDigest")
+    if preflight_input_digest is not None and (
+        not isinstance(preflight_input_digest, str)
+        or not _SHA256_HEX.fullmatch(preflight_input_digest)
+    ):
+        raise ProfileValidationError("preflightInputDigest must be a SHA-256 digest")
+    if request.tua_dataset is not None and preflight_input_digest is None:
+        raise ProfileValidationError("TUA run manifest requires preflightInputDigest")
 
     target_profile_raw = data.get("targetProfile")
     if not isinstance(target_profile_raw, dict):
@@ -407,6 +540,8 @@ def parse_frozen_run_manifest(data: Any) -> FrozenRunManifest:
         seed_candidate_id=seed_candidate_id,
         working_model=working_model,
         reflection_model=reflection_model,
+        tua_dataset_inspection=tua_dataset_inspection,
+        preflight_input_digest=preflight_input_digest,
     )
 
 

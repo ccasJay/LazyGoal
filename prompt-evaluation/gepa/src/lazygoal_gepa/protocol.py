@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -70,6 +71,7 @@ class PromptEvaluationTaskRecord:
     attempt_path: str | None
     artifact_locator: PromptEvaluationArtifactLocator | None
     errors: tuple[BoundedError, ...]
+    metric_score: float | None = None
 
 
 @dataclass(frozen=True)
@@ -302,7 +304,7 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
             "artifactLocator",
             "errors",
         },
-        optional=set(),
+        optional={"metricScore"},
         context="task result",
     )
     status = record["status"]
@@ -313,6 +315,20 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
         raise PromptEvaluationProtocolError(
             "Prompt Evaluation non-domain task status must have null domainResult"
         )
+    metric_score_raw = record.get("metricScore")
+    metric_score: float | None = None
+    if "metricScore" in record:
+        if (
+            status not in ("passed", "failed")
+            or domain_result is None
+            or isinstance(metric_score_raw, bool)
+            or not isinstance(metric_score_raw, (int, float))
+            or not math.isfinite(float(metric_score_raw))
+        ):
+            raise PromptEvaluationProtocolError(
+                "Prompt Evaluation metricScore must be finite and accompany a domain result"
+            )
+        metric_score = float(metric_score_raw)
     attempt_path = record["attemptPath"]
     if attempt_path is not None and not _is_non_empty_string(attempt_path):
         raise PromptEvaluationProtocolError("Prompt Evaluation attemptPath is invalid")
@@ -326,6 +342,7 @@ def _parse_task(value: Any) -> PromptEvaluationTaskRecord:
         attempt_path=cast(str | None, attempt_path),
         artifact_locator=_parse_artifact_locator(record["artifactLocator"]),
         errors=tuple(_parse_bounded_error(error) for error in errors_value),
+        metric_score=metric_score,
     )
 
 
@@ -450,6 +467,56 @@ class GEPAExampleRequest:
 
 
 @dataclass(frozen=True)
+class TuaDatasetRequest:
+    """Explicit TUA source and disjoint GEPA/final partitions."""
+
+    repo_root: str
+    train_task_ids: tuple[str, ...]
+    validation_task_ids: tuple[str, ...]
+    holdout_task_ids: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "repoRoot": self.repo_root,
+            "trainTaskIds": list(self.train_task_ids),
+            "validationTaskIds": list(self.validation_task_ids),
+            "holdoutTaskIds": list(self.holdout_task_ids),
+        }
+
+
+@dataclass(frozen=True)
+class ComparisonEnvironmentRequest:
+    """One optional paired comparison environment and its trial plan."""
+
+    manifest_path: str | None
+    task_ids: tuple[str, ...]
+    trials: int
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "manifestPath": self.manifest_path,
+            "taskIds": list(self.task_ids),
+            "trials": self.trials,
+        }
+
+
+@dataclass(frozen=True)
+class FinalComparisonRequest:
+    """Frozen post-optimization comparison plan."""
+
+    tua_holdout_trials: int
+    gaia: ComparisonEnvironmentRequest | None
+    alfworld: ComparisonEnvironmentRequest | None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "tuaHoldoutTrials": self.tua_holdout_trials,
+            "gaia": None if self.gaia is None else self.gaia.to_dict(),
+            "alfworld": None if self.alfworld is None else self.alfworld.to_dict(),
+        }
+
+
+@dataclass(frozen=True)
 class GEPARunRequest:
     """Authoritative gepa-run@1 request definition."""
 
@@ -461,6 +528,9 @@ class GEPARunRequest:
     reflection_minibatch_size: int | None = None
     seed: int | None = None
     reflection_prompt_template: str | None = None
+    tua_dataset: TuaDatasetRequest | None = None
+    final_comparison: FinalComparisonRequest | None = None
+    publication_policy: Literal["candidate-only"] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data: dict[str, Any] = {
@@ -485,7 +555,66 @@ class GEPARunRequest:
             data["reflectionPromptTemplate"] = self.reflection_prompt_template
         else:
             data["reflectionPromptTemplate"] = None
+        if self.tua_dataset is not None:
+            data["tuaDataset"] = self.tua_dataset.to_dict()
+            data["finalComparison"] = (
+                None if self.final_comparison is None else self.final_comparison.to_dict()
+            )
+            data["publicationPolicy"] = self.publication_policy
         return data
+
+
+def gepa_reflection_minibatch_size(
+    request: GEPARunRequest,
+    *,
+    train_count: int,
+) -> int | None:
+    if request.tua_dataset is None:
+        return request.reflection_minibatch_size
+    if train_count <= 0:
+        raise GEPARunProtocolError(
+            "TUA GEPA requires a non-empty materialized train set"
+        )
+    configured_batch_size = request.reflection_minibatch_size or 3
+    if (
+        request.reflection_minibatch_size is not None
+        and request.reflection_minibatch_size > train_count
+    ):
+        raise GEPARunProtocolError(
+            "TUA GEPA reflectionMinibatchSize cannot exceed the training task count"
+        )
+    return min(configured_batch_size, train_count)
+
+
+def gepa_metric_call_threshold(
+    request: GEPARunRequest,
+    *,
+    train_count: int,
+    validation_count: int,
+) -> tuple[int, int]:
+    """Return GEPA's iteration-boundary threshold and worst-case iteration reserve."""
+    if request.tua_dataset is None:
+        return request.max_metric_calls, 0
+    if train_count <= 0 or validation_count <= 0:
+        raise GEPARunProtocolError(
+            "TUA GEPA requires non-empty materialized train and validation sets"
+        )
+    if request.max_metric_calls < validation_count:
+        raise GEPARunProtocolError(
+            "TUA GEPA maxMetricCalls must cover the initial full validation evaluation"
+        )
+
+    training_batch_size = gepa_reflection_minibatch_size(
+        request,
+        train_count=train_count,
+    )
+    assert training_batch_size is not None
+    # The official proposer evaluates both the selected parent and its child on
+    # the reflection minibatch, then the engine may fully evaluate that child
+    # on validation. GEPA checks its stopper only between iterations.
+    iteration_reserve = 2 * training_batch_size + validation_count
+    threshold = max(1, request.max_metric_calls - iteration_reserve + 1)
+    return threshold, iteration_reserve
 
 
 def validate_gaia_minimal_request(request: GEPARunRequest) -> None:
@@ -531,12 +660,16 @@ def parse_run_request(
     if not isinstance(data, dict) or not all(isinstance(k, str) for k in data):
         raise GEPARunProtocolError("GEPA run request must be an object")
 
-    required_keys = {"protocol", "benchmark", "trainset", "maxMetricCalls"}
+    required_keys = {"protocol", "benchmark", "maxMetricCalls"}
     optional_keys = {
+        "trainset",
         "valset",
         "reflectionMinibatchSize",
         "seed",
         "reflectionPromptTemplate",
+        "tuaDataset",
+        "finalComparison",
+        "publicationPolicy",
     }
     actual_keys = set(data)
     missing = sorted(required_keys - actual_keys)
@@ -557,6 +690,19 @@ def parse_run_request(
     benchmark = data["benchmark"]
     if not isinstance(benchmark, str) or not benchmark.strip():
         raise GEPARunProtocolError(f"benchmark must be a non-empty string, got {benchmark!r}")
+    is_tua = benchmark == "tua-bench"
+    if not is_tua and "trainset" not in data:
+        raise GEPARunProtocolError("GEPA run request is missing fields: trainset")
+    if is_tua:
+        missing_tua = sorted({"tuaDataset", "finalComparison", "publicationPolicy"} - set(data))
+        if missing_tua:
+            raise GEPARunProtocolError(
+                "TUA GEPA request is missing fields: " + ", ".join(missing_tua)
+            )
+        if data["publicationPolicy"] != "candidate-only":
+            raise GEPARunProtocolError("TUA GEPA publicationPolicy must be candidate-only")
+    elif {"tuaDataset", "finalComparison", "publicationPolicy"}.intersection(data):
+        raise GEPARunProtocolError("TUA GEPA fields are only valid for benchmark 'tua-bench'")
 
     max_metric_calls = data["maxMetricCalls"]
     if (
@@ -598,20 +744,24 @@ def parse_run_request(
     else:
         reflection_prompt_template = None
 
-    trainset_raw = data["trainset"]
-    if not isinstance(trainset_raw, list) or len(trainset_raw) == 0:
+    trainset_raw = data.get("trainset", [] if is_tua else None)
+    if not isinstance(trainset_raw, list) or (not is_tua and len(trainset_raw) == 0):
         raise DatasetValidationError("trainset must be a non-empty list")
 
-    trainset = _parse_example_list(trainset_raw, "trainset", base_dir)
+    trainset = (
+        _parse_example_list(trainset_raw, "trainset", base_dir)
+        if trainset_raw
+        else ()
+    )
 
     valset_raw = data.get("valset")
     valset: tuple[GEPAExampleRequest, ...] | None = None
     if valset_raw is not None:
         if not isinstance(valset_raw, list):
             raise GEPARunProtocolError("valset must be a list or null")
-        if len(valset_raw) == 0:
+        if len(valset_raw) == 0 and not is_tua:
             raise DatasetValidationError("valset cannot be an empty list when provided")
-        valset = _parse_example_list(valset_raw, "valset", base_dir)
+        valset = _parse_example_list(valset_raw, "valset", base_dir) if valset_raw else ()
 
         train_task_ids = {example.task_id for example in trainset}
         train_sample_ids = {example.sample_id for example in trainset}
@@ -632,6 +782,21 @@ def parse_run_request(
                 + ", ".join(overlapping_samples)
             )
 
+    tua_dataset = _parse_tua_dataset(data.get("tuaDataset"), base_dir) if is_tua else None
+    final_comparison = (
+        _parse_final_comparison(data.get("finalComparison"), base_dir)
+        if is_tua
+        else None
+    )
+    if is_tua:
+        assert tua_dataset is not None
+        if trainset and {item.task_id for item in trainset} != set(tua_dataset.train_task_ids):
+            raise DatasetValidationError("Materialized TUA trainset does not match tuaDataset.trainTaskIds")
+        if valset and {item.task_id for item in valset} != set(tua_dataset.validation_task_ids):
+            raise DatasetValidationError("Materialized TUA valset does not match tuaDataset.validationTaskIds")
+        if bool(trainset) != bool(valset):
+            raise DatasetValidationError("Materialized TUA trainset and valset must be present together")
+
     request = GEPARunRequest(
         protocol="gepa-run@1",
         benchmark=benchmark,
@@ -641,6 +806,9 @@ def parse_run_request(
         reflection_minibatch_size=reflection_minibatch_size,
         seed=seed,
         reflection_prompt_template=reflection_prompt_template,
+        tua_dataset=tua_dataset,
+        final_comparison=final_comparison,
+        publication_policy="candidate-only" if is_tua else None,
     )
 
     if check_manifests:
@@ -721,6 +889,153 @@ def _parse_example_list(
         )
 
     return tuple(parsed)
+
+
+def _parse_tua_dataset(
+    value: Any,
+    base_dir: Path | None,
+) -> TuaDatasetRequest:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise GEPARunProtocolError("tuaDataset must be an object")
+    required = {"repoRoot", "trainTaskIds", "validationTaskIds", "holdoutTaskIds"}
+    missing = sorted(required - set(value))
+    unknown = sorted(set(value) - required)
+    if missing or unknown:
+        details = []
+        if missing:
+            details.append("missing fields: " + ", ".join(missing))
+        if unknown:
+            details.append("unknown fields: " + ", ".join(unknown))
+        raise GEPARunProtocolError("tuaDataset " + "; ".join(details))
+
+    repo_root_raw = value["repoRoot"]
+    if not isinstance(repo_root_raw, str) or not repo_root_raw.strip():
+        raise DatasetValidationError("tuaDataset.repoRoot must be a non-empty path")
+    raw_path = Path(repo_root_raw)
+    repo_root = (
+        raw_path.resolve()
+        if raw_path.is_absolute() or base_dir is None
+        else (base_dir / raw_path).resolve()
+    )
+
+    groups = {
+        "trainTaskIds": _parse_task_id_list(value["trainTaskIds"], "tuaDataset.trainTaskIds"),
+        "validationTaskIds": _parse_task_id_list(value["validationTaskIds"], "tuaDataset.validationTaskIds"),
+        "holdoutTaskIds": _parse_task_id_list(value["holdoutTaskIds"], "tuaDataset.holdoutTaskIds"),
+    }
+    owner: dict[str, str] = {}
+    for partition, task_ids in groups.items():
+        for task_id in task_ids:
+            if task_id in owner:
+                raise DatasetValidationError(
+                    f"TUA task {task_id!r} occurs in both {owner[task_id]} and {partition}"
+                )
+            owner[task_id] = partition
+    return TuaDatasetRequest(
+        repo_root=str(repo_root),
+        train_task_ids=groups["trainTaskIds"],
+        validation_task_ids=groups["validationTaskIds"],
+        holdout_task_ids=groups["holdoutTaskIds"],
+    )
+
+
+def _parse_final_comparison(
+    value: Any,
+    base_dir: Path | None,
+) -> FinalComparisonRequest:
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise GEPARunProtocolError("finalComparison must be an object")
+    allowed = {"tuaHoldoutTrials", "gaia", "alfworld"}
+    unknown = sorted(set(value) - allowed)
+    if unknown:
+        details = []
+        if unknown:
+            details.append("unknown fields: " + ", ".join(unknown))
+        raise GEPARunProtocolError("finalComparison " + "; ".join(details))
+
+    holdout_trials = _positive_integer(
+        value.get("tuaHoldoutTrials", 3),
+        "finalComparison.tuaHoldoutTrials",
+    )
+    return FinalComparisonRequest(
+        tua_holdout_trials=holdout_trials,
+        gaia=_parse_comparison_environment(value.get("gaia"), "gaia", base_dir),
+        alfworld=_parse_comparison_environment(value.get("alfworld"), "alfworld", base_dir),
+    )
+
+
+def _parse_comparison_environment(
+    value: Any,
+    benchmark: str,
+    base_dir: Path | None,
+) -> ComparisonEnvironmentRequest | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not all(isinstance(key, str) for key in value):
+        raise GEPARunProtocolError(f"finalComparison.{benchmark} must be an object or null")
+    allowed = {"manifestPath", "taskIds", "trials"}
+    unknown = sorted(set(value) - allowed)
+    missing = sorted({"taskIds", "trials"} - set(value))
+    if missing or unknown:
+        details = []
+        if missing:
+            details.append("missing fields: " + ", ".join(missing))
+        if unknown:
+            details.append("unknown fields: " + ", ".join(unknown))
+        raise GEPARunProtocolError(f"finalComparison.{benchmark} " + "; ".join(details))
+
+    manifest_raw = value.get("manifestPath")
+    manifest_path: str | None = None
+    if manifest_raw is not None:
+        if not isinstance(manifest_raw, str) or not manifest_raw.strip():
+            raise DatasetValidationError(
+                f"finalComparison.{benchmark}.manifestPath must be a non-empty path or null"
+            )
+        raw_path = Path(manifest_raw)
+        resolved = (
+            raw_path.resolve()
+            if raw_path.is_absolute() or base_dir is None
+            else (base_dir / raw_path).resolve()
+        )
+        manifest_path = str(resolved)
+    task_ids = _parse_task_id_list(
+        value["taskIds"], f"finalComparison.{benchmark}.taskIds", allow_empty=True
+    )
+    trials = _positive_integer(value["trials"], f"finalComparison.{benchmark}.trials")
+    return ComparisonEnvironmentRequest(
+        manifest_path=manifest_path,
+        task_ids=task_ids,
+        trials=trials,
+    )
+
+
+def _parse_task_id_list(
+    value: Any,
+    field: str,
+    *,
+    allow_empty: bool = False,
+) -> tuple[str, ...]:
+    if not isinstance(value, list) or (not allow_empty and not value):
+        qualifier = "an array" if allow_empty else "a non-empty array"
+        raise DatasetValidationError(f"{field} must be {qualifier}")
+    task_ids: list[str] = []
+    seen: set[str] = set()
+    for index, task_id in enumerate(value):
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise DatasetValidationError(f"{field}[{index}] must be a non-empty string")
+        if task_id != task_id.strip():
+            raise DatasetValidationError(f"{field}[{index}] must not contain surrounding whitespace")
+        if task_id in seen:
+            raise DatasetValidationError(f"{field} contains duplicate task ID {task_id!r}")
+        seen.add(task_id)
+        task_ids.append(task_id)
+    return tuple(task_ids)
+
+
+def _positive_integer(value: Any, field: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise GEPARunProtocolError(f"{field} must be a positive integer")
+    return value
 
 
 def read_run_request(

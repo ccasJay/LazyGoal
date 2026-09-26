@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import gepa
+
 from lazygoal_gepa.adapter import LazyGoalGEPAAdapter
 from lazygoal_gepa.candidate import (
     AgentProfileSnapshot,
@@ -24,10 +26,11 @@ from lazygoal_gepa.candidate import (
     extract_seed_candidate,
 )
 from lazygoal_gepa.compatibility import EXPECTED_GEPA_VERSION
+from lazygoal_gepa.controller import _preflight_input_digest, _request_artifact_digests
 from lazygoal_gepa.errors import PromptEvaluationInfrastructureError
 from lazygoal_gepa.ownership import RunOwnership, is_pid_alive
 from lazygoal_gepa.protocol import GEPAExampleRequest, GEPARunRequest, parse_run_request
-from lazygoal_gepa.reporter import read_run_report
+from lazygoal_gepa.reporter import generate_and_save_run_report, read_run_report
 from lazygoal_gepa.store import RunStore
 from lazygoal_gepa.worker import (
     ReflectionExecutionError,
@@ -245,6 +248,337 @@ class WorkerOrchestrationTests(unittest.TestCase):
         self.assertEqual(captured["seed"], 0)
         self.assertIsNone(captured["reflection_minibatch_size"])
         self.assertEqual(captured["max_metric_calls"], 4)
+        self.assertEqual(captured["module_selector"], "round_robin")
+
+    def test_tua_worker_selects_all_prompt_components_in_each_gepa_proposal(self) -> None:
+        run_id = "run_test_tua_all_components"
+        manifest = self._create_tua_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        captured: dict[str, object] = {}
+
+        def capture_optimize(**kwargs):
+            captured.update(kwargs)
+            raise RuntimeError("stop after inspecting worker configuration")
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.gepa.optimize", side_effect=capture_optimize),
+            patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor") as auditor_factory,
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(captured["module_selector"], "all")
+        self.assertEqual(captured["seed"], 0)
+        self.assertEqual(captured["reflection_minibatch_size"], 1)
+        self.assertEqual(captured["max_metric_calls"], 2)
+        self.assertEqual(auditor_factory.call_args.kwargs["task_ids"], ("train-doc", "validation-doc"))
+
+    def test_tua_worker_budget_caps_metric_calls_and_resume_reuses_checkpoint(self) -> None:
+        run_id = "run_test_tua_budget_resume"
+        manifest = self._create_tua_helper_manifest(run_id, materialized=False)
+        run_dir = self.store.initialize_run(manifest)
+        counter_path = self.root / "tua-evaluation-counter.txt"
+        env = {
+            "LAZYGOAL_EXECUTABLE": str(self.fake_cli),
+            "LAZYGOAL_GEPA_FAKE_MODE": "tua_sensitive",
+            "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "Candidate proposal for the offline budget test",
+            "LAZYGOAL_GEPA_FAKE_COUNTER": str(counter_path),
+        }
+
+        with (
+            patch.dict(os.environ, env),
+            patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor"),
+            patch("lazygoal_gepa.worker.ProfilePublisher.publish") as publish,
+            patch("lazygoal_gepa.worker.gepa.optimize", wraps=gepa.optimize) as optimize,
+        ):
+            self.assertEqual(run_gepa_worker(run_dir, workspace_root=self.workspace_root), 0)
+            first_run_calls = int(counter_path.read_text(encoding="utf-8"))
+            first_state = self.store.read_state(run_id)
+            gepa_evaluation_count = len(list((run_dir / "adapter").rglob("request.json")))
+            final_comparison_count = len(
+                list((run_dir / "final-comparison" / "evaluations").rglob("request.json"))
+            )
+            self.assertEqual(optimize.call_args.kwargs["max_metric_calls"], 2)
+            self.assertLessEqual(first_state.metric_calls, manifest.request.max_metric_calls)
+            self.assertLessEqual(gepa_evaluation_count, manifest.request.max_metric_calls)
+            self.assertEqual(final_comparison_count, 6)
+            self.assertEqual(first_state.publication_status, "candidate_only")
+            self.assertTrue((run_dir / "tua-manifests" / "train-0000.json").is_file())
+            report = read_run_report(run_dir)
+            self.assertEqual(report["datasetSummary"], {"train": 1, "validation": 1})
+
+            self.store.update_state(run_id, lifecycle_status="stopped")
+            self.assertEqual(run_gepa_worker(run_dir, workspace_root=self.workspace_root), 0)
+
+        self.assertEqual(int(counter_path.read_text(encoding="utf-8")), first_run_calls)
+        resumed_state = self.store.read_state(run_id)
+        self.assertEqual(resumed_state.metric_calls, first_state.metric_calls)
+        self.assertEqual(resumed_state.publication_status, "candidate_only")
+        self.assertTrue(read_run_report(run_dir)["complete"])
+        publish.assert_not_called()
+        self.assertEqual(self.profile_path.read_bytes(), self.profile_raw.encode("utf-8"))
+
+    def test_tua_candidate_only_success_saves_artifact_without_publishing(self) -> None:
+        run_id = "run_test_tua_candidate_only_success"
+        manifest = self._create_tua_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        candidate = dict(manifest.seed_candidate)
+        candidate["system_prompt"] = "Candidate only improved system prompt"
+        result = MagicMock(
+            best_candidate=candidate,
+            val_aggregate_scores=[0.75],
+            best_idx=0,
+            total_metric_calls=2,
+            candidates=[manifest.seed_candidate, candidate],
+        )
+        original_profile = self.profile_path.read_bytes()
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.gepa.optimize", return_value=result),
+            patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor"),
+            patch("lazygoal_gepa.worker.LazyGoalGEPAAdapter") as adapter_factory,
+            patch("lazygoal_gepa.worker.ProfilePublisher.publish") as publish,
+        ):
+            code = run_gepa_worker(run_dir, workspace_root=self.workspace_root)
+
+        self.assertEqual(code, 0)
+        state = self.store.read_state(run_id)
+        self.assertEqual(state.lifecycle_status, "succeeded")
+        self.assertEqual(state.publication_status, "candidate_only")
+        self.assertEqual(state.best_candidate_id, _fingerprint(
+            candidate["system_prompt"],
+            tuple(candidate[f"instruction_{index:03d}"] for index in range(2)),
+        ))
+        self.assertEqual(state.metric_calls, 2)
+        self.assertEqual(self.profile_path.read_bytes(), original_profile)
+        self.assertEqual(
+            json.loads((run_dir / "artifacts" / "best-profile.json").read_text())["systemPrompt"],
+            candidate["system_prompt"],
+        )
+        comparison_requests = [
+            json.loads(path.read_text(encoding="utf-8"))
+            for path in (run_dir / "final-comparison" / "evaluations").rglob("request.json")
+        ]
+        self.assertEqual(adapter_factory.call_args.args[0].base_profile_id, "tua-bench-worker-profile")
+        self.assertEqual(len(comparison_requests), 6)
+        self.assertTrue(all(
+            item["candidate"]["baseProfileId"] == "tua-bench-worker-profile"
+            for item in comparison_requests
+        ))
+        comparison = json.loads(
+            (run_dir / "final-comparison" / "result.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(comparison["status"], "insufficient_evidence")
+        self.assertTrue(read_run_report(run_dir)["complete"])
+        publish.assert_not_called()
+
+    def test_tua_candidate_only_stop_and_failure_keep_candidate_artifact(self) -> None:
+        stopped_manifest = self._create_tua_helper_manifest("run_test_tua_candidate_only_stopped")
+        stopped_dir = self.store.initialize_run(stopped_manifest)
+        self.store.request_stop(stopped_manifest.run_id)
+        stopped_candidate = dict(stopped_manifest.seed_candidate)
+        stopped_candidate["system_prompt"] = "Candidate retained before stop"
+        stopped_result = MagicMock(
+            best_candidate=stopped_candidate,
+            val_aggregate_scores=[0.5],
+            best_idx=0,
+            total_metric_calls=1,
+            candidates=[stopped_manifest.seed_candidate, stopped_candidate],
+        )
+        failed_manifest = self._create_tua_helper_manifest("run_test_tua_candidate_only_failed")
+        failed_dir = self.store.initialize_run(failed_manifest)
+        original_profile = self.profile_path.read_bytes()
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor"),
+            patch("lazygoal_gepa.worker.ProfilePublisher.publish") as publish,
+            patch("lazygoal_gepa.worker.GEPAState.load", return_value=MagicMock()),
+            patch("lazygoal_gepa.worker.gepa.optimize", return_value=stopped_result),
+        ):
+            self.assertEqual(
+                run_gepa_worker(stopped_dir, workspace_root=self.workspace_root),
+                0,
+            )
+
+        stopped_state = self.store.read_state(stopped_manifest.run_id)
+        self.assertEqual(stopped_state.lifecycle_status, "stopped")
+        self.assertEqual(stopped_state.publication_status, "candidate_only")
+        self.assertTrue((stopped_dir / "artifacts" / "best-profile.json").is_file())
+
+        with (
+            patch.dict(os.environ, {"LAZYGOAL_EXECUTABLE": str(self.fake_cli)}),
+            patch("lazygoal_gepa.worker.TuaCandidateLeakAuditor"),
+            patch("lazygoal_gepa.worker.ProfilePublisher.publish") as failed_publish,
+            patch("lazygoal_gepa.worker.gepa.optimize", side_effect=RuntimeError("offline failure")),
+        ):
+            self.assertEqual(
+                run_gepa_worker(failed_dir, workspace_root=self.workspace_root),
+                1,
+            )
+
+        failed_state = self.store.read_state(failed_manifest.run_id)
+        self.assertEqual(failed_state.lifecycle_status, "failed")
+        self.assertEqual(failed_state.publication_status, "candidate_only")
+        self.assertEqual(failed_state.best_candidate_id, failed_manifest.seed_candidate_id)
+        self.assertTrue((failed_dir / "artifacts" / "best-profile.json").is_file())
+        self.assertEqual(self.profile_path.read_bytes(), original_profile)
+        publish.assert_not_called()
+        failed_publish.assert_not_called()
+
+    def test_tua_report_blocks_a_best_candidate_with_private_literal_findings(self) -> None:
+        run_id = "run_test_tua_audit_report"
+        manifest = self._create_tua_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        candidate_id = manifest.seed_candidate_id
+        audit_directory = run_dir / "candidate-audits"
+        audit_directory.mkdir()
+        (audit_directory / f"{candidate_id}.json").write_text(json.dumps({
+            "candidateId": candidate_id,
+            "auditedTaskIds": ["train-doc", "validation-doc"],
+            "findings": [{
+                "taskId": "train-doc",
+                "component": "instruction_000",
+                "matchKind": "expected_answer",
+            }],
+            "positiveConclusionBlocked": True,
+        }), encoding="utf-8")
+        self.store.update_state(
+            run_id,
+            lifecycle_status="succeeded",
+            candidate_count=1,
+            best_candidate_id=candidate_id,
+            best_score=0.5,
+            publication_status="pending",
+        )
+
+        generate_and_save_run_report(run_dir)
+        report = read_run_report(run_dir)
+
+        self.assertEqual(report["candidateAudit"]["status"], "blocked")
+        self.assertTrue(report["candidateAudit"]["positiveConclusionBlocked"])
+        self.assertEqual(report["candidateAudit"]["findings"], [{
+            "taskId": "train-doc",
+            "component": "instruction_000",
+            "matchKind": "expected_answer",
+        }])
+        self.assertNotIn("private answer", json.dumps(report))
+
+    def _create_tua_helper_manifest(
+        self,
+        run_id: str,
+        *,
+        materialized: bool = True,
+    ) -> FrozenRunManifest:
+        task_ids = {
+            "train": ("train-doc",),
+            "validation": ("validation-doc",),
+            "holdout": ("holdout-doc",),
+        }
+        inspection_tasks = {
+            task_id: {
+                "taskId": task_id,
+                "taskFamily": "document",
+                "networkMode": "none",
+                "agentTimeoutSec": 600,
+                "verifierTimeoutSec": 600,
+                "resourceDigest": "d" * 64,
+                "imageDigest": "sha256:" + "e" * 64,
+            }
+            for ids in task_ids.values()
+            for task_id in ids
+        }
+        inspection = {
+            "sourceRevision": "b" * 40,
+            "datasetDigest": "c" * 64,
+            "workingTreeDirty": False,
+            "changedPaths": [],
+            "tasks": inspection_tasks,
+            "partitions": {
+                partition: {
+                    "taskIds": list(ids),
+                    "taskFamilies": ["document"],
+                    "networkTasks": [],
+                }
+                for partition, ids in task_ids.items()
+            },
+        }
+        manifest_paths: dict[str, Path] = {}
+        for partition_ids in task_ids.values():
+            for task_id in partition_ids:
+                manifest_path = self.workspace_root / f"{run_id}-{task_id}.json"
+                manifest_path.write_text(json.dumps({
+                    "benchmark": "tua-bench",
+                    "tasks": [{"taskId": task_id, "benchmark": "tua-bench"}],
+                }), encoding="utf-8")
+                manifest_paths[task_id] = manifest_path
+        request_data: dict[str, object] = {
+            "protocol": "gepa-run@1",
+            "benchmark": "tua-bench",
+            "tuaDataset": {
+                "repoRoot": str(self.workspace_root),
+                "trainTaskIds": list(task_ids["train"]),
+                "validationTaskIds": list(task_ids["validation"]),
+                "holdoutTaskIds": list(task_ids["holdout"]),
+            },
+            "finalComparison": {"tuaHoldoutTrials": 3},
+            "publicationPolicy": "candidate-only",
+            "maxMetricCalls": 4,
+            "reflectionMinibatchSize": 1,
+        }
+        if materialized:
+            request_data["trainset"] = [{
+                "sampleId": "train-sample",
+                "taskId": "train-doc",
+                "manifestPath": str(manifest_paths["train-doc"]),
+            }]
+            request_data["valset"] = [{
+                "sampleId": "validation-sample",
+                "taskId": "validation-doc",
+                "manifestPath": str(manifest_paths["validation-doc"]),
+            }]
+        request = parse_run_request(request_data, check_manifests=False)
+        snapshot = AgentProfileSnapshot(
+            schema_version=self.profile_data["schemaVersion"],
+            id=self.profile_data["id"],
+            name=self.profile_data["name"],
+            description=self.profile_data["description"],
+            system_prompt=self.profile_data["systemPrompt"],
+            instructions=tuple(self.profile_data["instructions"]),
+            tool_ids=tuple(self.profile_data["toolIds"]),
+        )
+        working_model = ModelIdentity(profile_name="default", model_id="default")
+        reflection_model = ModelIdentity(profile_name="gepa-reflection", model_id="reflection")
+        artifact_digests = _request_artifact_digests(request, self.workspace_root)
+        frozen_input_digest = _preflight_input_digest(
+            request,
+            profile_digest=self.profile_digest,
+            working_model=working_model,
+            reflection_model=reflection_model,
+            tua_dataset_inspection=inspection,
+            artifact_digests=artifact_digests,
+        )
+        return FrozenRunManifest(
+            protocol="gepa-run@1",
+            run_id=run_id,
+            created_at=datetime.now(timezone.utc).isoformat(),
+            gepa_version=EXPECTED_GEPA_VERSION,
+            request=request,
+            target_profile=TargetProfileSnapshot(
+                profile_id=snapshot.id,
+                profile_path=str(self.profile_path),
+                frozen_digest=self.profile_digest,
+                profile=snapshot,
+            ),
+            seed_candidate=extract_seed_candidate(snapshot),
+            seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
+            working_model=working_model,
+            reflection_model=reflection_model,
+            tua_dataset_inspection=inspection,
+            preflight_input_digest=frozen_input_digest,
+        )
 
     def test_worker_records_unchanged_publication(self) -> None:
         """A seed-only result is complete without rewriting the target Profile."""

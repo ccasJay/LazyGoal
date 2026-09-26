@@ -54,6 +54,7 @@ class ReflectionTests(unittest.TestCase):
         self.candidate = {
             "system_prompt": "Initial system prompt",
             "instruction_000": "Initial instruction",
+            "instruction_001": "Initial second instruction",
         }
         self.adapter = LazyGoalGEPAAdapter(
             LazyGoalGEPAConfig(
@@ -119,6 +120,73 @@ class ReflectionTests(unittest.TestCase):
                 ["unknown"],
             )
 
+    def test_tua_reflection_only_exposes_safe_result_fields_and_stages(self) -> None:
+        class AcceptingCandidateAuditor:
+            def audit(self, prompt):
+                del prompt
+                return {}
+
+        task_id = "PRIVATE_TASK_ID_MARKER"
+        manifest = self.root / "tua-manifest.json"
+        manifest.write_text(
+            json.dumps({"tasks": [{"taskId": task_id}]}),
+            encoding="utf-8",
+        )
+        example = LazyGoalEvaluationExample(
+            sample_id="PRIVATE_SAMPLE_ID_MARKER",
+            benchmark_id="tua-bench",
+            task_id=task_id,
+            manifest_path=manifest,
+        )
+        adapter = LazyGoalGEPAAdapter(
+            LazyGoalGEPAConfig(
+                benchmark_id="tua-bench",
+                base_profile_id="tua-bench-worker",
+                model_config_id="default",
+                model_id="model-1",
+                output_directory=self.root / "tua-output",
+                lazygoal_executable=self.executable,
+            ),
+            candidate_auditor=AcceptingCandidateAuditor(),  # type: ignore[arg-type]
+        )
+
+        with patch.dict(os.environ, {"LAZYGOAL_GEPA_FAKE_MODE": "tua_sensitive"}):
+            evaluation = adapter.evaluate([example], self.candidate, capture_traces=True)
+        reflective = adapter.make_reflective_dataset(
+            self.candidate,
+            evaluation,
+            ["system_prompt"],
+        )
+        record = reflective["system_prompt"][0]
+        serialized = json.dumps(record)
+
+        self.assertEqual(
+            record["Inputs"],
+            {"component": "system_prompt", "currentText": self.candidate["system_prompt"]},
+        )
+        self.assertEqual(
+            record["Generated Outputs"],
+            {"taskFamily": "document", "passed": False, "reward": 0.35},
+        )
+        self.assertEqual(
+            record["Feedback"],
+            {"status": "failed", "diagnostics": [{"stage": "agent"}]},
+        )
+        self.assertEqual(record["Score"], 0.35)
+        self.assertEqual(record["Artifacts"], {})
+        for marker in (
+            "PRIVATE_TASK_ID_MARKER",
+            "PRIVATE_SAMPLE_ID_MARKER",
+            "PRIVATE_VERIFIER_OUTPUT_MARKER",
+            "PRIVATE_ANSWER_MARKER",
+            "PRIVATE_HOLDOUT_TASK_MARKER",
+            "PRIVATE_HOLDOUT_SNAPSHOT_MARKER",
+            "PRIVATE_HOLDOUT_TRAJECTORY_MARKER",
+            "PRIVATE_HOLDOUT_TRACE_MARKER",
+            "PRIVATE_PRIVATE_PATH_MARKER",
+        ):
+            self.assertNotIn(marker, serialized)
+
     def test_official_optimize_updates_candidate_through_fake_cli(self) -> None:
         reflection_lm = FakeReflectionLM()
         with patch.dict(os.environ, {"LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved"}):
@@ -129,6 +197,7 @@ class ReflectionTests(unittest.TestCase):
                 adapter=self.adapter,
                 reflection_lm=reflection_lm,
                 reflection_minibatch_size=1,
+                module_selector="all",
                 max_metric_calls=6,
                 display_progress_bar=False,
                 logger=QuietLogger(),
@@ -138,6 +207,9 @@ class ReflectionTests(unittest.TestCase):
         self.assertGreaterEqual(result.num_candidates, 2)
         self.assertTrue(reflection_lm.prompts)
         self.assertIn("improved", " ".join(result.best_candidate.values()))
+        self.assertIn("improved", result.best_candidate["system_prompt"])
+        self.assertIn("improved", result.best_candidate["instruction_000"])
+        self.assertIn("improved", result.best_candidate["instruction_001"])
         self.assertEqual(result.val_aggregate_scores[result.best_idx], 1.0)
 
 

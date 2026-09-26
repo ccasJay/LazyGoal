@@ -6,10 +6,11 @@
 
 export * from "./types.js";
 export * from "./manifest-loader.js";
+export * from "./gepa-inspector.js";
 export * from "./environment-spec.js";
+export * from "./prompt-evaluation-adapter.js";
 export * from "./bash-exec-tool.js";
 export * from "./scoring.js";
 export * from "./adapter.js";
 export * from "./eval.js";
 export * from "./worker-entry.js";
-

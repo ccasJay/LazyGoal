@@ -27,7 +27,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     # preflight
     p_preflight = subparsers.add_parser("preflight", help="Execute read-only preflight consistency checks")
-    p_preflight.add_argument("--request", required=True, help="Path to gepa-run@1 JSON request file")
+    preflight_target = p_preflight.add_mutually_exclusive_group(required=True)
+    preflight_target.add_argument("--request", help="Path to gepa-run@1 JSON request file")
+    preflight_target.add_argument("--run", help="TUA GEPA run ID to prepare a resume confirmation")
     p_preflight.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_preflight.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
     p_preflight.add_argument("--profile-path", default=None, help="Path to the target Agent Profile JSON file")
@@ -36,6 +38,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_start = subparsers.add_parser("start", help="Start a new GEPA run with a detached background worker")
     p_start.add_argument("--request", required=True, help="Path to gepa-run@1 JSON request file")
     p_start.add_argument("--yes", action="store_true", default=False, help="Confirm LLM costs and profile mutation")
+    p_start.add_argument("--confirm-digest", default=None, help="Exact TUA preflight confirmationDigest")
     p_start.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_start.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
     p_start.add_argument("--profile-path", default=None, help="Path to the target Agent Profile JSON file")
@@ -54,6 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_resume = subparsers.add_parser("resume", help="Resume an existing uncompleted GEPA run")
     p_resume.add_argument("--run", required=True, help="Run ID to resume")
     p_resume.add_argument("--yes", action="store_true", default=False, help="Confirm LLM costs and execution")
+    p_resume.add_argument("--confirm-digest", default=None, help="Exact TUA resume preflight confirmationDigest")
     p_resume.add_argument("--workspace-root", default=None, help="Root directory of the workspace")
     p_resume.add_argument("--runs-dir", default=None, help="Directory where GEPA runs are stored")
     p_resume.add_argument("--profile-path", default=None, help="Path to the frozen target Agent Profile JSON file")
@@ -104,15 +108,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if args.subcommand == "preflight":
-            result = controller.preflight(args.request)
+            result = (
+                controller.preflight(args.request)
+                if args.request is not None
+                else controller.preflight_resume(args.run)
+            )
         elif args.subcommand == "start":
-            result = controller.start(args.request, yes=args.yes)
+            result = controller.start(
+                args.request,
+                yes=args.yes,
+                confirmation_digest=args.confirm_digest,
+            )
         elif args.subcommand == "status":
             result = controller.status(args.run)
         elif args.subcommand == "stop":
             result = controller.stop(args.run)
         elif args.subcommand == "resume":
-            result = controller.resume(args.run, yes=args.yes)
+            result = controller.resume(
+                args.run,
+                yes=args.yes,
+                confirmation_digest=args.confirm_digest,
+            )
         elif args.subcommand == "report":
             result = controller.report(args.run)
         elif args.subcommand == "wait":

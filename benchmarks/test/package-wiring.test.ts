@@ -16,7 +16,7 @@ test("普通 CLI 路由保持 TUI 默认入口，显式评测参数才加载对�
     assert.match(source, /benchmarks\/swebench\/src\/cli\.ts/);
 });
 
-test("GEPA 路由准确隔离 reflect/resolve-models (TSX) 与生命周期控制面 (Python)", async () => {
+test("GEPA TUA 数据检查走 TypeScript CLI，其它控制面命令走 Python", async () => {
     const source = await readFile(
         fileURLToPath(new URL("../../bin/lazygoal.cjs", import.meta.url)),
         "utf8",
@@ -24,8 +24,10 @@ test("GEPA 路由准确隔离 reflect/resolve-models (TSX) 与生命周期控制
 
     assert.match(source, /const isGepaReflect = argv\[0\] === "gepa" && argv\[1\] === "reflect";/);
     assert.match(source, /const isGepaResolveModels = argv\[0\] === "gepa" && argv\[1\] === "resolve-models";/);
-    assert.match(source, /const isGepaLifecycle = argv\[0\] === "gepa" && !isGepaReflect && !isGepaResolveModels;/);
-    assert.match(source, /isPromptEval \|\| isGepaReflect \|\| isGepaResolveModels/);
+    assert.match(source, /const isGepaInspectTua = argv\[0\] === "gepa" && argv\[1\] === "inspect-tua";/);
+    assert.match(source, /const isGepaAuditTuaCandidate = argv\[0\] === "gepa" && argv\[1\] === "audit-tua-candidate";/);
+    assert.match(source, /const isGepaLifecycle = argv\[0\] === "gepa" && !isGepaReflect && !isGepaResolveModels && !isGepaInspectTua && !isGepaAuditTuaCandidate;/);
+    assert.match(source, /isPromptEval \|\| isGepaReflect \|\| isGepaResolveModels \|\| isGepaInspectTua \|\| isGepaAuditTuaCandidate/);
     assert.match(source, /lazygoal_gepa\.cli/);
     assert.match(source, /LAZYGOAL_GEPA_PYTHON/);
 });

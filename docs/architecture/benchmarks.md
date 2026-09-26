@@ -3,8 +3,8 @@
 ## Scope
 
 `benchmarks` 是显式评测入口，不属于普通 TUI 的 Composition Root。当前已实现
-通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA 和 SWE-bench
-Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
+通用单 task、单 Run Headless Composition Root，以及 ALFWorld TextWorld、GAIA、TUA-Bench
+和 SWE-bench Verified 的显式评测适配。ALFWorld 提供 Profile、固定 Manifest、容器内 Python JSONL
 sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构建和隔离容器位于
 [`benchmarks/src/`](../../benchmarks/src/)，具体 benchmark 只声明环境和评分适配。
 
@@ -95,7 +95,11 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 
 [`runPromptEvaluationCli`](../../benchmarks/src/prompt-evaluation/cli.ts) 接受当前版本的单候选
 JSON 请求。候选只能覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`；公共层
-派生并校验冻结字段，ALFWorld 和 GAIA Worker 在创建 Headless Root 前再次校验同一 Profile。
+派生并校验冻结字段，ALFWorld、GAIA 和 TUA Worker 在创建 Headless Root 前再次校验同一 Profile。
+TUA Worker 的 ACP metadata 也可携带成对的基准与候选 Profile，并在创建 Headless Root 前
+以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。注册的 TUA Prompt
+Evaluation adapter 通过单任务 Manifest 和统一隔离容器执行 Agent，并在 Agent 结束后运行 verifier。
+评分前隔离层比较宿主进程快照；Agent 阶段的新增进程仍存活、评分素材残留或无法检查时，评测失败且不返回分数。
 外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
 
 CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
@@ -104,8 +108,11 @@ ID 集合，且只实例化请求指定的 factory。协议与结果持久化将
 
 [`PromptEvaluationRunner`](../../benchmarks/src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
 任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
-只信任答案评分；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
+只信任答案评分，TUA 保留有限官方 reward；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
 `0`，基础设施失败、请求校验失败和取消分别返回 `1`、`2`、`130`。
+TUA 单任务清单包含 `repoRoot` 和一个 `taskId`，任务定义由 TUA 仓库 Manifest 加载。
+Agent 工作区不会收到验证器与评分目录；宿主进程快照证明 Agent 新增进程退出后，adapter 才在临时目录暂存并以配置用户运行 verifier。
+缺失或无效 reward、非零 verifier 退出和进程隔离失败不产生 `metricScore`。
 
 每个任务原子提交带候选哈希与模型身份的 Attempt；整次评测在
 `<outputDirectory>/evaluations/<evaluationId>/result.json` 原子提交汇总。stdout JSON Lines 事件
@@ -118,10 +125,18 @@ ID 集合，且只实例化请求指定的 factory。协议与结果持久化将
 候选组件和跨进程结果身份，不枚举 benchmark ID，也不解释领域 Manifest 或 Profile。
 benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Python adapter 按 batch
 顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
-取值。领域 `passed/failed` 分别映射为 `1.0/0.0`，协议、基础设施和取消错误不计分并立即停止
-后续样本。反思轨迹只保留有界结果投影和产物路径，不读取完整 Diagnostic Trace；进程输出
-有大小上限，持久化前会脱敏继承环境中的凭据值。adapter 的确定性测试进入根回归，真实
+取值。TUA 使用有限官方 `metricScore` 原值（包含零与部分分）；其他 benchmark 的领域
+`passed/failed` 分别映射为 `1.0/0.0`。协议、基础设施和取消错误不计分并立即停止后续样本。
+TUA 反思只接收任务族、官方 reward、完成状态和有界通用阶段诊断，不暴露任务标识、答案、
+验证器内容、错误原文或产物路径；其他 benchmark 的反思轨迹保留有界结果投影和产物路径。
+两者都不读取完整 Diagnostic Trace；进程输出有大小上限，持久化前会脱敏继承环境中的凭据值。
+adapter 的确定性测试进入根回归，真实
 GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
+TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 seed 中的 `system_prompt`
+和全部 `instruction_NNN` 组件；其他 benchmark 保持 `round_robin`。每个 TUA 候选在评测前
+经 TUA Inspector 对显式训练与验证任务做字面泄漏审计，安全结果保存在 Run 的
+`candidate-audits/`。终态报告只输出命中任务、Prompt 组件和类别；最佳候选命中或缺少审计
+都会阻断正向结论。审计不读取 holdout，也不声称排除语义层面的任务过拟合。
 GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
 `dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
 split 和自动发现不进入该生命周期。
@@ -130,8 +145,9 @@ split 和自动发现不进入该生命周期。
 
 GEPA 的长任务优化由 `lazygoal gepa` 控制面管理，而不是由普通 TUI 或 benchmark
 Composition Root 持有。公开机器接口为 `preflight`、`start`、`status`、`stop`、`resume`
-和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`，因为它们可能产生模型和
-容器费用，并在成功后触及 LazyGoal Home 的 default Agent Profile。
+和 `report`；`start`/`resume` 必须带调用方明确确认的 `--yes`。TUA 还要求携带对应当前
+`preflight` 的 `confirmationDigest`，以拒绝确认后发生的请求、数据、模型或 Profile 漂移。
+TUA 候选运行只保存产物，不改写本机 default Profile；其他 GEPA benchmark 仍按各自发布策略处理。
 
 Python 生命周期控制器为每次运行创建
 `~/.lazygoal/workspaces/<workspace-id>/gepa/runs/<runId>/`，其中 `run.json` 和 `request.json` 是冻结身份，
@@ -139,6 +155,39 @@ Python 生命周期控制器为每次运行创建
 保存官方 GEPA `run_dir`，`adapter/`、`reflection/` 和 `artifacts/` 保存有界评测、
 反思及结果产物。`status`/`report` 只读取这些权威文件；它们不会从日志或私有
 checkpoint 推导成功状态。每个 Run 同时最多一个 Worker。
+
+TUA GEPA 请求的只读预检由 Python 控制器调用 LazyGoal CLI 的 TUA Inspector 完成。Inspector
+校验显式 train/validation/holdout 集合的互斥性、任务族覆盖、所选任务资源及本机镜像，返回
+TUA 源 revision、任务资源摘要、镜像身份、网络任务和时限；返回值不包含任务指令或验证器正文。
+预检把该摘要、模型与 Profile 身份、每任务时限、GEPA 预算及轮次停止阈值一起展示，并将
+输入摘要冻结到 `run.json`。`start` 与 `resume` 只有在确认当前 `confirmationDigest` 后才会启动
+Worker；镜像检查只读取本机 Docker 元数据，不拉取镜像或启动容器。Worker 按冻结任务 ID 生成单任务
+Prompt Evaluation Manifest，TUA 数据集及候选身份漂移会阻止恢复。
+
+GEPA 的 metric-call stopper 只在迭代边界检查。TUA 预检显示实际 reflection minibatch；未显式
+配置时最多使用三条训练任务，训练集更小时缩小到其任务数，显式配置超过训练集则拒绝。
+Worker 为一轮预留父候选和子候选训练批次，
+以及一次完整验证集评测，并据此降低传给官方 GEPA 的停止阈值，使实际评测调用不超过请求预算；
+任务级 Agent/verifier 时限由冻结的 TUA 任务定义执行。停止、失败和恢复保留已提交的 GEPA
+checkpoint 与最佳候选 artifact。TUA 正常完成报告为 `candidate_only`；它表示候选产物完整，
+不表示 Prompt 已发布。
+
+GEPA 选定最佳候选后，Worker 重新核对 TUA Inspector 与请求中引用的 Manifest 摘要，再运行冻结的
+最终对照计划。TUA holdout 每个任务默认对 seed 与候选各运行三次；GAIA、ALFWorld 使用请求中的
+任务和试次数。每个 Attempt 都通过该 benchmark 自己的 Prompt Evaluation adapter、基准 Profile、
+工具权限和评分器执行，同一配对共享任务 Manifest 与 Working LM 身份。GEPA metric-call 预算不包括
+收尾对照试次。
+
+`final-comparison/plan.json` 冻结候选、模型、任务、Manifest 摘要和试次计划；`attempts/` 按
+benchmark、任务、trial 与 seed/candidate 分开原子提交权威领域状态和分数，TUA 保存官方 reward，
+GAIA/ALFWorld 保存各自 passed/failed 映射分。对照摘要写入 `final-comparison/result.json`，
+区分完整、未完成、停止和证据不足，不保存标准答案或 verifier 正文。恢复时会复用身份匹配的有效
+领域结果并继续缺失项；基础设施失败保留为无分数结果，停止标记阻止启动下一项。生命周期
+`artifacts/report.json` 从冻结请求、候选产物、审计摘要和最终对照生成可审阅投影：包含 seed/候选
+Prompt 组件差异、数据与模型身份、预算、逐任务族和逐环境配对指标、失败与覆盖情况、可得 Token 用量，
+以及明确标记为未知的费用。审计命中或凭据会使候选文本脱敏并阻断正向建议；缺失证据标为不足，满足
+离线门槛也只要求人工审阅，绝不自动发布 default Profile。`final-comparison/result.json` 与 Attempt
+仍是领域评测的权威记录，报告会校验其身份并投影，不替代它们。
 
 候选评测仍由现有 GEPA Adapter 和 `prompt-evaluation@1` 负责。Working LM 固定绑定
 LazyGoal Home 的 `profiles/default.toml`，执行指定 benchmark 的 Agent；Reflection LM 通过
@@ -150,11 +199,12 @@ Profile、模型身份和凭据边界在 Run manifest 中冻结，恢复时必�
 目标 Profile 摘要未漂移且 checkpoint 可读时复用同一 `run_dir`，并重新要求确认。
 
 发布不是普通评测的副作用。生命周期产物和报告区分最佳 Profile artifact、publication
-状态与 `complete`；只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
+状态与 `complete`；对于允许发布的 benchmark，只有正常优化完成、候选和目标 Profile 仍通过校验且目标摘要未变化时，
 Worker 才会原子更新
 `~/.lazygoal/agent-profiles/default.json` 的 `systemPrompt` 与完整 `instructions`。停止、失败、
 外部 Profile 修改或写入失败不得覆盖当前 Profile；此类结果保留最佳 artifact 并报告
-`publish_blocked`（或对应失败分类）。真实双模型 smoke 不进入默认回归。
+`publish_blocked`（或对应失败分类）。TUA GEPA 固定使用 candidate-only，不调用发布器；成功运行
+仅表示候选 artifact 与报告完整，必须经人工审阅后再决定是否内置。真实双模型 smoke 不进入默认回归。
 
 GAIA 真实端到端闸门由 [`lazygoal-gepa-gaia-e2e`](../../prompt-evaluation/gepa/src/lazygoal_gepa/gaia_e2e.py)
 提供，根脚本为 `npm run e2e:gaia-real`。它要求调用方同时提供单任务 GAIA

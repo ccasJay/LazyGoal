@@ -157,6 +157,10 @@ test("GAIA Prompt Evaluation adapter forwards candidate identity and uses domain
             receivedDataRoot = options.dataRoot;
             assert.deepEqual(options.baseProfile, GAIA_WORKER_PROFILE);
             assert.deepEqual(options.profile, candidateProfile);
+            assert.equal(options.profile?.systemPrompt, candidateProfile.systemPrompt);
+            assert.deepEqual(options.profile?.instructions, candidateProfile.instructions);
+            assert.equal(options.profile?.id, GAIA_WORKER_PROFILE.id);
+            assert.deepEqual(options.profile?.toolIds, GAIA_WORKER_PROFILE.toolIds);
             assert.equal(options.promptEvaluation?.candidateId, "candidate-1");
             return supervisorResult({ correct: true });
         },

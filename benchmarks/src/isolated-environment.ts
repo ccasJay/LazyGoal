@@ -101,8 +101,9 @@ export interface PreflightResult {
  * EnvironmentSpec 可使用的受限容器操作；不暴露 Docker API、容器名或安全参数。
  *
  * @remarks
- * 所有命令都在 Spec 声明的工作目录中运行，文件复制由隔离环境执行。该句柄只在
- * `prepareEnvironment`、`preflight` 和 `collectArtifacts` 回调期间有效。
+ * Agent 身份命令在 Spec 工作目录中运行；root/指定用户命令、文件复制和宿主进程快照
+ * 只由宿主侧 benchmark Spec 在准备、预检及产物回收阶段调用，Agent 不会收到此句柄。
+ * 该句柄只在 `prepareEnvironment`、`preflight` 和 `collectArtifacts` 回调期间有效。
  *
  * @example
  * ```ts
@@ -129,6 +130,42 @@ export interface EnvironmentHandle {
      * @returns 有界进程结果；非零退出码由调用方解释。
      */
     exec(command: string, options?: Partial<ProcessOptions>): Promise<ProcessResult>;
+    /**
+     * 用容器 root 身份执行隔离准备或可信评分命令。
+     *
+     * @param command - 由宿主 Spec 生成的固定命令。
+     * @param options - 可选超时、取消和输出边界。
+     * @returns 命令退出事实。
+     * @throws 命令不可运行或底层进程启动失败时抛出。
+     */
+    execAsRoot?(command: string, options?: Partial<ProcessOptions>): Promise<ProcessResult>;
+    /**
+     * 以指定容器用户身份执行可信领域命令。
+     *
+     * @param user - 受信任任务配置中的容器用户名或数字 UID。
+     * @param command - 由宿主 Spec 生成的固定命令。
+     * @param options - 可选超时、取消和输出边界。
+     * @returns 命令退出事实。
+     * @throws 用户身份无效或命令不可运行时抛出。
+     */
+    execAsUser?(user: string, command: string, options?: Partial<ProcessOptions>): Promise<ProcessResult>;
+    /**
+     * 记录 Agent 启动前的容器进程快照。
+     *
+     * @remarks
+     * 快照由宿主隔离层读取；只可在 Agent 启动前调用一次。依赖进程隔离的 benchmark
+     * 在当前句柄不提供此能力时必须拒绝进入 Agent 阶段。
+     *
+     * @throws 快照读取失败或快照为空时抛出。
+     */
+    captureAgentProcessBaseline?(): Promise<void>;
+    /**
+     * 确认 Agent 启动后新增的容器进程均已退出。
+     *
+     * @returns 所有新增进程均退出时正常完成。
+     * @throws 基线缺失、进程快照读取失败或发现仍存活的新进程时抛出。
+     */
+    assertAgentProcessesExited?(): Promise<void>;
     /** 将宿主准备文件复制到容器内的绝对路径。 */
     copyInto(source: string, target: string): Promise<void>;
     /** 将容器内的领域产物复制到宿主目标路径，并返回该路径。 */
@@ -423,6 +460,7 @@ export class IsolatedEnvironment {
         const workdir = workerConfig.cwd ?? "/workspace";
         const errors: IsolatedEnvironmentError[] = [];
         const controller = new AbortController();
+        const agentProcessBaseline: { value?: ReadonlySet<string> } = {};
         let isTimedOut = false;
         let isCancelled = options.signal?.aborted === true || options.forceSignal?.aborted === true;
         const forwardAbort = () => {
@@ -445,7 +483,7 @@ export class IsolatedEnvironment {
         let acp: AcpClientResult | null = null;
         let status: IsolatedEnvironmentResult<TArtifact>["status"] = "failed";
         const handle = options.container?.createHandle(workdir, controller.signal)
-            ?? this.createHandle(containerName, workdir, controller.signal);
+            ?? this.createHandle(containerName, workdir, controller.signal, agentProcessBaseline);
         try {
             if (controller.signal.aborted) {
                 if (isCancelled) {
@@ -554,11 +592,12 @@ export class IsolatedEnvironment {
 
             if (created && errors.length === 0 && !controller.signal.aborted
                 && (options.acp !== undefined || options.runAgent !== undefined)) {
+                const diagnosticsBuffer: string[] = [];
                 try {
                     worker = options.container !== undefined && options.openWorkerProcess === undefined
                         ? await options.container.openWorkerProcess(options.taskTimeoutMs ?? 300_000, controller.signal)
                         : await this.openWorker(containerName, workerConfig, options.openWorkerProcess, options.taskTimeoutMs ?? 300_000, controller.signal);
-                    void drainDiagnostics(worker.errorOutput);
+                    void drainDiagnostics(worker.errorOutput, (chunk) => diagnosticsBuffer.push(chunk));
                     void worker.closed.catch(() => undefined);
                     if (options.acp !== undefined) {
                         mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
@@ -596,7 +635,11 @@ export class IsolatedEnvironment {
                         pushError(errors, "agent", Object.assign(new Error(`Task exceeded timeout of ${options.taskTimeoutMs ?? 300_000}ms`), { code: "TASK_TIMEOUT" }));
                         status = "failed";
                     } else {
-                        pushError(errors, "agent", error);
+                        const diag = diagnosticsBuffer.join("").trim();
+                        const err = diag && error instanceof Error && error.message.includes("Internal error")
+                            ? new Error(`Internal error: ${diag}`)
+                            : error;
+                        pushError(errors, "agent", err);
                         status = "failed";
                     }
                 }
@@ -651,7 +694,7 @@ export class IsolatedEnvironment {
                         artifact = await withinGrace(
                             () => options.spec.collectArtifacts(
                                 options.container?.createHandle(workdir, artifactController.signal)
-                                    ?? this.createHandle(containerName, workdir, artifactController.signal),
+                                    ?? this.createHandle(containerName, workdir, artifactController.signal, agentProcessBaseline),
                                 outputDirectory,
                                 remainingForArtifacts,
                             ),
@@ -712,8 +755,28 @@ export class IsolatedEnvironment {
         return { status, artifact, imageId, acp, errors };
     }
 
-    private createHandle(containerName: string, workdir: string, signal: AbortSignal): EnvironmentHandle {
+    private createHandle(
+        containerName: string,
+        workdir: string,
+        signal: AbortSignal,
+        agentProcessBaseline: { value?: ReadonlySet<string> },
+    ): EnvironmentHandle {
         const run = this.runProcess;
+        const readProcessSnapshot = async (): Promise<ReadonlySet<string>> => {
+            const output = requireSuccess(await run("docker", ["top", containerName, "-eo", "pid,lstart"], {
+                timeoutMs: 10_000,
+                signal,
+                maxBytes: 256 * 1024,
+                truncate: true,
+            }), "Inspect isolated container processes");
+            const processes = new Set<string>();
+            for (const line of output.split(/\r?\n/u)) {
+                const match = /^\s*(\d+)\s+(.+?)\s*$/u.exec(line);
+                if (match !== null) processes.add(`${match[1]}:${match[2]!.replace(/\s+/gu, " ")}`);
+            }
+            if (processes.size === 0) throw new Error("Isolated container process snapshot was empty");
+            return processes;
+        };
         return Object.freeze({
             workdir,
             exec: async (command: string, options: Partial<ProcessOptions> = {}) => {
@@ -723,6 +786,47 @@ export class IsolatedEnvironment {
                     signal: options.signal ?? signal,
                 } satisfies ProcessOptions;
                 return run("docker", ["exec", "--workdir", workdir, containerName, "/bin/bash", "-c", command], merged);
+            },
+            execAsRoot: async (command: string, options: Partial<ProcessOptions> = {}) => {
+                const merged = {
+                    timeoutMs: options.timeoutMs ?? 60_000,
+                    ...options,
+                    signal: options.signal ?? signal,
+                } satisfies ProcessOptions;
+                return run("docker", ["exec", "--user", "0", "--workdir", workdir, containerName, "/bin/bash", "-c", command], merged);
+            },
+            execAsUser: async (user: string, command: string, options: Partial<ProcessOptions> = {}) => {
+                if (!/^(?:[a-z_][a-z0-9_-]*[$]?|\d+)$/iu.test(user)) {
+                    throw new TypeError("Container execution user is invalid");
+                }
+                const merged = {
+                    timeoutMs: options.timeoutMs ?? 60_000,
+                    ...options,
+                    signal: options.signal ?? signal,
+                } satisfies ProcessOptions;
+                return run("docker", ["exec", "--user", user, "--workdir", workdir, containerName, "/bin/bash", "-c", command], merged);
+            },
+            captureAgentProcessBaseline: async () => {
+                if (agentProcessBaseline.value !== undefined) {
+                    throw new Error("Agent process baseline was already captured");
+                }
+                agentProcessBaseline.value = await readProcessSnapshot();
+            },
+            assertAgentProcessesExited: async () => {
+                const baseline = agentProcessBaseline.value;
+                if (baseline === undefined) {
+                    throw new Error("Agent process baseline was not captured before scoring");
+                }
+                const deadline = Date.now() + 3_000;
+                let remaining: string[] = [];
+                while (true) {
+                    const current = await readProcessSnapshot();
+                    remaining = [...current].filter((process) => !baseline.has(process));
+                    if (remaining.length === 0) return;
+                    if (Date.now() >= deadline) break;
+                    await new Promise((resolve) => setTimeout(resolve, 100));
+                }
+                throw new Error(`TUA scoring isolation failed: ${remaining.length} Agent process(es) remain: ${remaining.join(", ")}`);
             },
             copyInto: async (source: string, target: string) => {
                 requireSuccess(await run("docker", ["cp", source, `${containerName}:${target}`], { timeoutMs: 60_000, signal }), "Copy environment input");
@@ -738,8 +842,9 @@ export class IsolatedEnvironment {
     private async pullAndInspect(image: string, platform: string, signal: AbortSignal, receive: (imageId: string) => void): Promise<void> {
         let inspectResult = await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 });
         if (inspectResult.code !== 0) {
-            requireSuccess(await this.runProcess("docker", ["pull", "--platform", platform, image], { timeoutMs: 1_200_000, signal, maxBytes: 16 * 1024, truncate: true }), "Pull isolated image");
-            inspectResult = requireSuccess(await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 }), "Inspect isolated image");
+            const pulledInspect = await this.runProcess("docker", ["image", "inspect", "--format", "{{.Id}}\t{{.Os}}/{{.Architecture}}", image], { timeoutMs: 30_000, signal, maxBytes: 16 * 1024 });
+            requireSuccess(pulledInspect, "Inspect isolated image");
+            inspectResult = pulledInspect;
         }
         const inspected = inspectResult.stdout.trim();
         const [imageId, actualPlatform] = inspected.split("\t");
@@ -838,7 +943,7 @@ export class IsolatedEnvironment {
         const artifact = config.artifact;
         if (artifact === undefined) return;
         const options = { timeoutMs: 60_000, signal, maxBytes: 16 * 1024, truncate: true } as const;
-        requireSuccess(await this.runProcess("docker", ["exec", name, "/bin/mkdir", "-p", "/opt/lazygoal"], options), "Create Worker directory");
+        requireSuccess(await this.runProcess("docker", ["exec", "--user", "0", name, "/bin/mkdir", "-m", "777", "-p", "/opt/lazygoal", "/opt/lazygoal/state"], options), "Create Worker directory");
         for (const [source, target] of [[artifact.workerPath, "worker.mjs"], [artifact.nodePath, "node"], [artifact.manifestPath, "manifest.json"]] as const) {
             requireSuccess(await this.runProcess("docker", ["cp", source, `${name}:/opt/lazygoal/${target}`], options), `Inject Worker ${target}`);
         }
@@ -952,15 +1057,17 @@ function isRecordLike(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
 }
 
-async function drainDiagnostics(stream: ReadableStream<Uint8Array>): Promise<void> {
+async function drainDiagnostics(stream: ReadableStream<Uint8Array>, onChunk?: (chunk: string) => void): Promise<void> {
     const reader = stream.getReader();
     const decoder = new TextDecoder();
     try {
         while (true) {
             const chunk = await reader.read();
             if (chunk.done) break;
+            const text = decoder.decode(chunk.value);
+            onChunk?.(text);
             if (process.env.DEBUG_BENCHMARK_WORKER) {
-                process.stderr.write(decoder.decode(chunk.value));
+                process.stderr.write(text);
             }
         }
     } catch {
