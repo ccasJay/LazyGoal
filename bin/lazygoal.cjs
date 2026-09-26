@@ -15,8 +15,10 @@ const isGepaAuditTuaCandidate = argv[0] === "gepa" && argv[1] === "audit-tua-can
 const isGepaLifecycle = argv[0] === "gepa" && !isGepaReflect && !isGepaResolveModels && !isGepaInspectTua && !isGepaAuditTuaCandidate;
 
 if (isGepaLifecycle) {
+    const fs = require("node:fs");
     const procEnv = process["env"];
-    const pythonBin = procEnv["LAZYGOAL_GEPA_PYTHON"] || "python3";
+    const defaultVenv = resolve(__dirname, "../prompt-evaluation/gepa/.venv/bin/python3");
+    const pythonBin = procEnv["LAZYGOAL_GEPA_PYTHON"] || (fs.existsSync(defaultVenv) ? defaultVenv : "python3");
     const pyArgs = ["-m", "lazygoal_gepa.cli", ...argv.slice(1)];
     const pyResult = spawnSync(pythonBin, pyArgs, {
         stdio: "inherit",
