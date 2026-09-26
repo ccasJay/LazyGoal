@@ -43,4 +43,4 @@ Trace、模型调用指标、Context Sidecar、benchmark 历史和 GEPA Run 写�
 发现；显式数据目录仍可由测试、导出或容器调用方覆盖。组装成功后写入
 `workspace.json` 身份清单，身份不一致会快速失败。
 
-Composition Root 装配 `SessionMetricsService`、指标 JSONL Store 和只读路由，并将服务挂载到可复用的 HTTP Host。普通 TUI 只创建和配置宿主，不打开监听端口；显式 `web` 命令为该 Host 加入浏览器访问中间件和静态页面路由后启动监听。Goal 保存通知与模型调用 Recorder 唤醒指标订阅；关闭时资源注册表取消通知并关闭已启动的 HTTP 服务。
+Composition Root 装配 `SessionMetricsService`、指标 JSONL Store 和只读路由，并将服务挂载到可复用的 HTTP Host。普通 TUI 只创建和配置宿主，不打开监听端口；显式 `web` 命令为该 Host 加入浏览器访问中间件、Goal 只读列表/详情路由和静态页面路由后启动监听。浏览器数据读取使用正式工作区 Store 与 Trajectory 边界，不使用 TUI 的 Benchmark 聚合视图。Goal 保存通知与模型调用 Recorder 唤醒指标订阅；关闭时资源注册表取消通知并关闭已启动的 HTTP 服务。

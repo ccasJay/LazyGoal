@@ -9,7 +9,8 @@ import { pathToFileURL } from "node:url";
  * runtime 只依赖 contracts 和 execution-stream；llm 复用 runtime 的中止原语并可
  * 使用 execution-stream；storage 只依赖 runtime/contracts；agent/tools 复用
  * runtime、llm（agent）和 execution-stream；session-metrics 通过 Runtime
- * 端口读取 Goal 与调用指标；http 不依赖 LazyGoal 包；tui 是组合根，可导入全部实现。
+ * 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
+ * http 不依赖 LazyGoal 包；tui 是组合根，可导入全部实现。
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
@@ -23,7 +24,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     agent: ["runtime", "llm", "contracts", "execution-stream"],
     "session-metrics": ["runtime", "http"],
     tools: ["runtime", "contracts", "execution-stream"],
-    browser: ["http"],
+    browser: ["http", "runtime"],
     tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser"],
 };
 

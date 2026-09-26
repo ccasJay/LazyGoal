@@ -1,0 +1,253 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+    createGoal,
+    type Goal,
+    type GoalCatalog,
+    type GoalCatalogEntry,
+    type GoalStore,
+    type TrajectoryEvent,
+    type TrajectoryReadResult,
+} from "../../runtime/src/index";
+import { allocateImmutableEvent } from "../../runtime/src/index";
+import {
+    createBrowserGoalRoutes,
+    listBrowserGoals,
+    readBrowserGoalSession,
+    type BrowserGoalListItem,
+} from "../src/index";
+
+const protocols = {
+    memoryProtocol: { kind: "structured", version: 1 } as const,
+    modelContextProtocol: { kind: "trajectory-layered", version: 1 } as const,
+    contextRetrievalProtocol: { kind: "bm25-lite", version: 1 } as const,
+};
+
+function createTestGoal(): Goal {
+    return createGoal({
+        ...protocols,
+        id: "goal-real-1",
+        intent: "验证浏览器真实会话",
+        promptBundleVersion: 1,
+        profile: {
+            id: "private-profile-id",
+            systemPrompt: "private system prompt",
+            instructions: [],
+            toolIds: [],
+        },
+        runId: "run-real-1",
+    });
+}
+
+function event(
+    sequence: number,
+    eventType: "decision_received" | "action_staged" | "tool_finished",
+): TrajectoryEvent {
+    const executionUnitId = sequence === 4 ? "uncommitted-unit" : "unit-1";
+    const stepIndex = sequence === 4 ? 2 : 1;
+    if (eventType === "decision_received") {
+        return allocateImmutableEvent({
+            goalId: "goal-real-1",
+            runId: "run-real-1",
+            phase: "executing",
+            executionUnitId,
+            stepIndex,
+            eventType,
+            payload: {
+                type: eventType,
+                decision: {
+                    kind: "tool_call",
+                    action: {
+                        actionId: "action-1",
+                        toolId: "read_file",
+                        input: { path: "PRIVATE_TOOL_INPUT" },
+                    },
+                },
+                thought: "PRIVATE_REASONING_SHOULD_NOT_ESCAPE",
+            },
+        }, sequence);
+    }
+
+    if (eventType === "action_staged") {
+        return allocateImmutableEvent({
+            goalId: "goal-real-1",
+            runId: "run-real-1",
+            phase: "executing",
+            executionUnitId,
+            stepIndex,
+            eventType,
+            payload: {
+                type: eventType,
+                action: {
+                    actionId: "action-1",
+                    toolId: "read_file",
+                    input: { path: "PRIVATE_TOOL_INPUT" },
+                },
+                approvalStatus: "approved",
+            },
+        }, sequence);
+    }
+
+    return allocateImmutableEvent({
+        goalId: "goal-real-1",
+        runId: "run-real-1",
+        phase: "executing",
+        executionUnitId,
+        stepIndex,
+        actionId: "action-1",
+        eventType,
+        payload: {
+            type: eventType,
+            actionId: "action-1",
+            toolId: "read_file",
+            observation: {
+                kind: "success",
+                output: "PRIVATE_RAW_TOOL_OUTPUT",
+                summary: "读取了一个文件",
+            },
+        },
+    }, sequence);
+}
+
+class TestGoalStore implements GoalStore {
+    constructor(private readonly goal: Goal | undefined) {}
+
+    async save(): Promise<void> {}
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return goalId === this.goal?.id ? this.goal : undefined;
+    }
+}
+
+class TestGoalCatalog implements GoalCatalog {
+    constructor(private readonly entries: readonly GoalCatalogEntry[]) {}
+
+    async listResumable(): Promise<readonly GoalCatalogEntry[]> {
+        return this.entries.filter((entry) => entry.runStatus !== "completed"
+            && entry.runStatus !== "failed"
+            && entry.runStatus !== "cancelled");
+    }
+
+    async listHistory(): Promise<readonly GoalCatalogEntry[]> {
+        return this.entries;
+    }
+}
+
+test("看板列表使用正式 Catalog 摘要并投影白名单字段", async () => {
+    const catalog = new TestGoalCatalog([{
+        goalId: "goal-real-1",
+        runId: "run-real-1",
+        intent: "真实 Goal",
+        workflowPhase: "executing",
+        runStatus: "completed",
+        updatedAt: "2026-09-26T00:00:00.000Z",
+        secret: "must-not-appear",
+    } as GoalCatalogEntry]);
+
+    const result = await listBrowserGoals(catalog);
+    assert.deepEqual(result, [{
+        goalId: "goal-real-1",
+        runId: "run-real-1",
+        intent: "真实 Goal",
+        workflowPhase: "executing",
+        runStatus: "completed",
+        updatedAt: "2026-09-26T00:00:00.000Z",
+    }]);
+    assert.equal(JSON.stringify(result).includes("must-not-appear"), false);
+});
+
+test("会话只返回已提交步骤、真实消息与实际存在的计划", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            messages: [
+                { role: "user", content: "检查项目" },
+                { role: "assistant", assistant: { profileId: "private-profile-id" }, content: "会话已完成" },
+            ],
+            goalPlan: {
+                revision: 1,
+                items: [{ id: "todo-1", content: "运行检查", position: 0, status: "completed" }],
+            },
+        },
+    };
+    const committed = [
+        event(1, "decision_received"),
+        event(2, "action_staged"),
+        event(3, "tool_finished"),
+    ];
+    const tail = [event(4, "decision_received")];
+    const result: Readonly<TrajectoryReadResult> = { committed, uncommittedTail: tail };
+
+    const session = await readBrowserGoalSession(
+        goal.id,
+        new TestGoalStore(goal),
+        async () => result,
+    );
+
+    assert.ok(session);
+    assert.deepEqual(session.messages, [
+        { role: "user", content: "检查项目" },
+        { role: "assistant", content: "会话已完成" },
+    ]);
+    assert.equal(session.goalPlan?.items[0]?.content, "运行检查");
+    assert.equal(session.runs[0]?.steps.length, 1);
+    assert.deepEqual(session.runs[0]?.steps[0], {
+        runId: "run-real-1",
+        executionUnitId: "unit-1",
+        sequence: 1,
+        stepIndex: 1,
+        decisionKind: "tool_call",
+        toolId: "read_file",
+        actionStatus: "approved",
+        status: "completed",
+        summary: "读取了一个文件",
+    });
+
+    const serialized = JSON.stringify(session);
+    assert.equal(serialized.includes("PRIVATE_REASONING_SHOULD_NOT_ESCAPE"), false);
+    assert.equal(serialized.includes("PRIVATE_TOOL_INPUT"), false);
+    assert.equal(serialized.includes("PRIVATE_RAW_TOOL_OUTPUT"), false);
+    assert.equal(serialized.includes("private-profile-id"), false);
+    assert.equal(serialized.includes("systemPrompt"), false);
+});
+
+test("未创建 GoalPlan 时省略计划；不存在 Goal 返回 undefined，损坏读取拒绝", async () => {
+    const goal = createTestGoal();
+    const store = new TestGoalStore(goal);
+    const session = await readBrowserGoalSession(goal.id, store, async () => ({ committed: [], uncommittedTail: [] }));
+    assert.ok(session);
+    assert.equal(Object.hasOwn(session, "goalPlan"), false);
+    assert.deepEqual(session.runs[0]?.steps, []);
+    assert.equal(await readBrowserGoalSession("missing", store, async () => ({ committed: [], uncommittedTail: [] })), undefined);
+    await assert.rejects(readBrowserGoalSession(goal.id, store, async () => {
+        throw new Error("corrupt trajectory details");
+    }), /corrupt trajectory details/);
+});
+
+test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () => {
+    const port = {
+        async list(): Promise<readonly BrowserGoalListItem[]> {
+            throw new Error("private filesystem path");
+        },
+        async read(goalId: string) {
+            if (goalId === "broken") throw new Error("corrupt snapshot internals");
+            return undefined;
+        },
+    };
+    const routes = createBrowserGoalRoutes(port);
+
+    const missing = await routes.request("http://localhost/api/goals/missing");
+    assert.equal(missing.status, 404);
+    assert.deepEqual(await missing.json(), { error: "goal_not_found" });
+
+    const broken = await routes.request("http://localhost/api/goals/broken");
+    assert.equal(broken.status, 500);
+    assert.deepEqual(await broken.json(), { error: "goal_read_failed" });
+
+    const listFailure = await routes.request("http://localhost/api/goals");
+    assert.equal(listFailure.status, 500);
+    assert.deepEqual(await listFailure.json(), { error: "goal_list_unavailable" });
+});

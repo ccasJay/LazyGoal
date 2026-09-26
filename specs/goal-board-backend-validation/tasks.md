@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-entry.test.ts` 与授权路由测试；执行 `npx tsx --test packages/browser/test/browser-entry.test.ts`。
   - _Requirements: [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 2. 投影正式工作区 Goal 列表与已提交会话
+- [x] //TODO 2. 投影正式工作区 Goal 列表与已提交会话
 
   - 实现目标：从正式 Goal Catalog、Snapshot 与提交边界内的 Trajectory 生成白名单看板及会话 DTO。
   - 成功判据：列表和详情只展示真实 Goal、按序提交的消息/步骤及存在的 GoalPlan；缺失、损坏和无计划状态均有正确表现，响应无敏感原始字段。

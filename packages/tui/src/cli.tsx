@@ -52,8 +52,11 @@ import {
     type HttpServiceMiddleware,
 } from "../../http/src/index";
 import {
+    createBrowserGoalRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
+    listBrowserGoals,
+    readBrowserGoalSession,
 } from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
 import {
@@ -520,6 +523,19 @@ export interface CompositionRoot {
     readonly toolPolicy: ToolPolicy;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: GoalStore & GoalCatalog;
+    /**
+     * 只指向正式工作区 Goal 目录的读取边界，不包含 Benchmark 聚合回退。
+     *
+     * @remarks
+     * 浏览器读取使用此边界，保证看板只列出当前工作区正式 Goal；写入仍由既有
+     * Checkpoint/Coordinator 路径完成；此属性只暴露 restore 与 Catalog 查询。
+     *
+     * @example
+     * ```ts
+     * const goal = await root.workspaceGoalStore.restore("goal-1");
+     * ```
+     */
+    readonly workspaceGoalStore: Pick<GoalStore, "restore"> & GoalCatalog;
     /** 持久化 GoalStore 的提交通知包装器，供 TUI 实时刷新已提交步骤。 */
     readonly notifyingStore: NotifyingGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
@@ -556,6 +572,20 @@ export interface CompositionRoot {
      * @returns 不修改 Runtime 或事件源的轨迹视图。
      */
     readTrajectory(
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>>;
+    /**
+     * 只读取正式工作区 Goal 与 Trajectory，并按 Snapshot 提交边界分类。
+     *
+     * @param query - Goal、Run 与可选序列范围。
+     * @returns 正式工作区轨迹的已提交部分与未提交 tail。
+     * @throws Snapshot 或 Trajectory 文件损坏、缺失读取权限或底层 I/O 失败时拒绝。
+     * @example
+     * ```ts
+     * const result = await root.readWorkspaceTrajectory({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    readWorkspaceTrajectory(
         query: TrajectoryReadQuery,
     ): Promise<Readonly<TrajectoryReadResult>>;
     /** 保护项目级 Store 写入边界的单向检查点闸门。 */
@@ -921,6 +951,10 @@ export async function createCompositionRoot(
         query: TrajectoryReadQuery,
     ): Promise<Readonly<TrajectoryReadResult>> =>
         readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
+    const readWorkspaceTrajectory = (
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>> =>
+        readTrajectoryAtSnapshot(primaryGoalStore, primaryTrajectoryStore, query);
 
     const goalModelSelectionCoordinator = options.goalModelSelectionCoordinator
         ?? new DefaultGoalModelSelectionCoordinator({ store: checkpointStore });
@@ -1065,6 +1099,7 @@ export async function createCompositionRoot(
         toolRegistry,
         toolPolicy,
         store,
+        workspaceGoalStore: primaryGoalStore,
         notifyingStore,
         trajectoryStore,
         contextLookupService,
@@ -1077,6 +1112,7 @@ export async function createCompositionRoot(
         checkpointCommitter,
         executionStream,
         readTrajectory,
+        readWorkspaceTrajectory,
         checkpointStore,
         resources,
         abortController,
@@ -1491,6 +1527,14 @@ async function runBrowserSessionCli(
     process.on("SIGINT", onSigint);
     try {
         const staticDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../browser/static");
+        root.httpService.mount("/", createBrowserGoalRoutes({
+            list: () => listBrowserGoals(root.workspaceGoalStore),
+            read: (goalId) => readBrowserGoalSession(
+                goalId,
+                root.workspaceGoalStore,
+                root.readWorkspaceTrajectory,
+            ),
+        }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);
         access.bindOrigin(address.origin);
