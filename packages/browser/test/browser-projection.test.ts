@@ -243,6 +243,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
         async interact() {
             return { ok: false as const, error: "interaction_failed" as const };
         },
+        async message() {
+            return { ok: false as const, error: "message_failed" as const };
+        },
     };
     const routes = createBrowserGoalRoutes(port);
 
@@ -279,6 +282,9 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
             if ("requestId" in command && command.requestId === "old-request") {
                 return { ok: false as const, error: "stale_request" as const };
             }
+            return { ok: true as const, goalId, runId: command.runId, existing: false };
+        },
+        async message(goalId, command) {
             return { ok: true as const, goalId, runId: command.runId, existing: false };
         },
     });

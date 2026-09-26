@@ -201,6 +201,7 @@ for (const scenario of interactionCases) {
                     await releaseCoordinator.promise;
                     return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal: updated };
                 },
+                async continue() { throw new Error("continuation is not used here"); },
             },
         });
 
@@ -250,6 +251,7 @@ test("过期 Run 或请求身份在 Coordinator 调用前被拒绝", async () =>
                 coordinatorCalls += 1;
                 return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal };
             },
+            async continue() { throw new Error("continuation is not used here"); },
         },
     });
 

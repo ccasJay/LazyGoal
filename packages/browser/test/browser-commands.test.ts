@@ -75,7 +75,10 @@ test("稳定 ID 的并发重试只启动一次，活动 Goal 期间拒绝另一�
                 return terminal(goal);
             },
         },
-        coordinator: { async resume() { throw new Error("interaction is not used in this case"); } },
+        coordinator: {
+            async resume() { throw new Error("interaction is not used in this case"); },
+            async continue() { throw new Error("messages are not used in this case"); },
+        },
     });
 
     const command = { goalId: "goal-create-1", intent: "检查项目" };
@@ -119,7 +122,10 @@ test("Launcher 在保存初始 Goal 前失败时返回错误且不留下假快�
                 };
             },
         },
-        coordinator: { async resume() { throw new Error("interaction is not used in this case"); } },
+        coordinator: {
+            async resume() { throw new Error("interaction is not used in this case"); },
+            async continue() { throw new Error("messages are not used in this case"); },
+        },
     });
 
     assert.deepEqual(await service.create({ goalId: "goal-invalid-1", intent: "测试失败" }), {
@@ -144,7 +150,10 @@ test("已存在相同 ID 和意图时只返回已有快照，不再次启动 Lau
                 return terminal(existing);
             },
         },
-        coordinator: { async resume() { throw new Error("interaction is not used in this case"); } },
+        coordinator: {
+            async resume() { throw new Error("interaction is not used in this case"); },
+            async continue() { throw new Error("messages are not used in this case"); },
+        },
     });
 
     assert.deepEqual(await service.create({ goalId: existing.id, intent: existing.definition.intent }), {

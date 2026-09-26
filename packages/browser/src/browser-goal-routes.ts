@@ -6,6 +6,8 @@ import type {
     BrowserCreateGoalResult,
     BrowserGoalInteractionCommand,
     BrowserGoalInteractionResult,
+    BrowserGoalMessageCommand,
+    BrowserGoalMessageResult,
 } from "./browser-goal-command-service";
 
 const MAX_COMMAND_BODY_BYTES = 16 * 1024;
@@ -27,6 +29,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     read: async () => undefined,
  *     create: async () => ({ ok: false, error: "goal_create_failed" }),
  *     interact: async () => ({ ok: false, error: "interaction_failed" }),
+ *     message: async () => ({ ok: false, error: "message_failed" }),
  * };
  * ```
  */
@@ -63,14 +66,23 @@ export interface BrowserGoalApiPort {
      * @throws Snapshot 读取失败时拒绝。
      */
     interact(goalId: string, command: BrowserGoalInteractionCommand): Promise<BrowserGoalInteractionResult>;
+    /**
+     * 按当前 Run 状态恢复普通等待或创建后续 Run。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 当前 Run 身份与普通文本。
+     * @returns 用户消息及对应 Run 变更保存后的受理结果。
+     * @throws Snapshot 读取失败时拒绝。
+     */
+    message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
 }
 
 /**
- * 创建同源 Goal 列表、会话读取、创建和结构化等待点 API。
+ * 创建同源 Goal 列表、会话读取、创建、结构化交互和普通消息 API。
  *
  * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
  * @returns 提供列表/详情读取、`POST /api/goals` 和
- *   `POST /api/goals/:goalId/interactions` 的 Hono 应用。
+ *   `POST /api/goals/:goalId/interactions` 与 `POST /api/goals/:goalId/messages` 的 Hono 应用。
  * @remarks
  * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
  * 不回传存储错误文本，也不保留浏览器旧状态。外层 BrowserSessionAccess 中间件负责授权。
@@ -145,6 +157,29 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             return context.json({ error: result.error, refresh: true }, interactionErrorStatus(result.error));
         } catch {
             return context.json({ error: "interaction_failed" }, 500);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/messages", async (context) => {
+        const parsed = await parseMessageCommand(
+            context.req.param("goalId"),
+            context.req.raw,
+        );
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.message(context.req.param("goalId"), parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            return context.json({ error: result.error, refresh: true }, messageErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "message_failed" }, 500);
         }
     });
 
@@ -261,6 +296,34 @@ async function parseInteractionCommand(
     return { ok: false, error: "invalid_interaction", status: 400 };
 }
 
+async function parseMessageCommand(
+    goalId: string,
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalMessageCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "content"])) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const runId = readWireText(body.runId, 256);
+    const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
+    if (runId === undefined || content === undefined) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    return { ok: true, command: { runId, content } };
+}
+
 async function readJsonBody(
     request: Request,
 ): Promise<
@@ -374,5 +437,16 @@ function interactionErrorStatus(
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "stale_request" || error === "action_not_waiting") return 409;
     if (error === "interaction_failed") return 500;
+    return 400;
+}
+
+function messageErrorStatus(
+    error: Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"],
+): 400 | 404 | 409 | 500 {
+    if (error === "goal_not_found") return 404;
+    if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
+        || error === "goal_not_completed" || error === "structured_interaction_required"
+        || error === "message_conflict") return 409;
+    if (error === "message_failed") return 500;
     return 400;
 }

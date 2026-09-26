@@ -1561,6 +1561,7 @@ async function runBrowserSessionCli(
             ),
             create: (command) => commandService.create(command),
             interact: (goalId, command) => commandService.interact(goalId, command),
+            message: (goalId, command) => commandService.message(goalId, command),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);

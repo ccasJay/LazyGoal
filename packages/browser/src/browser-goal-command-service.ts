@@ -32,6 +32,63 @@ export interface BrowserCreateGoalCommand {
 }
 
 /**
+ * 浏览器提交的普通会话文本。
+ *
+ * @remarks
+ * 命令绑定当前 Run。等待中的普通文本恢复同一 Run；已完成 Run 的文本创建后继 Run。
+ * 文本不适用于结构化交互等待点，也不携带任意 Profile 或执行策略。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserGoalMessageCommand = {
+ *     runId: "run-1",
+ *     content: "继续检查剩余内容",
+ * };
+ * ```
+ */
+export interface BrowserGoalMessageCommand {
+    /** 页面读取到的当前 Run 稳定身份。 */
+    readonly runId: string;
+    /** 用户提交的非空文本。 */
+    readonly content: string;
+}
+
+/**
+ * 普通会话文本命令的受理结果。
+ *
+ * @remarks
+ * 成功只在用户消息及相应 Run 状态变更已保存后返回。相同在途内容的重试复用原受理。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserGoalMessageResult = {
+ *     ok: true, goalId: "goal-1", runId: "run-2", existing: false,
+ * };
+ * ```
+ */
+export type BrowserGoalMessageResult =
+    | {
+        readonly ok: true;
+        readonly goalId: string;
+        /** 等待恢复时为原 Run；完成后续任务时为新 Run。 */
+        readonly runId: string;
+        readonly existing: boolean;
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "goal_busy"
+            | "goal_not_waiting"
+            | "goal_not_completed"
+            | "structured_interaction_required"
+            | "message_conflict"
+            | "invalid_message"
+            | "message_failed";
+    };
+
+/**
  * 浏览器创建命令的受理结果。
  *
  * @remarks
@@ -168,16 +225,17 @@ export type BrowserGoalInteractionResult =
     };
 
 /**
- * 浏览器命令使用的最小 Coordinator 适配边界。
+ * 浏览器命令使用的最小 GoalCoordinator 适配边界。
  *
  * @example
  * ```ts
- * const coordinator: BrowserGoalInteractionCoordinator = {
+ * const coordinator: BrowserGoalCoordinator = {
  *     resume: (request, control) => goalCoordinator.resume(request, control),
+ *     continue: (ref, input, control) => goalCoordinator.continue(ref, input, control),
  * };
  * ```
  */
-export interface BrowserGoalInteractionCoordinator {
+export interface BrowserGoalCoordinator {
     /**
      * 将已匹配当前等待点的操作交给 Runtime。
      *
@@ -187,6 +245,21 @@ export interface BrowserGoalInteractionCoordinator {
      * @throws Store、Trajectory、Scheduler 或执行依赖失败时拒绝。
      */
     resume(request: ResumeGoalRequest, control?: ExecutionControl): ReturnType<GoalCoordinator["resume"]>;
+
+    /**
+     * 为已完成 Run 启动同一 Goal 的后续 Run。
+     *
+     * @param ref - 当前已完成 Run 的 Goal/Run 身份。
+     * @param newInput - 追加到会话的非空新任务文本。
+     * @param control - 本机关闭协调使用的取消信号。
+     * @returns 新 Run 自动推进到等待点或终态后的结果。
+     * @throws Store、Trajectory、Scheduler 或执行依赖失败时拒绝。
+     */
+    continue(
+        ref: Parameters<GoalCoordinator["continue"]>[0],
+        newInput: string,
+        control?: ExecutionControl,
+    ): ReturnType<GoalCoordinator["continue"]>;
 }
 
 /**
@@ -207,7 +280,7 @@ export interface BrowserGoalCommandDependencies {
     /** 复用本机 Runtime Launcher；浏览器不提供替代执行路径。 */
     readonly launcher: BrowserGoalLauncher;
     /** 复用本机 GoalCoordinator；浏览器不能直接修改 Goal Snapshot。 */
-    readonly coordinator: BrowserGoalInteractionCoordinator;
+    readonly coordinator: BrowserGoalCoordinator;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
     /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
@@ -222,6 +295,11 @@ interface InFlightCreate {
 interface InFlightInteraction {
     readonly fingerprint: string;
     readonly accepted: Promise<BrowserGoalInteractionResult>;
+}
+
+interface InFlightMessage {
+    readonly content: string;
+    readonly accepted: Promise<BrowserGoalMessageResult>;
 }
 
 type Reservation =
@@ -245,6 +323,7 @@ type Reservation =
 export class BrowserGoalCommandService {
     private readonly inFlight = new Map<string, InFlightCreate>();
     private readonly inFlightInteractions = new Map<string, InFlightInteraction>();
+    private readonly inFlightMessages = new Map<string, InFlightMessage>();
     private activeGoalId: string | undefined;
     private reservationTail: Promise<void> = Promise.resolve();
 
@@ -355,6 +434,69 @@ export class BrowserGoalCommandService {
         return reservation.kind === "result" ? reservation.result : reservation.accepted;
     }
 
+    /**
+     * 根据当前 Run 状态恢复等待会话或创建后续 Run。
+     *
+     * @param goalId - 路径中的 Goal 稳定身份。
+     * @param command - 当前 Run 身份与非空普通文本。
+     * @returns 消息与状态变更成功保存后的受理结果，或稳定拒绝码。
+     * @throws 正式工作区 Snapshot 读取失败时拒绝。
+     */
+    async message(
+        goalId: string,
+        command: BrowserGoalMessageCommand,
+    ): Promise<BrowserGoalMessageResult> {
+        const key = `${goalId}\u0000${command.runId}`;
+        const reservation = await this.withReservationLock(async (): Promise<
+            | { readonly kind: "result"; readonly result: BrowserGoalMessageResult }
+            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalMessageResult> }
+        > => {
+            const current = this.inFlightMessages.get(key);
+            if (current !== undefined) {
+                if (current.content !== command.content) {
+                    return { kind: "result", result: { ok: false, error: "message_conflict" } };
+                }
+                return {
+                    kind: "in_flight",
+                    accepted: current.accepted.then((result) => result.ok
+                        ? { ...result, existing: true }
+                        : result),
+                };
+            }
+            if (this.activeGoalId !== undefined) {
+                return { kind: "result", result: { ok: false, error: "goal_busy" } };
+            }
+            if (command.content.trim().length === 0) {
+                return { kind: "result", result: { ok: false, error: "invalid_message" } };
+            }
+            const goal = await this.dependencies.store.restore(goalId);
+            if (goal === undefined) {
+                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
+            }
+            if (goal.state.run.id !== command.runId) {
+                return { kind: "result", result: { ok: false, error: "stale_run" } };
+            }
+            const status = goal.state.run.status;
+            if (status === "waiting") {
+                if (goal.state.run.pendingInteraction !== undefined || goal.state.run.pendingAction !== undefined) {
+                    return {
+                        kind: "result",
+                        result: { ok: false, error: "structured_interaction_required" },
+                    };
+                }
+            } else if (status !== "completed") {
+                return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
+            }
+
+            this.activeGoalId = goalId;
+            const accepted = this.startMessage(goal, command);
+            this.inFlightMessages.set(key, { content: command.content, accepted });
+            return { kind: "in_flight", accepted };
+        });
+
+        return reservation.kind === "result" ? reservation.result : reservation.accepted;
+    }
+
     private async start(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult> {
         let settleAcceptance!: (result: BrowserCreateGoalResult) => void;
         let accepted = false;
@@ -444,6 +586,65 @@ export class BrowserGoalCommandService {
         return acceptance;
     }
 
+    private async startMessage(
+        initialGoal: Goal,
+        command: BrowserGoalMessageCommand,
+    ): Promise<BrowserGoalMessageResult> {
+        let settleAcceptance!: (result: BrowserGoalMessageResult) => void;
+        let accepted = false;
+        const acceptance = new Promise<BrowserGoalMessageResult>((resolve) => {
+            settleAcceptance = resolve;
+        });
+        const goalId = initialGoal.id;
+        const runId = initialGoal.state.run.id;
+        const initialMessageCount = initialGoal.state.messages.length;
+        const wasCompleted = initialGoal.state.run.status === "completed";
+        const key = `${goalId}\u0000${runId}`;
+        const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
+            if (goal.id !== goalId || accepted) return;
+            const submittedMessage = goal.state.messages[initialMessageCount];
+            if (submittedMessage?.role !== "user" || submittedMessage.content !== command.content) return;
+            if (wasCompleted) {
+                if (
+                    goal.state.run.id === runId
+                    || !(goal.state.completedRuns ?? []).some((run) => run.runId === runId)
+                ) return;
+            } else if (goal.state.run.id !== runId) {
+                return;
+            }
+            accepted = true;
+            settleAcceptance({
+                ok: true,
+                goalId,
+                runId: goal.state.run.id,
+                existing: false,
+            });
+        });
+
+        const progress = Promise.resolve().then(() => wasCompleted
+            ? this.dependencies.coordinator.continue({ goalId, runId }, command.content, this.dependencies.control)
+            : this.dependencies.coordinator.resume({
+                ref: { goalId, runId },
+                action: { kind: "message", content: command.content },
+            }, this.dependencies.control));
+        void progress.then((result) => {
+            if (!accepted) {
+                settleAcceptance({
+                    ok: false,
+                    error: result.ok ? "message_failed" : messageProgressError(result.error.code),
+                });
+            }
+        }, () => {
+            if (!accepted) settleAcceptance({ ok: false, error: "message_failed" });
+        }).finally(() => {
+            unsubscribe();
+            if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+            this.inFlightMessages.delete(key);
+        });
+
+        return acceptance;
+    }
+
     private async withReservationLock<T>(operation: () => Promise<T>): Promise<T> {
         const previous = this.reservationTail;
         let release!: () => void;
@@ -517,5 +718,17 @@ function toRuntimeAction(command: BrowserGoalInteractionCommand): GoalUserAction
                 actionId: command.actionId,
                 reason: command.reason,
             };
+    }
+}
+
+function messageProgressError(
+    code: string,
+): Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"] {
+    switch (code) {
+        case "RUN_NOT_FOUND": return "stale_run";
+        case "GOAL_NOT_WAITING": return "goal_not_waiting";
+        case "GOAL_NOT_COMPLETED": return "goal_not_completed";
+        case "INVALID_GOAL_INPUT": return "invalid_message";
+        default: return "message_failed";
     }
 }

@@ -28,7 +28,7 @@
   - 验证方式：待实现的 `packages/browser/test/browser-interactions.test.ts`；执行 `npx tsx --test packages/browser/test/browser-interactions.test.ts`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4)_
 
-- [ ] //TODO 5. 按 Run 状态接入普通消息与后续任务
+- [x] //TODO 5. 按 Run 状态接入普通消息与后续任务
 
   - 实现目标：将普通等待消息交给同一 Run 的 `resume`，将 completed 后的新任务交给 `continue`，拒绝其他状态的文本提交。
   - 成功判据：blocked 等待不生成新 Run；completed 仅在非空输入后生成后继 Run；审批等待、失败、取消和命令忙碌时不接受普通消息。
