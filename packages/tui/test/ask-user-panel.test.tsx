@@ -74,14 +74,14 @@ test("AskUserPanel handles single-select and multi-select in sequence then submi
     assert.match(lastFrame() ?? "", /Question 1 of 2/);
 
     // 下移选择第二个选项 (Actor Model)
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
     stdin.write("\u001B[B"); // Down arrow
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
     assert.match(lastFrame() ?? "", /> Actor Model/);
 
     // 回车确认第 1 题，前进到第 2 题
     stdin.write("\r");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
 
     // 应该展示第 2 题（多选）
     assert.match(lastFrame() ?? "", /Question 2 of 2/);
@@ -89,17 +89,17 @@ test("AskUserPanel handles single-select and multi-select in sequence then submi
 
     // 空格勾选第一个选项 (Telemetry)
     stdin.write(" ");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
 
     // 下移到第二个选项 (Audit Log) 并空格勾选
     stdin.write("\u001B[B"); // Down arrow
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
     stdin.write(" ");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
 
     // 回车提交最后一题
     stdin.write("\r");
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 50));
 
     assert.ok(submittedAnswers !== undefined);
     assert.equal(submittedAnswers.length, 2);

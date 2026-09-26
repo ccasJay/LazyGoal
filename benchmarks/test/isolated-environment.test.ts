@@ -155,6 +155,60 @@ test("trusted process snapshots reject scoring while an Agent child process rema
     assert.match(result.errors.map((error) => error.message).join(" "), /Agent process\(es\) remain/u);
 });
 
+test("IsolatedEnvironment cleans up stray agent processes before scoring when baseline recovers", async (t) => {
+    const output = await mkdtemp(join(tmpdir(), "iso-proc-clean-"));
+    t.after(() => rm(output, { recursive: true, force: true }));
+
+    let topCount = 0;
+    const calls: string[] = [];
+    const environment = new IsolatedEnvironment({
+        run: async (_command, args) => {
+            if (args[0] === "image") return { code: 0, stdout: `sha256:${"a".repeat(64)}\n`, stderr: "" };
+            if (args[0] === "exec") {
+                calls.push(`exec:${args.join(" ")}`);
+                return { code: 0, stdout: "", stderr: "" };
+            }
+            if (args[0] === "top") {
+                topCount += 1;
+                const baseline = "1 Mon Jan 1 00:00:00 2026\n";
+                // topCount 1: baseline; topCount 2: stray process present; topCount 3: after cleanup, back to baseline
+                return {
+                    code: 0,
+                    stdout: topCount === 2 ? `${baseline}99 Mon Jan 1 00:01:00 2026\n` : baseline,
+                    stderr: "",
+                };
+            }
+            return { code: 0, stdout: "", stderr: "" };
+        },
+        interactiveRun: async () => fakeInteractive(),
+    });
+    const spec: EnvironmentSpec<{ id: string }, { readonly scored: true }> = {
+        benchmarkId: "process-quiescence-recovery",
+        resolveImage: () => ({ mode: "custom", image: "fixture:latest" }),
+        getWorkerEntryConfig: () => ({ cwd: "/work" }),
+        async prepareEnvironment() {},
+        async preflight(handle) {
+            await handle.captureAgentProcessBaseline?.();
+            return { ok: true };
+        },
+        async collectArtifacts(handle) {
+            await handle.assertAgentProcessesExited?.();
+            return { scored: true };
+        },
+    };
+    const result = await environment.run({
+        task: { id: "task" },
+        spec,
+        outputDirectory: output,
+        runAgent: async () => {},
+    });
+
+    assert.equal(result.status, "completed");
+    assert.deepEqual(result.artifact, { scored: true });
+    assert.equal(result.errors.length, 0);
+    assert.ok(calls.some((c) => c.includes("lazygoal-agent-baseline-pids")));
+});
+
 function fakeHandle(workdir: string, signal: AbortSignal, calls: string[]): EnvironmentHandle {
     return {
         workdir,

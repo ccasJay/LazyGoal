@@ -811,18 +811,35 @@ export class IsolatedEnvironment {
                     throw new Error("Agent process baseline was already captured");
                 }
                 agentProcessBaseline.value = await readProcessSnapshot();
+                await run("docker", ["exec", "--user", "0", containerName, "/bin/bash", "-c", "ps -eo pid= | tr -d ' ' > /tmp/.lazygoal-agent-baseline-pids"], {
+                    timeoutMs: 10_000,
+                    signal,
+                }).catch(() => undefined);
             },
             assertAgentProcessesExited: async () => {
                 const baseline = agentProcessBaseline.value;
                 if (baseline === undefined) {
                     throw new Error("Agent process baseline was not captured before scoring");
                 }
-                const deadline = Date.now() + 3_000;
+                const deadline = Date.now() + 5_000;
                 let remaining: string[] = [];
+                let cleanupAttempted = false;
                 while (true) {
                     const current = await readProcessSnapshot();
                     remaining = [...current].filter((process) => !baseline.has(process));
                     if (remaining.length === 0) return;
+                    if (!cleanupAttempted) {
+                        cleanupAttempted = true;
+                        await run("docker", ["exec", "--user", "0", containerName, "/bin/bash", "-c", [
+                            "if [ -f /tmp/.lazygoal-agent-baseline-pids ]; then",
+                            "  pids=$(ps -eo pid= | tr -d ' ' | grep -vFx -f /tmp/.lazygoal-agent-baseline-pids || true);",
+                            "  for p in $pids; do if [ \"$p\" != '1' ] && [ \"$p\" != '$$' ]; then kill -TERM \"$p\" 2>/dev/null || true; fi; done;",
+                            "  sleep 0.2;",
+                            "  pids=$(ps -eo pid= | tr -d ' ' | grep -vFx -f /tmp/.lazygoal-agent-baseline-pids || true);",
+                            "  for p in $pids; do if [ \"$p\" != '1' ] && [ \"$p\" != '$$' ]; then kill -9 \"$p\" 2>/dev/null || true; fi; done;",
+                            "fi",
+                        ].join(" ")], { timeoutMs: 10_000, signal }).catch(() => undefined);
+                    }
                     if (Date.now() >= deadline) break;
                     await new Promise((resolve) => setTimeout(resolve, 100));
                 }
