@@ -165,8 +165,11 @@ export interface ModelToolDefinition {
     readonly inputSchema: unknown;
 }
 
-/** Prompt Bundle 渲染时的业务阶段（统一为 executing）。 */
+/** Prompt Bundle 渲染时的 Runtime 业务阶段（当前统一为 executing）。 */
 export type PromptPhase = "executing";
+
+/** 一次模型请求承担的推理职责。 */
+export type PromptStage = "decide" | "think";
 
 /** Agent 可消费的冻结 Memory 协议标识。 */
 export type ModelMemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
@@ -385,51 +388,61 @@ export type ModelContextLookupResult =
  * 一次 Prompt 渲染所需的、从 Runtime State 单向投影出的不可变上下文。
  *
  * @remarks
- * 该 DTO 只包含构建 system prompt 所需的稳定数据：Goal 冻结的 Prompt Bundle
- * 版本、当前业务阶段与 Run 模式、冻结 Profile 与已授权 Tool 描述。它不包含 goalId、runId、
+ * 该 DTO 只包含构建固定 system prompt 所需的数据：Goal 冻结的 Prompt Bundle
+ * 版本、Runtime 业务阶段、Think/Decide 推理阶段、冻结 Profile 与协议版本。它不包含
+ * Run 状态、goalId、runId、
  * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
  * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
  * 不得修改它或任何 Runtime 领域状态。
  *
  * @example
  * ```ts
- * const canWritePlan = promptContext.goalPlanWritable;
+ * const bundleVersion = promptContext.promptBundleVersion;
  * ```
  */
 export interface PromptContext {
     /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
     readonly promptBundleVersion: 1;
-    /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
+    /** 当前 Runtime 业务阶段；当前模板覆盖 executing。 */
     readonly phase: PromptPhase;
-    /** 当前 Run 的决策模式，决定提案审批与完成证据协议。 */
-    readonly runMode: "normal" | "plan";
-    /** 当前 Run 模式是否获授权写入 GoalPlan，与提案审批流程分开投影。 */
-    readonly goalPlanWritable: boolean;
+    /** 决定 Think 或 Decide 固定说明的推理阶段。 */
+    readonly stage: PromptStage;
     /** 冻结 Profile 的模型可读投影。 */
     readonly profile: ModelProfileView;
-    /** 按 Tool ID 稳定升序排列的授权 Tool 描述。 */
-    readonly authorizedTools: readonly ModelToolDefinition[];
     /** Goal 冻结的 Memory 协议。 */
     readonly memoryProtocol: ModelMemoryProtocol;
     /** Goal 冻结的模型上下文协议。 */
     readonly modelContextProtocol: ModelContextProtocol;
     /** Goal 冻结的 Cold Trajectory 检索协议。 */
     readonly contextRetrievalProtocol: ModelContextRetrievalProtocol;
-    /**
-     * Executing 阶段绑定的已批准 GoalTask 契约。
-     *
-     * @remarks
-     * 属于 Goal-stable 根前缀的一部分，确保任务目标与验收标准在整个执行生命周期内拥有
-     * 完全不变的确定性前缀渲染。在任务尚未批准时为 `undefined`。
-     *
-     * @example
-     * ```ts
-     * const task = promptContext.task;
-     * console.log(task?.objective);
-     * ```
-     */
+}
+
+/**
+ * 一次模型推理所需、但不属于固定 system 前缀的动态运行状态。
+ *
+ * @remarks
+ * 这些字段由动态 section 按身份、来源和消息角色投影；不得传给固定 Prompt Bundle
+ * Renderer。Section 更新与本轮 Working Context 分开组装。
+ *
+ * @example
+ * ```ts
+ * const context: ModelDynamicContext = {
+ *     runMode: "normal",
+ *     goalPlanWritable: false,
+ *     authorizedTools: [],
+ * };
+ * ```
+ */
+export interface ModelDynamicContext {
+    /** 当前 Run 的提案、完成与 GoalPlan 权限模式。 */
+    readonly runMode: "normal" | "plan";
+    /** 当前 Run 是否暴露 GoalPlan 更新能力。 */
+    readonly goalPlanWritable: boolean;
+    /** 按 Tool ID 稳定升序排列、由 Runtime 授权的业务工具。 */
+    readonly authorizedTools: readonly ModelToolDefinition[];
+    /** 已批准任务；不存在时省略。 */
     readonly task?: ModelTask;
-    /** 已提交 Goal 级结构化计划的只读投影；仅不存在计划时省略。 */
+    /** 已提交 GoalPlan；不存在时省略。 */
     readonly goalPlan?: ModelGoalPlan;
 }
 
@@ -437,13 +450,12 @@ export interface PromptContext {
  * 统一执行阶段的 Working Context 投影。
  *
  * @remarks
- * 仅包含稳定 intent、可选的已批准任务与有界执行记忆（Step 预算、最近 Step 与 pending Action）。
- * 当最终任务尚未批准时，`task` 为 `undefined`。
+ * 仅包含 Goal intent 和有界执行记忆（Step 预算、最近 Step 与 pending Action）；
+ * Run 模式和已批准任务由独立动态 section 提供。
  */
 export interface ModelWorkingContext {
     readonly phase: "executing";
     readonly intent: string;
-    readonly task?: ModelTask;
     readonly execution: {
         readonly stepCount: number;
         readonly maxSteps?: number;
@@ -456,8 +468,9 @@ export interface ModelWorkingContext {
  * Executing 阶段向模型发送的纯动态 Step 增量负载。
  *
  * @remarks
- * 仅包含推动单步推进所需的最小状态（执行步数、上一轮观察反馈、热轨迹与即时记忆），
- * 不包含任何静态意图、任务目标契约或只读上下文预算，确保尾部控制消息体积最小化。
+ * 仅包含推动单步推进所需的本轮输入（执行步数、上一轮观察反馈、热轨迹、Lookup
+ * 结果与检查点状态），不包含由独立动态 section 提供的 Working Memory、静态意图、
+ * 任务契约或只读上下文预算，确保尾部控制消息体积最小化。
  *
  * @example
  * ```ts
@@ -475,7 +488,6 @@ export interface StepDynamicPayload {
         readonly previousStep?: ModelStepRecord;
         readonly pendingAction?: ModelPendingAction;
     };
-    readonly workingMemory?: ModelWorkingMemory;
     readonly trajectoryContext?: {
         readonly hot: readonly ModelExecutionUnitProjection[];
         readonly warm?: readonly WarmCompactEntry[];
@@ -563,10 +575,10 @@ export interface VisibleConversationMessageMapEntry {
  * 一次模型推理的完整输入投影。
  *
  * @remarks
- * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的
- * `PromptContext`、真实会话、阶段化 Working Context。它不包含 Storage
- * schemaVersion、迁移标记、Run 状态字段或瞬时执行授权。`PromptContext` 单独承载
- * Prompt Bundle 版本、Phase、冻结 Profile 与授权 Tool 描述，供 Renderer 只读消费；
+ * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的固定
+ * `PromptContext`、独立动态状态、真实会话和阶段化 Working Context。它不包含 Storage
+ * schemaVersion、迁移标记或瞬时执行资源。`PromptContext` 只承载 Prompt Bundle
+ * 版本、业务阶段、推理阶段、冻结 Profile 与协议版本；Run 状态和授权工具由动态 section 消费。
  * 真实会话与 Working Context 独立承载，不得进入模板环境；Conversation 每条消息
  * 保留其 Goal 原始索引但不把索引写入正文；分层协议额外通过 `trajectoryContext`
  * 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt Bundle 版本直接失败，
@@ -574,21 +586,15 @@ export interface VisibleConversationMessageMapEntry {
  *
  * @example
  * ```ts
- * const view: ModelInferenceView = {
- *     prompt: {
- *         promptBundleVersion: 1,
- *         phase: "executing",
- *         profile,
- *         authorizedTools: [],
- *     },
- *     conversation: [],
- *     workingContext: { phase: "executing", intent: "完成目标", execution: { stepCount: 0 } },
- * };
+ * const projector = new ModelInferenceProjector();
+ * const view = projector.project(goal, tools, workingMemory);
  * ```
  */
 export interface ModelInferenceView {
-    /** 本轮渲染所需的不可变 Prompt 上下文（含冻结版本、Phase、Profile 与工具）。 */
+    /** 本轮固定 Prompt 渲染所需的不可变上下文（含冻结版本、Phase 与 Profile）。 */
     readonly prompt: PromptContext;
+    /** 当前状态的动态投影源；只可由动态 section 消费。 */
+    readonly dynamicContext: ModelDynamicContext;
     /** 保留原始 Goal message index 的真实会话投影。 */
     readonly conversation: readonly ModelConversationMessage[];
     readonly workingContext: ModelWorkingContext;

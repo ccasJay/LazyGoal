@@ -92,7 +92,11 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
                 };
             },
         },
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
     });
     assert.equal(result.goal.id, metadata.goalId);
@@ -118,7 +122,11 @@ test("Worker runtime rejects metadata that could cross task or workspace boundar
             structuredOutputMode: "strict",
         },
         llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ content: "" }) },
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
     }), /instanceId is invalid/);
 });

@@ -19,15 +19,16 @@ import { TrajectoryModelContextAssembler } from "./trajectory-model-context-asse
  * 单一代不可变模型执行绑定契约。
  *
  * @remarks
- * 封装在特定 generation 下模型调用的完整上下文依赖，
- * 包括选择状态、底层 LLMAdapter、模型能力（上限/估算器）、上下文预算策略及轨迹上下文组装器。
+ * 封装在特定 generation 下模型调用的完整上下文依赖，包括同一 provider/model 的 Think 与 Decide
+ * Adapter、选择状态、模型能力（上限/估算器）、上下文预算策略及轨迹上下文组装器。
  *
  * @example
  * ```ts
  * const binding: ModelExecutionBinding = {
  *   generation: 1,
  *   selection,
- *   adapter,
+ *   thinkAdapter,
+ *   decideAdapter,
  *   modelCapabilities,
  *   modelContextPolicy,
  *   trajectoryContextAssembler,
@@ -39,8 +40,10 @@ export interface ModelExecutionBinding {
     readonly generation: number;
     /** 当前绑定的模型选择配置。 */
     readonly selection: GoalModelSelection;
-    /** 接收统一消息协议并返回模型原始文本的 Adapter。 */
-    readonly adapter: LLMAdapter;
+    /** 固定使用 prompt_only 的 Think Adapter。 */
+    readonly thinkAdapter: LLMAdapter;
+    /** 按供应商能力固定使用 strict 或 prompt_only 的 Decide Adapter。 */
+    readonly decideAdapter: LLMAdapter;
     /** 目标模型的 Token 容量与输出上限能力；字符模式下为 undefined。 */
     readonly modelCapabilities?: ModelCapabilities | undefined;
     /** 模型上下文预算策略。 */
@@ -53,7 +56,7 @@ export interface ModelExecutionBinding {
  * 模型执行绑定提供者契约。
  *
  * @remarks
- * 供执行器在单次 execute 开始时读取不可变执行绑定。
+ * 供执行器在每个 Decide 或 Think 阶段调用开始时读取不可变执行绑定。
  *
  * @example
  * ```ts
@@ -69,14 +72,27 @@ export interface ModelExecutionBindingProvider {
 
 /**
  * 构造模型执行绑定的输入参数。
+ *
+ * @example
+ * ```ts
+ * const input: CreateModelExecutionBindingInput = {
+ *     generation: 1,
+ *     selection,
+ *     thinkAdapter,
+ *     decideAdapter,
+ *     trajectoryStore,
+ * };
+ * ```
  */
 export interface CreateModelExecutionBindingInput {
     /** 绑定的目标代号；必须为正安全整数。 */
     readonly generation: number;
     /** 目标模型选择状态。 */
     readonly selection: GoalModelSelection;
-    /** 与目标 selection 匹配的 LLMAdapter。 */
-    readonly adapter: LLMAdapter;
+    /** 与目标 provider/model 匹配且固定使用 prompt_only 的 Think Adapter。 */
+    readonly thinkAdapter: LLMAdapter;
+    /** 与目标 provider/model 匹配且固定使用供应商适配输出模式的 Decide Adapter。 */
+    readonly decideAdapter: LLMAdapter;
     /** 轨迹存储实例，用于组装 Trajectory 上下文。 */
     readonly trajectoryStore: TrajectoryStore;
     /** 可选的显式上下文预算配置；未提供时根据 capabilities 或默认字符预算计算。 */
@@ -89,8 +105,8 @@ export interface CreateModelExecutionBindingInput {
  * 根据目标模型选择离线构造不可变的 ModelExecutionBinding。
  *
  * @remarks
- * 校验 Adapter 的结构化输出模式与 selection 是否匹配；根据 inputEstimator 分支分别配置 Token 或字符预算，
- * 并重新生成上下文预算与轨迹组装器。若容量缺失或非法，抛出 ModelCapabilitiesError。
+ * 绑定同一模型的阶段 Adapter；根据 inputEstimator 分支分别配置 Token 或字符预算，并重新生成上下文预算与
+ * 轨迹组装器。供应商的结构化输出能力在 LLM Factory 中映射为 Decide Adapter 模式。
  *
  * @param input - 构造绑定所需的目标参数与存储设施。
  * @returns 构造完成且已冻结的 ModelExecutionBinding。
@@ -102,7 +118,8 @@ export interface CreateModelExecutionBindingInput {
  * const binding = createModelExecutionBinding({
  *   generation: 1,
  *   selection,
- *   adapter,
+ *   thinkAdapter,
+ *   decideAdapter,
  *   trajectoryStore,
  * });
  * ```
@@ -157,7 +174,8 @@ export function createModelExecutionBinding(
     return Object.freeze({
         generation: input.generation,
         selection: input.selection,
-        adapter: input.adapter,
+        thinkAdapter: input.thinkAdapter,
+        decideAdapter: input.decideAdapter,
         modelCapabilities,
         modelContextPolicy,
         trajectoryContextAssembler,
@@ -221,7 +239,8 @@ export class MutableModelBinding implements ModelExecutionBindingProvider {
      */
     createCandidate(input: {
         readonly selection: GoalModelSelection;
-        readonly adapter: LLMAdapter;
+        readonly thinkAdapter: LLMAdapter;
+        readonly decideAdapter: LLMAdapter;
         readonly trajectoryStore: TrajectoryStore;
         readonly modelContextBudget?: ModelContextBudgetPolicyInput | undefined;
         readonly customEstimator?: ModelInputEstimator | undefined;

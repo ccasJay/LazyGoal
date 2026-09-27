@@ -2,7 +2,7 @@ import type {
     ModelContextProtocol,
     ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
-    PromptPhase,
+    PromptStage,
 } from "../model-inference-view";
 import {
     isContextRetrievalProtocol,
@@ -20,21 +20,22 @@ import type {
 } from "./types";
 
 /**
- * 每个 Bundle 必须出现且保持顺序的四个 slot。
+ * 每个 Bundle 必须出现且保持顺序的三个固定 slot。
  *
  * @remarks
- * 该顺序是当前 Prompt 协议的固定组成：Global Overview → Profile → Phase Protocol
- * → Authorized Tools。Registry 构造时强制校验，避免模板注册顺序影响最终结果。
+ * 该顺序是当前 Prompt 协议的固定组成：Global Overview → Profile → Phase Protocol。
+ * 动态 section 由独立注册表投影，不属于固定 Bundle。Registry 构造时强制校验，
+ * 避免模板注册顺序影响最终结果。
  */
 const SLOT_ORDER: readonly PromptBundleSection["slot"][] = [
     "global_overview",
     "profile",
     "phase_protocol",
-    "authorized_tools",
 ];
 
-const PHASES: readonly PromptPhase[] = [
-    "executing",
+const STAGES: readonly PromptStage[] = [
+    "decide",
+    "think",
 ];
 
 function buildTemplateIndex(
@@ -123,12 +124,12 @@ function validateManifest(
 
     for (const section of manifest.sections) {
         if (section.slot === "phase_protocol") {
-            for (const phase of PHASES) {
-                const templateId = section.templates[phase];
+            for (const stage of STAGES) {
+                const templateId = section.templates[stage];
 
                 if (templateId === undefined) {
                     throw new PromptBundleConfigurationError(
-                        `${label} 缺少 ${phase} 阶段的 Phase Protocol 模板映射`,
+                        `${label} 缺少 ${stage} 推理阶段的 Phase Protocol 模板映射`,
                     );
                 }
 
@@ -179,7 +180,7 @@ function protocolMatches(
  *
  * @remarks
  * 构造期即完成全部校验：重复模板 ID、重复 Bundle、非当前 v1 版本、缺失模板引用、
- * Phase 映射不完整、slot 数量或顺序错误。模板注册输入先转成按 ID 查找的 Map，
+ * Think/Decide 推理阶段映射不完整、slot 数量或顺序错误。模板注册输入先转成按 ID 查找的 Map，
  * 因此调用方传入顺序不影响结果。当前 Bundle 引用的模板一旦发布即视为不可变。
  *
  * @example
@@ -197,7 +198,7 @@ export class PromptBundleRegistry {
 
     /**
      * @param input - 内存模板源码与 Bundle Manifest 集合。
-     * @throws PromptBundleConfigurationError 输入存在重复、引用缺失、Phase 映射
+     * @throws PromptBundleConfigurationError 输入存在重复、引用缺失、推理阶段映射
      * 不完整、非法版本或 slot 顺序错误时抛出。
      */
     constructor(input: {

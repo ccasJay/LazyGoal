@@ -1,6 +1,6 @@
 import type { Environment } from "nunjucks";
 
-import type { PromptContext, PromptPhase } from "../model-inference-view";
+import type { ModelInferenceView, PromptContext, PromptStage } from "../model-inference-view";
 import {
     createPromptEnvironment,
     normalizeNewlines,
@@ -17,6 +17,7 @@ import type {
     PromptBundleSection,
     PromptTemplateDefinition,
 } from "./types";
+import type { DynamicSectionRegistry } from "./dynamic-section-registry";
 
 /**
  * 移除 fragment 末尾的所有换行，供统一 `\n\n` 连接使用。
@@ -36,21 +37,21 @@ function normalizeFragment(text: string): string {
  * 把一个 section 解析为确定的模板 ID。
  *
  * @remarks
- * `phase_protocol` section 按当前 Phase 选模板；Registry 构造期已保证三个 Phase
- * 映射完整，此处的缺失检查仅作防御，理论上不可达。
+ * `phase_protocol` section 按当前 Think/Decide Stage 选模板；Registry 构造期已保证
+ * 两个 Stage 映射完整，此处的缺失检查仅作防御，理论上不可达。
  */
 function resolveTemplateId(
     section: PromptBundleSection,
-    phase: PromptPhase,
+    stage: PromptStage,
 ): string {
     if (section.slot !== "phase_protocol") {
         return section.templateId;
     }
 
-    const templateId = section.templates[phase];
+    const templateId = section.templates[stage];
 
     if (templateId === undefined) {
-        throw new Error(`Phase Protocol 缺少 ${phase} 阶段的模板映射`);
+        throw new Error(`Phase Protocol 缺少 ${stage} 推理阶段的模板映射`);
     }
 
     return templateId;
@@ -64,7 +65,7 @@ function renderSection(
     section: PromptBundleSection,
     context: PromptContext,
 ): string {
-    const templateId = resolveTemplateId(section, context.phase);
+    const templateId = resolveTemplateId(section, context.stage);
 
     try {
         return normalizeFragment(environment.render(templateId, context));
@@ -106,6 +107,7 @@ function renderSection(
 export function createPromptBundleRenderer(input: {
     readonly templates: readonly PromptTemplateDefinition[];
     readonly bundles: readonly PromptBundleManifest[];
+    readonly dynamicSectionRegistry?: DynamicSectionRegistry;
 }): PromptBundleRenderer {
     const registry = new PromptBundleRegistry(input);
 
@@ -129,6 +131,14 @@ export function createPromptBundleRenderer(input: {
         }
     }
 
+    for (const templateId of input.dynamicSectionRegistry?.templateIds() ?? []) {
+        if (!sources.has(templateId)) {
+            throw new PromptBundleConfigurationError(
+                `动态 section 引用了未注册的模板：${templateId}`,
+            );
+        }
+    }
+
     return {
         render(context: PromptContext): string {
             const manifest = registry.getManifest(
@@ -142,6 +152,37 @@ export function createPromptBundleRenderer(input: {
             );
 
             return fragments.join("\n\n");
+        },
+        renderDynamicSections(view: ModelInferenceView) {
+            registry.getManifest(
+                view.prompt.promptBundleVersion,
+                view.prompt.memoryProtocol,
+                view.prompt.modelContextProtocol,
+                view.prompt.contextRetrievalProtocol,
+            );
+
+            const projections = input.dynamicSectionRegistry?.project(view) ?? [];
+            return projections.map((section) => {
+                let rendered: string;
+                try {
+                    rendered = normalizeFragment(environment.render(section.templateId, { section }));
+                } catch (error) {
+                    throw new PromptRenderError({
+                        bundleVersion: view.prompt.promptBundleVersion,
+                        slot: section.sectionId,
+                        templateId: section.templateId,
+                        cause: error,
+                    });
+                }
+
+                return {
+                    ...section,
+                    content: `[Dynamic section: ${section.sectionId}; source: ${section.source}]\n${rendered}`,
+                };
+            });
+        },
+        dynamicSectionIdentities() {
+            return input.dynamicSectionRegistry?.identities() ?? [];
         },
     };
 }

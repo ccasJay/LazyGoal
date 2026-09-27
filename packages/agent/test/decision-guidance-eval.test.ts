@@ -12,7 +12,7 @@ test("对照请求仅改变模板与系统工具描述，不改变状态、授�
         for (const mode of ["strict", "prompt_only", "two_stage"] as const) {
             const old = evaluationRequest(scenario, renderers.old, mode, renderers.oldDescriptions);
             const current = evaluationRequest(scenario, renderers.new, mode);
-            assert.deepEqual(current.request.messages.slice(1, -1), [{ role: "user", content: scenario.intent }]);
+            assert.deepEqual(current.request.messages.slice(1, 2), [{ role: "user", content: scenario.intent }]);
             assert.deepEqual(old.request.messages.slice(1), current.request.messages.slice(1));
             assert.deepEqual(old.request.tools.map(({ id, parametersSchema }) => ({ id, parametersSchema })),
                 current.request.tools.map(({ id, parametersSchema }) => ({ id, parametersSchema })));

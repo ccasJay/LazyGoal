@@ -220,7 +220,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     );
     assert.deepEqual(adapter.requests[0], expectedPlan.request);
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, -1),
+        adapter.requests[0]?.messages.slice(1, 3),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
     );
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
@@ -229,13 +229,14 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
-    assert.match(systemContent, /native tool calls/);
+    assert.match(systemContent, /native Tool interface/);
+    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
     assert.match(
-        systemContent,
+        dynamicContent,
         /Authorized business Tool definitions \(only these business Tool IDs may be requested; system tools are declared separately for this request\):\n\[\]/,
     );
-    assert.match(systemContent, /Approved Goal Task Contract:/);
-    assert.match(systemContent, /Objective: 完成单步执行/);
+    assert.match(dynamicContent, /Approved Goal Task Contract:/);
+    assert.match(dynamicContent, /Objective: 完成单步执行/);
     const workingContext = JSON.parse(
         adapter.requests[0]?.messages.at(-1)?.content ?? "",
     ) as Record<string, unknown>;
@@ -244,7 +245,9 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.equal("task" in workingContext, false);
     assert.equal("contextEpoch" in workingContext, false);
     assert.deepEqual(workingContext.execution, { stepCount: 0 });
-    assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
+    assert.equal("workingMemory" in workingContext, false);
+    assert.match(dynamicContent, /Current structured@1 Working Memory:/);
+    assert.match(dynamicContent, /"derivedThroughSequence": 0/);
     assert.equal(typeof workingContext.trajectoryContext, "object");
 });
 
@@ -418,7 +421,10 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
         },
     );
     assert.equal(adapter.requests.length, 1);
-    assert.match(adapter.requests[0]?.messages[0]?.content ?? "", /read_file/);
+    assert.match(
+        adapter.requests[0]?.messages.find((message) => message.content.includes("Dynamic section: authorized_tools"))?.content ?? "",
+        /read_file/,
+    );
 });
 
 test("Adapter 原始异常会原样传播且不会重试", async () => {
@@ -544,7 +550,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     assert.deepEqual(persisted?.state.run, result.state);
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, -1),
+        adapter.requests[0]?.messages.slice(1, 3),
         initialMessages.map(({ role, content }) => ({ role, content })),
     );
     assert.deepEqual(persisted?.state.messages, [
@@ -639,7 +645,7 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
-test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 Step", async () => {
+test("Runner 将阶段 Adapter 原始错误作为执行错误保存且不伪造 Decision", async () => {
     const store = new InMemoryGoalStore();
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
@@ -660,21 +666,16 @@ test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 
     }
 
     assert.equal(result.state.status, "failed");
-    assert.equal(result.state.stepCount, 1);
-    assert.deepEqual(result.state.lastStep, {
-        kind: "decision",
-        result: {
-            kind: "fail",
-            error: adapterError.message,
-        },
-    });
+    assert.equal(result.state.stepCount, 0);
+    assert.equal(result.state.lastStep, undefined);
+    assert.equal(result.state.stopReason?.kind, "execution_error");
+    assert.equal(
+        result.state.stopReason?.kind === "execution_error" ? result.state.stopReason.code : undefined,
+        "INVALID_AGENT_DECISION",
+    );
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
-    assert.deepEqual((await store.restore(goalId))?.state.messages.at(-1), {
-        role: "assistant",
-        assistant: { profileId: profile.id },
-        content: adapterError.message,
-    });
+    assert.notEqual((await store.restore(goalId))?.state.messages.at(-1)?.content, adapterError.message);
 });
 
 test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 generation 和新 Adapter", async () => {
@@ -706,7 +707,8 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter1,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter1,
         trajectoryStore,
     });
     const bindingManager = new MutableModelBinding(initialBinding);
@@ -740,7 +742,8 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             maxOutputTokens: 8000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter2,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter2,
         trajectoryStore,
     });
     bindingManager.publish(candidateBinding);
@@ -789,7 +792,8 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter1,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter1,
         trajectoryStore,
     });
     const bindingManager = new MutableModelBinding(initialBinding);
@@ -819,7 +823,8 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter2,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter2,
         trajectoryStore,
     });
     bindingManager.publish(candidateBinding);

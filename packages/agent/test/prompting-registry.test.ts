@@ -16,6 +16,7 @@ const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "global v1" },
     { id: "profile@1", source: "profile v1" },
     { id: "agent-decision@1", source: "decision v1" },
+    { id: "agent-think@1", source: "think v1" },
     { id: "authorized-tools@1", source: "tools v1" },
 ];
 
@@ -30,20 +31,16 @@ const profileSection: PromptBundleSection = {
 const phaseSection: PromptBundleSection = {
     slot: "phase_protocol",
     templates: {
-        executing: "agent-decision@1",
+        decide: "agent-decision@1",
+        think: "agent-think@1",
     },
 };
-const toolsSection: PromptBundleSection = {
-    slot: "authorized_tools",
-    templateId: "authorized-tools@1",
-};
-
 const manifestV1: PromptBundleManifest = {
     version: 1,
     memoryProtocol: { kind: "structured", version: 1 },
     modelContextProtocol: { kind: "trajectory-layered", version: 1 },
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
-    sections: [globalSection, profileSection, phaseSection, toolsSection],
+    sections: [globalSection, profileSection, phaseSection],
 };
 
 const currentProtocols = {
@@ -67,7 +64,7 @@ test("Registry 构造期对模板注册顺序置换不敏感", () => {
 
     assert.deepEqual(registry.supportedVersions(), [1]);
     assert.equal(registry.getTemplateSource("global-overview@1"), "global v1");
-    assert.equal(getCurrentManifest(registry, 1).sections.length, 4);
+    assert.equal(getCurrentManifest(registry, 1).sections.length, 3);
 });
 
 test("Registry 拒绝重复的模板 ID", () => {
@@ -102,7 +99,6 @@ test("Registry 拒绝引用未注册模板的 Manifest", () => {
             { slot: "global_overview", templateId: "missing@1" },
             profileSection,
             phaseSection,
-            toolsSection,
         ],
     };
     assert.throws(
@@ -111,14 +107,14 @@ test("Registry 拒绝引用未注册模板的 Manifest", () => {
     );
 });
 
-test("Registry 拒绝缺少 Phase 映射的 Manifest", () => {
+test("Registry 拒绝缺少推理阶段映射的 Manifest", () => {
     const incomplete: PromptBundleSection = {
         slot: "phase_protocol",
         templates: {},
     } as unknown as PromptBundleSection;
     const invalid: PromptBundleManifest = {
         ...manifestV1,
-        sections: [globalSection, profileSection, incomplete, toolsSection],
+        sections: [globalSection, profileSection, incomplete],
     };
     assert.throws(
         () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
@@ -129,7 +125,7 @@ test("Registry 拒绝缺少 Phase 映射的 Manifest", () => {
 test("Registry 拒绝 section 顺序错误的 Manifest", () => {
     const invalid: PromptBundleManifest = {
         ...manifestV1,
-        sections: [profileSection, globalSection, phaseSection, toolsSection],
+        sections: [profileSection, globalSection, phaseSection],
     };
     assert.throws(
         () => new PromptBundleRegistry({ templates, bundles: [invalid] }),
@@ -140,7 +136,7 @@ test("Registry 拒绝 section 顺序错误的 Manifest", () => {
 test("Registry 拒绝 section 数量不足的 Manifest", () => {
     const invalid: PromptBundleManifest = {
         ...manifestV1,
-        sections: [globalSection, profileSection, phaseSection],
+        sections: [globalSection, profileSection],
     };
     assert.throws(
         () => new PromptBundleRegistry({ templates, bundles: [invalid] }),

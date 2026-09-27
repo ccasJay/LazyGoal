@@ -122,7 +122,11 @@ test("ACP Session maps a real Headless completion and max-step terminal", async 
         workspaceRoot: root,
         stateRoot: join(root, "state"),
         llmAdapter: completionAdapter(),
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
     }).create(sessionInput("session-1", async (update) => { updates.push(update); }));
     const result = await session.prompt([{ type: "text", text: metadata.problemStatement }], { signal: new AbortController().signal });
@@ -140,7 +144,11 @@ test("ACP Session maps a real Headless completion and max-step terminal", async 
         workspaceRoot: root,
         stateRoot: join(root, "max-state"),
         llmAdapter: oneToolAdapter(),
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
     }).create(sessionInput("session-max", async () => undefined));
     const maxResult = await maxSession.prompt([{ type: "text", text: maxMetadata.problemStatement }], { signal: new AbortController().signal });
@@ -175,7 +183,11 @@ test("ACP Session cancellation returns cancelled and rejects mismatched Prompt",
                 signal.addEventListener("abort", () => resolve({ content: "{}" }), { once: true });
             }),
         },
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
     }).create(sessionInput("session-cancel", async () => undefined));
     const controller = new AbortController();
@@ -251,7 +263,11 @@ test("real Headless protocol failure retains state and usage across ACP serializ
     const toAgent = serialized(), toClient = serialized();
     serveLazyGoalAcpAgent({ stream: { readable: toAgent.readable, writable: toClient.writable },
         sessions: createSwebenchAcpSessionFactory({ metadata, problemStatement: metadata.problemStatement,
-            workspaceRoot: root, stateRoot: join(root, "state"), renderer: { render: () => "system" },
+            workspaceRoot: root, stateRoot: join(root, "state"), renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async units => units },
             llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
                 content: JSON.stringify({ result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: null } }),

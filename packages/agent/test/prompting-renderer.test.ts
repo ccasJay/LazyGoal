@@ -4,6 +4,7 @@ import { test } from "node:test";
 import type { PromptContext } from "../src/model-inference-view";
 import { PromptRenderError } from "../src/prompting/errors";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
+import { stableJson } from "../src/prompting/environment";
 import type {
     PromptBundleManifest,
     PromptTemplateDefinition,
@@ -14,6 +15,7 @@ const templates: readonly PromptTemplateDefinition[] = [
     { id: "profile@1", source: "PROFILE {{ profile.systemPrompt }}" },
     { id: "executing@1", source: "EXECUTING" },
     { id: "agent-decision@1", source: "DECISION" },
+    { id: "agent-think@1", source: "THINK" },
     { id: "authorized-tools@1", source: "TOOLS {{ authorizedTools | stableJson }}" },
 ];
 
@@ -28,10 +30,10 @@ const manifest: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                executing: "agent-decision@1",
+                decide: "agent-decision@1",
+                think: "agent-think@1",
             },
         },
-        { slot: "authorized_tools", templateId: "authorized-tools@1" },
     ],
 };
 
@@ -39,10 +41,8 @@ function buildContext(overrides: Partial<PromptContext> = {}): PromptContext {
     return {
         promptBundleVersion: 1,
         phase: "executing",
-        runMode: "normal",
-        goalPlanWritable: false,
+        stage: "decide",
         profile: { id: "profile-1", systemPrompt: "base", instructions: [] },
-        authorizedTools: [],
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
         contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
@@ -60,7 +60,7 @@ test("Renderer 对相同输入重复渲染产生字符级一致输出", () => {
     assert.equal(first, second);
     assert.equal(
         first,
-        "GLOBAL-OVERVIEW\n\nPROFILE base\n\nDECISION\n\nTOOLS []",
+        "GLOBAL-OVERVIEW\n\nPROFILE base\n\nDECISION",
     );
 });
 
@@ -77,6 +77,13 @@ test("Renderer 按 Manifest section 顺序组成输出且不受模板注册顺�
     );
 });
 
+test("Renderer 根据 PromptContext 的推理阶段选择 Decide 或 Think 模板", () => {
+    const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
+
+    assert.equal(renderer.render(buildContext({ stage: "decide" })), "GLOBAL-OVERVIEW\n\nPROFILE base\n\nDECISION");
+    assert.equal(renderer.render(buildContext({ stage: "think" })), "GLOBAL-OVERVIEW\n\nPROFILE base\n\nTHINK");
+});
+
 test("Profile 与 ToolDefinition 中的 Nunjucks 语法只作为数据插入，不二次执行", () => {
     const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
     const context = buildContext({
@@ -85,13 +92,6 @@ test("Profile 与 ToolDefinition 中的 Nunjucks 语法只作为数据插入，�
             systemPrompt: "{{ not_defined_var }} {% if true %}x{% endif %}",
             instructions: ["{{ another_missing }}"],
         },
-        authorizedTools: [
-            {
-                id: "tool-1",
-                description: "{{ injection }}",
-                inputSchema: { note: "{% raw %}" },
-            },
-        ],
     });
 
     const output = renderer.render(context);
@@ -101,28 +101,13 @@ test("Profile 与 ToolDefinition 中的 Nunjucks 语法只作为数据插入，�
 });
 
 test("stableJson 按代码单元顺序稳定输出对象键，空数组固定为 []", () => {
-    const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
-    const context = buildContext({
-        authorizedTools: [
-            {
-                id: "tool-1",
-                description: "d",
-                inputSchema: { zebra: 1, apple: 2, mango: [3, 1, 2] },
-            },
-        ],
-    });
-
-    const output = renderer.render(context);
+    const output = stableJson({ zebra: 1, apple: 2, mango: [3, 1, 2] });
 
     assert.ok(output.includes('"apple": 2'));
     assert.ok(output.includes('"zebra": 1'));
     assert.ok(output.indexOf('"apple"') < output.indexOf('"zebra"'));
 
-    assert.ok(
-        createPromptBundleRenderer({ templates, bundles: [manifest] })
-            .render(buildContext())
-            .endsWith("TOOLS []"),
-    );
+    assert.equal(stableJson([]), "[]");
 });
 
 test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
@@ -131,6 +116,7 @@ test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
         { id: "profile@1", source: "P" },
         { id: "executing@1", source: "E" },
         { id: "agent-decision@1", source: "D" },
+        { id: "agent-think@1", source: "T" },
         { id: "authorized-tools@1", source: "T" },
     ];
     const renderer = createPromptBundleRenderer({
@@ -140,7 +126,7 @@ test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
 
     const output = renderer.render(buildContext());
 
-    assert.equal(output, "LINE-A\nLINE-B\n\nP\n\nD\n\nT");
+    assert.equal(output, "LINE-A\nLINE-B\n\nP\n\nD");
     assert.ok(!output.endsWith("\n"));
     assert.ok(!output.includes("\r"));
 });
@@ -172,10 +158,10 @@ test("必需变量缺失时渲染失败且错误脱敏", () => {
                 {
                     slot: "phase_protocol",
                     templates: {
-                        executing: "agent-decision@1",
+                        decide: "agent-decision@1",
+                        think: "agent-think@1",
                     },
                 },
-                { slot: "authorized_tools", templateId: "authorized-tools@1" },
             ],
         }],
     });
@@ -202,6 +188,7 @@ test("模板语法错误在 Renderer 构造期即抛出配置错误", () => {
                 { id: "profile@1", source: "P" },
                 { id: "executing@1", source: "E" },
                 { id: "agent-decision@1", source: "D" },
+                { id: "agent-think@1", source: "T" },
                 { id: "authorized-tools@1", source: "T" },
             ],
             bundles: [manifest],

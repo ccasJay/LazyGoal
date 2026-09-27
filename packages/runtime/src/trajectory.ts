@@ -22,12 +22,89 @@ import type { ToolObservation } from "./tool";
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
 export type TrajectoryPhase = "executing";
 
+/** 模型请求中的动态 Section 所属阶段。 */
+export type ModelContextStage = "decide" | "think";
+
+/**
+ * 已注册动态 Section 的稳定身份元数据。
+ *
+ * @remarks
+ * 恢复时必须与当前 Registry 中同 ID 的定义完全匹配，避免旧模板或来源语义继续提供比较基线。
+ *
+ * @example
+ * ```ts
+ * const identity: ModelContextSectionIdentity = {
+ *     sectionId: "run_mode", order: 10, source: "RunState.mode",
+ *     role: "user", templateId: "run-mode@1",
+ * };
+ * ```
+ */
+export interface ModelContextSectionIdentity {
+    readonly sectionId: string;
+    readonly order: number;
+    readonly source: string;
+    readonly role: "user";
+    readonly templateId: string;
+}
+
+/**
+ * 一次模型请求实际发送的 Section 更新及其结构化比较状态。
+ *
+ * @remarks
+ * `projection` 是比较基线；`content` 是模型实际收到的语义更新。恢复不得从 `content`
+ * 反解析当前状态。失效更新使用 `status: "invalidated"` 与 `projection: null`。
+ *
+ * @example
+ * ```ts
+ * const update: ModelContextSectionUpdate = {
+ *     sectionId: "run_mode", order: 10, source: "RunState.mode",
+ *     role: "user", templateId: "run-mode@1", status: "active",
+ *     projection: { mode: "normal" }, content: "当前为普通模式",
+ * };
+ * ```
+ */
+export interface ModelContextSectionUpdate extends ModelContextSectionIdentity {
+    /** `active` 保存当前投影；`invalidated` 保存 tombstone 状态。 */
+    readonly status: "active" | "invalidated";
+    /** 失效时为 null；比较状态不会从 `content` 反解析。 */
+    readonly projection: JsonValue | null;
+    /** 实际随该请求发给模型的完整更新文本。 */
+    readonly content: string;
+}
+
+/**
+ * 一次成功模型响应对应的模型可见 Section frame。
+ *
+ * @remarks
+ * frame 只记录本请求实际发送的动态 Section 更新；空数组表示本次请求没有追加 Section
+ * 消息。Frame 自身仍作为 Trajectory 事实提交，以保留阶段和 Conversation 位置。
+ *
+ * @example
+ * ```ts
+ * const frame: ModelContextFramePayload = {
+ *     type: "model_context_frame", stage: "decide", epochNumber: 0,
+ *     conversationPosition: 1, sections: [],
+ * };
+ * ```
+ */
+export interface ModelContextFramePayload {
+    readonly type: "model_context_frame";
+    readonly stage: ModelContextStage;
+    readonly epochNumber: number;
+    /** 该 frame 对应请求的 Conversation 插入位置。 */
+    readonly conversationPosition: number;
+    /** 本次请求实际发送的 Section 更新；未变化时可以为空。 */
+    readonly sections: readonly ModelContextSectionUpdate[];
+}
+
 /**
  * Domain Event 的稳定事实载荷集合。
  *
  * @remarks
  * 每个事件信封绑定一个 Goal 与 Run。任务审批等待、批准和反馈额外携带同一交互的
  * `requestId`，消费者可据此识别过期操作；反馈或批准不会改变事件所属 Run。
+ * `think_requested` 与 `think_completed` 记录一个 Step 内的阶段控制与自由文本，不是
+ * AgentDecision、Tool Observation 或完成证据。
  *
  * @example
  * ```ts
@@ -75,6 +152,20 @@ export type TrajectoryEventPayload =
         readonly decision: AgentDecision;
         readonly thought?: string;
     }
+    | {
+        readonly type: "think_requested";
+        readonly requestId: string;
+        readonly stepOrdinal: number;
+        readonly goal: string;
+    }
+    | {
+        readonly type: "think_completed";
+        readonly requestId: string;
+        readonly stepOrdinal: number;
+        readonly goal: string;
+        readonly output: string;
+    }
+    | ModelContextFramePayload
     | {
         readonly type: "context_lookup_requested";
         readonly lookupId: string;
@@ -568,6 +659,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "task_approved",
     "task_feedback_received",
     "decision_received",
+    "think_requested",
+    "think_completed",
+    "model_context_frame",
     "context_lookup_requested",
     "context_lookup_completed",
     "context_lookup_not_found",
@@ -610,6 +704,18 @@ function assertNonEmptyString(value: unknown, field: string): asserts value is s
     }
 }
 
+function assertNonBlankString(value: unknown, field: string): asserts value is string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new TrajectoryProtocolError(`${field} must contain non-whitespace text`);
+    }
+}
+
+function assertPositiveInteger(value: unknown, field: string): asserts value is number {
+    if (!Number.isSafeInteger(value) || (value as number) < 1) {
+        throw new TrajectoryProtocolError(`${field} must be a positive safe integer`);
+    }
+}
+
 function assertOptionalNonEmptyString(value: unknown, field: string): void {
     if (value !== undefined) assertNonEmptyString(value, field);
 }
@@ -630,6 +736,81 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     if (eventType === "decision_received") {
         if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
             throw new TrajectoryProtocolError("thought must be a string");
+        }
+    }
+    if (eventType === "think_requested") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "stepOrdinal", "goal"].includes(key))) {
+            throw new TrajectoryProtocolError("think_requested contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "think_requested.requestId");
+        assertPositiveInteger(payload.stepOrdinal, "think_requested.stepOrdinal");
+        assertNonBlankString(payload.goal, "think_requested.goal");
+    }
+    if (eventType === "think_completed") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "stepOrdinal", "goal", "output"].includes(key))) {
+            throw new TrajectoryProtocolError("think_completed contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "think_completed.requestId");
+        assertPositiveInteger(payload.stepOrdinal, "think_completed.stepOrdinal");
+        assertNonBlankString(payload.goal, "think_completed.goal");
+        assertNonBlankString(payload.output, "think_completed.output");
+    }
+    if (eventType === "model_context_frame") {
+        if (Object.keys(payload).some((key) => ![
+            "type", "stage", "epochNumber", "conversationPosition", "sections",
+        ].includes(key))) {
+            throw new TrajectoryProtocolError("model_context_frame contains unknown fields");
+        }
+        if (payload.stage !== "decide" && payload.stage !== "think") {
+            throw new TrajectoryProtocolError("model_context_frame.stage is invalid");
+        }
+        if (!Number.isSafeInteger(payload.epochNumber) || (payload.epochNumber as number) < 0) {
+            throw new TrajectoryProtocolError("model_context_frame.epochNumber is invalid");
+        }
+        if (!Number.isSafeInteger(payload.conversationPosition)
+            || (payload.conversationPosition as number) < 0) {
+            throw new TrajectoryProtocolError("model_context_frame.conversationPosition is invalid");
+        }
+        if (!Array.isArray(payload.sections)) {
+            throw new TrajectoryProtocolError("model_context_frame.sections must be an array");
+        }
+        const sectionIds = new Set<string>();
+        let previousOrder = -1;
+        for (const section of payload.sections) {
+            if (!isRecord(section)) {
+                throw new TrajectoryProtocolError("model_context_frame section must be an object");
+            }
+            if (typeof section.sectionId !== "string"
+                || !/^[a-z][a-z0-9_]*$/.test(section.sectionId)) {
+                throw new TrajectoryProtocolError("model_context_frame sectionId is invalid");
+            }
+            if (sectionIds.has(section.sectionId)) {
+                throw new TrajectoryProtocolError("model_context_frame contains duplicate sectionId");
+            }
+            sectionIds.add(section.sectionId);
+            if (!Number.isSafeInteger(section.order) || (section.order as number) <= previousOrder) {
+                throw new TrajectoryProtocolError("model_context_frame section order is invalid");
+            }
+            previousOrder = section.order as number;
+            assertNonEmptyString(section.source, "model_context_frame.source");
+            assertNonEmptyString(section.templateId, "model_context_frame.templateId");
+            if (section.role !== "user") {
+                throw new TrajectoryProtocolError("model_context_frame.role is invalid");
+            }
+            if (section.status !== "active" && section.status !== "invalidated") {
+                throw new TrajectoryProtocolError("model_context_frame.status is invalid");
+            }
+            assertModelContextJson(section.projection, "model_context_frame.projection");
+            if ((section.status === "active" && section.projection === null)
+                || (section.status === "invalidated" && section.projection !== null)) {
+                throw new TrajectoryProtocolError("model_context_frame projection does not match status");
+            }
+            assertNonEmptyString(section.content, "model_context_frame.content");
+            if (Object.keys(section).some((key) => ![
+                "sectionId", "order", "source", "role", "templateId", "status", "projection", "content",
+            ].includes(key))) {
+                throw new TrajectoryProtocolError("model_context_frame section contains unknown fields");
+            }
         }
     }
     if (eventType === "run_created") {
@@ -741,6 +922,27 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
         assertEpochRange(payload.epoch);
     }
+}
+
+function assertModelContextJson(value: unknown, label: string, depth = 0): asserts value is JsonValue | null {
+    if (value === null) return;
+    if (depth > 64) throw new TrajectoryProtocolError(`${label} exceeds maximum depth`);
+    if (typeof value === "string" || typeof value === "boolean") return;
+    if (typeof value === "number") {
+        if (Number.isFinite(value)) return;
+        throw new TrajectoryProtocolError(`${label} contains a non-finite number`);
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) assertModelContextJson(item, label, depth + 1);
+        return;
+    }
+    if (isRecord(value)) {
+        for (const [key, item] of Object.entries(value)) {
+            assertModelContextJson(item, `${label}.${key}`, depth + 1);
+        }
+        return;
+    }
+    throw new TrajectoryProtocolError(`${label} must be JSON serializable`);
 }
 
 function assertEpochState(value: Record<string, unknown>): void {
@@ -929,6 +1131,10 @@ export function classifyTrajectoryEvent(
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":
+        case "think_requested":
+        case "think_completed":
+        case "model_context_frame":
+        case "model_context_frame":
         case "context_lookup_requested":
         case "context_lookup_completed":
         case "context_lookup_not_found":
@@ -1018,6 +1224,111 @@ export function classifyTrajectoryTail(
         committed: Object.freeze(committed),
         uncommittedTail: Object.freeze(uncommittedTail),
     });
+}
+
+/**
+ * 已提交且与当前阶段、Epoch 和注册 Section 身份匹配的模型上下文 frame 查询。
+ *
+ * @example
+ * ```ts
+ * const query: CommittedModelContextFrameQuery = {
+ *     goalId: "goal-1", runId: "run-1", committedThroughSequence: 12,
+ *     stage: "decide", epochNumber: 2, conversationStartPosition: 4,
+ *     sectionIdentities: [identity],
+ * };
+ * ```
+ */
+export interface CommittedModelContextFrameQuery {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly committedThroughSequence: number;
+    readonly stage: ModelContextStage;
+    readonly epochNumber: number;
+    readonly conversationStartPosition: number;
+    readonly sectionIdentities: readonly ModelContextSectionIdentity[];
+}
+
+/**
+ * 从 Trajectory 事件中提取可用作比较基线的已提交模型上下文 frame。
+ *
+ * @remarks
+ * 提交边界、Goal/Run 身份、推理阶段、Epoch 和 Conversation 起点均由调用方明确
+ * 指定。未知 Section 或其来源、角色、顺序、模板身份与当前注册表不符时，恢复直接
+ * 失败；它不能成为比较基线。该函数不解析更新文本，也不推导 Runtime 状态。
+ *
+ * @param events - 从 Trajectory Store 读取的事件；其中可能含未提交 tail。
+ * @param query - 恢复时从 Snapshot 与当前 Section Registry 得到的查询条件。
+ * @returns 按事件序号排列的匹配 frame，且只保留身份匹配的 Section 更新。
+ * @throws 提交边界或查询位置非法、Section 注册身份冲突时抛出 `TrajectoryProtocolError`。
+ * @example
+ * ```ts
+ * const frames = selectCommittedModelContextFrames(events, {
+ *     goalId: "goal-1", runId: "run-1", committedThroughSequence: 12,
+ *     stage: "decide", epochNumber: 2, conversationStartPosition: 4,
+ *     sectionIdentities: registryIdentities,
+ * });
+ * ```
+ */
+export function selectCommittedModelContextFrames(
+    events: readonly TrajectoryEvent[],
+    query: CommittedModelContextFrameQuery,
+): readonly Extract<TrajectoryEvent, { readonly eventType: "model_context_frame" }>[] {
+    if (!Number.isSafeInteger(query.committedThroughSequence)
+        || query.committedThroughSequence < 0
+        || !Number.isSafeInteger(query.epochNumber)
+        || query.epochNumber < 0
+        || !Number.isSafeInteger(query.conversationStartPosition)
+        || query.conversationStartPosition < 0
+        || (query.stage !== "decide" && query.stage !== "think")) {
+        throw new TrajectoryProtocolError("model context frame query is invalid");
+    }
+
+    const identities = new Map<string, ModelContextSectionIdentity>();
+    for (const identity of query.sectionIdentities) {
+        if (identities.has(identity.sectionId)) {
+            throw new TrajectoryProtocolError("model context section registry contains duplicate identity");
+        }
+        identities.set(identity.sectionId, identity);
+    }
+
+    const frames: Extract<TrajectoryEvent, { readonly eventType: "model_context_frame" }>[] = [];
+    for (const rawEvent of events) {
+        if (rawEvent.sequence > query.committedThroughSequence
+            || rawEvent.goalId !== query.goalId
+            || rawEvent.runId !== query.runId
+            || rawEvent.eventType !== "model_context_frame") {
+            continue;
+        }
+        const event = freezeTrajectoryEvent(rawEvent);
+        if (event.eventType !== "model_context_frame"
+            || event.payload.stage !== query.stage
+            || event.payload.epochNumber !== query.epochNumber
+            || event.payload.conversationPosition < query.conversationStartPosition) {
+            continue;
+        }
+        const sections = event.payload.sections.filter((section) => {
+            const registered = identities.get(section.sectionId);
+            if (registered === undefined) {
+                throw new TrajectoryProtocolError(
+                    `model context frame references unregistered section: ${section.sectionId}`,
+                );
+            }
+            if (registered.order !== section.order
+                || registered.source !== section.source
+                || registered.role !== section.role
+                || registered.templateId !== section.templateId) {
+                throw new TrajectoryProtocolError(
+                    `model context frame section identity does not match registry: ${section.sectionId}`,
+                );
+            }
+            return true;
+        });
+        frames.push(freezeTrajectoryEvent({
+            ...event,
+            payload: { ...event.payload, sections },
+        }) as Extract<TrajectoryEvent, { readonly eventType: "model_context_frame" }>);
+    }
+    return Object.freeze(frames.sort((left, right) => left.sequence - right.sequence));
 }
 
 let localIdCounter = 0;

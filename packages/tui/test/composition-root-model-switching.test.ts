@@ -19,10 +19,15 @@ import {
 
 class FakeAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
+    readonly structuredOutputMode: "strict" | "prompt_only";
     readonly calls: LLMRequest[] = [];
 
-    constructor(public modelId: string = "model-initial") {}
+    constructor(
+        public modelId: string = "model-initial",
+        structuredOutputMode: "strict" | "prompt_only" = "strict",
+    ) {
+        this.structuredOutputMode = structuredOutputMode;
+    }
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
@@ -156,8 +161,8 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
             cwd: workspace,
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
-            adapterFactory: (sel) => {
-                const adp = new FakeAdapter(sel.modelId);
+            adapterFactory: (sel, stage) => {
+                const adp = new FakeAdapter(sel.modelId, stage === "think" ? "prompt_only" : "strict");
                 adapterInstances.push(adp);
                 return adp;
             },
@@ -191,6 +196,8 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
         // 切换后 Binding 同步发布且代号递增
         assert.equal(root.modelBinding.current().generation, initialGen + 1);
         assert.equal(root.modelBinding.current().selection.modelId, "model-switched");
+        assert.equal(root.modelBinding.current().thinkAdapter.structuredOutputMode, "prompt_only");
+        assert.equal(root.modelBinding.current().decideAdapter.structuredOutputMode, "strict");
 
         // 检查磁盘上的 Goal 快照
         const savedGoal = await root.store.restore(root.controller.getSnapshot().screen === "session" ? (root.controller.getSnapshot() as any).goal.id : "");
@@ -212,7 +219,9 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
         });
 
         // 验证第二代适配器收到了模型调用
-        const latestAdapter = adapterInstances.find((adp) => adp.modelId === "model-switched");
+        const latestAdapter = adapterInstances.find((adp) =>
+            adp.modelId === "model-switched" && adp.structuredOutputMode === "strict",
+        );
         assert.ok(latestAdapter !== undefined);
         assert.ok(latestAdapter.calls.length >= 1);
     } finally {

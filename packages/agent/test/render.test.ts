@@ -49,6 +49,7 @@ function buildView(
         readonly promptBundleVersion?: number;
         readonly conversation?: ModelInferenceView["conversation"];
         readonly authorizedTools?: readonly ModelToolDefinition[];
+        readonly task?: ModelInferenceView["dynamicContext"]["task"];
         readonly contextLookupResult?: ModelContextLookupResult;
     } = {},
 ): ModelInferenceView {
@@ -56,10 +57,8 @@ function buildView(
         prompt: {
             promptBundleVersion: (options.promptBundleVersion ?? 1) as 1,
             phase: "executing",
-            runMode: "normal",
-            goalPlanWritable: false,
+            stage: "decide",
             profile,
-            authorizedTools: options.authorizedTools ?? [],
             memoryProtocol: { kind: "structured" as const, version: 1 as const },
             modelContextProtocol: {
                 kind: "trajectory-layered" as const,
@@ -69,6 +68,12 @@ function buildView(
                 kind: "bm25-lite" as const,
                 version: 1 as const,
             },
+        },
+        dynamicContext: {
+            runMode: "normal",
+            goalPlanWritable: false,
+            authorizedTools: options.authorizedTools ?? [],
+            ...(options.task === undefined ? {} : { task: options.task }),
         },
         conversation: options.conversation ?? conversation,
         workingContext,
@@ -95,7 +100,7 @@ function buildView(
     };
 }
 
-test("renderRequest 按 system → 真实会话 → Working Context 组装唯一 system 消息", () => {
+test("renderRequest 按固定 system → Conversation → 动态 section → 本轮输入组装", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
@@ -104,20 +109,23 @@ test("renderRequest 按 system → 真实会话 → Working Context 组装唯一
     const view = buildView(workingContext);
     const request = renderRequest(view, renderer);
 
-    assert.equal(request.messages.length, 4);
+    assert.equal(request.messages.length, 7);
     assert.equal(request.messages[0]?.role, "system");
     assert.equal(request.messages[0]?.content, renderer.render(view.prompt));
     assert.deepEqual(
-        request.messages.slice(1, -1),
+        request.messages.slice(1, 3),
         conversation.map(({ role, content }) => ({ role, content })),
     );
+    assert.ok(request.messages.slice(3, 6).every((message) => message.role === "user"));
+    assert.match(request.messages[3]?.content ?? "", /section: run_mode/);
+    assert.match(request.messages[4]?.content ?? "", /section: authorized_tools/);
+    assert.match(request.messages[5]?.content ?? "", /section: working_memory/);
     assert.equal(request.messages.at(-1)?.role, "user");
     assert.deepEqual(
         JSON.parse(request.messages.at(-1)?.content ?? ""),
         {
             phase: "executing",
             execution: { stepCount: 0 },
-            workingMemory: view.workingMemory,
         },
     );
 });
@@ -126,23 +134,26 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
+        execution: { stepCount: 0 },
+    };
+    const view = buildView(workingContext, {
         task: {
             objective: "实现三阶段上下文",
             completionCriteria: [{ text: "请求顺序稳定" }, { text: "控制消息不持久化" }],
         },
-        execution: { stepCount: 0 },
-    };
-    const view = buildView(workingContext, {
         authorizedTools: [readFileTool],
     });
     const request = renderRequest(view, renderer);
     const systemContent = request.messages[0]?.content ?? "";
+    const dynamicText = request.messages.slice(1, -1).map((message) => message.content).join("\n");
 
-    assert.match(systemContent, /Active Executing Protocol:/);
+    assert.match(systemContent, /Active Decide Instructions:/);
     assert.doesNotMatch(systemContent, /Plan Phase|probe/i);
     assert.match(systemContent, /trajectory-layered@1/);
-    assert.match(systemContent, /read_file/);
-    assert.match(systemContent, /读取工作区内文本文件/);
+    assert.doesNotMatch(systemContent, /read_file/);
+    assert.match(dynamicText, /read_file/);
+    assert.match(dynamicText, /读取工作区内文本文件/);
+    assert.match(dynamicText, /Objective: 实现三阶段上下文/);
 
     const control = JSON.parse(request.messages.at(-1)?.content ?? "");
     assert.equal("preparationInputEvidence" in control, false);
@@ -168,7 +179,6 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
         {
             phase: "executing",
             execution: { stepCount: 0 },
-            workingMemory: view.workingMemory,
         },
     );
 });
@@ -198,37 +208,23 @@ test("renderWorkingContextMessage 逐字符固定为 JSON 控制的 user 消息"
     });
 });
 
-test("structured 请求在控制消息中独立携带 Working Memory", () => {
+test("Working Memory 在独立动态 section 中注入，不重复进入本轮控制消息", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
         execution: { stepCount: 0 },
     };
-    const workingMemory = {
-        protocolVersion: 1 as const,
-        derivedThroughSequence: 3,
-        facts: [],
-        hypotheses: [],
-        plan: [],
-        blockers: [],
-    };
-    const rendered = renderWorkingContextMessage(workingContext, workingMemory);
-
-    assert.deepEqual(JSON.parse(rendered.content), {
-        phase: "executing",
-        execution: { stepCount: 0 },
-        workingMemory,
-    });
+    const target = buildView(workingContext);
+    const request = renderRequest(target, renderer);
+    const messages = renderer.renderDynamicSections(target);
+    assert.equal(messages.find((message) => message.sectionId === "working_memory")?.role, "user");
+    assert.equal("workingMemory" in JSON.parse(request.messages.at(-1)?.content ?? ""), false);
 });
 
 test("当前请求在控制消息中携带带时效边界的历史 Lookup Result", () => {
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
-        task: {
-            objective: "实现三阶段上下文",
-            completionCriteria: [{ text: "请求顺序稳定" }],
-        },
         execution: { stepCount: 1 },
     };
     const contextLookupResult: ModelContextLookupResult = {
@@ -239,7 +235,6 @@ test("当前请求在控制消息中携带带时效边界的历史 Lookup Result
     };
     const rendered = renderWorkingContextMessage(
         workingContext,
-        undefined,
         undefined,
         contextLookupResult,
     );
@@ -255,10 +250,6 @@ test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
-        task: {
-            objective: "实现三阶段上下文",
-            completionCriteria: [{ text: "请求顺序稳定" }],
-        },
         execution: { stepCount: 1 },
     };
     const activeEpoch: ModelContextEpochView = {
@@ -270,7 +261,6 @@ test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检
     };
     const renderedActive = renderWorkingContextMessage(
         workingContext,
-        undefined,
         undefined,
         undefined,
         activeEpoch,
@@ -289,7 +279,6 @@ test("Epoch-stable 前缀隔离微观 Token 水位并在需要时注入离散检
         workingContext,
         undefined,
         undefined,
-        undefined,
         checkpointEpoch,
     );
     const parsedCheckpoint = JSON.parse(renderedCheckpoint.content);
@@ -301,10 +290,6 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
     const workingContext: ModelWorkingContext = {
         phase: "executing",
         intent: "完成示例任务",
-        task: {
-            objective: "实现三阶段上下文",
-            completionCriteria: [{ text: "请求顺序稳定" }],
-        },
         execution: {
             stepCount: 2,
             previousStep: {
@@ -350,7 +335,6 @@ test("Step-dynamic 尾部控制消息精简为纯动态增量且剥离冗余 bud
 
     const rendered = renderWorkingContextMessage(
         workingContext,
-        undefined,
         trajectoryContext,
     );
     const parsed = JSON.parse(rendered.content);

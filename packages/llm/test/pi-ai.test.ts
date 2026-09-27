@@ -297,7 +297,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 let decision: unknown;
                 const taskApproved = body.messages.some(
                     (message: { readonly role: string; readonly content: string }) =>
-                        message.role === "system"
+                        message.role === "user"
                         && message.content.includes("Approved Goal Task Contract:"),
                 );
                 if (!taskApproved) decision = {

@@ -40,10 +40,22 @@ function clearPendingInteraction(
     return stateWithoutPendingInteraction;
 }
 
+function clearPendingThink(
+    state: RunState,
+): Omit<RunState, "pendingThink"> {
+    const { pendingThink: _pendingThink, ...stateWithoutPendingThink } = state;
+    return stateWithoutPendingThink;
+}
+
 function clearAllPending(
     state: RunState,
-): Omit<RunState, "pendingAction" | "pendingInteraction"> {
-    const { pendingAction: _pendingAction, pendingInteraction: _pendingInteraction, ...rest } = state;
+): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink"> {
+    const {
+        pendingAction: _pendingAction,
+        pendingInteraction: _pendingInteraction,
+        pendingThink: _pendingThink,
+        ...rest
+    } = state;
     return rest;
 }
 
@@ -85,7 +97,7 @@ function completeAction(
     observation: Observation,
 ): RunState {
     return {
-        ...clearPendingAction(currentState),
+        ...clearPendingThink(clearPendingAction(currentState)),
         status: "running",
         stepCount: currentState.stepCount + 1,
         lastStep: {
@@ -225,7 +237,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingThink(currentState),
                         status: status === "awaiting_approval"
                             ? "waiting"
                             : "running",
@@ -281,7 +293,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingThink(currentState),
                         status: "waiting",
                         pendingInteraction: input.interaction,
                     },
@@ -367,7 +379,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingThink(currentState),
                         status,
                         stepCount: currentState.stepCount + 1,
                         lastStep: {
@@ -390,7 +402,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingThink(currentState),
                         status: "running",
                         stepCount: currentState.stepCount + 1,
                         lastStep: {
@@ -421,7 +433,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...currentState,
+                        ...clearPendingThink(currentState),
                         status: "running",
                         stepCount: currentState.stepCount + 1,
                         lastStep: {
@@ -457,7 +469,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingInteraction(currentState),
+                        ...clearPendingThink(clearPendingInteraction(currentState)),
                         status: "failed",
                         ...(pendingAction === undefined
                             ? {}
@@ -596,7 +608,7 @@ export function transition(
                 return {
                     ok: true,
                     state: {
-                        ...clearPendingInteraction(currentState),
+                        ...clearPendingThink(clearPendingInteraction(currentState)),
                         status: "running",
                     },
                 };

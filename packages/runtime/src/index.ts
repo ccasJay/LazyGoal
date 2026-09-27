@@ -120,6 +120,7 @@ export type {
     PendingInteraction,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
+    PendingThink,
     StepRecord,
     ToolCallAction,
     TransitionResult,
@@ -143,7 +144,14 @@ export type {
     GoalStore,
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
-export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
+export type {
+    DecideStageResult,
+    ModelContextFrameForStage,
+    StepExecutionInput,
+    StepExecutionResult,
+    ThinkExchange,
+    ThinkStageResult,
+} from "./step-executor";
 export type {
     MetricsStore,
     ModelCallFinishedMetricRecord,
@@ -444,8 +452,10 @@ export {
     freezeTrajectoryEvent,
     projectTrajectoryEvent,
     readTrajectoryAtSnapshot,
+    selectCommittedModelContextFrames,
 } from "./trajectory";
 export type {
+    CommittedModelContextFrameQuery,
     DiagnosticTraceSink,
     TraceRecord,
     TrajectoryEvent,
@@ -460,6 +470,10 @@ export type {
     TrajectoryReadResult,
     TrajectorySink,
     TrajectoryStore,
+    ModelContextFramePayload,
+    ModelContextSectionIdentity,
+    ModelContextSectionUpdate,
+    ModelContextStage,
 } from "./trajectory";
 export {
     DefaultGoalModelSelectionCoordinator,

@@ -201,6 +201,32 @@ export interface GoalSnapshotMemoryRevisionV1 {
     readonly sequence: number;
 }
 
+/**
+ * Snapshot 中当前 Step 的已提交 Think 链指针。
+ *
+ * @remarks
+ * Think 请求和输出正文只保存在 Trajectory；Snapshot 指针限定其 Goal、Run、Step、
+ * 执行单元、输入边界与最新完成事件身份。
+ *
+ * @example
+ * ```ts
+ * const pendingThink: GoalSnapshotPendingThinkV1 = {
+ *   goalId: "goal-1", runId: "run-1", stepOrdinal: 2,
+ *   executionUnitId: "execution-unit-1",
+ *   inputBoundary: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+ *   latestThinkEventId: "event-8",
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingThinkV1 {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly stepOrdinal: number;
+    readonly executionUnitId: string;
+    readonly inputBoundary: string;
+    readonly latestThinkEventId: string;
+}
+
 /** Snapshot 中的未完成 Action。 */
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
@@ -260,11 +286,13 @@ export interface GoalSnapshotRunStateV1 {
         | "failed"
         | "cancelled";
     readonly stepCount: number;
+    /** Trajectory 可见高水位；包含已提交的模型上下文 frame。 */
     readonly committedThroughSequence: number;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
+    readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
@@ -701,6 +729,15 @@ const PendingActionSchema = z.object({
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
 }).strict();
 
+const PendingThinkSchema = z.object({
+    goalId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    stepOrdinal: z.number().int().positive(),
+    executionUnitId: NonEmptyStringSchema,
+    inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    latestThinkEventId: NonEmptyStringSchema,
+}).strict();
+
 const StopReasonSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
     z.object({
@@ -856,6 +893,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
             pendingInteraction: PendingInteractionSchema.optional(),
+            pendingThink: PendingThinkSchema.optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -958,6 +996,26 @@ function validateSnapshotInvariants(
 
     const pendingAction = run.pendingAction;
     const pendingInteraction = run.pendingInteraction;
+    const pendingThink = run.pendingThink;
+
+    if (pendingThink !== undefined) {
+        if (pendingThink.goalId !== goal.id || pendingThink.runId !== run.id) {
+            addInvariantIssue(
+                context,
+                "pendingThink Goal and Run identities must match the Snapshot",
+                ["state", "run", "pendingThink"],
+            );
+        }
+        if (run.status !== "running") {
+            addInvariantIssue(context, "pendingThink requires a running Run", ["state", "run", "pendingThink"]);
+        }
+        if (pendingThink.stepOrdinal !== run.stepCount + 1) {
+            addInvariantIssue(context, "pendingThink must point to the next incomplete Step", ["state", "run", "pendingThink", "stepOrdinal"]);
+        }
+        if (pendingAction !== undefined || pendingInteraction !== undefined) {
+            addInvariantIssue(context, "pendingThink cannot coexist with a pending Action or interaction", ["state", "run", "pendingThink"]);
+        }
+    }
 
     if (pendingAction !== undefined && pendingInteraction !== undefined) {
         addInvariantIssue(

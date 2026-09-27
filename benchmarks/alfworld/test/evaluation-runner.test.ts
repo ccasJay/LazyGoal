@@ -318,7 +318,11 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
                     return { content: decision(output) };
                 },
             },
-            renderer: { render: () => "system" },
+            renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async (units) => units },
             workspaceRoot: process.cwd(),
             persistenceRoot,
@@ -397,7 +401,11 @@ test("ALFWorld model completion without an environment win remains evaluator-own
                     return { content: decision(output) };
                 },
             },
-            renderer: { render: () => "system" },
+            renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async (units) => units },
             workspaceRoot: process.cwd(),
             persistenceRoot,
@@ -452,7 +460,11 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
                     }),
                 }),
             },
-            renderer: { render: () => "system" },
+            renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async (units) => units },
             workspaceRoot: process.cwd(),
             persistenceRoot,
@@ -509,7 +521,11 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
                     };
                 })(),
             },
-            renderer: { render: () => "system" },
+            renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async (units) => units },
             workspaceRoot: process.cwd(),
             persistenceRoot: join(persistenceRoot, "max-step"),
@@ -528,7 +544,11 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
                 structuredOutputMode: "strict" as const,
                 generate: async () => ({ content: decision({ kind: "fail", error: "model failed" }) }),
             },
-            renderer: { render: () => "system" },
+            renderer: {
+                render: () => "system",
+                renderDynamicSections: () => [],
+                dynamicSectionIdentities: () => [],
+            },
             contextCompactor: { compact: async (units) => units },
             workspaceRoot: process.cwd(),
             persistenceRoot: join(persistenceRoot, "model-fail"),

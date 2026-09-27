@@ -19,6 +19,7 @@ import {
     type TrajectoryEventDraft,
     type TrajectoryPhase,
     type TrajectoryStore,
+    type ModelContextFramePayload,
     computeContentHash,
 } from "./trajectory";
 
@@ -74,6 +75,11 @@ export interface TrajectoryCheckpointCommitRequest {
     readonly facts?: readonly TrajectoryEventDraft[];
     /** 可选的独立 accepted Memory Patch 事实。 */
     readonly acceptedPatch?: AcceptedMemoryPatchInput;
+    /** 成功模型响应对应的已发送动态 Section frame。 */
+    readonly modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+        readonly executionUnitId?: string;
+        readonly stepIndex?: number;
+    };
     /** 当前调用级中止控制。 */
     readonly control?: ExecutionControl;
 }
@@ -94,6 +100,8 @@ export interface TrajectoryCheckpointCommitResult {
     readonly events: readonly Readonly<TrajectoryEvent>[];
     /** 本次追加的 accepted Patch Event；未提交 Patch 时省略。 */
     readonly memoryPatchEvent?: Readonly<TrajectoryEvent>;
+    /** 本次成功提交的模型可见 frame 事实；未提交 frame 时省略。 */
+    readonly modelContextFrameEvent?: Extract<TrajectoryEvent, { readonly eventType: "model_context_frame" }>;
 }
 
 /**
@@ -271,10 +279,10 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
     }
 
     /**
-     * 按 facts → accepted Patch → Snapshot → marker 顺序提交一次边界。
+     * 按 facts → model context frame → accepted Patch → Snapshot → marker 顺序提交一次边界。
      *
      * @param goal - 本次业务转换后的 Goal 状态；不会被原地修改。
-     * @param request - 可选事实、accepted Patch 与中止控制。
+     * @param request - 可选事实、模型可见 frame、accepted Patch 与中止控制。
      * @returns 保存副本及本次追加事件。
      * @throws TrajectoryAppendError、GoalStore 写入异常或
      *   TrajectoryCommitMarkerError；Snapshot 失败时不会返回提交副本。
@@ -286,9 +294,9 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         throwIfAborted(request.control);
 
         if (!this.trajectoryEnabled) {
-            if (request.acceptedPatch !== undefined) {
+            if (request.acceptedPatch !== undefined || request.modelContextFrame !== undefined) {
                 throw new TrajectoryAppendError(
-                    "accepted Memory Patch requires an enabled Trajectory sink",
+                    "accepted Memory Patch and model context frames require an enabled Trajectory sink",
                 );
             }
             await this.store.save(goal);
@@ -296,10 +304,46 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             return { goal, events: [] };
         }
 
+        if (request.modelContextFrame !== undefined) {
+            if (request.modelContextFrame.epochNumber !== goal.state.run.contextEpoch.number) {
+                throw new TrajectoryAppendError("model context frame Epoch does not match Goal Snapshot");
+            }
+            if (request.modelContextFrame.conversationPosition !== goal.state.messages.length) {
+                throw new TrajectoryAppendError("model context frame Conversation position is stale");
+            }
+        }
+
         const events: Readonly<TrajectoryEvent>[] = [];
         for (const draft of request.facts ?? []) {
             const event = await this.append(draft, request.control);
             if (event !== undefined) events.push(event);
+        }
+
+        let modelContextFrameEvent: Extract<
+            TrajectoryEvent,
+            { readonly eventType: "model_context_frame" }
+        > | undefined;
+        if (request.modelContextFrame !== undefined) {
+            const frame = request.modelContextFrame;
+            const event = await this.append({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: goal.state.workflow.phase,
+                ...(frame.executionUnitId === undefined ? {} : { executionUnitId: frame.executionUnitId }),
+                ...(frame.stepIndex === undefined ? {} : { stepIndex: frame.stepIndex }),
+                eventType: "model_context_frame",
+                payload: {
+                    type: "model_context_frame",
+                    stage: frame.stage,
+                    epochNumber: frame.epochNumber,
+                    conversationPosition: frame.conversationPosition,
+                    sections: structuredClone(frame.sections),
+                },
+            }, request.control);
+            if (event?.eventType === "model_context_frame") {
+                modelContextFrameEvent = event;
+                events.push(event);
+            }
         }
 
         let memoryPatchEvent: Readonly<TrajectoryEvent> | undefined;
@@ -377,6 +421,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             goal: checkpoint,
             events: Object.freeze(events),
             ...(memoryPatchEvent === undefined ? {} : { memoryPatchEvent }),
+            ...(modelContextFrameEvent === undefined ? {} : { modelContextFrameEvent }),
         };
     }
 

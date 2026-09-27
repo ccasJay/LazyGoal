@@ -70,7 +70,7 @@ class ToolCallingAdapter implements LLMAdapter {
     }
 }
 
-test("LLMStepExecutor 单步 1 RTT 原生工具调用返回 AgentDecision 与 thought", async () => {
+test("LLMStepExecutor 的兼容 execute 入口单次 Decide 返回 AgentDecision", async () => {
     const goal = createExecutingGoal();
     const mockBashTool: ToolDefinition = {
         id: "bash",
@@ -122,7 +122,6 @@ test("LLMStepExecutor 单步 1 RTT 原生工具调用返回 AgentDecision 与 th
     });
 
     assert.equal(callCount, 1, "单步执行严格发起 1 次网络调用 (1 RTT)");
-    assert.equal((result as any).thought, "思考推演：已确认目标达成，调用完成动作。");
     assert.equal(result.kind, "complete");
     assert.equal((result as any).summary, "执行完毕且通过检验");
 });

@@ -38,6 +38,7 @@ import type {
 import type { ToolDefinition } from "../../runtime/src/tool";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
+import type { PromptStage } from "../src/model-inference-view";
 
 const intent = "完成示例任务";
 const task = {
@@ -184,8 +185,9 @@ function project(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     memory: WorkingMemory = currentWorkingMemory,
+    stage: PromptStage = "decide",
 ) {
-    return projector.project(goal, tools, memory);
+    return projector.project(goal, tools, memory, undefined, undefined, stage);
 }
 
 function assertNoContractAst(value: unknown, path: string): void {
@@ -251,6 +253,7 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.deepEqual(Object.keys(view).sort(), [
         "contextEpoch",
         "conversation",
+        "dynamicContext",
         "prompt",
         "workingContext",
         "workingMemory",
@@ -260,12 +263,16 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
     assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
     assert.equal(view.prompt.phase, "executing");
-    assert.equal(view.prompt.runMode, "normal");
-    assert.equal(view.prompt.goalPlanWritable, false);
+    assert.equal(view.prompt.stage, "decide");
+    assert.equal(view.dynamicContext.runMode, "normal");
+    assert.equal(view.dynamicContext.goalPlanWritable, false);
     assert.equal(view.prompt.profile.id, "profile-1");
     assert.deepEqual(view.workingContext, { phase: "executing", intent, execution: { stepCount: 0 } });
     assert.deepEqual(view.workingMemory, currentWorkingMemory);
     assert.equal(view.contextEpoch.epochNumber, 0);
+
+    const thinkView = project(createUnapprovedGoal(), [], currentWorkingMemory, "think");
+    assert.equal(thinkView.prompt.stage, "think");
 });
 
 test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working Memory plan", () => {
@@ -297,8 +304,8 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
     };
 
     const view = project(planGoal, [], currentWorkingMemory);
-    assert.equal(view.prompt.goalPlanWritable, true);
-    assert.deepEqual(view.prompt.goalPlan, {
+    assert.equal(view.dynamicContext.goalPlanWritable, true);
+    assert.deepEqual(view.dynamicContext.goalPlan, {
         revision: 2,
         items: [{
             id: "todo-1",
@@ -308,7 +315,7 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
         }],
     });
     assert.deepEqual(view.workingMemory.plan, currentWorkingMemory.plan);
-    assert.equal(Object.isFrozen(view.prompt.goalPlan), true);
+    assert.equal(Object.isFrozen(view.dynamicContext.goalPlan), true);
 
     const normalGoal = createUnapprovedGoal();
     const savedPlan = planGoal.state.goalPlan;
@@ -322,9 +329,9 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
         },
     };
     const normalView = project(goalWithPlan, [], currentWorkingMemory);
-    assert.deepEqual(normalView.prompt.goalPlan, view.prompt.goalPlan);
-    assert.equal(normalView.prompt.runMode, "normal");
-    assert.equal(normalView.prompt.goalPlanWritable, false);
+    assert.deepEqual(normalView.dynamicContext.goalPlan, view.dynamicContext.goalPlan);
+    assert.equal(normalView.dynamicContext.runMode, "normal");
+    assert.equal(normalView.dynamicContext.goalPlanWritable, false);
     assert.deepEqual(normalView.workingMemory.plan, currentWorkingMemory.plan);
 });
 
@@ -366,7 +373,6 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
     assert.deepEqual(view.workingContext, {
         phase: "executing",
         intent,
-        task,
         execution: {
             stepCount: 1,
             maxSteps: 4,
@@ -374,7 +380,7 @@ test("Projector 只投影 executing 阶段的任务与有界执行记忆", () =>
             pendingAction,
         },
     });
-    assert.deepEqual(view.prompt.authorizedTools[0], {
+    assert.deepEqual(view.dynamicContext.authorizedTools[0], {
         id: "read_file",
         description: "读取工作区内文本文件",
         inputSchema: {
@@ -416,8 +422,8 @@ test("Projector 递归冻结模型输入 DTO", () => {
     assert.ok(Object.isFrozen(view.prompt));
     assert.ok(Object.isFrozen(view.prompt.profile));
     assert.ok(Object.isFrozen(view.prompt.profile.instructions));
-    assert.ok(Object.isFrozen(view.prompt.authorizedTools));
-    assert.ok(Object.isFrozen(view.prompt.authorizedTools[0]?.inputSchema));
+    assert.ok(Object.isFrozen(view.dynamicContext.authorizedTools));
+    assert.ok(Object.isFrozen(view.dynamicContext.authorizedTools[0]?.inputSchema));
     assert.ok(Object.isFrozen(view.workingMemory));
     assert.ok(Object.isFrozen(view.contextEpoch));
 });
@@ -429,7 +435,7 @@ test("Projector 按 Tool ID 代码单元顺序升序排序并拒绝重复 ID", (
         toolDefinition("mango"),
     ]);
     assert.deepEqual(
-        view.prompt.authorizedTools.map((tool) => tool.id),
+        view.dynamicContext.authorizedTools.map((tool) => tool.id),
         ["apple", "mango", "zebra"],
     );
 
@@ -441,11 +447,11 @@ test("Projector 按 Tool ID 代码单元顺序升序排序并拒绝重复 ID", (
 
 test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schema", () => {
     const first = project(createExecutingGoal(), CURRENT_TOOL_DEFINITIONS)
-        .prompt.authorizedTools;
+        .dynamicContext.authorizedTools;
     const second = project(
         createExecutingGoal(),
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
-    ).prompt.authorizedTools;
+    ).dynamicContext.authorizedTools;
 
     assert.deepEqual(first.map(({ id, inputSchema }) => ({ id, inputSchema })), [
         {
@@ -680,9 +686,9 @@ test("Projector 确保 View 与外部输入完全隔离且子对象不可变", (
     const view = project(createExecutingGoal(), tools);
 
     tools.push(toolDefinition("extra_tool"));
-    assert.equal(view.prompt.authorizedTools.length, 1);
+    assert.equal(view.dynamicContext.authorizedTools.length, 1);
 
-    const toolSchema = view.prompt.authorizedTools[0]?.inputSchema as Record<string, any>;
+    const toolSchema = view.dynamicContext.authorizedTools[0]?.inputSchema as Record<string, any>;
     assert.ok(Object.isFrozen(toolSchema));
     assert.ok(Object.isFrozen(toolSchema.properties));
     assert.ok(Object.isFrozen(toolSchema.properties.path));

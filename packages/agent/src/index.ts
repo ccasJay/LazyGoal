@@ -6,6 +6,7 @@ export {
 } from "./prompt";
 export type {
     ModelOutputRequestPlan,
+    StepPromptStageContext,
     StructuredOutputMode,
 } from "./prompt";
 
@@ -169,6 +170,7 @@ export type {
     ModelContextEpochView,
     ModelWorkingMemory,
     ModelInferenceView,
+    ModelDynamicContext,
     ModelTrajectoryContext,
     ModelPendingAction,
     ModelProfileView,
@@ -182,6 +184,7 @@ export type {
     StepDynamicPayload,
     PromptContext,
     PromptPhase,
+    PromptStage,
 } from "./model-inference-view";
 
 export {
@@ -211,6 +214,26 @@ export {
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";
+export {
+    DynamicSectionRegistry,
+    createDefaultDynamicSectionRegistry,
+} from "./prompting/dynamic-section-registry";
+export type {
+    DynamicSectionDefinition,
+    DynamicSectionIdentity,
+    DynamicSectionMessage,
+    DynamicSectionProjection,
+    DynamicSectionRole,
+} from "./prompting/dynamic-section-registry";
+export {
+    DYNAMIC_SECTION_DIFF_ERROR_CODE,
+    DynamicSectionDiffError,
+    planDynamicSectionUpdates,
+} from "./prompting/dynamic-section-diff";
+export type {
+    DynamicSectionUpdateMessage,
+    DynamicSectionUpdatePlan,
+} from "./prompting/dynamic-section-diff";
 export {
     PROMPT_BUNDLE_CONFIGURATION_ERROR_CODE,
     PROMPT_RENDER_ERROR_CODE,
