@@ -6,6 +6,7 @@ export {
 } from "./prompt";
 export type {
     ModelOutputRequestPlan,
+    StepPromptStageContext,
     StructuredOutputMode,
 } from "./prompt";
 

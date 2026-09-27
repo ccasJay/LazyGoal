@@ -143,7 +143,14 @@ export type {
     GoalStore,
 } from "./goal-store";
 export type { StepExecutor } from "./step-executor";
-export type { StepExecutionInput, StepExecutionResult } from "./step-executor";
+export type {
+    DecideStageResult,
+    ModelContextFrameForStage,
+    StepExecutionInput,
+    StepExecutionResult,
+    ThinkExchange,
+    ThinkStageResult,
+} from "./step-executor";
 export type {
     MetricsStore,
     ModelCallFinishedMetricRecord,

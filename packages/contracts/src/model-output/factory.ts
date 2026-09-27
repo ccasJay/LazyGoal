@@ -5,6 +5,8 @@ import type { JsonSchema202012 } from "../json-schema";
 import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
+    type DecideOutput,
+    RequestThinkContract,
     AskUserAgentDecisionContract,
     ContextLookupRequestContract,
     NormalCompleteAgentDecisionContract,
@@ -87,6 +89,8 @@ export type ModelOutputRequest =
         readonly planMode?: boolean;
         /** 当前模式是否获授权提交 GoalPlan Patch；独立于任务提案生命周期。 */
         readonly goalPlanWritable?: boolean;
+        /** Decide 请求是否允许返回 Runtime 控制用的 `request_think` 分支。 */
+        readonly allowThink?: boolean;
       }
     | { readonly kind: "checkpoint" };
 
@@ -212,11 +216,11 @@ function validateAndSortAuthorizedTools(
  * });
  * ```
  */
-export function createModelOutputContractBundle(
+export function createModelOutputContractBundle<Result extends DecideOutput = AgentDecision>(
     request: ModelOutputRequest,
-): ModelOutputContractBundle<AgentDecision> {
+): ModelOutputContractBundle<Result> {
     let name: string;
-    let canonicalContract: Contract<AgentDecision>;
+    let canonicalContract: Contract<unknown>;
     let wireContract: Contract<unknown>;
 
     switch (request.kind) {
@@ -258,6 +262,9 @@ export function createModelOutputContractBundle(
                     ContextLookupRequestContract,
                     AskUserAgentDecisionContract,
                 ];
+            if (request.allowThink === true) {
+                nonToolCanonicalBranches.push(RequestThinkContract);
+            }
             if (goalPlanWritable) {
                 nonToolCanonicalBranches.push(GoalPlanUpdateAgentDecisionContract);
             }
@@ -267,7 +274,7 @@ export function createModelOutputContractBundle(
                 // 无授权工具时完全省略 tool_call 分支
                 canonicalContract = contract.union(
                     nonToolCanonicalBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                ) as unknown as Contract<AgentDecision>;
+                );
                 wireContract = contract.object({
                     result: contract.union(
                         nonToolWireBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
@@ -284,7 +291,7 @@ export function createModelOutputContractBundle(
                 ];
                 canonicalContract = contract.union(
                     canonicalBranches as unknown as readonly [Contract<unknown>, ...Contract<unknown>[]],
-                ) as unknown as Contract<AgentDecision>;
+                );
 
                 const wireResultBranches = [
                     ...toolWireBranches,
@@ -301,7 +308,7 @@ export function createModelOutputContractBundle(
         }
         case "checkpoint":
             name = "context_checkpoint_result";
-            canonicalContract = ModelContextCheckpointResultContract as unknown as Contract<AgentDecision>;
+            canonicalContract = ModelContextCheckpointResultContract;
             wireContract = deriveWireEnvelopeContract(ModelContextCheckpointResultContract);
             break;
     }
@@ -312,15 +319,26 @@ export function createModelOutputContractBundle(
     return {
         name,
         wireContract,
-        canonicalContract,
+        canonicalContract: canonicalContract as Contract<Result>,
         jsonSchema,
         shapeGuide,
-        decode(value: unknown): AgentDecision {
+        decode(value: unknown): Result {
             const wireParsed = safeParse(wireContract, value);
             if (!wireParsed.success) {
                 throw new ContractValidationError(wireParsed.issues, wireParsed.truncated);
             }
-            return decodeWireResult(wireParsed.data, canonicalContract);
+            const decoded = decodeWireResult(wireParsed.data, canonicalContract);
+            if (isRequestThink(decoded) && decoded.goal.trim().length === 0) {
+                throw new Error("request_think.goal must contain non-whitespace text");
+            }
+            return decoded as Result;
         },
     };
+}
+
+function isRequestThink(value: unknown): value is Extract<DecideOutput, { readonly kind: "request_think" }> {
+    return typeof value === "object"
+        && value !== null
+        && !Array.isArray(value)
+        && (value as { readonly kind?: unknown }).kind === "request_think";
 }

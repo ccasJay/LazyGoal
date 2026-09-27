@@ -6,14 +6,18 @@ import { readNormalizedUsage } from "../../llm/src/core/usage";
 import type {
     AgentDecision,
 } from "../../runtime/src/domain";
+import type { DecideOutput } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
 } from "../../runtime/src/execution-control";
 import type {
+    DecideStageResult,
     StepExecutionInput,
     StepExecutor,
+    ThinkExchange,
+    ThinkStageResult,
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "./context-compactor";
 import type { ModelConversationMessage } from "./model-inference-view";
@@ -73,18 +77,19 @@ export interface LLMStepExecutorDependencies {
     readonly trajectoryContextAssembler?: TrajectoryModelContextAssembler;
     /** 模型能力；配置后会向 Provider 透传 maxOutputTokens。 */
     readonly modelCapabilities?: ModelCapabilities;
-    /** 可替换的模型执行绑定提供者；每次 execute 开始时读取当前绑定。 */
+    /** 可替换的模型执行绑定提供者；每次 Decide 或 Think 阶段开始时读取当前绑定。 */
     readonly bindingProvider?: ModelExecutionBindingProvider;
 }
 
 /**
- * 使用阶段绑定中的 Decide Adapter 生成一个 AgentDecision 的执行器。
+ * 使用阶段绑定的 Adapter 执行 Decide 与 Think 请求。
  *
  * @remarks
- * 执行器从冻结 Profile、历史消息、授权 ToolDefinition 与当前 Run 构造请求，
- * 每次 execute 只调用 Decide Adapter 一次，再以当前请求绑定的本地输出契约解析原始响应。Working
- * Context 和模型协议 JSON 都不是面向用户的真实消息；状态推进与 Tool 执行由
- * Runtime Runner 负责。执行器不会修改传入 Goal。
+ * 执行器从冻结 Profile、历史消息、授权 ToolDefinition 与当前 Run 构造请求。`execute()`
+ * 保留单次直接 Decide 入口；Runtime Runner 使用 `decide()`/`think()` 驱动模型提出的阶段循环。
+ * Decide 按绑定选择供应商支持的结构化模式，Think 始终使用 prompt_only 且不挂载工具。
+ * Working Context、阶段消息和模型协议 JSON 都不是面向用户的真实 Conversation；状态
+ * 推进、阶段检查点和 Tool 执行由 Runtime Runner 负责。执行器不会修改传入 Goal。
  *
  * ToolDefinition 由 Runtime 在调用时传入；执行器不根据 Profile 自行解析 Tool，
  * 也不把未授权 Tool 暴露给模型。
@@ -129,117 +134,116 @@ export class LLMStepExecutor implements StepExecutor {
         }
     }
 
-    /**
-     * @param input - 执行入参，包含目标快照、已授权工具、工作记忆与中止控制。
-     * @returns 按当前请求输出契约完成本地校验后的 AgentDecision。
-     * @throws LLMResponseProtocolError 模型响应不符合严格协议时抛出。
-     * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
-     * @throws Adapter 抛出的供应商或传输异常会原样传播。
-     */
+    /** @param input - 执行入参；此兼容入口始终执行单次 Decide，不启用 Think 控制分支。 */
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
+        const result = await this.executeDecideStage(input, false, input.thinkHistory ?? []);
+        if (result.kind !== "decision") {
+            throw new LLMResponseProtocolError("request_think is not available through execute()");
+        }
+        return result.decision;
+    }
+
+    /**
+     * 执行一次允许模型选择 Think 或直接决策的 Decide。
+     *
+     * @param input - 当前 Step 输入及先前已提交的 Think 目标/输出。
+     * @returns 控制请求或业务决策，以及本次请求的模型上下文 frame。
+     * @throws 模型调用失败或输出契约无效时抛出。
+     * @example
+     * ```ts
+     * const result = await executor.decide({ ...input, thinkHistory: [] });
+     * ```
+     */
+    async decide(input: StepExecutionInput & { readonly thinkHistory: readonly ThinkExchange[] }): Promise<DecideStageResult> {
+        return this.executeDecideStage(input, true, input.thinkHistory);
+    }
+
+    /**
+     * 以 prompt_only 调用同一模型的 Think Adapter，拒绝工具调用与空文本。
+     *
+     * @param input - 当前 Step、明确推演目标和已提交的 Think 历史。
+     * @returns 待 Runner 提交的自由文本与本次请求 frame。
+     * @throws 输出为空、包含工具调用、模型请求失败或被中止时抛出。
+     * @example
+     * ```ts
+     * const result = await executor.think({ ...input, thinkGoal: "比较方案", thinkHistory: [] });
+     * ```
+     */
+    async think(input: StepExecutionInput & {
+        readonly thinkGoal: string;
+        readonly thinkHistory: readonly ThinkExchange[];
+    }): Promise<ThinkStageResult> {
+        const { goal, control } = input;
+        const binding = this.bindingProvider.current();
+        const adapter = binding.thinkAdapter;
+        const plan = await buildStepRequest<DecideOutput>(
+            goal,
+            input.authorizedTools,
+            this.renderer,
+            this.contextCompactor,
+            control?.signal,
+            input.workingMemory,
+            binding.trajectoryContextAssembler,
+            input.contextLookupResult,
+            binding.modelCapabilities,
+            "prompt_only",
+            "think",
+            { thinkGoal: input.thinkGoal, thinkHistory: input.thinkHistory },
+        );
+        const { response, startedAt } = await this.generateModelResponse(
+            adapter,
+            plan.request,
+            input,
+            binding.modelCapabilities,
+        );
+        if ((response.toolCalls?.length ?? 0) > 0) {
+            const error = new LLMResponseProtocolError("Think stage must not return tool calls");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+            throw error;
+        }
+        const output = response.content.trim();
+        if (output.length === 0) {
+            const error = new LLMResponseProtocolError("Think stage returned empty text");
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+            throw error;
+        }
+        return {
+            goal: input.thinkGoal.trim(),
+            output,
+            modelContextFrame: plan.modelContextFrame,
+        };
+    }
+
+    private async executeDecideStage(
+        input: StepExecutionInput,
+        allowThink: boolean,
+        thinkHistory: readonly ThinkExchange[],
+    ): Promise<DecideStageResult> {
         const { goal, authorizedTools: tools, control } = input;
         const binding = this.bindingProvider.current();
         const adapter = binding.decideAdapter;
-        const modelCapabilities = binding.modelCapabilities;
-        const trajectoryContextAssembler = binding.trajectoryContextAssembler;
-
-        const mode = adapter.structuredOutputMode;
-        const plan = await buildStepRequest(
+        const plan = await buildStepRequest<DecideOutput>(
             goal,
             tools,
             this.renderer,
             this.contextCompactor,
             control?.signal,
             input.workingMemory,
-            trajectoryContextAssembler,
+            binding.trajectoryContextAssembler,
             input.contextLookupResult,
-            modelCapabilities,
-            mode,
+            binding.modelCapabilities,
+            adapter.structuredOutputMode,
+            "decide",
+            { allowThink, thinkHistory },
         );
-        throwIfAborted(control);
-
-        const startedAt = Date.now();
-        const callId = randomUUID();
-        const metricIdentity = {
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
-            callId,
-        };
-        const providerRequest = modelCapabilities === undefined
-            ? plan.request
-            : { ...plan.request, maxOutputTokens: modelCapabilities.maxOutputTokens };
-        await recordLlmRequest(this.traceSink, goal, providerRequest);
-        await this.appendModelMetric({
-            recordType: "call_started",
-            ...metricIdentity,
-            occurredAt: new Date().toISOString(),
-        });
-        let response: Awaited<ReturnType<LLMAdapter["generate"]>>;
-        let decodeDurationMs: number | undefined;
-
-        try {
-            if (adapter.stream === undefined) {
-                response = await adapter.generate(providerRequest, control);
-                this.publishFallbackModelEvents(input, response);
-            } else {
-                const streamed = await this.consumeModelStream(
-                    adapter,
-                    providerRequest,
-                    input,
-                    control,
-                );
-                response = streamed.response;
-                decodeDurationMs = streamed.decodeDurationMs;
-            }
-            throwIfAborted(control);
-        } catch (error) {
-            await this.appendModelMetric({
-                recordType: "call_finished",
-                ...metricIdentity,
-                occurredAt: new Date().toISOString(),
-                outcome: isExecutionAbortedError(error) || control?.signal?.aborted
-                    ? "cancelled"
-                    : "failed",
-                usage: { source: "unavailable" },
-            });
-            await recordLlmError(
-                this.traceSink,
-                goal,
-                error,
-                Date.now() - startedAt,
-                "adapter",
-            );
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-
-            if (control?.signal?.aborted) {
-                throw new ExecutionAbortedError();
-            }
-
-            throw error;
-        }
-        const usage = readNormalizedUsage(response.providerMetadata);
-        await this.appendModelMetric({
-            recordType: "call_finished",
-            ...metricIdentity,
-            occurredAt: new Date().toISOString(),
-            outcome: "completed",
-            usage: usage === undefined
-                ? { source: "unavailable" }
-                : { source: "provider_reported", ...usage },
-            ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
-        });
-        await recordLlmResponse(
-            this.traceSink,
-            goal,
-            response,
-            Date.now() - startedAt,
+        const { response, startedAt } = await this.generateModelResponse(
+            adapter,
+            plan.request,
+            input,
+            binding.modelCapabilities,
         );
 
-        let decision: AgentDecision;
-
+        let output: DecideOutput;
         if (response.toolCalls && response.toolCalls.length > 0) {
             const toolCall = response.toolCalls[0]!;
             let rawArgs: unknown;
@@ -253,9 +257,12 @@ export class LLMStepExecutor implements StepExecutor {
                 await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
                 throw parseErr;
             }
-
             try {
-                decision = decodePhaseToolCall(plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[], toolCall.toolId, rawArgs) as AgentDecision;
+                output = decodePhaseToolCall(
+                    plan.toolDeclarations as readonly SystemToolDeclaration<unknown>[],
+                    toolCall.toolId,
+                    rawArgs,
+                ) as DecideOutput;
             } catch (error) {
                 const validationErr = error instanceof ContractValidationError
                     ? new LLMResponseProtocolError(
@@ -269,46 +276,99 @@ export class LLMStepExecutor implements StepExecutor {
                 await recordLlmError(this.traceSink, goal, validationErr, Date.now() - startedAt, "response_parse");
                 throw validationErr;
             }
-
-            if (decision.kind === "tool_call") {
+            if (output.kind === "tool_call") {
                 const effectiveActionId = toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
                     ? toolCall.callId
-                    : (decision.action.actionId && decision.action.actionId.trim().length > 0
-                        ? decision.action.actionId
+                    : (output.action.actionId && output.action.actionId.trim().length > 0
+                        ? output.action.actionId
                         : `action-${randomUUID()}`);
-                decision = {
-                    ...decision,
-                    action: {
-                        ...decision.action,
-                        actionId: effectiveActionId,
-                    },
-                };
+                output = { ...output, action: { ...output.action, actionId: effectiveActionId } };
             }
-
-            const thought = response.content?.trim();
-            return Object.assign({}, decision, {
-                decision,
-                ...(thought ? { thought } : {}),
-            });
+        } else {
+            try {
+                output = parseModelOutput(response.content, plan.bundle);
+            } catch (error) {
+                await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "response_parse");
+                throw error;
+            }
         }
 
+        if (output.kind === "request_think") {
+            const goal = output.goal.trim();
+            if (goal.length === 0) {
+                const error = new LLMResponseProtocolError("request_think.goal must contain non-whitespace text");
+                await recordLlmError(this.traceSink, input.goal, error, Date.now() - startedAt, "response_parse");
+                throw error;
+            }
+            output = { ...output, goal };
+        }
+
+        return output.kind === "request_think"
+            ? { kind: "request_think", goal: output.goal, modelContextFrame: plan.modelContextFrame }
+            : { kind: "decision", decision: output, modelContextFrame: plan.modelContextFrame };
+    }
+
+    private async generateModelResponse(
+        adapter: LLMAdapter,
+        request: Parameters<LLMAdapter["generate"]>[0],
+        input: StepExecutionInput,
+        modelCapabilities: ModelCapabilities | undefined,
+    ): Promise<{ readonly response: LLMResponse; readonly startedAt: number }> {
+        const { goal, control } = input;
+        throwIfAborted(control);
+        const startedAt = Date.now();
+        const callId = randomUUID();
+        const metricIdentity = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            callId,
+        };
+        const providerRequest = modelCapabilities === undefined
+            ? request
+            : { ...request, maxOutputTokens: modelCapabilities.maxOutputTokens };
+        await recordLlmRequest(this.traceSink, goal, providerRequest);
+        await this.appendModelMetric({
+            recordType: "call_started",
+            ...metricIdentity,
+            occurredAt: new Date().toISOString(),
+        });
+        let response: LLMResponse;
+        let decodeDurationMs: number | undefined;
         try {
-            decision = parseModelOutput(
-                response.content,
-                plan.bundle,
-            );
+            if (adapter.stream === undefined) {
+                response = await adapter.generate(providerRequest, control);
+                this.publishFallbackModelEvents(input, response);
+            } else {
+                const streamed = await this.consumeModelStream(adapter, providerRequest, input, control);
+                response = streamed.response;
+                decodeDurationMs = streamed.decodeDurationMs;
+            }
+            throwIfAborted(control);
         } catch (error) {
-            await recordLlmError(
-                this.traceSink,
-                goal,
-                error,
-                Date.now() - startedAt,
-                "response_parse",
-            );
+            await this.appendModelMetric({
+                recordType: "call_finished",
+                ...metricIdentity,
+                occurredAt: new Date().toISOString(),
+                outcome: isExecutionAbortedError(error) || control?.signal?.aborted ? "cancelled" : "failed",
+                usage: { source: "unavailable" },
+            });
+            await recordLlmError(this.traceSink, goal, error, Date.now() - startedAt, "adapter");
+            if (isExecutionAbortedError(error)) throw error;
+            if (control?.signal?.aborted) throw new ExecutionAbortedError();
             throw error;
         }
-
-        return decision;
+        const usage = readNormalizedUsage(response.providerMetadata);
+        await this.appendModelMetric({
+            recordType: "call_finished",
+            ...metricIdentity,
+            occurredAt: new Date().toISOString(),
+            outcome: "completed",
+            usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
+            ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
+        });
+        await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt);
+        return { response, startedAt };
     }
 
     private async consumeModelStream(

@@ -5,6 +5,8 @@ import type { JsonSchema202012 } from "../json-schema";
 import type { Contract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
+    type DecideOutput,
+    type RequestThink,
     type AskUserAgentDecision,
     type CompletionEvidence,
     CompletionEvidenceContract,
@@ -228,6 +230,11 @@ export const SystemContextCheckpointInputContract = contract.object({
     memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
 });
 
+/** Decide 阶段请求 Think 的控制参数契约。 */
+export const SystemRequestThinkInputContract = contract.object({
+    goal: contract.string(),
+});
+
 /** 结构化提问工具参数契约。 */
 export const SystemAskUserInputContract = contract.object({
     questions: contract.array(AskUserQuestionInputContract, { minItems: 1, maxItems: 3 }),
@@ -375,6 +382,33 @@ export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecisio
     }),
 );
 
+/**
+ * Decide 阶段的 Think 控制声明。
+ *
+ * @remarks
+ * 该声明只表达一个明确的推演目标，不执行 Runtime 业务工具，也不修改 Goal；
+ * Runtime 阶段循环负责调用 Think Adapter 并提交 Think 输出。
+ *
+ * @example
+ * ```ts
+ * const request = SystemRequestThinkDeclaration.decode({
+ *     goal: "比较两种恢复方案的状态一致性风险",
+ * });
+ * ```
+ */
+export const SystemRequestThinkDeclaration: SystemToolDeclaration<RequestThink> = buildDeclaration(
+    "system_request_think",
+    "Request a separate Think stage for one explicit reasoning objective. This does not execute a business tool or change runtime state.",
+    SystemRequestThinkInputContract,
+    (args: { goal: string }): RequestThink => {
+        const goal = args.goal.trim();
+        if (goal.length === 0) {
+            throw new Error("request_think.goal must contain non-whitespace text");
+        }
+        return { kind: "request_think", goal };
+    },
+);
+
 // =========================================================================
 // 3. 业务工具适配与各阶段工具包构造
 // =========================================================================
@@ -453,6 +487,7 @@ export function createExecutingToolDeclarations(
  * @param taskPresent - 是否已批准固定 GoalTask。
  * @param planMode - 是否处于当前 Run 的 Plan Mode 任务提案生命周期。
  * @param goalPlanWritable - 当前 Run 模式是否获授权更新 GoalPlan。
+ * @param allowThink - 是否向 Decide 暴露独立的 `request_think` 控制声明。
  * @returns 对应状态下的工具声明列表。
  *
  * @example
@@ -463,9 +498,32 @@ export function createExecutingToolDeclarations(
 export function createUnifiedToolDeclarations(
     authorizedTools: readonly AuthorizedToolContract[],
     taskPresent: boolean,
+    planMode?: boolean,
+    goalPlanWritable?: boolean,
+    allowThink?: false,
+): readonly SystemToolDeclaration<AgentDecision>[];
+export function createUnifiedToolDeclarations(
+    authorizedTools: readonly AuthorizedToolContract[],
+    taskPresent: boolean,
+    planMode: boolean,
+    goalPlanWritable: boolean,
+    allowThink: true,
+): readonly SystemToolDeclaration<DecideOutput>[];
+export function createUnifiedToolDeclarations(
+    authorizedTools: readonly AuthorizedToolContract[],
+    taskPresent: boolean,
+    planMode: boolean,
+    goalPlanWritable: boolean,
+    allowThink: boolean,
+): readonly SystemToolDeclaration<DecideOutput>[];
+export function createUnifiedToolDeclarations(
+    authorizedTools: readonly AuthorizedToolContract[],
+    taskPresent: boolean,
     planMode = false,
     goalPlanWritable = planMode,
-): readonly SystemToolDeclaration<AgentDecision>[] {
+    allowThink = false,
+): readonly SystemToolDeclaration<DecideOutput>[] {
+    const thinkDeclaration = allowThink ? [SystemRequestThinkDeclaration] : [];
     if (!planMode) {
         const businessTools = authorizedTools.map(t => createExecutingBusinessToolDeclaration(t));
         return [
@@ -476,6 +534,7 @@ export function createUnifiedToolDeclarations(
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemAskUserDeclaration,
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
+            ...thinkDeclaration,
         ];
     }
 
@@ -487,12 +546,14 @@ export function createUnifiedToolDeclarations(
             SystemProposeTaskPlanDeclaration as SystemToolDeclaration<AgentDecision>,
             SystemContextLookupDeclaration as SystemToolDeclaration<AgentDecision>,
             ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
+            ...thinkDeclaration,
         ];
     }
 
     return [
         ...createExecutingToolDeclarations(authorizedTools),
         ...(goalPlanWritable ? [SystemUpdateGoalPlanDeclaration] : []),
+        ...thinkDeclaration,
     ];
 }
 

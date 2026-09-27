@@ -117,6 +117,7 @@ export function renderRequest(
     renderer: PromptBundleRenderer,
     responseShapeGuide?: string,
     dynamicSections?: readonly DynamicSectionUpdateMessage[],
+    stageMessages: readonly LLMMessage[] = [],
 ): LLMRequest {
     return {
         messages: [
@@ -128,6 +129,7 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
+            ...stageMessages,
             ...(dynamicSections ?? renderer.renderDynamicSections(view)).map((section) => ({
                 role: section.role,
                 content: section.content,

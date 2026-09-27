@@ -248,6 +248,32 @@ export const ContextLookupRequestContract = contract.object({
 export type ContextLookupRequest = InferContract<typeof ContextLookupRequestContract>;
 
 /**
+ * Decide 阶段请求 Runtime 进入 Think 阶段的控制结果契约。
+ *
+ * @remarks
+ * `goal` 必须说明本次 Think 要解决的具体问题。该结果由 Runtime 阶段循环消费，
+ * 不属于 AgentDecision，也不授予任何业务 Tool 权限。
+ *
+ * @example
+ * ```ts
+ * const request: RequestThink = {
+ *     kind: "request_think",
+ *     goal: "比较两种恢复方案的状态一致性风险",
+ * };
+ * ```
+ */
+export const RequestThinkContract = contract.object({
+    kind: contract.literal("request_think"),
+    goal: contract.string(),
+});
+
+/** Decide 阶段的 Think 控制请求。 */
+export type RequestThink = InferContract<typeof RequestThinkContract>;
+
+/** Decide 阶段可返回业务决策或 Think 控制请求。 */
+export type DecideOutput = AgentDecision | RequestThink;
+
+/**
  * 完成标准的事实证据引用契约。
  *
  * @remarks
@@ -1554,6 +1580,10 @@ export function validateModelOutputSemantics(
 
     if (typeof value.kind === "string") {
         switch (value.kind) {
+            case "request_think": {
+                checkNonBlank(value.goal, [...basePath, "goal"], issues, "goal");
+                break;
+            }
             case "question": {
                 checkNonBlank(value.question, [...basePath, "question"], issues, "question");
                 break;

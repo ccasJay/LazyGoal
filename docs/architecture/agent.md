@@ -2,7 +2,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已提交 Context Lookup 结果投影为一次模型请求，再把模型响应解析为统一 `AgentDecision`。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已提交 Context Lookup 结果投影为模型请求。Decide 返回经本地契约校验的业务 `AgentDecision`，或独立的 `request_think` 控制请求；Think 返回自由文本和模型可见上下文 frame。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
 
 ## Prompt Bundle
 
@@ -28,6 +28,12 @@ Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进�
 
 `ModelExecutionBinding` 将同一 provider/model 的 prompt_only Think Adapter 与供应商适配的 Decide Adapter 作为一个 generation 原子发布；OpenAI、Google、OpenAI-compatible 的 Decide 使用原生 strict，Anthropic、OpenRouter、DeepSeek 使用 prompt_only。当前 `LLMStepExecutor.execute` 是一次 Decide 调用，只通过该阶段 Adapter 发送请求，并用该请求绑定的 Wire Contract 在本地验证响应。执行开始后绑定 generation 固定，不会中途切换 Adapter。
 
+## Think 与 Decide 阶段
+
+Decide 按阶段专用 Adapter 执行：支持原生严格输出的供应商在业务决策约束上使用 strict，其余供应商依赖 Shape Guide 和同一本地契约校验。Decide 的 `request_think { goal }` 只请求 Runtime 调用 Think，不是 AgentDecision，也不属于业务工具授权。Think 使用同一模型的 `prompt_only` Adapter，不附带结构化 Schema 或工具声明；Runtime 提供明确目标和本 Step 已提交的 Think 目标/输出。Think 文本作为 assistant 消息交给后续 Decide，不进入 Goal Conversation。
+
+每次成功阶段调用都返回本请求的 `modelContextFrame`。Runner 在下一阶段继续前提交阶段事实、frame 和 Snapshot；未提交 frame 不会成为后续请求的 diff 基线。Agent 只负责组装请求和解析结果，不拥有阶段循环或持久化。
+
 ## 当前决策门控
 
 Contracts 根据 `workflow.task` 和后端 `planMode` 动态生成 Wire Schema：
@@ -40,7 +46,7 @@ Contracts 根据 `workflow.task` 和后端 `planMode` 动态生成 Wire Schema�
 
 ## 输出处理
 
-模型原始文本由 LLM Adapter 返回，Agent 使用当前请求绑定的 Wire Contract 严格解析，再解码为 Canonical `AgentDecision`。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。非法 JSON、Schema、分支或工具输入以稳定协议错误失败；不自动修复、不重试、不把模型自述当成 Observation。原始响应可进入独立诊断 Trace，但不进入 Goal messages、Snapshot 或 Domain Event。
+Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。非法 JSON、Schema、分支或工具输入以稳定协议错误失败；不自动修复、不重试、不把模型自述当成 Observation。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
 
 Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
 `@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter

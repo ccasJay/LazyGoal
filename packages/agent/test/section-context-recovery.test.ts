@@ -205,6 +205,7 @@ async function build(
         modelCapabilities,
         "prompt_only",
         stage,
+        stage === "think" ? { thinkGoal: "确认当前 GoalPlan 与任务的关系" } : undefined,
     );
 }
 
@@ -235,8 +236,9 @@ test("Decide 與 Think 分别从本阶段已提交 frame 恢复，不共享比�
     assert.match(decidePlanMessage?.content ?? "", /当前计划/);
     assert.equal(think.modelContextFrame.stage, "think");
     assert.equal(decide.modelContextFrame.stage, "decide");
-    assert.ok(think.request.tools?.some((tool) => tool.id === "read_file"));
-    assert.match(think.request.messages.at(-1)?.content ?? "", /responseShapeGuide/);
+    assert.equal(think.request.tools, undefined);
+    assert.doesNotMatch(think.request.messages.at(-1)?.content ?? "", /responseShapeGuide/);
+    assert.ok(think.request.messages.some((message) => message.content.includes("确认当前 GoalPlan 与任务的关系")));
     assert.deepEqual(think.request.messages, (await build(goal, events, "think")).request.messages);
 });
 

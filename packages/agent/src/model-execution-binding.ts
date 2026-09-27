@@ -56,7 +56,7 @@ export interface ModelExecutionBinding {
  * 模型执行绑定提供者契约。
  *
  * @remarks
- * 供执行器在单次 execute 开始时读取不可变执行绑定。
+ * 供执行器在每个 Decide 或 Think 阶段调用开始时读取不可变执行绑定。
  *
  * @example
  * ```ts

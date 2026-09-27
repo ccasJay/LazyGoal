@@ -42,7 +42,7 @@
   - 验证方式：待实现的 `packages/agent/test/stage-model-binding.test.ts`；现有 `packages/agent/test/llm-step-executor.test.ts` 与 `packages/llm/test/two-stage-config.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [5.2](./requirements.md#req-5-2), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 7. 接入模型驱动 Think 循环与中间检查点
+- [x] //TODO 7. 接入模型驱动 Think 循环与中间检查点
 
   - 实现目标：在 Contracts/Agent/Runner 接入带目标的 `request_think`、`prompt_only` Think 和后续 Decide；每次 Think 输出先经 Trajectory/Snapshot 提交，再调用下一次 Decide。
   - 成功判据：直接 Decide 和同一 Step 连续三次请求 Think 后的 Decide 均可结束 Step；每轮 Think 目标明确并传入请求；不设置额外循环上限，Think 不增加 `stepCount`、不执行 Tool，最终决策才进入授权转换。

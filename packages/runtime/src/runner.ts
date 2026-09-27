@@ -19,7 +19,13 @@ import type {
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
-import type { StepExecutor } from "./step-executor";
+import type {
+    DecideStageResult,
+    StepExecutionInput,
+    StepExecutor,
+    ThinkExchange,
+    ThinkStageResult,
+} from "./step-executor";
 import type {
     ExecutionStreamEventDraft,
     ExecutionStreamPublisher,
@@ -72,6 +78,7 @@ import {
     type DiagnosticTraceSink,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
+    type ModelContextFramePayload,
     type TrajectoryStore,
 } from "./trajectory";
 import {
@@ -121,6 +128,20 @@ class RunnerExecutionError extends Error {
         super(message.trim().length > 0 ? message : code);
         this.name = "RunnerExecutionError";
         this.code = code;
+    }
+}
+
+class StageExecutionFailure extends Error {
+    constructor(error: unknown) {
+        super(error instanceof Error ? error.message : String(error));
+        this.name = "StageExecutionFailure";
+    }
+}
+
+class StageCheckpointFailure extends Error {
+    constructor(readonly original: unknown) {
+        super(original instanceof Error ? original.message : String(original));
+        this.name = "StageCheckpointFailure";
     }
 }
 
@@ -558,11 +579,14 @@ export interface RunnerDependencies {
  *
  * @remarks
  * Runner 是状态推进与持久化顺序的拥有者。启动、恢复和每个 Step 完成后，
- * 都会先保存最新完整 Goal，再继续下一步。正数 `maxSteps` 使用快照中的
- * 累计 `stepCount`；`0` 表示不按 Step 数终止。
+ * 都会先保存最新完整 Goal，再继续下一步。阶段化 Executor 可在一个 Step 内返回
+ * 多个 Decide/Think 结果；每次 Think 的请求与输出先提交 Trajectory 和 Snapshot，
+ * 最终有效 AgentDecision 才进入状态转换。正数 `maxSteps` 使用快照中的累计
+ * `stepCount`；`0` 表示不按 Step 数终止。
  *
- * 当前 Runner 只接受返回 AgentDecision 的 StepExecutor，返回值会先做运行时
- * 严格校验；`tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
+ * `execute()` 兼容实现返回的 AgentDecision 会先做运行时严格校验；阶段化实现由
+ * `decide()` 返回业务决策或 Think 请求，并由 `think()` 生成自由文本。Think 不增加
+ * Step、不执行 Tool。`tool_call` 按冻结 Profile、Registry、输入协议和 Policy 顺序校验，自动允许
  * 的 Action 会先保存 pendingAction，再调用 Tool，最后保存 Observation；需要
  * 批准的 Action 会保存为 `awaiting_approval` 并返回 waiting，不调用 Tool。收到
  * 匹配的瞬时 `authorizedActionId` 后，Runner 才会执行已批准的同一 Action。
@@ -570,8 +594,9 @@ export interface RunnerDependencies {
  * `outcome_unknown` waiting，等待 Coordinator 再次批准或拒绝。领域 failure 会
  * 继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
- * Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化；Store
- * 的读取或写入异常原样传播，写入失败后不会继续执行下一 Step。
+ * 旧式 Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化；阶段化
+ * Executor 的模型调用失败保存为执行错误，不伪造 AgentDecision。Store 的读取或写入
+ * 异常原样传播，写入失败后不会继续执行下一阶段或 Step。
  */
 export class Runner {
     private readonly store: GoalStore;
@@ -1346,15 +1371,43 @@ export class Runner {
         facts: readonly TrajectoryEventDraft[],
         acceptedPatch: AcceptedMemoryPatchInput | undefined,
         control?: ExecutionControl,
+        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+            readonly executionUnitId?: string;
+            readonly stepIndex?: number;
+        },
     ): Promise<Goal> {
         const result = await this.checkpointCommitter.commit(goal, {
             facts,
             ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
             ...(control === undefined ? {} : { control }),
+            ...(modelContextFrame === undefined ? {} : { modelContextFrame }),
         });
         this.publishCommittedEvents(result);
         this.publishCheckpointCommitted(result, facts);
         return result.goal;
+    }
+
+    private async commitStageCheckpoint(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        control: ExecutionControl | undefined,
+        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+            readonly executionUnitId?: string;
+            readonly stepIndex?: number;
+        },
+    ): Promise<Goal> {
+        try {
+            return await this.commitDecision(
+                goal,
+                facts,
+                undefined,
+                control,
+                modelContextFrame,
+            );
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throw new StageCheckpointFailure(error);
+        }
     }
 
     private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
@@ -1916,7 +1969,7 @@ export class Runner {
                 try {
                     throwIfAborted(control);
                     const tools = this.getAuthorizedToolDefinitions(goal, control);
-                    const execution = await this.executor.execute({
+                    const stepInput: StepExecutionInput = {
                         goal,
                         authorizedTools: tools,
                         ...(session === undefined
@@ -1930,23 +1983,167 @@ export class Runner {
                         ...(this.executionStream === undefined
                             ? {}
                             : { executionStream: this.executionStream }),
-                    });
-                    throwIfAborted(control);
-                    const isResultObject = typeof execution === "object"
-                        && execution !== null
-                        && "decision" in execution;
-                    const extractedDecision = isResultObject ? (execution as any).decision : execution;
-                    const extractedThought = isResultObject && typeof (execution as any).thought === "string"
-                        ? (execution as any).thought
-                        : undefined;
-                    normalized = {
-                        decision: validateAgentDecision(extractedDecision),
-                        thought: extractedThought,
                     };
-                    this.validateCompletionEvidence(goal, normalized.decision, session);
+                    const supportsStages = this.executor.decide !== undefined
+                        && this.executor.think !== undefined;
+                    if ((this.executor.decide === undefined) !== (this.executor.think === undefined)) {
+                        throw invalidAgentDecision("StepExecutor must provide both decide() and think() for staged execution");
+                    }
+
+                    if (supportsStages) {
+                        const thinkHistory: ThinkExchange[] = [];
+                        while (true) {
+                            throwIfAborted(control);
+                            let stageResult: DecideStageResult;
+                            try {
+                                stageResult = await this.executor.decide!({
+                                    ...stepInput,
+                                    goal,
+                                    thinkHistory,
+                                });
+                            } catch (error) {
+                                if (isExecutionAbortedError(error)) throw error;
+                                throw new StageExecutionFailure(error);
+                            }
+                            throwIfAborted(control);
+
+                            if (stageResult.kind === "request_think") {
+                                const thinkGoal = stageResult.goal.trim();
+                                if (thinkGoal.length === 0) {
+                                    throw invalidAgentDecision("request_think.goal must contain non-whitespace text");
+                                }
+                                if (stageResult.modelContextFrame !== undefined
+                                    && stageResult.modelContextFrame.stage !== "decide") {
+                                    throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
+                                }
+                                const requestId = randomUUID();
+                                const stepOrdinal = goal.state.run.stepCount + 1;
+                                const requestedFact: TrajectoryEventDraft = {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    stepIndex: stepOrdinal,
+                                    eventType: "think_requested",
+                                    payload: {
+                                        type: "think_requested",
+                                        requestId,
+                                        stepOrdinal,
+                                        goal: thinkGoal,
+                                    },
+                                };
+                                goal = await this.commitStageCheckpoint(
+                                    goal,
+                                    [requestedFact],
+                                    control,
+                                    stageResult.modelContextFrame === undefined
+                                        ? undefined
+                                        : {
+                                            ...stageResult.modelContextFrame,
+                                            executionUnitId,
+                                            stepIndex: stepOrdinal,
+                                        },
+                                );
+
+                                let thinkResult: ThinkStageResult;
+                                try {
+                                    thinkResult = await this.executor.think!({
+                                        ...stepInput,
+                                        goal,
+                                        thinkGoal,
+                                        thinkHistory,
+                                    });
+                                } catch (error) {
+                                    if (isExecutionAbortedError(error)) throw error;
+                                    throw new StageExecutionFailure(error);
+                                }
+                                throwIfAborted(control);
+                                if (thinkResult.goal.trim() !== thinkGoal) {
+                                    throw invalidAgentDecision("Think stage returned a goal different from the requested goal");
+                                }
+                                if (thinkResult.modelContextFrame !== undefined
+                                    && thinkResult.modelContextFrame.stage !== "think") {
+                                    throw invalidAgentDecision("Think stage returned a non-Think model context frame");
+                                }
+                                const thinkOutput = thinkResult.output.trim();
+                                if (thinkOutput.length === 0) {
+                                    throw invalidAgentDecision("Think stage returned empty text");
+                                }
+                                const completedFact: TrajectoryEventDraft = {
+                                    goalId: goal.id,
+                                    runId: goal.state.run.id,
+                                    phase: "executing",
+                                    executionUnitId,
+                                    stepIndex: stepOrdinal,
+                                    eventType: "think_completed",
+                                    payload: {
+                                        type: "think_completed",
+                                        requestId,
+                                        stepOrdinal,
+                                        goal: thinkGoal,
+                                        output: thinkOutput,
+                                    },
+                                };
+                                goal = await this.commitStageCheckpoint(
+                                    goal,
+                                    [completedFact],
+                                    control,
+                                    thinkResult.modelContextFrame === undefined
+                                        ? undefined
+                                        : {
+                                            ...thinkResult.modelContextFrame,
+                                            executionUnitId,
+                                            stepIndex: stepOrdinal,
+                                        },
+                                );
+                                thinkHistory.push({ requestId, goal: thinkGoal, output: thinkOutput });
+                                continue;
+                            }
+
+                            if (stageResult.modelContextFrame !== undefined
+                                && stageResult.modelContextFrame.stage !== "decide") {
+                                throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
+                            }
+                            const decision = validateAgentDecision(stageResult.decision);
+                            this.validateCompletionEvidence(goal, decision, session);
+                            if (stageResult.modelContextFrame !== undefined) {
+                                goal = await this.commitStageCheckpoint(
+                                    goal,
+                                    [],
+                                    control,
+                                    {
+                                        ...stageResult.modelContextFrame,
+                                        executionUnitId,
+                                        stepIndex: goal.state.run.stepCount + 1,
+                                    },
+                                );
+                            }
+                            normalized = { decision };
+                            break;
+                        }
+                    } else {
+                        const execution = await this.executor.execute(stepInput);
+                        throwIfAborted(control);
+                        const isResultObject = typeof execution === "object"
+                            && execution !== null
+                            && "decision" in execution;
+                        const extractedDecision = isResultObject ? (execution as any).decision : execution;
+                        const extractedThought = isResultObject && typeof (execution as any).thought === "string"
+                            ? (execution as any).thought
+                            : undefined;
+                        normalized = {
+                            decision: validateAgentDecision(extractedDecision),
+                            thought: extractedThought,
+                        };
+                        this.validateCompletionEvidence(goal, normalized.decision, session);
+                    }
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
                         throw error;
+                    }
+
+                    if (error instanceof StageCheckpointFailure) {
+                        throw error.original;
                     }
 
                     throwIfAborted(control);
@@ -1957,6 +2154,16 @@ export class Runner {
                     }
                     if (error instanceof ContextLookupProtocolError) {
                         return this.invalidContextLookup(error.message);
+                    }
+                    if (error instanceof StageExecutionFailure) {
+                        return this.stopWithExecutionError(
+                            goal,
+                            new RunnerExecutionError(
+                                "INVALID_AGENT_DECISION",
+                                error.message,
+                            ),
+                            control,
+                        );
                     }
 
                     // 未批准任务时，当前协议尚未允许 fail Decision 形成执行 Step。

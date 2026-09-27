@@ -36,10 +36,11 @@ waiting 输入调用 `resume` 并保留当前 Run；completed 输入调用 `cont
 - 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
 - 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；答案先写入真实消息与回答事实，再恢复 Runner。
+- 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 
 每次下游模型或 Tool 调用前，Runtime 先保存所需事实和 Snapshot。完成声明必须引用已提交的 Tool/Observation Evidence；用户回答本身不能成为完成证据。运行时错误、协议错误、身份不匹配和旧 Snapshot 均 fail-closed。
 
-Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-stream.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，Tool 生命周期由 Runner 发出，事实提交成功后发出 Trajectory 事件和 `step_committed`；发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
+Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-stream.md) 发布旁路事件。`step_started` 在 Executor 调用前发出，阶段事实与上下文 frame 在进入下一模型阶段前先提交，Tool 生命周期由 Runner 发出；事实提交成功后发出 Trajectory 事件和 `step_committed`。发布异常被隔离，不改变 Runtime 状态或提交顺序。实时事件不是恢复来源，恢复仍读取 Snapshot/Trajectory。
 
 模型调用指标使用独立 `MetricsStore` 与覆盖标记 Port：开始/结束事实不进入 Goal、Trajectory 或恢复状态。调用用量和计时由 Agent 在模型边界记录，查询投影由 `session-metrics` 根据最新 Goal Snapshot 与指标事实归约；指标写入失败不得改变 Goal 执行结果。
 

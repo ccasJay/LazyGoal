@@ -645,7 +645,7 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
-test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 Step", async () => {
+test("Runner 将阶段 Adapter 原始错误作为执行错误保存且不伪造 Decision", async () => {
     const store = new InMemoryGoalStore();
     const adapterError = new Error("供应商连接失败");
     const adapter = new RejectingAdapter(adapterError);
@@ -666,21 +666,16 @@ test("Runner 将 Adapter 原始错误规范化为 fail Decision 并只计一次 
     }
 
     assert.equal(result.state.status, "failed");
-    assert.equal(result.state.stepCount, 1);
-    assert.deepEqual(result.state.lastStep, {
-        kind: "decision",
-        result: {
-            kind: "fail",
-            error: adapterError.message,
-        },
-    });
+    assert.equal(result.state.stepCount, 0);
+    assert.equal(result.state.lastStep, undefined);
+    assert.equal(result.state.stopReason?.kind, "execution_error");
+    assert.equal(
+        result.state.stopReason?.kind === "execution_error" ? result.state.stopReason.code : undefined,
+        "INVALID_AGENT_DECISION",
+    );
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
-    assert.deepEqual((await store.restore(goalId))?.state.messages.at(-1), {
-        role: "assistant",
-        assistant: { profileId: profile.id },
-        content: adapterError.message,
-    });
+    assert.notEqual((await store.restore(goalId))?.state.messages.at(-1)?.content, adapterError.message);
 });
 
 test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 generation 和新 Adapter", async () => {

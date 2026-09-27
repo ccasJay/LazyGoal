@@ -1,4 +1,4 @@
-import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
+import type { LLMMessage, LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
@@ -32,6 +32,7 @@ import { ModelContextHardOverflowError } from "./context-selector";
 
 import type {
     AgentDecision,
+    DecideOutput,
     AuthorizedToolContract,
     ModelOutputContractBundle,
     SystemToolDeclaration,
@@ -45,6 +46,58 @@ import {
 
 export type { ModelInferenceView } from "./model-inference-view";
 export type { StructuredOutputMode } from "../../llm/src/core/types";
+
+/**
+ * 构造 Decide/Think 请求时使用的阶段输入。
+ *
+ * @remarks
+ * Think 历史由 Runtime 提供，作为临时 user/assistant 消息加入当前请求；它不会写入真实
+ * Conversation。Think 目标只在 Think 阶段必需。
+ *
+ * @example
+ * ```ts
+ * const stageContext: StepPromptStageContext = {
+ *     allowThink: true,
+ *     thinkHistory: [],
+ * };
+ * ```
+ */
+export interface StepPromptStageContext {
+    /** Decide 阶段是否可返回 request_think 控制分支。 */
+    readonly allowThink?: boolean;
+    /** 当前 Step 已提交的 Think 目标与输出。 */
+    readonly thinkHistory?: readonly Readonly<{ goal: string; output: string }>[];
+    /** Think 阶段本次必须解决的明确目标。 */
+    readonly thinkGoal?: string;
+}
+
+function createStageMessages(
+    stage: PromptStage,
+    context: StepPromptStageContext | undefined,
+): readonly LLMMessage[] {
+    const messages: LLMMessage[] = [];
+    for (const exchange of context?.thinkHistory ?? []) {
+        messages.push({
+            role: "user",
+            content: JSON.stringify({
+                source: "runtime_think_request",
+                goal: exchange.goal,
+            }),
+        });
+        messages.push({ role: "assistant", content: exchange.output });
+    }
+    if (stage === "think") {
+        const goal = context?.thinkGoal?.trim();
+        if (goal === undefined || goal.length === 0) {
+            throw new Error("Think stage requires a non-blank thinkGoal");
+        }
+        messages.push({
+            role: "user",
+            content: JSON.stringify({ source: "runtime_think_request", goal }),
+        });
+    }
+    return messages;
+}
 
 /**
  * 绑定单轮 LLM 请求与对应响应解析契约包的请求计划。
@@ -112,6 +165,7 @@ async function assembleTrajectoryContext(
     renderer: PromptBundleRenderer,
     signal: AbortSignal | undefined,
     assembler: TrajectoryModelContextAssembler | undefined,
+    stageMessages: readonly LLMMessage[],
 ): Promise<Readonly<{
     view: ModelInferenceView;
     sectionFrames: readonly ModelContextFramePayload[];
@@ -144,6 +198,7 @@ async function assembleTrajectoryContext(
                     role: message.role,
                     content: message.content,
                 })),
+                ...stageMessages,
                 ...sectionPlan.requestMessages.map((message) => ({
                     role: message.role,
                     content: message.content,
@@ -189,10 +244,11 @@ async function compactConversation(
  * @param modelCapabilities - 可选模型上下文预算能力。
  * @param structuredOutputMode - Decide 当前使用 strict 或 prompt_only 响应约束。
  * @param stage - 当前请求属于 Decide 还是 Think；省略时使用 Decide。
+ * @param stageContext - Think 目标、已提交 Think 历史或 Decide 的 Think 控制开关。
  * @returns 完成上下文裁剪与渲染后的单轮 LLM 请求。
  * @throws Goal 不处于 running executing 阶段时抛出；渲染失败同样在调用前抛出。
  */
-export async function buildStepRequest(
+export async function buildStepRequest<Result extends DecideOutput = AgentDecision>(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     renderer: PromptBundleRenderer,
@@ -204,7 +260,9 @@ export async function buildStepRequest(
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
     stage: PromptStage = "decide",
-): Promise<ModelOutputRequestPlan<AgentDecision>> {
+    stageContext?: StepPromptStageContext,
+): Promise<ModelOutputRequestPlan<Result>> {
+    const stageMessages = createStageMessages(stage, stageContext);
     const projected = project(
         goal,
         tools,
@@ -227,6 +285,7 @@ export async function buildStepRequest(
         renderer,
         signal,
         trajectoryContextAssembler,
+        stageMessages,
     );
 
     const isInitialCheckpoint = assembled.view.contextEpoch?.control.status === "checkpoint_required";
@@ -240,18 +299,27 @@ export async function buildStepRequest(
     }));
 
     const initialBundle = isInitialCheckpoint
-        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<AgentDecision>)
-        : (createModelOutputContractBundle({
+        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<Result>)
+        : (createModelOutputContractBundle<Result>({
             kind: "executing",
             authorizedTools: authorizedToolContracts,
             taskPresent,
             planMode,
             goalPlanWritable,
-        }) as unknown as ModelOutputContractBundle<AgentDecision>);
+            allowThink: stage === "decide" && stageContext?.allowThink === true,
+        }) as unknown as ModelOutputContractBundle<Result>);
 
     const toolDeclarations = isInitialCheckpoint
         ? createCheckpointToolDeclarations()
-        : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent, planMode, goalPlanWritable);
+        : stage === "think"
+            ? []
+        : createUnifiedToolDeclarations(
+            authorizedToolContracts,
+            taskPresent,
+            planMode,
+            goalPlanWritable,
+            stage === "decide" && stageContext?.allowThink === true,
+        );
 
     return renderFinalRequest(
         assembled.view,
@@ -262,11 +330,13 @@ export async function buildStepRequest(
         structuredOutputMode,
         assembled.sectionFrames,
         goal.state.messages.length,
+        stageMessages,
+        stage,
     );
 }
 
 /** 对最终 Renderer 输出执行完整单元回退和硬预算 fail-closed。 */
-function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
+function renderFinalRequest<Result = AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     initialBundle: ModelOutputContractBundle<Result>,
@@ -275,6 +345,8 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
     structuredOutputMode: StructuredOutputMode = "strict",
     baselineFrames: readonly ModelContextFramePayload[] = [],
     conversationPosition = view.conversation.length,
+    stageMessages: readonly LLMMessage[] = [],
+    stage: PromptStage = view.prompt.stage,
 ): ModelOutputRequestPlan<Result> {
     let currentBundle = initialBundle;
     let currentToolDeclarations = initialToolDeclarations;
@@ -289,7 +361,7 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
             renderer.renderDynamicSections(targetView),
             baselineFrames,
         );
-        const shapeGuide = structuredOutputMode === "prompt_only"
+        const shapeGuide = stage === "decide" && structuredOutputMode === "prompt_only"
             ? bundle.shapeGuide
             : undefined;
         const request = renderRequest(
@@ -297,10 +369,11 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
             renderer,
             shapeGuide,
             sectionPlan.requestMessages,
+            stageMessages,
         );
         return {
             ...request,
-            ...(currentToolDeclarations.length > 0
+            ...(stage === "decide" && currentToolDeclarations.length > 0
                 ? {
                     tools: currentToolDeclarations.map((declaration) => ({
                         id: declaration.id,
@@ -310,7 +383,7 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
                     toolChoice: "required" as const,
                 }
                 : {}),
-            ...(structuredOutputMode === "strict"
+            ...(stage === "decide" && structuredOutputMode === "strict"
                 ? {
                     structuredOutput: {
                         name: bundle.name,

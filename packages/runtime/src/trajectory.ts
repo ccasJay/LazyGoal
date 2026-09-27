@@ -103,6 +103,8 @@ export interface ModelContextFramePayload {
  * @remarks
  * 每个事件信封绑定一个 Goal 与 Run。任务审批等待、批准和反馈额外携带同一交互的
  * `requestId`，消费者可据此识别过期操作；反馈或批准不会改变事件所属 Run。
+ * `think_requested` 与 `think_completed` 记录一个 Step 内的阶段控制与自由文本，不是
+ * AgentDecision、Tool Observation 或完成证据。
  *
  * @example
  * ```ts
@@ -149,6 +151,19 @@ export type TrajectoryEventPayload =
         readonly type: "decision_received";
         readonly decision: AgentDecision;
         readonly thought?: string;
+    }
+    | {
+        readonly type: "think_requested";
+        readonly requestId: string;
+        readonly stepOrdinal: number;
+        readonly goal: string;
+    }
+    | {
+        readonly type: "think_completed";
+        readonly requestId: string;
+        readonly stepOrdinal: number;
+        readonly goal: string;
+        readonly output: string;
     }
     | ModelContextFramePayload
     | {
@@ -644,6 +659,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "task_approved",
     "task_feedback_received",
     "decision_received",
+    "think_requested",
+    "think_completed",
     "model_context_frame",
     "context_lookup_requested",
     "context_lookup_completed",
@@ -687,6 +704,18 @@ function assertNonEmptyString(value: unknown, field: string): asserts value is s
     }
 }
 
+function assertNonBlankString(value: unknown, field: string): asserts value is string {
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new TrajectoryProtocolError(`${field} must contain non-whitespace text`);
+    }
+}
+
+function assertPositiveInteger(value: unknown, field: string): asserts value is number {
+    if (!Number.isSafeInteger(value) || (value as number) < 1) {
+        throw new TrajectoryProtocolError(`${field} must be a positive safe integer`);
+    }
+}
+
 function assertOptionalNonEmptyString(value: unknown, field: string): void {
     if (value !== undefined) assertNonEmptyString(value, field);
 }
@@ -708,6 +737,23 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         if ("thought" in payload && payload.thought !== undefined && typeof payload.thought !== "string") {
             throw new TrajectoryProtocolError("thought must be a string");
         }
+    }
+    if (eventType === "think_requested") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "stepOrdinal", "goal"].includes(key))) {
+            throw new TrajectoryProtocolError("think_requested contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "think_requested.requestId");
+        assertPositiveInteger(payload.stepOrdinal, "think_requested.stepOrdinal");
+        assertNonBlankString(payload.goal, "think_requested.goal");
+    }
+    if (eventType === "think_completed") {
+        if (Object.keys(payload).some((key) => !["type", "requestId", "stepOrdinal", "goal", "output"].includes(key))) {
+            throw new TrajectoryProtocolError("think_completed contains unknown fields");
+        }
+        assertNonEmptyString(payload.requestId, "think_completed.requestId");
+        assertPositiveInteger(payload.stepOrdinal, "think_completed.stepOrdinal");
+        assertNonBlankString(payload.goal, "think_completed.goal");
+        assertNonBlankString(payload.output, "think_completed.output");
     }
     if (eventType === "model_context_frame") {
         if (Object.keys(payload).some((key) => ![
@@ -1085,6 +1131,9 @@ export function classifyTrajectoryEvent(
         case "context_epoch_advanced":
             return "decision";
         case "decision_received":
+        case "think_requested":
+        case "think_completed":
+        case "model_context_frame":
         case "model_context_frame":
         case "context_lookup_requested":
         case "context_lookup_completed":
