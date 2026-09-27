@@ -12,9 +12,10 @@ import { readLlmConfig, LlmConfigurationError } from "../../llm/src/config";
 import { createLlmAdapter } from "../../llm/src/factory";
 import { DEFAULT_PROMPT_TEMPLATE_ASSETS, DEFAULT_PROMPT_BUNDLE_MANIFEST } from "../src/prompting/default-bundles";
 import { createPromptBundleRenderer } from "../src/prompting/renderer";
-import type { PromptBundleRenderer } from "../src/prompting/types";
+import type { PromptBundleRenderer, PromptContext } from "../src/prompting/types";
 import { renderRequest } from "../src/render";
 import { parseModelOutput } from "../src/model-output";
+import { createDefaultDynamicSectionRegistry } from "../src/prompting/dynamic-section-registry";
 import { decisionScenarios, decisionScenarioView, decisionTools, scoreDecision } from "./decision-guidance-fixtures";
 
 const baseline = new URL("./fixtures/decision-guidance-baseline/", import.meta.url);
@@ -26,12 +27,14 @@ type Scenario = typeof decisionScenarios[number];
 export async function evaluationRenderers() {
     const oldDescriptions: Record<string, string> = JSON.parse(await readFile(new URL("tool-descriptions.json", baseline), "utf8"));
     const current = await Promise.all(DEFAULT_PROMPT_TEMPLATE_ASSETS.map(async asset => ({ id: asset.id, source: await readFile(asset.sourceUrl, "utf8") })));
-    const old = await Promise.all(current.map(async asset => asset.id === "profile@1" ? asset : {
+    const baselineTemplateIds = new Set(["global-overview@1", "agent-decision@1"]);
+    const old = await Promise.all(current.map(async asset => baselineTemplateIds.has(asset.id) ? {
         id: asset.id, source: await readFile(new URL(`${asset.id}.njk`, baseline), "utf8"),
-    }));
+    } : asset));
+    const dynamicSectionRegistry = createDefaultDynamicSectionRegistry();
     return {
-        old: createPromptBundleRenderer({ templates: old, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST] }),
-        new: createPromptBundleRenderer({ templates: current, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST] }),
+        old: createPromptBundleRenderer({ templates: old, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST], dynamicSectionRegistry }),
+        new: createPromptBundleRenderer({ templates: current, bundles: [DEFAULT_PROMPT_BUNDLE_MANIFEST], dynamicSectionRegistry }),
         oldDescriptions,
         templateHashes: { old: hash(old), new: hash(current) },
     };
@@ -45,8 +48,17 @@ export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRend
         ? { kind: "checkpoint" }
         : { kind: "executing", authorizedTools: tools, taskPresent: scenario.approved, planMode: false }) as ModelOutputContractBundle<AgentDecision>;
     const declarations = scenario.checkpoint ? createCheckpointToolDeclarations() : createUnifiedToolDeclarations(tools, scenario.approved);
+    const view = decisionScenarioView(scenario);
+    const requestRenderer: PromptBundleRenderer = oldDescriptions === undefined ? renderer : {
+        render: () => renderer.render(Object.assign({}, view.prompt, {
+            task: view.dynamicContext.task,
+            goalPlan: view.dynamicContext.goalPlan,
+            authorizedTools: view.dynamicContext.authorizedTools,
+        }) as PromptContext),
+        renderDynamicSections: renderer.renderDynamicSections,
+    };
     const request = {
-        ...renderRequest(decisionScenarioView(scenario), renderer, mode === "prompt_only" ? bundle.shapeGuide : undefined),
+        ...renderRequest(view, requestRenderer, mode === "prompt_only" ? bundle.shapeGuide : undefined),
         tools: declarations.map(d => ({ id: d.id, description: oldDescriptions?.[d.id] ?? d.description, parametersSchema: d.parametersSchema })),
         toolChoice: "required" as const,
         ...(mode === "strict" ? { structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } } : {}),

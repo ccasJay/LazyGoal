@@ -1,6 +1,6 @@
 # Prompt 基础指令与动态上下文分层实施计划
 
-- [ ] //TODO 1. 接入动态 Section 注册与固定指令分层
+- [x] //TODO 1. 接入动态 Section 注册与固定指令分层
 
   - 实现目标：在 Agent 建立显式 `DynamicSectionRegistry`，注册首版五个 section，并将其状态投影移出固定 system 渲染路径。
   - 成功判据：改变 Run 模式、任务、GoalPlan、授权工具或 Working Memory 时，同阶段固定 system 文本不变；section 来源、角色和顺序稳定；测试注册的第六个 section 无需修改通用投影入口。

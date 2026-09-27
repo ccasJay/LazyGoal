@@ -169,6 +169,7 @@ export type {
     ModelContextEpochView,
     ModelWorkingMemory,
     ModelInferenceView,
+    ModelDynamicContext,
     ModelTrajectoryContext,
     ModelPendingAction,
     ModelProfileView,
@@ -211,6 +212,16 @@ export {
 } from "./prompting/default-bundles";
 export { createPromptBundleRenderer } from "./prompting/renderer";
 export { PromptBundleRegistry } from "./prompting/registry";
+export {
+    DynamicSectionRegistry,
+    createDefaultDynamicSectionRegistry,
+} from "./prompting/dynamic-section-registry";
+export type {
+    DynamicSectionDefinition,
+    DynamicSectionMessage,
+    DynamicSectionProjection,
+    DynamicSectionRole,
+} from "./prompting/dynamic-section-registry";
 export {
     PROMPT_BUNDLE_CONFIGURATION_ERROR_CODE,
     PROMPT_RENDER_ERROR_CODE,

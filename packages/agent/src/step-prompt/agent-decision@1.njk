@@ -1,35 +1,6 @@
 Active Executing Protocol: structured@1; trajectory-layered@1; bm25-lite@1
-Checkpoint takes precedence over every rule below: when checkpointRequired is true in the current Working Context, call only system_context_checkpoint. Do not emit an Action, completion, wait, question, proposal or GoalPlan update in that response.
-Read the current user request, execution state, Working Memory and available trajectory context before choosing the next decision.
-{% if goalPlanWritable and not goalPlan %}No GoalPlan exists yet. The first valid system_update_goal_plan patch must use baseRevision 0; Runtime creates the GoalPlan only after the whole patch succeeds.{% endif %}
-{% if goalPlan %}
-GoalPlan (read-only projection; revision {{ goalPlan.revision }}):
-{% for item in goalPlan.items -%}
-- [{{ item.status }}] {{ item.content }} (id: {{ item.id }})
-{% endfor %}
-{% if goalPlanWritable %}The GoalPlan is changed only through an atomic system_update_goal_plan call using this revision. Runtime allocates Todo IDs and validates status transitions; do not update it through conversation text or Working Memory. To complete a Todo, cite committed Tool/Observation evidence from this Run in that operation's evidenceSequences. Plan updates do not replace the current Run's objective or completion rules.{% else %}This Run can read the GoalPlan but cannot update it; plan changes require a mode that exposes the authorized update Tool.{% endif %}
-{% endif %}
-{% if runMode == "normal" %}
-Normal Run: act directly on the current user request. Do not create a task proposal, wait for task approval, or invent an approved task. Use the authorized business Tools that advance the request; their existing Profile, Tool Policy and Action approval rules still apply. A normal completion provides `evidenceSequences` containing current Run committed Tool/Observation sequences. If this Run has a business Tool Observation, cite at least one; an answer that required no business Tool Observation may use an empty list. User answers, task proposals, and historical facts are not Tool/Observation evidence.
-Outside checkpoint, allowed system tools: system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user{% if goalPlanWritable %}, system_update_goal_plan{% endif %}.
-{% elif task %}
-Approved Goal Task Contract:
-Objective: {{ task.objective }}
-Completion Criteria:
-{% for criterion in task.completionCriteria -%}
-- [{{ loop.index0 }}] {{ criterion.text }}
-{% endfor %}
-Within the approved task, choose reasonable defaults for reversible implementation details and continue. Ask the user only when missing information materially affects scope, correctness, or authorization and cannot be obtained through the available tools.
-Do not silently expand the approved scope or request approval again for work already covered by this task.
-Outside checkpoint, allowed system tools: system_complete_task, system_wait_for_input, system_fail_goal, system_context_lookup, ask_user{% if goalPlanWritable %}, system_update_goal_plan{% endif %}.
-You may also call an authorized business tool with arguments matching its input schema. system_propose_task_plan is prohibited after a task has been approved.
-Before system_complete_task, check every completion criterion and provide committed Tool/Observation evidence for each. Report unresolved criteria, unverified results and blockers accurately; partial progress is not completion.
-{% else %}
-Plan Run without an approved task: first submit a task proposal containing a focused objective and verifiable completion criteria by calling system_propose_task_plan. Do not call a business Tool before proposing. This ordering is a Prompt instruction; Runtime still handles every business Tool request under existing Profile, Tool Policy and Action approval rules and does not add an approval or `isReadOnly` gate. Once a proposal is persisted, stop and wait for the user's approval or feedback before any further model or Tool call.
-Outside checkpoint, allowed system tools: ask_user, system_context_lookup, system_propose_task_plan{% if goalPlanWritable %}, system_update_goal_plan{% endif %}.
-Do not call system_complete_task, system_wait_for_input or system_fail_goal before the task is approved.
-{% endif %}
-{% if runMode == "plan" and task %}This Plan Run can complete only after every approved criterion is satisfied; use `completionEvidence` to cover each criterion exactly once with committed Tool/Observation evidence.{% endif %}
+Checkpoint takes precedence over every rule below. When the current Working Context requires a checkpoint, call only the checkpoint Tool declared for this request. Do not emit an Action, completion, wait, question, proposal or GoalPlan update in that response.
+Read the current user request, dynamic sections, execution state, Working Memory and available trajectory context before choosing the next decision.
 Choose an action that advances the current user request and, where present, an unmet approved criterion; verifies a recent change; or resolves an uncertainty blocking the next step. Prefer focused, useful work over unnecessary exploration or artificially fragmented actions. Wait for the committed Observation before making another decision.
 Obtain current environment facts through authorized Tools. Use system_context_lookup for missing historical execution, user decisions or rationale, not to establish current external state. Use ask_user for 1 to 3 focused questions only when the needed information must come from the user.
 After a failure, use its observed cause to change the input, prerequisites or method. Repeat an unchanged attempt only when evidence indicates a transient failure and there is a reason to expect a different result.

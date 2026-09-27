@@ -120,9 +120,12 @@ async function assembleTrajectoryContext(
                 role: message.role,
                 content: message.content,
             })),
+            ...renderer.renderDynamicSections(view).map((section) => ({
+                role: section.role,
+                content: section.content,
+            })),
             renderWorkingContextMessage(
                 view.workingContext,
-                view.workingMemory,
                 undefined,
                 view.contextLookupResult,
                 view.contextEpoch,
@@ -206,7 +209,7 @@ export async function buildStepRequest(
     const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
-    const goalPlanWritable = !isInitialCheckpoint && assembled.prompt.goalPlanWritable;
+    const goalPlanWritable = !isInitialCheckpoint && assembled.dynamicContext.goalPlanWritable;
     const authorizedToolContracts = tools.map((t) => ({
         id: t.id,
         inputContract: t.inputContract,

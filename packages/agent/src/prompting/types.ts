@@ -1,10 +1,12 @@
 import type {
+    ModelInferenceView,
     ModelContextProtocol,
     ModelContextRetrievalProtocol,
     ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
 } from "../model-inference-view";
+import type { DynamicSectionMessage } from "./dynamic-section-registry";
 
 export type {
     PromptContext,
@@ -44,13 +46,13 @@ export interface PromptTemplateDefinition {
  * Bundle 中的单个组合 section。
  *
  * @remarks
- * 普通 section 直接引用模板 ID；`phase_protocol` section 必须显式给出三个
- * `PromptPhase` 到模板 ID 的完整映射。Render 顺序只由 `sections` 数组决定，
+ * 普通 section 直接引用模板 ID；`phase_protocol` section 必须显式给出全部受支持
+ * `PromptPhase` 到模板 ID 的映射。Render 顺序只由 `sections` 数组决定，
  * 不受模板注册顺序或文件遍历顺序影响。
  */
 export type PromptBundleSection =
     | {
-        readonly slot: "global_overview" | "profile" | "authorized_tools";
+        readonly slot: "global_overview" | "profile";
         readonly templateId: string;
     }
     | {
@@ -63,8 +65,7 @@ export type PromptBundleSection =
  *
  * @remarks
  * 当前实现只支持 Bundle v1；`sections` 是有序只读数组，Registry 构造时强制其
- * slot 顺序为 Global Overview → Profile → Phase Protocol → Authorized Tools，且每个
- * slot 恰好出现一次。
+ * slot 顺序为 Global Overview → Profile → Phase Protocol，且每个 slot 恰好出现一次。
  *
  * @example
  * ```ts
@@ -79,7 +80,6 @@ export type PromptBundleSection =
  *                 executing: "agent-decision@1",
  *             },
  *         },
- *         { slot: "authorized_tools", templateId: "authorized-tools@1" },
  *     ],
  * };
  * ```
@@ -98,15 +98,23 @@ export interface PromptBundleManifest {
 }
 
 /**
- * 已按版本与 Phase 解析、可渲染完整 system prompt 的 Bundle Renderer。
+ * 已按版本与 Phase 解析固定 system 前缀和动态 section 的 Renderer。
  *
  * @remarks
- * 实现必须只读取传入的 `PromptContext`，不得修改 Goal、会话历史、PromptContext
- * 或已保存 Snapshot；对未注册的 Bundle 版本必须抛出错误而非回退到其他版本。
+ * `render` 只读取固定 `PromptContext`；`renderDynamicSections` 只读取已投影的
+ * `ModelInferenceView`。两者不得修改 Goal、会话历史、View 或 Snapshot；对未注册
+ * 的 Bundle 版本必须抛出错误而非回退到其他版本。
  *
  * @example
  * ```ts
- * const system = renderer.render({ promptBundleVersion: 1, phase: "executing", profile, authorizedTools });
+ * const system = renderer.render({
+ *     promptBundleVersion: 1,
+ *     phase: "executing",
+ *     profile,
+ *     memoryProtocol: { kind: "structured", version: 1 },
+ *     modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+ *     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+ * });
  * ```
  */
 export interface PromptBundleRenderer {
@@ -116,4 +124,11 @@ export interface PromptBundleRenderer {
      * @throws PromptRenderError 变量缺失或模板渲染失败时抛出。
      */
     render(context: PromptContext): string;
+
+    /**
+     * @param view - 已完成 Runtime 单向投影的模型 View。
+     * @returns 按注册顺序渲染的动态 section；元数据与正文保持分离。
+     * @throws 动态模板缺失或渲染失败时抛出 `PromptRenderError`。
+     */
+    renderDynamicSections(view: ModelInferenceView): readonly DynamicSectionMessage[];
 }

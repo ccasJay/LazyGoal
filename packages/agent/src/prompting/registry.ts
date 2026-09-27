@@ -20,17 +20,17 @@ import type {
 } from "./types";
 
 /**
- * 每个 Bundle 必须出现且保持顺序的四个 slot。
+ * 每个 Bundle 必须出现且保持顺序的三个固定 slot。
  *
  * @remarks
- * 该顺序是当前 Prompt 协议的固定组成：Global Overview → Profile → Phase Protocol
- * → Authorized Tools。Registry 构造时强制校验，避免模板注册顺序影响最终结果。
+ * 该顺序是当前 Prompt 协议的固定组成：Global Overview → Profile → Phase Protocol。
+ * 动态 section 由独立注册表投影，不属于固定 Bundle。Registry 构造时强制校验，
+ * 避免模板注册顺序影响最终结果。
  */
 const SLOT_ORDER: readonly PromptBundleSection["slot"][] = [
     "global_overview",
     "profile",
     "phase_protocol",
-    "authorized_tools",
 ];
 
 const PHASES: readonly PromptPhase[] = [

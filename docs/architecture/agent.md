@@ -6,20 +6,21 @@ Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已
 
 ## Prompt Bundle
 
-默认 Renderer 只注册 Prompt Bundle v1 的四个固定资产，并按以下顺序渲染：
+默认 Renderer 只注册 Prompt Bundle v1 的三个固定 system 资产，并按以下顺序渲染：
 
 1. Global Overview；
 2. Profile；
 3. 当前唯一 `executing` Phase Protocol；
-4. Authorized Tools。
 
 Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。Registry 在构造期检查模板、slot 顺序、协议和阶段映射；不提供旧模板或版本回退。
 
+Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进入固定 `PromptContext`。独立 `DynamicSectionRegistry` 按稳定 ID、来源、角色和顺序投影这五个 section，并使用 Bundle v1 注册的版本化模板渲染为 `user` 消息；Projector/Renderer 通用遍历注册项，不按 section ID 分支。新增 section 只需增加注册定义和模板资产。
+
 ## 单轮请求
 
-`ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括当前 task（若已批准）、真实 Conversation、Profile、授权 Tool Schema、Working Memory、Context Epoch、可选的已提交 Lookup Result 和 Plan Mode 下只读的 GoalPlan 投影。模型只能看到稳定 JSON DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
+`ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。
 
-`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。`TrajectoryModelContextAssembler` 以 Goal 的 committed boundary 为准，把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。动态模型绑定只在调用边界读取；请求开始后不切换 Adapter 或 generation。
+`buildStepRequest` 在单次调用内完成上下文组装、预算裁剪和 Prompt 渲染，并返回与请求绑定的 `ModelOutputContractBundle`。请求顺序为固定 system、保留的真实 Conversation、按注册顺序排列的动态 section、本轮 Working Context；Working Memory 单独作为动态 section 提供，不重复进入尾部控制消息。`TrajectoryModelContextAssembler` 以 Goal 的 committed boundary 为准，把带已批准 `action_staged` 的完整 Tool Action/Observation 执行单元投影到下一轮 Hot/Warm 上下文；未提交、缺少 staging 或不完整单元不可见。动态模型绑定只在调用边界读取；请求开始后不切换 Adapter 或 generation。
 
 ## 当前决策门控
 

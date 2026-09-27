@@ -6,6 +6,9 @@ import { AGENT_DECISION_TEMPLATE_V1 } from "../step-prompt/template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import {
+    createDefaultDynamicSectionRegistry,
+} from "./dynamic-section-registry";
+import {
     GoalProtocolError,
     isContextRetrievalProtocol,
     isMemoryProtocol,
@@ -34,12 +37,20 @@ const AUTHORIZED_TOOLS_TEMPLATE: PromptTemplateAsset = {
     sourceUrl: new URL("./authorized-tools@1.njk", import.meta.url),
 };
 
+const DYNAMIC_SECTION_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
+    { id: "run-mode@1", sourceUrl: new URL("./run-mode@1.njk", import.meta.url) },
+    { id: "approved-task@1", sourceUrl: new URL("./approved-task@1.njk", import.meta.url) },
+    { id: "goal-plan@1", sourceUrl: new URL("./goal-plan@1.njk", import.meta.url) },
+    { id: "working-memory@1", sourceUrl: new URL("./working-memory@1.njk", import.meta.url) },
+];
+
 /** 默认 Renderer 使用的当前模板资产。 */
 export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     PROFILE_TEMPLATE,
     AGENT_DECISION_TEMPLATE_V1,
     AUTHORIZED_TOOLS_TEMPLATE,
+    ...DYNAMIC_SECTION_TEMPLATE_ASSETS,
 ];
 
 /**
@@ -63,7 +74,6 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
                 executing: AGENT_DECISION_TEMPLATE_V1.id,
             },
         },
-        { slot: "authorized_tools", templateId: AUTHORIZED_TOOLS_TEMPLATE.id },
     ],
 };
 
@@ -135,5 +145,6 @@ export async function createDefaultPromptBundleRenderer(): Promise<PromptBundleR
     return createPromptBundleRenderer({
         templates,
         bundles: [PROMPT_BUNDLE_V1_MANIFEST],
+        dynamicSectionRegistry: createDefaultDynamicSectionRegistry(),
     });
 }

@@ -23,6 +23,7 @@ import type {
     ModelTrajectoryContext,
     ModelContextLookupResult,
     ModelGoalPlan,
+    ModelDynamicContext,
     PromptContext,
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
@@ -34,8 +35,9 @@ import { compareCodeUnits } from "./prompting/environment";
  * @remarks
  * 只有本模块同时感知 Runtime 领域类型与 View DTO，并负责逐字段复制，保证
  * 两个 View 之间不共享可变对象。它不修改 Goal、不写入消息历史，也不序列化
- * Snapshot；除模型决策所需的 Run 模式外，Storage schemaVersion 与瞬时执行资源不会被投影。
- * 业务工具列表保持 Profile 授权结果，不按审批状态或 `isReadOnly` 分类过滤。
+ * Snapshot；固定 PromptContext 与动态运行状态分开投影，Storage schemaVersion
+ * 与瞬时执行资源不会进入模型 View。业务工具列表保持 Profile 授权结果，不按审批
+ * 状态或 `isReadOnly` 分类过滤。
  *
  * @example
  * ```ts
@@ -93,19 +95,41 @@ export class ModelInferenceProjector {
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion: goal.definition.promptBundleVersion,
             phase: "executing",
-            runMode: goal.state.run.mode,
-            goalPlanWritable: canUpdateGoalPlan(goal.state.run.mode),
             profile: projectProfile(goal),
-            authorizedTools: projectTools(tools),
             memoryProtocol: projectMemoryProtocol(memoryProtocol),
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),
             contextRetrievalProtocol: projectContextRetrievalProtocol(contextRetrievalProtocol),
-            ...(workingContext.task !== undefined ? { task: workingContext.task } : {}),
+        });
+        const dynamicContext: ModelDynamicContext = deepFreeze({
+            runMode: goal.state.run.mode,
+            goalPlanWritable: canUpdateGoalPlan(goal.state.run.mode),
+            authorizedTools: projectTools(tools),
+            ...(goal.state.run.approvedTask === undefined
+                ? {}
+                : {
+                    task: {
+                        objective: goal.state.run.approvedTask.objective,
+                        completionCriteria: goal.state.run.approvedTask.completionCriteria.map(
+                            (criterion) => ({
+                                text: criterion.text,
+                                ...(criterion.acceptance === undefined
+                                    ? {}
+                                    : {
+                                        acceptance: {
+                                            expectToolId: criterion.acceptance.expectToolId,
+                                            expectOutcome: criterion.acceptance.expectOutcome,
+                                        },
+                                    }),
+                            }),
+                        ),
+                    },
+                }),
             ...(projectedGoalPlan === undefined ? {} : { goalPlan: projectedGoalPlan }),
         });
 
         return {
             prompt,
+            dynamicContext,
             conversation: projectConversation(goal),
             workingContext,
             workingMemory: projectedWorkingMemory,
@@ -206,26 +230,6 @@ export class ModelInferenceProjector {
         return {
             phase: "executing",
             intent: goal.definition.intent,
-            ...(goal.state.run.approvedTask === undefined
-                ? {}
-                : {
-                    task: {
-                        objective: goal.state.run.approvedTask.objective,
-                        completionCriteria: goal.state.run.approvedTask.completionCriteria.map(
-                            (criterion) => ({
-                                text: criterion.text,
-                                ...(criterion.acceptance === undefined
-                                    ? {}
-                                    : {
-                                        acceptance: {
-                                            expectToolId: criterion.acceptance.expectToolId,
-                                            expectOutcome: criterion.acceptance.expectOutcome,
-                                        },
-                                    }),
-                            }),
-                        ),
-                    },
-                }),
             execution: {
                 stepCount: goal.state.run.stepCount,
                 ...(maxSteps > 0 ? { maxSteps } : {}),

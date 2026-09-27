@@ -220,7 +220,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     );
     assert.deepEqual(adapter.requests[0], expectedPlan.request);
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, -1),
+        adapter.requests[0]?.messages.slice(1, 3),
         currentGoal.state.messages.map(({ role, content }) => ({ role, content })),
     );
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
@@ -230,12 +230,13 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
     assert.match(systemContent, /native tool calls/);
+    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
     assert.match(
-        systemContent,
+        dynamicContent,
         /Authorized business Tool definitions \(only these business Tool IDs may be requested; system tools are declared separately for this request\):\n\[\]/,
     );
-    assert.match(systemContent, /Approved Goal Task Contract:/);
-    assert.match(systemContent, /Objective: 完成单步执行/);
+    assert.match(dynamicContent, /Approved Goal Task Contract:/);
+    assert.match(dynamicContent, /Objective: 完成单步执行/);
     const workingContext = JSON.parse(
         adapter.requests[0]?.messages.at(-1)?.content ?? "",
     ) as Record<string, unknown>;
@@ -244,7 +245,9 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.equal("task" in workingContext, false);
     assert.equal("contextEpoch" in workingContext, false);
     assert.deepEqual(workingContext.execution, { stepCount: 0 });
-    assert.deepEqual(workingContext.workingMemory, currentWorkingMemory);
+    assert.equal("workingMemory" in workingContext, false);
+    assert.match(dynamicContent, /Current structured@1 Working Memory:/);
+    assert.match(dynamicContent, /"derivedThroughSequence": 0/);
     assert.equal(typeof workingContext.trajectoryContext, "object");
 });
 
@@ -418,7 +421,10 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
         },
     );
     assert.equal(adapter.requests.length, 1);
-    assert.match(adapter.requests[0]?.messages[0]?.content ?? "", /read_file/);
+    assert.match(
+        adapter.requests[0]?.messages.find((message) => message.content.includes("Dynamic section: authorized_tools"))?.content ?? "",
+        /read_file/,
+    );
 });
 
 test("Adapter 原始异常会原样传播且不会重试", async () => {
@@ -544,7 +550,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
     assert.deepEqual(persisted?.state.run, result.state);
     assert.equal(adapter.requests.length, 1);
     assert.deepEqual(
-        adapter.requests[0]?.messages.slice(1, -1),
+        adapter.requests[0]?.messages.slice(1, 3),
         initialMessages.map(({ role, content }) => ({ role, content })),
     );
     assert.deepEqual(persisted?.state.messages, [

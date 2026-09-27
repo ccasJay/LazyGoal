@@ -2,7 +2,6 @@ import type { LLMMessage, LLMRequest } from "../../llm/src/core/types";
 import type {
     ModelInferenceView,
     ModelTrajectoryContext,
-    ModelWorkingMemory,
     ModelWorkingContext,
     ModelContextLookupResult,
     ModelContextEpochView,
@@ -13,17 +12,16 @@ import type { PromptBundleRenderer } from "./prompting/types";
  * 只依赖 View DTO 与注入 Renderer 的纯 Prompt 请求组装。
  *
  * @remarks
- * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。system 消息由
- * 注入的 `PromptBundleRenderer` 依据 `PromptContext` 生成；真实会话与 Working
- * Context 只作为原始消息追加，绝不进入模板环境。分层协议的 Trajectory
- * Context 也作为本轮控制消息的独立字段追加。
+ * 本模块不读取 Runtime State，不产生 I/O，也不修改任何输入对象。固定 system 消息由
+ * 注入的 `PromptBundleRenderer` 依据 `PromptContext` 生成；动态状态按 section 独立
+ * 渲染；真实会话与 Working Context 不进入模板环境。Trajectory Context 作为本轮
+ * 控制消息的独立字段追加。
  */
 
 /**
  * 构造 Working Context 控制消息。
  *
  * @param context - 已投影的阶段化 Working Context。
- * @param workingMemory - structured@1 的即时 Memory。
  * @param trajectoryContext - trajectory-layered@1 的即时 Hot/Warm。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；没有结果时省略。
  * @param contextEpoch - 可选的 Context Epoch 视图。
@@ -32,7 +30,6 @@ import type { PromptBundleRenderer } from "./prompting/types";
  */
 export function renderWorkingContextMessage(
     context: ModelWorkingContext,
-    workingMemory?: ModelWorkingMemory,
     trajectoryContext?: ModelTrajectoryContext,
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
@@ -42,7 +39,6 @@ export function renderWorkingContextMessage(
         role: "user",
         content: JSON.stringify(createWorkingContextPayload(
             context,
-            workingMemory,
             trajectoryContext,
             contextLookupResult,
             contextEpoch,
@@ -53,7 +49,6 @@ export function renderWorkingContextMessage(
 
 function createWorkingContextPayload(
     context: ModelWorkingContext,
-    workingMemory?: ModelWorkingMemory,
     trajectoryContext?: ModelTrajectoryContext,
     contextLookupResult?: ModelContextLookupResult,
     contextEpoch?: ModelContextEpochView,
@@ -63,10 +58,6 @@ function createWorkingContextPayload(
         phase: "executing",
         execution: context.execution,
     };
-
-    if (workingMemory !== undefined) {
-        payload.workingMemory = workingMemory;
-    }
 
     if (trajectoryContext !== undefined) {
         payload.trajectoryContext = {
@@ -99,7 +90,6 @@ function renderViewWorkingContextMessage(
         role: "user",
         content: JSON.stringify(createWorkingContextPayload(
             view.workingContext,
-            view.workingMemory,
             view.trajectoryContext,
             view.contextLookupResult,
             view.contextEpoch,
@@ -112,13 +102,13 @@ function renderViewWorkingContextMessage(
  * 将完整 View 渲染为一轮 LLM 请求。
  *
  * @remarks
- * 使用注入的 `PromptBundleRenderer` 依据 `view.prompt` 中的冻结 Bundle 版本生成唯一一条 system 消息；
- * 随后按原样追加真实 Conversation，最后追加 JSON Working Context 控制消息。
+ * 使用注入的 `PromptBundleRenderer` 生成固定 system 消息；随后按原样追加真实
+ * Conversation、带身份/来源的动态 section，以及 JSON Working Context 控制消息。
  *
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时省略。
- * @returns 按 system → 真实会话 → Working Context 顺序组装的消息列表。
+ * @returns 按固定 system → 真实会话 → 动态 section → Working Context 顺序组装的消息列表。
  * @throws 渲染失败时抛出。
  */
 export function renderRequest(
@@ -135,6 +125,10 @@ export function renderRequest(
             ...view.conversation.map((message) => ({
                 role: message.role,
                 content: message.content,
+            })),
+            ...renderer.renderDynamicSections(view).map((section) => ({
+                role: section.role,
+                content: section.content,
             })),
             renderViewWorkingContextMessage(view, responseShapeGuide),
         ],

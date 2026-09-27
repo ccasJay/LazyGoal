@@ -28,6 +28,13 @@ function sha256(content: string): string {
     return createHash("sha256").update(content).digest("hex");
 }
 
+function dynamicSectionText(request: { readonly messages: readonly { readonly content: string }[] }): string {
+    return request.messages
+        .filter((message) => message.content.startsWith("[Dynamic section:"))
+        .map((message) => message.content)
+        .join("\n");
+}
+
 const profile = {
     id: "profile-test",
     name: "Cache Alignment Agent",
@@ -129,10 +136,11 @@ test("同一 Goal 在 Executing 阶段连续执行 10 步，Goal-stable 根前�
 
         const systemMessage = request.messages[0]!;
         assert.equal(systemMessage.role, "system");
-        assert.match(systemMessage.content, /Approved Goal Task Contract:/);
-        assert.match(systemMessage.content, /Objective: 完成前缀对齐验证/);
-        assert.match(systemMessage.content, /- \[0\] 根前缀完全固定/);
-        assert.match(systemMessage.content, /- \[1\] 尾部增量最小化/);
+        const dynamicText = dynamicSectionText(request);
+        assert.match(dynamicText, /Approved Goal Task Contract:/);
+        assert.match(dynamicText, /Objective: 完成前缀对齐验证/);
+        assert.match(dynamicText, /- \[0\] 根前缀完全固定/);
+        assert.match(dynamicText, /- \[1\] 尾部增量最小化/);
 
         hashes.push(sha256(systemMessage.content));
     }
@@ -163,9 +171,9 @@ test("同一 Epoch 内连续执行多步，Epoch-stable 会话前缀 SHA-256 100
             assembler,
         );
 
-        // messages.slice(1, -1) 是会话历史（Epoch-stable 前缀）
-        const conversationMessages = request.messages.slice(1, -1);
-        assert.equal(conversationMessages.length, 3);
+        // Conversation 保留原始消息顺序，动态 section 位于其后。
+        const conversationMessages = request.messages.slice(1, 1 + goal.state.messages.length);
+        assert.equal(conversationMessages.length, goal.state.messages.length);
         hashes.push(sha256(JSON.stringify(conversationMessages)));
     }
 
@@ -234,7 +242,7 @@ test("prompt-only 模式仅在尾部动态消息末尾注入 Shape Guide，Goal-
         goalHashes.push(sha256(request.messages[0]!.content));
 
         // 2. Epoch-stable 会话前缀
-        const conversationMessages = request.messages.slice(1, -1);
+        const conversationMessages = request.messages.slice(1, 1 + goal.state.messages.length);
         epochHashes.push(sha256(JSON.stringify(conversationMessages)));
 
         // 3. 尾部动态控制消息
@@ -334,7 +342,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         assembler,
     );
     assert.match(unapprovedPlan.request.messages[0]!.content, /Active Executing Protocol:/);
-    assert.doesNotMatch(unapprovedPlan.request.messages[0]!.content, /Approved Goal Task Contract:/);
+    assert.doesNotMatch(dynamicSectionText(unapprovedPlan.request), /Approved Goal Task Contract:/);
 
     // 2. 进入任务已批准执行阶段后，注入 Task 契约
     const executingGoal1 = createExecutingGoal({ stepCount: 1 });
@@ -348,7 +356,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         assembler,
     );
     assert.match(executingPlan1.request.messages[0]!.content, /Active Executing Protocol:/);
-    assert.match(executingPlan1.request.messages[0]!.content, /Approved Goal Task Contract:/);
+    assert.match(dynamicSectionText(executingPlan1.request), /Approved Goal Task Contract:/);
 
     // 3. 任务已批准执行阶段的后续步，哈希保持一致
     const executingGoal2 = createExecutingGoal({ stepCount: 2 });

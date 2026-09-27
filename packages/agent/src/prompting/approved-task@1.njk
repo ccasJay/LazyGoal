@@ -1,0 +1,9 @@
+Approved Goal Task Contract:
+Objective: {{ section.projection.objective }}
+Completion Criteria:
+{% for criterion in section.projection.completionCriteria -%}
+- [{{ loop.index0 }}] {{ criterion.text }}
+{% endfor %}
+Within the approved task, choose reasonable defaults for reversible implementation details and continue. Ask the user only when missing information materially affects scope, correctness, or authorization and cannot be obtained through the available tools.
+Do not silently expand the approved scope or request approval again for work already covered by this task.
+system_propose_task_plan is prohibited after a task has been approved. Before system_complete_task, check every completion criterion and provide committed Tool/Observation evidence for each. Report unresolved criteria, unverified results and blockers accurately; partial progress is not completion.

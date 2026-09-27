@@ -1,6 +1,6 @@
 import type { Environment } from "nunjucks";
 
-import type { PromptContext, PromptPhase } from "../model-inference-view";
+import type { ModelInferenceView, PromptContext, PromptPhase } from "../model-inference-view";
 import {
     createPromptEnvironment,
     normalizeNewlines,
@@ -17,6 +17,7 @@ import type {
     PromptBundleSection,
     PromptTemplateDefinition,
 } from "./types";
+import type { DynamicSectionRegistry } from "./dynamic-section-registry";
 
 /**
  * 移除 fragment 末尾的所有换行，供统一 `\n\n` 连接使用。
@@ -106,6 +107,7 @@ function renderSection(
 export function createPromptBundleRenderer(input: {
     readonly templates: readonly PromptTemplateDefinition[];
     readonly bundles: readonly PromptBundleManifest[];
+    readonly dynamicSectionRegistry?: DynamicSectionRegistry;
 }): PromptBundleRenderer {
     const registry = new PromptBundleRegistry(input);
 
@@ -129,6 +131,14 @@ export function createPromptBundleRenderer(input: {
         }
     }
 
+    for (const templateId of input.dynamicSectionRegistry?.templateIds() ?? []) {
+        if (!sources.has(templateId)) {
+            throw new PromptBundleConfigurationError(
+                `动态 section 引用了未注册的模板：${templateId}`,
+            );
+        }
+    }
+
     return {
         render(context: PromptContext): string {
             const manifest = registry.getManifest(
@@ -142,6 +152,34 @@ export function createPromptBundleRenderer(input: {
             );
 
             return fragments.join("\n\n");
+        },
+        renderDynamicSections(view: ModelInferenceView) {
+            registry.getManifest(
+                view.prompt.promptBundleVersion,
+                view.prompt.memoryProtocol,
+                view.prompt.modelContextProtocol,
+                view.prompt.contextRetrievalProtocol,
+            );
+
+            const projections = input.dynamicSectionRegistry?.project(view) ?? [];
+            return projections.map((section) => {
+                let rendered: string;
+                try {
+                    rendered = normalizeFragment(environment.render(section.templateId, { section }));
+                } catch (error) {
+                    throw new PromptRenderError({
+                        bundleVersion: view.prompt.promptBundleVersion,
+                        slot: section.sectionId,
+                        templateId: section.templateId,
+                        cause: error,
+                    });
+                }
+
+                return {
+                    ...section,
+                    content: `[Dynamic section: ${section.sectionId}; source: ${section.source}]\n${rendered}`,
+                };
+            });
         },
     };
 }
