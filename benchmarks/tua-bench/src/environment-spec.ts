@@ -109,8 +109,6 @@ export class TuaBenchEnvironmentSpec
         const setupScript = this.task.setupScript ?? "environment/setup.sh";
         // 若容器内存在 setup 脚本则执行，镜像预构建完成时可平滑跳过
         await env.exec(`if [ -f ${shellQuote(setupScript)} ]; then bash ${shellQuote(setupScript)}; fi`);
-        // 若容器镜像中存在预置的 task-entrypoint 脚本，则以非阻塞初始化方式启动（启动虚拟屏幕及初始桌面应用）
-        await env.exec("if [ -x /usr/local/bin/task-entrypoint.sh ]; then /usr/local/bin/task-entrypoint.sh true; fi");
 
         if (env.execAsRoot === undefined) {
             throw new Error("TUA verifier isolation requires root-scoped environment operations");
@@ -224,7 +222,7 @@ export class TuaBenchEnvironmentSpec
             }
 
             requireCommandSuccess(await env.execAsRoot(
-                `chmod 0711 ${shellQuote(privateRoot)} && chmod -R a+rwX ${shellQuote(privateTaskRoot)} 2>/dev/null || true; mkdir -p /logs && chmod 0755 /logs && chmod 0777 /logs/verifier && if [ -d ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} ]; then ln -sfn ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} /tests; fi`,
+                `chmod 0711 ${shellQuote(privateRoot)} && chmod -R a+rwX ${shellQuote(privateTaskRoot)} 2>/dev/null || true; chmod 0755 /logs && chmod 0777 /logs/verifier && if [ -d ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} ]; then ln -sfn ${shellQuote(path.posix.join(privateTaskRoot, "tests"))} /tests; fi`,
             ), "Set TUA verifier execution permissions");
             execResult = await env.execAsUser(
                 verifierUser,

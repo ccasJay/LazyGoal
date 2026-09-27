@@ -406,30 +406,6 @@ export interface IsolatedEnvironmentResult<TArtifact> {
 /** 共享托管镜像的默认基础镜像；只含固定 Node 运行时。 */
 export const DEFAULT_MANAGED_IMAGE = "node:22.22.2-bookworm-slim@sha256:868499d55378719bffa87b0ed1f099591823c029b543043c09c2483468e93201" as const;
 
-const ALLOWED_ENVIRONMENT_PROCESSES = new Set([
-    "xvfb", "xorg", "xauth",
-    "dbus-daemon", "dbus-launch", "at-spi-bus-laun", "at-spi2-registr",
-    "chromium", "chrome", "google-chrome", "chrome_crashpad", "cat", "nacl_helper",
-    "xfwm4", "openbox", "xdotool",
-]);
-
-function isExemptEnvironmentProcess(comm?: string): boolean {
-    if (comm === undefined) return false;
-    const lower = comm.toLowerCase();
-    if (ALLOWED_ENVIRONMENT_PROCESSES.has(lower)) return true;
-    if (lower.startsWith("chrom") || lower.startsWith("google-chrome") || lower.startsWith("dbus-") || lower.startsWith("at-spi")) {
-        return true;
-    }
-    return false;
-}
-
-interface ProcessSnapshotEntry {
-    readonly pid: string;
-    readonly comm?: string;
-    readonly lstart: string;
-    readonly key: string;
-}
-
 /**
  * LazyGoal 拥有的 Docker 隔离执行环境。
  *
@@ -484,7 +460,7 @@ export class IsolatedEnvironment {
         const workdir = workerConfig.cwd ?? "/workspace";
         const errors: IsolatedEnvironmentError[] = [];
         const controller = new AbortController();
-        const agentProcessBaseline: { value?: ReadonlyMap<string, ProcessSnapshotEntry> } = {};
+        const agentProcessBaseline: { value?: ReadonlySet<string> } = {};
         let isTimedOut = false;
         let isCancelled = options.signal?.aborted === true || options.forceSignal?.aborted === true;
         const forwardAbort = () => {
@@ -783,34 +759,20 @@ export class IsolatedEnvironment {
         containerName: string,
         workdir: string,
         signal: AbortSignal,
-        agentProcessBaseline: { value?: ReadonlyMap<string, ProcessSnapshotEntry> },
+        agentProcessBaseline: { value?: ReadonlySet<string> },
     ): EnvironmentHandle {
         const run = this.runProcess;
-        const readProcessSnapshot = async (): Promise<ReadonlyMap<string, ProcessSnapshotEntry>> => {
-            const output = requireSuccess(await run("docker", ["top", containerName, "-eo", "pid,comm,lstart"], {
+        const readProcessSnapshot = async (): Promise<ReadonlySet<string>> => {
+            const output = requireSuccess(await run("docker", ["top", containerName, "-eo", "pid,lstart"], {
                 timeoutMs: 10_000,
                 signal,
                 maxBytes: 256 * 1024,
                 truncate: true,
             }), "Inspect isolated container processes");
-            const processes = new Map<string, ProcessSnapshotEntry>();
+            const processes = new Set<string>();
             for (const line of output.split(/\r?\n/u)) {
-                const trimmed = line.trim();
-                if (trimmed.length === 0 || trimmed.startsWith("PID")) continue;
-                const tokens = trimmed.split(/\s+/u);
-                if (tokens.length < 2) continue;
-                const pid = tokens[0]!;
-                if (!/^\d+$/u.test(pid)) continue;
-                let comm: string | undefined;
-                let lstart: string;
-                if (tokens.length >= 7) {
-                    comm = tokens[1]?.toLowerCase();
-                    lstart = tokens.slice(2).join(" ");
-                } else {
-                    lstart = tokens.slice(1).join(" ");
-                }
-                const key = `${pid}:${lstart}`;
-                processes.set(key, { pid, comm, lstart, key });
+                const match = /^\s*(\d+)\s+(.+?)\s*$/u.exec(line);
+                if (match !== null) processes.add(`${match[1]}:${match[2]!.replace(/\s+/gu, " ")}`);
             }
             if (processes.size === 0) throw new Error("Isolated container process snapshot was empty");
             return processes;
@@ -849,42 +811,18 @@ export class IsolatedEnvironment {
                     throw new Error("Agent process baseline was already captured");
                 }
                 agentProcessBaseline.value = await readProcessSnapshot();
-                await run("docker", ["exec", "--user", "0", containerName, "/bin/bash", "-c", "ps -eo pid= | tr -d ' ' > /tmp/.lazygoal-agent-baseline-pids"], {
-                    timeoutMs: 10_000,
-                    signal,
-                }).catch(() => undefined);
             },
             assertAgentProcessesExited: async () => {
                 const baseline = agentProcessBaseline.value;
                 if (baseline === undefined) {
                     throw new Error("Agent process baseline was not captured before scoring");
                 }
-                const deadline = Date.now() + 5_000;
+                const deadline = Date.now() + 3_000;
                 let remaining: string[] = [];
-                let cleanupAttempted = false;
                 while (true) {
                     const current = await readProcessSnapshot();
-                    const nonBaseline = [...current.values()].filter((proc) => !baseline.has(proc.key));
-                    const illegal = nonBaseline.filter((proc) => !isExemptEnvironmentProcess(proc.comm));
-                    if (illegal.length === 0) return;
-                    remaining = illegal.map((p) => p.key);
-                    if (!cleanupAttempted) {
-                        cleanupAttempted = true;
-                        await run("docker", ["exec", "--user", "0", containerName, "/bin/bash", "-c", [
-                            "if [ -f /tmp/.lazygoal-agent-baseline-pids ]; then",
-                            "  pids=$(ps -eo pid=,comm= | while read -r p c; do",
-                            "    cl=$(echo \"$c\" | tr '[:upper:]' '[:lower:]');",
-                            "    case \"$cl\" in",
-                            "      sleep|xvfb|xorg|xauth|dbus*|at-spi*|chrom*|google-chrome*|xfwm*|openbox|xdotool|cat) ;;",
-                            "      *) [ \"$p\" != '1' ] && [ \"$p\" != '$$' ] && grep -qFx \"$p\" /tmp/.lazygoal-agent-baseline-pids || echo \"$p\" ;;",
-                            "    esac;",
-                            "  done || true);",
-                            "  for p in $pids; do kill -TERM \"$p\" 2>/dev/null || true; done;",
-                            "  sleep 0.2;",
-                            "  for p in $pids; do kill -9 \"$p\" 2>/dev/null || true; done;",
-                            "fi",
-                        ].join(" ")], { timeoutMs: 10_000, signal }).catch(() => undefined);
-                    }
+                    remaining = [...current].filter((process) => !baseline.has(process));
+                    if (remaining.length === 0) return;
                     if (Date.now() >= deadline) break;
                     await new Promise((resolve) => setTimeout(resolve, 100));
                 }
