@@ -3,6 +3,7 @@ import type {
     GoalCatalog,
     GoalCatalogEntry,
     GoalStore,
+    RunMode,
     TrajectoryEvent,
     TrajectoryReadQuery,
     TrajectoryReadResult,
@@ -212,7 +213,7 @@ export interface BrowserGoalPlan {
  * ```ts
  * const session: BrowserGoalSession = {
  *     goalId: "goal-1", intent: "检查项目", currentRunId: "run-1",
- *     runStatus: "waiting", messages: [], runs: [], historyTruncated: false,
+ *     runStatus: "waiting", currentRunMode: "normal", messages: [], runs: [], historyTruncated: false,
  * };
  * ```
  */
@@ -225,6 +226,10 @@ export interface BrowserGoalSession {
     readonly currentRunId: string;
     /** 当前 Run 的真实生命周期状态。 */
     readonly runStatus: Goal["state"]["run"]["status"];
+    /** 当前 Run 实际使用的模式。 */
+    readonly currentRunMode: RunMode;
+    /** 已完成 Run 后用户为下一 Run 显式选择的模式。 */
+    readonly nextRunMode?: "plan";
     /** 按 Snapshot 顺序排列的有界真实消息。 */
     readonly messages: readonly BrowserSessionMessage[];
     /** 按 Run 时间顺序排列的当前 Run 与近期已完成 Run。 */
@@ -365,6 +370,8 @@ export async function readBrowserGoalSession(
         intent: boundedText(goal.definition.intent, MAX_TEXT_LENGTH),
         currentRunId: currentRun.id,
         runStatus: currentRun.status,
+        currentRunMode: currentRun.mode,
+        ...(goal.state.nextRunMode === undefined ? {} : { nextRunMode: goal.state.nextRunMode }),
         messages,
         runs: projectedRuns,
         ...(goalPlan === undefined ? {} : { goalPlan }),

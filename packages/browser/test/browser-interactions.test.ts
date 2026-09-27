@@ -202,6 +202,7 @@ for (const scenario of interactionCases) {
                     return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal: updated };
                 },
                 async continue() { throw new Error("continuation is not used here"); },
+                async enterPlanMode() { throw new Error("plan mode is not used here"); },
             },
         });
 
@@ -252,6 +253,7 @@ test("过期 Run 或请求身份在 Coordinator 调用前被拒绝", async () =>
                 return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal };
             },
             async continue() { throw new Error("continuation is not used here"); },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
         },
     });
 

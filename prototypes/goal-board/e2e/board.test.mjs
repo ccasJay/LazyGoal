@@ -122,7 +122,11 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
-    chrome?.kill("SIGTERM");
+    if (chrome !== undefined && chrome.exitCode === null) {
+      const closed = once(chrome, "close");
+      chrome.kill("SIGTERM");
+      await closed;
+    }
     webServer.kill("SIGTERM");
     mock.server.close();
     await rm(profile, { recursive: true, force: true });
@@ -219,6 +223,7 @@ function waitingSession() {
     intent: "Collect approved notes from the current workspace",
     currentRunId: "run-1",
     runStatus: "running",
+    currentRunMode: "normal",
     messages: [{ role: "user", content: "Collect approved notes from the current workspace" }],
     runs: [{
       runId: "run-1",

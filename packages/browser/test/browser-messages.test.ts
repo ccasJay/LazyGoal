@@ -97,6 +97,7 @@ test("普通等待消息恢复同一 Run，在途相同重试只保存并调用�
                 return waitingResult(updated);
             },
             async continue() { throw new Error("completed Run continuation is not used here"); },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
         },
     });
 
@@ -164,6 +165,7 @@ test("已完成 Run 的普通输入调用 continue 并持久化唯一后继 Run"
                 await store.save(updated);
                 return waitingResult(updated);
             },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
         },
     });
 
@@ -227,6 +229,7 @@ test("结构化等待、过期 Run、空消息和非接收状态不调用 Coordi
                 coordinatorCalls += 1;
                 return waitingResult(askUserGoal);
             },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
         },
     });
     const command = { runId: goal.state.run.id, content: "不能代替回答" };
@@ -270,6 +273,7 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
             calls.push({ goalId, ...command });
             return { ok: true as const, goalId, runId: "run-next", existing: false };
         },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },

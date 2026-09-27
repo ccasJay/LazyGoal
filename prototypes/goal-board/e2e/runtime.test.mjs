@@ -67,10 +67,14 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal objective\"]') !== null");
-    await setText(socket, "textarea[aria-label=\"Goal objective\"]", "Collect approved notes and store one source record");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled"), true);
+    let emptyList = await api(first.origin, "/api/goals", { token: first.token });
+    assert.deepEqual(emptyList.body.goals, []);
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Collect approved notes and store one source record");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.create-dialog button[type=submit]').click()",
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
       returnByValue: true,
     });
 
@@ -82,6 +86,7 @@ test("real local service restores and completes one authorized Goal conversation
     const firstRequestId = session.pendingInteraction.requestId;
     assert.equal(session.intent, "Collect approved notes and store one source record");
     assert.equal(session.runStatus, "waiting");
+    assert.equal(session.currentRunMode, "normal");
 
     const crossOrigin = await api(first.origin, "/api/goals", {
       token: first.token,
@@ -175,6 +180,94 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(session.runs.length, 2);
     assert.ok(session.messages.some((message) => message.role === "user" && message.content === "Record one follow-up note"));
     assert.equal((await readFile(join(workspace, "controlled-tool-actions.jsonl"), "utf8")).trim().split("\n").length, 1);
+
+    const stalePlanMode = await api(restarted.origin, `/api/goals/${goalId}/plan-mode`, {
+      token: restarted.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: restarted.origin },
+      body: JSON.stringify({ runId: firstRunId }),
+    });
+    assert.equal(stalePlanMode.response.status, 409);
+    assert.equal(stalePlanMode.body.error, "stale_run");
+
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Plan Mode')", 10_000);
+    emptyList = await api(restarted.origin, "/api/goals", { token: restarted.token });
+    assert.equal(emptyList.body.goals.length, 1, "draft /plan does not persist a Goal");
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 4, toolCalls: 1 });
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Plan flow: inspect and complete the acceptance path");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 5 && status.toolCalls === 1);
+    const approvedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
+    assert.equal(approvedList.response.status, 200, JSON.stringify(approvedList.body));
+    const planWaiting = approvedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting");
+    if (!planWaiting) {
+      let stopReason;
+      try { stopReason = await readFile(`${statusPath}.run-stop`, "utf8"); } catch { stopReason = "not recorded"; }
+      assert.ok(planWaiting, `Plan Run did not reach approval: ${JSON.stringify(approvedList.body.goals)}; stop=${stopReason}`);
+    }
+    const planSession = await waitForSession(
+      restarted.origin,
+      restarted.token,
+      (candidate) => candidate.pendingInteraction?.kind === "task_approval",
+    );
+    assert.equal(planSession.currentRunMode, "plan");
+    assert.ok(planSession.messages.some((message) => message.role === "user" && message.content === "Plan flow: inspect and complete the acceptance path"));
+    assert.equal(planSession.messages.some((message) => message.content === "/plan"), false);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve task')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve action')", 15_000);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
+    const planActionSession = await waitForSession(
+      restarted.origin,
+      restarted.token,
+      (candidate) => candidate.pendingAction?.status === "awaiting_approval",
+    );
+    assert.equal(planActionSession.pendingAction.toolId, "browser_fixture_write");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve action')).click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 2);
+    const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
+    assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
+    const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");
+    if (!planCompleted) {
+      let stopReason;
+      try { stopReason = await readFile(`${statusPath}.run-stop`, "utf8"); } catch { stopReason = "not recorded"; }
+      assert.ok(planCompleted, `Plan Run did not complete: ${JSON.stringify(completedList.body.goals)}; stop=${stopReason}`);
+    }
+    const completedPlanSession = await waitForSession(
+      restarted.origin,
+      restarted.token,
+      (candidate) => candidate.runStatus === "completed" && candidate.currentRunMode === "plan",
+    );
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Next Run · Plan Mode')", 10_000);
+    const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
+    assert.equal(nextPlan.body.goal.nextRunMode, "plan");
+    assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 7, toolCalls: 2 });
 
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);
@@ -274,11 +367,12 @@ async function waitForSession(origin, token, predicate) {
   return waitFor(async () => {
     const listing = await api(origin, "/api/goals", { token });
     assert.equal(listing.response.status, 200, JSON.stringify(listing.body));
-    const goalId = listing.body.goals[0]?.goalId;
-    if (goalId === undefined) return undefined;
-    const detail = await api(origin, `/api/goals/${goalId}`, { token });
-    assert.equal(detail.response.status, 200, JSON.stringify(detail.body));
-    return predicate(detail.body.goal) ? detail.body.goal : undefined;
+    for (const item of listing.body.goals) {
+      const detail = await api(origin, `/api/goals/${item.goalId}`, { token });
+      assert.equal(detail.response.status, 200, JSON.stringify(detail.body));
+      if (predicate(detail.body.goal)) return detail.body.goal;
+    }
+    return undefined;
   }, "saved Goal state");
 }
 
@@ -355,7 +449,14 @@ async function connectCdp(url) {
 function cdp(socket, method, params = {}) {
   const id = ++socket.nextId;
   return new Promise((resolve, reject) => {
-    socket.pending.set(id, { resolve, reject });
+    const timeout = setTimeout(() => {
+      socket.pending.delete(id);
+      reject(new Error(`Chrome DevTools command timed out: ${method}`));
+    }, 10_000);
+    socket.pending.set(id, {
+      resolve(result) { clearTimeout(timeout); resolve(result); },
+      reject(error) { clearTimeout(timeout); reject(error); },
+    });
     socket.send(JSON.stringify({ id, method, params }));
   });
 }

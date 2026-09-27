@@ -10,11 +10,13 @@
 
 授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，截断较长历史和文本，并省略 Profile、模型配置、推理、原始事件、Tool 输入及原始输出。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。
 
-`POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID 与非空意图；Profile 和执行策略仍由本机决定。同 ID、同意图的重试复用在途受理或已有快照，不同意图冲突；另一个 Goal 正在运行时拒绝新建。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
+`POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、非空意图和可选 `mode: "plan"`；省略模式时由 Runtime 使用 Normal Mode，Profile 和执行策略仍由本机决定。同 ID、同意图及同初始模式的重试复用在途受理或已有快照；意图或模式冲突。另一个 Goal 正在运行时拒绝新建。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
 
 `POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。服务端在转交 Coordinator 前再次检查等待类型和身份；每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
 
 `POST /api/goals/:goalId/messages` 只接受当前 `runId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成 Run 调用 Coordinator 创建后继 Run；提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存；同一在途请求重试复用受理结果。
+
+`POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由命令服务在转交 Coordinator 前校验 Goal/Run 身份、与其他执行命令串行化。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
 `GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
 
@@ -22,6 +24,6 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 
 ## 页面交互
 
-React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息和结构化交互接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图只使用接口返回的已提交消息、步骤、可选计划和当前等待请求。实时文本与活动单独显示，快照刷新后以新提交事实为准。
+React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。New Goal 先打开仅保存在页面状态的空白会话草稿；首条非空普通消息才调用创建接口，作为 Goal 意图和首条用户消息启动唯一 Run。草稿刷新即丢弃，不创建 Goal 或启动模型。页面复用 Slash Command Registry 识别 `/plan`：草稿中的命令选择创建模式，已有会话的命令调用 Plan Mode 路由，命令文本本身不发送到消息接口。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息、Plan Mode 和结构化交互接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图只使用接口返回的已提交消息、步骤、模式、可选计划和当前等待请求。实时文本与活动单独显示，快照刷新后以新提交事实为准。
 
 `npm run dev --prefix prototypes/goal-board` 只启动无后端授权的布局预览，不代理正式 Runtime API。真实操作须先构建静态页，再从 `lazygoal web` 打印的本机入口打开。页面不提供模拟 Goal、示例计划、虚构完成状态、项目分配或设置操作。

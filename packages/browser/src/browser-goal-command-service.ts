@@ -13,14 +13,15 @@ import type {
  * 浏览器发起的 Goal 创建命令。
  *
  * @remarks
- * Goal ID 由客户端在提交前生成并在重试时复用，意图创建后冻结。Profile 与执行策略
- * 由本机 Composition Root 决定，浏览器不能覆盖这些设置。
+ * Goal ID 由客户端在提交前生成并在重试时复用，意图与首次 Run 模式共同标识创建请求。
+ * Profile 与执行策略由本机 Composition Root 决定，浏览器不能覆盖这些设置。
  *
  * @example
  * ```ts
  * const command: BrowserCreateGoalCommand = {
  *     goalId: crypto.randomUUID(),
  *     intent: "检查当前项目",
+ *     mode: "plan",
  * };
  * ```
  */
@@ -29,7 +30,43 @@ export interface BrowserCreateGoalCommand {
     readonly goalId: string;
     /** 要冻结到新 Goal 的原始用户意图。 */
     readonly intent: string;
+    /** 首个 Run 的显式模式；省略时使用 Normal Mode。 */
+    readonly mode?: "plan";
 }
+
+/**
+ * 浏览器显式选择当前或下一 Run 的 Plan Mode。
+ *
+ * @remarks
+ * 命令由当前会话的 Goal/Run 身份限定，不会创建消息或 Run Step。
+ * Runtime 仅允许在 Run 启动前或已完成后切换；其他状态按稳定错误码拒绝。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserGoalPlanModeCommand = { runId: "run-1" };
+ * ```
+ */
+export interface BrowserGoalPlanModeCommand {
+    /** 页面读取到的当前 Run 稳定身份。 */
+    readonly runId: string;
+}
+
+/**
+ * 浏览器选择 Plan Mode 的受理结果。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserGoalPlanModeResult = {
+ *     ok: true, goalId: "goal-1", runId: "run-1", existing: false,
+ * };
+ * ```
+ */
+export type BrowserGoalPlanModeResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly existing: boolean }
+    | {
+        readonly ok: false;
+        readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "plan_mode_busy" | "plan_mode_failed";
+    };
 
 /**
  * 浏览器提交的普通会话文本。
@@ -232,6 +269,7 @@ export type BrowserGoalInteractionResult =
  * const coordinator: BrowserGoalCoordinator = {
  *     resume: (request, control) => goalCoordinator.resume(request, control),
  *     continue: (ref, input, control) => goalCoordinator.continue(ref, input, control),
+ *     enterPlanMode: (ref, control) => goalCoordinator.enterPlanMode(ref, control),
  * };
  * ```
  */
@@ -260,6 +298,19 @@ export interface BrowserGoalCoordinator {
         newInput: string,
         control?: ExecutionControl,
     ): ReturnType<GoalCoordinator["continue"]>;
+
+    /**
+     * 依据当前 Goal/Run 身份选择 Plan Mode，并遵守 Runtime 的 Run 状态限制。
+     *
+     * @param ref - 当前 Goal 与 Run 的稳定关联键。
+     * @param control - 本机关闭协调使用的取消信号。
+     * @returns 选择提交后的 Goal 或稳定业务错误。
+     * @throws Store、Trajectory 或提交边界故障时拒绝。
+     */
+    enterPlanMode(
+        ref: Parameters<GoalCoordinator["enterPlanMode"]>[0],
+        control?: ExecutionControl,
+    ): ReturnType<GoalCoordinator["enterPlanMode"]>;
 }
 
 /**
@@ -289,7 +340,12 @@ export interface BrowserGoalCommandDependencies {
 
 interface InFlightCreate {
     readonly intent: string;
+    readonly mode: "normal" | "plan";
     readonly accepted: Promise<BrowserCreateGoalResult>;
+}
+
+interface InFlightPlanMode {
+    readonly accepted: Promise<BrowserGoalPlanModeResult>;
 }
 
 interface InFlightInteraction {
@@ -324,6 +380,7 @@ export class BrowserGoalCommandService {
     private readonly inFlight = new Map<string, InFlightCreate>();
     private readonly inFlightInteractions = new Map<string, InFlightInteraction>();
     private readonly inFlightMessages = new Map<string, InFlightMessage>();
+    private readonly inFlightPlanModes = new Map<string, InFlightPlanMode>();
     private activeGoalId: string | undefined;
     private reservationTail: Promise<void> = Promise.resolve();
 
@@ -343,7 +400,7 @@ export class BrowserGoalCommandService {
         const reservation = await this.withReservationLock(async (): Promise<Reservation> => {
             const current = this.inFlight.get(command.goalId);
             if (current !== undefined) {
-                if (current.intent !== command.intent) {
+                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal")) {
                     return { kind: "result", result: { ok: false, error: "goal_id_conflict" } };
                 }
                 return {
@@ -357,6 +414,7 @@ export class BrowserGoalCommandService {
             const existing = await this.dependencies.store.restore(command.goalId);
             if (existing !== undefined) {
                 return existing.definition.intent === command.intent
+                    && existing.state.run.mode === (command.mode ?? "normal")
                     ? {
                         kind: "result",
                         result: {
@@ -375,7 +433,57 @@ export class BrowserGoalCommandService {
 
             this.activeGoalId = command.goalId;
             const accepted = this.start(command);
-            this.inFlight.set(command.goalId, { intent: command.intent, accepted });
+            this.inFlight.set(command.goalId, {
+                intent: command.intent,
+                mode: command.mode ?? "normal",
+                accepted,
+            });
+            return { kind: "in_flight", accepted };
+        });
+
+        return reservation.kind === "result" ? reservation.result : reservation.accepted;
+    }
+
+    /**
+     * 将显式 Plan Mode 命令交给 Runtime，并在同一服务实例内串行化执行推进。
+     *
+     * @param goalId - 路径中的 Goal 稳定身份。
+     * @param command - 带当前 Run 身份的模式选择。
+     * @returns Runtime 提交完成后的受理结果；相同在途请求复用受理。
+     * @throws 正式 Snapshot 读取或协调器持久化失败时拒绝。
+     */
+    async enterPlanMode(
+        goalId: string,
+        command: BrowserGoalPlanModeCommand,
+    ): Promise<BrowserGoalPlanModeResult> {
+        const key = `${goalId}\u0000${command.runId}`;
+        const reservation = await this.withReservationLock(async (): Promise<
+            | { readonly kind: "result"; readonly result: BrowserGoalPlanModeResult }
+            | { readonly kind: "in_flight"; readonly accepted: Promise<BrowserGoalPlanModeResult> }
+        > => {
+            const current = this.inFlightPlanModes.get(key);
+            if (current !== undefined) {
+                return {
+                    kind: "in_flight",
+                    accepted: current.accepted.then((result) => result.ok
+                        ? { ...result, existing: true }
+                        : result),
+                };
+            }
+            if (this.activeGoalId !== undefined) {
+                return { kind: "result", result: { ok: false, error: "goal_busy" } };
+            }
+            const goal = await this.dependencies.store.restore(goalId);
+            if (goal === undefined) {
+                return { kind: "result", result: { ok: false, error: "goal_not_found" } };
+            }
+            if (goal.state.run.id !== command.runId) {
+                return { kind: "result", result: { ok: false, error: "stale_run" } };
+            }
+
+            this.activeGoalId = goalId;
+            const accepted = this.startPlanMode(goalId, command);
+            this.inFlightPlanModes.set(key, { accepted });
             return { kind: "in_flight", accepted };
         });
 
@@ -522,6 +630,7 @@ export class BrowserGoalCommandService {
                 goalId: command.goalId,
                 intent: command.intent,
                 profileId: this.dependencies.profileId,
+                ...(command.mode === undefined ? {} : { mode: command.mode }),
             }, this.dependencies.control))
             .then(() => {
                 if (!accepted) {
@@ -539,6 +648,30 @@ export class BrowserGoalCommandService {
             });
 
         return acceptance;
+    }
+
+    private async startPlanMode(
+        goalId: string,
+        command: BrowserGoalPlanModeCommand,
+    ): Promise<BrowserGoalPlanModeResult> {
+        const key = `${goalId}\u0000${command.runId}`;
+        try {
+            const result = await this.dependencies.coordinator.enterPlanMode(
+                { goalId, runId: command.runId },
+                this.dependencies.control,
+            );
+            return result.ok
+                ? { ok: true, goalId, runId: command.runId, existing: false }
+                : {
+                    ok: false,
+                    error: result.error.code === "RUN_NOT_FOUND" ? "stale_run"
+                        : result.error.code === "PLAN_MODE_BUSY" ? "plan_mode_busy"
+                            : "plan_mode_failed",
+                };
+        } finally {
+            if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+            this.inFlightPlanModes.delete(key);
+        }
     }
 
     private async startInteraction(

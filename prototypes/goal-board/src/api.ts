@@ -3,6 +3,7 @@ import type {
   BrowserGoalInteractionCommand,
   BrowserGoalListItem,
   BrowserGoalMessageCommand,
+  BrowserGoalPlanModeCommand,
   BrowserGoalSession,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
@@ -58,6 +59,17 @@ export const browserApi = {
   ): Promise<AcceptedCommand> {
     return postJson(
       `/api/goals/${encodeURIComponent(goalId)}/messages`,
+      command,
+      isAcceptedCommand,
+    );
+  },
+
+  enterPlanMode(
+    goalId: string,
+    command: BrowserGoalPlanModeCommand,
+  ): Promise<AcceptedCommand> {
+    return postJson(
+      `/api/goals/${encodeURIComponent(goalId)}/plan-mode`,
       command,
       isAcceptedCommand,
     );
@@ -187,6 +199,8 @@ function isBrowserGoalSession(value: unknown): value is BrowserGoalSession {
     || typeof value.intent !== "string"
     || !isNonEmptyString(value.currentRunId)
     || !isRunStatus(value.runStatus)
+    || (value.currentRunMode !== "normal" && value.currentRunMode !== "plan")
+    || (value.nextRunMode !== undefined && value.nextRunMode !== "plan")
     || !Array.isArray(value.messages)
     || !value.messages.every((message) => isRecord(message)
       && (message.role === "user" || message.role === "assistant")
