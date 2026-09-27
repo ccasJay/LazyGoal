@@ -444,8 +444,10 @@ export {
     freezeTrajectoryEvent,
     projectTrajectoryEvent,
     readTrajectoryAtSnapshot,
+    selectCommittedModelContextFrames,
 } from "./trajectory";
 export type {
+    CommittedModelContextFrameQuery,
     DiagnosticTraceSink,
     TraceRecord,
     TrajectoryEvent,
@@ -460,6 +462,10 @@ export type {
     TrajectoryReadResult,
     TrajectorySink,
     TrajectoryStore,
+    ModelContextFramePayload,
+    ModelContextSectionIdentity,
+    ModelContextSectionUpdate,
+    ModelContextStage,
 } from "./trajectory";
 export {
     DefaultGoalModelSelectionCoordinator,

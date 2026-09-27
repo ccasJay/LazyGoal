@@ -45,7 +45,7 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](./execution-
 
 ## 恢复与持久化
 
-Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 的消息区间和提交边界只描述历史，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
+Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 的消息区间和提交边界只描述历史，不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
 `pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；获批任务保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
 

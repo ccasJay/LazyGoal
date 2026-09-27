@@ -14,7 +14,7 @@
 | [GoalSnapshotCodec](../../packages/storage/src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../../packages/storage/src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../../packages/storage/src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、临时文件 + rename 原子替换、目录扫描摘要 | 乐观锁、租约或版本冲突检测 |
-| [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
+| [JsonFileTrajectoryStore](../../packages/storage/src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
 | [JsonFileDiagnosticTraceSink](../../packages/storage/src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
 | [JsonFileMetricsStore](../../packages/storage/src/json-file-metrics-store.ts) | 将模型调用开始/结束事实、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
 | [JsonFileContextRetrievalIndexStore](../../packages/storage/src/context-retrieval-index-sidecar.ts) | 以安全编码路径保存、恢复、原子替换和删除 Retrieval Index Sidecar；严格校验倒排快照、来源摘要、版本与 64 项查询缓存 | 推导 committed boundary、读取 Workspace、修改 Goal 或 Trajectory |
@@ -30,7 +30,7 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 
 `JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`。
 同一实例内按 Run 串行追加并严格校验 JSONL、事件身份和该 Run 内的单调序列；新 Run 从本地序号 1 开始，缺失文件或空文件读取为空。`run_created`、`plan_mode_entered` 和 `goal_plan_updated` 是事实事件，不能替代 Goal Snapshot 的当前状态。
 `readWithBoundary` 只使用调用方从最新 Goal Snapshot 读取的
-`committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。Snapshot 已保存而 marker 追加失败时，恢复仍以 Snapshot 边界为准；孤立或越界事件只保留为未提交 tail，不会被自动 replay。
+`committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。Snapshot 已保存而 marker 追加失败时，恢复仍以 Snapshot 边界为准；孤立或越界事件只保留为未提交 tail，不会被自动 replay。`model_context_frame` 在 Trajectory 协议中校验阶段、Epoch、Conversation 位置、Section 身份、结构化 JSON 投影与实际更新文本；Runtime 恢复查询还会对照当前注册表过滤未知或身份不匹配的 Section。
 
 `JsonFileDiagnosticTraceSink` 使用独立的 `.jsonl` 目录和同样的安全编码路径；它只负责
 追加上游已经脱敏、限长的 `TraceRecord`，不被 `GoalStore` 或 Trajectory 读取，也不参与

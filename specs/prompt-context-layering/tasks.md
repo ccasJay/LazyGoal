@@ -14,7 +14,7 @@
   - 验证方式：待实现的 `packages/agent/test/fixed-instructions.test.ts`；现有 `packages/agent/test/prompting-renderer.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [1.6](./requirements.md#req-1-6), [2.2](./requirements.md#req-2-2)_
 
-- [ ] //TODO 3. 保存模型可见 Section Frame 与提交边界
+- [x] //TODO 3. 保存模型可见 Section Frame 与提交边界
 
   - 实现目标：扩展当前 Trajectory/Snapshot 编解码及提交路径，在成功模型响应后记录带结构化投影和实际更新消息的阶段 frame。
   - 成功判据：恢复只读取 Snapshot 边界内的 frame；未提交 tail、未知 section ID 和身份不符的记录不能成为比较基线；真实 Conversation/Trajectory 事实不被改写。

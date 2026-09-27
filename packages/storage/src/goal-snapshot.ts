@@ -260,6 +260,7 @@ export interface GoalSnapshotRunStateV1 {
         | "failed"
         | "cancelled";
     readonly stepCount: number;
+    /** Trajectory 可见高水位；包含已提交的模型上下文 frame。 */
     readonly committedThroughSequence: number;
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
