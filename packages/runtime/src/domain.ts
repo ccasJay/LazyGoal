@@ -234,6 +234,39 @@ export interface MemoryRevision {
     readonly sequence: number;
 }
 
+/**
+ * 当前 executing Step 的已提交 Think 链恢复指针。
+ *
+ * @remarks
+ * 指针只引用当前 Step 最近一个已提交的 Think 输出；完整目标和输出从 Snapshot
+ * 边界内的 Trajectory 事实恢复。`inputBoundary` 绑定 Step 起始输入与模型选择，
+ * 输入身份变化时不得复用旧 Think 输出。
+ *
+ * @example
+ * ```ts
+ * const pendingThink: PendingThink = {
+ *     goalId: "goal-1", runId: "run-1", stepOrdinal: 3,
+ *     executionUnitId: "execution-unit-1",
+ *     inputBoundary: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+ *     latestThinkEventId: "event-42",
+ * };
+ * ```
+ */
+export interface PendingThink {
+    /** 持有该阶段链的 Goal 稳定标识。 */
+    readonly goalId: string;
+    /** 持有该阶段链的 Run 稳定标识。 */
+    readonly runId: string;
+    /** 当前尚未完成 Step 的一基序号，即 `stepCount + 1`。 */
+    readonly stepOrdinal: number;
+    /** 当前 Step 的稳定执行单元 ID；恢复后沿用以验证阶段事实归属。 */
+    readonly executionUnitId: string;
+    /** 对 Step 起始输入、授权工具和模型选择的 canonical SHA-256 摘要。 */
+    readonly inputBoundary: `sha256:${string}`;
+    /** Snapshot 边界内最近一个 `think_completed` Trajectory Event 的 ID。 */
+    readonly latestThinkEventId: string;
+}
+
 export type {
     BlockerCreate,
     BlockerUpdate,
@@ -815,7 +848,8 @@ export type RunStopReason =
  * @remarks
  * `stepCount` 只统计 executing 阶段完成的决策或 Action/Observation 周期；
  * `lastStep` 只保留最新 Step。`pendingAction` 是有界执行记忆，不属于
- * Goal.messages。当前分层上下文 Epoch 始终由 Runtime 管理。
+ * Goal.messages。`pendingThink` 只保存当前 Step 的恢复指针，不复制 Think 文本。
+ * 当前分层上下文 Epoch 始终由 Runtime 管理。
  * @example
  * ```ts
  * const run: RunState = createRun("run-1");
@@ -846,6 +880,7 @@ export interface RunState {
     readonly lastStep?: StepRecord;
     readonly pendingAction?: PendingAction;
     readonly pendingInteraction?: PendingInteraction;
+    readonly pendingThink?: PendingThink;
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。

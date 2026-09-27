@@ -120,6 +120,7 @@ export type {
     PendingInteraction,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
+    PendingThink,
     StepRecord,
     ToolCallAction,
     TransitionResult,

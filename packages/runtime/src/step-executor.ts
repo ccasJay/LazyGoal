@@ -180,7 +180,8 @@ export interface StepExecutor {
      *
      * @param input - 当前 Step 输入及已提交的 Think 链。
      * @returns 通过本地契约解析的 Think 请求或业务决策，可附本次模型请求 frame。
-     * @throws 响应不符合协议或模型调用失败时抛出。
+     * @throws 响应不符合协议或模型调用失败时抛出。若当前 Step 已有已提交 Think
+     *   链，Runner 会保留 `pendingThink` 并传播阶段错误，恢复时只重试 Decide。
      *
      * @example
      * ```ts
@@ -196,7 +197,8 @@ export interface StepExecutor {
      *
      * @param input - 当前 Step 输入、明确 Think 目标和先前已提交的 Think 链。
      * @returns 非空推演文本及其请求 frame；由 Runner 在继续 Decide 前持久化。
-     * @throws 响应为空、包含工具调用或模型调用失败时抛出。
+     * @throws 响应为空、包含工具调用或模型调用失败时抛出。失败输出不会成为恢复
+     *   历史；此前已提交的 Think 链由 Runner 保留。
      *
      * @example
      * ```ts

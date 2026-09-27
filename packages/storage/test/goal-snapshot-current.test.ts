@@ -284,6 +284,44 @@ test("无最终任务的普通只读 Action 可以保存为可恢复 pendingActi
     assert.equal(decoded.state.run.stepCount, 0);
 });
 
+test("当前 Snapshot 往返保存 pendingThink，且拒绝越界的 Step 指针", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+
+    const pendingThink = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        stepOrdinal: 1,
+        executionUnitId: "execution-unit-think-1",
+        inputBoundary: `sha256:${"a".repeat(64)}` as const,
+        latestThinkEventId: "event-think-1",
+    };
+    const snapshot = goalSnapshotCodec.encode({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: { ...started.state, pendingThink },
+        },
+    });
+    const restored = goalSnapshotCodec.decode(snapshot);
+
+    assert.deepEqual(restored.state.run.pendingThink, pendingThink);
+    const invalid = JSON.parse(JSON.stringify(snapshot)) as any;
+    invalid.state.run.pendingThink!.stepOrdinal = 2;
+    assert.throws(
+        () => goalSnapshotCodec.decode(invalid),
+        assertProtocolError,
+    );
+    const foreignGoal = JSON.parse(JSON.stringify(snapshot)) as any;
+    foreignGoal.state.run.pendingThink.goalId = "goal-foreign";
+    assert.throws(
+        () => goalSnapshotCodec.decode(foreignGoal),
+        assertProtocolError,
+    );
+});
+
 test("Run mode、approvedTask、nextRunMode 与 GoalPlan 独立往返", () => {
     const snapshot = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(createCurrentGoal()))) as any;
     snapshot.state.nextRunMode = "plan";

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
     AgentDecision,
@@ -16,6 +16,7 @@ import type {
     GoalTask,
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
+    PendingThink,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -132,8 +133,8 @@ class RunnerExecutionError extends Error {
 }
 
 class StageExecutionFailure extends Error {
-    constructor(error: unknown) {
-        super(error instanceof Error ? error.message : String(error));
+    constructor(readonly original: unknown) {
+        super(original instanceof Error ? original.message : String(original));
         this.name = "StageExecutionFailure";
     }
 }
@@ -155,6 +156,52 @@ let executionUnitCounter = 0;
 function createExecutionUnitId(): string {
     executionUnitCounter += 1;
     return `execution-unit-${Date.now().toString(36)}-${executionUnitCounter.toString(36)}`;
+}
+
+function canonicalizeBoundaryValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(canonicalizeBoundaryValue);
+    if (value !== null && typeof value === "object") {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+                .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+                .map(([key, child]) => [key, canonicalizeBoundaryValue(child)]),
+        );
+    }
+    return value;
+}
+
+function createThinkInputBoundary(
+    input: StepExecutionInput,
+    stepOrdinal: number,
+): `sha256:${string}` {
+    const goal = input.goal;
+    const workingMemoryInput = input.workingMemory;
+    let workingMemory: Omit<NonNullable<StepExecutionInput["workingMemory"]>, "derivedThroughSequence"> | undefined;
+    if (workingMemoryInput !== undefined) {
+        const { derivedThroughSequence: _derivedThroughSequence, ...stableMemory } = workingMemoryInput;
+        workingMemory = stableMemory;
+    }
+    const boundary = {
+        goalId: goal.id,
+        stepOrdinal,
+        definition: goal.definition,
+        messages: goal.state.messages,
+        run: {
+            id: goal.state.run.id,
+            mode: goal.state.run.mode,
+            approvedTask: goal.state.run.approvedTask,
+            stepCount: goal.state.run.stepCount,
+            lastStep: goal.state.run.lastStep,
+            contextEpoch: goal.state.run.contextEpoch,
+        },
+        modelSelection: goal.state.modelSelection,
+        goalPlan: goal.state.goalPlan,
+        authorizedTools: input.authorizedTools,
+        workingMemory,
+        contextLookupResult: input.contextLookupResult,
+    };
+    const serialized = JSON.stringify(canonicalizeBoundaryValue(boundary));
+    return `sha256:${createHash("sha256").update(serialized, "utf8").digest("hex")}`;
 }
 
 function isStreamDeltaKind(kind: string): boolean {
@@ -581,8 +628,9 @@ export interface RunnerDependencies {
  * Runner 是状态推进与持久化顺序的拥有者。启动、恢复和每个 Step 完成后，
  * 都会先保存最新完整 Goal，再继续下一步。阶段化 Executor 可在一个 Step 内返回
  * 多个 Decide/Think 结果；每次 Think 的请求与输出先提交 Trajectory 和 Snapshot，
- * 最终有效 AgentDecision 才进入状态转换。正数 `maxSteps` 使用快照中的累计
- * `stepCount`；`0` 表示不按 Step 数终止。
+ * Snapshot 的 `pendingThink` 指向当前 Step 最近一个已提交输出。恢复会校验 Goal、Run、
+ * Step、执行单元、输入摘要及事件父链，复用该链并只重试 Decide；最终有效 AgentDecision
+ * 才进入状态转换。正数 `maxSteps` 使用快照中的累计 `stepCount`；`0` 表示不按 Step 数终止。
  *
  * `execute()` 兼容实现返回的 AgentDecision 会先做运行时严格校验；阶段化实现由
  * `decide()` 返回业务决策或 Think 请求，并由 `think()` 生成自由文本。Think 不增加
@@ -595,8 +643,9 @@ export interface RunnerDependencies {
  * 继续下一轮；Tool 异常会保存 `outcome_unknown` execution_error。
  *
  * 旧式 Executor 抛出的非协议异常会规范化为当前 `fail` Decision 并持久化；阶段化
- * Executor 的模型调用失败保存为执行错误，不伪造 AgentDecision。Store 的读取或写入
- * 异常原样传播，写入失败后不会继续执行下一阶段或 Step。
+ * Executor 在 Think 请求或输出检查点之后失败/取消时，Runner 保留运行中的 Step 和
+ * 已提交 `pendingThink`，传播原错误供调用方恢复，且不伪造 AgentDecision。Store 的
+ * 读取或写入异常原样传播，写入失败后不会继续执行下一阶段或 Step。
  */
 export class Runner {
     private readonly store: GoalStore;
@@ -672,7 +721,8 @@ export class Runner {
      *   时按 Tool 的 `replayPolicy` 分流。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns Run 到达 waiting 或终态时的结果。
-     * @throws GoalStore 的恢复或保存错误；中止时抛出 `ExecutionAbortedError`。
+     * @throws GoalStore/Trajectory 读取或保存错误；有已提交阶段检查点时阶段调用错误
+     *   原样传播且保留恢复指针；中止时抛出 `ExecutionAbortedError`。
      */
     async run(
         ref: RunRef,
@@ -1397,6 +1447,10 @@ export class Runner {
         },
     ): Promise<Goal> {
         try {
+            if (this.trajectoryStore === undefined
+                && facts.some((fact) => fact.eventType === "think_requested")) {
+                throw new TrajectoryAppendError("Think checkpoints require an enabled Trajectory sink");
+            }
             return await this.commitDecision(
                 goal,
                 facts,
@@ -1408,6 +1462,189 @@ export class Runner {
             if (isExecutionAbortedError(error)) throw error;
             throw new StageCheckpointFailure(error);
         }
+    }
+
+    private async commitThinkCompletion(
+        goal: Goal,
+        fact: Extract<TrajectoryEventDraft, { readonly eventType: "think_completed" }>,
+        stepOrdinal: number,
+        executionUnitId: string,
+        inputBoundary: `sha256:${string}`,
+        control: ExecutionControl | undefined,
+        modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+            readonly executionUnitId?: string;
+            readonly stepIndex?: number;
+        },
+    ): Promise<Goal> {
+        try {
+            const event = await this.checkpointCommitter.append(fact, control);
+            if (event?.eventType !== "think_completed") {
+                throw new TrajectoryAppendError("Think checkpoints require an enabled Trajectory sink");
+            }
+            const pendingThink: PendingThink = {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                stepOrdinal,
+                executionUnitId,
+                inputBoundary,
+                latestThinkEventId: event.eventId,
+            };
+            const checkpointGoal = this.withRun(goal, {
+                ...goal.state.run,
+                pendingThink,
+            });
+            const savedGoal = await this.commitStageCheckpoint(
+                checkpointGoal,
+                [],
+                control,
+                modelContextFrame,
+            );
+            const committed = { goal: savedGoal, events: [event] };
+            this.publishCommittedEvents(committed);
+            this.publishCheckpointCommitted(committed, [fact]);
+            return savedGoal;
+        } catch (error) {
+            if (error instanceof StageCheckpointFailure) throw error;
+            if (isExecutionAbortedError(error)) throw error;
+            throw new StageCheckpointFailure(error);
+        }
+    }
+
+    private async restoreThinkHistory(
+        goal: Goal,
+        stepOrdinal: number,
+        executionUnitId: string,
+        inputBoundary: `sha256:${string}`,
+        control?: ExecutionControl,
+    ): Promise<ThinkExchange[]> {
+        const pendingThink = goal.state.run.pendingThink;
+        if (this.trajectoryStore === undefined) {
+            if (pendingThink !== undefined) {
+                invalidAgentDecision("Cannot restore a Think chain without its Trajectory store");
+            }
+            return [];
+        }
+
+        let committed: readonly TrajectoryEvent[];
+        try {
+            throwIfAborted(control);
+            const result = await this.trajectoryStore.readWithBoundary(
+                { goalId: goal.id, runId: goal.state.run.id },
+                goal.state.run.committedThroughSequence,
+            );
+            if (result.committed.some((event) =>
+                event.goalId !== goal.id || event.runId !== goal.state.run.id,
+            )) {
+                invalidAgentDecision("Committed Think history contains a foreign Goal or Run event");
+            }
+            committed = result.committed.filter((event) =>
+                event.sequence <= goal.state.run.committedThroughSequence,
+            );
+            throwIfAborted(control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            if (error instanceof RunnerExecutionError) throw error;
+            throw new StageCheckpointFailure(error);
+        }
+
+        const stepCompletions = committed.filter((event): event is Extract<
+            TrajectoryEvent,
+            { readonly eventType: "think_completed" }
+        > =>
+            event.eventType === "think_completed"
+            && event.payload.stepOrdinal === stepOrdinal,
+        );
+        if (pendingThink === undefined) {
+            // Without a Snapshot pointer, no output may seed a resumed stage chain.
+            // This also excludes an append-only tail that a later commit may have crossed.
+            return [];
+        }
+
+        const pendingThinkMismatch = [
+            pendingThink.goalId !== goal.id ? "Goal" : undefined,
+            pendingThink.runId !== goal.state.run.id ? "Run" : undefined,
+            pendingThink.stepOrdinal !== stepOrdinal ? "Step" : undefined,
+            pendingThink.executionUnitId !== executionUnitId ? "execution unit" : undefined,
+            pendingThink.inputBoundary !== inputBoundary ? "input boundary" : undefined,
+        ].filter((value): value is string => value !== undefined);
+        if (pendingThinkMismatch.length > 0) {
+            invalidAgentDecision(`Pending Think identity does not match the current execution: ${pendingThinkMismatch.join(", ")}`);
+        }
+
+        const completions = stepCompletions.filter((event) =>
+            event.executionUnitId === executionUnitId && event.stepIndex === stepOrdinal,
+        );
+        const completionById = new Map(completions.map((event) => [event.eventId, event]));
+        const requests = committed.filter((event): event is Extract<
+            TrajectoryEvent,
+            { readonly eventType: "think_requested" }
+        > =>
+            event.eventType === "think_requested"
+            && event.executionUnitId === executionUnitId
+            && event.stepIndex === stepOrdinal
+            && event.payload.stepOrdinal === stepOrdinal,
+        );
+        const requestById = new Map<string, typeof requests>();
+        for (const request of requests) {
+            if (requestById.has(request.payload.requestId)) {
+                invalidAgentDecision("Think request ID is duplicated inside the committed Step chain");
+            }
+            requestById.set(request.payload.requestId, [request]);
+            if (request.parentEventId !== undefined && !completionById.has(request.parentEventId)) {
+                invalidAgentDecision("Think request points outside its committed Step chain");
+            }
+        }
+
+        const reverseChain: Extract<TrajectoryEvent, { readonly eventType: "think_completed" }>[] = [];
+        const visited = new Set<string>();
+        let currentEventId: string | undefined = pendingThink.latestThinkEventId;
+        while (currentEventId !== undefined) {
+            if (visited.has(currentEventId)) {
+                invalidAgentDecision("Committed Think chain contains a parent cycle");
+            }
+            visited.add(currentEventId);
+            const completion = completionById.get(currentEventId);
+            if (completion === undefined) {
+                invalidAgentDecision("Pending Think pointer references a missing or uncommitted output");
+            }
+            const matchingRequests = requestById.get(completion.payload.requestId);
+            if (matchingRequests === undefined || matchingRequests.length !== 1) {
+                invalidAgentDecision("Committed Think output has no unique matching request");
+            }
+            const request = matchingRequests[0]!;
+            if (
+                completion.goalId !== goal.id
+                || completion.runId !== goal.state.run.id
+                || completion.phase !== "executing"
+                || completion.payload.stepOrdinal !== stepOrdinal
+                || completion.stepIndex !== stepOrdinal
+                || request.goalId !== completion.goalId
+                || request.runId !== completion.runId
+                || request.phase !== completion.phase
+                || request.payload.goal !== completion.payload.goal
+                || request.payload.stepOrdinal !== completion.payload.stepOrdinal
+                || request.parentEventId !== completion.parentEventId
+                || request.sequence >= completion.sequence
+            ) {
+                invalidAgentDecision("Think request and output identities do not match");
+            }
+            reverseChain.push(completion);
+            if (completion.parentEventId !== undefined) {
+                const parent = completionById.get(completion.parentEventId);
+                if (parent === undefined || parent.sequence >= completion.sequence) {
+                    invalidAgentDecision("Think output parent is missing or out of order");
+                }
+            }
+            currentEventId = completion.parentEventId;
+        }
+
+        // Only the Snapshot pointer's parent chain is recoverable. Disconnected facts can
+        // be append-only tails from an interrupted attempt and never seed this history.
+        return reverseChain.reverse().map((completion) => ({
+            requestId: completion.payload.requestId,
+            goal: completion.payload.goal,
+            output: completion.payload.output,
+        }));
     }
 
     private publishCommittedEvents(result: TrajectoryCheckpointCommitResult): void {
@@ -1950,7 +2187,8 @@ export class Runner {
                 return { ok: true, state: checkpoint.state.run };
             }
 
-            const executionUnitId = createExecutionUnitId();
+            const executionUnitId = goal.state.run.pendingThink?.executionUnitId
+                ?? createExecutionUnitId();
             const session = await this.openWorkingMemorySession(goal, control);
 
             this.publishExecutionEvent(goal, {
@@ -1966,6 +2204,7 @@ export class Runner {
 
             try {
                 let normalized: NormalizedExecution;
+                let pendingThinkRequestCommitted = false;
                 try {
                     throwIfAborted(control);
                     const tools = this.getAuthorizedToolDefinitions(goal, control);
@@ -1991,7 +2230,15 @@ export class Runner {
                     }
 
                     if (supportsStages) {
-                        const thinkHistory: ThinkExchange[] = [];
+                        const stepOrdinal = goal.state.run.stepCount + 1;
+                        const thinkInputBoundary = createThinkInputBoundary(stepInput, stepOrdinal);
+                        const thinkHistory = await this.restoreThinkHistory(
+                            goal,
+                            stepOrdinal,
+                            executionUnitId,
+                            thinkInputBoundary,
+                            control,
+                        );
                         while (true) {
                             throwIfAborted(control);
                             let stageResult: DecideStageResult;
@@ -2017,13 +2264,15 @@ export class Runner {
                                     throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
                                 }
                                 const requestId = randomUUID();
-                                const stepOrdinal = goal.state.run.stepCount + 1;
                                 const requestedFact: TrajectoryEventDraft = {
                                     goalId: goal.id,
                                     runId: goal.state.run.id,
                                     phase: "executing",
                                     executionUnitId,
                                     stepIndex: stepOrdinal,
+                                    ...(goal.state.run.pendingThink === undefined
+                                        ? {}
+                                        : { parentEventId: goal.state.run.pendingThink.latestThinkEventId }),
                                     eventType: "think_requested",
                                     payload: {
                                         type: "think_requested",
@@ -2044,6 +2293,7 @@ export class Runner {
                                             stepIndex: stepOrdinal,
                                         },
                                 );
+                                pendingThinkRequestCommitted = true;
 
                                 let thinkResult: ThinkStageResult;
                                 try {
@@ -2075,6 +2325,9 @@ export class Runner {
                                     phase: "executing",
                                     executionUnitId,
                                     stepIndex: stepOrdinal,
+                                    ...(goal.state.run.pendingThink === undefined
+                                        ? {}
+                                        : { parentEventId: goal.state.run.pendingThink.latestThinkEventId }),
                                     eventType: "think_completed",
                                     payload: {
                                         type: "think_completed",
@@ -2084,9 +2337,12 @@ export class Runner {
                                         output: thinkOutput,
                                     },
                                 };
-                                goal = await this.commitStageCheckpoint(
+                                goal = await this.commitThinkCompletion(
                                     goal,
-                                    [completedFact],
+                                    completedFact,
+                                    stepOrdinal,
+                                    executionUnitId,
+                                    thinkInputBoundary,
                                     control,
                                     thinkResult.modelContextFrame === undefined
                                         ? undefined
@@ -2096,6 +2352,7 @@ export class Runner {
                                             stepIndex: stepOrdinal,
                                         },
                                 );
+                                pendingThinkRequestCommitted = false;
                                 thinkHistory.push({ requestId, goal: thinkGoal, output: thinkOutput });
                                 continue;
                             }
@@ -2156,6 +2413,9 @@ export class Runner {
                         return this.invalidContextLookup(error.message);
                     }
                     if (error instanceof StageExecutionFailure) {
+                        if (goal.state.run.pendingThink !== undefined || pendingThinkRequestCommitted) {
+                            throw error.original;
+                        }
                         return this.stopWithExecutionError(
                             goal,
                             new RunnerExecutionError(
@@ -2331,8 +2591,9 @@ export class Runner {
                         messages.length,
                         goal.state.run.committedThroughSequence,
                     );
+                    const { pendingThink: _pendingThink, ...runWithoutPendingThink } = goal.state.run;
                     const nextGoal = this.withRun(goal, {
-                        ...goal.state.run,
+                        ...runWithoutPendingThink,
                         contextEpoch: nextEpoch,
                     });
                     goal = await this.commitDecision(nextGoal, [{

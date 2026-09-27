@@ -17,6 +17,7 @@ import type {
     Observation,
     PendingAction,
     PendingInteraction,
+    PendingThink,
     StepRecord,
     ToolCallAction,
 } from "../../runtime/src/index";
@@ -35,6 +36,7 @@ import {
     type GoalSnapshotObservationV1,
     type GoalSnapshotPendingActionV1,
     type GoalSnapshotPendingInteractionV1,
+    type GoalSnapshotPendingThinkV1,
     type GoalSnapshotProfileV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
@@ -167,6 +169,17 @@ function encodeAction(action: ToolCallAction): GoalSnapshotToolCallActionV1 {
         actionId: action.actionId,
         toolId: action.toolId,
         input: structuredClone(action.input),
+    };
+}
+
+function encodePendingThink(pendingThink: PendingThink): GoalSnapshotPendingThinkV1 {
+    return {
+        goalId: pendingThink.goalId,
+        runId: pendingThink.runId,
+        stepOrdinal: pendingThink.stepOrdinal,
+        executionUnitId: pendingThink.executionUnitId,
+        inputBoundary: pendingThink.inputBoundary,
+        latestThinkEventId: pendingThink.latestThinkEventId,
     };
 }
 
@@ -397,6 +410,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.pendingInteraction === undefined
                     ? {}
                     : { pendingInteraction: encodePendingInteraction(run.pendingInteraction) }),
+                ...(run.pendingThink === undefined
+                    ? {}
+                    : { pendingThink: encodePendingThink(run.pendingThink) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -589,6 +605,17 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
     };
 }
 
+function decodePendingThink(pendingThink: GoalSnapshotPendingThinkV1): PendingThink {
+    return {
+        goalId: pendingThink.goalId,
+        runId: pendingThink.runId,
+        stepOrdinal: pendingThink.stepOrdinal,
+        executionUnitId: pendingThink.executionUnitId,
+        inputBoundary: pendingThink.inputBoundary as `sha256:${string}`,
+        latestThinkEventId: pendingThink.latestThinkEventId,
+    };
+}
+
 function decodeModelSelection(selection: GoalSnapshotModelSelectionV1): GoalModelSelection {
     return {
         provider: selection.provider,
@@ -674,6 +701,9 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingInteraction === undefined
                     ? {}
                     : { pendingInteraction: decodePendingInteraction(run.pendingInteraction) }),
+                ...(run.pendingThink === undefined
+                    ? {}
+                    : { pendingThink: decodePendingThink(run.pendingThink) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },

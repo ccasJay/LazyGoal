@@ -49,7 +49,7 @@
   - 验证方式：待实现的 `packages/runtime/test/think-decision-loop.test.ts` 与 `packages/contracts/test/request-think-contract.test.ts`；现有 `packages/runtime/test/model-output-runtime-boundary.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [5.1](./requirements.md#req-5-1), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.4](./requirements.md#req-6-4), [6.5](./requirements.md#req-6-5)_
 
-- [ ] //TODO 8. 完成 Think 链恢复与阶段失败处理
+- [x] //TODO 8. 完成 Think 链恢复与阶段失败处理
 
   - 实现目标：从已提交的 `pendingThink` 和 Think 事实恢复当前 Step，区分未提交调用、提交失败、Decide 失败与取消。
   - 成功判据：已提交 Think 后只重试对应 Decide；未提交输出和跨 Goal/Run/Step/模型输入的链被拒绝；任一阶段失败都不伪造有效决策或执行 Tool。
