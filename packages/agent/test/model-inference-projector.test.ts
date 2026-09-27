@@ -38,6 +38,7 @@ import type {
 import type { ToolDefinition } from "../../runtime/src/tool";
 import { currentProtocols, currentWorkingMemory } from "./current-fixtures";
 import { ModelInferenceProjector } from "../src/model-inference-projector";
+import type { PromptStage } from "../src/model-inference-view";
 
 const intent = "完成示例任务";
 const task = {
@@ -184,8 +185,9 @@ function project(
     goal: Goal,
     tools: readonly ToolDefinition[] = [],
     memory: WorkingMemory = currentWorkingMemory,
+    stage: PromptStage = "decide",
 ) {
-    return projector.project(goal, tools, memory);
+    return projector.project(goal, tools, memory, undefined, undefined, stage);
 }
 
 function assertNoContractAst(value: unknown, path: string): void {
@@ -261,12 +263,16 @@ test("Projector 投影未批准 Goal 的 PromptContext、Conversation 与 Workin
     assert.deepEqual(view.prompt.modelContextProtocol, currentProtocols.modelContextProtocol);
     assert.deepEqual(view.prompt.contextRetrievalProtocol, currentProtocols.contextRetrievalProtocol);
     assert.equal(view.prompt.phase, "executing");
+    assert.equal(view.prompt.stage, "decide");
     assert.equal(view.dynamicContext.runMode, "normal");
     assert.equal(view.dynamicContext.goalPlanWritable, false);
     assert.equal(view.prompt.profile.id, "profile-1");
     assert.deepEqual(view.workingContext, { phase: "executing", intent, execution: { stepCount: 0 } });
     assert.deepEqual(view.workingMemory, currentWorkingMemory);
     assert.equal(view.contextEpoch.epochNumber, 0);
+
+    const thinkView = project(createUnapprovedGoal(), [], currentWorkingMemory, "think");
+    assert.equal(thinkView.prompt.stage, "think");
 });
 
 test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working Memory plan", () => {

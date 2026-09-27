@@ -1,6 +1,6 @@
 import type { Environment } from "nunjucks";
 
-import type { ModelInferenceView, PromptContext, PromptPhase } from "../model-inference-view";
+import type { ModelInferenceView, PromptContext, PromptStage } from "../model-inference-view";
 import {
     createPromptEnvironment,
     normalizeNewlines,
@@ -37,21 +37,21 @@ function normalizeFragment(text: string): string {
  * 把一个 section 解析为确定的模板 ID。
  *
  * @remarks
- * `phase_protocol` section 按当前 Phase 选模板；Registry 构造期已保证三个 Phase
- * 映射完整，此处的缺失检查仅作防御，理论上不可达。
+ * `phase_protocol` section 按当前 Think/Decide Stage 选模板；Registry 构造期已保证
+ * 两个 Stage 映射完整，此处的缺失检查仅作防御，理论上不可达。
  */
 function resolveTemplateId(
     section: PromptBundleSection,
-    phase: PromptPhase,
+    stage: PromptStage,
 ): string {
     if (section.slot !== "phase_protocol") {
         return section.templateId;
     }
 
-    const templateId = section.templates[phase];
+    const templateId = section.templates[stage];
 
     if (templateId === undefined) {
-        throw new Error(`Phase Protocol 缺少 ${phase} 阶段的模板映射`);
+        throw new Error(`Phase Protocol 缺少 ${stage} 推理阶段的模板映射`);
     }
 
     return templateId;
@@ -65,7 +65,7 @@ function renderSection(
     section: PromptBundleSection,
     context: PromptContext,
 ): string {
-    const templateId = resolveTemplateId(section, context.phase);
+    const templateId = resolveTemplateId(section, context.stage);
 
     try {
         return normalizeFragment(environment.render(templateId, context));

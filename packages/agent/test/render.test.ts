@@ -57,6 +57,7 @@ function buildView(
         prompt: {
             promptBundleVersion: (options.promptBundleVersion ?? 1) as 1,
             phase: "executing",
+            stage: "decide",
             profile,
             memoryProtocol: { kind: "structured" as const, version: 1 as const },
             modelContextProtocol: {
@@ -146,7 +147,7 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     const systemContent = request.messages[0]?.content ?? "";
     const dynamicText = request.messages.slice(1, -1).map((message) => message.content).join("\n");
 
-    assert.match(systemContent, /Active Executing Protocol:/);
+    assert.match(systemContent, /Active Decide Instructions:/);
     assert.doesNotMatch(systemContent, /Plan Phase|probe/i);
     assert.match(systemContent, /trajectory-layered@1/);
     assert.doesNotMatch(systemContent, /read_file/);

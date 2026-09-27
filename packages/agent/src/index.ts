@@ -183,6 +183,7 @@ export type {
     StepDynamicPayload,
     PromptContext,
     PromptPhase,
+    PromptStage,
 } from "./model-inference-view";
 
 export {

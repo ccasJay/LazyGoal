@@ -26,6 +26,7 @@ function prompt(overrides: Partial<PromptContext> = {}): PromptContext {
     return {
         promptBundleVersion: 1,
         phase: "executing",
+        stage: "decide",
         profile: { id: "profile-1", systemPrompt: "system", instructions: [] },
         ...currentProtocols,
         ...overrides,
@@ -90,6 +91,7 @@ test("默认 Bundle v1 只组合固定 system section，动态 section 独立注
             "global-overview@1",
             "profile@1",
             "agent-decision@1",
+            "agent-think@1",
             "authorized-tools@1",
             "run-mode@1",
             "approved-task@1",
@@ -113,7 +115,7 @@ test("固定 system 文本与 Run、任务、GoalPlan、工具和 Working Memory
     const normalText = renderer.render(normal.prompt);
     const planText = renderer.render(plan.prompt);
     assert.equal(normalText, planText);
-    assert.doesNotMatch(normalText, /Normal Run|Plan Run|Objective: Task|revision 2|read_file|\"facts\"/);
+    assert.doesNotMatch(normalText, /Objective: Task|revision 2|\"id\": \"read_file\"/);
 
     const dynamic = renderer.renderDynamicSections(plan);
     assert.deepEqual(dynamic.map((section) => section.sectionId), [

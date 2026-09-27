@@ -165,8 +165,11 @@ export interface ModelToolDefinition {
     readonly inputSchema: unknown;
 }
 
-/** Prompt Bundle 渲染时的业务阶段（统一为 executing）。 */
+/** Prompt Bundle 渲染时的 Runtime 业务阶段（当前统一为 executing）。 */
 export type PromptPhase = "executing";
+
+/** 一次模型请求承担的推理职责。 */
+export type PromptStage = "decide" | "think";
 
 /** Agent 可消费的冻结 Memory 协议标识。 */
 export type ModelMemoryProtocol = { readonly kind: "structured"; readonly version: 1 };
@@ -386,7 +389,8 @@ export type ModelContextLookupResult =
  *
  * @remarks
  * 该 DTO 只包含构建固定 system prompt 所需的数据：Goal 冻结的 Prompt Bundle
- * 版本、当前业务阶段、冻结 Profile 与协议版本。它不包含 Run 状态、goalId、runId、
+ * 版本、Runtime 业务阶段、Think/Decide 推理阶段、冻结 Profile 与协议版本。它不包含
+ * Run 状态、goalId、runId、
  * 当前时间、随机数、进程环境、Snapshot 元数据或瞬时授权，也不包含真实会话消息
  * （会话由 `ModelInferenceView.conversation` 独立承载）。Renderer 只读取本对象，
  * 不得修改它或任何 Runtime 领域状态。
@@ -399,8 +403,10 @@ export type ModelContextLookupResult =
 export interface PromptContext {
     /** Goal 创建时冻结的当前 Prompt Bundle 版本。 */
     readonly promptBundleVersion: 1;
-    /** 决定 Phase Protocol 模板选择的当前业务阶段。 */
+    /** 当前 Runtime 业务阶段；当前模板覆盖 executing。 */
     readonly phase: PromptPhase;
+    /** 决定 Think 或 Decide 固定说明的推理阶段。 */
+    readonly stage: PromptStage;
     /** 冻结 Profile 的模型可读投影。 */
     readonly profile: ModelProfileView;
     /** Goal 冻结的 Memory 协议。 */
@@ -572,7 +578,7 @@ export interface VisibleConversationMessageMapEntry {
  * 该对象由 Runtime State 单向派生，只含构建 Prompt 所需的数据：深冻结的固定
  * `PromptContext`、独立动态状态、真实会话和阶段化 Working Context。它不包含 Storage
  * schemaVersion、迁移标记或瞬时执行资源。`PromptContext` 只承载 Prompt Bundle
- * 版本、Phase、冻结 Profile 与协议版本；Run 状态和授权工具由动态 section 消费。
+ * 版本、业务阶段、推理阶段、冻结 Profile 与协议版本；Run 状态和授权工具由动态 section 消费。
  * 真实会话与 Working Context 独立承载，不得进入模板环境；Conversation 每条消息
  * 保留其 Goal 原始索引但不把索引写入正文；分层协议额外通过 `trajectoryContext`
  * 承载本轮 Hot/Warm 与预算报告。Renderer 对未知 Prompt Bundle 版本直接失败，

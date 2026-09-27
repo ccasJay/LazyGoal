@@ -5,12 +5,14 @@ import type {
     ModelMemoryProtocol,
     PromptContext,
     PromptPhase,
+    PromptStage,
 } from "../model-inference-view";
 import type { DynamicSectionMessage } from "./dynamic-section-registry";
 
 export type {
     PromptContext,
     PromptPhase,
+    PromptStage,
 };
 
 /**
@@ -47,7 +49,7 @@ export interface PromptTemplateDefinition {
  *
  * @remarks
  * 普通 section 直接引用模板 ID；`phase_protocol` section 必须显式给出全部受支持
- * `PromptPhase` 到模板 ID 的映射。Render 顺序只由 `sections` 数组决定，
+ * `PromptStage` 到模板 ID 的映射。Render 顺序只由 `sections` 数组决定，
  * 不受模板注册顺序或文件遍历顺序影响。
  */
 export type PromptBundleSection =
@@ -57,15 +59,16 @@ export type PromptBundleSection =
     }
     | {
         readonly slot: "phase_protocol";
-        readonly templates: Readonly<Record<PromptPhase, string>>;
+        readonly templates: Readonly<Record<PromptStage, string>>;
     };
 
 /**
- * 一个版本化的 Prompt Bundle：显式声明组成、Phase 映射与渲染顺序的 Manifest。
+ * 一个版本化的 Prompt Bundle：显式声明组成、推理阶段映射与渲染顺序的 Manifest。
  *
  * @remarks
  * 当前实现只支持 Bundle v1；`sections` 是有序只读数组，Registry 构造时强制其
- * slot 顺序为 Global Overview → Profile → Phase Protocol，且每个 slot 恰好出现一次。
+ * slot 顺序为 Global Overview → Profile → Phase Protocol，且每个 slot 恰好出现一次；
+ * Phase Protocol 必须同时声明 Decide 与 Think 模板。
  *
  * @example
  * ```ts
@@ -77,7 +80,8 @@ export type PromptBundleSection =
  *         {
  *             slot: "phase_protocol",
  *             templates: {
- *                 executing: "agent-decision@1",
+ *                 decide: "agent-decision@1",
+ *                 think: "agent-think@1",
  *             },
  *         },
  *     ],
@@ -98,7 +102,7 @@ export interface PromptBundleManifest {
 }
 
 /**
- * 已按版本与 Phase 解析固定 system 前缀和动态 section 的 Renderer。
+ * 已按 Bundle 版本与 Think/Decide 推理阶段解析固定 system 前缀和动态 section 的 Renderer。
  *
  * @remarks
  * `render` 只读取固定 `PromptContext`；`renderDynamicSections` 只读取已投影的
@@ -110,6 +114,7 @@ export interface PromptBundleManifest {
  * const system = renderer.render({
  *     promptBundleVersion: 1,
  *     phase: "executing",
+ *     stage: "decide",
  *     profile,
  *     memoryProtocol: { kind: "structured", version: 1 },
  *     modelContextProtocol: { kind: "trajectory-layered", version: 1 },

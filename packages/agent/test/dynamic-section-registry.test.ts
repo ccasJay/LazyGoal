@@ -10,6 +10,7 @@ const view: ModelInferenceView = {
     prompt: {
         promptBundleVersion: 1,
         phase: "executing",
+        stage: "decide",
         profile: { id: "profile-1", systemPrompt: "system", instructions: [] },
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },

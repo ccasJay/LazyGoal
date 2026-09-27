@@ -229,7 +229,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
-    assert.match(systemContent, /native tool calls/);
+    assert.match(systemContent, /native Tool interface/);
     const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
     assert.match(
         dynamicContent,

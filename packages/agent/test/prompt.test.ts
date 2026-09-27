@@ -232,7 +232,7 @@ test("请求按固定 system、真实历史、动态 section、本轮 Working Co
     assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
     assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
     assert.ok((request.messages[0]?.content ?? "").includes(
-        "Active Executing Protocol: structured@1; trajectory-layered@1; bm25-lite@1",
+        "Active Decide Instructions: structured@1; trajectory-layered@1; bm25-lite@1",
     ));
     const firstDynamicIndex = request.messages.findIndex((message) => message.content.includes("section: run_mode"));
     assert.ok(firstDynamicIndex > 1);
@@ -268,7 +268,7 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(dynamicText, /read_file/);
     assert.match(dynamicText, /读取工作区内文本文件/);
     assert.ok(request.tools?.some((definition) => definition.id === "read_file"));
-    assert.match(systemContent, /Active Executing Protocol:/);
+    assert.match(systemContent, /Active Decide Instructions:/);
 });
 
 const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [
@@ -465,7 +465,7 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
     assert.deepEqual(control.contextLookupResult, lookupResult);
     assert.match(
         request.messages[0]?.content ?? "",
-        /Use system_context_lookup for missing historical execution, user decisions or rationale, not to establish current external state/,
+        /A historical lookup can locate prior events or rationale, but cannot establish the current state/,
     );
 });
 

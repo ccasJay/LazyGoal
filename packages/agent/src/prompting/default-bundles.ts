@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { GLOBAL_OVERVIEW_TEMPLATE_V1 } from "../global-system-prompt/template";
 import { AGENT_DECISION_TEMPLATE_V1 } from "../step-prompt/template";
+import { AGENT_THINK_TEMPLATE_V1 } from "../step-prompt/think-template";
 import { normalizeNewlines } from "./environment";
 import { createPromptBundleRenderer } from "./renderer";
 import {
@@ -49,6 +50,7 @@ export const DEFAULT_PROMPT_TEMPLATE_ASSETS: readonly PromptTemplateAsset[] = [
     GLOBAL_OVERVIEW_TEMPLATE_V1,
     PROFILE_TEMPLATE,
     AGENT_DECISION_TEMPLATE_V1,
+    AGENT_THINK_TEMPLATE_V1,
     AUTHORIZED_TOOLS_TEMPLATE,
     ...DYNAMIC_SECTION_TEMPLATE_ASSETS,
 ];
@@ -71,7 +73,8 @@ export const PROMPT_BUNDLE_V1_MANIFEST: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                executing: AGENT_DECISION_TEMPLATE_V1.id,
+                decide: AGENT_DECISION_TEMPLATE_V1.id,
+                think: AGENT_THINK_TEMPLATE_V1.id,
             },
         },
     ],

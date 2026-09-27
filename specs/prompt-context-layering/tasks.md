@@ -7,7 +7,7 @@
   - 验证方式：待实现的 `packages/agent/test/dynamic-section-registry.test.ts`；现有 `packages/agent/test/prompting-default-bundles.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 2. 扩充冻结 Prompt 与阶段行为说明
+- [x] //TODO 2. 扩充冻结 Prompt 与阶段行为说明
 
   - 实现目标：更新 Bundle v1 固定模板和 Think/Decide 阶段说明，保留冻结 Profile 与来源权限，并为参考场景建立真实 `o200k_base` 计数检查。
   - 成功判据：两阶段固定文本各为 2,000–3,000 tokens，所需行为主题完整且无冲突；动态文本和 Shape Guide 不参与计数；模板变量不二次执行。

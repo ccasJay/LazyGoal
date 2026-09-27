@@ -6,13 +6,13 @@ Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已
 
 ## Prompt Bundle
 
-默认 Renderer 只注册 Prompt Bundle v1 的三个固定 system 资产，并按以下顺序渲染：
+默认 Renderer 只注册 Prompt Bundle v1 的三个固定 system slot，并按以下顺序渲染：
 
 1. Global Overview；
 2. Profile；
-3. 当前唯一 `executing` Phase Protocol；
+3. 当前推理阶段的固定说明（Decide 或 Think）。
 
-Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。Registry 在构造期检查模板、slot 顺序、协议和阶段映射；不提供旧模板或版本回退。
+Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。Registry 在构造期检查模板、slot 顺序、协议及 Decide/Think 模板映射；不提供旧模板或版本回退。当前 `ModelInferenceProjector` 默认选择 Decide，Think 使用同一固定基础指令和专属阶段说明。
 
 Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进入固定 `PromptContext`。独立 `DynamicSectionRegistry` 按稳定 ID、来源、角色和顺序投影这五个 section，并使用 Bundle v1 注册的版本化模板渲染为 `user` 消息；Projector/Renderer 通用遍历注册项，不按 section ID 分支。新增 section 只需增加注册定义和模板资产。
 

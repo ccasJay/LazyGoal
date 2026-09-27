@@ -16,6 +16,7 @@ const templates: readonly PromptTemplateDefinition[] = [
     { id: "global-overview@1", source: "global v1" },
     { id: "profile@1", source: "profile v1" },
     { id: "agent-decision@1", source: "decision v1" },
+    { id: "agent-think@1", source: "think v1" },
     { id: "authorized-tools@1", source: "tools v1" },
 ];
 
@@ -30,7 +31,8 @@ const profileSection: PromptBundleSection = {
 const phaseSection: PromptBundleSection = {
     slot: "phase_protocol",
     templates: {
-        executing: "agent-decision@1",
+        decide: "agent-decision@1",
+        think: "agent-think@1",
     },
 };
 const manifestV1: PromptBundleManifest = {
@@ -105,7 +107,7 @@ test("Registry 拒绝引用未注册模板的 Manifest", () => {
     );
 });
 
-test("Registry 拒绝缺少 Phase 映射的 Manifest", () => {
+test("Registry 拒绝缺少推理阶段映射的 Manifest", () => {
     const incomplete: PromptBundleSection = {
         slot: "phase_protocol",
         templates: {},

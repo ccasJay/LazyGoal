@@ -15,6 +15,7 @@ const templates: readonly PromptTemplateDefinition[] = [
     { id: "profile@1", source: "PROFILE {{ profile.systemPrompt }}" },
     { id: "executing@1", source: "EXECUTING" },
     { id: "agent-decision@1", source: "DECISION" },
+    { id: "agent-think@1", source: "THINK" },
     { id: "authorized-tools@1", source: "TOOLS {{ authorizedTools | stableJson }}" },
 ];
 
@@ -29,7 +30,8 @@ const manifest: PromptBundleManifest = {
         {
             slot: "phase_protocol",
             templates: {
-                executing: "agent-decision@1",
+                decide: "agent-decision@1",
+                think: "agent-think@1",
             },
         },
     ],
@@ -39,6 +41,7 @@ function buildContext(overrides: Partial<PromptContext> = {}): PromptContext {
     return {
         promptBundleVersion: 1,
         phase: "executing",
+        stage: "decide",
         profile: { id: "profile-1", systemPrompt: "base", instructions: [] },
         memoryProtocol: { kind: "structured", version: 1 },
         modelContextProtocol: { kind: "trajectory-layered", version: 1 },
@@ -74,6 +77,13 @@ test("Renderer 按 Manifest section 顺序组成输出且不受模板注册顺�
     );
 });
 
+test("Renderer 根据 PromptContext 的推理阶段选择 Decide 或 Think 模板", () => {
+    const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
+
+    assert.equal(renderer.render(buildContext({ stage: "decide" })), "GLOBAL-OVERVIEW\n\nPROFILE base\n\nDECISION");
+    assert.equal(renderer.render(buildContext({ stage: "think" })), "GLOBAL-OVERVIEW\n\nPROFILE base\n\nTHINK");
+});
+
 test("Profile 与 ToolDefinition 中的 Nunjucks 语法只作为数据插入，不二次执行", () => {
     const renderer = createPromptBundleRenderer({ templates, bundles: [manifest] });
     const context = buildContext({
@@ -106,6 +116,7 @@ test("模板源码 CRLF 统一为 LF，且输出无结尾换行", () => {
         { id: "profile@1", source: "P" },
         { id: "executing@1", source: "E" },
         { id: "agent-decision@1", source: "D" },
+        { id: "agent-think@1", source: "T" },
         { id: "authorized-tools@1", source: "T" },
     ];
     const renderer = createPromptBundleRenderer({
@@ -147,7 +158,8 @@ test("必需变量缺失时渲染失败且错误脱敏", () => {
                 {
                     slot: "phase_protocol",
                     templates: {
-                        executing: "agent-decision@1",
+                        decide: "agent-decision@1",
+                        think: "agent-think@1",
                     },
                 },
             ],
@@ -176,6 +188,7 @@ test("模板语法错误在 Renderer 构造期即抛出配置错误", () => {
                 { id: "profile@1", source: "P" },
                 { id: "executing@1", source: "E" },
                 { id: "agent-decision@1", source: "D" },
+                { id: "agent-think@1", source: "T" },
                 { id: "authorized-tools@1", source: "T" },
             ],
             bundles: [manifest],

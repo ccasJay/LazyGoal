@@ -25,6 +25,7 @@ import type {
     ModelGoalPlan,
     ModelDynamicContext,
     PromptContext,
+    PromptStage,
 } from "./model-inference-view";
 import { projectContextLookupResult } from "./context-lookup-projection";
 import { compareCodeUnits } from "./prompting/environment";
@@ -53,6 +54,7 @@ export class ModelInferenceProjector {
      * @param workingMemory - 当前 Goal 的即时 Working Memory。
      * @param trajectoryContext - 可选的分层历史轨迹上下文。
      * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果。
+     * @param stage - 当前推理职责；省略时投影 Decide 阶段。
      * @returns 与当前状态对应的全新 ModelInferenceView。
      * @throws Goal 当前状态不允许调用模型时抛出 Error。
      */
@@ -62,6 +64,7 @@ export class ModelInferenceProjector {
         workingMemory?: WorkingMemory,
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
+        stage: PromptStage = "decide",
     ): ModelInferenceView {
         const memoryProtocol = goal.definition.memoryProtocol;
         const modelContextProtocol = goal.definition.modelContextProtocol;
@@ -95,6 +98,7 @@ export class ModelInferenceProjector {
         const prompt: PromptContext = deepFreeze({
             promptBundleVersion: goal.definition.promptBundleVersion,
             phase: "executing",
+            stage,
             profile: projectProfile(goal),
             memoryProtocol: projectMemoryProtocol(memoryProtocol),
             modelContextProtocol: projectModelContextProtocol(modelContextProtocol),

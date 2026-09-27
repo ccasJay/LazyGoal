@@ -29,6 +29,7 @@
     "@types/react": "^19.1.10",
     "ink": "^6.8.0",
     "ink-testing-library": "^4.0.0",
+    "js-tiktoken": "^1.0.21",
     "react": "^19.1.1",
     "string-width": "^8.2.2",
     "tsx": "^4.23.7",

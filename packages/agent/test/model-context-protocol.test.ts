@@ -78,6 +78,7 @@ test("Projector 暴露唯一当前协议和 Context Epoch", () => {
     assert.deepEqual(view.prompt, {
         promptBundleVersion: 1,
         phase: "executing",
+        stage: "decide",
         profile: {
             id: profile.id,
             systemPrompt: profile.systemPrompt,
