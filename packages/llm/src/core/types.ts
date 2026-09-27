@@ -21,7 +21,7 @@ export type LLMMessage =
  * @remarks
  * - `strict`: 要求 Provider 原生通过严格 JSON Schema 参数约束输出结构；
  * - `prompt_only`: 不发送原生结构参数，由 Prompt 注入 Shape Guide 进行结构指引并依赖本地统一校验；
- * - `two_stage`: 同模型双阶段模式，单步决策先自由思考后挂载 strict Schema 提取动作。
+ * - `two_stage`: Runtime 的同模型阶段绑定策略；Think 使用 prompt_only，Decide 按供应商能力使用 strict 或 prompt_only。
  *
  * @example
  * ```ts

@@ -35,7 +35,7 @@
   - 验证方式：待实现的 `packages/agent/test/section-context-recovery.test.ts`；现有 `packages/agent/test/trajectory-model-context-assembler.test.ts` 和 `packages/agent/test/prompt-cache-alignment.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [2.4](./requirements.md#req-2-4), [4.1](./requirements.md#req-4-1), [4.3](./requirements.md#req-4-3), [4.4](./requirements.md#req-4-4), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 6. 建立阶段专用模型绑定与直接 Decide 路径
+- [x] //TODO 6. 建立阶段专用模型绑定与直接 Decide 路径
 
   - 实现目标：将模型绑定改为同一 provider/model 的 Think 和 Decide Adapter，并使阶段执行器在直接 Decide 时保持现有本地决策校验。
   - 成功判据：支持原生 strict 的供应商在 Decide 使用严格约束，其余供应商使用 Shape Guide 与同一本地校验；直接有效决策只调用一次模型并按原 Runtime 规则推进。

@@ -30,6 +30,10 @@ class PromptOnlyAdapter implements LLMAdapter {
     }
 }
 
+function stageAdapters(decideAdapter: LLMAdapter) {
+    return { thinkAdapter: new PromptOnlyAdapter(), decideAdapter };
+}
+
 test("createModelExecutionBinding: 成功构造 Token 模式完整绑定", () => {
     const trajectoryStore = createInMemoryTrajectoryStore();
     const adapter = new FakeAdapter();
@@ -45,13 +49,14 @@ test("createModelExecutionBinding: 成功构造 Token 模式完整绑定", () =>
     const binding = createModelExecutionBinding({
         generation: 1,
         selection,
-        adapter,
+        ...stageAdapters(adapter),
         trajectoryStore,
     });
 
     assert.equal(binding.generation, 1);
     assert.deepEqual(binding.selection, selection);
-    assert.equal(binding.adapter, adapter);
+    assert.equal(binding.decideAdapter, adapter);
+    assert.equal(binding.thinkAdapter.structuredOutputMode, "prompt_only");
     assert.ok(binding.modelCapabilities !== undefined);
     assert.equal(binding.modelCapabilities.contextWindowTokens, 128_000);
     assert.equal(binding.modelCapabilities.maxOutputTokens, 4096);
@@ -74,7 +79,7 @@ test("createModelExecutionBinding: 成功构造字符兜底模式绑定", () => 
     const binding = createModelExecutionBinding({
         generation: 2,
         selection,
-        adapter,
+        ...stageAdapters(adapter),
         trajectoryStore,
     });
 
@@ -98,11 +103,11 @@ test("需求 5.3: createModelExecutionBinding 允许不同历史模式或省略�
     const binding = createModelExecutionBinding({
         generation: 1,
         selection,
-        adapter,
+        ...stageAdapters(adapter),
         trajectoryStore,
     });
     assert.equal(binding.generation, 1);
-    assert.equal(binding.adapter, adapter);
+    assert.equal(binding.decideAdapter, adapter);
 });
 
 test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => {
@@ -120,7 +125,7 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
             },
-            adapter,
+            ...stageAdapters(adapter),
             trajectoryStore,
         });
     }, (error: unknown) => error instanceof ModelCapabilitiesError);
@@ -137,7 +142,7 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
             },
-            adapter,
+            ...stageAdapters(adapter),
             trajectoryStore,
         });
     }, (error: unknown) => error instanceof ModelCapabilitiesError);
@@ -154,7 +159,7 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
             },
-            adapter,
+            ...stageAdapters(adapter),
             trajectoryStore,
         });
     }, (error: unknown) => error instanceof RangeError);
@@ -175,7 +180,7 @@ test("MutableModelBinding: 候选创建、generation 隔离与同步发布", () 
     const initialBinding = createModelExecutionBinding({
         generation: 1,
         selection: initialSelection,
-        adapter: adapter1,
+        ...stageAdapters(adapter1),
         trajectoryStore,
     });
 
@@ -196,7 +201,7 @@ test("MutableModelBinding: 候选创建、generation 隔离与同步发布", () 
 
     const candidate = bindingManager.createCandidate({
         selection: candidateSelection,
-        adapter: adapter2,
+        ...stageAdapters(adapter2),
         trajectoryStore,
     });
     assert.equal(candidate.generation, 2);
@@ -214,7 +219,7 @@ test("MutableModelBinding: 候选创建、generation 隔离与同步发布", () 
                 contextWindowTokens: 1000,
                 maxOutputTokens: 2000, // 非法
             },
-            adapter: adapter2,
+            ...stageAdapters(adapter2),
             trajectoryStore,
         });
     }, (error: unknown) => error instanceof ModelCapabilitiesError);

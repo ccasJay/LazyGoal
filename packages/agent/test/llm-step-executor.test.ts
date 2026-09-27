@@ -712,7 +712,8 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter1,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter1,
         trajectoryStore,
     });
     const bindingManager = new MutableModelBinding(initialBinding);
@@ -746,7 +747,8 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
             maxOutputTokens: 8000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter2,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter2,
         trajectoryStore,
     });
     bindingManager.publish(candidateBinding);
@@ -795,7 +797,8 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter1,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter1,
         trajectoryStore,
     });
     const bindingManager = new MutableModelBinding(initialBinding);
@@ -825,7 +828,8 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        adapter: adapter2,
+        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        decideAdapter: adapter2,
         trajectoryStore,
     });
     bindingManager.publish(candidateBinding);

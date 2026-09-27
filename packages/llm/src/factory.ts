@@ -5,9 +5,34 @@ import { OpenAICompatible } from "./openai-compatible";
 import { PiAiAdapter } from "./pi-ai";
 
 /**
- * 离线创建固定供应商及输出模式的 Adapter，不发请求或写入任何存储。
+ * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。
+ *
+ * @remarks
+ * Think Adapter 固定为 prompt_only；Decide Adapter 根据供应商固定为 strict 或 prompt_only。
+ *
+ * @example
+ * ```ts
+ * const adapters = createLlmStageAdapters(config);
+ * await adapters.decideAdapter.generate(decideRequest);
+ * ```
+ */
+export interface LlmStageAdapters {
+    /** Think 使用不携带原生结构 Schema 的自由文本 prompt_only Adapter。 */
+    readonly thinkAdapter: LLMAdapter;
+    /** Decide 按供应商能力使用 strict 或 prompt_only 的 Adapter。 */
+    readonly decideAdapter: LLMAdapter;
+}
+
+function decideModeForProvider(provider: LlmConfig["provider"]): "strict" | "prompt_only" {
+    return provider === "openai" || provider === "google" || provider === "openai-compatible"
+        ? "strict"
+        : "prompt_only";
+}
+
+/**
+ * 离线创建固定供应商及单一实际输出模式的 Adapter，不发请求或写入任何存储。
  * @param config - readLlmConfig 产生的显式连接配置。
- * @returns prompt_only 使用 pi-ai；strict 使用现有 OpenAI/Gemini 原生实现。
+ * @returns prompt_only 使用 pi-ai；strict 使用现有 OpenAI/Gemini 原生实现；two_stage 返回 provider 对应的 Decide Adapter。
  * @throws LlmConfigurationError strict 不受支持、目录模型不存在或容量超限。
  * @example
  * ```ts
@@ -15,16 +40,45 @@ import { PiAiAdapter } from "./pi-ai";
  * ```
  */
 export function createLlmAdapter(config: LlmConfig): LLMAdapter {
-    if (config.structuredOutputMode === "prompt_only") return new PiAiAdapter(config);
-    switch (config.provider) {
+    const structuredOutputMode = config.structuredOutputMode === "two_stage"
+        ? decideModeForProvider(config.provider)
+        : config.structuredOutputMode;
+    const stageConfig = structuredOutputMode === config.structuredOutputMode
+        ? config
+        : { ...config, structuredOutputMode };
+    if (stageConfig.structuredOutputMode === "prompt_only") return new PiAiAdapter(stageConfig);
+    switch (stageConfig.provider) {
         case "openai":
         case "openai-compatible":
-            return new OpenAICompatible({ ...config, baseURL: config.baseURL ?? "https://api.openai.com/v1" });
+            return new OpenAICompatible({ ...stageConfig, baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1" });
         case "google":
-            return new Gemini(config);
+            return new Gemini(stageConfig);
         default:
-            throw new LlmConfigurationError([], `Provider "${config.provider}" does not support ${config.structuredOutputMode} output; select prompt_only`);
+            throw new LlmConfigurationError([], `Provider "${stageConfig.provider}" does not support ${stageConfig.structuredOutputMode} output; select prompt_only`);
     }
+}
+
+/**
+ * 为同一供应商与模型构造 Think/Decide Adapter。Think 始终为 prompt_only；Decide
+ * 在原生 strict 供应商上为 strict，其余现有供应商为 prompt_only。
+ *
+ * @param config - 已校验的同一模型连接配置；Think 始终使用 prompt_only，Decide 实际模式由供应商能力决定。
+ * @returns 按推理阶段固定输出模式的不可变 Adapter 对。
+ * @example
+ * ```ts
+ * const { thinkAdapter, decideAdapter } = createLlmStageAdapters(config);
+ * ```
+ */
+export function createLlmStageAdapters(config: LlmConfig): Readonly<LlmStageAdapters> {
+    return Object.freeze({
+        thinkAdapter: config.structuredOutputMode === "prompt_only"
+            ? createLlmAdapter(config)
+            : createReflectionLlmAdapter({ ...config, structuredOutputMode: "prompt_only" }),
+        decideAdapter: createLlmAdapter({
+            ...config,
+            structuredOutputMode: decideModeForProvider(config.provider),
+        }),
+    });
 }
 
 /**
@@ -57,4 +111,3 @@ export function createReflectionLlmAdapter(config: LlmConfig): LLMAdapter {
             return createLlmAdapter(config);
     }
 }
-

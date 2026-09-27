@@ -68,7 +68,7 @@ export function readLlmConfig(env: Readonly<Record<string, string | undefined>>)
         if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
             throw new LlmConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
         }
-        if ((rawMode === "strict" || rawMode === "two_stage") && !["openai", "google", "openai-compatible"].includes(provider)) {
+        if (rawMode === "strict" && !["openai", "google", "openai-compatible"].includes(provider)) {
             throw new LlmConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
         }
         mode = rawMode as StructuredOutputMode;

@@ -80,7 +80,7 @@ import {
     resolveWorkspaceHomePaths,
 } from "../../llm/src/xdg";
 import { loadProfileToml } from "../../llm/src/toml-config";
-import { createLlmAdapter } from "../../llm/src/factory";
+import { createLlmStageAdapters, type LlmStageAdapters } from "../../llm/src/factory";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
     createLlmModelCatalog,
@@ -353,13 +353,13 @@ export interface CompositionRootOptions {
      * ```
      */
     readonly dataDirectory?: string;
-    /** 模型配置来源；默认读取 `process.env`。若传入显式 `adapter`，则不需要提供。 */
+    /** 模型配置来源；默认读取 `process.env`。显式注入 Decide `adapter` 时，即使环境中没有模型配置也可构造。 */
     readonly env?: NodeJS.ProcessEnv;
     /**
      * 显式注入的 LLMAdapter。
      *
      * @remarks
-     * 传入时优先使用，跳过从环境变量中读取 LLM 配置。
+     * 传入时作为当前 Decide Adapter；有效环境配置仍可为 Think 阶段构造配对 Adapter。
      *
      * @example
      * ```ts
@@ -367,6 +367,8 @@ export interface CompositionRootOptions {
      * ```
      */
     readonly adapter?: LLMAdapter;
+    /** 显式注入的 Think Adapter；省略时使用阶段工厂、有效 LLM 配置中的 Think Adapter，或单 Adapter 注入值。 */
+    readonly thinkAdapter?: LLMAdapter;
     /**
      * 显式注入的生效 Agent Profile。
      *
@@ -440,15 +442,24 @@ export interface CompositionRootOptions {
     readonly modelBinding?: MutableModelBinding;
     /** 可选的 Goal 模型选择协调器。 */
     readonly goalModelSelectionCoordinator?: GoalModelSelectionCoordinator;
-    /** 可选的针对目标选择的 Adapter 工厂。 */
-    readonly adapterFactory?: (selection: GoalModelSelection) => LLMAdapter;
+    /**
+     * 可选的阶段 Adapter 工厂。
+     *
+     * @remarks
+     * 模型切换时每个阶段各调用一次，传入的 selection 固定相同 provider/model；Think 必须返回
+     * prompt_only Adapter，Decide 必须按 provider 能力返回 strict 或 prompt_only Adapter。
+     */
+    readonly adapterFactory?: (
+        selection: GoalModelSelection,
+        stage: "think" | "decide",
+    ) => LLMAdapter;
 }
 
 /**
  * 已完成项目级依赖装配的单 Goal 运行根。
  *
  * @remarks
- * 所有 Runtime、Tool 和 Controller 共享同一个 workspace 级 Store、Adapter
+ * 所有 Runtime、Tool 和 Controller 共享同一个 workspace 级 Store、阶段 Adapter 绑定
  * 和 Profile Registry；安全数据目录和 Workspace Manifest 在构造时准备，但不写入
  * Goal。根会装配指标只读路由，但不会启动 HTTP 监听；调用方可显式启动其
  * `httpService`。第一次 Goal 写入只会由合法 `create` 命令触发。一个根只暴露
@@ -489,7 +500,7 @@ export interface CompositionRoot {
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     /** 从 committed Trajectory/Sidecar 组装分层模型上下文的无状态组件。 */
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
-    /** 统一执行流使用的供应商无关 Adapter；构造时固定输出模式。 */
+    /** 当前初始模型的 Decide Adapter；构造时固定输出模式。 */
     readonly adapter: LLMAdapter;
     /** 从当前 workspace Profile 文件或显式注入加载的生效 Agent Profile。 */
     readonly profile: AgentProfile;
@@ -597,12 +608,15 @@ export async function createCompositionRoot(
     const env = options.env ?? process.env;
     let llmConfig: LlmConfig | undefined;
     let adapter: LLMAdapter;
+    let configuredStageAdapters: Readonly<LlmStageAdapters> | undefined;
     if (options.adapter !== undefined) {
         adapter = options.adapter;
         try {
             llmConfig = readLlmConfig(env);
+            configuredStageAdapters = createLlmStageAdapters(llmConfig);
         } catch {
             llmConfig = undefined;
+            configuredStageAdapters = undefined;
         }
     } else {
         try {
@@ -624,7 +638,8 @@ export async function createCompositionRoot(
                 throw error;
             }
         }
-        adapter = createLlmAdapter(llmConfig);
+        configuredStageAdapters = createLlmStageAdapters(llmConfig);
+        adapter = configuredStageAdapters.decideAdapter;
     }
     const conversationCharBudget = readConversationCharBudget(env);
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
@@ -818,7 +833,7 @@ export async function createCompositionRoot(
     const defaultModelSelection: GoalModelSelection = options.modelBinding?.current().selection ?? {
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        structuredOutputMode: adapter.structuredOutputMode ?? "prompt_only",
+        structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
         ...(modelCapabilities === undefined ? {} : {
             contextWindowTokens: modelCapabilities.contextWindowTokens,
             maxOutputTokens: modelCapabilities.maxOutputTokens,
@@ -827,12 +842,33 @@ export async function createCompositionRoot(
             ? { kind: "token-encoding" as const, encoding: (modelCapabilities.tokenEstimator as { encoding: "cl100k_base" | "o200k_base" }).encoding }
             : { kind: "character-v1" as const },
     };
+    const initialStageAdapters = Object.freeze({
+        thinkAdapter: options.thinkAdapter
+            ?? (options.adapterFactory !== undefined
+                ? options.adapterFactory(defaultModelSelection, "think")
+                : configuredStageAdapters?.thinkAdapter ?? adapter),
+        decideAdapter: adapter,
+    });
+    const createStageAdaptersForSelection = (
+        selection: GoalModelSelection,
+    ): Readonly<LlmStageAdapters> => {
+        if (options.adapterFactory !== undefined) {
+            return Object.freeze({
+                thinkAdapter: options.adapterFactory(selection, "think"),
+                decideAdapter: options.adapterFactory(selection, "decide"),
+            });
+        }
+        if (llmConfig !== undefined) {
+            return createLlmStageAdapters({ ...llmConfig, model: selection.modelId });
+        }
+        return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
+    };
     const modelCatalog = options.modelCatalog ?? createLlmModelCatalog();
     const modelBinding = options.modelBinding ?? new MutableModelBinding(
         createModelExecutionBinding({
             generation: 1,
             selection: defaultModelSelection,
-            adapter,
+            ...initialStageAdapters,
             trajectoryStore,
             modelContextBudget: options.modelContextBudget,
             customEstimator: modelInputEstimator,
@@ -920,16 +956,12 @@ export async function createCompositionRoot(
                 ...(switchOptions.targetModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: switchOptions.targetModel.maxOutputTokens }),
                 inputEstimator: defaultModelSelection.inputEstimator,
             };
-            let candidateAdapter: LLMAdapter;
+            let candidateAdapters: Readonly<LlmStageAdapters>;
             try {
-                candidateAdapter = options.adapterFactory !== undefined
-                    ? options.adapterFactory(targetSelection)
-                    : llmConfig !== undefined
-                        ? createLlmAdapter({ ...llmConfig, model: switchOptions.targetModel.id })
-                        : adapter;
+                candidateAdapters = createStageAdaptersForSelection(targetSelection);
                 const candidateBinding = modelBinding.createCandidate({
                     selection: targetSelection,
-                    adapter: candidateAdapter,
+                    ...candidateAdapters,
                     trajectoryStore,
                     modelContextBudget: options.modelContextBudget,
                     customEstimator: modelInputEstimator,
@@ -959,12 +991,8 @@ export async function createCompositionRoot(
                 return { ok: false, error: { code: "RESTORE_PROVIDER_MISMATCH", message: "Snapshot provider does not match active provider" } };
             }
             try {
-                const candidateAdapter = options.adapterFactory !== undefined
-                    ? options.adapterFactory(selection)
-                    : llmConfig !== undefined
-                        ? createLlmAdapter({ ...llmConfig, model: selection.modelId })
-                        : adapter;
-                modelBinding.publish(modelBinding.createCandidate({ selection, adapter: candidateAdapter, trajectoryStore, modelContextBudget: options.modelContextBudget, customEstimator: modelInputEstimator }));
+                const candidateAdapters = createStageAdaptersForSelection(selection);
+                modelBinding.publish(modelBinding.createCandidate({ selection, ...candidateAdapters, trajectoryStore, modelContextBudget: options.modelContextBudget, customEstimator: modelInputEstimator }));
                 return { ok: true };
             } catch (error: unknown) {
                 return { ok: false, error: { code: "RESTORE_MODEL_FAILED", message: error instanceof Error ? error.message : String(error) } };

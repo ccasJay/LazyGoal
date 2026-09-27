@@ -13,7 +13,6 @@ import {
 } from "../../runtime/src/execution-control";
 import type {
     StepExecutionInput,
-    StepExecutionResult,
     StepExecutor,
 } from "../../runtime/src/step-executor";
 import type { ContextCompactor } from "./context-compactor";
@@ -79,15 +78,13 @@ export interface LLMStepExecutorDependencies {
 }
 
 /**
- * 使用 LLMAdapter 生成一个 AgentDecision 的执行器。
+ * 使用阶段绑定中的 Decide Adapter 生成一个 AgentDecision 的执行器。
  *
  * @remarks
  * 执行器从冻结 Profile、历史消息、授权 ToolDefinition 与当前 Run 构造请求，
- * 只调用 Adapter 一次，再以严格 AgentDecision 协议解析原始响应。Working
+ * 每次 execute 只调用 Decide Adapter 一次，再以当前请求绑定的本地输出契约解析原始响应。Working
  * Context 和模型协议 JSON 都不是面向用户的真实消息；状态推进与 Tool 执行由
  * Runtime Runner 负责。执行器不会修改传入 Goal。
- *
- * 当 Adapter 配置为 `two_stage` 结构化输出模式时，自动启用两阶段流水线并返回带有思考链的 {@link StepExecutionResult}。
  *
  * ToolDefinition 由 Runtime 在调用时传入；执行器不根据 Profile 自行解析 Tool，
  * 也不把未授权 Tool 暴露给模型。
@@ -101,7 +98,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
 
-    /** @param dependencies - LLM Adapter、共享 Renderer 与共享裁剪策略。 */
+    /** @param dependencies - 阶段绑定或单 Adapter Decide 入口、共享 Renderer 与共享裁剪策略。 */
     constructor(dependencies: LLMStepExecutorDependencies) {
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
@@ -120,7 +117,8 @@ export class LLMStepExecutor implements StepExecutor {
                     structuredOutputMode: dependencies.adapter.structuredOutputMode === "strict" ? "strict" : "prompt_only",
                     inputEstimator: { kind: "character-v1" },
                 },
-                adapter: dependencies.adapter,
+                thinkAdapter: dependencies.adapter,
+                decideAdapter: dependencies.adapter,
                 modelCapabilities: dependencies.modelCapabilities,
                 modelContextPolicy: createDefaultModelContextBudgetPolicy(),
                 trajectoryContextAssembler: dependencies.trajectoryContextAssembler as TrajectoryModelContextAssembler,
@@ -133,15 +131,15 @@ export class LLMStepExecutor implements StepExecutor {
 
     /**
      * @param input - 执行入参，包含目标快照、已授权工具、工作记忆与中止控制。
-     * @returns 严格解析后的 AgentDecision 或两阶段生成的 StepExecutionResult。
+     * @returns 按当前请求输出契约完成本地校验后的 AgentDecision。
      * @throws LLMResponseProtocolError 模型响应不符合严格协议时抛出。
      * @throws 执行信号中止时抛出 `ExecutionAbortedError`。
      * @throws Adapter 抛出的供应商或传输异常会原样传播。
      */
-    async execute(input: StepExecutionInput): Promise<AgentDecision | StepExecutionResult> {
+    async execute(input: StepExecutionInput): Promise<AgentDecision> {
         const { goal, authorizedTools: tools, control } = input;
         const binding = this.bindingProvider.current();
-        const adapter = binding.adapter;
+        const adapter = binding.decideAdapter;
         const modelCapabilities = binding.modelCapabilities;
         const trajectoryContextAssembler = binding.trajectoryContextAssembler;
 

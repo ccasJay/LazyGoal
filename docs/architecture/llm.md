@@ -16,6 +16,12 @@ Adapter 构造时固定输出模式，不自动降级或切换 provider。
 | `anthropic`、`openrouter`、`deepseek` | pi-ai 对应 provider | 配置错误 |
 | `openai-compatible` | pi-ai Chat Completions | 原生 OpenAI-compatible |
 
+Runtime 使用 `createLlmStageAdapters` 为同一 selection 绑定 Think/Decide Adapter 对：Think 固定
+`prompt_only`；Decide 在 OpenAI、Google、OpenAI-compatible 上固定 `strict`，在 Anthropic、
+OpenRouter、DeepSeek 上固定 `prompt_only`。`two_stage` 可与所有当前 Provider 一起配置；它表示
+Runtime 阶段绑定策略，不要求两个 Adapter 使用相同的结构化输出模式。显式单阶段 `strict` 在不支持
+原生 strict 的 Provider 上仍是配置错误。
+
 [PiAiAdapter](../../packages/llm/src/pi-ai.ts) 使用锁定版本的目录，并将 SDK 的 text/thinking/tool-call 增量转换为统一流事件；`generate()` 仍只返回完整响应。
 前置 system 消息按顺序合并，user/assistant 顺序不变；中途 system 消息被拒绝。
 只返回正常结束的文本，隔离 thinking，拒绝截断、错误、意外工具调用及其它非完成状态。
@@ -39,7 +45,7 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 
 ## 配置
 
-运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；系统采用原生双通道工具调用架构自适应派发工具 Schema，`structured_output_mode` 已废除强制配置（缺省自适应，保留可选兼容）。
+运行要求 Node ≥22.19.0。系统使用统一的 LazyGoal Home：`LAZYGOAL_HOME` 必须是绝对路径，缺失或空白时回退至 `$HOME/.lazygoal`；`XDG_CONFIG_HOME` 不参与解析。按“内置默认值 → `config.toml` → `profiles/<profile>.toml` → CLI 临时参数”四层单向合并加载运行时配置；同时兼容显式传入的进程环境变量。必填 `provider`、`model`、`api_key`；`structured_output_mode` 省略时默认为 `prompt_only`，也可显式设为 `strict` 或 `two_stage`。Runtime 阶段绑定按 Think/Decide 角色确定实际 Adapter 输出模式。
 
 ```toml
 # ~/.lazygoal/config.toml
