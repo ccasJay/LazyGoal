@@ -6,8 +6,11 @@ import {
 } from "../../runtime/src/execution-control";
 import type {
     TrajectoryEvent,
+    ModelContextFramePayload,
+    ModelContextSectionIdentity,
     TrajectoryStore,
 } from "../../runtime/src/index";
+import { selectCommittedModelContextFrames } from "../../runtime/src/index";
 import type {
     ModelContextBudgetPolicy,
     ModelInputEstimator,
@@ -181,24 +184,67 @@ export class TrajectoryModelContextAssembler {
     async assemble(
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelInferenceView> {
-        throwIfAborted(input.control);
-        if (input.view.workingMemory === undefined) {
-            throw new ModelContextAssemblyError(
-                "trajectory-layered model context requires Working Memory",
-            );
-        }
-        if (input.view.prompt.modelContextProtocol.kind !== "trajectory-layered") {
-            throw new ModelContextAssemblyError(
-                "基础 View 缺少 trajectory-layered model context protocol",
-            );
-        }
-
-        const context = await this.assembleContext(input);
+        const committed = await this.loadCommittedFor(input);
+        const context = await this.assembleContextFromCommitted(input, committed);
         throwIfAborted(input.control);
         return new ModelInferenceProjector().withTrajectoryContext(
             input.view,
             context,
         );
+    }
+
+    /**
+     * 读取一次已提交 Trajectory，让调用方先按可见 Section 历史构造固定预算输入，再组装 Hot/Warm。
+     *
+     * @remarks
+     * Frame 筛选使用当前 Snapshot boundary、Goal/Run、Prompt stage、Epoch、Conversation 起点和
+     * Registry 身份。`prepareFixedInput` 是同步纯函数；其结果被计入 Context Assembler 的固定预算，
+     * 从而避免历史读取与 Section diff 分别扫描 Trajectory。
+     *
+     * @param input - Goal、基础 View、Section 身份和调用级中止控制。
+     * @param prepareFixedInput - 根据已筛选的 frame 重建本轮必需固定输入的纯函数。
+     * @returns 带 Hot/Warm 的 View，以及此次恢复使用的 frame payload。
+     * @throws 与 {@link assemble} 相同；未知或身份不匹配的 Section frame 以恢复错误失败。
+     * @example
+     * ```ts
+     * const prepared = await assembler.assembleForPrompt(
+     *     { goal, view, sectionIdentities },
+     *     (frames) => makeFixedInput(frames),
+     * );
+     * ```
+     */
+    async assembleForPrompt(
+        input: TrajectoryModelContextAssemblyInput & {
+            readonly sectionIdentities: readonly ModelContextSectionIdentity[];
+        },
+        prepareFixedInput: (
+            frames: readonly ModelContextFramePayload[],
+        ) => unknown,
+    ): Promise<Readonly<{
+        readonly view: ModelInferenceView;
+        readonly sectionFrames: readonly ModelContextFramePayload[];
+    }>> {
+        const committed = await this.loadCommittedFor(input);
+        const epoch = input.view.contextEpoch;
+        const frames = selectCommittedModelContextFrames(committed, {
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            committedThroughSequence: input.goal.state.run.committedThroughSequence,
+            stage: input.view.prompt.stage,
+            epochNumber: epoch.epochNumber,
+            conversationStartPosition: epoch.conversationStartIndex,
+            sectionIdentities: input.sectionIdentities,
+        }).map((event) => event.payload);
+        throwIfAborted(input.control);
+        const context = await this.assembleContextFromCommitted({
+            ...input,
+            fixedInput: prepareFixedInput(frames),
+        }, committed);
+        throwIfAborted(input.control);
+        return Object.freeze({
+            view: new ModelInferenceProjector().withTrajectoryContext(input.view, context),
+            sectionFrames: Object.freeze(frames),
+        });
     }
 
     /**
@@ -216,22 +262,45 @@ export class TrajectoryModelContextAssembler {
     async assembleContext(
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelTrajectoryContext> {
+        const committed = await this.loadCommittedFor(input);
+        return this.assembleContextFromCommitted(input, committed);
+    }
+
+    private async loadCommittedFor(
+        input: TrajectoryModelContextAssemblyInput,
+    ): Promise<readonly TrajectoryEvent[]> {
         throwIfAborted(input.control);
         if (this.trajectoryStore === undefined) {
             throw new ModelContextSourceError(
                 "trajectory-layered model context requires a TrajectoryStore",
             );
         }
-
         const boundary = input.goal.state.run.committedThroughSequence;
         assertNonNegativeSafeInteger(boundary, "committedThroughSequence");
-
-        const committed = await this.readCommittedTrajectory(
+        return this.readCommittedTrajectory(
             input.goal.id,
             input.goal.state.run.id,
             boundary,
             input.control,
         );
+    }
+
+    private async assembleContextFromCommitted(
+        input: TrajectoryModelContextAssemblyInput,
+        committed: readonly TrajectoryEvent[],
+    ): Promise<ModelTrajectoryContext> {
+        throwIfAborted(input.control);
+        if (input.view.workingMemory === undefined) {
+            throw new ModelContextAssemblyError(
+                "trajectory-layered model context requires Working Memory",
+            );
+        }
+        if (input.view.prompt.modelContextProtocol.kind !== "trajectory-layered") {
+            throw new ModelContextAssemblyError(
+                "基础 View 缺少 trajectory-layered model context protocol",
+            );
+        }
+        const boundary = input.goal.state.run.committedThroughSequence;
         const units = this.executionUnitAdapter.adapt(committed, {
             committedThroughSequence: boundary,
             goalId: input.goal.id,

@@ -7,7 +7,10 @@ import type {
     PromptPhase,
     PromptStage,
 } from "../model-inference-view";
-import type { DynamicSectionMessage } from "./dynamic-section-registry";
+import type {
+    DynamicSectionIdentity,
+    DynamicSectionMessage,
+} from "./dynamic-section-registry";
 
 export type {
     PromptContext,
@@ -136,4 +139,13 @@ export interface PromptBundleRenderer {
      * @throws 动态模板缺失或渲染失败时抛出 `PromptRenderError`。
      */
     renderDynamicSections(view: ModelInferenceView): readonly DynamicSectionMessage[];
+
+    /**
+     * @returns 全部已注册动态 section 的稳定身份，包含当前投影缺省的可选 section。
+     * @example
+     * ```ts
+     * const identities = renderer.dynamicSectionIdentities();
+     * ```
+     */
+    dynamicSectionIdentities(): readonly DynamicSectionIdentity[];
 }

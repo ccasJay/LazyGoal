@@ -30,6 +30,10 @@ import type {
     PendingAction,
     StepRecord,
 } from "../../runtime/src/domain";
+import type {
+    ModelContextFramePayload,
+    ModelContextSectionIdentity,
+} from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type {
@@ -166,6 +170,19 @@ class PassthroughTrajectoryAssembler extends TrajectoryModelContextAssembler {
                     softOverflow: false,
                 },
             },
+        };
+    }
+
+    override async assembleForPrompt(
+        input: TrajectoryModelContextAssemblyInput & {
+            readonly sectionIdentities: readonly ModelContextSectionIdentity[];
+        },
+        prepareFixedInput: (frames: readonly ModelContextFramePayload[]) => unknown,
+    ) {
+        prepareFixedInput([]);
+        return {
+            view: await this.assemble(input),
+            sectionFrames: [],
         };
     }
 }
@@ -533,6 +550,9 @@ test("Plan 未批准时保留全部已授权 ToolDefinition", async () => {
             views.push(view);
             return [];
         },
+        dynamicSectionIdentities() {
+            return [];
+        },
     };
 
     await stepRequest(createUnapprovedGoal(), tools, capturingRenderer);
@@ -716,9 +736,9 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
     });
     const executingGoal = createExecutingGoal({ messages: longMessages });
 
-    // 限制 contextWindow 适度，迫使 conversationPruned = true 但权威上下文不 overflow
+    // 预算计入原生 Tool Schema 后仍需容纳 checkpoint 固定上下文，并裁剪较旧 Conversation。
     const tightCapabilities = {
-        contextWindowTokens: 10000,
+        contextWindowTokens: 16000,
         maxOutputTokens: 1000,
         tokenEstimator: {
             unit: "token" as const,

@@ -1,5 +1,6 @@
 import type { LLMRequest, StructuredOutputMode } from "../../llm/src/core/types";
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
+import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
@@ -10,8 +11,13 @@ import {
 import type {
     ModelConversationMessage,
     ModelInferenceView,
+    PromptStage,
 } from "./model-inference-view";
 import { ModelInferenceProjector } from "./model-inference-projector";
+import {
+    planDynamicSectionUpdates,
+    type DynamicSectionUpdatePlan,
+} from "./prompting/dynamic-section-diff";
 import type { PromptBundleRenderer } from "./prompting/types";
 import { renderRequest, renderWorkingContextMessage } from "./render";
 import {
@@ -61,6 +67,8 @@ export interface ModelOutputRequestPlan<Result = AgentDecision> {
     readonly bundle: ModelOutputContractBundle<Result>;
     /** 与请求中 `tools` 完全一致、用于解码原生工具调用的声明集合。 */
     readonly toolDeclarations: readonly SystemToolDeclaration<unknown>[];
+    /** 本次实际请求的阶段与新 Section 更新；仅在模型响应成功后随 Snapshot 一起提交。 */
+    readonly modelContextFrame: Omit<ModelContextFramePayload, "type">;
 }
 
 function project(
@@ -68,6 +76,7 @@ function project(
     tools: readonly ToolDefinition[] = [],
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
+    stage: PromptStage = "decide",
 ): ModelInferenceView {
     return new ModelInferenceProjector().project(
         goal,
@@ -75,6 +84,7 @@ function project(
         workingMemory,
         undefined,
         contextLookupResult,
+        stage,
     );
 }
 
@@ -102,7 +112,10 @@ async function assembleTrajectoryContext(
     renderer: PromptBundleRenderer,
     signal: AbortSignal | undefined,
     assembler: TrajectoryModelContextAssembler | undefined,
-): Promise<ModelInferenceView> {
+): Promise<Readonly<{
+    view: ModelInferenceView;
+    sectionFrames: readonly ModelContextFramePayload[];
+}>> {
     if (assembler === undefined) {
         throw new ModelContextAssemblyError(
             "trajectory-layered model context requires a Context Assembler",
@@ -110,35 +123,40 @@ async function assembleTrajectoryContext(
     }
 
     const fixedInputConversation = latestEpochConversation(view);
-    const fixedInput = {
-        messages: [
-            {
-                role: "system" as const,
-                content: renderer.render(view.prompt),
-            },
-            ...fixedInputConversation.map((message) => ({
-                role: message.role,
-                content: message.content,
-            })),
-            ...renderer.renderDynamicSections(view).map((section) => ({
-                role: section.role,
-                content: section.content,
-            })),
-            renderWorkingContextMessage(
-                view.workingContext,
-                undefined,
-                view.contextLookupResult,
-                view.contextEpoch,
-                undefined,
-            ),
-        ],
-    };
-
-    return assembler.assemble({
+    return assembler.assembleForPrompt({
         goal,
         view,
-        fixedInput,
+        sectionIdentities: renderer.dynamicSectionIdentities(),
         ...(signal === undefined ? {} : { control: { signal } }),
+    }, (frames) => {
+        const sectionPlan = planDynamicSectionUpdates(
+            renderer.dynamicSectionIdentities(),
+            renderer.renderDynamicSections(view),
+            frames,
+        );
+        return {
+            messages: [
+                {
+                    role: "system" as const,
+                    content: renderer.render(view.prompt),
+                },
+                ...fixedInputConversation.map((message) => ({
+                    role: message.role,
+                    content: message.content,
+                })),
+                ...sectionPlan.requestMessages.map((message) => ({
+                    role: message.role,
+                    content: message.content,
+                })),
+                renderWorkingContextMessage(
+                    view.workingContext,
+                    undefined,
+                    view.contextLookupResult,
+                    view.contextEpoch,
+                    undefined,
+                ),
+            ],
+        };
     });
 }
 
@@ -168,6 +186,9 @@ async function compactConversation(
  * @param workingMemory - structured@1 的即时 Working Memory。
  * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
+ * @param modelCapabilities - 可选模型上下文预算能力。
+ * @param structuredOutputMode - Decide 当前使用 strict 或 prompt_only 响应约束。
+ * @param stage - 当前请求属于 Decide 还是 Think；省略时使用 Decide。
  * @returns 完成上下文裁剪与渲染后的单轮 LLM 请求。
  * @throws Goal 不处于 running executing 阶段时抛出；渲染失败同样在调用前抛出。
  */
@@ -182,12 +203,14 @@ export async function buildStepRequest(
     contextLookupResult?: ContextLookupResult,
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
+    stage: PromptStage = "decide",
 ): Promise<ModelOutputRequestPlan<AgentDecision>> {
     const projected = project(
         goal,
         tools,
         workingMemory,
         contextLookupResult,
+        stage,
     );
 
     if (projected.workingContext.phase !== "executing") {
@@ -206,10 +229,10 @@ export async function buildStepRequest(
         trajectoryContextAssembler,
     );
 
-    const isInitialCheckpoint = assembled.contextEpoch?.control.status === "checkpoint_required";
+    const isInitialCheckpoint = assembled.view.contextEpoch?.control.status === "checkpoint_required";
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
-    const goalPlanWritable = !isInitialCheckpoint && assembled.dynamicContext.goalPlanWritable;
+    const goalPlanWritable = !isInitialCheckpoint && assembled.view.dynamicContext.goalPlanWritable;
     const authorizedToolContracts = tools.map((t) => ({
         id: t.id,
         inputContract: t.inputContract,
@@ -231,12 +254,14 @@ export async function buildStepRequest(
         : createUnifiedToolDeclarations(authorizedToolContracts, taskPresent, planMode, goalPlanWritable);
 
     return renderFinalRequest(
-        assembled,
+        assembled.view,
         renderer,
         initialBundle,
         toolDeclarations,
         modelCapabilities,
         structuredOutputMode,
+        assembled.sectionFrames,
+        goal.state.messages.length,
     );
 }
 
@@ -248,30 +273,36 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
     initialToolDeclarations: readonly SystemToolDeclaration<unknown>[],
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
+    baselineFrames: readonly ModelContextFramePayload[] = [],
+    conversationPosition = view.conversation.length,
 ): ModelOutputRequestPlan<Result> {
     let currentBundle = initialBundle;
     let currentToolDeclarations = initialToolDeclarations;
+    let sectionPlan: DynamicSectionUpdatePlan;
 
     const render = (
         targetView: ModelInferenceView,
         bundle: ModelOutputContractBundle<Result>,
     ): LLMRequest => {
+        sectionPlan = planDynamicSectionUpdates(
+            renderer.dynamicSectionIdentities(),
+            renderer.renderDynamicSections(targetView),
+            baselineFrames,
+        );
         const shapeGuide = structuredOutputMode === "prompt_only"
             ? bundle.shapeGuide
             : undefined;
-        return renderRequest(targetView, renderer, shapeGuide);
-    };
-
-    const finalizePlan = (
-        req: LLMRequest,
-        bundle: ModelOutputContractBundle<Result>,
-        toolDeclarations: readonly SystemToolDeclaration<unknown>[],
-    ): ModelOutputRequestPlan<Result> => ({
-        request: {
-            ...req,
-            ...(toolDeclarations.length > 0
+        const request = renderRequest(
+            targetView,
+            renderer,
+            shapeGuide,
+            sectionPlan.requestMessages,
+        );
+        return {
+            ...request,
+            ...(currentToolDeclarations.length > 0
                 ? {
-                    tools: toolDeclarations.map((declaration) => ({
+                    tools: currentToolDeclarations.map((declaration) => ({
                         id: declaration.id,
                         description: declaration.description,
                         parametersSchema: declaration.parametersSchema,
@@ -287,13 +318,33 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
                     },
                 }
                 : {}),
-        },
+        };
+    };
+
+    const finalizePlan = (
+        req: LLMRequest,
+        bundle: ModelOutputContractBundle<Result>,
+        toolDeclarations: readonly SystemToolDeclaration<unknown>[],
+        targetView: ModelInferenceView,
+    ): ModelOutputRequestPlan<Result> => ({
+        request: req,
         bundle,
         toolDeclarations,
+        modelContextFrame: {
+            stage: targetView.prompt.stage,
+            epochNumber: targetView.contextEpoch.epochNumber,
+            conversationPosition,
+            sections: sectionPlan.frameSections,
+        },
     });
 
     if (modelCapabilities === undefined) {
-        return finalizePlan(render(view, currentBundle), currentBundle, currentToolDeclarations);
+        return finalizePlan(
+            render(view, currentBundle),
+            currentBundle,
+            currentToolDeclarations,
+            view,
+        );
     }
 
     const planner = new TokenBudgetPlanner(modelCapabilities);
@@ -368,5 +419,5 @@ function renderFinalRequest<Result extends AgentDecision = AgentDecision>(
         throw new ModelContextHardOverflowError();
     }
 
-    return finalizePlan(request, currentBundle, currentToolDeclarations);
+    return finalizePlan(request, currentBundle, currentToolDeclarations, buildCandidateView());
 }

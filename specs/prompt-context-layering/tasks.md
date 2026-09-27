@@ -28,7 +28,7 @@
   - 验证方式：待实现的 `packages/agent/test/dynamic-section-diff.test.ts`；现有 `packages/agent/test/render.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [3.6](./requirements.md#req-3-6)_
 
-- [ ] //TODO 5. 接入阶段历史、Epoch 裁剪与请求预算
+- [x] //TODO 5. 接入阶段历史、Epoch 裁剪与请求预算
 
   - 实现目标：将 section frame 纳入现有上下文组装和裁剪，按阶段实际保留历史确定基线，并继续逐请求附带 Step 输入及原生工具 schema。
   - 成功判据：裁剪或 Epoch 切换后补齐丢失的当前 section；Think 与 Decide 不共享隐式基线；相同提交边界重建相同请求，必需内容放不下时调用前失败。

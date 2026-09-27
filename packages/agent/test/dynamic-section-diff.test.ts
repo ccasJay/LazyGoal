@@ -75,7 +75,7 @@ test("无同阶段基线时发送每个当前 Section 的完整状态", () => {
     const goalPlan = section("goal_plan", { items: ["检查实现"] }, "当前计划");
     const memory = section("working_memory", { facts: ["已确认约束"] }, "当前记忆");
 
-    const plan = planDynamicSectionUpdates(registry, [memory, goalPlan], []);
+    const plan = planDynamicSectionUpdates(registry.identities(), [memory, goalPlan], []);
 
     assert.deepEqual(plan.messages.map((message) => message.sectionId), ["goal_plan", "working_memory"]);
     assert.equal(plan.messages[0]?.content, goalPlan.content);
@@ -89,10 +89,11 @@ test("等价 JSON 投影不重复更新，即使对象键顺序和渲染文本�
         ...activeUpdate(section("working_memory", { nested: { a: 1, b: 2 }, z: 1 }, "此前渲染文本")),
     };
 
-    const plan = planDynamicSectionUpdates(registry, [current], [frame([previous])]);
+    const plan = planDynamicSectionUpdates(registry.identities(), [current], [frame([previous])]);
 
     assert.deepEqual(plan.messages, []);
     assert.deepEqual(plan.frameSections, []);
+    assert.deepEqual(plan.requestMessages.map((message) => message.content), [previous.content]);
     assert.match(previous.content, /此前渲染文本$/);
 });
 
@@ -100,7 +101,7 @@ test("投影改变时发送带整段替换语义的内容并保存规范化投�
     const previous = activeUpdate(section("goal_plan", { items: ["旧计划"] }, "旧计划正文"));
     const current = section("goal_plan", { items: ["新计划"] }, "新计划完整正文");
 
-    const plan = planDynamicSectionUpdates(registry, [current], [frame([previous])]);
+    const plan = planDynamicSectionUpdates(registry.identities(), [current], [frame([previous])]);
 
     assert.equal(plan.messages.length, 1);
     assert.match(plan.messages[0]?.content ?? "", /operation: replace/);
@@ -113,7 +114,7 @@ test("投影改变时发送带整段替换语义的内容并保存规范化投�
 test("移除已投影 Section 时发通用 tombstone 并把基线标为失效", () => {
     const previous = activeUpdate(section("goal_plan", { items: ["旧计划"] }, "旧计划正文"));
 
-    const plan = planDynamicSectionUpdates(registry, [], [frame([previous])]);
+    const plan = planDynamicSectionUpdates(registry.identities(), [], [frame([previous])]);
 
     assert.equal(plan.messages.length, 1);
     assert.match(plan.messages[0]?.content ?? "", /operation: invalidate/);
@@ -129,7 +130,7 @@ test("Working Memory 只在其投影改变时更新，不受 GoalPlan 更新耦�
     const currentMemory = section("working_memory", { facts: ["two"] }, "记忆新全文");
 
     const plan = planDynamicSectionUpdates(
-        registry,
+        registry.identities(),
         [currentPlan, currentMemory],
         [frame([previousPlan, previousMemory])],
     );
@@ -151,19 +152,19 @@ test("Planner 对未知历史身份、重复当前 ID 和非 JSON 投影 fail cl
     };
 
     assert.throws(
-        () => planDynamicSectionUpdates(registry, [message], [frame([staleIdentity])]),
+        () => planDynamicSectionUpdates(registry.identities(), [message], [frame([staleIdentity])]),
         DynamicSectionDiffError,
     );
     assert.throws(
-        () => planDynamicSectionUpdates(registry, [message], [frame([unknownIdentity])]),
+        () => planDynamicSectionUpdates(registry.identities(), [message], [frame([unknownIdentity])]),
         DynamicSectionDiffError,
     );
     assert.throws(
-        () => planDynamicSectionUpdates(registry, [message, message], []),
+        () => planDynamicSectionUpdates(registry.identities(), [message, message], []),
         /duplicate section/,
     );
     assert.throws(
-        () => planDynamicSectionUpdates(registry, [section("goal_plan", undefined, "bad")], []),
+        () => planDynamicSectionUpdates(registry.identities(), [section("goal_plan", undefined, "bad")], []),
         /not JSON data/,
     );
 });

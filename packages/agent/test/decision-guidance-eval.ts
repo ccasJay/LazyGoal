@@ -56,6 +56,7 @@ export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRend
             authorizedTools: view.dynamicContext.authorizedTools,
         }) as PromptContext),
         renderDynamicSections: renderer.renderDynamicSections,
+        dynamicSectionIdentities: renderer.dynamicSectionIdentities,
     };
     const request = {
         ...renderRequest(view, requestRenderer, mode === "prompt_only" ? bundle.shapeGuide : undefined),

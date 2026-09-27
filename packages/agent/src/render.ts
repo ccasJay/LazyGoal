@@ -7,6 +7,7 @@ import type {
     ModelContextEpochView,
 } from "./model-inference-view";
 import type { PromptBundleRenderer } from "./prompting/types";
+import type { DynamicSectionUpdateMessage } from "./prompting/dynamic-section-diff";
 
 /**
  * 只依赖 View DTO 与注入 Renderer 的纯 Prompt 请求组装。
@@ -115,6 +116,7 @@ export function renderRequest(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
     responseShapeGuide?: string,
+    dynamicSections?: readonly DynamicSectionUpdateMessage[],
 ): LLMRequest {
     return {
         messages: [
@@ -126,7 +128,7 @@ export function renderRequest(
                 role: message.role,
                 content: message.content,
             })),
-            ...renderer.renderDynamicSections(view).map((section) => ({
+            ...(dynamicSections ?? renderer.renderDynamicSections(view)).map((section) => ({
                 role: section.role,
                 content: section.content,
             })),

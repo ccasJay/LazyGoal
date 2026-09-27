@@ -181,5 +181,8 @@ export function createPromptBundleRenderer(input: {
                 };
             });
         },
+        dynamicSectionIdentities() {
+            return input.dynamicSectionRegistry?.identities() ?? [];
+        },
     };
 }
