@@ -13,7 +13,11 @@ test("recovers failed Snapshot and invalid-response usage without terminal ACP m
         problemStatement: "Fix issue", goalId: "goal-recovery", runId: "run-recovery", maxSteps: 3, structuredOutputMode: "strict" as const };
     const result = await runSwebenchAcpTask({ metadata, workspaceRoot: root, stateRoot: join(root, "state"),
         llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ content: "{}", providerMetadata: { usage: { inputTokens: 15, outputTokens: 7 } } }) },
-        renderer: { render: () => "system" }, contextCompactor: { compact: async units => units },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        }, contextCompactor: { compact: async units => units },
     });
     assert.equal(result.goal.state.run.status, "failed");
     const directory = join(root, "state", Buffer.from("swebench-acp").toString("base64url"), Buffer.from(metadata.instanceId).toString("base64url"));

@@ -134,7 +134,11 @@ function createDependencies<TTask, TOutcome>(
                 };
             },
         },
-        renderer: { render: () => "system" },
+        renderer: {
+            render: () => "system",
+            renderDynamicSections: () => [],
+            dynamicSectionIdentities: () => [],
+        },
         contextCompactor: { compact: async (units) => units },
         adapter: {
             describeTask: (task) => adapter.describeTask(task),

@@ -56,7 +56,7 @@
   - 验证方式：待实现的 `packages/runtime/test/think-decision-recovery.test.ts`；现有 `packages/runtime/test/trajectory-failure.test.ts` 和 `packages/storage/test/goal-snapshot-current.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [6.3](./requirements.md#req-6-3), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 9. 验证完整授权、审批与证据链
+- [x] //TODO 9. 验证完整授权、审批与证据链
 
   - 实现目标：为直接 Decide、多轮 Think、两类供应商 Decide 和分层上下文添加组合场景回归测试。
   - 成功判据：Plan Run 未获批时仍按 Prompt 先提案且不新增业务工具硬门控；Tool 授权、输出契约、GoalPlan/完成证据以及缺失上下文的 fail-closed 行为保持有效。
@@ -91,4 +91,20 @@
 
 ### Latest Result
 
-未执行。实施后按已提交代码状态和各验收结果记录实际检查、证据、整体状态与时效。
+通过（passed/current），2026-09-27。
+
+- 完整 `npm test`：类型检查、170 个源文件的依赖边界检查、GEPA adapter、1,408 个 TS 测试及 14 个脚本测试全部通过；无待人工验收项。
+- 补充定向检查：9 个受影响测试文件共 59 个测试通过；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
+- 测试时 Git HEAD 为 `5a775eda1c19639d29b351102de2d2c9d640a7f2`，TODO9 代码/测试尚未提交；其暂存差异 SHA-256 为 `f4443a29c2b639c90b239b479e1c2953a3de8759143e961ffc4cc51faedc4fad`。覆盖 `packages/runtime/test/prompt-context-integration.test.ts`、`packages/agent/test/native-step-executor.test.ts`、`packages/llm/test/pi-ai.test.ts`、`packages/tui/test/prompt-bundle-integration.test.ts`、`benchmarks/test/headless-composition-root.test.ts`、`benchmarks/alfworld/test/evaluation-runner.test.ts`、`benchmarks/swebench/test/acp-result-projection.test.ts`、`benchmarks/swebench/test/result-recovery.test.ts` 和 `benchmarks/swebench/test/worker-runtime.test.ts`。
+- 对应已批准合同：Requirements SHA-256 `192c785086f66cab6e5ac17ad4a2c7aad715e4313da3bb57a6364e9a91ae60f3`；Design SHA-256 `6ce4d29a0d472328841fe8483606b113b8ff63e668e60dd1c0a9383ef201e225`。
+
+## Learning Candidates
+
+### Candidate: Prompt 集成夹具应按动态 section 与轨迹身份构造
+
+- **适用范围：** 为 Prompt 分层后的 `LLMStepExecutor`、Runner 或 Composition Root 编写模型集成夹具。
+- **观察到的问题：** 旧夹具从 system 文本或 Working Context 控制字段推断任务批准/Working Memory，并假定轨迹证据固定在某个 sequence；分层后这些状态通过带来源的 user 动态 section 传递，新增已提交 `model_context_frame` 也会改变后续事件序号。
+- **证据与解释：** 本轮 `npm test` 曾在 pi-ai smoke 和 TUI AskUser→Plan 集成场景失败。诊断确认模型状态位于 dynamic user section；Memory Patch 的固定证据序号指向了不允许作为 Fact 的事件。按 section 消息读取审批状态、从实际轨迹事件类型取证据后，相关全量及定向测试通过。
+- **已验证做法：** 测试按 user 消息中的 section 内容/身份断言动态状态；Memory 与完成证据从当前请求可见的已提交轨迹按事件类型选择，不硬编码序号；PromptBundleRenderer 的替身实现完整接口。
+- **来源：** `packages/llm/test/pi-ai.test.ts`、`packages/tui/test/prompt-bundle-integration.test.ts`、`packages/runtime/test/prompt-context-integration.test.ts`、`benchmarks/test/headless-composition-root.test.ts`。
+- **限制与复查条件：** 这是测试夹具的实践，不替代 Runtime 对工具授权和证据合法性的验证。若动态 section 的消息角色或可作为证据的事件类型变化，应重新核对夹具。

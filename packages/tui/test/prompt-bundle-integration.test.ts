@@ -146,7 +146,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
         const chunks: Buffer[] = [];
         request.on("data", (chunk: Buffer) => chunks.push(chunk));
         request.on("end", () => {
-            const responseContent = responses[requests.length];
+            let responseContent = responses[requests.length];
 
             if (responseContent === undefined) {
                 response.statusCode = 500;
@@ -154,9 +154,32 @@ test("Composition Root carries Memory through task approval into Executing", asy
                 return;
             }
 
-            requests.push(JSON.parse(
+            const capturedRequest = JSON.parse(
                 Buffer.concat(chunks).toString("utf8"),
-            ) as CapturedRequest);
+            ) as CapturedRequest;
+            if (requests.length === 2) {
+                const working = controlPayload(capturedRequest) as {
+                    readonly trajectoryContext?: {
+                        readonly hot?: readonly { readonly events: readonly {
+                            readonly eventType: string;
+                            readonly sequence: number;
+                        }[] }[];
+                    };
+                };
+                const evidence = working.trajectoryContext?.hot
+                    ?.flatMap((unit) => unit.events)
+                    .filter((event) => event.eventType === "tool_finished" || event.eventType === "observation_recorded")
+                    .at(-1);
+                if (evidence === undefined) {
+                    response.statusCode = 500;
+                    response.end("Expected committed tool evidence in the current model context");
+                    return;
+                }
+                const proposal = JSON.parse(responseContent);
+                proposal.result.memoryPatch.operations[0].fact.evidenceSequences = [evidence.sequence];
+                responseContent = JSON.stringify(proposal);
+            }
+            requests.push(capturedRequest);
             response.setHeader("Content-Type", "application/json");
             response.end(JSON.stringify({
                 id: `completion-${requests.length}`,
@@ -290,14 +313,22 @@ test("Composition Root carries Memory through task approval into Executing", asy
 
         const executingControl = controlPayload(requests[4]!);
         const executingSystem = systemContent(requests[4]!);
-        if (!executingSystem.includes("Approved Goal Task Contract:\nObjective: Approved proposal")) {
-            throw new Error("Expected only the approved proposal in Executing system prompt");
+        const approvedTaskUpdate = requests[4]!.messages.find((message) =>
+            message.role === "user"
+            && message.content.includes("Approved Goal Task Contract:\nObjective: Approved proposal"),
+        );
+        if (executingSystem.includes("Approved Goal Task Contract:") || approvedTaskUpdate === undefined) {
+            throw new Error("Expected the approved proposal in its dynamic user section, outside the fixed system prompt");
         }
         if ("task" in executingControl) {
             throw new Error("Executing must not receive redundant task in control message");
         }
-        if (executingControl.workingMemory?.facts?.[0]?.predicate !== "workflow_requested") {
-            throw new Error("Expected the accepted Fact in executing memory");
+        const workingMemoryUpdate = requests[4]!.messages.find((message) =>
+            message.role === "user"
+            && message.content.includes("workflow_requested"),
+        );
+        if (workingMemoryUpdate === undefined) {
+            throw new Error("Expected the accepted Fact in its dynamic Working Memory section");
         }
 
         const trajectory = await root.readTrajectory({
