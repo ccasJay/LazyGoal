@@ -16,6 +16,8 @@ Bundle 固定匹配 `structured@1`、`trajectory-layered@1` 和 `bm25-lite@1`。
 
 Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 不进入固定 `PromptContext`。独立 `DynamicSectionRegistry` 按稳定 ID、来源、角色和顺序投影这五个 section，并使用 Bundle v1 注册的版本化模板渲染为 `user` 消息；Projector/Renderer 通用遍历注册项，不按 section ID 分支。新增 section 只需增加注册定义和模板资产。
 
+纯函数 `planDynamicSectionUpdates` 接收当前渲染投影及已筛选的同阶段 frame，按注册身份校验并规范化 JSON 投影，折叠每个 section 的最新状态，只输出完整注入、整段替换或失效 tombstone，同时生成与实际消息对应的 frame 记录。它不改写 Conversation，也不负责读取历史或组装请求。
+
 ## 单轮请求
 
 `ModelInferenceProjector` 从 Goal 生成深冻结的 `ModelInferenceView`，包括固定 Prompt 上下文、动态运行状态、真实 Conversation、Working Memory、Context Epoch 和可选的已提交 Lookup Result。模型只能看到稳定 DTO，不能提交 Runtime 的 Goal/Run、Step、Epoch、Todo ID、Action ID 或内部计数。

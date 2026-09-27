@@ -141,22 +141,15 @@ test("frame updates beyond the Snapshot boundary and from another Goal or Run ar
         stage: "decide",
         epochNumber: 2,
         conversationPosition: 5,
-        sections: [
-            sectionUpdate(),
-            sectionUpdate({ ...identity, sectionId: "unregistered_section", order: 20 }),
-        ],
+        sections: [sectionUpdate()],
     };
     const valid = allocateImmutableEvent(frameDraft(payload), 4, "valid-frame");
     const uncommitted = allocateImmutableEvent(frameDraft(payload), 8, "tail-frame");
     const otherGoal = allocateImmutableEvent(frameDraft(payload, "other-goal"), 3, "other-goal-frame");
     const otherRun = allocateImmutableEvent(frameDraft(payload, "frame-goal", "other-run"), 2, "other-run-frame");
-    const staleIdentity = allocateImmutableEvent(frameDraft({
-        ...payload,
-        sections: [sectionUpdate({ ...identity, source: "stale source" })],
-    }), 5, "stale-identity-frame");
 
     const frames = selectCommittedModelContextFrames(
-        [otherRun, otherGoal, valid, staleIdentity, uncommitted],
+        [otherRun, otherGoal, valid, uncommitted],
         {
             goalId: "frame-goal",
             runId: "frame-run",
@@ -170,6 +163,33 @@ test("frame updates beyond the Snapshot boundary and from another Goal or Run ar
 
     assert.deepEqual(frames.map((frame) => frame.eventId), ["valid-frame"]);
     assert.deepEqual(frames[0]?.payload.sections.map((section) => section.sectionId), ["run_mode"]);
+});
+
+test("unknown section IDs and mismatched registry identities fail closed during recovery", () => {
+    const frame = (section: ModelContextFramePayload["sections"][number]) =>
+        allocateImmutableEvent(frameDraft({
+            type: "model_context_frame",
+            stage: "decide",
+            epochNumber: 2,
+            conversationPosition: 5,
+            sections: [section],
+        }), 1);
+    const query = {
+        goalId: "frame-goal",
+        runId: "frame-run",
+        committedThroughSequence: 1,
+        stage: "decide" as const,
+        epochNumber: 2,
+        conversationStartPosition: 4,
+        sectionIdentities: [identity],
+    };
+
+    assert.throws(() => selectCommittedModelContextFrames([
+        frame(sectionUpdate({ ...identity, sectionId: "unregistered_section" })),
+    ], query), /unregistered section/);
+    assert.throws(() => selectCommittedModelContextFrames([
+        frame(sectionUpdate({ ...identity, source: "stale source" })),
+    ], query), /identity does not match registry/);
 });
 
 test("frame selector separates stage and Epoch and ignores stale conversation positions", () => {

@@ -21,7 +21,7 @@
   - 验证方式：待实现的 `packages/runtime/test/model-context-frame.test.ts` 与 `packages/storage/test/model-context-frame-store.test.ts`；现有 `packages/runtime/test/trajectory-checkpoint-committer.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [3.5](./requirements.md#req-3-5), [3.7](./requirements.md#req-3-7), [4.2](./requirements.md#req-4-2)_
 
-- [ ] //TODO 4. 按 Section 生成替换与失效更新
+- [x] //TODO 4. 按 Section 生成替换与失效更新
 
   - 实现目标：让通用 Planner 依据同阶段保留 frame 的模型可见投影进行 diff，并以整段替换实现首版五个 section。
   - 成功判据：首次完整注入、未变不追加、仅未投影字段变化不追加、变化整段替换、移除发 tombstone；Working Memory 独立于 GoalPlan 更新。

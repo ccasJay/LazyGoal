@@ -219,10 +219,20 @@ export {
 } from "./prompting/dynamic-section-registry";
 export type {
     DynamicSectionDefinition,
+    DynamicSectionIdentity,
     DynamicSectionMessage,
     DynamicSectionProjection,
     DynamicSectionRole,
 } from "./prompting/dynamic-section-registry";
+export {
+    DYNAMIC_SECTION_DIFF_ERROR_CODE,
+    DynamicSectionDiffError,
+    planDynamicSectionUpdates,
+} from "./prompting/dynamic-section-diff";
+export type {
+    DynamicSectionUpdateMessage,
+    DynamicSectionUpdatePlan,
+} from "./prompting/dynamic-section-diff";
 export {
     PROMPT_BUNDLE_CONFIGURATION_ERROR_CODE,
     PROMPT_RENDER_ERROR_CODE,

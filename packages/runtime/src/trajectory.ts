@@ -1204,8 +1204,8 @@ export interface CommittedModelContextFrameQuery {
  *
  * @remarks
  * 提交边界、Goal/Run 身份、推理阶段、Epoch 和 Conversation 起点均由调用方明确
- * 指定。未知 Section 或其来源、角色、顺序、模板身份与当前注册表不符时，只剔除
- * 该 Section 更新；它不能成为比较基线。该函数不解析更新文本，也不推导 Runtime 状态。
+ * 指定。未知 Section 或其来源、角色、顺序、模板身份与当前注册表不符时，恢复直接
+ * 失败；它不能成为比较基线。该函数不解析更新文本，也不推导 Runtime 状态。
  *
  * @param events - 从 Trajectory Store 读取的事件；其中可能含未提交 tail。
  * @param query - 恢复时从 Snapshot 与当前 Section Registry 得到的查询条件。
@@ -1259,13 +1259,21 @@ export function selectCommittedModelContextFrames(
         }
         const sections = event.payload.sections.filter((section) => {
             const registered = identities.get(section.sectionId);
-            return registered !== undefined
-                && registered.order === section.order
-                && registered.source === section.source
-                && registered.role === section.role
-                && registered.templateId === section.templateId;
+            if (registered === undefined) {
+                throw new TrajectoryProtocolError(
+                    `model context frame references unregistered section: ${section.sectionId}`,
+                );
+            }
+            if (registered.order !== section.order
+                || registered.source !== section.source
+                || registered.role !== section.role
+                || registered.templateId !== section.templateId) {
+                throw new TrajectoryProtocolError(
+                    `model context frame section identity does not match registry: ${section.sectionId}`,
+                );
+            }
+            return true;
         });
-        if (sections.length === 0) continue;
         frames.push(freezeTrajectoryEvent({
             ...event,
             payload: { ...event.payload, sections },

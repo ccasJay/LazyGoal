@@ -89,6 +89,9 @@ export interface DynamicSectionMessage extends DynamicSectionProjection {
     readonly content: string;
 }
 
+/** 动态 Section 的稳定身份元数据，不包含当前投影。 */
+export type DynamicSectionIdentity = Omit<DynamicSectionProjection, "projection">;
+
 /**
  * 按显式定义顺序投影动态 section 的注册表。
  *
@@ -171,6 +174,25 @@ export class DynamicSectionRegistry {
     /** @returns 注册表中所有版本化模板 ID，按 section 顺序排列。 */
     templateIds(): readonly string[] {
         return this.definitions.map((definition) => definition.templateId);
+    }
+
+    /**
+     * 返回全部已注册 Section 的稳定身份，包含当前未投影的可选 Section。
+     *
+     * @returns 按注册顺序排列的新身份数组；数组和条目均不暴露 Registry 内部引用。
+     * @example
+     * ```ts
+     * const identities = registry.identities();
+     * ```
+     */
+    identities(): readonly DynamicSectionIdentity[] {
+        return this.definitions.map(({ id, order, source, role, templateId }) => ({
+            sectionId: id,
+            order,
+            source,
+            role,
+            templateId,
+        }));
     }
 }
 
