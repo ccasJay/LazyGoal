@@ -15,6 +15,7 @@ import {
     createBrowserGoalRoutes,
     listBrowserGoals,
     readBrowserGoalSession,
+    type BrowserCreateGoalCommand,
     type BrowserGoalInteractionCommand,
     type BrowserGoalListItem,
 } from "../src/index";
@@ -215,6 +216,8 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         { role: "user", content: "检查项目" },
         { role: "assistant", content: "会话已完成" },
     ]);
+    assert.equal(session.currentRunMode, "normal");
+    assert.equal(session.nextRunMode, undefined);
     assert.equal(session.goalPlan?.items[0]?.content, "运行检查");
     assert.equal(session.runs[0]?.steps.length, 1);
     assert.deepEqual(session.runs[0]?.steps[0], {
@@ -268,6 +271,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
         async message() {
             return { ok: false as const, error: "message_failed" as const };
         },
+        async enterPlanMode() {
+            return { ok: false as const, error: "plan_mode_failed" as const };
+        },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },
@@ -288,8 +294,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
 });
 
 test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async () => {
-    const calls: Array<{ goalId: string; intent: string }> = [];
+    const calls: BrowserCreateGoalCommand[] = [];
     const interactions: Array<{ goalId: string; command: BrowserGoalInteractionCommand }> = [];
+    const planModes: Array<{ goalId: string; runId: string }> = [];
     const routes = createBrowserGoalRoutes({
         async list() { return []; },
         async read() { return undefined; },
@@ -310,6 +317,10 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
             return { ok: true as const, goalId, runId: command.runId, existing: false };
         },
         async message(goalId, command) {
+            return { ok: true as const, goalId, runId: command.runId, existing: false };
+        },
+        async enterPlanMode(goalId, command) {
+            planModes.push({ goalId, runId: command.runId });
             return { ok: true as const, goalId, runId: command.runId, existing: false };
         },
         async openStream() {
@@ -341,6 +352,28 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
         existing: false,
     });
     assert.deepEqual(calls, [{ goalId: "goal-create-1", intent: "检查当前项目" }]);
+
+    const acceptedPlan = await send(JSON.stringify({ goalId: "goal-create-2", intent: "显式计划", mode: "plan" }));
+    assert.equal(acceptedPlan.status, 202);
+    assert.deepEqual(calls[1], { goalId: "goal-create-2", intent: "显式计划", mode: "plan" });
+    const unsupportedMode = await send(JSON.stringify({ goalId: "goal-create-3", intent: "普通模式", mode: "normal" }));
+    assert.equal(unsupportedMode.status, 400);
+    assert.equal(calls.length, 2);
+
+    const selectedPlan = await routes.request("http://localhost/api/goals/goal-create-2/plan-mode", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-current" }),
+    });
+    assert.equal(selectedPlan.status, 202);
+    assert.deepEqual(planModes, [{ goalId: "goal-create-2", runId: "run-current" }]);
+    const invalidPlanCommand = await routes.request("http://localhost/api/goals/goal-create-2/plan-mode", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-current", intent: "unexpected" }),
+    });
+    assert.equal(invalidPlanCommand.status, 400);
+    assert.equal(planModes.length, 1);
 
     const interaction = await routes.request("http://localhost/api/goals/goal-create-1/interactions", {
         method: "POST",
@@ -385,5 +418,5 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
     assert.equal(unsupportedMedia.status, 415);
     const tooLarge = await send(JSON.stringify({ goalId: "goal-create-2", intent: "x".repeat(20_000) }));
     assert.equal(tooLarge.status, 413);
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
 });

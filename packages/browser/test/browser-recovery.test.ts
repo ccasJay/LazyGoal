@@ -331,6 +331,7 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
         coordinator: {
             async resume() { throw new Error("Browser reads must not resume a Goal"); },
             async continue() { throw new Error("Browser reads must not continue a Goal"); },
+            async enterPlanMode() { throw new Error("Browser reads must not change a Goal mode"); },
         },
     });
     const streams = new BrowserGoalStreamService({
@@ -348,6 +349,7 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
         create: (command) => commands.create(command),
         interact: (goalId, command) => commands.interact(goalId, command),
         message: (goalId, command) => commands.message(goalId, command),
+        enterPlanMode: (goalId, command) => commands.enterPlanMode(goalId, command),
         openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
     });
 }

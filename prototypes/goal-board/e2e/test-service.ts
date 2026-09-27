@@ -30,16 +30,40 @@ const profile: AgentProfile = {
 let toolCalls = 0;
 let nextRunId = Number(process.env.LAZYGOAL_E2E_RUN_COUNTER ?? "0");
 let activeGoalId: string | undefined;
+let planTaskProposed = false;
 let compositionRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
 
 class DeterministicAdapter implements LLMAdapter {
     readonly structuredOutputMode = "strict" as const;
     calls = Number(process.env.LAZYGOAL_E2E_MODEL_OFFSET ?? "0");
 
-    async generate(_request: LLMRequest): Promise<LLMResponse> {
+    async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls += 1;
         await writeStatus();
-        const result = this.calls === 1
+        const isPlanFlow = request.messages.some((message) => message.content.includes("Plan flow:"));
+        const result = isPlanFlow
+            ? !planTaskProposed
+                ? (planTaskProposed = true, {
+                    kind: "task_proposal",
+                    task: {
+                        objective: "Finish the controlled plan-flow check",
+                        completionCriteria: [{ text: "Plan Run completed", acceptance: null }],
+                    },
+                    approvalRequest: "Approve the deterministic plan-flow task?",
+                    memoryPatch: null,
+                })
+                : this.calls === 6
+                    ? {
+                        kind: "tool_call",
+                        action: {
+                            actionId: "action-browser-e2e-plan-1",
+                            toolId: "browser_fixture_write",
+                            input: { value: "controlled plan write" },
+                        },
+                        memoryPatch: null,
+                    }
+                    : await completedPlanDecision()
+            : this.calls === 1
             ? {
                 kind: "ask_user",
                 questions: [{
@@ -87,6 +111,16 @@ async function completedDecision() {
         kind: "complete",
         summary: "The controlled action completed.",
         evidenceSequences,
+        memoryPatch: null,
+    };
+}
+
+async function completedPlanDecision() {
+    const result = await completedDecision();
+    return {
+        kind: "complete",
+        summary: "The controlled plan flow is complete.",
+        completionEvidence: [{ criterionIndex: 0, evidenceSequences: result.evidenceSequences }],
         memoryPatch: null,
     };
 }
@@ -142,6 +176,17 @@ const root = await createCompositionRoot({
     exitPort: { exit() {} },
 });
 compositionRoot = root;
+root.notifyingStore.onSave((goal) => {
+    if (goal.state.run.stopReason !== undefined) {
+        void writeFile(`${statusFile}.run-stop`, JSON.stringify({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            status: goal.state.run.status,
+            stopReason: goal.state.run.stopReason,
+            pendingInteraction: goal.state.run.pendingInteraction?.kind,
+        }));
+    }
+});
 const commands = new BrowserGoalCommandService({
     store: root.workspaceGoalStore,
     saveNotifications: root.notifyingStore,
@@ -173,6 +218,10 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     message: (goalId, command) => {
         activeGoalId = goalId;
         return commands.message(goalId, command);
+    },
+    enterPlanMode: (goalId, command) => {
+        activeGoalId = goalId;
+        return commands.enterPlanMode(goalId, command);
     },
     openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));

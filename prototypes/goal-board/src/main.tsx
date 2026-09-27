@@ -27,6 +27,8 @@ import type {
   BrowserGoalListItem,
   BrowserGoalSession,
 } from "../../../packages/browser/src/index";
+import { createSlashCommandRegistry, planCommandDefinition } from "../../../packages/slash-command/src/index";
+import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
 import { BrowserApiError, browserApi } from "./api";
 import { GoalDetails, runStatusLabel, WaitingInteraction } from "./panels";
 import "./style.css";
@@ -42,6 +44,9 @@ const statuses: readonly GoalStatus[] = [
   "Completed",
   "Stopped",
 ];
+
+const slashCommands = createSlashCommandRegistry<ModelCommandEffect>();
+slashCommands.register(planCommandDefinition);
 
 function statusFromRun(status: BrowserGoalListItem["runStatus"]): GoalStatus {
   switch (status) {
@@ -79,13 +84,13 @@ function App() {
   const [liveText, setLiveText] = useState("");
   const [liveActivity, setLiveActivity] = useState<string | null>(null);
   const [streamConnected, setStreamConnected] = useState(false);
-  const [newGoalOpen, setNewGoalOpen] = useState(false);
-  const [newGoalIntent, setNewGoalIntent] = useState("");
-  const [newGoalError, setNewGoalError] = useState<string | null>(null);
+  const [draftSessionOpen, setDraftSessionOpen] = useState(false);
+  const [draftPlanMode, setDraftPlanMode] = useState(false);
+  const draftGoalId = useRef<string | null>(null);
   const timeline = useRef<HTMLDivElement>(null);
-  const modal = useRef<HTMLDialogElement>(null);
   const latestSession = useRef<BrowserGoalSession | null>(null);
   const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
+  const sessionVisible = activeGoal !== undefined || draftSessionOpen;
   const currentRun = session?.runs.find((run) => run.current);
   const visibleGoals = useMemo(() => goals.filter((goal) => {
     const matchesSearch = goal.intent.toLowerCase().includes(search.toLowerCase());
@@ -253,15 +258,6 @@ function App() {
     if (follow && timeline.current) timeline.current.scrollTop = timeline.current.scrollHeight;
   }, [session?.messages, currentRun?.steps, liveText, follow, selectedGoalId]);
 
-  useEffect(() => {
-    if (newGoalOpen) {
-      modal.current?.showModal();
-      modal.current?.querySelector("textarea")?.focus();
-    } else {
-      modal.current?.close();
-    }
-  }, [newGoalOpen]);
-
   async function refreshGoals() {
     setGoalsLoading(true);
     try {
@@ -297,31 +293,83 @@ function App() {
   }
 
   function toggleGoalSelection(goalId: string) {
+    setDraftSessionOpen(false);
     setSelectedGoalId((current) => current === goalId ? null : goalId);
     setExpanded(false);
     setSessionTab("Activity");
   }
 
-  async function createGoal() {
-    const intent = newGoalIntent.trim();
+  function openNewGoalDraft() {
+    draftGoalId.current = null;
+    setSelectedGoalId(null);
+    setDraftPlanMode(false);
+    setDraftSessionOpen(true);
+    setSessionTab("Activity");
+    setExpanded(false);
+    setCommandError(null);
+  }
+
+  function closeSession() {
+    setSelectedGoalId(null);
+    setDraftSessionOpen(false);
+    setExpanded(false);
+  }
+
+  async function submitDraftMessage(content: string) {
+    const dispatched = await dispatchBrowserInput(content);
+    if (dispatched.kind === "error") {
+      setCommandError(dispatched.message);
+      return;
+    }
+    if (dispatched.kind === "plan") {
+      setDraftPlanMode(true);
+      setCommandError(null);
+      return;
+    }
+    const intent = dispatched.content.trim();
     if (!intent || commandBusy) return;
     setCommandBusy(true);
-    setNewGoalError(null);
+    setCommandError(null);
     try {
-      const result = await browserApi.createGoal({ goalId: crypto.randomUUID(), intent });
-      setNewGoalOpen(false);
-      setNewGoalIntent("");
+      const goalId = draftGoalId.current ?? crypto.randomUUID();
+      draftGoalId.current = goalId;
+      const result = await browserApi.createGoal({
+        goalId,
+        intent,
+        ...(draftPlanMode ? { mode: "plan" as const } : {}),
+      });
+      setDraftSessionOpen(false);
       setSelectedGoalId(result.goalId);
       await refreshGoals();
     } catch (error) {
-      setNewGoalError(errorMessage(error));
+      setCommandError(errorMessage(error));
     } finally {
       setCommandBusy(false);
     }
   }
 
   async function submitMessage(content: string) {
-    const trimmed = content.trim();
+    const dispatched = await dispatchBrowserInput(content);
+    if (dispatched.kind === "error") {
+      setCommandError(dispatched.message);
+      return;
+    }
+    if (dispatched.kind === "plan") {
+      if (!session || commandBusy) return;
+      setCommandBusy(true);
+      setCommandError(null);
+      try {
+        await browserApi.enterPlanMode(session.goalId, { runId: session.currentRunId });
+        await refreshSelectedSession();
+      } catch (error) {
+        setCommandError(errorMessage(error));
+        if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+      } finally {
+        setCommandBusy(false);
+      }
+      return;
+    }
+    const trimmed = dispatched.content.trim();
     if (!session || !trimmed || !canSendText || commandBusy) return;
     setCommandBusy(true);
     setCommandError(null);
@@ -423,18 +471,15 @@ function App() {
             </span>
           </div>
         </header>
-        <div className={`content ${activeGoal ? "session-open" : ""}`}>
-          {(!expanded || !activeGoal) && (
+        <div className={`content ${sessionVisible ? "session-open" : ""}`}>
+          {(!expanded || !sessionVisible) && (
             <section className="board-area">
               <div className="board-title">
                 <div>
                   <h1>Goals <span>{goals.length}</span></h1>
                   <p>Choose a Goal to open its saved session.</p>
                 </div>
-                <button className="primary" onClick={() => {
-                  setNewGoalError(null);
-                  setNewGoalOpen(true);
-                }} disabled={!browserApi.hasAccessToken}>
+                <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}>
                   <Plus size={15} /> New goal
                 </button>
               </div>
@@ -486,7 +531,7 @@ function App() {
                   <InboxIcon />
                   <h2>No saved Goals yet</h2>
                   <p>Create a Goal to start a real session in this workspace.</p>
-                  <button className="primary" onClick={() => setNewGoalOpen(true)} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
+                  <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
                 </div>
               ) : visibleGoals.length === 0 && !sessionError ? (
                 <div className="board-empty">
@@ -535,7 +580,7 @@ function App() {
               </footer>
             </section>
           )}
-          {activeGoal && (
+          {sessionVisible && (
             <>
               <div
                 className="resize-handle"
@@ -562,21 +607,52 @@ function App() {
               <section className={`session ${expanded ? "expanded" : ""}`} style={{ width: expanded ? "100%" : width }}>
                 <header className="session-header">
                   <span>
-                    <span className={`status-dot ${statusClass(statusFromRun(activeGoal.runStatus))}`} />
-                    {activeGoal.goalId.slice(0, 12)}
+                    {activeGoal
+                      ? <><span className={`status-dot ${statusClass(statusFromRun(activeGoal.runStatus))}`} />{activeGoal.goalId.slice(0, 12)}</>
+                      : <><span className="status-dot ready" />New conversation</>}
                     <ChevronRight size={12} /> Session
                   </span>
                   <div>
                     <button className="icon" aria-label={expanded ? "Collapse session" : "Expand session"} onClick={() => setExpanded((value) => !value)}>
                       {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                     </button>
-                    <button className="icon" aria-label="Close session" onClick={() => {
-                      setSelectedGoalId(null);
-                      setExpanded(false);
-                    }}><X size={17} /></button>
+                    <button className="icon" aria-label="Close session" onClick={closeSession}><X size={17} /></button>
                   </div>
                 </header>
-                {sessionLoading && session === null ? (
+                {draftSessionOpen ? (
+                  <>
+                    <div className="session-intro">
+                      <h2>New conversation</h2>
+                      <div>
+                        <span className="status-pill ready"><span className="status-dot" />Draft · not saved</span>
+                        <span><GitBranch size={12} />{draftPlanMode ? "Plan Mode" : "Normal Mode"}</span>
+                      </div>
+                    </div>
+                    <div className="session-tabs">
+                      <div className="session-tab-buttons"><button aria-pressed="true">Activity</button></div>
+                      <span className="stream-state"><span className="dot" />Local Runtime</span>
+                    </div>
+                    <div className="timeline draft-timeline">
+                      <div className="timeline-date"><span />No saved messages<span /></div>
+                      <p>Send your first message to create a Goal and start the session. Use <code>/plan</code> to begin in Plan Mode.</p>
+                    </div>
+                    {commandError && (
+                      <div className="command-error" role="alert">
+                        <span>{commandError}</span>
+                        <button aria-label="Dismiss error" onClick={() => setCommandError(null)}><X size={13} /></button>
+                      </div>
+                    )}
+                    <div className="composer-area">
+                      <MessageComposer
+                        key="new-goal-draft"
+                        autoFocus
+                        busy={commandBusy}
+                        placeholder="Message LazyGoal…"
+                        onSubmit={(content) => void submitDraftMessage(content)}
+                      />
+                    </div>
+                  </>
+                ) : sessionLoading && session === null ? (
                   <div className="session-empty"><span className="loading-mark" /><p>Loading the latest saved session…</p></div>
                 ) : sessionError ? (
                   <div className="session-empty" role="alert">
@@ -595,6 +671,9 @@ function App() {
                           <span className="status-dot" />{runStatusLabel(session.runStatus)}
                         </span>
                         <span><GitBranch size={12} /> {session.currentRunId}</span>
+                        <span className={`mode-badge ${session.currentRunMode === "plan" || session.nextRunMode === "plan" ? "plan" : ""}`}>
+                          {session.nextRunMode === "plan" ? "Next Run · Plan Mode" : `${session.currentRunMode === "plan" ? "Plan" : "Normal"} Mode`}
+                        </span>
                         <span><Clock3 size={12} /> {currentRun?.stepCount ?? 0} saved steps</span>
                       </div>
                     </div>
@@ -721,31 +800,6 @@ function App() {
           )}
         </div>
       </main>
-      <dialog
-        ref={modal}
-        className="create-dialog"
-        onCancel={() => setNewGoalOpen(false)}
-        onClick={(event) => { if (event.target === event.currentTarget) setNewGoalOpen(false); }}
-      >
-        <form onSubmit={(event) => { event.preventDefault(); void createGoal(); }}>
-          <div className="dialog-heading">
-            <h2>New goal</h2>
-            <button type="button" className="icon" aria-label="Close new goal" onClick={() => setNewGoalOpen(false)}><X size={18} /></button>
-          </div>
-          <p>What would you like to accomplish?</p>
-          <textarea
-            aria-label="Goal objective"
-            placeholder="Describe the outcome you want…"
-            value={newGoalIntent}
-            disabled={commandBusy}
-            onChange={(event) => setNewGoalIntent(event.target.value)}
-          />
-          {newGoalError && <div className="dialog-error" role="alert">{newGoalError}</div>}
-          <button className="primary" disabled={commandBusy || !newGoalIntent.trim()} type="submit">
-            <Plus size={14} />{commandBusy ? "Creating…" : "Create goal"}
-          </button>
-        </form>
-      </dialog>
     </div>
   );
 }
@@ -802,10 +856,12 @@ function MessageComposer({
   busy,
   placeholder,
   onSubmit,
+  autoFocus = false,
 }: {
   busy: boolean;
   placeholder: string;
   onSubmit: (content: string) => void;
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   function submit() {
@@ -819,6 +875,7 @@ function MessageComposer({
         <textarea
           aria-label="Message the Goal"
           placeholder={placeholder}
+          autoFocus={autoFocus}
           value={draft}
           disabled={busy}
           onChange={(event) => setDraft(event.target.value)}
@@ -841,6 +898,27 @@ function MessageComposer({
   );
 }
 
+type BrowserInputDispatch =
+  | { readonly kind: "text"; readonly content: string }
+  | { readonly kind: "plan" }
+  | { readonly kind: "error"; readonly message: string };
+
+async function dispatchBrowserInput(input: string): Promise<BrowserInputDispatch> {
+  const result = await slashCommands.dispatch(input);
+  switch (result.kind) {
+    case "text":
+      return { kind: "text", content: input };
+    case "escaped_text":
+      return { kind: "text", content: result.content };
+    case "rejected":
+      return { kind: "error", message: result.message };
+    case "executed":
+      return result.effect.kind === "enter_plan_mode"
+        ? { kind: "plan" }
+        : { kind: "error", message: "This command is not available in the browser session." };
+  }
+}
+
 function InboxIcon() {
   return <div className="empty-icon"><Folder size={26} /></div>;
 }
@@ -860,6 +938,8 @@ function errorMessage(error: unknown): string {
     switch (error.code) {
       case "unauthorized": return "This browser link has expired. Restart `lazygoal web` and open its new link.";
       case "goal_busy": return "Another Goal is still active. Wait for it to stop at a waiting point.";
+      case "plan_mode_busy": return "Plan Mode can only be selected before this Run starts or after it completes.";
+      case "plan_mode_failed": return "The local service could not save the Plan Mode selection.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
       case "stale_run":
       case "stale_request":
@@ -868,6 +948,7 @@ function errorMessage(error: unknown): string {
       case "structured_interaction_required": return "Use the answer or approval form shown for this request.";
       case "request_too_large": return "This request is too long. Shorten it and try again.";
       case "goal_id_conflict": return "A Goal with this request identity already exists.";
+      case "invalid_plan_mode_command": return "This session cannot change Plan Mode because its Run identity is invalid.";
       case "invalid_goal_input":
       case "invalid_message": return "Enter a non-empty Goal or message.";
       default: return `The local service could not complete this request (${error.code}).`;

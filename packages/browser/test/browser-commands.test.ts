@@ -37,7 +37,7 @@ class NotifyingMemoryStore implements GoalStore, BrowserGoalSaveNotifications {
     }
 }
 
-function goalFor(goalId: string, intent: string): Goal {
+function goalFor(goalId: string, intent: string, mode: "normal" | "plan" = "normal"): Goal {
     return createGoal({
         ...protocols,
         id: goalId,
@@ -45,6 +45,7 @@ function goalFor(goalId: string, intent: string): Goal {
         promptBundleVersion: 1,
         profile: { id: "default", systemPrompt: "test", instructions: [], toolIds: [] },
         runId: `run-${goalId}`,
+        mode,
     });
 }
 
@@ -78,6 +79,7 @@ test("稳定 ID 的并发重试只启动一次，活动 Goal 期间拒绝另一�
         coordinator: {
             async resume() { throw new Error("interaction is not used in this case"); },
             async continue() { throw new Error("messages are not used in this case"); },
+            async enterPlanMode() { throw new Error("plan mode is not used in this case"); },
         },
     });
 
@@ -100,12 +102,76 @@ test("稳定 ID 的并发重试只启动一次，活动 Goal 期间拒绝另一�
         ok: false,
         error: "goal_id_conflict",
     });
+    assert.deepEqual(await service.create({ ...command, mode: "plan" }), {
+        ok: false,
+        error: "goal_id_conflict",
+    });
     assert.deepEqual(launched, ["goal-create-1"]);
 
     releaseLauncher.resolve();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(await service.create(command), { ...first, existing: true });
+    assert.deepEqual(await service.create({ ...command, mode: "plan" }), {
+        ok: false,
+        error: "goal_id_conflict",
+    });
     assert.deepEqual(launched, ["goal-create-1"]);
+});
+
+test("Plan Mode 创建模式传给 Launcher，且 Goal/Run 身份在服务端重新校验", async () => {
+    const store = new NotifyingMemoryStore();
+    const launches: Array<{ goalId: string; mode: string | undefined }> = [];
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: "default",
+        launcher: {
+            async launch(request) {
+                launches.push({ goalId: request.goalId, mode: request.mode });
+                const goal = goalFor(request.goalId, request.intent, request.mode);
+                await store.save(goal);
+                return terminal(goal);
+            },
+        },
+        coordinator: {
+            async resume() { throw new Error("interactions are not used in this case"); },
+            async continue() { throw new Error("messages are not used in this case"); },
+            async enterPlanMode(ref) {
+                const goal = await store.restore(ref.goalId);
+                assert.ok(goal);
+                if (goal.state.run.id !== ref.runId) {
+                    return { ok: false as const, error: { code: "RUN_NOT_FOUND" as const, message: "stale run" } };
+                }
+                const updated = {
+                    ...goal,
+                    state: { ...goal.state, run: { ...goal.state.run, mode: "plan" as const } },
+                };
+                await store.save(updated);
+                return { ok: true as const, kind: "terminal" as const, phase: "executing" as const, goal: updated };
+            },
+        },
+    });
+
+    const created = await service.create({ goalId: "goal-plan-created", intent: "显式计划", mode: "plan" });
+    assert.deepEqual(created, {
+        ok: true,
+        goalId: "goal-plan-created",
+        runId: "run-goal-plan-created",
+        existing: false,
+    });
+    assert.deepEqual(launches, [{ goalId: "goal-plan-created", mode: "plan" }]);
+
+    assert.deepEqual(await service.enterPlanMode("goal-plan-created", { runId: "stale-run" }), {
+        ok: false,
+        error: "stale_run",
+    });
+    assert.deepEqual(await service.enterPlanMode("goal-plan-created", { runId: "run-goal-plan-created" }), {
+        ok: true,
+        goalId: "goal-plan-created",
+        runId: "run-goal-plan-created",
+        existing: false,
+    });
+    assert.equal((await store.restore("goal-plan-created"))?.state.run.mode, "plan");
 });
 
 test("Launcher 在保存初始 Goal 前失败时返回错误且不留下假快照", async () => {
@@ -125,6 +191,7 @@ test("Launcher 在保存初始 Goal 前失败时返回错误且不留下假快�
         coordinator: {
             async resume() { throw new Error("interaction is not used in this case"); },
             async continue() { throw new Error("messages are not used in this case"); },
+            async enterPlanMode() { throw new Error("plan mode is not used in this case"); },
         },
     });
 
@@ -153,6 +220,7 @@ test("已存在相同 ID 和意图时只返回已有快照，不再次启动 Lau
         coordinator: {
             async resume() { throw new Error("interaction is not used in this case"); },
             async continue() { throw new Error("messages are not used in this case"); },
+            async enterPlanMode() { throw new Error("plan mode is not used in this case"); },
         },
     });
 

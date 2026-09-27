@@ -8,6 +8,8 @@ import type {
     BrowserGoalInteractionResult,
     BrowserGoalMessageCommand,
     BrowserGoalMessageResult,
+    BrowserGoalPlanModeCommand,
+    BrowserGoalPlanModeResult,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalLiveFeed,
@@ -34,6 +36,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     create: async () => ({ ok: false, error: "goal_create_failed" }),
  *     interact: async () => ({ ok: false, error: "interaction_failed" }),
  *     message: async () => ({ ok: false, error: "message_failed" }),
+ *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
  *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
@@ -81,6 +84,15 @@ export interface BrowserGoalApiPort {
      */
     message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
     /**
+     * 将带当前 Run 身份的 Plan Mode 选择交给 Runtime Coordinator。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 当前 Run 身份。
+     * @returns 模式提交后的受理结果或稳定拒绝码。
+     * @throws Snapshot 读取或 Coordinator 持久化失败时拒绝。
+     */
+    enterPlanMode(goalId: string, command: BrowserGoalPlanModeCommand): Promise<BrowserGoalPlanModeResult>;
+    /**
      * 打开精确绑定到最新 Goal/Run 的实时进展流。
      *
      * @param goalId - URL 路径中的 Goal 身份。
@@ -96,8 +108,8 @@ export interface BrowserGoalApiPort {
  * 创建同源 Goal 列表、会话读取、命令和实时事件 API。
  *
  * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
- * @returns 提供列表/详情读取、`POST /api/goals` 和
- *   创建/交互/消息路由、会话事件流路由和 Hono 应用。
+ * @returns 提供列表/详情读取、`POST /api/goals`、创建/交互/消息/Plan Mode 路由、
+ *   会话事件流路由和 Hono 应用。
  * @remarks
  * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
  * 不回传存储错误文本，也不保留浏览器旧状态。外层 BrowserSessionAccess 中间件负责授权。
@@ -198,6 +210,33 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.post("/api/goals/:goalId/plan-mode", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+            return context.json({ error: "invalid_plan_mode_command" }, 400);
+        }
+        const parsed = await parsePlanModeCommand(context.req.raw);
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.enterPlanMode(goalId, parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "plan_mode_failed" ? 500
+                    : 409;
+            return context.json({ error: result.error, refresh: true }, status);
+        } catch {
+            return context.json({ error: "plan_mode_failed" }, 500);
+        }
+    });
+
     routes.get("/api/goals/:goalId/events", async (context) => {
         const goalId = context.req.param("goalId");
         const query = new URL(context.req.url).searchParams;
@@ -243,7 +282,7 @@ async function parseCreateCommand(
 
     const body = value as Record<string, unknown>;
     if (
-        Object.keys(body).some((key) => key !== "goalId" && key !== "intent")
+        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode")
         || typeof body.goalId !== "string"
         || body.goalId.length === 0
         || body.goalId.length > MAX_GOAL_ID_LENGTH
@@ -251,11 +290,38 @@ async function parseCreateCommand(
         || typeof body.intent !== "string"
         || body.intent.trim().length === 0
         || body.intent.length > MAX_COMMAND_TEXT_LENGTH
+        || (body.mode !== undefined && body.mode !== "plan")
     ) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
 
-    return { ok: true, command: { goalId: body.goalId, intent: body.intent } };
+    return {
+        ok: true,
+        command: {
+            goalId: body.goalId,
+            intent: body.intent,
+            ...(body.mode === undefined ? {} : { mode: body.mode }),
+        },
+    };
+}
+
+async function parsePlanModeCommand(
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalPlanModeCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_plan_mode_command", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    if (Object.keys(body).length !== 1 || typeof body.runId !== "string" || !isWireId(body.runId, 256)) {
+        return { ok: false, error: "invalid_plan_mode_command", status: 400 };
+    }
+    return { ok: true, command: { runId: body.runId } };
 }
 
 async function parseInteractionCommand(
