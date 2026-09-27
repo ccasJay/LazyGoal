@@ -37,7 +37,7 @@ flowchart LR
     E --> X
     T --> X
     X --> U[TUI Stream Adapter]
-    X --> W[Future WebUI Adapter]
+    X --> W[Future Browser Stream Adapter]
     E -->|provider usage facts| MS[Runtime Metrics Port]
     MS --> ST
     C --> MC[Session Metrics Service]
@@ -45,6 +45,8 @@ flowchart LR
     MC --> ST
     C --> H[HTTP Host: loopback, explicit start]
     MC -->|mount read-only routes| H
+    WC[Web CLI] --> H
+    H -->|guarded requests and static assets| BW[Browser Session Shell]
 ```
 
 ## 主流程
@@ -85,5 +87,6 @@ flowchart LR
 - [Execution Stream](./execution-stream.md)：Goal/Run 实时事件 Envelope、可见性策略和进程内订阅。
 - [Session Metrics](./session-metrics.md)：用量事实、会话投影、覆盖状态与只读订阅路由。
 - [HTTP Host](./http.md)：可复用本机 HTTP 服务、路由挂载与显式生命周期。
+- [Browser Session Shell](./browser.md)：本机浏览器入口的短期授权、静态资源和当前限制。
 - [TUI](./tui.md)：Session Controller、统一时间线和交互抽屉。
 - [Benchmark Evaluation](./benchmarks.md)：Headless Root、隔离 benchmark 与 Prompt Evaluation 入口。

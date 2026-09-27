@@ -5,4 +5,6 @@ export {
 export type {
     HttpService,
     HttpServiceAddress,
+    HttpServiceMiddleware,
+    HttpServiceOptions,
 } from "./http-service";

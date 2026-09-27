@@ -1,0 +1,529 @@
+import { Hono } from "hono";
+
+import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
+import type {
+    BrowserCreateGoalCommand,
+    BrowserCreateGoalResult,
+    BrowserGoalInteractionCommand,
+    BrowserGoalInteractionResult,
+    BrowserGoalMessageCommand,
+    BrowserGoalMessageResult,
+} from "./browser-goal-command-service";
+import type {
+    BrowserGoalLiveFeed,
+    BrowserGoalStreamOpenResult,
+} from "./browser-goal-stream";
+
+const MAX_COMMAND_BODY_BYTES = 16 * 1024;
+const MAX_GOAL_ID_LENGTH = 128;
+const MAX_COMMAND_TEXT_LENGTH = 4_000;
+
+/**
+ * 浏览器 Goal API 使用的白名单数据边界。
+ *
+ * @remarks
+ * 实现方负责从正式工作区 Catalog、Snapshot 与提交边界内 Trajectory 生成 DTO，
+ * 并把已验证的创建命令交给既有 Runtime Launcher。路由不接收或序列化完整 Runtime
+ * 对象；底层损坏或读取失败统一转换为稳定错误码。
+ *
+ * @example
+ * ```ts
+ * const source: BrowserGoalApiPort = {
+ *     list: async () => [],
+ *     read: async () => undefined,
+ *     create: async () => ({ ok: false, error: "goal_create_failed" }),
+ *     interact: async () => ({ ok: false, error: "interaction_failed" }),
+ *     message: async () => ({ ok: false, error: "message_failed" }),
+ *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
+ * };
+ * ```
+ */
+export interface BrowserGoalApiPort {
+    /**
+     * 返回真实 Goal 列表。
+     *
+     * @returns 正式工作区的白名单摘要，保持 Catalog 排序。
+     * @throws Catalog 损坏或读取失败时拒绝。
+     */
+    list(): Promise<readonly BrowserGoalListItem[]>;
+    /**
+     * 读取一个 Goal 的最新已提交会话。
+     *
+     * @param goalId - Goal 的稳定标识。
+     * @returns 安全投影；Goal 不存在时返回 `undefined`。
+     * @throws Snapshot 或 Trajectory 损坏、底层读取失败时拒绝。
+     */
+    read(goalId: string): Promise<BrowserGoalSession | undefined>;
+    /**
+     * 受理一个已通过 wire 校验的 Goal 创建。
+     *
+     * @param command - 稳定 Goal ID 与非空原始意图；Profile 和执行策略由本机决定。
+     * @returns 已保存快照后的受理结果或稳定拒绝码。
+     * @throws 正式工作区读取失败时拒绝。
+     */
+    create(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult>;
+    /**
+     * 受理一个与最新 Snapshot 等待点匹配的结构化操作。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 带 Run、请求或动作身份的已验证操作。
+     * @returns 操作更新成功保存后的受理结果或稳定拒绝码。
+     * @throws Snapshot 读取失败时拒绝。
+     */
+    interact(goalId: string, command: BrowserGoalInteractionCommand): Promise<BrowserGoalInteractionResult>;
+    /**
+     * 按当前 Run 状态恢复普通等待或创建后续 Run。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 当前 Run 身份与普通文本。
+     * @returns 用户消息及对应 Run 变更保存后的受理结果。
+     * @throws Snapshot 读取失败时拒绝。
+     */
+    message(goalId: string, command: BrowserGoalMessageCommand): Promise<BrowserGoalMessageResult>;
+    /**
+     * 打开精确绑定到最新 Goal/Run 的实时进展流。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param runId - 查询中的当前 Run 身份。
+     * @param signal - HTTP 请求断开时结束订阅的取消信号。
+     * @returns 安全事件流或 Goal/Run 稳定拒绝码。
+     * @throws 正式 Snapshot 读取失败时拒绝。
+     */
+    openStream(goalId: string, runId: string, signal?: AbortSignal): Promise<BrowserGoalStreamOpenResult>;
+}
+
+/**
+ * 创建同源 Goal 列表、会话读取、命令和实时事件 API。
+ *
+ * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
+ * @returns 提供列表/详情读取、`POST /api/goals` 和
+ *   创建/交互/消息路由、会话事件流路由和 Hono 应用。
+ * @remarks
+ * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
+ * 不回传存储错误文本，也不保留浏览器旧状态。外层 BrowserSessionAccess 中间件负责授权。
+ * @example
+ * ```ts
+ * httpService.mount("/", createBrowserGoalRoutes(readPort));
+ * ```
+ */
+export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
+    const routes = new Hono();
+
+    routes.get("/api/goals", async (context) => {
+        try {
+            return context.json({ goals: await source.list() });
+        } catch {
+            return context.json({ error: "goal_list_unavailable" }, 500);
+        }
+    });
+
+    routes.get("/api/goals/:goalId", async (context) => {
+        try {
+            const goal = await source.read(context.req.param("goalId"));
+            if (goal === undefined) {
+                return context.json({ error: "goal_not_found" }, 404);
+            }
+            return context.json({ goal });
+        } catch {
+            return context.json({ error: "goal_read_failed" }, 500);
+        }
+    });
+
+    routes.post("/api/goals", async (context) => {
+        const parsed = await parseCreateCommand(context.req.raw);
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.create(parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            const status = result.error === "goal_create_failed" ? 500
+                : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
+                    : 400;
+            return context.json({ error: result.error }, status);
+        } catch {
+            return context.json({ error: "goal_create_failed" }, 500);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/interactions", async (context) => {
+        const parsed = await parseInteractionCommand(
+            context.req.param("goalId"),
+            context.req.raw,
+        );
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.interact(context.req.param("goalId"), parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            return context.json({ error: result.error, refresh: true }, interactionErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "interaction_failed" }, 500);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/messages", async (context) => {
+        const parsed = await parseMessageCommand(
+            context.req.param("goalId"),
+            context.req.raw,
+        );
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.message(context.req.param("goalId"), parsed.command);
+            if (result.ok) {
+                return context.json({
+                    goalId: result.goalId,
+                    runId: result.runId,
+                    existing: result.existing,
+                }, result.existing ? 200 : 202);
+            }
+            return context.json({ error: result.error, refresh: true }, messageErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "message_failed" }, 500);
+        }
+    });
+
+    routes.get("/api/goals/:goalId/events", async (context) => {
+        const goalId = context.req.param("goalId");
+        const query = new URL(context.req.url).searchParams;
+        const runIds = query.getAll("runId");
+        const runId = runIds[0];
+        if (
+            !isWireId(goalId, MAX_GOAL_ID_LENGTH)
+            || query.size !== 1
+            || runIds.length !== 1
+            || runId === undefined
+            || !isWireId(runId, 256)
+        ) {
+            return context.json({ error: "invalid_stream_identity" }, 400);
+        }
+        let opened: BrowserGoalStreamOpenResult;
+        try {
+            opened = await source.openStream(goalId, runId, context.req.raw.signal);
+        } catch {
+            return context.json({ error: "stream_unavailable" }, 500);
+        }
+        if (!opened.ok) {
+            const status = opened.error === "goal_not_found" ? 404 : 409;
+            return context.json({ error: opened.error, refresh: true }, status);
+        }
+        return createEventStreamResponse(opened.feed);
+    });
+
+    return routes;
+}
+
+async function parseCreateCommand(
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserCreateGoalCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_goal_input", status: 400 };
+    }
+
+    const body = value as Record<string, unknown>;
+    if (
+        Object.keys(body).some((key) => key !== "goalId" && key !== "intent")
+        || typeof body.goalId !== "string"
+        || body.goalId.length === 0
+        || body.goalId.length > MAX_GOAL_ID_LENGTH
+        || !/^[A-Za-z0-9_-]+$/.test(body.goalId)
+        || typeof body.intent !== "string"
+        || body.intent.trim().length === 0
+        || body.intent.length > MAX_COMMAND_TEXT_LENGTH
+    ) {
+        return { ok: false, error: "invalid_goal_input", status: 400 };
+    }
+
+    return { ok: true, command: { goalId: body.goalId, intent: body.intent } };
+}
+
+async function parseInteractionCommand(
+    goalId: string,
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalInteractionCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+        return { ok: false, error: "invalid_interaction", status: 400 };
+    }
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_interaction", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    const runId = readWireText(body.runId, 256);
+    const kind = body.kind;
+    if (runId === undefined || typeof kind !== "string") {
+        return { ok: false, error: "invalid_interaction", status: 400 };
+    }
+
+    if (kind === "answer_ask_user") {
+        if (!hasExactKeys(body, ["kind", "runId", "requestId", "answers"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const requestId = readWireText(body.requestId, 256);
+        const answers = parseAnswers(body.answers);
+        if (requestId === undefined || answers === undefined) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        return { ok: true, command: { kind, runId, requestId, answers } };
+    }
+
+    if (kind === "approve_task") {
+        if (!hasExactKeys(body, ["kind", "runId", "requestId"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const requestId = readWireText(body.requestId, 256);
+        return requestId === undefined
+            ? { ok: false, error: "invalid_interaction", status: 400 }
+            : { ok: true, command: { kind, runId, requestId } };
+    }
+
+    if (kind === "feedback_task") {
+        if (!hasExactKeys(body, ["kind", "runId", "requestId", "feedback"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const requestId = readWireText(body.requestId, 256);
+        const feedback = readWireText(body.feedback, MAX_COMMAND_TEXT_LENGTH);
+        return requestId === undefined || feedback === undefined || feedback.trim().length === 0
+            ? { ok: false, error: "invalid_interaction", status: 400 }
+            : { ok: true, command: { kind, runId, requestId, feedback } };
+    }
+
+    if (kind === "approve_action") {
+        if (!hasExactKeys(body, ["kind", "runId", "actionId"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const actionId = readWireText(body.actionId, 256);
+        return actionId === undefined
+            ? { ok: false, error: "invalid_interaction", status: 400 }
+            : { ok: true, command: { kind, runId, actionId } };
+    }
+
+    if (kind === "reject_action") {
+        if (!hasExactKeys(body, ["kind", "runId", "actionId", "reason"])) {
+            return { ok: false, error: "invalid_interaction", status: 400 };
+        }
+        const actionId = readWireText(body.actionId, 256);
+        const reason = readWireText(body.reason, MAX_COMMAND_TEXT_LENGTH);
+        return actionId === undefined || reason === undefined || reason.trim().length === 0
+            ? { ok: false, error: "invalid_interaction", status: 400 }
+            : { ok: true, command: { kind, runId, actionId, reason } };
+    }
+
+    return { ok: false, error: "invalid_interaction", status: 400 };
+}
+
+async function parseMessageCommand(
+    goalId: string,
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly command: BrowserGoalMessageCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const parsedBody = await readJsonBody(request);
+    if (!parsedBody.ok) return parsedBody;
+    const value = parsedBody.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "content"])) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    const runId = readWireText(body.runId, 256);
+    const content = readWireText(body.content, MAX_COMMAND_TEXT_LENGTH);
+    if (runId === undefined || content === undefined) {
+        return { ok: false, error: "invalid_message", status: 400 };
+    }
+    return { ok: true, command: { runId, content } };
+}
+
+async function readJsonBody(
+    request: Request,
+): Promise<
+    | { readonly ok: true; readonly value: unknown }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+    if (contentType !== "application/json") {
+        return { ok: false, error: "application_json_required", status: 415 };
+    }
+    const contentLength = request.headers.get("content-length");
+    if (contentLength !== null) {
+        if (!/^\d+$/.test(contentLength)) {
+            return { ok: false, error: "invalid_goal_input", status: 400 };
+        }
+        if (Number(contentLength) > MAX_COMMAND_BODY_BYTES) {
+            return { ok: false, error: "request_too_large", status: 413 };
+        }
+    }
+    const reader = request.body?.getReader();
+    if (reader === undefined) {
+        return { ok: false, error: "invalid_goal_input", status: 400 };
+    }
+    const decoder = new TextDecoder("utf-8", { fatal: true });
+    let bodyText = "";
+    let totalBytes = 0;
+    try {
+        while (true) {
+            const chunk = await reader.read();
+            if (chunk.done) break;
+            totalBytes += chunk.value.byteLength;
+            if (totalBytes > MAX_COMMAND_BODY_BYTES) {
+                await reader.cancel();
+                return { ok: false, error: "request_too_large", status: 413 };
+            }
+            bodyText += decoder.decode(chunk.value, { stream: true });
+        }
+        bodyText += decoder.decode();
+    } catch {
+        return { ok: false, error: "invalid_goal_input", status: 400 };
+    }
+    try {
+        return { ok: true, value: JSON.parse(bodyText) as unknown };
+    } catch {
+        return { ok: false, error: "invalid_goal_input", status: 400 };
+    }
+}
+
+function parseAnswers(
+    value: unknown,
+): Extract<BrowserGoalInteractionCommand, { readonly kind: "answer_ask_user" }>["answers"] | undefined {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 3) return undefined;
+    type Answer = Extract<BrowserGoalInteractionCommand, { readonly kind: "answer_ask_user" }>["answers"][number];
+    const answers: Answer[] = [];
+    for (const candidate of value) {
+        if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return undefined;
+        const answer = candidate as Record<string, unknown>;
+        if (
+            !hasExactKeys(answer, ["questionId", "optionIds"], ["otherText"])
+            || typeof answer.optionIds !== "object"
+            || !Array.isArray(answer.optionIds)
+            || answer.optionIds.length > 3
+        ) return undefined;
+        const questionId = readWireText(answer.questionId, 256);
+        const optionIds = answer.optionIds.map((id) => readWireText(id, 256));
+        const otherText = answer.otherText === undefined
+            ? undefined
+            : readWireText(answer.otherText, MAX_COMMAND_TEXT_LENGTH);
+        if (
+            questionId === undefined
+            || optionIds.some((id) => id === undefined)
+            || (answer.otherText !== undefined && otherText === undefined)
+        ) return undefined;
+        answers.push({
+            questionId,
+            optionIds: optionIds as string[],
+            ...(otherText === undefined ? {} : { otherText }),
+        });
+    }
+    return answers;
+}
+
+function hasExactKeys(
+    value: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[] = [],
+): boolean {
+    const keys = Object.keys(value);
+    return required.every((key) => Object.hasOwn(value, key))
+        && keys.every((key) => required.includes(key) || optional.includes(key));
+}
+
+function readWireText(value: unknown, maximumLength: number): string | undefined {
+    return typeof value === "string"
+        && value.trim().length > 0
+        && value.length <= maximumLength
+        ? value
+        : undefined;
+}
+
+function isWireId(value: string, maximumLength: number): boolean {
+    return value.length > 0
+        && value.length <= maximumLength
+        && /^[A-Za-z0-9_-]+$/.test(value);
+}
+
+function interactionErrorStatus(
+    error: Extract<BrowserGoalInteractionResult, { readonly ok: false }>["error"],
+): 400 | 404 | 409 | 500 {
+    if (error === "goal_not_found") return 404;
+    if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
+        || error === "stale_request" || error === "action_not_waiting") return 409;
+    if (error === "interaction_failed") return 500;
+    return 400;
+}
+
+function messageErrorStatus(
+    error: Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"],
+): 400 | 404 | 409 | 500 {
+    if (error === "goal_not_found") return 404;
+    if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
+        || error === "goal_not_completed" || error === "structured_interaction_required"
+        || error === "message_conflict") return 409;
+    if (error === "message_failed") return 500;
+    return 400;
+}
+
+function createEventStreamResponse(
+    feed: BrowserGoalLiveFeed,
+): Response {
+    const encoder = new TextEncoder();
+    const iterator = feed.events[Symbol.asyncIterator]();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+            try {
+                const next = await iterator.next();
+                if (next.done) {
+                    if (!cancelled) controller.close();
+                    feed.close();
+                    return;
+                }
+                controller.enqueue(encoder.encode(`event: update\ndata: ${JSON.stringify(next.value)}\n\n`));
+            } catch {
+                if (!cancelled) controller.error(new Error("browser event stream failed"));
+                feed.close();
+            }
+        },
+        cancel() {
+            cancelled = true;
+            feed.close();
+        },
+    });
+    return new Response(body, {
+        headers: {
+            "cache-control": "no-cache, no-transform",
+            "content-type": "text/event-stream; charset=utf-8",
+            "x-accel-buffering": "no",
+        },
+    });
+}

@@ -46,10 +46,63 @@ test("parseCliArgs routes the supported entry intents", () => {
     assert.deepEqual(parseCliArgs([]), { kind: "home" });
     assert.deepEqual(parseCliArgs(["-c"]), { kind: "continueLatest" });
     assert.deepEqual(parseCliArgs(["resume"]), { kind: "resume" });
+    assert.deepEqual(parseCliArgs(["web"]), { kind: "browser" });
     assert.throws(
         () => parseCliArgs(["-c", "resume"]),
         /Invalid command line arguments/,
     );
+    assert.throws(
+        () => parseCliArgs(["web", "resume"]),
+        /Invalid command line arguments/,
+    );
+});
+
+test("web CLI starts an authorized loopback server without mounting Ink", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-cli-browser-"));
+    await writeDefaultProfile(workspace);
+    const exitCodes: number[] = [];
+    const outputs: string[] = [];
+    const errors: string[] = [];
+    let signalStarted!: (url: string) => void;
+    const started = new Promise<string>((resolve) => { signalStarted = resolve; });
+    const running = runCli(["web"], {
+        cwd: workspace,
+        env: environment(join(workspace, "lazygoal-home")),
+        exitPort: { exit: (code) => { exitCodes.push(code); } },
+        gracePeriodMs: 0,
+        writeError: (message) => errors.push(message),
+        writeOutput: (message) => {
+            outputs.push(message);
+            signalStarted(message);
+        },
+        render: (() => {
+            throw new Error("web must not render Ink");
+        }) as never,
+    });
+
+    const launchUrl = await started;
+    const accessToken = new URL(launchUrl).hash.slice(1);
+    const origin = new URL(launchUrl).origin;
+    let exitCode: number;
+    try {
+        const unauthorized = await fetch(`${origin}/api/goals`);
+        assert.equal(unauthorized.status, 401);
+        const authorized = await fetch(`${origin}/api/goals`, {
+            headers: { authorization: `Bearer ${accessToken}` },
+        });
+        assert.equal(authorized.status, 200);
+        assert.deepEqual(await authorized.json(), { goals: [] });
+    } finally {
+        process.emit("SIGINT");
+        exitCode = await running;
+    }
+
+    assert.equal(exitCode, 130);
+    assert.deepEqual(errors, []);
+    assert.deepEqual(exitCodes, [130]);
+    assert.equal(outputs.length, 1);
+    assert.match(outputs[0] ?? "", /^http:\/\/127\.0\.0\.1:\d+\/#[-_A-Za-z0-9]{40,}$/);
+    await assert.rejects(fetch(origin));
 });
 
 test("readLlmConfig reports every missing variable before creating a root", () => {

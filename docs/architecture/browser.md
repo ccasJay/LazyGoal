@@ -1,0 +1,27 @@
+# Browser Session Shell
+
+## 职责
+
+[`@lazygoal/browser`](../../packages/browser/src/index.ts) 负责本机浏览器入口的短期能力令牌、Host/Origin 检查、安全响应头、静态资源路由、正式工作区 Goal 投影、类型化命令和实时事件。它不拥有 Goal 状态或持久化。
+
+## 入口与访问边界
+
+显式 `lazygoal web` 命令创建随机能力令牌，将其放入页面 URL fragment，并把访问中间件配置到 Composition Root 的 HTTP Host。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
+
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，截断较长历史和文本，并省略 Profile、模型配置、推理、原始事件、Tool 输入及原始输出。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。
+
+`POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID 与非空意图；Profile 和执行策略仍由本机决定。同 ID、同意图的重试复用在途受理或已有快照，不同意图冲突；另一个 Goal 正在运行时拒绝新建。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
+
+`POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。服务端在转交 Coordinator 前再次检查等待类型和身份；每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
+
+`POST /api/goals/:goalId/messages` 只接受当前 `runId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成 Run 调用 Coordinator 创建后继 Run；提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存；同一在途请求重试复用受理结果。
+
+`GET /api/goals/:goalId/events?runId=...` 将连接绑定到 Snapshot 中的当前 Run。事件仅投影白名单活动和长度受限的助手文本；reasoning、Tool 输出及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；队列缺口、Publisher 关闭或连接故障要求页面重新读取，不代表 Run 完成。
+
+SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。默认 CLI 仍启动 TUI。
+
+## 页面交互
+
+React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息和结构化交互接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图只使用接口返回的已提交消息、步骤、可选计划和当前等待请求。实时文本与活动单独显示，快照刷新后以新提交事实为准。
+
+`npm run dev --prefix prototypes/goal-board` 只启动无后端授权的布局预览，不代理正式 Runtime API。真实操作须先构建静态页，再从 `lazygoal web` 打印的本机入口打开。页面不提供模拟 Goal、示例计划、虚构完成状态、项目分配或设置操作。

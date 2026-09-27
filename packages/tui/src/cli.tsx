@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import React, { useRef, useSyncExternalStore } from "react";
 import { useInput, render as inkRender } from "ink";
 
@@ -46,7 +46,20 @@ import {
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
 } from "../../storage/src/index";
-import { createHttpService, type HttpService } from "../../http/src/index";
+import {
+    createHttpService,
+    type HttpService,
+    type HttpServiceMiddleware,
+} from "../../http/src/index";
+import {
+    BrowserGoalCommandService,
+    BrowserGoalStreamService,
+    createBrowserGoalRoutes,
+    createBrowserSessionAccess,
+    createBrowserStaticRoutes,
+    listBrowserGoals,
+    readBrowserGoalSession,
+} from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
 import {
     createDefaultModelContextBudgetPolicy,
@@ -256,13 +269,14 @@ export type CliCommand =
     | { readonly kind: "create" }
     | { readonly kind: "continueLatest" }
     | { readonly kind: "resume" }
+    | { readonly kind: "browser" }
     | { readonly kind: "inspect"; readonly goalId?: string; readonly dir?: string };
 
 /**
  * 使用 Node `parseArgs` 解析 CLI 参数。
  *
  * @param argv - 不包含 Node 和 bin 路径的参数数组。
- * @returns 空参数、`-c`、`resume` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
+ * @returns 空参数、`-c`、`resume`、`web` 或 `inspect [--dir <dir>] [goalId]` 对应的入口意图。
  * @throws 参数未知、重复或组合不合法时抛出带英文用法的 `Error`。
  * @example
  * ```ts
@@ -271,6 +285,7 @@ export type CliCommand =
  * parseCliArgs(["inspect"]); // { kind: "inspect" }
  * parseCliArgs(["inspect", "goal-1"]); // { kind: "inspect", goalId: "goal-1" }
  * parseCliArgs(["inspect", "--dir", "/tmp/lazygoal-workspace/benchmarks/run", "goal-1"]); // { kind: "inspect", goalId: "goal-1", dir: "/tmp/lazygoal-workspace/benchmarks/run" }
+ * parseCliArgs(["web"]); // { kind: "browser" }
  * ```
  */
 export function parseCliArgs(argv: readonly string[]): CliCommand {
@@ -305,6 +320,11 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         return { kind: "resume" };
     }
 
+    if (!hasContinue && parsed.positionals.length === 1
+        && parsed.positionals[0] === "web" && customDir === undefined) {
+        return { kind: "browser" };
+    }
+
     if (!hasContinue && parsed.positionals.length >= 1
         && parsed.positionals[0] === "inspect") {
         if (parsed.positionals.length === 1) {
@@ -321,7 +341,7 @@ export function parseCliArgs(argv: readonly string[]): CliCommand {
         return { kind: "home" };
     }
 
-    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|inspect [--dir <dir>] [goalId]]");
+    throw new Error("Invalid command line arguments: Usage: lazygoal [-c|resume|web|inspect [--dir <dir>] [goalId]]");
 }
 
 /**
@@ -422,6 +442,8 @@ export interface CompositionRootOptions {
     readonly goalIdGenerator?: () => string;
     /** 新 Run 的 ID 生成器；默认使用 `randomUUID`。 */
     readonly runIdGenerator?: () => string;
+    /** 在指标与其他 HTTP 路由前运行的可选请求访问中间件。 */
+    readonly httpMiddleware?: HttpServiceMiddleware;
     /** 关闭时请求退出的端口；默认调用 `process.exit(130)`。 */
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；默认 2 秒。 */
@@ -514,6 +536,19 @@ export interface CompositionRoot {
     readonly toolPolicy: ToolPolicy;
     /** 同时实现 GoalStore 与 GoalCatalog 的项目级 Store。 */
     readonly store: GoalStore & GoalCatalog;
+    /**
+     * 只指向正式工作区 Goal 目录的读取边界，不包含 Benchmark 聚合回退。
+     *
+     * @remarks
+     * 浏览器读取使用此边界，保证看板只列出当前工作区正式 Goal；写入仍由既有
+     * Checkpoint/Coordinator 路径完成；此属性只暴露 restore 与 Catalog 查询。
+     *
+     * @example
+     * ```ts
+     * const goal = await root.workspaceGoalStore.restore("goal-1");
+     * ```
+     */
+    readonly workspaceGoalStore: Pick<GoalStore, "restore"> & GoalCatalog;
     /** 持久化 GoalStore 的提交通知包装器，供 TUI 实时刷新已提交步骤。 */
     readonly notifyingStore: NotifyingGoalStore;
     /** 共享的事实事件追加与读取 Store。 */
@@ -552,6 +587,20 @@ export interface CompositionRoot {
     readTrajectory(
         query: TrajectoryReadQuery,
     ): Promise<Readonly<TrajectoryReadResult>>;
+    /**
+     * 只读取正式工作区 Goal 与 Trajectory，并按 Snapshot 提交边界分类。
+     *
+     * @param query - Goal、Run 与可选序列范围。
+     * @returns 正式工作区轨迹的已提交部分与未提交 tail。
+     * @throws Snapshot 或 Trajectory 文件损坏、缺失读取权限或底层 I/O 失败时拒绝。
+     * @example
+     * ```ts
+     * const result = await root.readWorkspaceTrajectory({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    readWorkspaceTrajectory(
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>>;
     /** 保护项目级 Store 写入边界的单向检查点闸门。 */
     readonly checkpointStore: CheckpointGateGoalStore;
     /** 当前进程拥有的可关闭资源注册表。 */
@@ -562,6 +611,21 @@ export interface CompositionRoot {
     readonly shutdownCoordinator: ShutdownCoordinator;
     /** 使用共享 Store 和 Adapter 的 GoalCoordinator。 */
     readonly coordinator: GoalCoordinator;
+    /**
+     * 使用当前 Profile、Checkpoint Gate 与 Coordinator 的 Goal Launcher。
+     *
+     * @remarks
+     * 浏览器创建命令复用此 Launcher；它保存真实初始快照后继续自动推进，且使用
+     * Composition Root 的共享取消信号。
+     *
+     * @example
+     * ```ts
+     * const result = await root.launcher.launch({
+     *     goalId: "goal-1", intent: "检查项目", profileId: root.profile.id,
+     * });
+     * ```
+     */
+    readonly launcher: SessionLauncher;
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
     /** Controller 创建新 Goal 时使用的 ID 生成器。 */
@@ -809,7 +873,11 @@ export async function createCompositionRoot(
     const unsubscribeMetricUpdates = notifyingStore.onSave((goal) => {
         sessionMetricsService.notifyGoalSaved(goal.id);
     });
-    const httpService = createHttpService();
+    const httpService = createHttpService(
+        options.httpMiddleware === undefined
+            ? {}
+            : { middleware: options.httpMiddleware },
+    );
     httpService.mount("/", createSessionMetricsRoutes(sessionMetricsService));
     const checkpointStore = new CheckpointGateGoalStore(notifyingStore);
     const protocolValidator = createDefaultPromptBundleProtocolValidator();
@@ -936,6 +1004,10 @@ export async function createCompositionRoot(
         query: TrajectoryReadQuery,
     ): Promise<Readonly<TrajectoryReadResult>> =>
         readTrajectoryAtSnapshot(checkpointStore, trajectoryStore, query);
+    const readWorkspaceTrajectory = (
+        query: TrajectoryReadQuery,
+    ): Promise<Readonly<TrajectoryReadResult>> =>
+        readTrajectoryAtSnapshot(primaryGoalStore, primaryTrajectoryStore, query);
 
     const goalModelSelectionCoordinator = options.goalModelSelectionCoordinator
         ?? new DefaultGoalModelSelectionCoordinator({ store: checkpointStore });
@@ -1072,6 +1144,7 @@ export async function createCompositionRoot(
         toolRegistry,
         toolPolicy,
         store,
+        workspaceGoalStore: primaryGoalStore,
         notifyingStore,
         trajectoryStore,
         contextLookupService,
@@ -1084,6 +1157,7 @@ export async function createCompositionRoot(
         checkpointCommitter,
         executionStream,
         readTrajectory,
+        readWorkspaceTrajectory,
         checkpointStore,
         resources,
         abortController,
@@ -1093,6 +1167,7 @@ export async function createCompositionRoot(
         modelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
+        launcher,
         controller,
         goalIdGenerator,
         runIdGenerator,
@@ -1124,6 +1199,8 @@ export interface CliRunOptions {
     readonly render?: typeof inkRender;
     /** 输出 CLI 错误；默认写入 stderr。 */
     readonly writeError?: (message: string) => void;
+    /** 输出 CLI 正常信息；默认写入 stdout。 */
+    readonly writeOutput?: (message: string) => void;
     /** 关闭时使用的退出端口；测试可注入记录器避免结束当前进程。 */
     readonly exitPort?: ExitPort;
     /** 关闭流程的 grace period；测试可缩短而不等待 2 秒。 */
@@ -1277,6 +1354,9 @@ export async function runCli(
     }
 
     let root: CompositionRoot;
+    const browserAccess = command.kind === "browser"
+        ? createBrowserSessionAccess()
+        : undefined;
 
     try {
         root = await createCompositionRoot({
@@ -1286,11 +1366,14 @@ export async function runCli(
             ...(options.gracePeriodMs === undefined
                 ? {}
                 : { gracePeriodMs: options.gracePeriodMs }),
+            ...(browserAccess === undefined
+                ? {}
+                : { httpMiddleware: browserAccess.middleware }),
             ...(command.kind === "inspect" && command.dir !== undefined
                 ? { benchmarksDirectory: command.dir }
                 : {}),
             initialScreen: options.initialScreen ?? (
-                command.kind === "home"
+                command.kind === "home" || command.kind === "browser"
                     ? "home"
                     : command.kind === "inspect" && command.goalId !== undefined
                         ? "inspector"
@@ -1307,6 +1390,19 @@ export async function runCli(
     } catch (error: unknown) {
         writeError(toErrorMessage(error));
         return 1;
+    }
+
+    if (command.kind === "browser" && browserAccess !== undefined) {
+        try {
+            return await runBrowserSessionCli(
+                root,
+                browserAccess,
+                options.writeOutput ?? ((message) => console.log(message)),
+            );
+        } catch (error: unknown) {
+            writeError(toErrorMessage(error));
+            return 1;
+        }
     }
 
     if (command.kind === "continueLatest") {
@@ -1449,6 +1545,72 @@ export async function runCli(
             root.abortController.abort();
             app?.unmount();
             if (app !== undefined) await app.waitUntilExit();
+            await root.resources.closeAll();
+        }
+    }
+}
+
+async function runBrowserSessionCli(
+    root: CompositionRoot,
+    access: ReturnType<typeof createBrowserSessionAccess>,
+    writeOutput: (message: string) => void,
+): Promise<number> {
+    let shutdownPromise: Promise<void> | undefined;
+    let resolveShutdownSignal: (() => void) | undefined;
+    const shutdownSignal = new Promise<void>((resolveSignal) => {
+        resolveShutdownSignal = resolveSignal;
+    });
+    const onSigint = (): void => {
+        if (shutdownPromise !== undefined) return;
+        root.controller.beginShutdown();
+        shutdownPromise = root.shutdownCoordinator.shutdown();
+        void shutdownPromise.then(
+            () => resolveShutdownSignal?.(),
+            () => resolveShutdownSignal?.(),
+        );
+    };
+
+    process.on("SIGINT", onSigint);
+    try {
+        const staticDirectory = join(dirname(fileURLToPath(import.meta.url)), "../../browser/static");
+        const commandService = new BrowserGoalCommandService({
+            store: root.workspaceGoalStore,
+            saveNotifications: root.notifyingStore,
+            launcher: root.launcher,
+            coordinator: root.coordinator,
+            profileId: root.profile.id,
+            control: { signal: root.abortController.signal },
+        });
+        const streamService = new BrowserGoalStreamService({
+            store: root.workspaceGoalStore,
+            saveNotifications: root.notifyingStore,
+            publisher: root.executionStream,
+        });
+        root.httpService.mount("/", createBrowserGoalRoutes({
+            list: () => listBrowserGoals(root.workspaceGoalStore),
+            read: (goalId) => readBrowserGoalSession(
+                goalId,
+                root.workspaceGoalStore,
+                root.readWorkspaceTrajectory,
+            ),
+            create: (command) => commandService.create(command),
+            interact: (goalId, command) => commandService.interact(goalId, command),
+            message: (goalId, command) => commandService.message(goalId, command),
+            openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
+        }));
+        root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
+        const address = await root.httpService.start(0);
+        access.bindOrigin(address.origin);
+        writeOutput(access.createLaunchUrl(address.origin));
+        await shutdownSignal;
+        await shutdownPromise;
+        return 130;
+    } finally {
+        process.off("SIGINT", onSigint);
+        root.controller.dispose();
+        if (shutdownPromise === undefined) {
+            root.checkpointStore.freeze();
+            root.abortController.abort();
             await root.resources.closeAll();
         }
     }

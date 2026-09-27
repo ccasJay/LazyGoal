@@ -22,6 +22,33 @@ test("HttpService mounts independent Hono routes on IPv4 loopback and closes the
     await assert.rejects(fetch(`${address.origin}/health/ping`));
 });
 
+test("HttpService middleware runs before mounted routes", async () => {
+    const service = createHttpService({
+        middleware: async (context, next) => {
+            if (context.req.header("authorization") !== "Bearer test") {
+                return context.json({ error: "unauthorized" }, 401);
+            }
+            await next();
+        },
+    });
+    const routes = new Hono();
+    routes.get("/private", (context) => context.json({ ok: true }));
+    service.mount("/", routes);
+    const address = await service.start(0);
+
+    try {
+        const denied = await fetch(`${address.origin}/private`);
+        assert.equal(denied.status, 401);
+        const allowed = await fetch(`${address.origin}/private`, {
+            headers: { authorization: "Bearer test" },
+        });
+        assert.equal(allowed.status, 200);
+        assert.deepEqual(await allowed.json(), { ok: true });
+    } finally {
+        await service.close();
+    }
+});
+
 test("HttpService enforces mount and start lifecycle", async () => {
     const service = createHttpService();
     assert.throws(() => service.mount("relative", new Hono()), HttpServiceLifecycleError);

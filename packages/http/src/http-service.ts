@@ -1,9 +1,12 @@
 import { serve } from "@hono/node-server";
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 
 const LOOPBACK_HOST = "127.0.0.1";
+
+/** 在路由处理前检查每个请求的 Hono 中间件。 */
+export type HttpServiceMiddleware = MiddlewareHandler;
 
 /**
  * 本机 HTTP 服务启动后可供客户端连接的地址。
@@ -28,12 +31,12 @@ export interface HttpServiceAddress {
  * 可复用本机 HTTP 服务的显式生命周期边界。
  *
  * @remarks
- * 服务使用 Hono 路由子应用，只绑定 IPv4 回环地址。所有路由必须在启动前
- * 挂载；关闭后实例不能再次启动。
+ * 服务使用 Hono 路由子应用，只绑定 IPv4 回环地址。配置的请求中间件先于
+ * 所有路由执行；所有路由必须在启动前挂载，关闭后实例不能再次启动。
  *
  * @example
  * ```ts
- * const service = createHttpService();
+ * const service = createHttpService({ middleware: requestGuard });
  * service.mount("/health", healthRoutes);
  * const address = await service.start(0);
  * await service.close();
@@ -68,6 +71,23 @@ export interface HttpService {
 }
 
 /**
+ * 可复用本机 HTTP 服务的启动前配置。
+ *
+ * @remarks
+ * 中间件会在路由匹配前运行，可用于统一访问控制和响应头；省略时保持
+ * 原有路由行为。
+ *
+ * @example
+ * ```ts
+ * const service = createHttpService({ middleware: accessGuard });
+ * ```
+ */
+export interface HttpServiceOptions {
+    /** 在已挂载路由前运行的请求中间件。 */
+    readonly middleware?: HttpServiceMiddleware;
+}
+
+/**
  * HTTP 服务生命周期配置或操作错误。
  *
  * @example
@@ -96,14 +116,20 @@ export class HttpServiceLifecycleError extends Error {
  * const address = await service.start(43127);
  * ```
  */
-export function createHttpService(): HttpService {
-    return new LocalHttpService();
+export function createHttpService(options: HttpServiceOptions = {}): HttpService {
+    return new LocalHttpService(options);
 }
 
 class LocalHttpService implements HttpService {
     private readonly app = new Hono();
     private server: Server | undefined;
     private lifecycle: "created" | "starting" | "running" | "closed" = "created";
+
+    constructor(options: HttpServiceOptions) {
+        if (options.middleware !== undefined) {
+            this.app.use("*", options.middleware);
+        }
+    }
 
     mount(prefix: string, routes: Hono): void {
         if (this.lifecycle !== "created") {
