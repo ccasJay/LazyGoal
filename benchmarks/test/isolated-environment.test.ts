@@ -171,7 +171,7 @@ test("IsolatedEnvironment waits for stray agent processes to exit before scoring
             if (args[0] === "top") {
                 topCount += 1;
                 const baseline = "1 Mon Jan 1 00:00:00 2026\n";
-                // topCount 1: baseline; topCount 2: stray process present; topCount 3: after cleanup, back to baseline
+                // topCount 1: baseline; topCount 2: stray process present; topCount 3: transient process has exited
                 return {
                     code: 0,
                     stdout: topCount === 2 ? `${baseline}99 Mon Jan 1 00:01:00 2026\n` : baseline,
