@@ -11,7 +11,9 @@ import {
 } from "../../runtime/src/index";
 import {
     SessionScreen,
+    ToolPermissionsScreen,
     type UiSessionViewModel,
+    type UiToolPermissionsViewModel,
     type UiStepSummary,
 } from "../src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
@@ -234,7 +236,7 @@ test("SessionScreen displays an Action and approves on Enter", async () => {
     assert.match(frame, /Action ID: action-1/);
     assert.match(frame, /Tool: read_file/);
     assert.match(frame, /README\.md/);
-    assert.match(frame, /\[Enter\] Approve  Type feedback to reject/);
+    assert.match(frame, /\[Enter\] Approve once  Type feedback to reject/);
     assert.match(frame, /\[Shift\+Tab\] Enable YOLO/);
     
     // 直接按回车批准放行
@@ -275,13 +277,13 @@ test("SessionScreen keeps Action approval mounted but disabled while busy", asyn
 
     const frame = instance.lastFrame() ?? "";
     assert.match(frame, /Advancing/);
-    assert.match(frame, /\[Enter\] Approve  Type feedback to reject/);
+    assert.match(frame, /\[Enter\] Approve once  Type feedback to reject/);
     instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(approved, []);
 });
 
-test("SessionScreen folds oversized Action input and preserves short input", () => {
+test("SessionScreen displays the complete Action input for review", () => {
     const goal = executingGoal("goal-action-input");
     const largeAction: PendingAction = {
         status: "awaiting_approval",
@@ -317,8 +319,72 @@ test("SessionScreen folds oversized Action input and preserves short input", () 
 
     const frame = instance.lastFrame() ?? "";
     assert.match(frame, /Action ID: action-large-input/);
-    assert.match(frame, /…\s*\(\d+ chars truncated\)/);
-    assert.doesNotMatch(frame, /x{700}/);
+    assert.doesNotMatch(frame, /chars truncated/);
+    assert.equal(frame.replaceAll(/\s/g, "").includes("x".repeat(700)), true);
+});
+
+test("Action approval can select Goal scope and explains write path coverage", async () => {
+    const goal = executingGoal("goal-action-scope");
+    const pendingAction: PendingAction = {
+        status: "awaiting_approval",
+        action: {
+            actionId: "action-scope",
+            toolId: "write_file",
+            input: { path: "src/app.ts", content: "body" },
+        },
+    };
+    const waitingGoal: Goal = {
+        ...goal,
+        state: { ...goal.state, run: { ...goal.state.run, status: "waiting", pendingAction } },
+    };
+    const approvals: Array<{ actionId: string; scope: string }> = [];
+    const instance = render(
+        <SessionScreen
+            session={session(waitingGoal, { waitingFor: "action_approval", pendingAction })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => assert.fail("The scoped approval callback should be used")}
+            onApproveActionWithScope={(actionId, scope) => { approvals.push({ actionId, scope }); }}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    assert.match(instance.lastFrame() ?? "", /different content/);
+    instance.stdin.write("\u001b[B\r");
+    await nextFrame();
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(approvals, [{ actionId: "action-scope", scope: "goal" }]);
+});
+
+test("ToolPermissionsScreen shows scope and revokes the selected grant", async () => {
+    const goal = executingGoal("goal-permissions-screen");
+    const view: UiToolPermissionsViewModel = {
+        screen: "tool_permissions",
+        busy: false,
+        goal,
+        grants: [{
+            grantId: "grant-screen-1",
+            scope: "workspace",
+            toolId: "write_file",
+            status: "active",
+            targetPath: "src/app.ts",
+        }],
+        session: session(goal),
+    };
+    const revocations: Array<{ grantId: string; scope: string }> = [];
+    const instance = render(
+        <ToolPermissionsScreen
+            view={view}
+            onRevoke={(grantId, scope) => { revocations.push({ grantId, scope }); }}
+            onBack={() => undefined}
+        />,
+    );
+
+    assert.match(instance.lastFrame() ?? "", /This project/);
+    assert.match(instance.lastFrame() ?? "", /src\/app\.ts/);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(revocations, [{ grantId: "grant-screen-1", scope: "workspace" }]);
 });
 
 test("SessionScreen submits non-empty text as rejection reason", async () => {

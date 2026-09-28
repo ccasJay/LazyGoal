@@ -14,6 +14,7 @@ import type {
     ResumeGoalRequest,
     RunRef,
     RunStatus,
+    ToolGrant,
 } from "../../runtime/src/index";
 import type { AskUserAnswer, AskUserQuestion } from "../../contracts/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
@@ -32,6 +33,7 @@ export type UiScreen =
     | "intent_input"
     | "goal_select"
     | "session"
+    | "tool_permissions"
     | "settings"
     | "inspector"
     | "model_select"
@@ -83,7 +85,10 @@ export type UiCommand =
         readonly requestId: string;
         readonly answers: readonly AskUserAnswer[];
     }
-    | { readonly kind: "approveAction"; readonly actionId: string }
+    | { readonly kind: "approveAction"; readonly actionId: string; readonly scope?: "action" | "goal" | "workspace" }
+    | { readonly kind: "revokeToolGrant"; readonly grantId: string; readonly scope: ToolGrant["scope"] }
+    | { readonly kind: "openToolPermissions" }
+    | { readonly kind: "closeToolPermissions" }
     | {
         readonly kind: "rejectAction";
         readonly actionId: string;
@@ -445,6 +450,10 @@ export interface UiSessionViewModel {
     readonly approvalRequest?: string;
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
+    /** 当前 Goal 与工作区的授权摘要，不包含精确输入摘要。 */
+    readonly toolGrants?: readonly UiToolGrantSummary[];
+    /** 授权摘要读取失败时供界面说明。 */
+    readonly toolGrantError?: UiError;
     readonly terminal?: UiTerminalSummary;
     /** Goal Snapshot 中已提交的当前计划；计划独立于 Run 模式显示。 */
     readonly goalPlan?: Goal["state"]["goalPlan"];
@@ -507,6 +516,42 @@ export interface UiSessionViewModel {
     readonly streamingTail?: UiStreamingTail;
     /** 当前执行流正在发生的 Step/模型/Tool 活动，用于动态尾部渲染。 */
     readonly liveActivity?: UiExecutionActivity;
+}
+
+/**
+ * 当前 Goal 与工作区的可撤销授权管理页投影。
+ *
+ * @example
+ * ```ts
+ * if (view.screen === "tool_permissions") console.log(view.grants.length);
+ * ```
+ */
+export interface UiToolPermissionsViewModel {
+    readonly screen: "tool_permissions";
+    readonly busy: boolean;
+    readonly goal: Goal;
+    readonly grants: readonly UiToolGrantSummary[];
+    readonly error?: UiError;
+    readonly session: UiSessionViewModel;
+}
+
+/**
+ * TUI 可安全显示和撤销的持续授权摘要。
+ *
+ * @example
+ * ```ts
+ * const grant: UiToolGrantSummary = {
+ *   grantId: "grant-1", scope: "goal", toolId: "write_file", status: "active",
+ *   targetPath: "src/app.ts",
+ * };
+ * ```
+ */
+export interface UiToolGrantSummary {
+    readonly grantId: string;
+    readonly scope: ToolGrant["scope"];
+    readonly toolId: string;
+    readonly status: ToolGrant["status"];
+    readonly targetPath?: string;
 }
 
 /**
@@ -678,6 +723,7 @@ export type UiViewModel =
     | UiIntentInputViewModel
     | UiGoalSelectViewModel
     | UiSessionViewModel
+    | UiToolPermissionsViewModel
     | UiSettingsViewModel
     | UiInspectorViewModel
     | UiModelSelectViewModel
@@ -770,6 +816,24 @@ export interface SessionCoordinator {
      * ```
      */
     readonly enterPlanMode?: (ref: RunRef, control?: ExecutionControl) => Promise<GoalProgressResult>;
+    /**
+     * 列出当前 Goal 与工作区授权；实现应验证当前 Run 身份。
+     *
+     * @param ref - 当前 Goal 与 Run 的关联键。
+     * @returns 当前授权；不得返回其它工作区的授权。
+     */
+    readonly listToolGrants?: (ref: RunRef) => Promise<readonly ToolGrant[]>;
+    /**
+     * 撤销当前工作区中指定范围的授权。
+     *
+     * @param request - 当前 Run、授权 ID 和授权范围。
+     * @returns 已撤销记录；后续匹配操作重新等待审批。
+     */
+    readonly revokeToolGrant?: (request: {
+        readonly ref: RunRef;
+        readonly grantId: string;
+        readonly scope: ToolGrant["scope"];
+    }) => Promise<ToolGrant>;
 }
 
 /**

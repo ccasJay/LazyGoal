@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Static, Text, useInput } from "ink";
+import { Select } from "@inkjs/ui";
 
 import type { GoalMessage, JsonValue, PendingAction } from "../../runtime/src/index";
 import type { UiSessionViewModel, UiStepSummary, UiTerminalSummary, UiTimelineItem } from "./types";
@@ -74,6 +75,10 @@ export interface SessionScreenProps {
     readonly onSubmitMessage: (content: string) => void | Promise<void>;
     /** 批准当前 pending Action 的回调；参数必须来自快照中的 actionId。 */
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
+    /** 按审批期限批准当前 Action。 */
+    readonly onApproveActionWithScope?: (actionId: string, scope: "action" | "goal" | "workspace") => void | Promise<void>;
+    /** 打开授权管理页。 */
+    readonly onOpenToolPermissions?: () => void | Promise<void>;
     /** 带理由拒绝当前 pending Action 的回调。 */
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
     /** 切换 YOLO / Confirm 协同模式的回调。 */
@@ -98,8 +103,10 @@ export function SessionScreen({
     session,
     onSubmitMessage,
     onApproveAction,
+    onApproveActionWithScope,
     onRejectAction,
     onToggleExecutionMode,
+    onOpenToolPermissions,
     onCommandEffect,
     onAnswerAskUser,
     onApproveTask,
@@ -110,7 +117,8 @@ export function SessionScreen({
         if (key.shift && key.tab) {
             void onToggleExecutionMode?.();
         }
-    }, { isActive: session.terminal === undefined && onToggleExecutionMode !== undefined });
+        if (key.ctrl && _input.toLowerCase() === "g") void onOpenToolPermissions?.();
+    }, { isActive: session.terminal === undefined && (onToggleExecutionMode !== undefined || onOpenToolPermissions !== undefined) });
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -151,7 +159,9 @@ export function SessionScreen({
                 session={session}
                 onSubmitMessage={onSubmitMessage}
                 onApproveAction={onApproveAction}
+                {...(onApproveActionWithScope === undefined ? {} : { onApproveActionWithScope })}
                 onRejectAction={onRejectAction}
+                {...(onOpenToolPermissions === undefined ? {} : { onOpenToolPermissions })}
                 {...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })}
                 {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                 {...(onAnswerAskUser === undefined ? {} : { onAnswerAskUser })}
@@ -186,8 +196,12 @@ export interface ActiveDrawerProps {
     readonly onSubmitMessage: (content: string) => void | Promise<void>;
     /** 批准当前 pending Action 的回调；参数必须来自快照中的 actionId。 */
     readonly onApproveAction: (actionId: string) => void | Promise<void>;
+    /** 按审批期限批准当前 Action。 */
+    readonly onApproveActionWithScope?: (actionId: string, scope: "action" | "goal" | "workspace") => void | Promise<void>;
     /** 带理由拒绝当前 pending Action 的回调。 */
     readonly onRejectAction: (actionId: string, reason: string) => void | Promise<void>;
+    /** 打开授权管理页。 */
+    readonly onOpenToolPermissions?: () => void | Promise<void>;
     /** 切换 YOLO / Confirm 协同模式的回调。 */
     readonly onToggleExecutionMode?: () => void | Promise<void>;
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
@@ -209,7 +223,9 @@ export function ActiveDrawer({
     session,
     onSubmitMessage,
     onApproveAction,
+    onApproveActionWithScope,
     onRejectAction,
+    onOpenToolPermissions,
     onToggleExecutionMode,
     onCommandEffect,
     onAnswerAskUser,
@@ -223,6 +239,7 @@ export function ActiveDrawer({
             <SessionStatus
                 session={session}
                 {...(onToggleExecutionMode === undefined ? {} : { onToggleExecutionMode })}
+                {...(onOpenToolPermissions === undefined ? {} : { onOpenToolPermissions })}
             />
             {terminal !== undefined ? (
                 <TerminalPanel
@@ -235,6 +252,7 @@ export function ActiveDrawer({
                     session={session}
                     onSubmitMessage={onSubmitMessage}
                     onApproveAction={onApproveAction}
+                    {...(onApproveActionWithScope === undefined ? {} : { onApproveActionWithScope })}
                     onRejectAction={onRejectAction}
                     {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                     {...(onAnswerAskUser === undefined ? {} : { onAnswerAskUser })}
@@ -272,9 +290,10 @@ function MessageLine({ message }: MessageLineProps): React.JSX.Element {
 interface SessionStatusProps {
     readonly session: UiSessionViewModel;
     readonly onToggleExecutionMode?: () => void | Promise<void>;
+    readonly onOpenToolPermissions?: () => void | Promise<void>;
 }
 
-function SessionStatus({ session, onToggleExecutionMode }: SessionStatusProps): React.JSX.Element {
+function SessionStatus({ session, onToggleExecutionMode, onOpenToolPermissions }: SessionStatusProps): React.JSX.Element {
     const executionMode = session.executionMode ?? "confirm";
     return (
         <Box flexDirection="column">
@@ -287,6 +306,7 @@ function SessionStatus({ session, onToggleExecutionMode }: SessionStatusProps): 
             <Text>
                 Phase: {session.phase} | Run: {session.runStatus} | Steps: {session.stepCount}
             </Text>
+            {onOpenToolPermissions === undefined ? null : <Text dimColor>[Ctrl+G] Tool permissions</Text>}
             {session.cleaning ? (
                 <Text color="magenta">Cleaning up sandbox resources...</Text>
             ) : null}
@@ -358,6 +378,7 @@ function SessionInteraction({
     session,
     onSubmitMessage,
     onApproveAction,
+    onApproveActionWithScope,
     onRejectAction,
     onCommandEffect,
     onAnswerAskUser,
@@ -418,6 +439,7 @@ function SessionInteraction({
                     ? {}
                     : { pendingAction: session.pendingAction })}
                 onApprove={onApproveAction}
+                    {...(onApproveActionWithScope === undefined ? {} : { onApproveWithScope: onApproveActionWithScope })}
                 onReject={onRejectAction}
                 {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
             />
@@ -478,13 +500,14 @@ function BlockedPanel({ busy, reason, onSubmit, onCommandEffect }: BlockedPanelP
     );
 }
 
-const ACTION_INPUT_HINT = "[Enter] Approve  Type feedback to reject";
+const ACTION_INPUT_HINT = "[Enter] Approve once  Type feedback to reject";
 
 interface ActionPanelProps {
     readonly busy: boolean;
     readonly recovery: boolean;
     readonly pendingAction?: PendingAction;
     readonly onApprove: (actionId: string) => void | Promise<void>;
+    readonly onApproveWithScope?: (actionId: string, scope: "action" | "goal" | "workspace") => void | Promise<void>;
     readonly onReject: (actionId: string, reason: string) => void | Promise<void>;
     readonly onCommandEffect?: ((effect: ModelCommandEffect) => void | Promise<void>) | undefined;
 }
@@ -494,6 +517,7 @@ function ActionPanel({
     recovery,
     pendingAction,
     onApprove,
+    onApproveWithScope,
     onReject,
     onCommandEffect,
 }: ActionPanelProps): React.JSX.Element {
@@ -502,6 +526,7 @@ function ActionPanel({
     const actionId = pendingAction?.action.actionId;
     const resetKey = useMemo(() => [actionId, recovery], [actionId, recovery]);
     const submitGate = useSubmitGate(busy, resetKey);
+    const targetPath = pendingAction === undefined ? undefined : actionTargetPath(pendingAction);
 
     const clearInput = useCallback(() => {
         setInputValue("");
@@ -520,13 +545,19 @@ function ActionPanel({
         const trimmed = value.trim();
         submitGate.attempt(() => {
             if (trimmed.length === 0) {
-                void onApprove(actionId);
+                if (recovery) {
+                    void (onApproveWithScope === undefined
+                        ? onApprove(actionId)
+                        : onApproveWithScope(actionId, "action"));
+                } else if (onApproveWithScope === undefined) {
+                    void onApprove(actionId);
+                }
             } else {
                 void onReject(actionId, trimmed);
             }
             clearInput();
         });
-    }, [actionId, clearInput, onApprove, onReject, submitGate]);
+    }, [actionId, clearInput, onApprove, onApproveWithScope, onReject, recovery, submitGate]);
 
     return (
         <Box flexDirection="column" gap={1}>
@@ -541,6 +572,31 @@ function ActionPanel({
             {pendingAction === undefined
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
+            {!recovery && pendingAction !== undefined && onApproveWithScope !== undefined ? (
+                <Box flexDirection="column">
+                    <Text>Approval scope:</Text>
+                    <Select
+                        isDisabled={busy}
+                        options={[
+                            { label: "Once — this Action only", value: "action" },
+                            { label: "This Goal — matching actions in this session", value: "goal" },
+                            { label: "This project — matching actions in future Goals", value: "workspace" },
+                        ]}
+                        onChange={(value) => {
+                            if (actionId !== undefined && (value === "action" || value === "goal" || value === "workspace")) {
+                                void (onApproveWithScope === undefined
+                                    ? onApprove(actionId)
+                                    : onApproveWithScope(actionId, value));
+                            }
+                        }}
+                    />
+                </Box>
+            ) : null}
+            {!recovery && targetPath !== undefined ? (
+                <Text color="yellow">
+                    Persistent permission for {targetPath} also allows later writes to this path with different content.
+                </Text>
+            ) : null}
             {submitGate.validationError === undefined ? null : <Text color="red">Error: {submitGate.validationError}</Text>}
             {actionId === undefined ? null : (
                 <Box flexDirection="column">
@@ -548,12 +604,16 @@ function ActionPanel({
                         key={inputKey}
                         isDisabled={busy}
                         defaultValue={inputValue}
-                        placeholder="Feedback, or Enter to approve..."
+                        placeholder={onApproveWithScope === undefined
+                            ? "Feedback, or Enter to approve…"
+                            : "Type feedback to reject this Action…"}
                         onChange={setInputValue}
                         onSubmit={handleSubmit}
                         {...(onCommandEffect === undefined ? {} : { onCommandEffect })}
                     />
-                    <Text dimColor>{ACTION_INPUT_HINT}</Text>
+                    <Text dimColor>{onApproveWithScope === undefined
+                        ? ACTION_INPUT_HINT
+                        : "[Enter] Submit rejection feedback"}</Text>
                 </Box>
             )}
         </Box>
@@ -576,12 +636,15 @@ function ActionDetails({ action }: ActionDetailsProps): React.JSX.Element {
 }
 
 function formatJson(value: JsonValue): string {
-    const serialized = JSON.stringify(value, null, 2);
-    if (serialized.length <= MAX_ACTION_JSON_CHARS) {
-        return serialized;
-    }
+    return JSON.stringify(value, null, 2);
+}
 
-    return `${serialized.slice(0, MAX_ACTION_JSON_CHARS)}… (${serialized.length - MAX_ACTION_JSON_CHARS} chars truncated)`;
+function actionTargetPath(action: PendingAction): string | undefined {
+    if (action.action.toolId !== "write_file" && action.action.toolId !== "edit_file") return undefined;
+    const input = action.action.input;
+    if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+    const path = (input as Readonly<Record<string, JsonValue>>).path;
+    return typeof path === "string" ? path : undefined;
 }
 
 interface TerminalPanelProps {

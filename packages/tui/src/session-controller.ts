@@ -25,6 +25,8 @@ import {
     type UiTerminalSummary,
     type UiTimelineItem,
     type UiStreamingTail,
+    type UiToolGrantSummary,
+    type UiToolPermissionsViewModel,
     type UiViewModel,
 } from "./types";
 import type { LlmModelDescriptor } from "../../llm/src/model-catalog";
@@ -98,6 +100,7 @@ export class SessionController {
     private currentRunId: string | null = null;
     /** 当前正在创建、但 Launcher 尚未返回最终推进结果的 Goal。 */
     private pendingLaunchGoalId: string | null = null;
+    private grantsRunKey: string | null = null;
     private snapshot: UiViewModel = {
         screen: "intent_input",
         busy: false,
@@ -165,6 +168,7 @@ export class SessionController {
         }
         if (this.snapshot.screen === "session") {
             this.ensureExecutionStreamSubscription(this.snapshot.goal);
+            void this.refreshToolGrants(this.snapshot.goal);
         }
     }
 
@@ -222,6 +226,8 @@ export class SessionController {
         this.liveActivity = undefined;
         const goal = this.snapshot.screen === "session"
             ? structuredClone(this.snapshot.goal)
+            : this.snapshot.screen === "tool_permissions"
+                ? structuredClone(this.snapshot.goal)
             : undefined;
 
         this.setSnapshot({
@@ -450,7 +456,17 @@ export class SessionController {
                 await this.resumeSession({
                     kind: "approve_action",
                     actionId: command.actionId,
+                    scope: command.scope ?? "action",
                 });
+                return;
+            case "openToolPermissions":
+                await this.openToolPermissions();
+                return;
+            case "closeToolPermissions":
+                if (this.snapshot.screen === "tool_permissions") this.setSnapshot(this.snapshot.session);
+                return;
+            case "revokeToolGrant":
+                await this.revokeToolGrant(command.grantId, command.scope);
                 return;
             case "rejectAction":
                 await this.resumeSession({
@@ -1394,6 +1410,12 @@ export class SessionController {
             ...(snapshot.state.goalPlan !== undefined
                 ? { goalPlan: snapshot.state.goalPlan }
                 : {}),
+            ...(sameRun && currentSession?.toolGrants !== undefined
+                ? { toolGrants: currentSession.toolGrants }
+                : {}),
+            ...(sameRun && currentSession?.toolGrantError !== undefined
+                ? { toolGrantError: currentSession.toolGrantError }
+                : {}),
         };
     }
 
@@ -1695,6 +1717,20 @@ export class SessionController {
                 }
                 return;
             }
+            case "tool_permissions": {
+                if (clearError) {
+                    const { error: _error, ...withoutError } = current;
+                    this.setSnapshot({ ...withoutError, busy });
+                } else this.setSnapshot({ ...current, busy });
+                return;
+            }
+            case "tool_permissions": {
+                if (clearError) {
+                    const { error: _error, ...withoutError } = current;
+                    this.setSnapshot({ ...withoutError, busy });
+                } else this.setSnapshot({ ...current, busy });
+                return;
+            }
             case "model_select":
                 if (clearError) {
                     const { error: _error, ...withoutError } = current;
@@ -1753,6 +1789,12 @@ export class SessionController {
             case "session":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
+            case "tool_permissions":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
+            case "tool_permissions":
+                this.setSnapshot({ ...this.snapshot, busy: false, error });
+                return;
             case "model_select":
                 this.setSnapshot({ ...this.snapshot, busy: false, error });
                 return;
@@ -1768,10 +1810,109 @@ export class SessionController {
         }
 
         this.snapshot = snapshot;
+        if (snapshot.screen === "session") {
+            void this.refreshToolGrants(snapshot.goal);
+        }
         for (const subscriber of this.subscribers) {
             subscriber();
         }
     }
+
+    private async refreshToolGrants(goal: Goal): Promise<void> {
+        const listGrants = this.dependencies.coordinator.listToolGrants;
+        if (listGrants === undefined) return;
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+        const key = `${ref.goalId}\0${ref.runId}`;
+        if (this.grantsRunKey === key) return;
+        this.grantsRunKey = key;
+        try {
+            const grants = await listGrants.call(this.dependencies.coordinator, ref);
+            if (this.snapshot.screen !== "session"
+                || this.snapshot.goal.id !== ref.goalId
+                || this.snapshot.goal.state.run.id !== ref.runId) return;
+            this.setSnapshot({
+                ...this.snapshot,
+                toolGrants: grants.map(toUiToolGrantSummary),
+            });
+        } catch (error: unknown) {
+            if (this.snapshot.screen !== "session"
+                || this.snapshot.goal.id !== ref.goalId
+                || this.snapshot.goal.state.run.id !== ref.runId) return;
+            this.setSnapshot({
+                ...this.snapshot,
+                toolGrantError: toUiError(error),
+            });
+        }
+    }
+
+    private async revokeToolGrant(grantId: string, scope: "goal" | "workspace"): Promise<void> {
+        if (this.snapshot.screen !== "tool_permissions") return;
+        const revoke = this.dependencies.coordinator.revokeToolGrant;
+        if (revoke === undefined) {
+            this.setError({ code: "TOOL_GRANTS_UNAVAILABLE", message: "Tool permissions are unavailable" });
+            return;
+        }
+        const current = this.snapshot;
+        const goal = current.goal;
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+        try {
+            await revoke.call(this.dependencies.coordinator, { ref, grantId, scope });
+            const grants = await this.dependencies.coordinator.listToolGrants?.(ref) ?? [];
+            const summaries = grants.map(toUiToolGrantSummary);
+            const session = { ...current.session, toolGrants: summaries };
+            this.setSnapshot({ ...current, session, grants: summaries, busy: false });
+        } catch (error: unknown) {
+            this.setError(toUiError(error));
+        }
+    }
+
+    private async openToolPermissions(): Promise<void> {
+        if (this.snapshot.screen !== "session") return;
+        const session = this.snapshot;
+        const list = this.dependencies.coordinator.listToolGrants;
+        if (list === undefined) {
+            this.setSnapshot({
+                screen: "tool_permissions",
+                busy: true,
+                goal: session.goal,
+                grants: [],
+                session,
+                error: { code: "TOOL_GRANTS_UNAVAILABLE", message: "Tool permissions are unavailable" },
+            });
+            return;
+        }
+        const ref = { goalId: session.goal.id, runId: session.goal.state.run.id };
+        try {
+            const grants = await list.call(this.dependencies.coordinator, ref);
+            const summaries = grants.map(toUiToolGrantSummary);
+            this.setSnapshot({
+                screen: "tool_permissions",
+                busy: true,
+                goal: session.goal,
+                grants: summaries,
+                session: { ...session, toolGrants: summaries },
+            });
+        } catch (error: unknown) {
+            this.setSnapshot({
+                screen: "tool_permissions",
+                busy: true,
+                goal: session.goal,
+                grants: [],
+                session,
+                error: toUiError(error),
+            });
+        }
+    }
+}
+
+function toUiToolGrantSummary(grant: import("../../runtime/src/index").ToolGrant): UiToolGrantSummary {
+    return {
+        grantId: grant.id,
+        scope: grant.scope,
+        toolId: grant.matcher.toolId,
+        status: grant.status,
+        ...(grant.matcher.kind === "target_path" ? { targetPath: grant.matcher.path } : {}),
+    };
 }
 
 function isExecutionPayloadRecord(

@@ -21,7 +21,7 @@
   - 验证方式：待实现的 Browser 路由／投影测试及 Goal Board 自动化交互测试；运行 `npx tsx --test packages/browser/test/browser-commands.test.ts packages/browser/test/browser-interactions.test.ts` 和新增测试入口。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.4](./requirements.md#req-2-4)_
 
-- [ ] //TODO 4. 接入 TUI 审批、授权查看与撤销
+- [x] //TODO 4. 接入 TUI 审批、授权查看与撤销
 
   - 实现目标：扩展 TUI Controller 与 Confirm 面板，显示完整待执行输入、三档授权期限及当前范围 Grant 的列举／撤销，保留 YOLO 和结果不确定时的既有操作边界。
   - 成功判据：非 YOLO 用户能明确选择期限并看见写入路径授权后果；YOLO 自动批准不产生持续 Grant；撤销后下一个 Action 重新审批；`outcome_unknown` 仍只接受该 Action 的人工恢复选择。
