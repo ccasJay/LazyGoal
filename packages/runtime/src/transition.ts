@@ -42,18 +42,23 @@ function clearPendingInteraction(
 
 function clearPendingThink(
     state: RunState,
-): Omit<RunState, "pendingThink"> {
-    const { pendingThink: _pendingThink, ...stateWithoutPendingThink } = state;
+): Omit<RunState, "pendingThink" | "pendingModelRepair"> {
+    const {
+        pendingThink: _pendingThink,
+        pendingModelRepair: _pendingModelRepair,
+        ...stateWithoutPendingThink
+    } = state;
     return stateWithoutPendingThink;
 }
 
 function clearAllPending(
     state: RunState,
-): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink"> {
+): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink" | "pendingModelRepair"> {
     const {
         pendingAction: _pendingAction,
         pendingInteraction: _pendingInteraction,
         pendingThink: _pendingThink,
+        pendingModelRepair: _pendingModelRepair,
         ...rest
     } = state;
     return rest;

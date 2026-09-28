@@ -227,6 +227,37 @@ export type MemoryEntry =
  * const revision: MemoryRevision = { eventId: "event-12", sequence: 12 };
  * ```
  */
+
+/**
+ * 当前 Step 内未完成的 Decide/Think 输出修复链。
+ *
+ * @remarks
+ * 指针仅保存恢复所需的阶段、输入摘要、已开始次数和 Trajectory 事实身份；修复内容
+ * 从最新已提交的反馈事实读取。恢复必须核对 Goal、Run、Step、执行单元和阶段输入。
+ *
+ * @example
+ * ```ts
+ * const repair: PendingModelRepair = {
+ *     goalId: "goal-1", runId: "run-1", stepOrdinal: 1,
+ *     executionUnitId: "unit-1", stage: "decide",
+ *     inputBoundary: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+ *     attemptsStarted: 1, latestAttemptEventId: "event-10",
+ * };
+ * ```
+ */
+export interface PendingModelRepair {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly stepOrdinal: number;
+    readonly executionUnitId: string;
+    readonly stage: "decide" | "think";
+    readonly inputBoundary: `sha256:${string}`;
+    readonly attemptsStarted: number;
+    readonly latestAttemptEventId: string;
+    readonly latestFeedbackEventId?: string;
+    readonly thinkRequestId?: string;
+}
+
 export interface MemoryRevision {
     /** accepted Patch Event 的稳定事件 ID。 */
     readonly eventId: string;
@@ -886,6 +917,7 @@ export interface RunState {
     readonly pendingAction?: PendingAction;
     readonly pendingInteraction?: PendingInteraction;
     readonly pendingThink?: PendingThink;
+    readonly pendingModelRepair?: PendingModelRepair;
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。

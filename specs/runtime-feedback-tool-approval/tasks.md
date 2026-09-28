@@ -42,11 +42,11 @@
   - 验证方式：Agent 阶段反馈、Runtime 校验边界与反馈字段上限测试通过（114 项）；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 7. 持久化阶段纠错链并恢复已完成工作
+- [x] //TODO 7. 持久化阶段纠错链并恢复已完成工作
 
   - 实现目标：扩展 Runner 的 Decide／Think 阶段循环与当前恢复协议，提交每次尝试及反馈指针，按原阶段续跑并限制每条无效输出链为三次调用。
   - 成功判据：Decide 纠错复用已提交 Think，Think 纠错保留原目标；中断后仅从已提交事实恢复，未提交响应不生效；尝试不重复增加 `stepCount`，耗尽后明确失败，正常多轮 `request_think` 不受该上限约束。
-  - 验证方式：待实现的阶段中断／恢复及调用计数测试；运行 `npx tsx --test packages/runtime/test/think-decision-recovery.test.ts packages/runtime/test/model-output-runtime-boundary.test.ts` 和新增测试入口。
+  - 验证方式：38 项阶段恢复、调用计数、Trajectory 与 Snapshot 编解码测试通过；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
 - [ ] //TODO 8. 接入可安全重放 Tool 的有限重试与人工等待
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-当前部分结果（2026-09-28）：TODO 1–6 已提交。TODO 6 的定向测试共 114 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。
+当前部分结果（2026-09-28）：TODO 1–7 已提交。TODO 7 的阶段恢复、调用计数、Trajectory 与 Snapshot 定向测试共 38 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。

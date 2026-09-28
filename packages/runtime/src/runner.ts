@@ -17,6 +17,7 @@ import type {
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
     PendingThink,
+    PendingModelRepair,
 } from "./domain";
 import type { ModelContextCheckpointResult } from "./domain";
 import type { GoalStore } from "./goal-store";
@@ -76,6 +77,7 @@ import {
 import {
     createRuntimeFeedback,
     ModelStageFeedbackError,
+    type RuntimeFeedback,
     type RuntimeFeedbackOrigin,
     type RuntimeFeedbackStage,
 } from "./runtime-feedback";
@@ -92,6 +94,7 @@ import {
     type TrajectoryEvent,
     type TrajectoryEventDraft,
     type ModelContextFramePayload,
+    type ModelContextStage,
     type TrajectoryStore,
 } from "./trajectory";
 import {
@@ -165,6 +168,7 @@ class StageCheckpointFailure extends Error {
 type NormalizedExecution = {
     readonly decision: AgentDecision;
     readonly thought?: string;
+    readonly preparedToolAction?: PreparedToolAction;
 };
 
 let executionUnitCounter = 0;
@@ -1386,15 +1390,50 @@ export class Runner {
         goal: Goal,
         candidate: unknown,
         executionUnitId: string,
-    ): AgentDecision {
+        control?: ExecutionControl,
+    ): NormalizedExecution {
+        let decision: AgentDecision;
         try {
-            return validateAgentDecision(candidate);
+            decision = validateAgentDecision(candidate);
         } catch (error) {
             if (error instanceof RunnerExecutionError && error.code === "INVALID_AGENT_DECISION") {
                 throw createRunnerFeedbackError(error, goal, executionUnitId, "decide", "decision_semantics");
             }
             throw error;
         }
+        if (decision.kind !== "tool_call") return { decision };
+
+        let prepared: PreparedToolAction;
+        try {
+            prepared = prepareToolAction(
+                goal,
+                decision.action,
+                this.toolRegistry,
+                this.toolPolicy,
+                true,
+                control,
+            );
+            validateActionLifecycle(goal, prepared.action);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            if (error instanceof RunnerExecutionError
+                && (error.code === "TOOL_NOT_AUTHORIZED"
+                    || error.code === "TOOL_NOT_FOUND"
+                    || error.code === "INVALID_TOOL_INPUT")) {
+                throw createRunnerFeedbackError(
+                    error,
+                    goal,
+                    executionUnitId,
+                    "decide",
+                    error.code === "INVALID_TOOL_INPUT" ? "tool_input" : "tool_selection",
+                );
+            }
+            if (error instanceof RunnerExecutionError && error.code === "INVALID_AGENT_DECISION") {
+                throw createRunnerFeedbackError(error, goal, executionUnitId, "decide", "decision_semantics");
+            }
+            throw error;
+        }
+        return { decision: { ...decision, action: prepared.action }, preparedToolAction: prepared };
     }
 
     private validateEvidenceForStage(
@@ -1638,6 +1677,405 @@ export class Runner {
         }
     }
 
+    private async appendRepairAttempt(
+        goal: Goal,
+        input: StepExecutionInput,
+        stage: ModelContextStage,
+        inputBoundary: PendingThink["inputBoundary"],
+        thinkRequestId: string | undefined,
+        control?: ExecutionControl,
+    ): Promise<{ readonly goal: Goal; readonly pending: PendingModelRepair }> {
+        const previous = goal.state.run.pendingModelRepair;
+        if (previous !== undefined && (
+            previous.goalId !== goal.id
+            || previous.runId !== goal.state.run.id
+            || previous.stepOrdinal !== goal.state.run.stepCount + 1
+            || previous.executionUnitId !== input.executionUnitId
+            || previous.stage !== stage
+            || previous.inputBoundary !== inputBoundary
+            || previous.thinkRequestId !== thinkRequestId
+        )) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair identity does not match the current stage");
+        }
+        const attempt = (previous?.attemptsStarted ?? 0) + 1;
+        if (attempt > 3) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction exhausted after three calls");
+        }
+        if (this.trajectoryStore === undefined) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model output correction requires a Trajectory store");
+        }
+        const draft: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            stepIndex: goal.state.run.stepCount + 1,
+            eventType: "model_repair_attempt_started",
+            payload: {
+                type: "model_repair_attempt_started",
+                stage,
+                attempt,
+                inputBoundary,
+                ...(thinkRequestId === undefined ? {} : { thinkRequestId }),
+            },
+        };
+        const event = await this.checkpointCommitter.append(draft, control);
+        if (event?.eventType !== "model_repair_attempt_started") {
+            throw new TrajectoryAppendError("Model repair attempts require an enabled Trajectory sink");
+        }
+        const pending: PendingModelRepair = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            stepOrdinal: goal.state.run.stepCount + 1,
+            executionUnitId: input.executionUnitId ?? "unbound",
+            stage,
+            inputBoundary,
+            attemptsStarted: attempt,
+            latestAttemptEventId: event.eventId,
+            ...(previous?.latestFeedbackEventId === undefined
+                ? {}
+                : { latestFeedbackEventId: previous.latestFeedbackEventId }),
+            ...(thinkRequestId === undefined ? {} : { thinkRequestId }),
+        };
+        const nextGoal = this.withRun(goal, {
+            ...goal.state.run,
+            pendingModelRepair: pending,
+        });
+        const savedGoal = await this.commitStageCheckpoint(nextGoal, [], control);
+        const committed = { goal: savedGoal, events: [event] };
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [draft]);
+        return { goal: savedGoal, pending };
+    }
+
+    private async appendRepairFeedback(
+        goal: Goal,
+        pending: PendingModelRepair,
+        feedback: RuntimeFeedback,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const draft: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: pending.executionUnitId,
+            stepIndex: pending.stepOrdinal,
+            eventType: "model_repair_feedback_recorded",
+            payload: {
+                type: "model_repair_feedback_recorded",
+                stage: pending.stage,
+                attempt: pending.attemptsStarted,
+                feedback,
+            },
+        };
+        const event = await this.checkpointCommitter.append(draft, control);
+        if (event?.eventType !== "model_repair_feedback_recorded") {
+            throw new TrajectoryAppendError("Model repair feedback requires an enabled Trajectory sink");
+        }
+        const nextPending: PendingModelRepair = {
+            ...pending,
+            latestFeedbackEventId: event.eventId,
+        };
+        const nextGoal = this.withRun(goal, {
+            ...goal.state.run,
+            pendingModelRepair: nextPending,
+        });
+        const savedGoal = await this.commitStageCheckpoint(nextGoal, [], control);
+        const committed = { goal: savedGoal, events: [event] };
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [draft]);
+        return savedGoal;
+    }
+
+    private async readRepairFeedback(
+        goal: Goal,
+        pending: PendingModelRepair | undefined,
+        control?: ExecutionControl,
+    ): Promise<RuntimeFeedback | undefined> {
+        if (pending?.latestFeedbackEventId === undefined) return undefined;
+        if (this.trajectoryStore === undefined) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Cannot restore model repair feedback without Trajectory");
+        }
+        const result = await this.trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            goal.state.run.committedThroughSequence,
+        );
+        const matches = result.committed.filter((event) =>
+            event.eventType === "model_repair_feedback_recorded"
+            && event.eventId === pending.latestFeedbackEventId,
+        );
+        if (matches.length !== 1) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair feedback is missing or duplicated");
+        }
+        const event = matches[0]!;
+        if (event.eventType !== "model_repair_feedback_recorded"
+            || event.goalId !== goal.id
+            || event.runId !== goal.state.run.id
+            || event.executionUnitId !== pending.executionUnitId
+            || event.stepIndex !== pending.stepOrdinal
+            || event.payload.stage !== pending.stage
+            || event.payload.feedback.goalId !== goal.id
+            || event.payload.feedback.runId !== goal.state.run.id
+            || event.payload.feedback.executionUnitId !== pending.executionUnitId
+            || event.payload.feedback.stepOrdinal !== pending.stepOrdinal
+            || event.payload.feedback.stage !== pending.stage) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair feedback identity is invalid");
+        }
+        throwIfAborted(control);
+        return event.payload.feedback;
+    }
+
+    private async executeRepairableModelStage<T, U>(
+        goal: Goal,
+        input: StepExecutionInput,
+        stage: ModelContextStage,
+        inputBoundary: PendingThink["inputBoundary"],
+        thinkRequestId: string | undefined,
+        operation: (goal: Goal, feedback: RuntimeFeedback | undefined) => Promise<T>,
+        validate: (goal: Goal, value: T) => U,
+        control?: ExecutionControl,
+    ): Promise<{ readonly goal: Goal; readonly result: U }> {
+        let currentGoal = goal;
+        let pending = currentGoal.state.run.pendingModelRepair;
+        if (pending !== undefined && pending.stage !== stage) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair stage does not match the requested stage");
+        }
+        let feedback = await this.readRepairFeedback(currentGoal, pending, control);
+        while (true) {
+            throwIfAborted(control);
+            const started = await this.appendRepairAttempt(
+                currentGoal,
+                input,
+                stage,
+                inputBoundary,
+                thinkRequestId,
+                control,
+            );
+            currentGoal = started.goal;
+            pending = started.pending;
+            try {
+                const value = await this.executeModelStage(
+                    () => operation(currentGoal, feedback),
+                    control,
+                );
+                return { goal: currentGoal, result: validate(currentGoal, value) };
+            } catch (error) {
+                if (isExecutionAbortedError(error)) throw error;
+                if (error instanceof StageCheckpointFailure) throw error;
+                if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
+                if (error.feedback.stage !== stage
+                    || error.feedback.goalId !== currentGoal.id
+                    || error.feedback.runId !== currentGoal.state.run.id
+                    || error.feedback.stepOrdinal !== currentGoal.state.run.stepCount + 1
+                    || error.feedback.executionUnitId !== input.executionUnitId) {
+                    throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Model repair feedback identity does not match the current stage");
+                }
+                feedback = createRuntimeFeedback({ ...error.feedback, attempt: pending.attemptsStarted });
+                currentGoal = await this.appendRepairFeedback(currentGoal, pending, feedback, control);
+                if (pending.attemptsStarted >= 3) {
+                    throw new RunnerExecutionError(
+                        "INVALID_AGENT_DECISION",
+                        "Model output correction exhausted after three " + stage + " calls (" + feedback.code + ")",
+                    );
+                }
+            }
+        }
+    }
+
+    private createRepairInputBoundary(
+        baseBoundary: string,
+        stage: ModelContextStage,
+        thinkRequestId?: string,
+        thinkGoal?: string,
+    ): PendingThink["inputBoundary"] {
+        const identity = JSON.stringify(canonicalizeBoundaryValue({
+            baseBoundary,
+            stage,
+            thinkRequestId,
+            thinkGoal,
+        }));
+        return ("sha256:" + createHash("sha256").update(identity, "utf8").digest("hex")) as PendingThink["inputBoundary"];
+    }
+
+    private async commitThinkRequestForRepair(
+        goal: Goal,
+        fact: Extract<TrajectoryEventDraft, { readonly eventType: "think_requested" }>,
+        input: StepExecutionInput,
+        baseBoundary: string,
+        modelContextFrame: Omit<ModelContextFramePayload, "type"> & {
+            readonly executionUnitId?: string;
+            readonly stepIndex?: number;
+        } | undefined,
+        control?: ExecutionControl,
+    ): Promise<{ readonly goal: Goal; readonly requestEventId: string }> {
+        if (this.trajectoryStore === undefined) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Think recovery requires an enabled Trajectory store");
+        }
+        const event = await this.checkpointCommitter.append(fact, control);
+        if (event?.eventType !== "think_requested") {
+            throw new TrajectoryAppendError("Think repair requires a committed Think request event");
+        }
+        const boundary = this.createRepairInputBoundary(
+            baseBoundary,
+            "think",
+            event.payload.requestId,
+            event.payload.goal,
+        );
+        const pending: PendingModelRepair = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            stepOrdinal: goal.state.run.stepCount + 1,
+            executionUnitId: input.executionUnitId ?? "unbound",
+            stage: "think",
+            inputBoundary: boundary,
+            attemptsStarted: 0,
+            latestAttemptEventId: event.eventId,
+            thinkRequestId: event.payload.requestId,
+        };
+        const checkpointGoal = this.withRun(goal, {
+            ...goal.state.run,
+            pendingModelRepair: pending,
+        });
+        const savedGoal = await this.commitStageCheckpoint(
+            checkpointGoal,
+            [],
+            control,
+            modelContextFrame,
+        );
+        const committed = { goal: savedGoal, events: [event] };
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [fact]);
+        return { goal: savedGoal, requestEventId: event.payload.requestId };
+    }
+
+    private async restoreThinkRequest(
+        goal: Goal,
+        pending: PendingModelRepair,
+        baseBoundary: PendingThink["inputBoundary"],
+        control?: ExecutionControl,
+    ): Promise<Extract<TrajectoryEvent, { readonly eventType: "think_requested" }>> {
+        if (this.trajectoryStore === undefined || pending.thinkRequestId === undefined) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending Think repair has no restorable request");
+        }
+        const result = await this.trajectoryStore.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            goal.state.run.committedThroughSequence,
+        );
+        const matches = result.committed.filter((event) =>
+            event.eventType === "think_requested"
+            && event.payload.requestId === pending.thinkRequestId,
+        );
+        if (matches.length !== 1) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending Think request is missing or duplicated");
+        }
+        const event = matches[0]!;
+        if (event.eventType !== "think_requested"
+            || event.goalId !== goal.id
+            || event.runId !== goal.state.run.id
+            || event.executionUnitId !== pending.executionUnitId
+            || event.stepIndex !== pending.stepOrdinal
+            || event.payload.stepOrdinal !== pending.stepOrdinal
+            || event.payload.requestId !== pending.thinkRequestId
+            || pending.inputBoundary !== this.createRepairInputBoundary(
+                baseBoundary,
+                "think",
+                event.payload.requestId,
+                event.payload.goal,
+            )) {
+            throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending Think request identity is invalid");
+        }
+        throwIfAborted(control);
+        return event;
+    }
+
+    private async executeThinkRepair(
+        goal: Goal,
+        input: StepExecutionInput,
+        request: Extract<TrajectoryEvent, { readonly eventType: "think_requested" }>,
+        baseBoundary: PendingThink["inputBoundary"],
+        thinkHistory: ThinkExchange[],
+        control?: ExecutionControl,
+    ): Promise<{ readonly goal: Goal; readonly exchange: ThinkExchange }> {
+        const repairBoundary = this.createRepairInputBoundary(
+            baseBoundary,
+            "think",
+            request.payload.requestId,
+            request.payload.goal,
+        );
+        const executed = await this.executeRepairableModelStage(
+            goal,
+            input,
+            "think",
+            repairBoundary,
+            request.payload.requestId,
+            (activeGoal, runtimeFeedback) => this.executor.think!({
+                ...input,
+                goal: activeGoal,
+                thinkGoal: request.payload.goal,
+                thinkHistory,
+                ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
+            }),
+            (activeGoal, result) => {
+                if (result.goal.trim() !== request.payload.goal
+                    || (result.modelContextFrame?.stage !== undefined
+                        && result.modelContextFrame.stage !== "think")
+                    || result.output.trim().length === 0) {
+                    throw createRunnerFeedbackError(
+                        new RunnerExecutionError("INVALID_AGENT_DECISION", "Think output does not satisfy the requested goal contract"),
+                        activeGoal,
+                        input.executionUnitId ?? "unbound",
+                        "think",
+                        "output_contract",
+                    );
+                }
+                return result;
+            },
+            control,
+        );
+        const output = executed.result.output.trim();
+        const completedFact: TrajectoryEventDraft = {
+            goalId: executed.goal.id,
+            runId: executed.goal.state.run.id,
+            phase: "executing",
+            executionUnitId: input.executionUnitId ?? "unbound",
+            stepIndex: request.payload.stepOrdinal,
+            ...(executed.goal.state.run.pendingThink === undefined
+                ? {}
+                : { parentEventId: executed.goal.state.run.pendingThink.latestThinkEventId }),
+            eventType: "think_completed",
+            payload: {
+                type: "think_completed",
+                requestId: request.payload.requestId,
+                stepOrdinal: request.payload.stepOrdinal,
+                goal: request.payload.goal,
+                output,
+            },
+        };
+        const nextGoal = await this.commitThinkCompletion(
+            executed.goal,
+            completedFact as Extract<TrajectoryEventDraft, { readonly eventType: "think_completed" }>,
+            request.payload.stepOrdinal,
+            request.executionUnitId ?? "unbound",
+            baseBoundary,
+            control,
+            executed.result.modelContextFrame === undefined
+                ? undefined
+                : {
+                    ...executed.result.modelContextFrame,
+                    executionUnitId: input.executionUnitId ?? "unbound",
+                    stepIndex: request.payload.stepOrdinal,
+                },
+        );
+        return {
+            goal: nextGoal,
+            exchange: {
+                requestId: request.payload.requestId,
+                goal: request.payload.goal,
+                output,
+            },
+        };
+    }
+
     private async commitThinkCompletion(
         goal: Goal,
         fact: Extract<TrajectoryEventDraft, { readonly eventType: "think_completed" }>,
@@ -1663,8 +2101,9 @@ export class Runner {
                 inputBoundary,
                 latestThinkEventId: event.eventId,
             };
+            const { pendingModelRepair: _pendingModelRepair, ...runWithoutRepair } = goal.state.run;
             const checkpointGoal = this.withRun(goal, {
-                ...goal.state.run,
+                ...runWithoutRepair,
                 pendingThink,
             });
             const savedGoal = await this.commitStageCheckpoint(
@@ -2362,6 +2801,7 @@ export class Runner {
             }
 
             const executionUnitId = goal.state.run.pendingThink?.executionUnitId
+                ?? goal.state.run.pendingModelRepair?.executionUnitId
                 ?? createExecutionUnitId();
             const session = await this.openWorkingMemorySession(goal, control);
 
@@ -2403,9 +2843,9 @@ export class Runner {
                         throw invalidAgentDecision("StepExecutor must provide both decide() and think() for staged execution");
                     }
 
+                    const stepOrdinal = goal.state.run.stepCount + 1;
+                    const thinkInputBoundary = createThinkInputBoundary(stepInput, stepOrdinal);
                     if (supportsStages) {
-                        const stepOrdinal = goal.state.run.stepCount + 1;
-                        const thinkInputBoundary = createThinkInputBoundary(stepInput, stepOrdinal);
                         const thinkHistory = await this.restoreThinkHistory(
                             goal,
                             stepOrdinal,
@@ -2413,30 +2853,98 @@ export class Runner {
                             thinkInputBoundary,
                             control,
                         );
+                        const pendingRepair = goal.state.run.pendingModelRepair;
+                        if (pendingRepair?.stage === "think") {
+                            const request = await this.restoreThinkRequest(
+                                goal,
+                                pendingRepair,
+                                thinkInputBoundary,
+                                control,
+                            );
+                            const recoveredThink = await this.executeThinkRepair(
+                                goal,
+                                stepInput,
+                                request,
+                                thinkInputBoundary,
+                                thinkHistory,
+                                control,
+                            );
+                            goal = recoveredThink.goal;
+                            thinkHistory.push(recoveredThink.exchange);
+                            pendingThinkRequestCommitted = false;
+                        }
+
                         while (true) {
                             throwIfAborted(control);
-                            let stageResult: DecideStageResult;
-                            try {
-                                stageResult = await this.executeModelStage(() => this.executor.decide!({
+                            const decideBoundary = this.createRepairInputBoundary(
+                                thinkInputBoundary,
+                                "decide",
+                                goal.state.run.pendingThink?.latestThinkEventId,
+                            );
+                            const decided = await this.executeRepairableModelStage(
+                                goal,
+                                stepInput,
+                                "decide",
+                                decideBoundary,
+                                undefined,
+                                (activeGoal, runtimeFeedback) => this.executor.decide!({
                                     ...stepInput,
-                                    goal,
+                                    goal: activeGoal,
                                     thinkHistory,
-                                }), control);
-                            } catch (error) {
-                                if (isExecutionAbortedError(error)) throw error;
-                                throw new StageExecutionFailure(error);
-                            }
-                            throwIfAborted(control);
+                                    ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
+                                }),
+                                (activeGoal, result) => {
+                                    if (result.modelContextFrame !== undefined
+                                        && result.modelContextFrame.stage !== "decide") {
+                                        throw createRunnerFeedbackError(
+                                            new RunnerExecutionError("INVALID_AGENT_DECISION", "Decide frame stage is invalid"),
+                                            activeGoal,
+                                            executionUnitId,
+                                            "decide",
+                                            "output_contract",
+                                        );
+                                    }
+                                    if (result.kind === "request_think") {
+                                        const thinkGoal = result.goal.trim();
+                                        if (thinkGoal.length === 0) {
+                                            throw createRunnerFeedbackError(
+                                                new RunnerExecutionError("INVALID_AGENT_DECISION", "Think goal must not be blank"),
+                                                activeGoal,
+                                                executionUnitId,
+                                                "decide",
+                                                "decision_semantics",
+                                            );
+                                        }
+                                        return { stageResult: { ...result, goal: thinkGoal } };
+                                    }
+                                    const normalizedDecision = this.validateDecisionForStage(
+                                        activeGoal,
+                                        result.decision,
+                                        executionUnitId,
+                                        control,
+                                    );
+                                    this.validateEvidenceForStage(
+                                        activeGoal,
+                                        normalizedDecision.decision,
+                                        session,
+                                        executionUnitId,
+                                    );
+                                    return {
+                                        stageResult: {
+                                            ...result,
+                                            decision: normalizedDecision.decision,
+                                        },
+                                        ...(normalizedDecision.preparedToolAction === undefined
+                                            ? {}
+                                            : { preparedToolAction: normalizedDecision.preparedToolAction }),
+                                    };
+                                },
+                                control,
+                            );
+                            goal = decided.goal;
+                            const stageResult = decided.result.stageResult;
 
                             if (stageResult.kind === "request_think") {
-                                const thinkGoal = stageResult.goal.trim();
-                                if (thinkGoal.length === 0) {
-                                    throw invalidAgentDecision("request_think.goal must contain non-whitespace text");
-                                }
-                                if (stageResult.modelContextFrame !== undefined
-                                    && stageResult.modelContextFrame.stage !== "decide") {
-                                    throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
-                                }
                                 const requestId = randomUUID();
                                 const requestedFact: TrajectoryEventDraft = {
                                     goalId: goal.id,
@@ -2452,13 +2960,14 @@ export class Runner {
                                         type: "think_requested",
                                         requestId,
                                         stepOrdinal,
-                                        goal: thinkGoal,
+                                        goal: stageResult.goal,
                                     },
                                 };
-                                goal = await this.commitStageCheckpoint(
+                                const requested = await this.commitThinkRequestForRepair(
                                     goal,
-                                    [requestedFact],
-                                    control,
+                                    requestedFact as Extract<TrajectoryEventDraft, { readonly eventType: "think_requested" }>,
+                                    stepInput,
+                                    thinkInputBoundary,
                                     stageResult.modelContextFrame === undefined
                                         ? undefined
                                         : {
@@ -2466,77 +2975,30 @@ export class Runner {
                                             executionUnitId,
                                             stepIndex: stepOrdinal,
                                         },
+                                    control,
                                 );
+                                goal = requested.goal;
                                 pendingThinkRequestCommitted = true;
-
-                                let thinkResult: ThinkStageResult;
-                                try {
-                                    thinkResult = await this.executeModelStage(() => this.executor.think!({
-                                        ...stepInput,
-                                        goal,
-                                        thinkGoal,
-                                        thinkHistory,
-                                    }), control);
-                                } catch (error) {
-                                    if (isExecutionAbortedError(error)) throw error;
-                                    throw new StageExecutionFailure(error);
-                                }
-                                throwIfAborted(control);
-                                if (thinkResult.goal.trim() !== thinkGoal) {
-                                    throw invalidAgentDecision("Think stage returned a goal different from the requested goal");
-                                }
-                                if (thinkResult.modelContextFrame !== undefined
-                                    && thinkResult.modelContextFrame.stage !== "think") {
-                                    throw invalidAgentDecision("Think stage returned a non-Think model context frame");
-                                }
-                                const thinkOutput = thinkResult.output.trim();
-                                if (thinkOutput.length === 0) {
-                                    throw invalidAgentDecision("Think stage returned empty text");
-                                }
-                                const completedFact: TrajectoryEventDraft = {
-                                    goalId: goal.id,
-                                    runId: goal.state.run.id,
-                                    phase: "executing",
-                                    executionUnitId,
-                                    stepIndex: stepOrdinal,
-                                    ...(goal.state.run.pendingThink === undefined
-                                        ? {}
-                                        : { parentEventId: goal.state.run.pendingThink.latestThinkEventId }),
-                                    eventType: "think_completed",
-                                    payload: {
-                                        type: "think_completed",
-                                        requestId,
-                                        stepOrdinal,
-                                        goal: thinkGoal,
-                                        output: thinkOutput,
-                                    },
-                                };
-                                goal = await this.commitThinkCompletion(
+                                const request = await this.restoreThinkRequest(
                                     goal,
-                                    completedFact,
-                                    stepOrdinal,
-                                    executionUnitId,
+                                    goal.state.run.pendingModelRepair!,
                                     thinkInputBoundary,
                                     control,
-                                    thinkResult.modelContextFrame === undefined
-                                        ? undefined
-                                        : {
-                                            ...thinkResult.modelContextFrame,
-                                            executionUnitId,
-                                            stepIndex: stepOrdinal,
-                                        },
                                 );
+                                const completedThink = await this.executeThinkRepair(
+                                    goal,
+                                    stepInput,
+                                    request,
+                                    thinkInputBoundary,
+                                    thinkHistory,
+                                    control,
+                                );
+                                goal = completedThink.goal;
                                 pendingThinkRequestCommitted = false;
-                                thinkHistory.push({ requestId, goal: thinkGoal, output: thinkOutput });
+                                thinkHistory.push(completedThink.exchange);
                                 continue;
                             }
 
-                            if (stageResult.modelContextFrame !== undefined
-                                && stageResult.modelContextFrame.stage !== "decide") {
-                                throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
-                            }
-                            const decision = this.validateDecisionForStage(goal, stageResult.decision, executionUnitId);
-                            this.validateEvidenceForStage(goal, decision, session, executionUnitId);
                             if (stageResult.modelContextFrame !== undefined) {
                                 goal = await this.commitStageCheckpoint(
                                     goal,
@@ -2545,32 +3007,56 @@ export class Runner {
                                     {
                                         ...stageResult.modelContextFrame,
                                         executionUnitId,
-                                        stepIndex: goal.state.run.stepCount + 1,
+                                        stepIndex: stepOrdinal,
                                     },
                                 );
                             }
-                            normalized = { decision };
+                            normalized = {
+                                decision: stageResult.decision,
+                                ...(!("preparedToolAction" in decided.result)
+                                    || decided.result.preparedToolAction === undefined
+                                    ? {}
+                                    : { preparedToolAction: decided.result.preparedToolAction }),
+                            };
                             break;
                         }
                     } else {
-                        const execution = await this.executeModelStage(
-                            () => this.executor.execute(stepInput),
+                        const repairBoundary = this.createRepairInputBoundary(thinkInputBoundary, "decide");
+                        const executed = await this.executeRepairableModelStage(
+                            goal,
+                            stepInput,
+                            "decide",
+                            repairBoundary,
+                            undefined,
+                            (activeGoal, runtimeFeedback) => this.executor.execute({
+                                ...stepInput,
+                                goal: activeGoal,
+                                ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
+                            }),
+                            (activeGoal, execution) => {
+                                const isResultObject = typeof execution === "object"
+                                    && execution !== null
+                                    && "decision" in execution;
+                                const extractedDecision = isResultObject ? (execution as any).decision : execution;
+                                const extractedThought = isResultObject && typeof (execution as any).thought === "string"
+                                    ? (execution as any).thought
+                                    : undefined;
+                                const validated = this.validateDecisionForStage(
+                                    activeGoal,
+                                    extractedDecision,
+                                    executionUnitId,
+                                    control,
+                                );
+                                this.validateEvidenceForStage(activeGoal, validated.decision, session, executionUnitId);
+                                return {
+                                    ...validated,
+                                    ...(extractedThought === undefined ? {} : { thought: extractedThought }),
+                                };
+                            },
                             control,
                         );
-                        throwIfAborted(control);
-                        const isResultObject = typeof execution === "object"
-                            && execution !== null
-                            && "decision" in execution;
-                        const extractedDecision = isResultObject ? (execution as any).decision : execution;
-                        const extractedThought = isResultObject && typeof (execution as any).thought === "string"
-                            ? (execution as any).thought
-                            : undefined;
-                        const decision = this.validateDecisionForStage(goal, extractedDecision, executionUnitId);
-                        this.validateEvidenceForStage(goal, decision, session, executionUnitId);
-                        normalized = {
-                            decision,
-                            thought: extractedThought,
-                        };
+                        goal = executed.goal;
+                        normalized = executed.result;
                     }
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
@@ -2595,7 +3081,9 @@ export class Runner {
                         if (stageError !== undefined) {
                             return this.stopWithExecutionError(goal, stageError, control);
                         }
-                        if (goal.state.run.pendingThink !== undefined || pendingThinkRequestCommitted) {
+                        if (goal.state.run.pendingThink !== undefined
+                            || goal.state.run.pendingModelRepair !== undefined
+                            || pendingThinkRequestCommitted) {
                             throw error.original;
                         }
                         return this.stopWithExecutionError(
@@ -2773,7 +3261,11 @@ export class Runner {
                         messages.length,
                         goal.state.run.committedThroughSequence,
                     );
-                    const { pendingThink: _pendingThink, ...runWithoutPendingThink } = goal.state.run;
+                    const {
+                        pendingThink: _pendingThink,
+                        pendingModelRepair: _pendingModelRepair,
+                        ...runWithoutPendingThink
+                    } = goal.state.run;
                     const nextGoal = this.withRun(goal, {
                         ...runWithoutPendingThink,
                         contextEpoch: nextEpoch,
@@ -2919,41 +3411,13 @@ export class Runner {
                 }
 
                 if (normalized.decision.kind === "tool_call") {
-                    let validated;
-
-                    try {
-                        validated = prepareToolAction(
+                    const validated = normalized.preparedToolAction;
+                    if (validated === undefined) {
+                        return this.stopWithExecutionError(
                             goal,
-                            normalized.decision.action,
-                            this.toolRegistry,
-                            this.toolPolicy,
-                            true,
+                            new RunnerExecutionError("INVALID_AGENT_DECISION", "Tool Action passed validation without a prepared Action"),
                             control,
                         );
-                    } catch (error) {
-                        if (isExecutionAbortedError(error)) {
-                            throw error;
-                        }
-
-                        throwIfAborted(control);
-
-                        const feedbackError = error instanceof RunnerExecutionError
-                            && (error.code === "TOOL_NOT_AUTHORIZED" || error.code === "INVALID_TOOL_INPUT")
-                            ? createRunnerFeedbackError(
-                                error,
-                                goal,
-                                executionUnitId,
-                                "decide",
-                                error.code === "TOOL_NOT_AUTHORIZED" ? "tool_selection" : "tool_input",
-                            )
-                            : error;
-                        const stableError = toStableExecutionError(feedbackError)
-                            ?? new RunnerExecutionError(
-                                "TOOL_EXECUTION_ERROR",
-                                error instanceof Error ? error.message : String(error),
-                            );
-
-                        return this.stopWithExecutionError(goal, stableError, control);
                     }
 
                     try {

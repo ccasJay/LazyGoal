@@ -322,6 +322,45 @@ test("当前 Snapshot 往返保存 pendingThink，且拒绝越界的 Step 指针
     );
 });
 
+test("当前 Snapshot 往返保存 pendingModelRepair，并验证其 Step 与身份", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+
+    const pendingModelRepair = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        stepOrdinal: 1,
+        executionUnitId: "execution-unit-repair-1",
+        stage: "decide" as const,
+        inputBoundary: ("sha256:" + "b".repeat(64)) as any,
+        attemptsStarted: 2,
+        latestAttemptEventId: "event-repair-attempt-2",
+        latestFeedbackEventId: "event-repair-feedback-1",
+    };
+    const snapshot = goalSnapshotCodec.encode({
+        ...goal,
+        state: {
+            ...goal.state,
+            run: { ...started.state, pendingModelRepair },
+        },
+    });
+    assert.deepEqual(goalSnapshotCodec.decode(snapshot).state.run.pendingModelRepair, pendingModelRepair);
+
+    const wrongStep = JSON.parse(JSON.stringify(snapshot)) as any;
+    wrongStep.state.run.pendingModelRepair.stepOrdinal = 2;
+    assert.throws(() => goalSnapshotCodec.decode(wrongStep), assertProtocolError);
+
+    const foreignRun = JSON.parse(JSON.stringify(snapshot)) as any;
+    foreignRun.state.run.pendingModelRepair.runId = "foreign-run";
+    assert.throws(() => goalSnapshotCodec.decode(foreignRun), assertProtocolError);
+
+    const excessiveAttempts = JSON.parse(JSON.stringify(snapshot)) as any;
+    excessiveAttempts.state.run.pendingModelRepair.attemptsStarted = 4;
+    assert.throws(() => goalSnapshotCodec.decode(excessiveAttempts), assertProtocolError);
+});
+
 test("Run mode、approvedTask、nextRunMode 与 GoalPlan 独立往返", () => {
     const snapshot = JSON.parse(JSON.stringify(goalSnapshotCodec.encode(createCurrentGoal()))) as any;
     snapshot.state.nextRunMode = "plan";

@@ -227,6 +227,32 @@ export interface GoalSnapshotPendingThinkV1 {
     readonly latestThinkEventId: string;
 }
 
+/**
+ * Snapshot 中可恢复的模型输出修复尝试指针。
+ *
+ * @example
+ * ```ts
+ * const repair: GoalSnapshotPendingModelRepairV1 = {
+ *     goalId: "goal-1", runId: "run-1", stepOrdinal: 1,
+ *     executionUnitId: "unit-1", stage: "decide",
+ *     inputBoundary: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+ *     attemptsStarted: 1, latestAttemptEventId: "event-10",
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingModelRepairV1 {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly stepOrdinal: number;
+    readonly executionUnitId: string;
+    readonly stage: "decide" | "think";
+    readonly inputBoundary: string;
+    readonly attemptsStarted: number;
+    readonly latestAttemptEventId: string;
+    readonly latestFeedbackEventId?: string;
+    readonly thinkRequestId?: string;
+}
+
 /** Snapshot 中的未完成 Action。 */
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
@@ -296,6 +322,7 @@ export interface GoalSnapshotRunStateV1 {
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
+    readonly pendingModelRepair?: GoalSnapshotPendingModelRepairV1 | undefined;
     readonly stopReason?: GoalSnapshotStopReasonV1 | undefined;
     readonly contextEpoch: GoalSnapshotContextEpochV1;
 }
@@ -759,6 +786,19 @@ const PendingThinkSchema = z.object({
     latestThinkEventId: NonEmptyStringSchema,
 }).strict();
 
+const PendingModelRepairSchema = z.object({
+    goalId: NonEmptyStringSchema,
+    runId: NonEmptyStringSchema,
+    stepOrdinal: z.number().int().positive(),
+    executionUnitId: NonEmptyStringSchema,
+    stage: z.enum(["decide", "think"]),
+    inputBoundary: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    attemptsStarted: z.number().int().min(0).max(3),
+    latestAttemptEventId: NonEmptyStringSchema,
+    latestFeedbackEventId: NonEmptyStringSchema.optional(),
+    thinkRequestId: NonEmptyStringSchema.optional(),
+}).strict();
+
 const StopReasonSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("max_steps_exceeded") }).strict(),
     z.object({
@@ -917,6 +957,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             pendingAction: PendingActionSchema.optional(),
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
+            pendingModelRepair: PendingModelRepairSchema.optional(),
             stopReason: StopReasonSchema.optional(),
             contextEpoch: ContextEpochSchema,
         }).strict(),
@@ -1020,6 +1061,22 @@ function validateSnapshotInvariants(
     const pendingAction = run.pendingAction;
     const pendingInteraction = run.pendingInteraction;
     const pendingThink = run.pendingThink;
+    const pendingModelRepair = run.pendingModelRepair;
+
+    if (pendingModelRepair !== undefined) {
+        if (pendingModelRepair.goalId !== goal.id || pendingModelRepair.runId !== run.id) {
+            addInvariantIssue(context, "pendingModelRepair Goal and Run identities must match the Snapshot", ["state", "run", "pendingModelRepair"]);
+        }
+        if (run.status !== "running" || pendingModelRepair.stepOrdinal !== run.stepCount + 1) {
+            addInvariantIssue(context, "pendingModelRepair must target the next incomplete Step of a running Run", ["state", "run", "pendingModelRepair"]);
+        }
+        if (pendingAction !== undefined || pendingInteraction !== undefined) {
+            addInvariantIssue(context, "pendingModelRepair cannot coexist with a pending Action or interaction", ["state", "run", "pendingModelRepair"]);
+        }
+        if (pendingModelRepair.stage === "think" && pendingModelRepair.thinkRequestId === undefined) {
+            addInvariantIssue(context, "Think repair must reference its committed Think request", ["state", "run", "pendingModelRepair", "thinkRequestId"]);
+        }
+    }
 
     if (pendingThink !== undefined) {
         if (pendingThink.goalId !== goal.id || pendingThink.runId !== run.id) {

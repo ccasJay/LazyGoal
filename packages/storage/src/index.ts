@@ -23,6 +23,7 @@ export type {
     GoalSnapshotPendingInteractionAskUserV1,
     GoalSnapshotPendingInteractionTaskApprovalV1,
     GoalSnapshotPendingThinkV1,
+    GoalSnapshotPendingModelRepairV1,
     GoalSnapshotAskUserQuestionV1,
     GoalSnapshotAskUserOptionV1,
     GoalSnapshotProfileV1,
