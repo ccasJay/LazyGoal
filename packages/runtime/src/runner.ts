@@ -63,10 +63,16 @@ import type {
 } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
+    ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
+import {
+    ModelRequestRetriesExhaustedError,
+    TransientModelRequestFailure,
+    type ModelRequestAttemptFailure,
+} from "./model-request-failure";
 import { transition } from "./transition";
 import {
     createEmptyGoalPlan,
@@ -160,6 +166,26 @@ let executionUnitCounter = 0;
 function createExecutionUnitId(): string {
     executionUnitCounter += 1;
     return `execution-unit-${Date.now().toString(36)}-${executionUnitCounter.toString(36)}`;
+}
+
+async function waitForRetry(delayMs: number, control?: ExecutionControl): Promise<void> {
+    throwIfAborted(control);
+    if (delayMs === 0) return;
+    await new Promise<void>((resolve, reject) => {
+        const signal = control?.signal;
+        const timer = setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, delayMs);
+        const onAbort = () => {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+            reject(new ExecutionAbortedError());
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted) onAbort();
+    });
+    throwIfAborted(control);
 }
 
 function canonicalizeBoundaryValue(value: unknown): unknown {
@@ -321,6 +347,10 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
             "INVALID_AGENT_DECISION",
             error instanceof Error ? error.message : "AgentDecision 协议无效",
         );
+    }
+
+    if (error instanceof ModelRequestRetriesExhaustedError) {
+        return new RunnerExecutionError("MODEL_REQUEST_FAILED", error.message);
     }
 
     return undefined;
@@ -720,6 +750,35 @@ export class Runner {
         } catch {
             // Stream 是旁路观察面，不能改变 Goal 状态机或持久化语义。
         }
+    }
+
+    /** 在同一模型阶段内执行最多三次调用；只有适配器分类的暂时故障会重试。 */
+    private async executeModelStage<T>(
+        operation: () => Promise<T>,
+        control?: ExecutionControl,
+    ): Promise<T> {
+        const failures: ModelRequestAttemptFailure[] = [];
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+            throwIfAborted(control);
+            try {
+                return await operation();
+            } catch (error) {
+                if (isExecutionAbortedError(error) || control?.signal?.aborted) {
+                    throwIfAborted(control);
+                    throw error;
+                }
+                if (!(error instanceof TransientModelRequestFailure)) throw error;
+                failures.push({
+                    attempt,
+                    reason: error.reason,
+                    ...(error.status === undefined ? {} : { status: error.status }),
+                });
+                if (attempt === 3) throw new ModelRequestRetriesExhaustedError(failures);
+                const exponentialDelay = 250 * 2 ** (attempt - 1);
+                await waitForRetry(Math.min(30_000, Math.max(exponentialDelay, error.retryAfterMs ?? 0)), control);
+            }
+        }
+        throw new Error("Unreachable model retry state");
     }
 
     /**
@@ -2259,11 +2318,11 @@ export class Runner {
                             throwIfAborted(control);
                             let stageResult: DecideStageResult;
                             try {
-                                stageResult = await this.executor.decide!({
+                                stageResult = await this.executeModelStage(() => this.executor.decide!({
                                     ...stepInput,
                                     goal,
                                     thinkHistory,
-                                });
+                                }), control);
                             } catch (error) {
                                 if (isExecutionAbortedError(error)) throw error;
                                 throw new StageExecutionFailure(error);
@@ -2313,12 +2372,12 @@ export class Runner {
 
                                 let thinkResult: ThinkStageResult;
                                 try {
-                                    thinkResult = await this.executor.think!({
+                                    thinkResult = await this.executeModelStage(() => this.executor.think!({
                                         ...stepInput,
                                         goal,
                                         thinkGoal,
                                         thinkHistory,
-                                    });
+                                    }), control);
                                 } catch (error) {
                                     if (isExecutionAbortedError(error)) throw error;
                                     throw new StageExecutionFailure(error);
@@ -2395,7 +2454,10 @@ export class Runner {
                             break;
                         }
                     } else {
-                        const execution = await this.executor.execute(stepInput);
+                        const execution = await this.executeModelStage(
+                            () => this.executor.execute(stepInput),
+                            control,
+                        );
                         throwIfAborted(control);
                         const isResultObject = typeof execution === "object"
                             && execution !== null
@@ -2429,6 +2491,10 @@ export class Runner {
                         return this.invalidContextLookup(error.message);
                     }
                     if (error instanceof StageExecutionFailure) {
+                        const stageError = toStableExecutionError(error.original);
+                        if (stageError !== undefined) {
+                            return this.stopWithExecutionError(goal, stageError, control);
+                        }
                         if (goal.state.run.pendingThink !== undefined || pendingThinkRequestCommitted) {
                             throw error.original;
                         }

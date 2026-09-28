@@ -15,6 +15,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 /**
  * 原生 OpenAI Chat Completions 兼容服务的显式连接配置。
@@ -64,6 +65,7 @@ export class OpenAICompatible implements LLMAdapter {
         this.client = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.baseURL,
+            maxRetries: 0,
         });
         this.model = config.model;
         this.maxOutputTokens = config.maxOutputTokens;
@@ -179,6 +181,9 @@ export class OpenAICompatible implements LLMAdapter {
             if (control?.signal?.aborted) {
                 throw new ExecutionAbortedError();
             }
+
+            const transientFailure = classifyTransientModelFailure(error);
+            if (transientFailure !== undefined) throw transientFailure;
 
             throw error;
         }

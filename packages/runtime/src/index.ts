@@ -37,6 +37,14 @@ export {
 } from "./execution-control";
 export type { ExecutionControl } from "./execution-control";
 export {
+    ModelRequestRetriesExhaustedError,
+    TransientModelRequestFailure,
+} from "./model-request-failure";
+export type {
+    ModelRequestAttemptFailure,
+    TransientModelFailureReason,
+} from "./model-request-failure";
+export {
     CHECKPOINT_GATE_FROZEN_CODE,
     CheckpointGateFrozenError,
     CheckpointGateGoalStore,

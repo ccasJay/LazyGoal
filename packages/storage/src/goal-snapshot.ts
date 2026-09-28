@@ -246,6 +246,7 @@ export type GoalSnapshotStopReasonV1 =
             | "INVALID_TOOL_INPUT"
             | "INVALID_MEMORY_PATCH"
             | "INVALID_AGENT_DECISION"
+            | "MODEL_REQUEST_FAILED"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
     };
@@ -768,6 +769,7 @@ const StopReasonSchema = z.discriminatedUnion("kind", [
             "INVALID_TOOL_INPUT",
             "INVALID_MEMORY_PATCH",
             "INVALID_AGENT_DECISION",
+            "MODEL_REQUEST_FAILED",
             "TOOL_EXECUTION_ERROR",
         ]),
         message: NonEmptyStringSchema,

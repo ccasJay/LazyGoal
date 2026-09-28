@@ -835,6 +835,7 @@ export type ExecutionErrorCode =
     | "INVALID_TOOL_INPUT"
     | "INVALID_MEMORY_PATCH"
     | "INVALID_AGENT_DECISION"
+    | "MODEL_REQUEST_FAILED"
     | "TOOL_EXECUTION_ERROR";
 
 /** 非 Step 自身导致的 Run 终止原因。 */

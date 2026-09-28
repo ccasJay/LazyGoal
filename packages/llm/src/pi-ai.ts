@@ -9,6 +9,7 @@ import type { LLMAdapter } from "./core/adapter";
 import { LLMRequestModeMismatchError, type LLMRequest, type LLMResponse, type LLMStreamEvent, type LLMToolCall } from "./core/types";
 import { LlmConfigurationError, type LlmConfig } from "./config";
 import { ExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../runtime/src/execution-control";
+import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 /** pi-ai 返回的失败状态；不包含部分输出、凭据或 SDK 响应对象。 */
 export class PiAiProviderError extends Error {
@@ -105,6 +106,8 @@ export class PiAiAdapter implements LLMAdapter {
             throwIfAborted(control);
         } catch (error) {
             throwIfAborted(control);
+            const transientFailure = classifyTransientModelFailure(error);
+            if (transientFailure !== undefined) throw transientFailure;
             throw error;
         }
         if (response.stopReason === "aborted") throw new ExecutionAbortedError();
@@ -155,6 +158,8 @@ export class PiAiAdapter implements LLMAdapter {
                     yield { kind: "completed", response: this.toResponse(request, event.message) };
                 } else if (event.type === "error") {
                     if (event.reason === "aborted") throw new ExecutionAbortedError();
+                    const transientFailure = classifyTransientModelFailure(event.error);
+                    if (transientFailure !== undefined) throw transientFailure;
                     throw new PiAiProviderError(
                         this.config.provider,
                         event.reason,
@@ -178,6 +183,10 @@ export class PiAiAdapter implements LLMAdapter {
 
     private toResponse(request: LLMRequest, response: AssistantMessage): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
+        if (response.stopReason === "error") {
+            const transientFailure = classifyTransientModelFailure(response);
+            if (transientFailure !== undefined) throw transientFailure;
+        }
         if (!hasTools) {
             if (response.stopReason !== "stop" || response.content.some(block => block.type === "toolCall")) {
                 // Provider messages may echo request credentials; do not copy arbitrary SDK text into Runtime errors.

@@ -6,9 +6,11 @@ import {
     createRun,
     createToolGrantMatcher,
     createToolRegistration,
+    ExecutionAbortedError,
     GoalCoordinator,
     InlineScheduler,
     Runner,
+    TransientModelRequestFailure,
     transition,
 } from "../src/index";
 import {
@@ -407,6 +409,105 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.deepEqual(executionTask(persisted), executionTask(initial));
     assert.deepEqual(persisted.definition.profile, initial.definition.profile);
     assert.deepEqual(persisted.state.run, state);
+});
+
+test("retries only typed transient model failures and caps the model call sequence at three", async () => {
+    const initial = createInitialGoal("retry-run", "retry-goal", profile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const executor: StepExecutor = {
+        async execute() {
+            calls += 1;
+            if (calls < 3) throw new TransientModelRequestFailure("service_unavailable", { status: 503 });
+            return { kind: "complete", summary: "完成", completionEvidence: [] };
+        },
+    };
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+
+    const result = await runner.runUntilBlocked(createRef(initial));
+    assert.equal(result.ok, true);
+    assert.equal(calls, 3);
+});
+
+test("retries the same staged Decide call without advancing the Step", async () => {
+    const initial = createInitialGoal("staged-retry-run", "staged-retry-goal", profile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let decideCalls = 0;
+    const executor: StepExecutor = {
+        async execute() {
+            assert.fail("staged executor must not use execute()");
+        },
+        async decide() {
+            decideCalls += 1;
+            if (decideCalls === 1) throw new TransientModelRequestFailure("connection");
+            return {
+                kind: "decision",
+                decision: { kind: "complete", summary: "完成", completionEvidence: [] },
+            };
+        },
+        async think() {
+            assert.fail("Think is not requested in this test");
+        },
+    };
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+
+    const state = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 1);
+    assert.equal(decideCalls, 2);
+});
+
+test("records stable causes and stops after three transient model request failures", async () => {
+    const initial = createInitialGoal("exhausted-run", "exhausted-goal", profile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const executor: StepExecutor = {
+        async execute() {
+            calls += 1;
+            throw new TransientModelRequestFailure(calls === 2 ? "rate_limited" : "service_unavailable", {
+                status: calls === 2 ? 429 : 503,
+            });
+        },
+    };
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+
+    const result = await runner.runUntilBlocked(createRef(initial));
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "failed");
+    assert.equal(calls, 3);
+    const persisted = await store.restore(initial.id);
+    assert.ok(persisted);
+    assert.equal(persisted.state.run.stopReason?.kind, "execution_error");
+    assert.match(persisted.state.run.stopReason?.kind === "execution_error" ? persisted.state.run.stopReason.message : "", /1:service_unavailable\(503\), 2:rate_limited\(429\), 3:service_unavailable\(503\)/);
+});
+
+test("cancelling model backoff prevents the next model request", async () => {
+    const initial = createInitialGoal("cancel-retry-run", "cancel-retry-goal", profile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const executor: StepExecutor = {
+        async execute() {
+            calls += 1;
+            throw new TransientModelRequestFailure("rate_limited", { status: 429 });
+        },
+    };
+    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+    const controller = new AbortController();
+    const cancelTimer = setTimeout(() => controller.abort(), 20);
+
+    try {
+        await assert.rejects(
+            runner.runUntilBlocked(createRef(initial), {}, { signal: controller.signal }),
+            ExecutionAbortedError,
+        );
+    } finally {
+        clearTimeout(cancelTimer);
+    }
+    assert.equal(calls, 1);
 });
 
 

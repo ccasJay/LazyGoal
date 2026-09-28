@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { contract, createModelOutputContractBundle } from "../../contracts/src/index";
 
 import { ExecutionAbortedError } from "../../runtime/src/execution-control";
+import { TransientModelRequestFailure } from "../../runtime/src/model-request-failure";
 import { Gemini } from "../src/gemini";
 import {
     LLMRequestModeMismatchError,
@@ -83,6 +84,28 @@ test("Gemini exposes configured structuredOutputMode immutably", () => {
 
     assert.equal(strictAdapter.structuredOutputMode, "strict");
     assert.equal(promptOnlyAdapter.structuredOutputMode, "prompt_only");
+});
+
+test("Gemini classifies a temporary HTTP failure without SDK retries", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = async () => {
+        calls += 1;
+        return new Response(JSON.stringify({ error: { code: 503, message: "temporarily unavailable" } }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+        });
+    };
+    try {
+        const adapter = createAdapter("prompt_only");
+        await assert.rejects(
+            adapter.generate({ messages: [{ role: "user", content: "hello" }] }),
+            (error: unknown) => error instanceof TransientModelRequestFailure && error.reason === "service_unavailable",
+        );
+        assert.equal(calls, 1);
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("Gemini in strict mode maps structuredOutput to responseMimeType and responseSchema", async () => {

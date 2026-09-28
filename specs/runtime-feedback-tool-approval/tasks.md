@@ -28,11 +28,11 @@
   - 验证方式：待实现的 TUI Controller／屏幕交互测试；运行 `npx tsx --test packages/tui/test/session-controller.test.ts packages/tui/test/session-screen.test.tsx packages/tui/test/tool-policy.test.ts`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.4](./requirements.md#req-2-4), [1.4](./requirements.md#req-1-4), [5.3](./requirements.md#req-5-3)_
 
-- [ ] //TODO 5. 分类并有限重试模型临时故障
+- [x] //TODO 5. 分类并有限重试模型临时故障
 
   - 实现目标：在 LLM 适配边界和 Runner 接入类型化故障分类、独立三次调用上限、可中止退避及尝试事实；确认不会与适配器内部重试叠加。
   - 成功判据：429、暂时性 5xx、连接和超时可重试且遵守中止；鉴权、配置、协议、存储及未知异常明确失败；上限耗尽时保留各次稳定原因，不再发起第四次调用。
-  - 验证方式：待实现的适配器故障分类与 Runner 定时／取消测试；运行 `npx tsx --test packages/runtime/test/runner.test.ts packages/llm/test/openai-compatible.test.ts` 和新增测试入口。
+  - 验证方式：适配器故障分类、SDK 无内部重试、Runner 三次上限／阶段不重复计数／退避取消测试通过；运行 `npx tsx --test packages/runtime/test/runner.test.ts packages/llm/test/model-request-failure.test.ts packages/llm/test/openai-compatible.test.ts packages/llm/test/gemini.test.ts packages/llm/test/pi-ai.test.ts` 与 `npx tsc --noEmit`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.4](./requirements.md#req-3-4), [5.4](./requirements.md#req-5-4)_
 
 - [ ] //TODO 6. 将可纠正输出错误封装为 RuntimeFeedback
@@ -81,7 +81,7 @@
 | [1.1](./requirements.md#req-1-1)、[1.3](./requirements.md#req-1-3)、[1.4](./requirements.md#req-1-4)、[1.5](./requirements.md#req-1-5) | 默认只读自动放行；Bash 仅同命令匹配、写入仅同目标匹配；Profile／Policy 拒绝、跨工作区与撤销仍阻止执行 | Grant 匹配与 Runner 授权测试（待实现） |
 | [1.2](./requirements.md#req-1-2)、[2.2](./requirements.md#req-2-2)、[2.3](./requirements.md#req-2-3) | 三档授权按 Action／Goal／workspace 生效；审批先可靠提交，拒绝与过期命令不授权 | Coordinator／Storage 持久化及失败注入测试（待实现） |
 | [2.1](./requirements.md#req-2-1)、[2.4](./requirements.md#req-2-4) | Browser／TUI 能查看完整本次输入与同路径写入后果，选择期限、列举和撤销当前范围 Grant | Browser 自动化交互及 TUI 屏幕／Controller 测试（待实现） |
-| [3.1](./requirements.md#req-3-1)、[3.4](./requirements.md#req-3-4)、[5.4](./requirements.md#req-5-4) | 暂时性模型故障有限退避；中止停止调用；鉴权、配置、存储与未知故障不误重试，耗尽保留原因 | LLM 适配器与 Runner 故障分类／取消测试（待实现） |
+| [3.1](./requirements.md#req-3-1)、[3.4](./requirements.md#req-3-4)、[5.4](./requirements.md#req-5-4) | 暂时性模型故障有限退避；中止停止调用；鉴权、配置、存储与未知故障不误重试，耗尽保留原因 | 适配器／Runner 定向测试与 `npx tsc --noEmit` 通过；覆盖 OpenAI、Gemini、pi-ai 分类入口及三次调用上限 |
 | [3.2](./requirements.md#req-3-2)、[3.3](./requirements.md#req-3-3)、[5.1](./requirements.md#req-5-1) | 仅获准的 safe Tool 重放同一 Action；业务失败形成 Observation，新 Action 重验权限，manual 未知结果不重放 | Tool 执行与恢复测试（待实现） |
 | [4.1](./requirements.md#req-4-1)、[4.2](./requirements.md#req-4-2)、[4.3](./requirements.md#req-4-3)、[5.2](./requirements.md#req-5-2) | 错误定位反馈进入原模型阶段；已提交 Think 保留，纠正输出重新通过全部校验且不执行无效 Tool | Agent 阶段与 Runtime Evidence／Tool 边界测试（待实现） |
 | [4.4](./requirements.md#req-4-4)、[6.2](./requirements.md#req-6-2)、[6.3](./requirements.md#req-6-3) | 三次无效输出停止该链；正常 Think 循环可继续；恢复不重跑已提交 Think／Tool，不重复 Step | 阶段恢复与计数测试（待实现） |
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-未执行。运行后按 delivery-loop.md 记录逐项证据、整体状态、时效、时间和被测代码状态。
+当前部分结果（2026-09-28）：TODO 1–5 已提交。TODO 5 的定向测试共 105 项通过，`npx tsc --noEmit` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。

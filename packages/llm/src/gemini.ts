@@ -22,6 +22,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { classifyTransientModelFailure } from "./core/model-request-failure";
 
 type GeminiInput = Pick<
     GenerateContentParameters,
@@ -89,7 +90,8 @@ export class Gemini implements LLMAdapter {
         this.structuredOutputMode = config.structuredOutputMode;
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
-            ...(config.baseURL !== undefined ? { httpOptions: { baseUrl: config.baseURL, apiVersion: "" } } : {}),
+            httpOptions: { retryOptions: { attempts: 1 } },
+            ...(config.baseURL !== undefined ? { httpOptions: { baseUrl: config.baseURL, apiVersion: "", retryOptions: { attempts: 1 } } } : {}),
         });
         this.model = config.model;
         this.maxOutputTokens = config.maxOutputTokens;
@@ -222,6 +224,9 @@ export class Gemini implements LLMAdapter {
             if (control?.signal?.aborted) {
                 throw new ExecutionAbortedError();
             }
+
+            const transientFailure = classifyTransientModelFailure(error);
+            if (transientFailure !== undefined) throw transientFailure;
 
             throw error;
         }

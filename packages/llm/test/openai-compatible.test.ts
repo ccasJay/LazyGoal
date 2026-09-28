@@ -29,6 +29,7 @@ function createAdapter(mode: "strict" | "prompt_only") {
 test("OpenAICompatible exposes configured structuredOutputMode immutably", () => {
     const strictAdapter = createAdapter("strict");
     assert.equal(strictAdapter.structuredOutputMode, "strict");
+    assert.equal((strictAdapter as any).client.maxRetries, 0);
 
     const promptOnlyAdapter = createAdapter("prompt_only");
     assert.equal(promptOnlyAdapter.structuredOutputMode, "prompt_only");

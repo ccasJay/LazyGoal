@@ -57,6 +57,7 @@ Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当�
 - AgentDecision 无法通过当前 Wire/Canonical Contract、Evidence 或 Run 模式能力校验时，返回 `INVALID_AGENT_DECISION`，不执行由该决策请求的副作用。
 - Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
+- 模型调用的限流、暂时性服务、连接与超时故障由 Runner 在同一阶段内最多调用三次（含首次调用）；退避响应中止信号。鉴权、配置、协议、存储和未知错误不重试；耗尽时失败原因按稳定类别写入 Run 终态。
 - Context Lookup 只允许历史 Conversation、执行事实或决策理由；结果保留来源 Run 边界，旧 Run 的命中不能成为当前 Run 的完成 Evidence；当前环境必须重新调用 Tool。
 
 ## 当前限制

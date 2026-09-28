@@ -25,10 +25,10 @@ Runtime 阶段绑定策略，不要求两个 Adapter 使用相同的结构化输
 [PiAiAdapter](../../packages/llm/src/pi-ai.ts) 使用锁定版本的目录，并将 SDK 的 text/thinking/tool-call 增量转换为统一流事件；`generate()` 仍只返回完整响应。
 前置 system 消息按顺序合并，user/assistant 顺序不变；中途 system 消息被拒绝。
 只返回正常结束的文本，隔离 thinking，拒绝截断、错误、意外工具调用及其它非完成状态。
-空文本仍交给 Agent 拒绝；不修复 JSON，不增加应用层重试，SDK 传输策略沿用其默认值。
+空文本仍交给 Agent 拒绝；不在 Adapter 修复 JSON。Adapter 只将限流、暂时性 5xx、连接和超时映射为类型化暂时故障，其他错误保持失败；OpenAI 与 Gemini SDK 内部重试已关闭，避免与 Runtime 调用上限叠加。
 
 所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
-pi-ai 返回型失败转换为 `PiAiProviderError`，SDK 抛出的异常原样传播。
+pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 Runtime 故障类型。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
 原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`。
 Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
