@@ -446,14 +446,15 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
         const trajectory = new InMemoryTrajectoryStore();
         await store.save(goal);
         let toolCalls = 0;
-        const decideAdapter = new ScriptedAdapter("prompt_only", [response({
+        const invalidResponse = response({
             kind: "tool_call",
             action: {
                 actionId: "unauthorized-read",
                 toolId: "delete_everything",
                 input: { path: "README.md" },
             },
-        })]);
+        });
+        const decideAdapter = new ScriptedAdapter("prompt_only", [invalidResponse, invalidResponse, invalidResponse]);
         const runner = new Runner({
             store,
             trajectoryStore: trajectory,
@@ -476,7 +477,7 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
             assert.equal(result.state.stopReason.code, "INVALID_AGENT_DECISION");
         }
         assert.equal(toolCalls, 0);
-        assert.equal(decideAdapter.requests.length, 1);
+        assert.equal(decideAdapter.requests.length, 3);
         assert.match(requestText(decideAdapter.requests[0]!), /inspect_file/);
         assert.doesNotMatch(requestText(decideAdapter.requests[0]!), /delete_everything/);
     });

@@ -348,6 +348,6 @@ test("pi-ai unified execution keeps local JSON and phase validation", async () =
                 LLM_CONTEXT_WINDOW_TOKENS: "65536", LLM_MAX_OUTPUT_TOKENS: "4096",
             }));
         });
-        assert.equal(calls, 1);
+        assert.equal(calls, 3, "invalid phase output is re-requested with correction feedback up to the bounded attempt limit");
     }
 });

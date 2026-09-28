@@ -163,12 +163,18 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     assert.deepEqual(types, [
         "run_started",
         "state_committed",
+        "model_repair_attempt_started",
+        "state_committed",
         "decision_received",
         "action_staged",
+        "state_committed",
+        "tool_attempt_started",
         "state_committed",
         "tool_started",
         "tool_finished",
         "observation_recorded",
+        "state_committed",
+        "model_repair_attempt_started",
         "state_committed",
         "decision_received",
         "run_completed",
@@ -261,9 +267,13 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
     assert.equal(prepareCalls, 1);
 
     assert.deepEqual(sink.events.map((event) => event.eventType), [
+        "tool_attempt_started",
+        "state_committed",
         "tool_started",
         "tool_finished",
         "observation_recorded",
+        "state_committed",
+        "model_repair_attempt_started",
         "state_committed",
         "decision_received",
         "run_completed",
@@ -275,15 +285,15 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
         sink.events
             .filter((event) => event.actionId !== undefined)
             .map((event) => event.actionId),
-        [action.actionId, action.actionId, action.actionId],
+        [action.actionId, action.actionId, action.actionId, action.actionId],
     );
-    assert.deepEqual(sink.events[0]?.payload, {
+    assert.deepEqual(sink.events.find((event) => event.eventType === "tool_started")?.payload, {
         type: "tool_started",
         actionId: action.actionId,
         toolId: action.toolId,
         input: action.input,
     });
-    assert.deepEqual(sink.events[2]?.payload, {
+    assert.deepEqual(sink.events.find((event) => event.eventType === "observation_recorded")?.payload, {
         type: "observation_recorded",
         actionId: action.actionId,
         observation: { kind: "success", output: "ok", summary: "done" },

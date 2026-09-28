@@ -128,7 +128,11 @@ test("Runner propagates control into an executor and preserves the last snapshot
         operation,
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
-    assert.deepEqual(await store.restore(goal.id), goal);
+    const interrupted = await store.restore(goal.id);
+    assert.equal(interrupted?.state.run.status, "running");
+    assert.equal(interrupted?.state.run.stepCount, 0);
+    assert.equal(interrupted?.state.run.pendingModelRepair?.attemptsStarted, 1);
+    assert.equal(interrupted?.state.run.committedThroughSequence, 1);
 });
 
 test("Runner aborts after a model result without saving a failure", async () => {
@@ -163,8 +167,11 @@ test("Runner aborts after a model result without saving a failure", async () => 
         ),
         (error: unknown) => error instanceof ExecutionAbortedError,
     );
-    assert.equal(saveCalls, 0);
-    assert.deepEqual(await delegate.restore(goal.id), goal);
+    assert.equal(saveCalls, 1);
+    const interrupted = await delegate.restore(goal.id);
+    assert.equal(interrupted?.state.run.status, "running");
+    assert.equal(interrupted?.state.run.stepCount, 0);
+    assert.equal(interrupted?.state.run.pendingModelRepair?.attemptsStarted, 1);
 });
 
 test("Runner keeps an approved pending Action when Tool execution is aborted", async () => {
@@ -291,7 +298,10 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
         },
     );
     assert.equal(reads, 1);
-    assert.deepEqual(await store.restore(goal.id), goal);
+    const interrupted = await store.restore(goal.id);
+    assert.equal(interrupted?.state.run.status, "running");
+    assert.equal(interrupted?.state.run.pendingModelRepair?.attemptsStarted, 1);
+    assert.equal(interrupted?.state.run.committedThroughSequence, 1);
 });
 
 test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", async () => {
@@ -347,7 +357,10 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
         },
     );
     assert.equal(policyCalls, 0);
-    assert.deepEqual(await store.restore(goal.id), goal);
+    const interrupted = await store.restore(goal.id);
+    assert.equal(interrupted?.state.run.status, "running");
+    assert.equal(interrupted?.state.run.pendingModelRepair?.attemptsStarted, 1);
+    assert.equal(interrupted?.state.run.committedThroughSequence, 1);
 });
 
 test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 approved pendingAction", async () => {
@@ -399,8 +412,12 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
     assert.equal(latest?.state.run.stepCount, 0);
     assert.equal(latest?.state.run.pendingAction?.status, "approved");
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "model_repair_attempt_started",
+        "state_committed",
         "decision_received",
         "action_staged",
+        "state_committed",
+        "tool_attempt_started",
         "state_committed",
         "tool_started",
     ]);

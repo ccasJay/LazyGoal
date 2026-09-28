@@ -567,7 +567,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
 
 test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async () => {
     const store = new InMemoryGoalStore();
-    const adapter = new SequenceAdapter([JSON.stringify({
+    const invalidDecision = JSON.stringify({
         result: {
             kind: "tool_call",
             action: {
@@ -576,7 +576,8 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
                 input: { path: "README.md" },
             },
         },
-    })]);
+    });
+    const adapter = new SequenceAdapter([invalidDecision, invalidDecision, invalidDecision]);
     const executor = createExecutor(adapter);
     const trajectoryStore = createInMemoryTrajectoryStore();
     const runner = new Runner({
@@ -602,15 +603,15 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "The value at this path does not satisfy the active response contract; return a valid value.",
+        message: "Model output correction exhausted after three decide calls (INVALID_LLM_RESPONSE)",
     });
-    assert.equal(adapter.requests.length, 1);
+    assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
 test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async () => {
     const store = new InMemoryGoalStore();
-    const adapter = new SequenceAdapter(["不是合法 JSON"]);
+    const adapter = new SequenceAdapter(["不是合法 JSON", "不是合法 JSON", "不是合法 JSON"]);
     const executor = createExecutor(adapter);
     const trajectoryStore = createInMemoryTrajectoryStore();
     const runner = new Runner({
@@ -641,9 +642,9 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
         result.state.stopReason?.kind === "execution_error"
             ? result.state.stopReason.message
             : "",
-        /Return valid JSON matching the active response contract\./,
+        /Model output correction exhausted after three decide calls/,
     );
-    assert.equal(adapter.requests.length, 1);
+    assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 

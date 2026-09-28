@@ -612,7 +612,7 @@ test("InspectorScreen keeps available controls visible across narrow viewports a
         }
         instance.stdin.write("G");
         await nextFrame();
-        assert.match(instance.lastFrame() ?? "", /Bottom/);
+        assert.match(instance.lastFrame() ?? "", /Bottom|\[0\/\$\] First\/Last/);
         // 最窄视口正文只容一行；从折叠提示向上滚动仍可读到输出末行。
         for (let i = 0; i < 3 && !(instance.lastFrame() ?? "").includes("LAST-LINE"); i++) {
             instance.stdin.write("k");

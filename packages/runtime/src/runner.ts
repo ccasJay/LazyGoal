@@ -1049,9 +1049,6 @@ export class Runner {
         const committed = [...raw.committed]
             .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
             .sort((left, right) => right.sequence - left.sequence);
-        const lastFact = committed.find((event) => event.eventType !== "state_committed");
-        if (lastFact === undefined) return undefined;
-
         const runBoundaries = getCommittedRunBoundaries(goal);
         const currentEvidenceIndex = buildCommittedEvidenceIndex({
             goalId: goal.id,
@@ -1081,6 +1078,14 @@ export class Runner {
             goal.state.run.id,
             request,
         );
+        const lastFact = committed.find((event) =>
+            (event.eventType === "context_lookup_completed"
+                || event.eventType === "context_lookup_not_found"
+                || event.eventType === "context_lookup_failed")
+            && event.payload.lookupId === expectedLookupId,
+        );
+        if (lastFact === undefined) return undefined;
+
         const normalizeRestoredResult = (value: unknown): ContextLookupResult => {
             const result = normalizeContextLookupResult(
                 value,
@@ -1157,7 +1162,10 @@ export class Runner {
         throwIfAborted(control);
         const facts = [...raw.committed]
             .filter((event) => event.goalId === goal.id && event.runId === goal.state.run.id)
-            .filter((event) => event.eventType !== "state_committed")
+            .filter((event) => event.eventType === "context_lookup_requested"
+                || event.eventType === "context_lookup_completed"
+                || event.eventType === "context_lookup_not_found"
+                || event.eventType === "context_lookup_failed")
             .sort((left, right) => left.sequence - right.sequence);
         let count = 0;
         for (let index = facts.length - 1; index >= 1;) {

@@ -17,7 +17,7 @@ import {
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { JsonFileToolGrantStore } from "../../storage/src/index";
+import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import type {
@@ -714,8 +714,9 @@ test("recovers a committed approval by activating its pending Grant before retry
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-recovery-"));
     try {
         const waiting = createActionApprovalGoal();
-        const goalStore = new RecordingGoalStore();
-        await goalStore.seed(waiting);
+        const goalDirectory = join(directory, "goals");
+        const goalStore = new JsonFileGoalStore(goalDirectory);
+        await goalStore.save(waiting);
         const ledger = new JsonFileToolGrantStore(directory);
         let activationFailures = 1;
         const grantStore: ToolGrantStore = {
@@ -754,13 +755,24 @@ test("recovers a committed approval by activating its pending Grant before retry
             ref,
             action: { kind: "approve_action", actionId: "action-approval", scope: "workspace" },
         }), /temporary grant activation failure/);
-        const committed = await goalStore.restore(waiting.id);
+        const committed = await new JsonFileGoalStore(goalDirectory).restore(waiting.id);
         assert.equal(committed?.state.run.pendingAction?.status, "approved");
         assert.equal(committed?.state.run.pendingAction?.approvalScope, "workspace");
         assert.equal(await ledger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }), undefined);
 
-        await assert.rejects(coordinator.advance(ref), /resumed scheduler/);
-        assert.ok(await ledger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
+        const restartedLedger = new JsonFileToolGrantStore(directory);
+        const restartedCoordinator = new GoalCoordinator({
+            store: new JsonFileGoalStore(goalDirectory),
+            scheduler: new FakeScheduler(async () => {
+                assert.ok(await restartedLedger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
+                throw new Error("resumed scheduler");
+            }),
+            toolGrantStore: restartedLedger,
+            workspaceId: "workspace-1",
+            toolRegistry: new InMemoryToolRegistry([registration]),
+        });
+        await assert.rejects(restartedCoordinator.advance(ref), /resumed scheduler/);
+        assert.ok(await restartedLedger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

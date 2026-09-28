@@ -180,14 +180,18 @@ test("Runner executes Context Lookup as one step and exposes only its committed 
     assert.equal(executor.inputs.length, 2);
     assert.equal(executor.inputs[0]?.contextLookupResult, undefined);
     assert.equal(executor.inputs[1]?.contextLookupResult?.status, "found");
-    assert.deepEqual(portCalls, [1]);
+    assert.deepEqual(portCalls, [2]);
     assert.deepEqual(
         trajectory.events.map((event) => event.eventType),
         [
             "observation_recorded",
+            "model_repair_attempt_started",
+            "state_committed",
             "decision_received",
             "context_lookup_requested",
             "context_lookup_completed",
+            "state_committed",
+            "model_repair_attempt_started",
             "state_committed",
             "decision_received",
             "run_completed",

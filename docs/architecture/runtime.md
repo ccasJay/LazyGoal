@@ -59,7 +59,7 @@ Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当�
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
 - 模型调用的限流、暂时性服务、连接与超时故障由 Runner 在同一阶段内最多调用三次（含首次调用）；每次类型化暂时失败先以 `model_request_retry_recorded` 提交到 Trajectory，再退避或结束。退避响应中止信号。鉴权、配置、协议、存储和未知错误不重试；耗尽时稳定原因写入 Run 终态。
 - Tool 只有显式的类型化暂时故障、`safe` 重放声明及仍有效的同一 Action 批准同时成立时才重试；尝试次数先写入 Snapshot，最多三次。`manual` 的不确定结果进入人工等待，`retryable` Observation 不触发系统重放。
-- Context Lookup 只允许历史 Conversation、执行事实或决策理由；结果保留来源 Run 边界，旧 Run 的命中不能成为当前 Run 的完成 Evidence；当前环境必须重新调用 Tool。
+- Context Lookup 只允许历史 Conversation、执行事实或决策理由；结果保留来源 Run 边界，旧 Run 的命中不能成为当前 Run 的完成 Evidence；当前环境必须重新调用 Tool。恢复时按当前 `lastStep` 的 lookupId，从 Snapshot 提交边界内查找对应结果，不受其后的阶段尝试事实影响。
 
 ## 当前限制
 

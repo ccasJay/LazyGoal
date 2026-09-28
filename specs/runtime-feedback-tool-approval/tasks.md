@@ -63,11 +63,11 @@
   - 验证方式：待实现的 Browser／TUI 投影与时间线测试；运行 `npx tsx --test packages/browser/test/browser-projection.test.ts packages/browser/test/browser-recovery.test.ts packages/tui/test/session-controller-timeline.test.ts` 和新增测试入口。
   - _Requirements: [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 10. 增加跨边界授权与恢复回归测试
+- [x] //TODO 10. 增加跨边界授权与恢复回归测试
 
   - 实现目标：补充当前协议的端到端测试与故障注入，在 Grant 待生效、Action 批准、Tool 开始、Observation 提交和撤销边界覆盖跨进程恢复。
   - 成功判据：任一注入点恢复后都不凭未提交授权执行、不重复已提交 Tool 或 Step、不跨项目复用 Grant；过期浏览器命令和无效模型输出不会进入已完成时间线。
-  - 验证方式：待实现的 Runtime／Storage／Browser 自动化集成测试；运行 `npx tsx --test packages/runtime/test/goal-multi-run-recovery.test.ts packages/browser/test/browser-recovery.test.ts` 和新增测试入口，再运行 `npm test` 与 `npm run check:dependencies`。
+  - 验证方式：跨进程 pending Grant 恢复测试、Action/Tool/Observation 故障边界、浏览器恢复测试均通过；`npm test`、`npm run check:dependencies` 与 `git diff --check` 通过。
   - _Requirements: [2.2](./requirements.md#req-2-2), [3.3](./requirements.md#req-3-3), [6.1](./requirements.md#req-6-1), [6.4](./requirements.md#req-6-4), [7.3](./requirements.md#req-7-3)_
 
 ## Feature Verification
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-当前部分结果（2026-09-28）：TODO 1–9 已提交。TODO 9 的 Browser／TUI／Runtime 投影与恢复定向测试共 129 项通过；Goal Board 构建、`npx tsc --noEmit`、`npm run check:dependencies`（183 个源文件）和 `git diff --check` 均通过。其余 Feature Verification 待 TODO 10 完成后执行。
+最终结果（2026-09-28）：TODO 1–10 已提交；TODO 10 覆盖跨进程授权激活恢复、恢复途中 Action/Tool/Observation 提交边界及撤销约束。修复 Context Lookup 恢复在后续模型尝试事实后漏读已提交结果的问题。全量 `npm test` 与 `npm run check:dependencies`（183 个源文件）通过；全量测试包含 TypeScript 检查、Goal 多轮恢复、Browser 恢复及 UI 回归。`git diff --check` 通过。

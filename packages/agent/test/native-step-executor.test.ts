@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { contract, validateModelOutputSemantics } from "../../contracts/src/index";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
-import { createGoal } from "../../runtime/src/index";
+import { createGoal, ModelStageFeedbackError } from "../../runtime/src/index";
 import type { AgentProfile } from "../../runtime/src/agent-profile";
 import type { Goal, GoalTask } from "../../runtime/src/domain";
 import type { ToolDefinition } from "../../runtime/src/tool";
@@ -195,8 +195,9 @@ test("LLMStepExecutor 当模型缺失工具调用且非结构化文本时抛出 
     await assert.rejects(
         executor.execute({ goal, authorizedTools: [], workingMemory: currentWorkingMemory }),
         (err: unknown) => {
-            assert.ok(err instanceof LLMResponseProtocolError);
-            assert.equal(err.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
+            assert.ok(err instanceof ModelStageFeedbackError);
+            assert.equal(err.feedback.stage, "decide");
+            assert.equal(err.feedback.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
             return true;
         },
     );

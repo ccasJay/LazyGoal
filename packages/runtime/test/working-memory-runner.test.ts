@@ -189,16 +189,19 @@ test("Fake Projector commits Observation and Runtime Patch in one Snapshot bound
     assert.equal(executor.inputs[1]?.workingMemory?.facts[0]?.predicate, "read_success");
 
     const observation = trajectory.events.find((event) => event.eventType === "observation_recorded");
+    const toolFinished = trajectory.events.find((event) => event.eventType === "tool_finished");
     const patchEvent = trajectory.events.find((event) =>
         event.eventType === "memory_patch_accepted"
         && event.payload.producers.includes("tool_projector"));
-    assert.equal(observation?.sequence, 6);
-    assert.equal(patchEvent?.sequence, 7);
+    assert.ok(observation);
+    assert.ok(toolFinished);
+    assert.ok(patchEvent);
+    assert.ok(patchEvent.sequence > observation.sequence);
 
     const saved = await store.restore(goal.id);
     assert.ok(saved);
     const rebuilt = await rebuildWorkingMemory(saved, { trajectoryStore: trajectory });
-    assert.equal(rebuilt.memory.facts[0]?.lastEvidenceSequence, 5);
+    assert.equal(rebuilt.memory.facts[0]?.lastEvidenceSequence, toolFinished.sequence);
 });
 
 test("Projector exception records Diagnostic while Observation still commits", async () => {
