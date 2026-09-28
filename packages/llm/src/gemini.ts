@@ -369,6 +369,9 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
         if (result.kind !== "task_proposal") {
             delete result.task;
         }
+        if (result.kind !== "request_think") {
+            delete result.goal;
+        }
     }
 
     restoreGeminiProjectedValue(value, schema);

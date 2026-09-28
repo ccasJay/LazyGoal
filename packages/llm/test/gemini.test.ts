@@ -711,6 +711,35 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
     assert.equal(decoded.memoryPatch, undefined);
 });
 
+test("Gemini restores a normal completion with request_think field residue", async () => {
+    const bundle = createModelOutputContractBundle({
+        kind: "executing",
+        planMode: false,
+        allowThink: true,
+        authorizedTools: [{ id: "bash", inputContract: BASH_INPUT_CONTRACT }],
+    });
+    const adapter = createAdapter("two_stage");
+    const text = JSON.stringify({
+        result: {
+            kind: "complete",
+            summary: "The latest commit was inspected.",
+            memoryPatch: "__lazygoal_null__",
+            evidenceSequences: [14],
+            goal: "",
+        },
+    });
+    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+
+    const response = await adapter.generate({
+        messages: [],
+        structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
+    });
+    const wire = JSON.parse(response.content);
+    assert.equal("goal" in wire.result, false);
+    assert.equal(wire.result.memoryPatch, null);
+    assert.equal(bundle.decode(wire).kind, "complete");
+});
+
 test("Gemini preserves authorized Tool calls in Plan Mode before task approval", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
@@ -774,4 +803,3 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
     assert.equal(decoded.kind, "tool_call");
     assert.equal(decoded.memoryPatch, undefined);
 });
-
