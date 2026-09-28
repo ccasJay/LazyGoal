@@ -4,9 +4,11 @@ import type {
     GoalCoordinator,
     GoalStore,
     GoalUserAction,
+    JsonValue,
     LaunchRequest,
     LaunchResult,
     ResumeGoalRequest,
+    ToolGrant,
 } from "../../runtime/src/index";
 
 /**
@@ -67,6 +69,33 @@ export type BrowserGoalPlanModeResult =
         readonly ok: false;
         readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "plan_mode_busy" | "plan_mode_failed";
     };
+
+/** 白名单化后的当前 Goal/workspace 授权摘要。 */
+export interface BrowserToolGrantSummary {
+    readonly grantId: string;
+    readonly scope: "goal" | "workspace";
+    readonly toolId: string;
+    readonly status: ToolGrant["status"];
+    /** 写入/编辑授权的规范化目标；完整命令与输入摘要不会暴露。 */
+    readonly targetPath?: string;
+}
+
+/** 浏览器按当前 Action 身份读取的完整已保存 Tool 输入。 */
+export type BrowserActionDetailsResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly actionId: string; readonly toolId: string; readonly input: JsonValue }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "action_not_waiting" | "action_details_unavailable" };
+
+/** 当前范围下授权列举/撤销的受理结果。 */
+export type BrowserToolGrantResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly grants: readonly BrowserToolGrantSummary[] }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "permissions_unavailable" | "grant_failed" };
+
+/** 浏览器授权撤销所需的当前 Goal/Run 身份与范围。 */
+export interface BrowserToolGrantRevokeCommand {
+    readonly runId: string;
+    readonly grantId: string;
+    readonly scope: "goal" | "workspace";
+}
 
 /**
  * 浏览器提交的普通会话文本。
@@ -224,7 +253,7 @@ export type BrowserGoalInteractionCommand =
     }
     | { readonly kind: "approve_task"; readonly runId: string; readonly requestId: string }
     | { readonly kind: "feedback_task"; readonly runId: string; readonly requestId: string; readonly feedback: string }
-    | { readonly kind: "approve_action"; readonly runId: string; readonly actionId: string }
+    | { readonly kind: "approve_action"; readonly runId: string; readonly actionId: string; readonly scope?: "action" | "goal" | "workspace" }
     | { readonly kind: "reject_action"; readonly runId: string; readonly actionId: string; readonly reason: string };
 
 /**
@@ -311,6 +340,11 @@ export interface BrowserGoalCoordinator {
         ref: Parameters<GoalCoordinator["enterPlanMode"]>[0],
         control?: ExecutionControl,
     ): ReturnType<GoalCoordinator["enterPlanMode"]>;
+
+    /** 当前 Goal 下列出 goal 与 workspace 授权。 */
+    listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
+    /** 撤销由当前 Goal/Run 限定的持续授权。 */
+    revokeToolGrant?(request: Parameters<GoalCoordinator["revokeToolGrant"]>[0]): ReturnType<GoalCoordinator["revokeToolGrant"]>;
 }
 
 /**
@@ -488,6 +522,84 @@ export class BrowserGoalCommandService {
         });
 
         return reservation.kind === "result" ? reservation.result : reservation.accepted;
+    }
+
+    /**
+     * 按当前 Goal/Run/Action 身份读取完整待审批输入。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param runId - 当前 Run 身份。
+     * @param actionId - 当前等待中的 Action 身份。
+     * @returns 完整 canonical Tool 输入；身份过期或 Action 不再等待时返回稳定错误。
+     */
+    async readActionDetails(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult> {
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "action_details_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        const pending = goal.state.run.pendingAction;
+        if (
+            goal.state.run.status !== "waiting"
+            || pending === undefined
+            || pending.action.actionId !== actionId
+            || (pending.status !== "awaiting_approval" && pending.status !== "outcome_unknown")
+        ) return { ok: false, error: "action_not_waiting" };
+        return {
+            ok: true,
+            goalId,
+            runId,
+            actionId,
+            toolId: pending.action.toolId,
+            input: structuredClone(pending.action.input),
+        };
+    }
+
+    /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
+    async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.listToolGrants === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "grant_failed" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        try {
+            const grants = await coordinator.listToolGrants({ goalId, runId });
+            return {
+                ok: true,
+                goalId,
+                runId,
+                grants: grants.map((grant) => ({
+                    grantId: grant.id,
+                    scope: grant.scope,
+                    toolId: grant.matcher.toolId,
+                    status: grant.status,
+                    ...(grant.matcher.kind === "target_path" ? { targetPath: grant.matcher.path } : {}),
+                })),
+            };
+        } catch { return { ok: false, error: "grant_failed" }; }
+    }
+
+    /** 撤销一条绑定当前 Goal/Run 身份的 Goal 或 workspace 授权。 */
+    async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.revokeToolGrant === undefined) return { ok: false, error: "permissions_unavailable" };
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "grant_failed" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        try {
+            await coordinator.revokeToolGrant({
+                ref: { goalId, runId: command.runId },
+                grantId: command.grantId,
+                scope: command.scope,
+            });
+            return this.listToolGrants(goalId, command.runId);
+        } catch { return { ok: false, error: "grant_failed" }; }
     }
 
     /**
@@ -844,7 +956,7 @@ function toRuntimeAction(command: BrowserGoalInteractionCommand): GoalUserAction
                 feedback: command.feedback,
             };
         case "approve_action":
-            return { kind: "approve_action", actionId: command.actionId };
+            return { kind: "approve_action", actionId: command.actionId, scope: command.scope ?? "action" };
         case "reject_action":
             return {
                 kind: "reject_action",

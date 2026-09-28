@@ -240,6 +240,41 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
+test("待审批 Action 只投影限长输入预览与写入目标路径", async () => {
+    const initial = createTestGoal();
+    const privateContent = "secret-".repeat(100);
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: {
+                        actionId: "action-preview",
+                        toolId: "write_file",
+                        input: { path: "src/example.ts", content: privateContent },
+                    },
+                    status: "awaiting_approval",
+                },
+            },
+        },
+    };
+
+    const session = await readBrowserGoalSession(
+        goal.id,
+        new TestGoalStore(goal),
+        async () => ({ committed: [], uncommittedTail: [] }),
+    );
+
+    assert.equal(session?.pendingAction?.actionId, "action-preview");
+    assert.equal(session?.pendingAction?.targetPath, "src/example.ts");
+    assert.equal(session?.pendingAction?.inputPreviewTruncated, true);
+    assert.ok((session?.pendingAction?.inputPreview.length ?? Number.POSITIVE_INFINITY) <= 321);
+    assert.equal(session?.pendingAction?.inputPreview.includes(privateContent), false);
+});
+
 test("Bash 决定与跨 execution unit 的执行合并为一行，complete 决策不重复显示", async () => {
     const goal = createTestGoal();
     const actionId = "bash-action-1";

@@ -12,7 +12,9 @@
 
 `POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、非空意图和可选 `mode: "plan"`；省略模式时由 Runtime 使用 Normal Mode，Profile 和执行策略仍由本机决定。同 ID、同意图及同初始模式的重试复用在途受理或已有快照；意图或模式冲突。另一个 Goal 正在运行时拒绝新建。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
 
-`POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。服务端在转交 Coordinator 前再次检查等待类型和身份；每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
+`POST /api/goals/:goalId/interactions` 只接受回答、提案批准/反馈或 Action 批准/拒绝，并要求当前 `runId` 与相应 `requestId`/`actionId` 匹配最新等待 Snapshot。Action 批准可限定本次 Action、当前 Goal 或当前 Workspace；服务端在转交 Coordinator 前再次检查等待类型和身份。每次只允许一个 Goal 执行推进，同一在途交互的相同重试复用受理结果，旧身份或错配等待点不调用 Runtime。
+
+`GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
 
 `POST /api/goals/:goalId/messages` 只接受当前 `runId` 与非空普通文本。普通 blocked 等待恢复同一 Run；已完成或失败 Run 调用 Coordinator 创建后继 Run，并保留旧 Run 的真实终态；提问、提案、Action 等结构化等待以及其他 Run 状态拒绝普通文本。成功受理前确认新增用户消息及对应 Run 变更已保存；同一在途请求重试复用受理结果。
 
@@ -24,6 +26,6 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 
 ## 页面交互
 
-React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。New Goal 先打开仅保存在页面状态的空白会话草稿；首条非空普通消息才调用创建接口，作为 Goal 意图和首条用户消息启动唯一 Run。草稿刷新即丢弃，不创建 Goal 或启动模型。页面复用 Slash Command Registry 识别 `/plan`：草稿中的命令选择创建模式，已有会话的命令调用 Plan Mode 路由，命令文本本身不发送到消息接口。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息、Plan Mode 和结构化交互接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图按 Run 排列消息和已提交步骤：用户消息在步骤前，助手消息在步骤与终态之后；步骤详情可展开查看。实时文本与活动单独显示，快照刷新后以新提交事实为准。
+React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。New Goal 先打开仅保存在页面状态的空白会话草稿；首条非空普通消息才调用创建接口，作为 Goal 意图和首条用户消息启动唯一 Run。草稿刷新即丢弃，不创建 Goal 或启动模型。页面复用 Slash Command Registry 识别 `/plan`：草稿中的命令选择创建模式，已有会话的命令调用 Plan Mode 路由，命令文本本身不发送到消息接口。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息、Plan Mode、结构化交互和授权管理接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图按 Run 排列消息和已提交步骤：用户消息在步骤前，助手消息在步骤与终态之后；步骤详情可展开查看。Action 审批显示有限输入预览；若预览被截断，用户需先读取当前 Action 的完整输入才能选择持续授权。Goal 与 Workspace 授权可在详情页查看和撤销；切换 Goal 时清空旧授权列表。实时文本与活动单独显示，快照刷新后以新提交事实为准。
 
 `npm run dev --prefix prototypes/goal-board` 只启动无后端授权的布局预览，不代理正式 Runtime API。真实操作须先构建静态页，再从 `lazygoal web` 打印的本机入口打开。页面不提供模拟 Goal、示例计划、虚构完成状态、项目分配或设置操作。

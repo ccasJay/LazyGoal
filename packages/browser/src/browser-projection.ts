@@ -13,6 +13,7 @@ import type {
 } from "../../runtime/src/index";
 
 const MAX_TEXT_LENGTH = 4_000;
+const MAX_ACTION_PREVIEW_LENGTH = 320;
 const MAX_MESSAGES = 100;
 const MAX_RUNS = 50;
 const MAX_STEPS_PER_RUN = 200;
@@ -287,6 +288,9 @@ export interface BrowserGoalSession {
         readonly actionId: string;
         readonly toolId: string;
         readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+        readonly inputPreview: string;
+        readonly inputPreviewTruncated: boolean;
+        readonly targetPath?: string;
     };
     /** 是否因输出上限截去了较早消息、Run 或步骤。 */
     readonly historyTruncated: boolean;
@@ -410,11 +414,7 @@ export async function readBrowserGoalSession(
     const pendingInteraction = projectPendingInteraction(currentRun.pendingInteraction);
     const pendingAction = currentRun.pendingAction === undefined
         ? undefined
-        : {
-            actionId: currentRun.pendingAction.action.actionId,
-            toolId: currentRun.pendingAction.action.toolId,
-            status: currentRun.pendingAction.status,
-        };
+        : projectPendingAction(currentRun.pendingAction);
     const goalPlan = goal.state.goalPlan === undefined
         ? undefined
         : projectGoalPlan(goal.state.goalPlan);
@@ -432,6 +432,25 @@ export async function readBrowserGoalSession(
         ...(pendingInteraction === undefined ? {} : { pendingInteraction }),
         ...(pendingAction === undefined ? {} : { pendingAction }),
         historyTruncated,
+    };
+}
+
+function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingAction"]>): NonNullable<BrowserGoalSession["pendingAction"]> {
+    const completeInput = JSON.stringify(action.action.input);
+    const inputPreview = boundedText(completeInput, MAX_ACTION_PREVIEW_LENGTH);
+    const input = action.action.input;
+    const targetPath = isJsonObject(input)
+        && (action.action.toolId === "write_file" || action.action.toolId === "edit_file")
+        && typeof input.path === "string"
+        ? boundedText(input.path, MAX_ACTION_PREVIEW_LENGTH)
+        : undefined;
+    return {
+        actionId: action.action.actionId,
+        toolId: action.action.toolId,
+        status: action.status,
+        inputPreview,
+        inputPreviewTruncated: completeInput.length > MAX_ACTION_PREVIEW_LENGTH,
+        ...(targetPath === undefined ? {} : { targetPath }),
     };
 }
 
@@ -650,9 +669,6 @@ function projectBashExecution(
     };
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function findCompletedRunForMessage(
     completedRuns: Goal["state"]["completedRuns"],
@@ -675,4 +691,8 @@ function findCompletedRunForMessage(
 function boundedText(value: string, maxLength: number): string {
     if (value.length <= maxLength) return value;
     return `${value.slice(0, maxLength)}…`;
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

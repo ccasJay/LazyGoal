@@ -14,7 +14,7 @@
   - 验证方式：待实现的 Storage／Coordinator 失败注入与恢复测试；运行 `npx tsx --test packages/runtime/test/goal-coordinator.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts` 和新增测试入口。
   - _Requirements: [1.2](./requirements.md#req-1-2), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 3. 接入浏览器审批、授权查看与撤销
+- [x] //TODO 3. 接入浏览器审批、授权查看与撤销
 
   - 实现目标：扩展 Browser 命令、投影与 Goal Board 审批面板，按当前 Action 身份提供完整输入详情、三档选择和当前范围的 Grant 列表／撤销入口。
   - 成功判据：界面能审阅完整命令或写入目标，并明确提示同路径不同内容的后续写入会自动获准；提交过期 Action 或跨工作区查询被拒绝；撤销后下一个匹配 Action 再次等待审批。

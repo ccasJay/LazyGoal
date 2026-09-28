@@ -27,6 +27,7 @@ import type {
   BrowserGoalListItem,
   BrowserGoalSession,
   BrowserSessionMessage,
+  BrowserToolGrantSummary,
 } from "../../../packages/browser/src/index";
 import { createSlashCommandRegistry, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
@@ -85,6 +86,10 @@ function App() {
   const [liveText, setLiveText] = useState("");
   const [liveActivity, setLiveActivity] = useState<string | null>(null);
   const [streamConnected, setStreamConnected] = useState(false);
+  const [toolGrants, setToolGrants] = useState<readonly BrowserToolGrantSummary[]>([]);
+  const [toolGrantsLoading, setToolGrantsLoading] = useState(false);
+  const [toolGrantsError, setToolGrantsError] = useState<string | null>(null);
+  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
   const draftGoalId = useRef<string | null>(null);
@@ -149,6 +154,9 @@ function App() {
     let active = true;
     latestSession.current = null;
     setSession(null);
+    setToolGrants([]);
+    setToolGrantsError(null);
+    setToolGrantsLoading(false);
     setSessionLoading(true);
     setSessionError(null);
     setCommandError(null);
@@ -170,6 +178,21 @@ function App() {
       controller.abort();
     };
   }, [selectedGoalId]);
+
+  useEffect(() => {
+    if (sessionTab !== "Details" || session === null || selectedGoalId === null) return;
+    let active = true;
+    setToolGrantsLoading(true);
+    setToolGrantsError(null);
+    void browserApi.listToolGrants(session.goalId, session.currentRunId).then((result) => {
+      if (!active) return;
+      if (!result.ok) throw new Error(result.error);
+      setToolGrants(result.grants);
+    }).catch((error: unknown) => {
+      if (active) setToolGrantsError(errorMessage(error));
+    }).finally(() => { if (active) setToolGrantsLoading(false); });
+    return () => { active = false; };
+  }, [sessionTab, session?.goalId, session?.currentRunId, selectedGoalId]);
 
   useEffect(() => {
     if (
@@ -415,6 +438,25 @@ function App() {
     } finally {
       setCommandBusy(false);
     }
+  }
+
+  async function revokeToolGrant(grant: BrowserToolGrantSummary) {
+    if (session === null || revokingGrantId !== null) return;
+    setRevokingGrantId(grant.grantId);
+    setToolGrantsError(null);
+    try {
+      const result = await browserApi.revokeToolGrant(session.goalId, {
+        runId: session.currentRunId,
+        grantId: grant.grantId,
+        scope: grant.scope,
+      });
+      if (!result.ok) throw new Error(result.error);
+      setToolGrants(result.grants);
+      await refreshSelectedSession();
+    } catch (error) {
+      setToolGrantsError(errorMessage(error));
+      if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+    } finally { setRevokingGrantId(null); }
   }
 
   const sessionTabs: readonly SessionTab[] = session?.goalPlan === undefined
@@ -703,7 +745,15 @@ function App() {
                       </span>
                     </div>
                     {sessionTab !== "Activity" ? (
-                      <GoalDetails session={session} tab={sessionTab} />
+                      <GoalDetails
+                        session={session}
+                        tab={sessionTab}
+                        grants={toolGrants}
+                        grantsLoading={toolGrantsLoading}
+                        grantsError={toolGrantsError}
+                        revokingGrantId={revokingGrantId}
+                        onRevokeGrant={(grant) => void revokeToolGrant(grant)}
+                      />
                     ) : (
                       <>
                         <div className="activity-filter">

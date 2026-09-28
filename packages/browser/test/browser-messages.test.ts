@@ -314,3 +314,59 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
     assert.equal(plainTextMessage.status, 400);
     assert.equal(calls.length, 1);
 });
+
+test("授权路由要求当前身份，只接受明确授权范围并返回刷新后的列表", async () => {
+    const calls: string[] = [];
+    const grant = {
+        grantId: "grant-1",
+        scope: "goal" as const,
+        toolId: "write_file",
+        status: "active" as const,
+        targetPath: "src/file.ts",
+    };
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
+        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
+        async message() { return { ok: false as const, error: "message_failed" as const }; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
+        async listToolGrants(goalId, runId) {
+            calls.push(`list:${goalId}:${runId}`);
+            return { ok: true as const, goalId, runId, grants: [grant] };
+        },
+        async revokeToolGrant(goalId, command) {
+            calls.push(`revoke:${goalId}:${command.runId}:${command.grantId}:${command.scope}`);
+            return { ok: true as const, goalId, runId: command.runId, grants: [] };
+        },
+    });
+
+    const listed = await routes.request("http://localhost/api/goals/goal-1/grants?runId=run-1");
+    assert.equal(listed.status, 200);
+    assert.deepEqual(await listed.json(), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        grants: [grant],
+    });
+    const missingRun = await routes.request("http://localhost/api/goals/goal-1/grants");
+    assert.equal(missingRun.status, 400);
+
+    const revoke = (scope: string) => routes.request("http://localhost/api/goals/goal-1/grants/grant-1", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ runId: "run-1", scope }),
+    });
+    const revoked = await revoke("goal");
+    assert.equal(revoked.status, 200);
+    assert.deepEqual(await revoked.json(), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        grants: [],
+    });
+    const invalidScope = await revoke("tool");
+    assert.equal(invalidScope.status, 400);
+    assert.deepEqual(calls, ["list:goal-1:run-1", "revoke:goal-1:run-1:grant-1:goal"]);
+});

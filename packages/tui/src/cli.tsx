@@ -1605,6 +1605,9 @@ async function runBrowserSessionCli(
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
+            readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
+            listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
+            revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
             openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));

@@ -1,19 +1,31 @@
 import { useState } from "react";
-import { Check, Circle, CircleHelp, Clock3, X, Zap } from "lucide-react";
+import { Check, Circle, CircleHelp, Clock3, Eye, Shield, X, Zap } from "lucide-react";
 
 import type {
   BrowserGoalInteractionCommand,
   BrowserGoalSession,
+  BrowserToolGrantSummary,
 } from "../../../packages/browser/src/index";
+import { BrowserApiError, browserApi } from "./api";
 
 type SessionTab = "Activity" | "Plan" | "Details";
 
 export function GoalDetails({
   session,
   tab,
+  grants,
+  grantsLoading,
+  grantsError,
+  revokingGrantId,
+  onRevokeGrant,
 }: {
   session: BrowserGoalSession;
   tab: Exclude<SessionTab, "Activity">;
+  grants: readonly BrowserToolGrantSummary[];
+  grantsLoading: boolean;
+  grantsError: string | null;
+  revokingGrantId: string | null;
+  onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
 }) {
   if (tab === "Plan") {
     const plan = session.goalPlan;
@@ -79,6 +91,31 @@ export function GoalDetails({
           <dd>{session.messages.length}</dd>
         </div>
       </dl>
+      <section className="grant-panel" aria-labelledby="grant-panel-title">
+        <div className="panel-heading">
+          <h3 id="grant-panel-title">Tool permissions</h3>
+          <span>{grants.length}</span>
+        </div>
+        <p className="grant-intro">Permissions granted for this Goal and this project.</p>
+        {grantsLoading ? <div className="panel-empty">Loading permissions…</div>
+          : grantsError ? <div className="grant-error" role="alert">{grantsError}</div>
+            : grants.length === 0 ? <div className="panel-empty">No ongoing permissions.</div>
+              : <ul className="grant-list">{grants.map((grant) => (
+                <li key={grant.grantId}>
+                  <div className="grant-copy">
+                    <strong><Shield size={13} /> {grant.toolId}</strong>
+                    <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
+                    {grant.targetPath && <code>{grant.targetPath}</code>}
+                  </div>
+                  {grant.status === "active" && <button
+                    className="grant-revoke"
+                    disabled={revokingGrantId !== null}
+                    aria-label={`Revoke ${grant.toolId} permission`}
+                    onClick={() => onRevokeGrant(grant)}
+                  >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</button>}
+                </li>
+              ))}</ul>}
+      </section>
       {session.historyTruncated && (
         <div className="info-box">Older session history is omitted from this view.</div>
       )}
@@ -292,8 +329,29 @@ function ActionApprovalForm({
 }) {
   const action = session.pendingAction;
   const [reason, setReason] = useState("");
+  const [scope, setScope] = useState<"action" | "goal" | "workspace">("action");
+  const [fullInput, setFullInput] = useState<string | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   if (action === undefined || action.status === "approved") return null;
-  const recovery = action.status === "outcome_unknown";
+  const pendingAction = action;
+  const recovery = pendingAction.status === "outcome_unknown";
+  const persistentDisabled = recovery || busy || (pendingAction.inputPreviewTruncated && fullInput === null);
+  const pathAuthorization = pendingAction.targetPath !== undefined
+    && (pendingAction.toolId === "write_file" || pendingAction.toolId === "edit_file");
+
+  async function revealFullInput() {
+    if (fullInput !== null || detailsLoading) return;
+    setDetailsLoading(true);
+    setDetailsError(null);
+    try {
+      const details = await browserApi.readActionDetails(session.goalId, session.currentRunId, pendingAction.actionId);
+      if (!details.ok) throw new BrowserApiError(details.error, 409, true);
+      setFullInput(JSON.stringify(details.input, null, 2));
+    } catch (error) {
+      setDetailsError(error instanceof Error ? error.message : "Action details could not be loaded.");
+    } finally { setDetailsLoading(false); }
+  }
 
   return (
     <section className="approval structured-form">
@@ -311,6 +369,36 @@ function ActionApprovalForm({
         <span>{action.toolId}</span>
         <small>{action.actionId}</small>
       </div>
+      <div className="action-input-preview">
+        <label>Tool input</label>
+        <pre>{action.inputPreview}</pre>
+        {action.inputPreviewTruncated && fullInput === null && <p>Preview shortened. View the complete input before granting ongoing permission.</p>}
+        <button className="action-details-toggle" disabled={detailsLoading} onClick={() => {
+          if (fullInput === null) void revealFullInput();
+          else setFullInput(null);
+        }}>
+          <Eye size={13} /> {detailsLoading ? "Loading…" : fullInput === null ? "View complete input" : "Hide complete input"}
+        </button>
+        {detailsError && <span className="grant-error" role="alert">{detailsError}</span>}
+        {fullInput !== null && <pre className="action-input-full">{fullInput}</pre>}
+      </div>
+      {pathAuthorization && <p className="path-permission-note">
+        Ongoing permission for <code>{action.targetPath}</code> also allows later writes to this path with different content.
+      </p>}
+      {!recovery && <fieldset className="approval-scopes" disabled={busy}>
+        <legend>Allow this action</legend>
+        <label><input type="radio" name={`scope-${action.actionId}`} checked={scope === "action"} onChange={() => setScope("action")} />
+          <span><strong>Once</strong><small>Approve this action only.</small></span></label>
+        <label className={persistentDisabled ? "is-disabled" : ""}>
+          <input type="radio" name={`scope-${action.actionId}`} checked={scope === "goal"} disabled={persistentDisabled} onChange={() => setScope("goal")} />
+          <span><strong>This Goal</strong><small>Allow matching actions in this session.</small></span>
+        </label>
+        <label className={persistentDisabled ? "is-disabled" : ""}>
+          <input type="radio" name={`scope-${action.actionId}`} checked={scope === "workspace"} disabled={persistentDisabled} onChange={() => setScope("workspace")} />
+          <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
+        </label>
+        {persistentDisabled && action.inputPreviewTruncated && fullInput === null && <small className="scope-lock-note">View the complete input to enable ongoing permissions.</small>}
+      </fieldset>}
       <button
         className="approval-primary"
         disabled={busy}
@@ -318,6 +406,7 @@ function ActionApprovalForm({
           kind: "approve_action",
           runId: session.currentRunId,
           actionId: action.actionId,
+          scope: recovery ? "action" : scope,
         })}
       >
         <Check size={13} /> Approve action

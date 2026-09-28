@@ -64,7 +64,7 @@ const LedgerSchema = z.object({
     }
 });
 
-type Ledger = z.infer<typeof LedgerSchema>;
+type Ledger = { readonly version: 1; readonly grants: readonly ToolGrant[] };
 
 /**
  * 将当前 Workspace 的用户授权保存为私有 JSON 账本。
@@ -176,7 +176,10 @@ export class JsonFileToolGrantStore implements ToolGrantStore {
         catch (error) { throw new Error("Tool Grant ledger is invalid JSON", { cause: error }); }
         const validated = LedgerSchema.safeParse(parsed);
         if (!validated.success) throw new Error("Tool Grant ledger violates its current schema", { cause: validated.error });
-        return validated.data;
+        return {
+            version: validated.data.version,
+            grants: validated.data.grants.map(toToolGrant),
+        };
     }
 
     private async mutate<T>(update: (ledger: Ledger) => { readonly ledger: Ledger; readonly result: T }): Promise<T> {
@@ -226,6 +229,18 @@ function sameGrantRequest(left: ToolGrant, right: Omit<ToolGrant, "id">): boolea
         && left.goalId === right.goalId
         && sameSource(left.source, right.source)
         && matches(left.matcher, right.matcher);
+}
+
+function toToolGrant(grant: z.infer<typeof GrantSchema>): ToolGrant {
+    return {
+        id: grant.id,
+        scope: grant.scope,
+        workspaceId: grant.workspaceId,
+        ...(grant.goalId === undefined ? {} : { goalId: grant.goalId }),
+        source: grant.source,
+        matcher: grant.matcher,
+        status: grant.status,
+    };
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

@@ -10,6 +10,9 @@ import type {
     BrowserGoalMessageResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserActionDetailsResult,
+    BrowserToolGrantResult,
+    BrowserToolGrantRevokeCommand,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalLiveFeed,
@@ -102,6 +105,12 @@ export interface BrowserGoalApiPort {
      * @throws 正式 Snapshot 读取失败时拒绝。
      */
     openStream(goalId: string, runId: string, signal?: AbortSignal): Promise<BrowserGoalStreamOpenResult>;
+    /** 精确读取当前等待 Action 的完整输入；普通会话投影不携带此数据。 */
+    readActionDetails?(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult>;
+    /** 列出当前 Goal 与 workspace 的授权摘要。 */
+    listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
+    /** 撤销当前 Goal 或 workspace 的指定授权。 */
+    revokeToolGrant?(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult>;
 }
 
 /**
@@ -139,6 +148,59 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         } catch {
             return context.json({ error: "goal_read_failed" }, 500);
         }
+    });
+
+    routes.get("/api/goals/:goalId/actions/:actionId", async (context) => {
+        if (source.readActionDetails === undefined) return context.json({ error: "action_details_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const actionId = context.req.param("actionId");
+        const runId = context.req.query("runId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(actionId, 256) || !isWireId(runId, 256)) {
+            return context.json({ error: "invalid_action_details_request" }, 400);
+        }
+        try {
+            const result = await source.readActionDetails(goalId, runId, actionId);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "action_details_unavailable" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "action_details_unavailable" }, 500); }
+    });
+
+    routes.get("/api/goals/:goalId/grants", async (context) => {
+        if (source.listToolGrants === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const runId = context.req.query("runId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(runId, 256)) {
+            return context.json({ error: "invalid_grant_request" }, 400);
+        }
+        try {
+            const result = await source.listToolGrants(goalId, runId);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "grant_failed" }, 500); }
+    });
+
+    routes.delete("/api/goals/:goalId/grants/:grantId", async (context) => {
+        if (source.revokeToolGrant === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const grantId = context.req.param("grantId");
+        const parsed = await parseGrantRevokeCommand(context.req.raw);
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(grantId, 256) || !parsed.ok) {
+            return context.json({ error: parsed.ok ? "invalid_grant_request" : parsed.error }, 400);
+        }
+        try {
+            const result = await source.revokeToolGrant(goalId, { ...parsed.command, grantId });
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "grant_failed" }, 500); }
     });
 
     routes.post("/api/goals", async (context) => {
@@ -381,13 +443,15 @@ async function parseInteractionCommand(
     }
 
     if (kind === "approve_action") {
-        if (!hasExactKeys(body, ["kind", "runId", "actionId"])) {
+        if (!hasExactKeys(body, ["kind", "runId", "actionId"], ["scope"])) {
             return { ok: false, error: "invalid_interaction", status: 400 };
         }
         const actionId = readWireText(body.actionId, 256);
+        const scope = body.scope ?? "action";
         return actionId === undefined
+            || (scope !== "action" && scope !== "goal" && scope !== "workspace")
             ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, actionId } };
+            : { ok: true, command: { kind, runId, actionId, scope } };
     }
 
     if (kind === "reject_action") {
@@ -430,6 +494,26 @@ async function parseMessageCommand(
         return { ok: false, error: "invalid_message", status: 400 };
     }
     return { ok: true, command: { runId, content } };
+}
+
+async function parseGrantRevokeCommand(request: Request): Promise<
+    | { readonly ok: true; readonly command: Omit<BrowserToolGrantRevokeCommand, "grantId"> }
+    | { readonly ok: false; readonly error: string }
+> {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    const value = parsed.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_grant_request" };
+    }
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "scope"])) return { ok: false, error: "invalid_grant_request" };
+    const runId = readWireText(body.runId, 256);
+    const scope = body.scope;
+    if (runId === undefined || (scope !== "goal" && scope !== "workspace")) {
+        return { ok: false, error: "invalid_grant_request" };
+    }
+    return { ok: true, command: { runId, scope } };
 }
 
 async function readJsonBody(
@@ -532,8 +616,9 @@ function readWireText(value: unknown, maximumLength: number): string | undefined
         : undefined;
 }
 
-function isWireId(value: string, maximumLength: number): boolean {
-    return value.length > 0
+function isWireId(value: unknown, maximumLength: number): value is string {
+    return typeof value === "string"
+        && value.length > 0
         && value.length <= maximumLength
         && /^[A-Za-z0-9_-]+$/.test(value);
 }

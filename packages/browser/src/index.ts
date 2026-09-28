@@ -19,6 +19,10 @@ export {
     type BrowserGoalMessageResult,
     type BrowserGoalPlanModeCommand,
     type BrowserGoalPlanModeResult,
+    type BrowserActionDetailsResult,
+    type BrowserToolGrantSummary,
+    type BrowserToolGrantResult,
+    type BrowserToolGrantRevokeCommand,
     type BrowserGoalLauncher,
     type BrowserGoalSaveNotifications,
 } from "./browser-goal-command-service";

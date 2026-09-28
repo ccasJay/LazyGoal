@@ -120,6 +120,34 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Approve action'))"), true);
 
+    mock.resetToAction();
+    await navigate(socket, `${webUrl}/?session=approval#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.approval')?.innerText.includes('Your approval is needed')");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), true);
+    assert.equal(await value(socket, "document.querySelector('.path-permission-note')?.innerText.includes('src/file.ts')"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.action-details-toggle').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.action-input-full')?.innerText.includes('Complete private body')");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').disabled"), false);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.approval-scopes label')].find(label => label.innerText.includes('This Goal')).querySelector('input').click()",
+      returnByValue: true,
+    });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.approval-primary').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('I collected the approved notes.')");
+    assert.equal(mock.lastInteraction.scope, "goal");
+
+    mock.resetGrants();
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Details').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.grant-panel')?.innerText.includes('src/file.ts')");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.grant-panel button')].some(button => button.textContent.includes('Revoke'))"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.grant-revoke').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.grant-panel')?.innerText.includes('No ongoing permissions.')");
+
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=failed#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
@@ -172,6 +200,18 @@ function createMockApi() {
     }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
       json(response, { goal: session });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/actions/action-1?runId=run-1" && request.method === "GET") {
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", actionId: "action-1", toolId: "write_file", input: { path: "src/file.ts", content: "Complete private body" } });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/grants?runId=run-1" && request.method === "GET") {
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [{ grantId: "grant-1", scope: "workspace", toolId: "write_file", status: "active", targetPath: "src/file.ts" }] });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/grants/grant-1" && request.method === "DELETE") {
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [] });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/events?") && request.method === "GET") {
@@ -244,10 +284,34 @@ function createMockApi() {
         pendingInteraction: undefined,
         pendingAction: {
           actionId: "action-unknown",
-          toolId: "workspace.write_file",
+          toolId: "write_file",
           status: "outcome_unknown",
+          inputPreview: "{\"path\":\"src/file.ts\"}",
+          inputPreviewTruncated: false,
+          targetPath: "src/file.ts",
         },
       };
+      currentListItem = listItem("waiting");
+      liveTransitionSent = true;
+    },
+    resetToAction() {
+      session = {
+        ...interactionSession(),
+        pendingInteraction: undefined,
+        pendingAction: {
+          actionId: "action-1",
+          toolId: "write_file",
+          status: "awaiting_approval",
+          inputPreview: `{"path":"src/file.ts","content":"${"x".repeat(340)}"}`,
+          inputPreviewTruncated: true,
+          targetPath: "src/file.ts",
+        },
+      };
+      currentListItem = listItem("waiting");
+      liveTransitionSent = true;
+    },
+    resetGrants() {
+      session = interactionSession();
       currentListItem = listItem("waiting");
       liveTransitionSent = true;
     },
