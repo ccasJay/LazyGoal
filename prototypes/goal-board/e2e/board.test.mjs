@@ -157,6 +157,16 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('This Run failed')");
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/unknown");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('Unknown slash command')");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/unknown");
+    assert.equal(mock.lastMessage, undefined);
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan extra");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('does not accept')");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/plan extra");
+    assert.equal(mock.planModeRequests, 0);
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
     await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/plan')");
     await cdp(socket, "Runtime.evaluate", {

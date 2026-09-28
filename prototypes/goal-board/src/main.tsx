@@ -353,19 +353,19 @@ function App() {
     setExpanded(false);
   }
 
-  async function submitDraftMessage(content: string) {
+  async function submitDraftMessage(content: string): Promise<boolean> {
     const dispatched = await dispatchBrowserInput(content);
     if (dispatched.kind === "error") {
       setCommandError(dispatched.message);
-      return;
+      return false;
     }
     if (dispatched.kind === "plan") {
       setDraftPlanMode(true);
       setCommandError(null);
-      return;
+      return true;
     }
     const intent = dispatched.content.trim();
-    if (!intent || commandBusy) return;
+    if (!intent || commandBusy) return false;
     setCommandBusy(true);
     setCommandError(null);
     try {
@@ -379,36 +379,39 @@ function App() {
       setDraftSessionOpen(false);
       setSelectedGoalId(result.goalId);
       await refreshGoals();
+      return true;
     } catch (error) {
       setCommandError(errorMessage(error));
+      return false;
     } finally {
       setCommandBusy(false);
     }
   }
 
-  async function submitMessage(content: string) {
+  async function submitMessage(content: string): Promise<boolean> {
     const dispatched = await dispatchBrowserInput(content);
     if (dispatched.kind === "error") {
       setCommandError(dispatched.message);
-      return;
+      return false;
     }
     if (dispatched.kind === "plan") {
-      if (!session || commandBusy) return;
+      if (!session || commandBusy) return false;
       setCommandBusy(true);
       setCommandError(null);
       try {
         await browserApi.enterPlanMode(session.goalId, { runId: session.currentRunId });
         await refreshSelectedSession();
+        return true;
       } catch (error) {
         setCommandError(errorMessage(error));
         if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+        return false;
       } finally {
         setCommandBusy(false);
       }
-      return;
     }
     const trimmed = dispatched.content.trim();
-    if (!session || !trimmed || !canSendText || commandBusy) return;
+    if (!session || !trimmed || !canSendText || commandBusy) return false;
     setCommandBusy(true);
     setCommandError(null);
     try {
@@ -417,9 +420,11 @@ function App() {
         content: trimmed,
       });
       await refreshSelectedSession();
+      return true;
     } catch (error) {
       setCommandError(errorMessage(error));
       if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
+      return false;
     } finally {
       setCommandBusy(false);
     }
@@ -705,7 +710,7 @@ function App() {
                         autoFocus
                         busy={commandBusy}
                         placeholder="Message LazyGoal…"
-                        onSubmit={(content) => void submitDraftMessage(content)}
+                        onSubmit={submitDraftMessage}
                       />
                     </div>
                   </>
@@ -875,7 +880,7 @@ function App() {
                               key={session.currentRunId}
                               busy={commandBusy}
                               placeholder="Give direction or ask a question…"
-                              onSubmit={(content) => void submitMessage(content)}
+                              onSubmit={submitMessage}
                             />
                       )}
                       {(session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
@@ -883,7 +888,7 @@ function App() {
                           key={`${session.currentRunId}:continue`}
                           busy={commandBusy}
                           placeholder={session.runStatus === "failed" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
-                          onSubmit={(content) => void submitMessage(content)}
+                          onSubmit={submitMessage}
                         />
                       )}
                       {session.runStatus === "running" && <div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div>}
@@ -962,7 +967,7 @@ function MessageComposer({
 }: {
   busy: boolean;
   placeholder: string;
-  onSubmit: (content: string) => void;
+  onSubmit: (content: string) => Promise<boolean>;
   autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -972,12 +977,14 @@ function MessageComposer({
   const candidates = inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
 
-  function submit(content = draft) {
+  async function submit(content = draft) {
     if (busy || !content.trim()) return;
-    onSubmit(content);
-    setDraft("");
-    setCommandMenuClosed(false);
-    setSelectedCommand(0);
+    const submittedDraft = draft;
+    if (await onSubmit(content)) {
+      setDraft((current) => current === submittedDraft ? "" : current);
+      setCommandMenuClosed(false);
+      setSelectedCommand(0);
+    }
   }
   return (
     <>
@@ -992,7 +999,7 @@ function MessageComposer({
               key={candidate.name}
               disabled={busy}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => submit(candidate.usage)}
+              onClick={() => void submit(candidate.usage)}
             >
               <span className="command-candidate-name">{candidate.usage}</span>
               <span className="command-candidate-description">{candidate.description}</span>
@@ -1000,7 +1007,7 @@ function MessageComposer({
           ))}
         </div>
       )}
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
+      <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <textarea
           aria-label="Message the Goal"
           placeholder={placeholder}
@@ -1021,7 +1028,7 @@ function MessageComposer({
               }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
-                if (activeCandidate !== undefined) submit(activeCandidate.usage);
+                if (activeCandidate !== undefined) void submit(activeCandidate.usage);
                 return;
               }
             }
@@ -1032,7 +1039,7 @@ function MessageComposer({
             }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
-              submit();
+              void submit();
             }
           }}
         />

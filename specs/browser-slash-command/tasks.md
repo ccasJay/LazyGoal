@@ -7,7 +7,7 @@
   - 验证方式：扩展浏览器 E2E 测试（待实现）；执行 `npm run test:e2e --prefix prototypes/goal-board`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.5](./requirements.md#req-1-5)_
 
-- [ ] //TODO 2. 将浏览器命令派发与现有 Plan Mode 流程连接
+- [x] //TODO 2. 将浏览器命令派发与现有 Plan Mode 流程连接
 
   - 实现目标：命令在草稿和已有 Goal 中只触发对应控制操作，未知命令和非法参数留在输入界面报错。
   - 成功判据：草稿 `/plan` 不创建 Goal，首条任务创建 Plan Run；终态 `/plan` 仅作用于下一 Run，拒绝请求不生成消息或 Step。
