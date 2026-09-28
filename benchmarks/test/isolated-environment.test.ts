@@ -155,7 +155,7 @@ test("trusted process snapshots reject scoring while an Agent child process rema
     assert.match(result.errors.map((error) => error.message).join(" "), /Agent process\(es\) remain/u);
 });
 
-test("IsolatedEnvironment cleans up stray agent processes before scoring when baseline recovers", async (t) => {
+test("IsolatedEnvironment waits for stray agent processes to exit before scoring when baseline recovers", async (t) => {
     const output = await mkdtemp(join(tmpdir(), "iso-proc-clean-"));
     t.after(() => rm(output, { recursive: true, force: true }));
 
@@ -206,7 +206,7 @@ test("IsolatedEnvironment cleans up stray agent processes before scoring when ba
     assert.equal(result.status, "completed");
     assert.deepEqual(result.artifact, { scored: true });
     assert.equal(result.errors.length, 0);
-    assert.ok(calls.some((c) => c.includes("lazygoal-agent-baseline-pids")));
+    assert.equal(topCount, 3);
 });
 
 function fakeHandle(workdir: string, signal: AbortSignal, calls: string[]): EnvironmentHandle {
