@@ -1,6 +1,8 @@
 import type {
     ExecutionControl,
     Goal,
+    GoalModelSelection,
+    GoalModelSelectionCoordinator,
     GoalCoordinator,
     GoalStore,
     GoalUserAction,
@@ -69,6 +71,27 @@ export type BrowserGoalPlanModeResult =
         readonly ok: false;
         readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "plan_mode_busy" | "plan_mode_failed";
     };
+
+/**
+ * 浏览器提交的当前 Run 模型选择。
+ *
+ * @remarks
+ * 只接受模型 ID；Provider、能力和预算由服务端重新读取目录并构造。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserModelSelectionCommand = { runId: "run-1", modelId: "gpt-4o" };
+ * ```
+ */
+export interface BrowserModelSelectionCommand {
+    readonly runId: string;
+    readonly modelId: string;
+}
+
+/** 模型选择提交的稳定受理结果；失败不会修改 Goal Snapshot。 */
+export type BrowserModelSelectionResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "model_switch_not_allowed" | "model_not_selectable" | "model_catalog_unavailable" | "model_selection_failed" };
 
 /** 白名单化后的当前 Goal/workspace 授权摘要。 */
 export interface BrowserToolGrantSummary {
@@ -366,6 +389,10 @@ export interface BrowserGoalCommandDependencies {
     readonly launcher: BrowserGoalLauncher;
     /** 复用本机 GoalCoordinator；浏览器不能直接修改 Goal Snapshot。 */
     readonly coordinator: BrowserGoalCoordinator;
+    /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
+    readonly resolveModelSelection?: (modelId: string, current: GoalModelSelection) => Promise<GoalModelSelection | undefined>;
+    /** 在安全等待点持久化已验证的模型选择。 */
+    readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
     /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
@@ -422,6 +449,46 @@ export class BrowserGoalCommandService {
      * @param dependencies - 正式 Snapshot 读取、保存通知、本机 Launcher、Coordinator 与 Profile。
      */
     constructor(private readonly dependencies: BrowserGoalCommandDependencies) {}
+
+    /**
+     * 在当前 Run 的安全等待点提交已重新验证的模型选择。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 当前 Run 身份及模型 ID。
+     * @returns 保存成功后的身份，或无副作用的稳定拒绝码。
+     */
+    async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult> {
+        return this.withReservationLock(async () => {
+            if (this.activeGoalId !== undefined) return { ok: false, error: "goal_busy" };
+            const goal = await this.dependencies.store.restore(goalId);
+            if (goal === undefined) return { ok: false, error: "goal_not_found" };
+            if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+            if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
+                return { ok: false, error: "model_catalog_unavailable" };
+            }
+            if (goal.state.run.status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined) {
+                return { ok: false, error: "model_switch_not_allowed" };
+            }
+            let selection: GoalModelSelection | undefined;
+            try {
+                selection = await this.dependencies.resolveModelSelection(command.modelId, goal.state.modelSelection);
+            } catch {
+                return { ok: false, error: "model_catalog_unavailable" };
+            }
+            if (selection === undefined) return { ok: false, error: "model_not_selectable" };
+            const saved = await this.dependencies.modelSelectionCoordinator.updateModelSelection({
+                ref: { goalId, runId: command.runId }, selection,
+            }, this.dependencies.control);
+            if (!saved.ok) {
+                const error = saved.error.code === "RUN_MISMATCH" ? "stale_run"
+                    : saved.error.code === "GOAL_NOT_FOUND" ? "goal_not_found"
+                        : saved.error.code === "GOAL_NOT_WAITING" ? "model_switch_not_allowed"
+                            : "model_selection_failed";
+                return { ok: false, error };
+            }
+            return { ok: true, goalId, runId: command.runId, modelId: selection.modelId };
+        });
+    }
 
     /**
      * 按稳定 ID 受理一个 Goal 创建。

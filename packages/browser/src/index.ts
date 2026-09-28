@@ -27,6 +27,8 @@ export {
     type BrowserGoalMessageResult,
     type BrowserGoalPlanModeCommand,
     type BrowserGoalPlanModeResult,
+    type BrowserModelSelectionCommand,
+    type BrowserModelSelectionResult,
     type BrowserActionDetailsResult,
     type BrowserToolGrantSummary,
     type BrowserToolGrantResult,

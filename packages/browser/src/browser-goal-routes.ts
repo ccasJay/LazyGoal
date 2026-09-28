@@ -11,6 +11,8 @@ import type {
     BrowserGoalMessageResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserModelSelectionCommand,
+    BrowserModelSelectionResult,
     BrowserActionDetailsResult,
     BrowserToolGrantResult,
     BrowserToolGrantRevokeCommand,
@@ -105,6 +107,8 @@ export interface BrowserGoalApiPort {
      * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
      */
     models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    /** 保存由服务端重新验证的当前 Run 模型选择。 */
+    selectModel?(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
     /**
      * 打开精确绑定到最新 Goal/Run 的实时进展流。
      *
@@ -175,6 +179,38 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                 : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
         } catch {
             return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/model-selection", async (context) => {
+        if (source.selectModel === undefined) return context.json({ error: "model_selection_failed" }, 503);
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_model_selection" }, 400);
+        const body = await readJsonBody(context.req.raw);
+        if (!body.ok) return context.json({ error: body.error }, body.status);
+        const value = body.value;
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return context.json({ error: "invalid_model_selection" }, 400);
+        }
+        const fields = value as Record<string, unknown>;
+        const modelId = readWireText(fields.modelId, 256);
+        if (
+            Object.keys(fields).length !== 2
+            || !isWireId(fields.runId, 256)
+            || modelId === undefined
+        ) return context.json({ error: "invalid_model_selection" }, 400);
+        try {
+            const result = await source.selectModel(goalId, {
+                runId: fields.runId,
+                modelId,
+            });
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "model_catalog_unavailable" || result.error === "model_selection_failed" ? 503
+                    : 409;
+            return context.json({ error: result.error, refresh: result.error === "stale_run" }, status);
+        } catch {
+            return context.json({ error: "model_selection_failed" }, 503);
         }
     });
 

@@ -1588,6 +1588,23 @@ async function runBrowserSessionCli(
             saveNotifications: root.notifyingStore,
             launcher: root.launcher,
             coordinator: root.coordinator,
+            modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+            resolveModelSelection: async (modelId, current) => {
+                if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
+                    return undefined;
+                }
+                const models = await root.modelCatalog.list({ ...root.llmConfig, model: current.modelId });
+                const model = models.find((entry) => entry.provider === current.provider && entry.id === modelId && entry.selectable);
+                if (model === undefined) return undefined;
+                return {
+                    provider: model.provider,
+                    modelId: model.id,
+                    structuredOutputMode: current.structuredOutputMode,
+                    ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
+                    ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+                    inputEstimator: current.inputEstimator,
+                };
+            },
             profileId: root.profile.id,
             control: { signal: root.abortController.signal },
         });
@@ -1607,6 +1624,7 @@ async function runBrowserSessionCli(
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
+            selectModel: (goalId, command) => commandService.selectModel(goalId, command),
             models: async (target, signal) => {
                 let currentModelId = root.defaultModelSelection.modelId;
                 if (target !== undefined) {

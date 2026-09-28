@@ -21,7 +21,7 @@
   - 验证方式：新增目录路由测试（待实现），执行 `npx tsx --test packages/browser/test/browser-models.test.ts` 与 `npm run check:dependencies`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.6](./requirements.md#req-3-6), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 4. 实现等待状态的模型选择提交
+- [x] //TODO 4. 实现等待状态的模型选择提交
 
   - 实现目标：浏览器提交模型 ID 时由服务端重新验证目录和 Goal/Run 安全状态，保存非敏感选择，并在恢复执行前对齐 Binding。
   - 成功判据：合法等待点保存一次且后续调用使用新模型；不可选、跨 Provider、Action 审批和旧 Run 请求均被拒绝，原选择与等待状态不变。
