@@ -113,6 +113,10 @@ import {
     toEpochRange,
 } from "./context-epoch";
 import { withRunModeSelectionGate } from "./run-mode-selection-gate";
+import {
+    createToolGrantMatcher,
+    type ToolGrantLookup,
+} from "./tool-grant";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
     get: () => undefined,
@@ -600,6 +604,12 @@ export interface RunnerDependencies {
      * 用户批准或拒绝。
      */
     readonly toolPolicy?: ToolPolicy;
+    /** 读取会话或 Workspace 级持续 Tool 授权；缺省时所有受 Policy 门控的 Action 仍需审批。 */
+    readonly toolGrantLookup?: ToolGrantLookup;
+    /** 用于隔离 Workspace 授权的稳定身份；必须与授权账本位置一致。 */
+    readonly workspaceId?: string;
+    /** 文件 Tool 授权身份解析时使用的 Workspace 根目录。 */
+    readonly workspaceRoot?: string;
     /** 可选 Domain Event 追加与 Snapshot 边界读取端口；省略时只保存 Snapshot。 */
     readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
@@ -652,6 +662,9 @@ export class Runner {
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
+    private readonly toolGrantLookup: ToolGrantLookup | undefined;
+    private readonly workspaceId: string | undefined;
+    private readonly workspaceRoot: string | undefined;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
     private readonly trajectoryStore: TrajectoryStore | undefined;
     private readonly workingMemoryLimits: WorkingMemoryLimitsInput | undefined;
@@ -667,6 +680,9 @@ export class Runner {
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
+        this.toolGrantLookup = dependencies.toolGrantLookup;
+        this.workspaceId = dependencies.workspaceId;
+        this.workspaceRoot = dependencies.workspaceRoot;
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
@@ -2798,7 +2814,38 @@ export class Runner {
                         },
                     }, control);
 
-                    if (validated.policy !== "allow") {
+                    let grantMatched = false;
+                    if (
+                        validated.policy === "require_approval"
+                        && this.toolGrantLookup !== undefined
+                        && this.workspaceId !== undefined
+                    ) {
+                        try {
+                            const matcher = await createToolGrantMatcher(
+                                validated.action.toolId,
+                                validated.action.input,
+                                this.workspaceRoot,
+                            );
+                            grantMatched = await this.toolGrantLookup.findActiveMatching({
+                                workspaceId: this.workspaceId,
+                                goalId: goal.id,
+                                matcher,
+                            }) !== undefined;
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
+                    if (validated.policy !== "allow" && !grantMatched) {
                         throwIfAborted(control);
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",

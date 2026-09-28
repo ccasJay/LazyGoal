@@ -1,6 +1,6 @@
 # Runtime 错误恢复与 Tool 授权审批实施任务
 
-- [ ] //TODO 1. 接入按操作匹配的 Tool 授权查询
+- [x] //TODO 1. 接入按操作匹配的 Tool 授权查询
 
   - 实现目标：在 Runtime 的 Tool 准备与 Policy 检查后接入 Grant 匹配器和工作区授权读取；规范化 `bash` 输入、写入目标路径及其他 Tool 输入，并保持无 Grant 时的现有审批行为。
   - 成功判据：`read_file`、`grep` 仍自动放行；获准写入同一路径的不同内容可复用权限，而另一条 `bash` 命令、改指向的路径、跨 Goal／工作区或撤销的 Grant 仍等待审批；Profile、输入或 Policy 拒绝不能被 Grant 覆盖。

@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createToolGrantMatcher,
     createToolRegistration,
     GoalCoordinator,
     InlineScheduler,
@@ -38,6 +39,7 @@ import type {
     ToolPolicy,
     ToolRegistration,
     ToolRegistry,
+    ToolGrant,
 } from "../src/index";
 
 const goalDefinition: GoalTask = {
@@ -1567,6 +1569,77 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
             summary: "完成",
         },
     });
+});
+
+test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同一操作", async () => {
+    const store = new InMemoryGoalStore();
+    const runProfile: AgentProfile = { ...profile, toolIds: ["bash"] };
+    const initial = createInitialGoal("run-grant-match", "goal-grant-match", runProfile);
+    await store.save(initial);
+    const inputContract = contract.object({ command: contract.string() });
+    const action = {
+        actionId: "action-grant-match",
+        toolId: "bash",
+        input: { command: "git status --short" },
+    };
+    const matcher = await createToolGrantMatcher("bash", action.input);
+    const grant: ToolGrant = {
+        id: "grant-1",
+        scope: "workspace",
+        workspaceId: "workspace-1",
+        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old" },
+        matcher,
+        status: "active",
+    };
+    let executorCalls = 0;
+    let toolCalls = 0;
+    let lookupCount = 0;
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectoryStoreFor(store),
+        executor: {
+            async execute() {
+                executorCalls += 1;
+                return executorCalls === 1
+                    ? { kind: "tool_call", action }
+                    : { kind: "complete", completionEvidence: [], summary: "完成" };
+            },
+        },
+        toolRegistry: {
+            get() {
+                return createToolRegistration({
+                    definition: {
+                        id: "bash",
+                        description: "执行命令",
+                        inputContract,
+                        isReadOnly: false,
+                    },
+                    replayPolicy: "safe",
+                    validate: () => ({ ok: true }),
+                    async execute() {
+                        toolCalls += 1;
+                        return { kind: "success", output: {}, summary: "已执行" };
+                    },
+                });
+            },
+        },
+        toolPolicy: { evaluate: () => "require_approval" },
+        toolGrantLookup: {
+            async findActiveMatching(query) {
+                lookupCount += 1;
+                assert.equal(query.workspaceId, "workspace-1");
+                assert.equal(query.goalId, initial.id);
+                assert.equal(query.matcher.kind, "exact_input");
+                return grant;
+            },
+        },
+        workspaceId: "workspace-1",
+    }).run(createRef(initial));
+
+    const state = requireSuccessfulState(result);
+    assert.equal(state.status, "completed");
+    assert.equal(lookupCount, 1);
+    assert.equal(toolCalls, 1);
 });
 
 test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期", async () => {

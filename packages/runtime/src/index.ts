@@ -419,6 +419,13 @@ export type {
     ToolRegistry,
     ToolValidationResult,
 } from "./tool";
+export { createToolGrantMatcher, toolGrantMatchersEqual } from "./tool-grant";
+export type {
+    ToolGrant,
+    ToolGrantLookup,
+    ToolGrantMatcher,
+    ToolGrantScope,
+} from "./tool-grant";
 export { launch } from "./launcher";
 export type {
     LauncherDependencies,
