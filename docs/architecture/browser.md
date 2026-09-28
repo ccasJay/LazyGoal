@@ -27,7 +27,7 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 ## 模型目录
 
 `GET /api/models` 返回当前 Provider 的草稿模型目录；`GET /api/goals/:goalId/models?runId=...` 先核对最新 Goal/Run，再返回该 Goal 当前选择。Composition Root 使用现有模型目录服务获取在线结果或离线目录兜底。浏览器边界仅投影模型标识、展示名、容量、能力和可用性来源。鉴权、权限、协议及目录不可用故障返回稳定错误码，不传递凭据或 Provider 原始响应。
-`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。旧 Run、Action 审批、忙碌与不可选模型不会改写快照。
+`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态或已完成、失败终态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。终态选择与下一 Run 消息共享浏览器受理锁；先保存的选择由下一 Run 继承，新 Run 已提交时旧 Run 请求被拒绝。旧 Run、Action 审批、忙碌与不可选模型不会改写快照。
 
 ## 页面交互
 

@@ -28,7 +28,7 @@
   - 验证方式：扩展模型协调器测试及新增浏览器选模命令测试（待实现），执行对应 `npx tsx --test` 定向测试。
   - _Requirements: [3.3](./requirements.md#req-3-3), [4.4](./requirements.md#req-4-4), [4.5](./requirements.md#req-4-5), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 5. 扩展终态预选与下一 Run 的串行提交
+- [x] //TODO 5. 扩展终态预选与下一 Run 的串行提交
 
   - 实现目标：允许 completed/failed Goal 保存新模型，并与 `continue` 共用 Goal 级提交顺序。
   - 成功判据：先保存的选择被下一 Run 使用；若新 Run 已先提交，旧 Run 的选择请求被拒绝且不会覆盖新状态。

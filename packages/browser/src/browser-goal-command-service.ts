@@ -466,7 +466,11 @@ export class BrowserGoalCommandService {
             if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
                 return { ok: false, error: "model_catalog_unavailable" };
             }
-            if (goal.state.run.status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined) {
+            const status = goal.state.run.status;
+            if (
+                status !== "completed" && status !== "failed"
+                && (status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined)
+            ) {
                 return { ok: false, error: "model_switch_not_allowed" };
             }
             let selection: GoalModelSelection | undefined;
