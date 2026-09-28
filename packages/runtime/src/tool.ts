@@ -94,14 +94,46 @@ export type ToolValidationResult =
     };
 
 /**
+ * Tool 明确确认本次调用遇到可安全重放的暂时性基础设施故障。
+ *
+ * @remarks
+ * Runner 仍只会在注册声明 `replayPolicy: "safe"` 且 Action 保持获准时重试；任意
+ * 异常和 `failure.retryable` Observation 都不会隐式触发重放。进程内等待期间可用
+ * `retryAfterMs` 提示退避，恢复计数保存在 pending Action 中。
+ *
+ * @example
+ * ```ts
+ * throw new TransientToolExecutionFailure("network_unavailable", 500);
+ * ```
+ */
+export class TransientToolExecutionFailure extends Error {
+    readonly retryAfterMs: number | undefined;
+    readonly reason: string;
+
+    /**
+     * @param reason - 可记录的稳定、非敏感失败原因。
+     * @param retryAfterMs - 可选的建议等待毫秒数。
+     */
+    constructor(reason: string, retryAfterMs?: number) {
+        const boundedReason = reason.trim().length > 0 ? reason.slice(0, 120) : "transient_tool_failure";
+        super(boundedReason);
+        this.name = "TransientToolExecutionFailure";
+        this.reason = boundedReason;
+        this.retryAfterMs = retryAfterMs === undefined || !Number.isFinite(retryAfterMs)
+            ? undefined
+            : Math.min(30_000, Math.max(0, Math.trunc(retryAfterMs)));
+    }
+}
+
+/**
  * Runtime 可调用的 Tool 扩展点。
  *
  * @remarks
  * Tool 只负责描述输入、校验输入并执行一次调用，不读取或修改 GoalStore。
  * `replayPolicy` 是恢复时的声明：`safe` 允许 Runtime 在意图已持久化但结果未知
  * 时使用相同 `actionId` 重放，`manual` 必须等待用户决定。Tool 正常返回的
- * 文件不存在等领域问题应使用 `failure` Observation；协议或基础设施异常可以
- * 直接抛出，由 Runner 归类为执行错误。
+ * 文件不存在等领域问题应使用 `failure` Observation；仅当适配器确认基础设施错误
+ * 可安全重试时才抛出 `TransientToolExecutionFailure`，未知异常不得标为可重试。
  *
  * @example
  * ```ts
@@ -141,7 +173,8 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      * @param request - Action ID 与已解析的结构化输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 由执行环境产生的成功或领域失败 Observation。
-     * @throws Tool 协议、配置或基础设施异常；中止时抛出
+     * @throws 确认可安全重试的暂时故障可抛出 `TransientToolExecutionFailure`；未知
+     *   Tool 协议、配置或基础设施异常由 Runner 作为稳定错误处理；中止时抛出
      *   `ExecutionAbortedError`，调用方不得将其伪装成 Observation。
      */
     execute(
@@ -154,7 +187,8 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      * @param request - Action ID 与已解析的结构化输入。
      * @param control - 当前 Run 推进调用共享的中止控制。
      * @returns 输出分片以及恰好一个 `completed` 结算事件。
-     * @throws 基础设施异常或中止错误；调用方不得把异常伪装成 Observation。
+     * @throws 可安全重试的暂时故障可抛出 `TransientToolExecutionFailure`；其他基础设施异常
+     *   或中止错误由调用方按 replay policy 处理，不得伪装成 Observation。
      */
     readonly stream?: (
         request: ToolExecutionRequest<InferContract<C>>,

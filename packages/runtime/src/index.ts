@@ -423,6 +423,7 @@ export {
     InMemoryToolRegistry,
     isReadOnlyTool,
     resolveAuthorizedToolDefinitions,
+    TransientToolExecutionFailure,
 } from "./tool";
 export type {
     Tool,

@@ -284,6 +284,35 @@ test("无最终任务的普通只读 Action 可以保存为可恢复 pendingActi
     assert.equal(decoded.state.run.stepCount, 0);
 });
 
+test("当前 Snapshot 往返保存 safe Tool 的已开始尝试次数并拒绝越界", () => {
+    const goal = createCurrentGoal();
+    const started = transition(goal.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const staged = transition(started.state, {
+        kind: "stage_action",
+        action: { actionId: "retry-action", toolId: "read_file", input: { path: "README.md" } },
+    });
+    assert.equal(staged.ok, true);
+    if (!staged.ok) return;
+    const withAttempt = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...staged.state,
+                pendingAction: { ...staged.state.pendingAction!, attemptsStarted: 2 },
+            },
+        },
+    };
+    const encoded = goalSnapshotCodec.encode(withAttempt);
+    assert.equal(goalSnapshotCodec.decode(encoded).state.run.pendingAction?.attemptsStarted, 2);
+
+    const invalid = structuredClone(encoded) as unknown as Record<string, any>;
+    invalid.state.run.pendingAction.attemptsStarted = 4;
+    assert.throws(() => goalSnapshotCodec.decode(invalid), assertProtocolError);
+});
+
 test("当前 Snapshot 往返保存 pendingThink，且拒绝越界的 Step 指针", () => {
     const goal = createCurrentGoal();
     const started = transition(goal.state.run, { kind: "start" });

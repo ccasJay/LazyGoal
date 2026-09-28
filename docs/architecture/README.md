@@ -75,6 +75,7 @@ flowchart LR
 - `pendingInteraction` 与 `pendingAction` 的等待点可持久化恢复；请求 ID、Goal/Run 身份和提交边界必须匹配。
 - `pendingThink` 只指向当前 Step 最近已提交的 Think 输出；恢复校验模型输入与事件父链，不复用未提交或身份失配的输出。
 - `pendingModelRepair` 指向当前 Step 的 Decide/Think 纠错尝试与反馈；每次调用和反馈先提交 Trajectory 与 Snapshot，恢复只消费已提交反馈且每条链最多三次调用。
+- `pendingAction.attemptsStarted` 在每次 safe Tool 调用前持久化；只有类型化暂时故障可在同一已批准 Action 下重放，manual 结果未知则进入人工等待。
 - Working Memory 只从已提交 Trajectory 重建；原始事实账本不被 Compact 覆盖。
 - Prompt Bundle 与三个当前协议由 Composition Root 一起冻结；未知版本、旧 Snapshot 和交叉协议组合 fail-closed。
 - `contracts` 保持零出站依赖；依赖方向由 `npm run check:dependencies` 校验。

@@ -130,6 +130,32 @@ test("model repair feedback events validate identity, origin, attempt, and bound
     }
 });
 
+test("Tool attempt facts reject unknown, unbounded, and out-of-order retry data", () => {
+    const base = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing" as const,
+        executionUnitId: "unit-1",
+        actionId: "action-1",
+    };
+    assert.doesNotThrow(() => assertValidTrajectoryEventDraft({
+        ...base,
+        eventType: "tool_attempt_started",
+        payload: { type: "tool_attempt_started", actionId: "action-1", attempt: 3 },
+    }));
+    for (const payload of [
+        { type: "tool_attempt_started", actionId: "action-1", attempt: 4 },
+        { type: "tool_attempt_failed", actionId: "action-1", attempt: 1, reason: "x".repeat(121) },
+        { type: "tool_attempt_failed", actionId: "action-1", attempt: 1, reason: "network", retryAfterMs: 30_001 },
+    ]) {
+        assert.throws(() => assertValidTrajectoryEventDraft({
+            ...base,
+            eventType: payload.type,
+            payload,
+        } as unknown as TrajectoryEventDraft));
+    }
+});
+
 test("computeContentHash 计算合法哈希，且旧 preparation_input_recorded 事件被严格拒绝", () => {
     assert.equal(
         computeContentHash("hello"),

@@ -820,6 +820,8 @@ export type {
 export interface PendingAction {
     readonly action: ToolCallAction;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    /** 已提交的 Tool 调用开始次数；只对获批 Action 设置，最多三次。 */
+    readonly attemptsStarted?: number;
     /** 已批准 Action 使用的权限期限；单次批准为 action。 */
     readonly approvalScope?: "action" | "goal" | "workspace";
     /** 持续授权关联的待生效或有效 Grant；单次批准不设置。 */
@@ -1150,6 +1152,7 @@ export type RunInput =
         readonly actionId: string;
         readonly observation: Exclude<Observation, { readonly kind: "rejected" }>;
     }
+    | { readonly kind: "tool_outcome_unknown"; readonly actionId: string }
     | {
         readonly kind: "decision";
         readonly decision: Exclude<

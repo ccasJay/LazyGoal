@@ -14,6 +14,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
+import { TransientToolExecutionFailure } from "../../runtime/src/tool";
 import { invalidInput } from "./internal/invalid-input";
 
 /** `WebFetchTool` 在 Profile 中使用的稳定标识。 */
@@ -88,8 +89,25 @@ async function defaultWebFetch(
         },
         ...(control?.signal !== undefined ? { signal: control.signal } : {}),
     };
-    const response = await fetch(url, requestInit);
+    let response: Response;
+    try {
+        response = await fetch(url, requestInit);
+    } catch (error) {
+        if (control?.signal?.aborted) throw new ExecutionAbortedError();
+        if (error instanceof TypeError) {
+            throw new TransientToolExecutionFailure("network_request_failed");
+        }
+        throw error;
+    }
     if (!response.ok) {
+        if (response.status === 429 || response.status >= 500) {
+            const retryAfter = response.headers.get("retry-after");
+            const seconds = retryAfter === null ? undefined : Number(retryAfter);
+            const retryAfterMs = seconds !== undefined && Number.isFinite(seconds) && seconds >= 0
+                ? Math.min(30_000, seconds * 1_000)
+                : undefined;
+            throw new TransientToolExecutionFailure(`http_${response.status}`, retryAfterMs);
+        }
         throw new Error(`HTTP ${response.status} ${response.statusText}`);
     }
     const contentType = response.headers.get("content-type") ?? "";
@@ -190,11 +208,12 @@ export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
             if (control?.signal?.aborted) {
                 throw new ExecutionAbortedError();
             }
+            if (error instanceof TransientToolExecutionFailure) throw error;
             return {
                 kind: "failure",
                 code: "WEB_FETCH_FAILED",
                 message: `获取网页内容失败: ${error instanceof Error ? error.message : String(error)}`,
-                retryable: true,
+                retryable: false,
             };
         }
     }

@@ -247,6 +247,18 @@ export type TrajectoryEventPayload =
         readonly input: JsonValue;
     }
     | {
+        readonly type: "tool_attempt_started";
+        readonly actionId: string;
+        readonly attempt: number;
+    }
+    | {
+        readonly type: "tool_attempt_failed";
+        readonly actionId: string;
+        readonly attempt: number;
+        readonly reason: string;
+        readonly retryAfterMs?: number;
+    }
+    | {
         readonly type: "tool_finished";
         readonly actionId: string;
         readonly toolId: string;
@@ -696,6 +708,8 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "action_rejected",
     "action_recovered",
     "tool_started",
+    "tool_attempt_started",
+    "tool_attempt_failed",
     "tool_finished",
     "observation_recorded",
     "run_waiting",
@@ -861,6 +875,32 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         assertPositiveInteger(payload.stepOrdinal, "think_completed.stepOrdinal");
         assertNonBlankString(payload.goal, "think_completed.goal");
         assertNonBlankString(payload.output, "think_completed.output");
+    }
+    if (eventType === "tool_attempt_started") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "attempt"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_attempt_started contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "tool_attempt_started.actionId");
+        assertPositiveInteger(payload.attempt, "tool_attempt_started.attempt");
+        if (payload.attempt > 3) throw new TrajectoryProtocolError("tool_attempt_started.attempt exceeds three");
+    }
+    if (eventType === "tool_attempt_failed") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "attempt", "reason", "retryAfterMs"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_attempt_failed contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "tool_attempt_failed.actionId");
+        assertPositiveInteger(payload.attempt, "tool_attempt_failed.attempt");
+        assertNonBlankString(payload.reason, "tool_attempt_failed.reason");
+        if (payload.attempt > 3 || payload.reason.length > 120) {
+            throw new TrajectoryProtocolError("tool_attempt_failed exceeds its bounds");
+        }
+        if (payload.retryAfterMs !== undefined
+            && (typeof payload.retryAfterMs !== "number"
+                || !Number.isSafeInteger(payload.retryAfterMs)
+                || payload.retryAfterMs < 0
+                || payload.retryAfterMs > 30_000)) {
+            throw new TrajectoryProtocolError("tool_attempt_failed.retryAfterMs is invalid");
+        }
     }
     if (eventType === "model_repair_attempt_started") {
         if (Object.keys(payload).some((key) => !["type", "stage", "attempt", "inputBoundary", "thinkRequestId"].includes(key))) {
@@ -1281,6 +1321,8 @@ export function classifyTrajectoryEvent(
         case "action_recovered":
             return "action";
         case "tool_started":
+        case "tool_attempt_started":
+        case "tool_attempt_failed":
         case "tool_finished":
             return "tool";
         case "observation_recorded":

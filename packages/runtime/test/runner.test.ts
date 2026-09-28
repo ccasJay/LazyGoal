@@ -11,6 +11,7 @@ import {
     InlineScheduler,
     Runner,
     TransientModelRequestFailure,
+    TransientToolExecutionFailure,
     transition,
 } from "../src/index";
 import {
@@ -360,8 +361,11 @@ test("starts a created Goal, saves every transition, and executes until complete
         "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
+        "save:goal-1:running:1",
         "save:goal-1:running:1",
         "execute:running:1",
         "save:goal-1:completed:2",
@@ -374,13 +378,16 @@ test("starts a created Goal, saves every transition, and executes until complete
         [
             { status: "running", stepCount: 0 },
             { status: "running", stepCount: 0 },
+            { status: "running", stepCount: 0 },
+            { status: "running", stepCount: 0 },
+            { status: "running", stepCount: 1 },
             { status: "running", stepCount: 1 },
             { status: "completed", stepCount: 2 },
         ],
     );
-    assert.strictEqual(executor.receivedGoals[0], store.savedGoals[0]);
-    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[2]);
-    assert.deepEqual(state, store.savedGoals[3]?.state.run);
+    assert.strictEqual(executor.receivedGoals[0], store.savedGoals[1]);
+    assert.strictEqual(executor.receivedGoals[1], store.savedGoals[5]);
+    assert.deepEqual(state, store.savedGoals[6]?.state.run);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
     assert.deepEqual(state.lastStep, {
@@ -428,6 +435,135 @@ test("retries only typed transient model failures and caps the model call sequen
     const result = await runner.runUntilBlocked(createRef(initial));
     assert.equal(result.ok, true);
     assert.equal(calls, 3);
+});
+
+test("safe Tool 对类型化暂时错误沿用 Action 授权重试三次，retryable Observation 不触发重放", async () => {
+    const initial = createInitialGoal("tool-retry-run", "tool-retry-goal", toolProfile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    const actionIds: string[] = [];
+    let calls = 0;
+    const tool = createRunnerTool(async ({ actionId }) => {
+        actionIds.push(actionId);
+        calls += 1;
+        if (calls < 3) throw new TransientToolExecutionFailure("network_unavailable", 0);
+        return { kind: "success", output: "ok", summary: "读取完成" };
+    });
+    const executor = new SequenceDecisionExecutor([
+        { kind: "tool_call", action: { actionId: "action-tool-retry", toolId: "read_file", input: { path: "a" } } },
+        { kind: "complete", completionEvidence: [], summary: "完成" },
+    ]);
+    const trajectory = new InMemoryTrajectoryStore();
+    const state = requireSuccessfulState(await new Runner({
+        trajectoryStore: trajectory,
+        store,
+        executor,
+        toolRegistry: { get: () => registerTool(tool) },
+    }).run(createRef(initial, "tool-retry-run")));
+
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.equal(calls, 3);
+    assert.deepEqual(actionIds, ["action-tool-retry", "action-tool-retry", "action-tool-retry"]);
+    const events = await trajectory.read({ goalId: initial.id, runId: initial.state.run.id });
+    assert.deepEqual(events.filter((event) => event.eventType === "tool_attempt_started").map((event) =>
+        event.eventType === "tool_attempt_started" ? event.payload.attempt : undefined), [1, 2, 3]);
+    assert.deepEqual(events.filter((event) => event.eventType === "tool_attempt_failed").map((event) =>
+        event.eventType === "tool_attempt_failed" ? event.payload.attempt : undefined), [1, 2]);
+});
+
+test("safe Tool 中断恢复沿用 Action ID 和已提交尝试次数", async () => {
+    const initial = createInitialGoal("tool-retry-recovery-run", "tool-retry-recovery-goal", toolProfile);
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    await store.save(initial);
+    const actionIds: string[] = [];
+    let calls = 0;
+    const tool = createRunnerTool(async ({ actionId }) => {
+        actionIds.push(actionId);
+        calls += 1;
+        if (calls === 1) throw new ExecutionAbortedError();
+        return { kind: "success", output: "ok", summary: "读取完成" };
+    });
+    const registry = { get: () => registerTool(tool) };
+    const firstExecutor = new SequenceDecisionExecutor([
+        { kind: "tool_call", action: { actionId: "action-recovered-retry", toolId: "read_file", input: { path: "a" } } },
+    ]);
+    const firstRunner = new Runner({ store, trajectoryStore: trajectory, executor: firstExecutor, toolRegistry: registry });
+    await assert.rejects(() => firstRunner.run(createRef(initial, initial.state.run.id)), ExecutionAbortedError);
+    assert.equal((await store.restore(initial.id))?.state.run.pendingAction?.attemptsStarted, 1);
+
+    const secondExecutor = new SequenceDecisionExecutor([
+        { kind: "complete", completionEvidence: [], summary: "完成" },
+    ]);
+    const state = requireSuccessfulState(await new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: secondExecutor,
+        toolRegistry: registry,
+    }).run(createRef(initial, initial.state.run.id)));
+
+    assert.equal(state.status, "completed");
+    assert.equal(state.stepCount, 2);
+    assert.deepEqual(actionIds, ["action-recovered-retry", "action-recovered-retry"]);
+    assert.deepEqual(trajectory.events
+        .filter((event) => event.eventType === "tool_attempt_started")
+        .map((event) => event.eventType === "tool_attempt_started" ? event.payload.attempt : undefined), [1, 2]);
+});
+
+test("safe Tool 连续暂时故障达到三次后失败且不推进 Step", async () => {
+    const initial = createInitialGoal("tool-retry-exhausted-run", "tool-retry-exhausted-goal", toolProfile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const tool = createRunnerTool(async () => {
+        calls += 1;
+        throw new TransientToolExecutionFailure("service_unavailable", 0);
+    });
+    const result = await new Runner({
+        store,
+        trajectoryStore: trajectoryStoreFor(store),
+        executor: new SequenceDecisionExecutor([
+            { kind: "tool_call", action: { actionId: "action-retry-exhausted", toolId: "read_file", input: { path: "a" } } },
+        ]),
+        toolRegistry: { get: () => registerTool(tool) },
+    }).run(createRef(initial, initial.state.run.id));
+    const state = requireSuccessfulState(result);
+
+    assert.equal(calls, 3);
+    assert.equal(state.status, "failed");
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.stopReason?.kind, "execution_error");
+    assert.match(state.stopReason?.kind === "execution_error" ? state.stopReason.message : "", /retry limit exhausted/u);
+});
+
+test("manual Tool 调用抛错后进入 outcome_unknown 等待，不自动重放或调用模型", async () => {
+    const initial = createInitialGoal("manual-tool-unknown-run", "manual-tool-unknown-goal", toolProfile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let calls = 0;
+    const tool = {
+        ...createRunnerTool(async () => {
+            calls += 1;
+            throw new TransientToolExecutionFailure("network_unavailable", 0);
+        }),
+        replayPolicy: "manual" as const,
+    };
+    const executor = new SequenceDecisionExecutor([
+        { kind: "tool_call", action: { actionId: "action-manual-unknown", toolId: "read_file", input: { path: "a" } } },
+    ]);
+    const state = requireSuccessfulState(await new Runner({
+        trajectoryStore: trajectoryStoreFor(store),
+        store,
+        executor,
+        toolRegistry: { get: () => registerTool(tool) },
+    }).run(createRef(initial, "manual-tool-unknown-run")));
+
+    assert.equal(state.status, "waiting");
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.pendingAction?.status, "outcome_unknown");
+    assert.equal(calls, 1);
+    assert.equal(executor.receivedGoals.length, 1);
 });
 
 test("retries the same staged Decide call without advancing the Step", async () => {
@@ -565,9 +701,11 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
         "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:waiting:1",
         "restore:goal-1",
+        "save:goal-1:running:1",
         "execute:running:1",
         "save:goal-1:completed:2",
     ]);
@@ -578,7 +716,9 @@ test("stops on blocked and continues an externally resumed Goal", async () => {
         })),
         [
             { status: "running", stepCount: 0 },
+            { status: "running", stepCount: 0 },
             { status: "waiting", stepCount: 1 },
+            { status: "running", stepCount: 1 },
             { status: "completed", stepCount: 2 },
         ],
     );
@@ -875,10 +1015,14 @@ test("fails at maxSteps without an extra executor call or step count", async () 
         "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "execute:running:0",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
+        "save:goal-1:running:1",
         "save:goal-1:running:1",
         "execute:running:1",
+        "save:goal-1:running:1",
         "save:goal-1:running:1",
         "save:goal-1:running:2",
         "save:goal-1:failed:2",
@@ -953,7 +1097,7 @@ test("uses persisted step count after external resume as the maxSteps budget", a
     ]);
 });
 
-test("converts an executor exception into a persisted fail decision", async () => {
+test("executor exception fails without committing a fabricated Decision", async () => {
     const events: string[] = [];
     const store = new RecordingGoalStore(events);
     const initial = createInitialGoal();
@@ -971,27 +1115,18 @@ test("converts an executor exception into a persisted fail decision", async () =
     );
 
     assert.equal(state.status, "failed");
-    assert.equal(state.stepCount, 1);
-    assert.deepEqual(state.lastStep, {
-        kind: "decision",
-        result: {
-            kind: "fail",
-            error: "executor failed",
-        },
-    });
+    assert.equal(state.stepCount, 0);
+    assert.equal(state.lastStep, undefined);
     assert.deepEqual((await store.peek(initial.id))?.state.messages, [
-        {
-            role: "assistant",
-            assistant: { profileId: "profile-1" },
-            content: "executor failed",
-        },
+        ...initial.state.messages,
     ]);
     assert.deepEqual(events, [
         "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "execute:running:0",
-        "save:goal-1:failed:1",
+        "save:goal-1:failed:0",
     ]);
     assert.deepEqual((await store.peek(initial.id))?.state.run, state);
 });
@@ -1202,8 +1337,7 @@ test("propagates a recovered step save error and does not execute another step",
             { status: "running", stepCount: 1 },
         ],
     );
-    assert.equal(executor.receivedGoals.length, 1);
-    assert.equal(executor.receivedGoals[0]?.state.run.stepCount, 1);
+    assert.equal(executor.receivedGoals.length, 0);
     assert.strictEqual(latestGoal, persisted);
 });
 
@@ -1259,13 +1393,13 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     assert.equal(state.lastStep, undefined);
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
-        code: "TOOL_NOT_AUTHORIZED",
-        message: "Select a Tool listed as available in this request.",
+        code: "INVALID_AGENT_DECISION",
+        message: "Model output correction exhausted after three decide calls (TOOL_NOT_AUTHORIZED)",
     });
     assert.equal(registryCalls, 0);
     assert.equal(validateCalls, 0);
     assert.equal(executeCalls, 0);
-    assert.deepEqual(executor.receivedTools, [[]]);
+    assert.deepEqual(executor.receivedTools, [[], [], []]);
 });
 
 test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", async () => {
@@ -1297,10 +1431,10 @@ test("Runner 对 Profile 已授权但未注册的 Tool 返回 TOOL_NOT_FOUND", a
     assert.equal(state.stepCount, 0);
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
-        code: "TOOL_NOT_FOUND",
-        message: 'Authorized Tool "read_file" is not registered',
+        code: "INVALID_AGENT_DECISION",
+        message: "Model output correction exhausted after three decide calls (TOOL_NOT_FOUND)",
     });
-    assert.deepEqual(executor.receivedTools, [[]]);
+    assert.deepEqual(executor.receivedTools, [[], [], []]);
 });
 
 test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
@@ -1351,8 +1485,8 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     assert.equal(state.stepCount, 0);
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
-        code: "INVALID_TOOL_INPUT",
-        message: "Correct the Tool input to match its supplied schema and constraints.",
+        code: "INVALID_AGENT_DECISION",
+        message: "Model output correction exhausted after three decide calls (INVALID_TOOL_INPUT)",
     });
     assert.equal(executeCalls, 0);
 });
@@ -1413,7 +1547,8 @@ test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也�
     assert.equal(state.stepCount, 0);
     assert.equal(state.pendingAction, undefined);
     assert.equal(state.stopReason?.kind, "execution_error");
-    assert.equal(state.stopReason?.code, "INVALID_TOOL_INPUT");
+    assert.equal(state.stopReason?.code, "INVALID_AGENT_DECISION");
+    assert.match(state.stopReason?.kind === "execution_error" ? state.stopReason.message : "", /INVALID_TOOL_INPUT/u);
     assert.equal(validateCalls, 0);
     assert.equal(policyCalls, 0);
     assert.equal(executeCalls, 0);
@@ -1790,9 +1925,12 @@ test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期",
         "restore:goal-1",
         "restore:goal-1",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "executor:0",
         "save:goal-1:running:0",
+        "save:goal-1:running:0",
         "tool:action-auto",
+        "save:goal-1:running:1",
         "save:goal-1:running:1",
         "executor:1",
         "save:goal-1:completed:2",
@@ -2177,7 +2315,7 @@ test("Runner 恢复 safe pending Action 时沿用原 actionId 自动重放", asy
         trajectory.events
             .filter((event) => event.actionId !== undefined)
             .map((event) => event.actionId),
-        [action.actionId, action.actionId, action.actionId],
+        [action.actionId, action.actionId, action.actionId, action.actionId],
     );
 });
 
@@ -2369,12 +2507,16 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
             summary: "采用替代方案完成",
         },
     ]);
-    const tool = createRunnerTool(async () => ({
-        kind: "failure",
-        code: "FILE_NOT_FOUND",
-        message: "文件不存在",
-        retryable: true,
-    }));
+    let toolCalls = 0;
+    const tool = createRunnerTool(async () => {
+        toolCalls += 1;
+        return {
+            kind: "failure",
+            code: "FILE_NOT_FOUND",
+            message: "文件不存在",
+            retryable: true,
+        };
+    });
 
     const result = await new Runner({
         trajectoryStore: trajectoryStoreFor(store),
@@ -2386,6 +2528,7 @@ test("Runner 将领域 failure Observation 保存后继续下一轮", async () =
     const state = requireSuccessfulState(result);
     assert.equal(state.status, "completed");
     assert.equal(state.stepCount, 2);
+    assert.equal(toolCalls, 1);
     assert.equal(executor.receivedGoals.length, 2);
     assert.deepEqual(executor.receivedGoals[1]?.state.run.lastStep, {
         kind: "action",
@@ -2450,7 +2593,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
         { ...profile, toolIds: ["read_file"] },
     );
     const saveError = new Error("observation save failed");
-    const control = createSaveFailingStore(3, saveError);
+    const control = createSaveFailingStore(5, saveError);
     await control.delegate.save(initial);
     let toolCalls = 0;
     const tool = createRunnerTool(async () => {
@@ -2476,7 +2619,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
         saveError,
     );
 
-    assert.equal(control.saveCalls(), 3);
+    assert.equal(control.saveCalls(), 5);
     assert.equal(toolCalls, 1);
     const persisted = await control.delegate.restore(initial.id);
     assert.equal(persisted?.state.run.status, "running");
@@ -2488,6 +2631,7 @@ test("Observation 保存失败时保留已暂存 pendingAction", async () => {
             input: { path: "README.md" },
         },
         status: "approved",
+        attemptsStarted: 1,
     });
     assert.equal(persisted?.state.run.lastStep, undefined);
 });
@@ -2607,7 +2751,17 @@ test("Runner 声明匹配：携带 acceptance 的条件引用匹配工具与成�
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [9] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [9] }],
             summary: "任务已完成",
         },
     ]);
@@ -2621,7 +2775,7 @@ test("Runner 声明匹配：携带 acceptance 的条件引用匹配工具与成�
 
     const result = await runner.run(createRef(initial, "run-accept-pass"));
     const state = requireSuccessfulState(result);
-    assert.equal(state.status, "completed");
+    assert.equal(state.status, "completed", JSON.stringify(state.stopReason));
     assert.equal(state.lastStep?.kind, "decision");
 });
 
@@ -2656,7 +2810,7 @@ test("Runner 声明匹配：expect failure 声明引用匹配的 failure 观察�
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [8] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
             summary: "任务已完成",
         },
     ]);
@@ -2670,7 +2824,7 @@ test("Runner 声明匹配：expect failure 声明引用匹配的 failure 观察�
 
     const result = await runner.run(createRef(initial, "run-accept-fail-pass"));
     const state = requireSuccessfulState(result);
-    assert.equal(state.status, "completed");
+    assert.equal(state.status, "completed", JSON.stringify(state.stopReason));
     assert.equal(state.lastStep?.kind, "decision");
 });
 
@@ -2704,7 +2858,17 @@ test("Runner 声明匹配：工具标识不匹配时拒绝 complete 并返回明
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
             summary: "任务已完成",
         },
     ]);
@@ -2724,7 +2888,7 @@ test("Runner 声明匹配：工具标识不匹配时拒绝 complete 并返回明
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /Use only committed evidence that satisfies every completion criterion\./,
+            /exhausted after three decide calls/u,
         );
     }
 });
@@ -2759,7 +2923,17 @@ test("Runner 声明匹配：expect failure 引用 success 观察时被拒（Req 
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [9] }],
             summary: "任务已完成",
         },
     ]);
@@ -2779,7 +2953,7 @@ test("Runner 声明匹配：expect failure 引用 success 观察时被拒（Req 
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /Use only committed evidence that satisfies every completion criterion\./,
+            /exhausted after three decide calls/u,
         );
     }
 });
@@ -2815,7 +2989,17 @@ test("Runner 声明匹配：expect success 引用 failure 观察时被拒", asyn
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [8] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
+            summary: "任务已完成",
+        },
+        {
+            kind: "complete",
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
             summary: "任务已完成",
         },
     ]);
@@ -2835,7 +3019,7 @@ test("Runner 声明匹配：expect success 引用 failure 观察时被拒", asyn
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /Use only committed evidence that satisfies every completion criterion\./,
+            /exhausted after three decide calls/u,
         );
     }
 });
@@ -2869,7 +3053,7 @@ test("Runner 声明匹配：无 acceptance 声明的条件保持现状校验通�
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
             summary: "任务已完成",
         },
     ]);
@@ -2883,7 +3067,7 @@ test("Runner 声明匹配：无 acceptance 声明的条件保持现状校验通�
 
     const result = await runner.run(createRef(initial, "run-no-acceptance"));
     const state = requireSuccessfulState(result);
-    assert.equal(state.status, "completed");
+    assert.equal(state.status, "completed", JSON.stringify(state.stopReason));
     assert.equal(state.lastStep?.kind, "decision");
 });
 
@@ -2923,7 +3107,7 @@ test("Runner 声明匹配：防御性忽略以 system_ 开头的非法工具验�
         },
         {
             kind: "complete",
-            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [7] }],
+            completionEvidence: [{ criterionIndex: 0, evidenceSequences: [12] }],
             summary: "任务分析完成",
         },
     ]);

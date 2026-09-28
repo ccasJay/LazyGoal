@@ -257,6 +257,7 @@ export interface GoalSnapshotPendingModelRepairV1 {
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    readonly attemptsStarted?: number;
     readonly approvalScope?: "action" | "goal" | "workspace";
     readonly grantId?: string;
 }
@@ -763,6 +764,7 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
+    attemptsStarted: z.number().int().min(1).max(3).optional(),
     approvalScope: z.enum(["action", "goal", "workspace"]).optional(),
     grantId: NonEmptyStringSchema.optional(),
 }).strict().superRefine((pending, context) => {
@@ -774,6 +776,9 @@ const PendingActionSchema = z.object({
         if ((scope === "action") !== (pending.grantId === undefined)) {
             context.addIssue({ code: "custom", path: ["grantId"], message: "approval scope and Grant identity are inconsistent" });
         }
+    }
+    if (pending.status === "awaiting_approval" && pending.attemptsStarted !== undefined) {
+        context.addIssue({ code: "custom", path: ["attemptsStarted"], message: "unapproved Action cannot have Tool attempts" });
     }
 });
 

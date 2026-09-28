@@ -201,6 +201,7 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "outcome_unknown",
+                            ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                         },
                     },
                 };
@@ -488,6 +489,25 @@ export function transition(
                             kind: "execution_error",
                             code: input.code,
                             message: input.message,
+                        },
+                    },
+                };
+            }
+
+            if (input.kind === "tool_outcome_unknown") {
+                const pendingAction = currentState.pendingAction;
+                if (pendingAction?.status !== "approved" || pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(currentState, input, "Unknown Tool outcome must match an approved pendingAction");
+                }
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingThink(clearPendingInteraction(currentState)),
+                        status: "waiting",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "outcome_unknown",
+                            ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                         },
                     },
                 };

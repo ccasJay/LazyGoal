@@ -49,11 +49,11 @@
   - 验证方式：38 项阶段恢复、调用计数、Trajectory 与 Snapshot 编解码测试通过；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4), [6.1](./requirements.md#req-6-1), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3)_
 
-- [ ] //TODO 8. 接入可安全重放 Tool 的有限重试与人工等待
+- [x] //TODO 8. 接入可安全重放 Tool 的有限重试与人工等待
 
   - 实现目标：在现有 `pendingAction` 边界按 `replayPolicy` 和已提交授权重试同一 Action；将已知业务失败交给 Observation，将缺资料、审批与 `manual` 结果未知保持为可恢复等待。
   - 成功判据：安全 Tool 临时故障沿用 Action ID 和授权、最多三次且不增加 Step；`retryable` 标志不能单独触发重放；业务失败后模型可提出新 Action 并重新验权；未知结果或用户输入缺失时不继续模型／Tool 调用。
-  - 验证方式：待实现的 Tool 故障、Observation 与中断注入测试；运行 `npx tsx --test packages/runtime/test/runner.test.ts packages/runtime/test/goal-multi-run-recovery.test.ts` 和新增测试入口。
+  - 验证方式：88 项 Tool 故障、重放恢复、Observation、Trajectory 与 Snapshot 测试通过；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [5.1](./requirements.md#req-5-1), [5.3](./requirements.md#req-5-3), [6.2](./requirements.md#req-6-2)_
 
 - [ ] //TODO 9. 投影恢复状态与最终已提交结果
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-当前部分结果（2026-09-28）：TODO 1–7 已提交。TODO 7 的阶段恢复、调用计数、Trajectory 与 Snapshot 定向测试共 38 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。
+当前部分结果（2026-09-28）：TODO 1–8 已提交。TODO 8 的 Tool 故障、同一 Action 重试／恢复、Observation、Trajectory 与 Snapshot 定向测试共 88 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。

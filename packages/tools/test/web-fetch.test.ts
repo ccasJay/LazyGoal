@@ -5,6 +5,7 @@ import { safeParse, compileJsonSchema } from "../../contracts/src/index";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
+    TransientToolExecutionFailure,
 } from "../../runtime/src/index";
 import {
     WEB_FETCH_INPUT_CONTRACT,
@@ -113,8 +114,19 @@ test("web_fetch 请求失败时返回 failure observation", async () => {
     if (obs.kind === "failure") {
         assert.equal(obs.code, "WEB_FETCH_FAILED");
         assert.match(obs.message, /Connection refused/);
-        assert.equal(obs.retryable, true);
+        assert.equal(obs.retryable, false);
     }
+});
+
+test("web_fetch 向 Runner 传播明确分类的暂时网络故障", async () => {
+    const tool = new WebFetchTool(async () => {
+        throw new TransientToolExecutionFailure("network_unavailable", 0);
+    });
+
+    await assert.rejects(() => tool.execute({
+        actionId: "action-fetch-transient",
+        input: { url: "https://example.com/down" },
+    }), TransientToolExecutionFailure);
 });
 
 test("web_fetch 工具成功注册进 ToolRegistry 且 JSON Schema 编译通过", () => {

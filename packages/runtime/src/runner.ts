@@ -62,7 +62,7 @@ import type {
     ToolRegistration,
     ToolRegistry,
 } from "./tool";
-import { resolveAuthorizedToolDefinitions } from "./tool";
+import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from "./tool";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -2526,50 +2526,145 @@ export class Runner {
         | { readonly kind: "observed"; readonly goal: Goal }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
-        let observation: ToolObservation;
-
-        try {
+        let observation: ToolObservation | undefined;
+        const replaySafe = prepared.registration.replayPolicy === "safe";
+        while (observation === undefined) {
             throwIfAborted(control);
-            await this.appendTrajectory({
+            const pending = goal.state.run.pendingAction;
+            if (pending === undefined || pending.status !== "approved"
+                || pending.action.actionId !== prepared.action.actionId) {
+                throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Tool attempt lost its approved pending Action");
+            }
+            const attempt = (pending.attemptsStarted ?? 0) + 1;
+            if (attempt > 3) {
+                return {
+                    kind: "stopped",
+                    result: await this.stopWithExecutionError(
+                        goal,
+                        new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Safe Tool retry limit exhausted after three calls"),
+                        control,
+                    ),
+                };
+            }
+            const attemptFact: TrajectoryEventDraft = {
                 goalId: goal.id,
                 runId: goal.state.run.id,
                 phase: "executing",
                 executionUnitId,
                 actionId: prepared.action.actionId,
-                eventType: "tool_started",
-                payload: {
-                    type: "tool_started",
-                    actionId: prepared.action.actionId,
-                    toolId: prepared.action.toolId,
-                    input: prepared.action.input,
-                },
-            }, control);
-            const rawObservation = prepared.stream === undefined
-                ? await prepared.execute(control)
-                : await this.consumeToolStream(goal, prepared, executionUnitId, control);
-            throwIfAborted(control);
-            observation = validateToolObservation(rawObservation);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) {
-                throw error;
-            }
-            if (error instanceof TrajectoryAppendError) {
-                throw error;
-            }
-
-            throwIfAborted(control);
-
-            const toolError = error instanceof RunnerExecutionError
-                ? error
-                : new RunnerExecutionError(
-                    "TOOL_EXECUTION_ERROR",
-                    error instanceof Error ? error.message : String(error),
-                );
-
-            return {
-                kind: "stopped",
-                result: await this.stopWithExecutionError(goal, toolError, control),
+                eventType: "tool_attempt_started",
+                payload: { type: "tool_attempt_started", actionId: prepared.action.actionId, attempt },
             };
+            const attemptGoal = this.withRun(goal, {
+                ...goal.state.run,
+                pendingAction: { ...pending, attemptsStarted: attempt },
+            });
+            const attemptCommit = await this.checkpointCommitter.commit(attemptGoal, {
+                facts: [attemptFact],
+                ...(control === undefined ? {} : { control }),
+            });
+            this.publishCommittedEvents(attemptCommit);
+            this.publishCheckpointCommitted(attemptCommit, [attemptFact]);
+            goal = attemptCommit.goal;
+
+            try {
+                await this.appendTrajectory({
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
+                    actionId: prepared.action.actionId,
+                    eventType: "tool_started",
+                    payload: {
+                        type: "tool_started",
+                        actionId: prepared.action.actionId,
+                        toolId: prepared.action.toolId,
+                        input: prepared.action.input,
+                    },
+                }, control);
+                const rawObservation = prepared.stream === undefined
+                    ? await prepared.execute(control)
+                    : await this.consumeToolStream(goal, prepared, executionUnitId, control);
+                throwIfAborted(control);
+                observation = validateToolObservation(rawObservation);
+            } catch (error) {
+                if (isExecutionAbortedError(error)) throw error;
+                if (error instanceof TrajectoryAppendError) throw error;
+                throwIfAborted(control);
+                if (error instanceof TransientToolExecutionFailure && replaySafe) {
+                    const failedFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        actionId: prepared.action.actionId,
+                        eventType: "tool_attempt_failed",
+                        payload: {
+                            type: "tool_attempt_failed",
+                            actionId: prepared.action.actionId,
+                            attempt,
+                            reason: error.reason.slice(0, 120),
+                            ...(error.retryAfterMs === undefined
+                                ? {}
+                                : { retryAfterMs: Math.min(30_000, Math.max(0, error.retryAfterMs)) }),
+                        },
+                    };
+                    const failedCommit = await this.checkpointCommitter.commit(goal, {
+                        facts: [failedFact],
+                        ...(control === undefined ? {} : { control }),
+                    });
+                    this.publishCommittedEvents(failedCommit);
+                    this.publishCheckpointCommitted(failedCommit, [failedFact]);
+                    goal = failedCommit.goal;
+                    if (attempt === 3) {
+                        return {
+                            kind: "stopped",
+                            result: await this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Safe Tool retry limit exhausted after three calls"),
+                                control,
+                            ),
+                        };
+                    }
+                    const delay = Math.min(30_000, Math.max(250 * 2 ** (attempt - 1), error.retryAfterMs ?? 0));
+                    await waitForRetry(delay, control);
+                    continue;
+                }
+
+                const message = error instanceof TransientToolExecutionFailure
+                    ? error.reason
+                    : error instanceof Error ? error.message : String(error);
+                const toolError = error instanceof RunnerExecutionError
+                    ? error
+                    : new RunnerExecutionError("TOOL_EXECUTION_ERROR", message);
+                if (!replaySafe) {
+                    const failedFact: TrajectoryEventDraft = {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        executionUnitId,
+                        actionId: prepared.action.actionId,
+                        eventType: "tool_attempt_failed",
+                        payload: {
+                            type: "tool_attempt_failed",
+                            actionId: prepared.action.actionId,
+                            attempt,
+                            reason: "outcome_unknown",
+                        },
+                    };
+                    const waitingRun = this.applyTransition(goal.state.run, {
+                        kind: "tool_outcome_unknown",
+                        actionId: prepared.action.actionId,
+                    });
+                    const waitingGoal = this.withRun(goal, waitingRun);
+                    const waitingCommit = await this.commitDecision(waitingGoal, [failedFact], undefined, control);
+                    return { kind: "stopped", result: { ok: true, state: waitingCommit.state.run } };
+                }
+                return {
+                    kind: "stopped",
+                    result: await this.stopWithExecutionError(goal, toolError, control),
+                };
+            }
         }
 
         throwIfAborted(control);
