@@ -56,7 +56,7 @@
   - 验证方式：88 项 Tool 故障、重放恢复、Observation、Trajectory 与 Snapshot 测试通过；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [5.1](./requirements.md#req-5-1), [5.3](./requirements.md#req-5-3), [6.2](./requirements.md#req-6-2)_
 
-- [ ] //TODO 9. 投影恢复状态与最终已提交结果
+- [x] //TODO 9. 投影恢复状态与最终已提交结果
 
   - 实现目标：扩展执行流、Browser 与 TUI 的运行状态和尝试记录投影，区分系统重试、模型纠错、人工等待与最终失败，并只将已提交结果放入完成时间线。
   - 成功判据：两端都能查看等待原因、最终稳定错误及相关尝试；纠错成功时仅显示最终有效回复和已提交 Tool 结果；未通过验证的原始 JSON 不作为最终回答展示。
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-当前部分结果（2026-09-28）：TODO 1–8 已提交。TODO 8 的 Tool 故障、同一 Action 重试／恢复、Observation、Trajectory 与 Snapshot 定向测试共 88 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。
+当前部分结果（2026-09-28）：TODO 1–9 已提交。TODO 9 的 Browser／TUI／Runtime 投影与恢复定向测试共 129 项通过；Goal Board 构建、`npx tsc --noEmit`、`npm run check:dependencies`（183 个源文件）和 `git diff --check` 均通过。其余 Feature Verification 待 TODO 10 完成后执行。

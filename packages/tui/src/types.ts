@@ -378,6 +378,8 @@ export interface UiInspectorStep {
     readonly action?: UiStepActionBlock;
     readonly observation?: UiStepObservationBlock;
     readonly result?: UiStepResultBlock;
+    /** 从已提交 Trajectory 投影的模型纠错与 Tool 重试摘要。 */
+    readonly recoveryDetails?: readonly string[];
     readonly uncommittedWarning?: string;
     /** 兼容历史对话渲染的可选消息列表。 */
     readonly messages?: readonly GoalMessage[];

@@ -256,7 +256,12 @@ function isBrowserRun(value: unknown): boolean {
       && Number.isSafeInteger(step.sequence)
       && Number.isSafeInteger(step.stepIndex)
       && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
-      && (step.summary === undefined || typeof step.summary === "string"))
+      && (step.summary === undefined || typeof step.summary === "string")
+      && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
+        && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
+    && (value.terminalDetail === undefined || isRecord(value.terminalDetail)
+      && typeof value.terminalDetail.message === "string"
+      && (value.terminalDetail.code === undefined || typeof value.terminalDetail.code === "string"))
     && typeof value.current === "boolean";
 }
 

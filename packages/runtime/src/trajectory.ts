@@ -179,6 +179,13 @@ export type TrajectoryEventPayload =
         readonly attempt: number;
         readonly feedback: RuntimeFeedback;
     }
+    | {
+        readonly type: "model_request_retry_recorded";
+        readonly stage: ModelContextStage;
+        readonly attempt: number;
+        readonly reason: "rate_limited" | "service_unavailable" | "connection" | "timeout";
+        readonly status?: number;
+    }
     | ModelContextFramePayload
     | {
         readonly type: "context_lookup_requested";
@@ -696,6 +703,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "think_completed",
     "model_repair_attempt_started",
     "model_repair_feedback_recorded",
+    "model_request_retry_recorded",
     "model_context_frame",
     "context_lookup_requested",
     "context_lookup_completed",
@@ -924,6 +932,19 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
         assertPositiveInteger(payload.attempt, "model_repair_feedback_recorded.attempt");
         assertRuntimeFeedback(payload.feedback, payload.stage, payload.attempt);
+    }
+    if (eventType === "model_request_retry_recorded") {
+        if (Object.keys(payload).some((key) => !["type", "stage", "attempt", "reason", "status"].includes(key))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded contains unknown fields");
+        }
+        if ((payload.stage !== "decide" && payload.stage !== "think")
+            || !["rate_limited", "service_unavailable", "connection", "timeout"].includes(String(payload.reason))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded stage or reason is invalid");
+        }
+        assertPositiveInteger(payload.attempt, "model_request_retry_recorded.attempt");
+        if (payload.attempt > 3 || (payload.status !== undefined && (typeof payload.status !== "number" || !Number.isInteger(payload.status) || payload.status < 100 || payload.status > 599))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded exceeds its bounds");
+        }
     }
     if (eventType === "model_context_frame") {
         if (Object.keys(payload).some((key) => ![
@@ -1305,6 +1326,7 @@ export function classifyTrajectoryEvent(
         case "think_completed":
         case "model_repair_attempt_started":
         case "model_repair_feedback_recorded":
+        case "model_request_retry_recorded":
         case "model_context_frame":
         case "model_context_frame":
         case "context_lookup_requested":

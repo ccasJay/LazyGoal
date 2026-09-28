@@ -24,7 +24,7 @@ Controller 唯一持有单调不可变 `timeline`，元素包括已提交 User/S
 
 新的 Assistant 消息由 `StreamingTranscriptController` 接收 `started`、`delta`、`completed` 事件。稳定 Block 按节流 Tick 进入时间线；未提交部分保留为 `streamingTail`。新用户消息、步骤提交、等待点和恢复都会触发 flush barrier，保证内容顺序；恢复时直接 hydrate 已提交消息，不重复播放旧流。
 
-普通只读 Tool 和副作用 Tool 都通过 Goal Snapshot 的已提交 `lastStep` 投影为步骤摘要，使用 `(goalId, runId, stepNumber)` 身份去重；相同局部 step 序号在不同 Run 中不会合并。TUI 通过 `@lazygoal/execution-stream` 的通用订阅适配器接收 Step、模型和 Tool 活动，显示动态尾部及有限 Tool 输出；未提交的活动只属于实时 ViewModel，成功提交的每个 Step 仍由 Snapshot/Trajectory 提交通知进入 Session 时间线。
+普通只读 Tool 和副作用 Tool 都通过 Goal Snapshot 的已提交 `lastStep` 投影为步骤摘要，使用 `(goalId, runId, stepNumber)` 身份去重；相同局部 step 序号在不同 Run 中不会合并。Inspector 从已提交 Trajectory 展示模型纠错与模型/Tool 重试摘要及稳定终态原因，不展示未通过校验的原始模型响应。TUI 通过 `@lazygoal/execution-stream` 的通用订阅适配器接收 Step、模型和 Tool 活动，显示动态尾部及有限 Tool 输出；未提交的活动只属于实时 ViewModel，成功提交的每个 Step 仍由 Snapshot/Trajectory 提交通知进入 Session 时间线。
 
 ## 恢复、模型切换与关闭
 

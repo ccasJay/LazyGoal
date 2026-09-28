@@ -430,11 +430,18 @@ test("retries only typed transient model failures and caps the model call sequen
             return { kind: "complete", summary: "完成", completionEvidence: [] };
         },
     };
-    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+    const trajectory = trajectoryStoreFor(store);
+    const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
     const result = await runner.runUntilBlocked(createRef(initial));
     assert.equal(result.ok, true);
     assert.equal(calls, 3);
+    const events = await trajectory.read({ goalId: initial.id, runId: initial.state.run.id });
+    assert.deepEqual(events.filter((event) => event.eventType === "model_request_retry_recorded").map((event) =>
+        event.eventType === "model_request_retry_recorded" ? [event.payload.attempt, event.payload.reason] : undefined), [
+        [1, "service_unavailable"],
+        [2, "service_unavailable"],
+    ]);
 });
 
 test("safe Tool 对类型化暂时错误沿用 Action 授权重试三次，retryable Observation 不触发重放", async () => {
@@ -587,7 +594,8 @@ test("retries the same staged Decide call without advancing the Step", async () 
             assert.fail("Think is not requested in this test");
         },
     };
-    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+    const trajectory = trajectoryStoreFor(store);
+    const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
     const state = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
     assert.equal(state.status, "completed");
@@ -608,7 +616,8 @@ test("records stable causes and stops after three transient model request failur
             });
         },
     };
-    const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
+    const trajectory = trajectoryStoreFor(store);
+    const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
     const result = await runner.runUntilBlocked(createRef(initial));
     const state = requireSuccessfulState(result);
@@ -618,6 +627,13 @@ test("records stable causes and stops after three transient model request failur
     assert.ok(persisted);
     assert.equal(persisted.state.run.stopReason?.kind, "execution_error");
     assert.match(persisted.state.run.stopReason?.kind === "execution_error" ? persisted.state.run.stopReason.message : "", /1:service_unavailable\(503\), 2:rate_limited\(429\), 3:service_unavailable\(503\)/);
+    const events = await trajectory.read({ goalId: initial.id, runId: initial.state.run.id });
+    assert.deepEqual(events.filter((event) => event.eventType === "model_request_retry_recorded").map((event) =>
+        event.eventType === "model_request_retry_recorded" ? [event.payload.attempt, event.payload.reason, event.payload.status] : undefined), [
+        [1, "service_unavailable", 503],
+        [2, "rate_limited", 429],
+        [3, "service_unavailable", 503],
+    ]);
 });
 
 test("cancelling model backoff prevents the next model request", async () => {

@@ -245,3 +245,51 @@ test("projectTrajectoryEvents truncates observation exceeding 10 lines and marks
     assert.ok(execStep.observation?.observationPreview.includes("... (15 more lines)"));
     assert.equal(execStep.uncommittedWarning, "[Uncommitted Tail: 1 events occurred after snapshot boundary]");
 });
+
+test("projectTrajectoryEvents lists committed repair attempts and stable execution errors", () => {
+    const events: TrajectoryEvent[] = [
+        createEvent({
+            sequence: 1,
+            executionUnitId: "eu-repair",
+            eventType: "model_repair_attempt_started",
+            payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 2, inputBoundary: `sha256:${"a".repeat(64)}` },
+        }),
+        createEvent({
+            sequence: 2,
+            executionUnitId: "eu-repair",
+            eventType: "model_repair_feedback_recorded",
+            payload: {
+                type: "model_repair_feedback_recorded", stage: "decide", attempt: 2,
+                feedback: {
+                    goalId: "goal-test", runId: "run-test", executionUnitId: "eu-repair", stepOrdinal: 1,
+                    stage: "decide", origin: "response_parse", code: "INVALID_JSON", attempt: 2,
+                    issues: [{ code: "syntax", path: [], message: "Return valid JSON" }],
+                },
+            },
+        }),
+        createEvent({
+            sequence: 3,
+            executionUnitId: "eu-repair",
+            eventType: "model_request_retry_recorded",
+            payload: { type: "model_request_retry_recorded", stage: "decide", attempt: 1, reason: "rate_limited", status: 429 },
+        }),
+        createEvent({
+            sequence: 4,
+            eventType: "execution_error",
+            payload: { type: "execution_error", code: "MODEL_REQUEST_FAILED", message: "Model retries exhausted" },
+        }),
+    ];
+
+    const steps = projectTrajectoryEvents({ goalId: "goal-test", committedEvents: events });
+    assert.deepEqual(steps[1]?.recoveryDetails, [
+        "decide repair attempt 2",
+        "decide repair feedback: INVALID_JSON",
+        "decide model request attempt 1 failed: rate_limited HTTP 429",
+    ]);
+    assert.deepEqual(steps[1]?.result, {
+        outcome: "failed",
+        errorCode: "MODEL_REQUEST_FAILED",
+        errorMessage: "Model retries exhausted",
+    });
+    assert.equal(JSON.stringify(steps).includes('{"invalid":'), false);
+});

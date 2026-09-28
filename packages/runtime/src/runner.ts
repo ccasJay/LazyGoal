@@ -817,6 +817,7 @@ export class Runner {
     private async executeModelStage<T>(
         operation: () => Promise<T>,
         control?: ExecutionControl,
+        onTransientFailure?: (attempt: number, error: TransientModelRequestFailure) => Promise<void>,
     ): Promise<T> {
         const failures: ModelRequestAttemptFailure[] = [];
         for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -834,12 +835,47 @@ export class Runner {
                     reason: error.reason,
                     ...(error.status === undefined ? {} : { status: error.status }),
                 });
+                await onTransientFailure?.(attempt, error);
                 if (attempt === 3) throw new ModelRequestRetriesExhaustedError(failures);
                 const exponentialDelay = 250 * 2 ** (attempt - 1);
                 await waitForRetry(Math.min(30_000, Math.max(exponentialDelay, error.retryAfterMs ?? 0)), control);
             }
         }
         throw new Error("Unreachable model retry state");
+    }
+
+    private async recordModelRequestFailure(
+        goal: Goal,
+        input: StepExecutionInput,
+        stage: ModelContextStage,
+        attempt: number,
+        error: TransientModelRequestFailure,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const draft: TrajectoryEventDraft = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            ...(input.executionUnitId === undefined ? {} : { executionUnitId: input.executionUnitId }),
+            stepIndex: goal.state.run.stepCount + 1,
+            eventType: "model_request_retry_recorded",
+            payload: {
+                type: "model_request_retry_recorded",
+                stage,
+                attempt,
+                reason: error.reason,
+                ...(error.status === undefined ? {} : { status: error.status }),
+            },
+        };
+        const event = await this.checkpointCommitter.append(draft, control);
+        if (event?.eventType !== "model_request_retry_recorded") {
+            throw new TrajectoryAppendError("Model request retries require an enabled Trajectory sink");
+        }
+        const savedGoal = await this.commitStageCheckpoint(goal, [], control);
+        const committed = { goal: savedGoal, events: [event] };
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [draft]);
+        return savedGoal;
     }
 
     /**
@@ -1857,6 +1893,9 @@ export class Runner {
                 const value = await this.executeModelStage(
                     () => operation(currentGoal, feedback),
                     control,
+                    async (attempt, error) => {
+                        currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
+                    },
                 );
                 return { goal: currentGoal, result: validate(currentGoal, value) };
             } catch (error) {

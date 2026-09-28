@@ -792,6 +792,9 @@ function App() {
                                           <span className={`step-status ${step.status}`}>{step.status}</span>
                                           <ChevronRight className="tool-chevron" size={13} />
                                         </summary>
+                                        {step.recoveryAttempts?.map((attempt, index) => (
+                                          <div className="step-recovery" key={`${step.executionUnitId}:recovery:${index}`}>{attempt}</div>
+                                        ))}
                                         {step.bashExecution && (
                                           <div className="tool-execution">
                                             <div className="tool-execution-field">
@@ -841,7 +844,12 @@ function App() {
                                   </div>
                                 )}
                                 {run.status === "completed" && <div className="completion"><Check size={14} />Run completed</div>}
-                                {run.status === "failed" && <div className="terminal-status failed">This Run failed. Its saved history is still available.</div>}
+                                {run.status === "failed" && <div className="terminal-status failed">
+                                  {run.terminalDetail
+                                    ? `${run.terminalDetail.code ? `[${run.terminalDetail.code}] ` : ""}${run.terminalDetail.message}`
+                                    : "This Run failed. Its saved history is still available."}
+                                </div>}
+                                {run.status === "waiting" && run.terminalDetail && <div className="terminal-status">Waiting: {run.terminalDetail.message}</div>}
                                 {run.status === "cancelled" && <div className="terminal-status">This Run was cancelled.</div>}
                                 {renderMessages(runMessages.filter((message) => message.role === "assistant"))}
                               </div>

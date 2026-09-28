@@ -96,6 +96,7 @@ export function projectTrajectoryEvents(
         } else if (
             event.eventType === "run_completed" ||
             event.eventType === "run_failed" ||
+            event.eventType === "execution_error" ||
             event.eventType === "run_cancelled" ||
             event.eventType === "run_waiting"
         ) {
@@ -177,6 +178,7 @@ export function projectTrajectoryEvents(
         let resultBlock: UiStepResultBlock | undefined;
         let toolStartTime: number | undefined;
         let reasoning: string | undefined;
+        const recoveryDetails: string[] = [];
 
         for (const event of unitEvents) {
             const payload = event.payload;
@@ -267,6 +269,22 @@ export function projectTrajectoryEvents(
                         isTruncated,
                     };
                 }
+            } else if (payload.type === "model_repair_attempt_started") {
+                recoveryDetails.push(`${payload.stage} repair attempt ${payload.attempt}`);
+            } else if (payload.type === "model_repair_feedback_recorded") {
+                recoveryDetails.push(`${payload.feedback.stage} repair feedback: ${payload.feedback.code}`);
+            } else if (payload.type === "tool_attempt_started") {
+                recoveryDetails.push(`Tool attempt ${payload.attempt}`);
+            } else if (payload.type === "tool_attempt_failed") {
+                recoveryDetails.push(`Tool retry ${payload.attempt} failed: ${payload.reason}`);
+            } else if (payload.type === "model_request_retry_recorded") {
+                recoveryDetails.push(`${payload.stage} model request attempt ${payload.attempt} failed: ${payload.reason}${payload.status === undefined ? "" : ` HTTP ${payload.status}`}`);
+            } else if (payload.type === "execution_error") {
+                resultBlock = {
+                    outcome: "failed",
+                    errorCode: String(payload.code),
+                    errorMessage: payload.message,
+                };
             }
         }
 
@@ -282,6 +300,7 @@ export function projectTrajectoryEvents(
             ...(actionBlock !== undefined ? { action: actionBlock } : {}),
             ...(observationBlock !== undefined ? { observation: observationBlock } : {}),
             ...(resultBlock !== undefined ? { result: resultBlock } : {}),
+            ...(recoveryDetails.length > 0 ? { recoveryDetails } : {}),
             rawJson: JSON.stringify(
                 {
                     executionUnitId: unitId,
@@ -307,6 +326,12 @@ export function projectTrajectoryEvents(
                     summary: payload.summary,
                 };
             } else if (payload.type === "run_failed") {
+                terminalResult = {
+                    outcome: "failed",
+                    errorCode: String(payload.code),
+                    errorMessage: payload.message,
+                };
+            } else if (payload.type === "execution_error") {
                 terminalResult = {
                     outcome: "failed",
                     errorCode: String(payload.code),

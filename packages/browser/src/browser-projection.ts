@@ -153,6 +153,8 @@ export interface BrowserSessionStep {
     readonly bashExecution?: BrowserBashExecutionDetail;
     /** 会话详情数量上限导致此 Bash 步骤省略执行详情。 */
     readonly bashExecutionOmitted?: true;
+    /** 已提交恢复尝试摘要；只包含阶段、尝试号与稳定错误码/原因。 */
+    readonly recoveryAttempts?: readonly string[];
 }
 
 /**
@@ -181,6 +183,8 @@ export interface BrowserSessionRun {
     readonly steps: readonly BrowserSessionStep[];
     /** 是否为当前快照中的 Run。 */
     readonly current: boolean;
+    /** 已提交的等待原因或稳定终止错误。 */
+    readonly terminalDetail?: { readonly code?: string; readonly message: string };
 }
 
 /**
@@ -377,6 +381,7 @@ export async function readBrowserGoalSession(
         stepCount: currentRun.stepCount,
         steps: currentSteps.slice(-MAX_STEPS_PER_RUN),
         current: true,
+        ...projectRunTerminalDetail(currentResult.committed, currentRun.status, currentRun.stopReason),
     });
 
     for (const completed of [...recentCompletedRuns].reverse()) {
@@ -389,6 +394,7 @@ export async function readBrowserGoalSession(
             stepCount: completed.stepCount,
             steps: steps.slice(-MAX_STEPS_PER_RUN),
             current: false,
+            ...projectRunTerminalDetail(result.committed, completed.status),
         });
     }
 
@@ -499,6 +505,7 @@ function projectBrowserSteps(
         let summary: string | undefined;
         let bashCommand: string | undefined;
         let bashObservation: Observation | undefined;
+        const recoveryAttempts: string[] = [];
 
         for (const event of events) {
             const payload = event.payload;
@@ -536,6 +543,16 @@ function projectBrowserSteps(
             } else if (payload.type === "tool_started" && payload.toolId === "bash") {
                 toolId = payload.toolId;
                 bashCommand = readBashCommand(payload.input);
+            } else if (payload.type === "tool_attempt_started") {
+                recoveryAttempts.push(`Tool attempt ${payload.attempt}`);
+            } else if (payload.type === "tool_attempt_failed") {
+                recoveryAttempts.push(`Tool retry ${payload.attempt} failed: ${boundedText(payload.reason, 160)}`);
+            } else if (payload.type === "model_repair_attempt_started") {
+                recoveryAttempts.push(`${payload.stage} repair attempt ${payload.attempt}`);
+            } else if (payload.type === "model_repair_feedback_recorded") {
+                recoveryAttempts.push(`${payload.feedback.stage} repair feedback: ${payload.feedback.code}`);
+            } else if (payload.type === "model_request_retry_recorded") {
+                recoveryAttempts.push(`${payload.stage} model request attempt ${payload.attempt} failed: ${payload.reason}${payload.status === undefined ? "" : ` HTTP ${payload.status}`}`);
             }
         }
 
@@ -565,9 +582,30 @@ function projectBrowserSteps(
             ...(summary === undefined ? {} : { summary }),
             ...(bashExecution === undefined ? {} : { bashExecution }),
             ...(bashExecutionOmitted === undefined ? {} : { bashExecutionOmitted }),
+            ...(recoveryAttempts.length === 0 ? {} : { recoveryAttempts }),
         });
     }
     return steps.sort((left, right) => left.sequence - right.sequence);
+}
+
+function projectRunTerminalDetail(
+    events: readonly TrajectoryEvent[],
+    status: Goal["state"]["run"]["status"],
+    stopReason?: Goal["state"]["run"]["stopReason"],
+): Pick<BrowserSessionRun, "terminalDetail"> | Record<string, never> {
+    if (status === "failed" && stopReason?.kind === "execution_error") {
+        return { terminalDetail: { code: stopReason.code, message: boundedText(stopReason.message, MAX_STEP_SUMMARY_LENGTH) } };
+    }
+    for (const event of [...events].reverse()) {
+        const payload = event.payload;
+        if (payload.type === "run_failed" || payload.type === "execution_error") {
+            return { terminalDetail: { code: String(payload.code), message: boundedText(payload.message, MAX_STEP_SUMMARY_LENGTH) } };
+        }
+        if (status === "waiting" && payload.type === "run_waiting") {
+            return { terminalDetail: { message: boundedText(payload.reason, MAX_STEP_SUMMARY_LENGTH) } };
+        }
+    }
+    return {};
 }
 
 function projectPendingInteraction(

@@ -191,6 +191,7 @@ h1 span { margin-left: 8px; color: #81848e; font-size: 12px; font-weight: 400; l
 .step-status { color: #8d97a8; font-size: 9px; }
 .step-status.completed { color: var(--green); }
 .step-status.failed, .step-status.rejected { color: #d18e92; }
+.step-recovery { padding: 7px 10px 0 29px; color: #c4ad76; font-size: 10px; }
 .live-status { display: flex; align-items: center; gap: 8px; margin: 0 0 15px 29px; padding: 4px 0 10px; color: #a0b4df; font-size: 10px; }
 .live-status > span:last-child { margin-left: auto; color: #626b7c; font-size: 9px; text-align: right; }
 .pulse { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: #90acf0; animation: pulse 1.7s infinite; }
