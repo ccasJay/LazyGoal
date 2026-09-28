@@ -45,6 +45,7 @@ import {
     JsonFileMetricsStore,
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
+    JsonFileToolGrantStore,
 } from "../../storage/src/index";
 import {
     createHttpService,
@@ -858,6 +859,7 @@ export async function createCompositionRoot(
         },
     };
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -955,6 +957,9 @@ export async function createCompositionRoot(
         }),
         toolRegistry,
         toolPolicy,
+        toolGrantLookup: toolGrantStore,
+        workspaceId: workspaceHomePaths.workspaceId,
+        workspaceRoot,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -968,6 +973,9 @@ export async function createCompositionRoot(
         store: checkpointStore,
         scheduler,
         toolRegistry,
+        toolGrantStore,
+        workspaceId: workspaceHomePaths.workspaceId,
+        workspaceRoot,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,

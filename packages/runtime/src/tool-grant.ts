@@ -4,7 +4,7 @@ import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path
 
 import type { JsonValue, ToolCallAction } from "./domain";
 
-/** 用户授权的持续范围；单次 Action 沿用 Runtime 的瞬时批准状态。 */
+/** 用户授权期限；单次 Action 沿用 Runtime 的瞬时批准状态。 */
 export type ToolGrantScope = "goal" | "workspace";
 
 /**
@@ -88,6 +88,64 @@ export interface ToolGrantLookup {
         readonly goalId: string;
         readonly matcher: ToolGrantMatcher;
     }): Promise<ToolGrant | undefined>;
+}
+
+/**
+ * 支持审批事务与授权管理的持久化 Grant 边界。
+ *
+ * @remarks
+ * 同一来源 Action 的重复 `stage` 必须幂等；相同来源但期限或匹配器不同属于冲突。
+ * `pending` 记录不得被查询为授权，只有 Coordinator 在 Goal 批准快照提交后才能激活。
+ *
+ * @example
+ * ```ts
+ * const grant = await store.stage(candidate);
+ * await store.activate(grant.id, grant.source);
+ * ```
+ */
+export interface ToolGrantStore extends ToolGrantLookup {
+    /**
+     * 按来源 Action 创建或恢复一条待生效 Grant。
+     *
+     * @param grant - 不含 ID 且状态固定为 pending 的授权申请。
+     * @returns 已持久化的 pending Grant；相同申请重复调用返回原记录。
+     * @throws 相同来源已绑定不同授权内容或账本损坏时拒绝。
+     */
+    stage(grant: Omit<ToolGrant, "id" | "status">): Promise<ToolGrant>;
+
+    /**
+     * 在 Coordinator 确认审批快照已提交后激活 Grant。
+     *
+     * @param grantId - 待生效授权的稳定 ID。
+     * @param source - 必须与 Grant 保存的原始 Goal/Run/Action 身份完全相同。
+     * @returns 激活后的 Grant；重复激活保持幂等。
+     * @throws ID、来源不匹配或 Grant 已撤销时拒绝。
+     */
+    activate(
+        grantId: string,
+        source: ToolGrant["source"],
+    ): Promise<ToolGrant>;
+
+    /**
+     * 列出当前用户有权查看的 Goal 与 Workspace Grant。
+     *
+     * @param query - 当前 Workspace，以及可选的 Goal 过滤条件。
+     * @returns 按创建 ID 稳定排序的授权列表，不包含其它 Workspace 数据。
+     */
+    list(query: { readonly workspaceId: string; readonly goalId?: string }): Promise<readonly ToolGrant[]>;
+
+    /**
+     * 撤销当前 Workspace 中指定的 Grant。
+     *
+     * @param query - 授权 ID、Workspace 身份和可选 Goal 身份。
+     * @returns 已撤销记录；对已撤销记录重复调用幂等。
+     * @throws Grant 不存在、跨 Workspace/Goal 或仍处于 pending 时拒绝。
+     */
+    revoke(query: {
+        readonly grantId: string;
+        readonly workspaceId: string;
+        readonly goalId?: string;
+    }): Promise<ToolGrant>;
 }
 
 /**

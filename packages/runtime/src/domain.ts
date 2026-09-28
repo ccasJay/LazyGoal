@@ -789,6 +789,10 @@ export type {
 export interface PendingAction {
     readonly action: ToolCallAction;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    /** 已批准 Action 使用的权限期限；单次批准为 action。 */
+    readonly approvalScope?: "action" | "goal" | "workspace";
+    /** 持续授权关联的待生效或有效 Grant；单次批准不设置。 */
+    readonly grantId?: string;
 }
 
 /**
@@ -1149,6 +1153,8 @@ export type RunInput =
     | {
         readonly kind: "approve_action";
         readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
     }
     | {
         readonly kind: "recover_action";

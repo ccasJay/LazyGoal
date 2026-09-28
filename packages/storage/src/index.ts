@@ -56,6 +56,7 @@ export {
     JsonFileGoalStore,
 } from "./goal-store";
 export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
+export { JsonFileToolGrantStore } from "./json-file-tool-grant-store";
 export {
     JsonFileMetricsStore,
     MODEL_CALL_METRIC_STORE_PROTOCOL_ERROR_CODE,

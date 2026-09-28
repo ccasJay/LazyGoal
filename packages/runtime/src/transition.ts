@@ -527,6 +527,19 @@ export function transition(
                     );
                 }
 
+                const approvalScope = input.approvalScope ?? "action";
+                if (
+                    (approvalScope === "action" && input.grantId !== undefined)
+                    || (approvalScope !== "action" && input.grantId === undefined)
+                    || (pendingAction.status === "outcome_unknown" && approvalScope !== "action")
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action approval scope and Grant identity are inconsistent",
+                    );
+                }
+
                 return {
                     ok: true,
                     state: {
@@ -535,6 +548,8 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "approved",
+                            approvalScope,
+                            ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
                         },
                     },
                 };

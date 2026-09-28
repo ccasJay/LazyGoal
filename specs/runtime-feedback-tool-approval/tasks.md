@@ -7,7 +7,7 @@
   - 验证方式：待实现的 Grant 匹配及 Runner 授权测试；运行 `npx tsx --test packages/runtime/test/runner.test.ts` 和新增测试入口。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5)_
 
-- [ ] //TODO 2. 持久化三档审批并接通恢复与撤销命令
+- [x] //TODO 2. 持久化三档审批并接通恢复与撤销命令
 
   - 实现目标：扩展 Coordinator、当前 Goal Snapshot／Trajectory 与工作区 Grant Store，接入单次、会话和项目授权的审批、列举、撤销及待生效 Grant 的恢复顺序。
   - 成功判据：同一 Action 的批准可靠提交后才执行；会话 Grant 跨 Run、项目 Grant 跨 Goal 且重启后范围不扩大；拒绝不创建 Grant；提交中断、过期身份、重复冲突、损坏记录或已撤销 Grant 均不能放行新 Action。

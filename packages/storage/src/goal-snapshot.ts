@@ -231,6 +231,8 @@ export interface GoalSnapshotPendingThinkV1 {
 export interface GoalSnapshotPendingActionV1 {
     readonly action: GoalSnapshotToolCallActionV1;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    readonly approvalScope?: "action" | "goal" | "workspace";
+    readonly grantId?: string;
 }
 
 /** Snapshot 中非 Step 自身导致的 Run 终止原因。 */
@@ -733,7 +735,19 @@ const StepRecordSchema = z.discriminatedUnion("kind", [
 const PendingActionSchema = z.object({
     action: ToolCallActionSchema,
     status: z.enum(["approved", "awaiting_approval", "outcome_unknown"]),
-}).strict();
+    approvalScope: z.enum(["action", "goal", "workspace"]).optional(),
+    grantId: NonEmptyStringSchema.optional(),
+}).strict().superRefine((pending, context) => {
+    if (pending.status !== "approved" && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
+        context.addIssue({ code: "custom", path: ["approvalScope"], message: "unapproved Action cannot retain authorization" });
+    }
+    if (pending.status === "approved") {
+        const scope = pending.approvalScope ?? "action";
+        if ((scope === "action") !== (pending.grantId === undefined)) {
+            context.addIssue({ code: "custom", path: ["grantId"], message: "approval scope and Grant identity are inconsistent" });
+        }
+    }
+});
 
 const PendingThinkSchema = z.object({
     goalId: NonEmptyStringSchema,

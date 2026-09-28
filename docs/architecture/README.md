@@ -24,6 +24,7 @@ flowchart LR
     L --> G[Runtime: GoalCoordinator]
     C -->|/plan / waiting / terminal input| G
     G --> S[GoalStore / TrajectoryStore]
+    G --> TG[Workspace ToolGrantStore]
     G --> Q[Scheduler]
     Q --> R[Runtime: Runner]
     R --> S
@@ -56,7 +57,7 @@ flowchart LR
 3. Coordinator 调用统一 Runner。普通 Run 直接处理用户请求；Plan Run 的 Prompt 要求先提出任务提案，但 Runtime 仍按现有 Profile、Tool Policy 和 Action 审批授权已暴露的业务 Tool。Decide 可请求目标明确的 Think；Runner 提交 Think 输出后再调用 Decide，只有最终业务决策推进 Step。
 4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 或 failed 输入先归档历史及终态，再提交新 Run。
 5. 获批 Plan Run 可通过受模式能力授权的计划 Tool 更新 GoalPlan。一个 Run 可依次更新多个 Todo；标记 Todo 完成必须引用当前 Run 已提交 Observation。Run 终态独立于未完成 Todo，后者保留原状态且不会自动创建下一 Run。
-6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 从已提交的 Goal、Run 与计划状态投影交互面板和统一时间线。
+6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。非 YOLO 工具审批可按单次、当前 Goal 或 workspace 授权；持续授权在 Goal 批准快照提交后才激活。TUI 从已提交的 Goal、Run 与计划状态投影交互面板和统一时间线。
 
 实时事件通过独立的 `execution-stream` Core 旁路发送：它只分配 Goal/Run 内 cursor、执行可见性过滤、增量合并和慢订阅者关闭，不拥有 Goal 状态转换、Trajectory 写入、Provider/Tool 调用或 UI 渲染。Runtime 负责把生命周期和提交边界映射成领域事件；Agent/LLM 负责把模型流归一化后发布；Tool 可选地发布输出分片；TUI 订阅这些通用事件并维护瞬时活动视图，恢复仍以 Snapshot/Trajectory 为准。
 

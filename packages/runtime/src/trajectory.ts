@@ -208,6 +208,13 @@ export type TrajectoryEventPayload =
     | {
         readonly type: "action_approved";
         readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+    }
+    | {
+        readonly type: "tool_grant_revoked";
+        readonly grantId: string;
+        readonly scope: "goal" | "workspace";
     }
     | {
         readonly type: "action_rejected";
@@ -669,6 +676,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "memory_patch_accepted",
     "action_staged",
     "action_approved",
+    "tool_grant_revoked",
     "action_rejected",
     "action_recovered",
     "tool_started",
@@ -730,6 +738,36 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError(
                 `payload must not contain derived state field: ${key}`,
             );
+        }
+    }
+
+    if (eventType === "action_approved") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId"].includes(key))) {
+            throw new TrajectoryProtocolError("action_approved contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_approved.actionId");
+        if (payload.approvalScope !== undefined
+            && payload.approvalScope !== "action"
+            && payload.approvalScope !== "goal"
+            && payload.approvalScope !== "workspace") {
+            throw new TrajectoryProtocolError("action_approved.approvalScope is invalid");
+        }
+        if (payload.grantId !== undefined) assertNonEmptyString(payload.grantId, "action_approved.grantId");
+        if (payload.approvalScope !== undefined
+            && ((payload.approvalScope === "action") !== (payload.grantId === undefined))) {
+            throw new TrajectoryProtocolError("action_approved scope and Grant identity are inconsistent");
+        }
+        if (payload.approvalScope === undefined && payload.grantId !== undefined) {
+            throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
+        }
+    }
+    if (eventType === "tool_grant_revoked") {
+        if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_grant_revoked contains unknown fields");
+        }
+        assertNonEmptyString(payload.grantId, "tool_grant_revoked.grantId");
+        if (payload.scope !== "goal" && payload.scope !== "workspace") {
+            throw new TrajectoryProtocolError("tool_grant_revoked.scope is invalid");
         }
     }
 
@@ -1144,6 +1182,7 @@ export function classifyTrajectoryEvent(
             return "memory";
         case "action_staged":
         case "action_approved":
+        case "tool_grant_revoked":
         case "action_rejected":
         case "action_recovered":
             return "action";

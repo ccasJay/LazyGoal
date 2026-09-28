@@ -425,6 +425,7 @@ export type {
     ToolGrantLookup,
     ToolGrantMatcher,
     ToolGrantScope,
+    ToolGrantStore,
 } from "./tool-grant";
 export { launch } from "./launcher";
 export type {
