@@ -24,6 +24,10 @@
 
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。默认 CLI 仍启动 TUI。
 
+## 模型目录
+
+`GET /api/models` 返回当前 Provider 的草稿模型目录；`GET /api/goals/:goalId/models?runId=...` 先核对最新 Goal/Run，再返回该 Goal 当前选择。Composition Root 使用现有模型目录服务获取在线结果或离线目录兜底。浏览器边界仅投影模型标识、展示名、容量、能力和可用性来源。鉴权、权限、协议及目录不可用故障返回稳定错误码，不传递凭据或 Provider 原始响应。
+
 ## 页面交互
 
 React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。New Goal 先打开仅保存在页面状态的空白会话草稿；首条非空普通消息才调用创建接口，作为 Goal 意图和首条用户消息启动唯一 Run。草稿刷新即丢弃，不创建 Goal 或启动模型。页面复用 Slash Command Registry 识别 `/plan`：草稿中的命令选择创建模式，已有会话的命令调用 Plan Mode 路由，命令文本本身不发送到消息接口。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息、Plan Mode、结构化交互和授权管理接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。会话视图按 Run 排列消息和已提交步骤：用户消息在步骤前，助手消息在步骤与终态之后；步骤详情可展开查看。Action 审批显示有限输入预览；若预览被截断，用户需先读取当前 Action 的完整输入才能选择持续授权。Goal 与 Workspace 授权可在详情页查看和撤销；切换 Goal 时清空旧授权列表。实时文本与活动单独显示，快照刷新后以新提交事实为准。

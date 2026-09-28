@@ -14,7 +14,7 @@
   - 验证方式：扩展浏览器命令测试及 E2E 测试（待实现）；执行 `npx tsx --test packages/browser/test/browser-commands.test.ts` 和浏览器 E2E。
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3)_
 
-- [ ] //TODO 3. 提供受授权保护的浏览器模型目录读取
+- [x] //TODO 3. 提供受授权保护的浏览器模型目录读取
 
   - 实现目标：通过浏览器 API 返回当前 Provider 的白名单目录、当前选择、来源和脱敏错误。
   - 成功判据：未授权请求不返回目录；在线、离线兜底和鉴权失败分别呈现正确分类，响应中不存在凭据或原始 Provider 响应。

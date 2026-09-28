@@ -350,6 +350,7 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
         interact: (goalId, command) => commands.interact(goalId, command),
         message: (goalId, command) => commands.message(goalId, command),
         enterPlanMode: (goalId, command) => commands.enterPlanMode(goalId, command),
+        models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
     });
 }

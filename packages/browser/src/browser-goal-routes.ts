@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
+import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
     BrowserCreateGoalCommand,
     BrowserCreateGoalResult,
@@ -40,6 +41,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     interact: async () => ({ ok: false, error: "interaction_failed" }),
  *     message: async () => ({ ok: false, error: "message_failed" }),
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+ *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
  *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
@@ -96,6 +98,14 @@ export interface BrowserGoalApiPort {
      */
     enterPlanMode(goalId: string, command: BrowserGoalPlanModeCommand): Promise<BrowserGoalPlanModeResult>;
     /**
+     * 读取草稿默认模型或指定 Goal 当前 Run 的模型目录。
+     *
+     * @param target - 省略时读取草稿目录；指定时必须匹配最新 Goal/Run。
+     * @param signal - 浏览器断开时取消在线目录请求。
+     * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
+     */
+    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    /**
      * 打开精确绑定到最新 Goal/Run 的实时进展流。
      *
      * @param goalId - URL 路径中的 Goal 身份。
@@ -117,7 +127,7 @@ export interface BrowserGoalApiPort {
  * 创建同源 Goal 列表、会话读取、命令和实时事件 API。
  *
  * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
- * @returns 提供列表/详情读取、`POST /api/goals`、创建/交互/消息/Plan Mode 路由、
+ * @returns 提供列表/详情、模型目录、`POST /api/goals`、交互/消息/Plan Mode、
  *   会话事件流路由和 Hono 应用。
  * @remarks
  * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
@@ -129,6 +139,44 @@ export interface BrowserGoalApiPort {
  */
 export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     const routes = new Hono();
+
+    routes.get("/api/models", async (context) => {
+        if (new URL(context.req.url).searchParams.size !== 0) {
+            return context.json({ error: "invalid_model_catalog_request" }, 400);
+        }
+        try {
+            const result = await source.models(undefined, context.req.raw.signal);
+            return result.ok
+                ? context.json(result.catalog)
+                : context.json({ error: result.error }, modelCatalogErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
+
+    routes.get("/api/goals/:goalId/models", async (context) => {
+        const goalId = context.req.param("goalId");
+        const query = new URL(context.req.url).searchParams;
+        const runIds = query.getAll("runId");
+        const runId = runIds[0];
+        if (
+            !isWireId(goalId, MAX_GOAL_ID_LENGTH)
+            || query.size !== 1
+            || runIds.length !== 1
+            || runId === undefined
+            || !isWireId(runId, 256)
+        ) {
+            return context.json({ error: "invalid_model_catalog_request" }, 400);
+        }
+        try {
+            const result = await source.models({ goalId, runId }, context.req.raw.signal);
+            return result.ok
+                ? context.json(result.catalog)
+                : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
 
     routes.get("/api/goals", async (context) => {
         try {
@@ -327,6 +375,13 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     });
 
     return routes;
+}
+
+function modelCatalogErrorStatus(error: Exclude<BrowserModelCatalogReadResult, { readonly ok: true }>["error"]): 404 | 409 | 502 | 503 {
+    if (error === "goal_not_found") return 404;
+    if (error === "stale_run") return 409;
+    if (error === "model_catalog_unavailable") return 503;
+    return 502;
 }
 
 async function parseCreateCommand(

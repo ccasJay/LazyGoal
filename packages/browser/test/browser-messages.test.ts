@@ -277,6 +277,7 @@ test("消息路由严格校验 Goal/Run 与正文并返回受理身份", async (
             return { ok: true as const, goalId, runId: "run-next", existing: false };
         },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },
@@ -331,6 +332,7 @@ test("授权路由要求当前身份，只接受明确授权范围并返回刷�
         async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
         async message() { return { ok: false as const, error: "message_failed" as const }; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
         async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
         async listToolGrants(goalId, runId) {
             calls.push(`list:${goalId}:${runId}`);

@@ -59,6 +59,7 @@ import {
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     listBrowserGoals,
+    projectBrowserModelCatalog,
     readBrowserGoalSession,
 } from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
@@ -98,6 +99,7 @@ import { createLlmStageAdapters, type LlmStageAdapters } from "../../llm/src/fac
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
     createLlmModelCatalog,
+    ModelCatalogError,
     type LlmModelCatalog,
     type LlmModelDescriptor,
 } from "../../llm/src/model-catalog";
@@ -1605,6 +1607,29 @@ async function runBrowserSessionCli(
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
+            models: async (target, signal) => {
+                let currentModelId = root.defaultModelSelection.modelId;
+                if (target !== undefined) {
+                    const goal = await root.workspaceGoalStore.restore(target.goalId);
+                    if (goal === undefined) return { ok: false, error: "goal_not_found" };
+                    if (goal.state.run.id !== target.runId) return { ok: false, error: "stale_run" };
+                    currentModelId = goal.state.modelSelection.modelId;
+                }
+                if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                try {
+                    const models = await root.modelCatalog.list({ ...root.llmConfig, model: currentModelId }, { signal });
+                    return {
+                        ok: true,
+                        catalog: projectBrowserModelCatalog(root.llmConfig.provider, currentModelId, models),
+                    };
+                } catch (error) {
+                    if (!(error instanceof ModelCatalogError)) return { ok: false, error: "model_catalog_unavailable" };
+                    if (error.kind === "authentication") return { ok: false, error: "model_catalog_authentication" };
+                    if (error.kind === "permission") return { ok: false, error: "model_catalog_permission" };
+                    if (error.kind === "protocol") return { ok: false, error: "model_catalog_protocol" };
+                    return { ok: false, error: "model_catalog_unavailable" };
+                }
+            },
             readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
             listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
             revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),

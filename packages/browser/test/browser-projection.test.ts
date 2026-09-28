@@ -508,6 +508,9 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
         async enterPlanMode() {
             return { ok: false as const, error: "plan_mode_failed" as const };
         },
+        async models() {
+            return { ok: false as const, error: "model_catalog_unavailable" as const };
+        },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },
@@ -556,6 +559,9 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
         async enterPlanMode(goalId, command) {
             planModes.push({ goalId, runId: command.runId });
             return { ok: true as const, goalId, runId: command.runId, existing: false };
+        },
+        async models() {
+            return { ok: false as const, error: "model_catalog_unavailable" as const };
         },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
