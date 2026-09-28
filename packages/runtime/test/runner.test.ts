@@ -1260,7 +1260,7 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
         code: "TOOL_NOT_AUTHORIZED",
-        message: 'Tool "read_file" is not authorized by the frozen Profile',
+        message: "Select a Tool listed as available in this request.",
     });
     assert.equal(registryCalls, 0);
     assert.equal(validateCalls, 0);
@@ -1352,7 +1352,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
     assert.deepEqual(state.stopReason, {
         kind: "execution_error",
         code: "INVALID_TOOL_INPUT",
-        message: "path 必须是工作区内相对路径",
+        message: "Correct the Tool input to match its supplied schema and constraints.",
     });
     assert.equal(executeCalls, 0);
 });
@@ -2724,7 +2724,7 @@ test("Runner 声明匹配：工具标识不匹配时拒绝 complete 并返回明
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /completion criterion 0 requires bash success observation, referenced evidence does not match/,
+            /Use only committed evidence that satisfies every completion criterion\./,
         );
     }
 });
@@ -2779,7 +2779,7 @@ test("Runner 声明匹配：expect failure 引用 success 观察时被拒（Req 
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /completion criterion 0 requires read_file failure observation, referenced evidence does not match/,
+            /Use only committed evidence that satisfies every completion criterion\./,
         );
     }
 });
@@ -2835,7 +2835,7 @@ test("Runner 声明匹配：expect success 引用 failure 观察时被拒", asyn
         assert.equal(state.stopReason.code, "INVALID_AGENT_DECISION");
         assert.match(
             state.stopReason.message,
-            /completion criterion 0 requires read_file success observation, referenced evidence does not match/,
+            /Use only committed evidence that satisfies every completion criterion\./,
         );
     }
 });

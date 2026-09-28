@@ -35,11 +35,11 @@
   - 验证方式：适配器故障分类、SDK 无内部重试、Runner 三次上限／阶段不重复计数／退避取消测试通过；运行 `npx tsx --test packages/runtime/test/runner.test.ts packages/llm/test/model-request-failure.test.ts packages/llm/test/openai-compatible.test.ts packages/llm/test/gemini.test.ts packages/llm/test/pi-ai.test.ts` 与 `npx tsc --noEmit`。
   - _Requirements: [3.1](./requirements.md#req-3-1), [3.4](./requirements.md#req-3-4), [5.4](./requirements.md#req-5-4)_
 
-- [ ] //TODO 6. 将可纠正输出错误封装为 RuntimeFeedback
+- [x] //TODO 6. 将可纠正输出错误封装为 RuntimeFeedback
 
   - 实现目标：在 Agent 阶段执行器与 Runtime 校验点接入类型化阶段错误及 `RuntimeFeedback`，向原阶段传递有界、可定位且不含原始敏感输出的修复信息。
   - 成功判据：解析、输出契约、Tool 选择／输入和 Evidence 错误在副作用前生成对应阶段反馈；反馈不进入真实用户消息，纠正后的 Action 仍经过 Profile、输入、Policy 和证据校验，且不降级原输出模式。
-  - 验证方式：待实现的 Agent 阶段反馈与 Runner 校验测试；运行 `npx tsx --test packages/agent/test/llm-step-executor.test.ts packages/agent/test/model-output.test.ts packages/runtime/test/evidence-gate.test.ts` 和新增测试入口。
+  - 验证方式：Agent 阶段反馈、Runtime 校验边界与反馈字段上限测试通过（114 项）；`npx tsc --noEmit` 和 `npm run check:dependencies` 通过。
   - _Requirements: [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.2](./requirements.md#req-5-2)_
 
 - [ ] //TODO 7. 持久化阶段纠错链并恢复已完成工作
@@ -92,4 +92,4 @@
 
 ### Latest Result
 
-当前部分结果（2026-09-28）：TODO 1–5 已提交。TODO 5 的定向测试共 105 项通过，`npx tsc --noEmit` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。
+当前部分结果（2026-09-28）：TODO 1–6 已提交。TODO 6 的定向测试共 114 项通过，`npx tsc --noEmit` 与 `npm run check:dependencies` 通过；验证对应当前 worktree 提交后的代码状态。其余 Feature Verification 待后续 TODO 完成后执行。

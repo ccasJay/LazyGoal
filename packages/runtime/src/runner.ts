@@ -73,6 +73,12 @@ import {
     TransientModelRequestFailure,
     type ModelRequestAttemptFailure,
 } from "./model-request-failure";
+import {
+    createRuntimeFeedback,
+    ModelStageFeedbackError,
+    type RuntimeFeedbackOrigin,
+    type RuntimeFeedbackStage,
+} from "./runtime-feedback";
 import { transition } from "./transition";
 import {
     createEmptyGoalPlan,
@@ -312,6 +318,48 @@ function invalidAgentDecision(message: string): never {
     throw new RunnerExecutionError("INVALID_AGENT_DECISION", message);
 }
 
+function createRunnerFeedbackError(
+    error: unknown,
+    goal: Goal,
+    executionUnitId: string,
+    stage: RuntimeFeedbackStage,
+    origin: RuntimeFeedbackOrigin,
+    constraints: readonly string[] = [],
+): ModelStageFeedbackError {
+    const code = error instanceof RunnerExecutionError ? error.code : "INVALID_AGENT_DECISION";
+    const message = origin === "tool_selection"
+        ? "Select a Tool listed as available in this request."
+        : origin === "tool_input"
+            ? "Correct the Tool input to match its supplied schema and constraints."
+            : origin === "completion_evidence"
+                ? "Use only committed evidence that satisfies every completion criterion."
+                : "Return a decision that satisfies the active output contract and semantic rules.";
+    return new ModelStageFeedbackError(createRuntimeFeedback({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        executionUnitId,
+        stepOrdinal: goal.state.run.stepCount + 1,
+        stage,
+        origin,
+        code,
+        attempt: 1,
+        issues: [{
+            code,
+            path: origin === "tool_selection"
+                ? ["result", "action", "toolId"]
+                : origin === "tool_input"
+                    ? ["result", "action", "input"]
+                    : origin === "completion_evidence"
+                        ? ["result", "completionEvidence"]
+                        : ["result"],
+            message,
+        }],
+        constraints,
+    }),
+    `${stage} decision failed ${origin} validation`,
+    error);
+}
+
 function validateAgentDecision(
     value: unknown,
 ): AgentDecision {
@@ -340,6 +388,15 @@ function isProtocolError(error: unknown): boolean {
 function toStableExecutionError(error: unknown): RunnerExecutionError | undefined {
     if (error instanceof RunnerExecutionError) {
         return error;
+    }
+
+    if (error instanceof ModelStageFeedbackError) {
+        const code = error.feedback.origin === "tool_selection"
+            ? "TOOL_NOT_AUTHORIZED"
+            : error.feedback.origin === "tool_input"
+                ? "INVALID_TOOL_INPUT"
+                : "INVALID_AGENT_DECISION";
+        return new RunnerExecutionError(code, error.feedback.issues[0]?.message ?? error.feedback.code);
     }
 
     if (isProtocolError(error)) {
@@ -1322,6 +1379,48 @@ export class Runner {
             );
         } finally {
             session.close();
+        }
+    }
+
+    private validateDecisionForStage(
+        goal: Goal,
+        candidate: unknown,
+        executionUnitId: string,
+    ): AgentDecision {
+        try {
+            return validateAgentDecision(candidate);
+        } catch (error) {
+            if (error instanceof RunnerExecutionError && error.code === "INVALID_AGENT_DECISION") {
+                throw createRunnerFeedbackError(error, goal, executionUnitId, "decide", "decision_semantics");
+            }
+            throw error;
+        }
+    }
+
+    private validateEvidenceForStage(
+        goal: Goal,
+        decision: AgentDecision,
+        session: WorkingMemorySession,
+        executionUnitId: string,
+    ): void {
+        try {
+            this.validateCompletionEvidence(goal, decision, session);
+        } catch (error) {
+            if (!(error instanceof RunnerExecutionError) || error.code !== "INVALID_AGENT_DECISION") throw error;
+            if (decision.kind !== "complete") {
+                throw createRunnerFeedbackError(error, goal, executionUnitId, "decide", "decision_semantics");
+            }
+            const validSequences = [...session.evidenceIndex.events.entries()]
+                .filter(([, event]) => event.eventType === "tool_finished" || event.eventType === "observation_recorded")
+                .map(([sequence]) => sequence);
+            throw createRunnerFeedbackError(
+                error,
+                goal,
+                executionUnitId,
+                "decide",
+                "completion_evidence",
+                [`Valid committed evidence sequences: ${validSequences.join(", ") || "none"}.`],
+            );
         }
     }
 
@@ -2436,8 +2535,8 @@ export class Runner {
                                 && stageResult.modelContextFrame.stage !== "decide") {
                                 throw invalidAgentDecision("Decide stage returned a non-Decide model context frame");
                             }
-                            const decision = validateAgentDecision(stageResult.decision);
-                            this.validateCompletionEvidence(goal, decision, session);
+                            const decision = this.validateDecisionForStage(goal, stageResult.decision, executionUnitId);
+                            this.validateEvidenceForStage(goal, decision, session, executionUnitId);
                             if (stageResult.modelContextFrame !== undefined) {
                                 goal = await this.commitStageCheckpoint(
                                     goal,
@@ -2466,11 +2565,12 @@ export class Runner {
                         const extractedThought = isResultObject && typeof (execution as any).thought === "string"
                             ? (execution as any).thought
                             : undefined;
+                        const decision = this.validateDecisionForStage(goal, extractedDecision, executionUnitId);
+                        this.validateEvidenceForStage(goal, decision, session, executionUnitId);
                         normalized = {
-                            decision: validateAgentDecision(extractedDecision),
+                            decision,
                             thought: extractedThought,
                         };
-                        this.validateCompletionEvidence(goal, normalized.decision, session);
                     }
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
@@ -2837,7 +2937,17 @@ export class Runner {
 
                         throwIfAborted(control);
 
-                        const stableError = toStableExecutionError(error)
+                        const feedbackError = error instanceof RunnerExecutionError
+                            && (error.code === "TOOL_NOT_AUTHORIZED" || error.code === "INVALID_TOOL_INPUT")
+                            ? createRunnerFeedbackError(
+                                error,
+                                goal,
+                                executionUnitId,
+                                "decide",
+                                error.code === "TOOL_NOT_AUTHORIZED" ? "tool_selection" : "tool_input",
+                            )
+                            : error;
+                        const stableError = toStableExecutionError(feedbackError)
                             ?? new RunnerExecutionError(
                                 "TOOL_EXECUTION_ERROR",
                                 error instanceof Error ? error.message : String(error),

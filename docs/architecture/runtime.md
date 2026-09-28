@@ -11,7 +11,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Domain](../../packages/runtime/src/domain.ts) | Goal definition/state、Run 模式与获批 Task、Action/Observation 和交互等待契约 | I/O 和模型调用 |
 | [Launcher](../../packages/runtime/src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
 | [GoalCoordinator](../../packages/runtime/src/goal-coordinator.ts) | 统一推进、Run 模式选择、waiting resume、Tool Grant 审批/撤销、completed continue、提交等待点并委派 Scheduler | 直接执行 Tool |
-| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读 Tool、Tool 授权、Action/Observation、Evidence 和 Run 转换 | 供应商协议和 UI |
+| [Runner](../../packages/runtime/src/runner.ts) | 模型决策校验、只读 Tool、Tool 授权、Action/Observation、Evidence 和 Run 转换；把可纠正校验失败映射为阶段反馈 | 供应商协议和 UI |
 | [WorkingMemorySession](../../packages/runtime/src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../../packages/runtime/src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序 | 业务分支和模型调用 |
 | [GoalStore](../../packages/runtime/src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
@@ -54,7 +54,7 @@ Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当�
 
 ## 关键错误边界
 
-- AgentDecision 无法通过当前 Wire/Canonical Contract、Evidence 或 Run 模式能力校验时，返回 `INVALID_AGENT_DECISION`，不执行由该决策请求的副作用。
+- Agent 解析/输出契约与 Runner 的决策、Tool 选择/输入、Evidence 校验会生成类型化 `RuntimeFeedback`，只包含有界路径和安全提示，不包含原始模型输出；错误在 Action 副作用前被发现。当前 Runtime 仍将反馈映射为稳定终止错误，阶段纠错重试与恢复由后续执行任务接入。
 - Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
 - 模型调用的限流、暂时性服务、连接与超时故障由 Runner 在同一阶段内最多调用三次（含首次调用）；退避响应中止信号。鉴权、配置、协议、存储和未知错误不重试；耗尽时失败原因按稳定类别写入 Run 终态。

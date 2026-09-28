@@ -45,6 +45,16 @@ export type {
     TransientModelFailureReason,
 } from "./model-request-failure";
 export {
+    createRuntimeFeedback,
+    ModelStageFeedbackError,
+} from "./runtime-feedback";
+export type {
+    RuntimeFeedback,
+    RuntimeFeedbackIssue,
+    RuntimeFeedbackOrigin,
+    RuntimeFeedbackStage,
+} from "./runtime-feedback";
+export {
     CHECKPOINT_GATE_FROZEN_CODE,
     CheckpointGateFrozenError,
     CheckpointGateGoalStore,

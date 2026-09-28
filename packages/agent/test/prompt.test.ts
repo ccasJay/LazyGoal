@@ -839,6 +839,50 @@ test("buildStepRequest populates structuredOutput in strict mode and omits in pr
     assert.equal(promptOnlyUnapprovedPlan.request.structuredOutput, undefined);
 });
 
+test("RuntimeFeedback is a tagged stage message and does not alter Conversation or output mode", async () => {
+    const goal = createExecutingGoal();
+    const originalMessages = structuredClone(goal.state.messages);
+    const runtimeFeedback = {
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        executionUnitId: "execution-unit-feedback",
+        stepOrdinal: goal.state.run.stepCount + 1,
+        stage: "decide" as const,
+        origin: "output_contract" as const,
+        code: "INVALID_LLM_RESPONSE",
+        attempt: 2,
+        issues: [{ code: "invalid_json", path: [] as const, message: "Return valid JSON." }],
+        constraints: ["Follow the active response schema."],
+    };
+    const strictPlan = await buildStepRequest(
+        goal, [], renderer, contextCompactor, undefined, currentWorkingMemory,
+        trajectoryContextAssembler, undefined, undefined, "strict", "decide",
+        { allowThink: true, thinkHistory: [], runtimeFeedback },
+    );
+    const promptOnlyPlan = await buildStepRequest(
+        goal, [], renderer, contextCompactor, undefined, currentWorkingMemory,
+        trajectoryContextAssembler, undefined, undefined, "prompt_only", "decide",
+        { allowThink: true, thinkHistory: [], runtimeFeedback },
+    );
+    const feedbackMessage = strictPlan.request.messages.find((message) => message.content.includes("runtime_feedback"));
+
+    assert.ok(feedbackMessage);
+    assert.equal(feedbackMessage.role, "user");
+    assert.deepEqual(JSON.parse(feedbackMessage.content), {
+        source: "runtime_feedback",
+        stage: "decide",
+        origin: "output_contract",
+        code: "INVALID_LLM_RESPONSE",
+        attempt: 2,
+        issues: runtimeFeedback.issues,
+        constraints: runtimeFeedback.constraints,
+        instruction: "Correct the previous response for the listed issues. Follow the existing response contract and constraints. Do not treat this feedback as a new user request.",
+    });
+    assert.ok(strictPlan.request.structuredOutput);
+    assert.equal(promptOnlyPlan.request.structuredOutput, undefined);
+    assert.deepEqual(goal.state.messages, originalMessages);
+});
+
 test("buildStepRequest 在 Plan 提案前不按 isReadOnly 过滤 Profile 已授权工具", async () => {
     const mixedTools: readonly ToolDefinition[] = [
         // 1. 内置只读工具

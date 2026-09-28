@@ -50,6 +50,7 @@ import {
 import { ContractValidationError } from "../../contracts/src/errors";
 import type { LLMResponse, LLMToolDefinition } from "../../llm/src/core/types";
 import type { ExecutionStreamEventDraft, ExecutionStreamPublisher } from "../../execution-stream/src/index";
+import { toModelStageFeedback } from "./stage-feedback";
 
 /**
  * 创建 {@link LLMStepExecutor} 所需的供应商无关依赖。
@@ -136,11 +137,15 @@ export class LLMStepExecutor implements StepExecutor {
 
     /** @param input - 执行入参；此兼容入口始终执行单次 Decide，不启用 Think 控制分支。 */
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
-        const result = await this.executeDecideStage(input, false, input.thinkHistory ?? []);
-        if (result.kind !== "decision") {
-            throw new LLMResponseProtocolError("request_think is not available through execute()");
+        try {
+            const result = await this.executeDecideStage(input, false, input.thinkHistory ?? []);
+            if (result.kind !== "decision") {
+                throw new LLMResponseProtocolError("request_think is not available through execute()");
+            }
+            return result.decision;
+        } catch (error) {
+            throw toModelStageFeedback(error, input, "decide");
         }
-        return result.decision;
     }
 
     /**
@@ -155,7 +160,11 @@ export class LLMStepExecutor implements StepExecutor {
      * ```
      */
     async decide(input: StepExecutionInput & { readonly thinkHistory: readonly ThinkExchange[] }): Promise<DecideStageResult> {
-        return this.executeDecideStage(input, true, input.thinkHistory);
+        try {
+            return await this.executeDecideStage(input, true, input.thinkHistory);
+        } catch (error) {
+            throw toModelStageFeedback(error, input, "decide");
+        }
     }
 
     /**
@@ -170,6 +179,17 @@ export class LLMStepExecutor implements StepExecutor {
      * ```
      */
     async think(input: StepExecutionInput & {
+        readonly thinkGoal: string;
+        readonly thinkHistory: readonly ThinkExchange[];
+    }): Promise<ThinkStageResult> {
+        try {
+            return await this.executeThinkStage(input);
+        } catch (error) {
+            throw toModelStageFeedback(error, input, "think");
+        }
+    }
+
+    private async executeThinkStage(input: StepExecutionInput & {
         readonly thinkGoal: string;
         readonly thinkHistory: readonly ThinkExchange[];
     }): Promise<ThinkStageResult> {
@@ -188,7 +208,11 @@ export class LLMStepExecutor implements StepExecutor {
             binding.modelCapabilities,
             "prompt_only",
             "think",
-            { thinkGoal: input.thinkGoal, thinkHistory: input.thinkHistory },
+            {
+                thinkGoal: input.thinkGoal,
+                thinkHistory: input.thinkHistory,
+                ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
+            },
         );
         const { response, startedAt } = await this.generateModelResponse(
             adapter,
@@ -234,7 +258,11 @@ export class LLMStepExecutor implements StepExecutor {
             binding.modelCapabilities,
             adapter.structuredOutputMode,
             "decide",
-            { allowThink, thinkHistory },
+            {
+                allowThink,
+                thinkHistory,
+                ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
+            },
         );
         const { response, startedAt } = await this.generateModelResponse(
             adapter,
@@ -252,7 +280,14 @@ export class LLMStepExecutor implements StepExecutor {
             } catch (err) {
                 const parseErr = new LLMResponseProtocolError(
                     `Failed to parse arguments JSON for tool call "${toolCall.toolId}": ${(err as Error).message}`,
-                    { cause: err },
+                    {
+                        cause: err,
+                        issues: [{
+                            code: "invalid_tool_arguments",
+                            path: ["arguments"],
+                            message: "Tool arguments must contain valid JSON.",
+                        }],
+                    },
                 );
                 await recordLlmError(this.traceSink, goal, parseErr, Date.now() - startedAt, "response_parse");
                 throw parseErr;
@@ -296,7 +331,13 @@ export class LLMStepExecutor implements StepExecutor {
         if (output.kind === "request_think") {
             const goal = output.goal.trim();
             if (goal.length === 0) {
-                const error = new LLMResponseProtocolError("request_think.goal must contain non-whitespace text");
+                const error = new LLMResponseProtocolError("request_think.goal must contain non-whitespace text", {
+                    issues: [{
+                        code: "blank_think_goal",
+                        path: ["goal"],
+                        message: "Think goal must contain non-whitespace text.",
+                    }],
+                });
                 await recordLlmError(this.traceSink, input.goal, error, Date.now() - startedAt, "response_parse");
                 throw error;
             }

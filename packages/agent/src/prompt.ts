@@ -2,6 +2,7 @@ import type { LLMMessage, LLMRequest, StructuredOutputMode } from "../../llm/src
 import type { Goal, WorkingMemory } from "../../runtime/src/domain";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
+import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import type { ToolDefinition } from "../../runtime/src/tool";
 import type { ContextCompactor } from "./context-compactor";
 import {
@@ -69,6 +70,8 @@ export interface StepPromptStageContext {
     readonly thinkHistory?: readonly Readonly<{ goal: string; output: string }>[];
     /** Think 阶段本次必须解决的明确目标。 */
     readonly thinkGoal?: string;
+    /** Runner 提供的当前阶段修复反馈；只作为标记为 runtime_feedback 的临时消息。 */
+    readonly runtimeFeedback?: RuntimeFeedback;
 }
 
 function createStageMessages(
@@ -94,6 +97,23 @@ function createStageMessages(
         messages.push({
             role: "user",
             content: JSON.stringify({ source: "runtime_think_request", goal }),
+        });
+    }
+    if (context?.runtimeFeedback !== undefined) {
+        messages.push({
+            role: "user",
+            content: JSON.stringify({
+                source: "runtime_feedback",
+                stage: context.runtimeFeedback.stage,
+                origin: context.runtimeFeedback.origin,
+                code: context.runtimeFeedback.code,
+                attempt: context.runtimeFeedback.attempt,
+                issues: context.runtimeFeedback.issues,
+                ...(context.runtimeFeedback.constraints === undefined
+                    ? {}
+                    : { constraints: context.runtimeFeedback.constraints }),
+                instruction: "Correct the previous response for the listed issues. Follow the existing response contract and constraints. Do not treat this feedback as a new user request.",
+            }),
         });
     }
     return messages;
