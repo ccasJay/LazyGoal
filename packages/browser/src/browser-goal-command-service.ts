@@ -36,6 +36,8 @@ export interface BrowserCreateGoalCommand {
     readonly intent: string;
     /** 首个 Run 的显式模式；省略时使用 Normal Mode。 */
     readonly mode?: "plan";
+    /** 草稿预选的模型 ID；省略时使用进程默认模型。 */
+    readonly modelId?: string;
 }
 
 /**
@@ -200,7 +202,7 @@ export type BrowserCreateGoalResult =
     }
     | {
         readonly ok: false;
-        readonly error: "invalid_goal_input" | "goal_id_conflict" | "goal_busy" | "goal_create_failed";
+        readonly error: "invalid_goal_input" | "goal_id_conflict" | "goal_busy" | "model_not_selectable" | "model_catalog_unavailable" | "goal_create_failed";
     };
 
 /**
@@ -393,6 +395,8 @@ export interface BrowserGoalCommandDependencies {
     readonly resolveModelSelection?: (modelId: string, current: GoalModelSelection) => Promise<GoalModelSelection | undefined>;
     /** 在安全等待点持久化已验证的模型选择。 */
     readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
+    /** 浏览器创建使用的进程默认模型选择。 */
+    readonly defaultModelSelection?: GoalModelSelection;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
     /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
@@ -402,6 +406,7 @@ export interface BrowserGoalCommandDependencies {
 interface InFlightCreate {
     readonly intent: string;
     readonly mode: "normal" | "plan";
+    readonly modelId: string | undefined;
     readonly accepted: Promise<BrowserCreateGoalResult>;
 }
 
@@ -505,7 +510,7 @@ export class BrowserGoalCommandService {
         const reservation = await this.withReservationLock(async (): Promise<Reservation> => {
             const current = this.inFlight.get(command.goalId);
             if (current !== undefined) {
-                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal")) {
+                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal") || current.modelId !== command.modelId) {
                     return { kind: "result", result: { ok: false, error: "goal_id_conflict" } };
                 }
                 return {
@@ -520,6 +525,7 @@ export class BrowserGoalCommandService {
             if (existing !== undefined) {
                 return existing.definition.intent === command.intent
                     && existing.state.run.mode === (command.mode ?? "normal")
+                    && existing.state.modelSelection.modelId === (command.modelId ?? this.dependencies.defaultModelSelection?.modelId ?? existing.state.modelSelection.modelId)
                     ? {
                         kind: "result",
                         result: {
@@ -536,11 +542,27 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "goal_busy" } };
             }
 
+            const defaultSelection = this.dependencies.defaultModelSelection;
+            let modelSelection = defaultSelection;
+            if (command.modelId !== undefined) {
+                if (defaultSelection === undefined || this.dependencies.resolveModelSelection === undefined) {
+                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
+                }
+                try {
+                    modelSelection = await this.dependencies.resolveModelSelection(command.modelId, defaultSelection);
+                } catch {
+                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
+                }
+                if (modelSelection === undefined) {
+                    return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
+                }
+            }
             this.activeGoalId = command.goalId;
-            const accepted = this.start(command);
+            const accepted = this.start(command, modelSelection);
             this.inFlight.set(command.goalId, {
                 intent: command.intent,
                 mode: command.mode ?? "normal",
+                modelId: command.modelId,
                 accepted,
             });
             return { kind: "in_flight", accepted };
@@ -788,7 +810,7 @@ export class BrowserGoalCommandService {
         return reservation.kind === "result" ? reservation.result : reservation.accepted;
     }
 
-    private async start(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult> {
+    private async start(command: BrowserCreateGoalCommand, modelSelection?: GoalModelSelection): Promise<BrowserCreateGoalResult> {
         let settleAcceptance!: (result: BrowserCreateGoalResult) => void;
         let accepted = false;
         const acceptance = new Promise<BrowserCreateGoalResult>((resolve) => {
@@ -814,6 +836,7 @@ export class BrowserGoalCommandService {
                 intent: command.intent,
                 profileId: this.dependencies.profileId,
                 ...(command.mode === undefined ? {} : { mode: command.mode }),
+                ...(modelSelection === undefined ? {} : { modelSelection }),
             }, this.dependencies.control))
             .then(() => {
                 if (!accepted) {

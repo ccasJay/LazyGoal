@@ -236,3 +236,48 @@ test("已存在相同 ID 和意图时只返回已有快照，不再次启动 Lau
     });
     assert.equal(launchCount, 0);
 });
+
+test("草稿模型由服务端验证，创建快照使用已确认选择且冲突重试被拒绝", async () => {
+    const store = new NotifyingMemoryStore();
+    const selection = {
+        provider: "openai",
+        modelId: "gpt-selected",
+        structuredOutputMode: "two_stage" as const,
+        inputEstimator: { kind: "character-v1" as const },
+    };
+    const launches: Array<string | undefined> = [];
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: "default",
+        defaultModelSelection: { ...selection, modelId: "gpt-default" },
+        resolveModelSelection: async (modelId) => modelId === "gpt-selected" ? selection : undefined,
+        launcher: {
+            async launch(request) {
+                launches.push(request.modelSelection?.modelId);
+                const base = goalFor(request.goalId, request.intent);
+                const goal: Goal = {
+                    ...base,
+                    state: { ...base.state, modelSelection: request.modelSelection! },
+                };
+                await store.save(goal);
+                return terminal(goal);
+            },
+        },
+        coordinator: {
+            async resume() { throw new Error("unused"); },
+            async continue() { throw new Error("unused"); },
+            async enterPlanMode() { throw new Error("unused"); },
+        },
+    });
+    assert.deepEqual(await service.create({ goalId: "goal-1", intent: "Inspect", modelId: "other" }), {
+        ok: false, error: "model_not_selectable",
+    });
+    assert.deepEqual(launches, []);
+    assert.equal((await service.create({ goalId: "goal-1", intent: "Inspect", modelId: "gpt-selected" })).ok, true);
+    assert.equal((await store.restore("goal-1"))?.state.modelSelection.modelId, "gpt-selected");
+    assert.deepEqual(await service.create({ goalId: "goal-1", intent: "Inspect", modelId: "gpt-default" }), {
+        ok: false, error: "goal_id_conflict",
+    });
+    assert.deepEqual(launches, ["gpt-selected"]);
+});

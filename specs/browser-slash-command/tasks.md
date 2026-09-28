@@ -35,7 +35,7 @@
   - 验证方式：扩展 `packages/runtime/test/goal-model-selection-coordinator.test.ts` 和浏览器命令竞态测试（待实现）；执行对应 `npx tsx --test` 定向测试。
   - _Requirements: [4.3](./requirements.md#req-4-3), [5.5](./requirements.md#req-5-5)_
 
-- [ ] //TODO 6. 在创建 Goal 时保存草稿模型并对齐首次执行
+- [x] //TODO 6. 在创建 Goal 时保存草稿模型并对齐首次执行
 
   - 实现目标：创建请求携带可选模型 ID，服务端验证后将完整选择交给 Launcher，并在首次保存失败时恢复旧 Binding。
   - 成功判据：首条任务使用草稿预选模型；未选模时 Snapshot 使用进程默认选择；创建失败不留下错误 Binding，相同 ID 的冲突重试被拒绝。

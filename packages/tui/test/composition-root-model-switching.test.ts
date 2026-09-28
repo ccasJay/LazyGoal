@@ -345,3 +345,46 @@ test("恢复 Goal 时，若快照 Provider 与当前环境不兼容，则阻止�
         await cleanup();
     }
 });
+
+test("浏览器 Launcher 在首次调用前对齐模型，并在初始保存前失败时回滚绑定", async () => {
+    const { workspace, cleanup } = await setupTestWorkspace();
+    try {
+        const adapters: FakeAdapter[] = [];
+        const root = await createCompositionRoot({
+            cwd: workspace,
+            adapter: new FakeAdapter("model-default"),
+            adapterFactory: (selection, stage) => {
+                const adapter = new FakeAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+                adapters.push(adapter);
+                return adapter;
+            },
+            profile: {
+                id: "default",
+                systemPrompt: "System prompt",
+                instructions: [],
+                toolIds: [],
+            },
+            toolPolicy: createDefaultToolPolicy(),
+        });
+        const oldSelection = root.modelBinding.current().selection;
+        const chosen: GoalModelSelection = { ...oldSelection, modelId: "model-selected" };
+        const created = await root.browserLauncher.launch({
+            goalId: "goal-browser-selected", intent: "Inspect this project", profileId: "default",
+            modelSelection: chosen,
+        });
+        assert.equal(created.ok, true);
+        assert.equal((await root.workspaceGoalStore.restore("goal-browser-selected"))?.state.modelSelection.modelId, "model-selected");
+        assert.equal(root.modelBinding.current().selection.modelId, "model-selected");
+        assert.ok(adapters.some((adapter) => adapter.modelId === "model-selected" && adapter.calls.length > 0));
+
+        const failed = await root.browserLauncher.launch({
+            goalId: "goal-browser-failed", intent: "Inspect another project", profileId: "missing-profile",
+            modelSelection: { ...oldSelection, modelId: "model-temporary" },
+        });
+        assert.equal(failed.ok, false);
+        assert.equal(await root.workspaceGoalStore.restore("goal-browser-failed"), undefined);
+        assert.equal(root.modelBinding.current().selection.modelId, "model-selected");
+    } finally {
+        await cleanup();
+    }
+});

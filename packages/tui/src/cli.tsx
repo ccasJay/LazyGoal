@@ -562,6 +562,8 @@ export interface CompositionRoot {
     readonly modelCatalog: LlmModelCatalog;
     /** 当前生效的可变模型执行绑定管理器。 */
     readonly modelBinding: MutableModelBinding;
+    /** 按完整选择重建并发布下一代执行绑定；构建失败时不修改当前绑定。 */
+    readonly alignModelBinding: (selection: GoalModelSelection) => void;
     /** 当前生效的 Goal 模型选择协调器。 */
     readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
     /** 启动时初始的默认模型选择。 */
@@ -629,6 +631,8 @@ export interface CompositionRoot {
      * ```
      */
     readonly launcher: SessionLauncher;
+    /** 浏览器创建入口；先发布请求模型绑定，初始快照未保存时恢复旧绑定。 */
+    readonly browserLauncher: SessionLauncher;
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
     /** Controller 创建新 Goal 时使用的 ID 生成器。 */
@@ -946,6 +950,16 @@ export async function createCompositionRoot(
             customEstimator: modelInputEstimator,
         }),
     );
+    const alignModelBinding = (selection: GoalModelSelection): void => {
+        const candidate = modelBinding.createCandidate({
+            selection,
+            ...createStageAdaptersForSelection(selection),
+            trajectoryStore,
+            modelContextBudget: options.modelContextBudget,
+            customEstimator: modelInputEstimator,
+        });
+        modelBinding.publish(candidate);
+    };
     const runner = new Runner({
         store: checkpointStore,
         executor: new LLMStepExecutor({
@@ -1008,6 +1022,19 @@ export async function createCompositionRoot(
                 },
                 control,
             );
+        },
+    };
+    const browserLauncher: SessionLauncher = {
+        async launch(request, control) {
+            if (request.modelSelection === undefined) throw new Error("Browser launch requires model selection");
+            const previous = modelBinding.current().selection;
+            alignModelBinding(request.modelSelection);
+            try {
+                return await launcher.launch(request, control);
+            } finally {
+                const saved = await primaryGoalStore.restore(request.goalId);
+                if (saved === undefined) alignModelBinding(previous);
+            }
         },
     };
     const readTrajectory = (
@@ -1175,9 +1202,11 @@ export async function createCompositionRoot(
         coordinator,
         modelCatalog,
         modelBinding,
+        alignModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
         launcher,
+        browserLauncher,
         controller,
         goalIdGenerator,
         runIdGenerator,
@@ -1586,9 +1615,10 @@ async function runBrowserSessionCli(
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
-            launcher: root.launcher,
+            launcher: root.browserLauncher,
             coordinator: root.coordinator,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+            defaultModelSelection: root.defaultModelSelection,
             resolveModelSelection: async (modelId, current) => {
                 if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
                     return undefined;

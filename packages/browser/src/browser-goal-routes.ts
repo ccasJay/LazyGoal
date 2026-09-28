@@ -302,6 +302,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                 }, result.existing ? 200 : 202);
             }
             const status = result.error === "goal_create_failed" ? 500
+                : result.error === "model_catalog_unavailable" ? 503
                 : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
                     : 400;
             return context.json({ error: result.error }, status);
@@ -435,7 +436,7 @@ async function parseCreateCommand(
 
     const body = value as Record<string, unknown>;
     if (
-        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode")
+        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode" && key !== "modelId")
         || typeof body.goalId !== "string"
         || body.goalId.length === 0
         || body.goalId.length > MAX_GOAL_ID_LENGTH
@@ -444,6 +445,7 @@ async function parseCreateCommand(
         || body.intent.trim().length === 0
         || body.intent.length > MAX_COMMAND_TEXT_LENGTH
         || (body.mode !== undefined && body.mode !== "plan")
+        || (body.modelId !== undefined && readWireText(body.modelId, 256) === undefined)
     ) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
@@ -454,6 +456,7 @@ async function parseCreateCommand(
             goalId: body.goalId,
             intent: body.intent,
             ...(body.mode === undefined ? {} : { mode: body.mode }),
+            ...(body.modelId === undefined ? {} : { modelId: body.modelId as string }),
         },
     };
 }
