@@ -328,15 +328,21 @@ export interface GoalSnapshotGoalPlanV1 {
  * @example
  * ```ts
  * const run: GoalSnapshotCompletedRunV1 = {
- *   runId: "run-1", stepCount: 2, committedThroughSequence: 8,
+ *   runId: "run-1", status: "completed", stepCount: 2, committedThroughSequence: 8,
  *   messageRange: { start: 0, end: 2 },
  * };
  * ```
  */
 export interface GoalSnapshotCompletedRunV1 {
+    /** 已归档 Run 的稳定身份。 */
     readonly runId: string;
+    /** 已归档 Run 的真实终态。 */
+    readonly status: "completed" | "failed";
+    /** 归档时已提交的 Step 数量。 */
     readonly stepCount: number;
+    /** 该 Run 的轨迹可见边界。 */
     readonly committedThroughSequence: number;
+    /** 该 Run 在 Goal 消息数组中的半开区间。 */
     readonly messageRange: { readonly start: number; readonly end: number };
 }
 
@@ -837,6 +843,7 @@ const GoalPlanSchema = z.object({
 
 const CompletedRunSchema = z.object({
     runId: NonEmptyStringSchema,
+    status: z.enum(["completed", "failed"]),
     stepCount: z.number().int().nonnegative(),
     committedThroughSequence: z.number().int().nonnegative(),
     messageRange: z.object({

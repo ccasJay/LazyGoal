@@ -337,6 +337,7 @@ function encodeGoalPlan(plan: GoalPlan): GoalSnapshotGoalPlanV1 {
 function encodeCompletedRun(record: CompletedRunRecord): GoalSnapshotCompletedRunV1 {
     return {
         runId: record.runId,
+        status: record.status,
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },
@@ -648,6 +649,7 @@ function decodeGoalPlan(plan: GoalSnapshotGoalPlanV1): GoalPlan {
 function decodeCompletedRun(record: GoalSnapshotCompletedRunV1): CompletedRunRecord {
     return {
         runId: record.runId,
+        status: record.status,
         stepCount: record.stepCount,
         committedThroughSequence: record.committedThroughSequence,
         messageRange: { ...record.messageRange },

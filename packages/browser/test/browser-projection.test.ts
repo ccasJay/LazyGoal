@@ -213,8 +213,8 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
 
     assert.ok(session);
     assert.deepEqual(session.messages, [
-        { role: "user", content: "检查项目" },
-        { role: "assistant", content: "会话已完成" },
+        { role: "user", content: "检查项目", runId: "run-real-1" },
+        { role: "assistant", content: "会话已完成", runId: "run-real-1" },
     ]);
     assert.equal(session.currentRunMode, "normal");
     assert.equal(session.nextRunMode, undefined);
@@ -240,6 +240,124 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
+test("Bash 决定与跨 execution unit 的执行合并为一行，complete 决策不重复显示", async () => {
+    const goal = createTestGoal();
+    const actionId = "bash-action-1";
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "decision-unit",
+            eventType: "model_context_frame",
+            payload: {
+                type: "model_context_frame",
+                stage: "decide",
+                epochNumber: goal.state.run.contextEpoch.number,
+                conversationPosition: 0,
+                sections: [],
+            },
+        }, 1),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "decision-unit",
+            stepIndex: 1,
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: {
+                    kind: "tool_call",
+                    action: { actionId, toolId: "bash", input: { command: "printf ok" } },
+                },
+            },
+        }, 2),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "decision-unit",
+            stepIndex: 1,
+            actionId,
+            eventType: "action_staged",
+            payload: {
+                type: "action_staged",
+                action: { actionId, toolId: "bash", input: { command: "printf ok" } },
+                approvalStatus: "approved",
+            },
+        }, 3),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "tool-unit",
+            stepIndex: 1,
+            actionId,
+            eventType: "tool_started",
+            payload: {
+                type: "tool_started",
+                actionId,
+                toolId: "bash",
+                input: { command: "printf ok" },
+            },
+        }, 4),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "tool-unit",
+            stepIndex: 1,
+            actionId,
+            eventType: "observation_recorded",
+            payload: {
+                type: "observation_recorded",
+                actionId,
+                observation: {
+                    kind: "success",
+                    output: { exitCode: 0, stdout: "ok", stderr: "", privateField: "omit" },
+                    summary: "命令执行成功",
+                },
+            },
+        }, 5),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "completion-unit",
+            stepIndex: 2,
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: { kind: "complete", summary: "done", completionEvidence: [] },
+            },
+        }, 6),
+        allocateImmutableEvent({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            executionUnitId: "completion-unit",
+            stepIndex: 2,
+            eventType: "run_completed",
+            payload: { type: "run_completed", summary: "done" },
+        }, 7),
+    ];
+    const session = await readBrowserGoalSession(
+        goal.id,
+        new TestGoalStore(goal),
+        async () => ({ committed, uncommittedTail: [] }),
+    );
+
+    assert.equal(session?.runs[0]?.steps.length, 1);
+    assert.deepEqual(session?.runs[0]?.steps[0]?.bashExecution, {
+        command: "printf ok",
+        exitCode: 0,
+        stdout: "ok",
+        stderr: "",
+    });
+    assert.equal(JSON.stringify(session).includes("privateField"), false);
+});
+
 test("未创建 GoalPlan 时省略计划；不存在 Goal 返回 undefined，损坏读取拒绝", async () => {
     const goal = createTestGoal();
     const store = new TestGoalStore(goal);
@@ -251,6 +369,28 @@ test("未创建 GoalPlan 时省略计划；不存在 Goal 返回 undefined，损
     await assert.rejects(readBrowserGoalSession(goal.id, store, async () => {
         throw new Error("corrupt trajectory details");
     }), /corrupt trajectory details/);
+});
+
+test("会话投影保留已归档失败 Run 的状态", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            completedRuns: [{
+                runId: "run-failed",
+                status: "failed",
+                stepCount: 1,
+                committedThroughSequence: 3,
+                messageRange: { start: 0, end: 1 },
+            }],
+        },
+    };
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: [], uncommittedTail: [],
+    }));
+    assert.equal(session?.runs[0]?.runId, "run-failed");
+    assert.equal(session?.runs[0]?.status, "failed");
 });
 
 test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () => {

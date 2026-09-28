@@ -592,7 +592,7 @@ export class BrowserGoalCommandService {
                         result: { ok: false, error: "structured_interaction_required" },
                     };
                 }
-            } else if (status !== "completed") {
+            } else if (status !== "completed" && status !== "failed") {
                 return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
             }
 
@@ -731,13 +731,13 @@ export class BrowserGoalCommandService {
         const goalId = initialGoal.id;
         const runId = initialGoal.state.run.id;
         const initialMessageCount = initialGoal.state.messages.length;
-        const wasCompleted = initialGoal.state.run.status === "completed";
+        const startsNewRun = initialGoal.state.run.status === "completed" || initialGoal.state.run.status === "failed";
         const key = `${goalId}\u0000${runId}`;
         const unsubscribe = this.dependencies.saveNotifications.onSave((goal) => {
             if (goal.id !== goalId || accepted) return;
             const submittedMessage = goal.state.messages[initialMessageCount];
             if (submittedMessage?.role !== "user" || submittedMessage.content !== command.content) return;
-            if (wasCompleted) {
+            if (startsNewRun) {
                 if (
                     goal.state.run.id === runId
                     || !(goal.state.completedRuns ?? []).some((run) => run.runId === runId)
@@ -754,7 +754,7 @@ export class BrowserGoalCommandService {
             });
         });
 
-        const progress = Promise.resolve().then(() => wasCompleted
+        const progress = Promise.resolve().then(() => startsNewRun
             ? this.dependencies.coordinator.continue({ goalId, runId }, command.content, this.dependencies.control)
             : this.dependencies.coordinator.resume({
                 ref: { goalId, runId },

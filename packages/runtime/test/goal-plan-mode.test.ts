@@ -106,7 +106,7 @@ test("GoalCoordinator.enterPlanMode is idempotent and rejects a started normal R
         ok: false,
         error: {
             code: "PLAN_MODE_BUSY",
-            message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+            message: "Plan Mode can only be selected before run_started is committed or after a Run completes or fails",
         },
     });
 });
@@ -134,7 +134,7 @@ test("GoalCoordinator.enterPlanMode refuses an uncommitted run_started tail", as
         ok: false,
         error: {
             code: "PLAN_MODE_BUSY",
-            message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+            message: "Plan Mode can only be selected before run_started is committed or after a Run completes or fails",
         },
     });
     assert.equal((await store.restore(initial.id))?.state.run.mode, "normal");
@@ -197,4 +197,29 @@ test("GoalCoordinator.enterPlanMode selects only the next Run after completion a
     const restored = await store.restore(initial.id);
     assert.equal(restored?.state.run.mode, "plan");
     assert.equal(restored?.state.nextRunMode, undefined);
+});
+
+test("failed Run can select Plan Mode for its next Run", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = goal();
+    const started = transition(initial.state.run, { kind: "start" });
+    if (!started.ok) throw new Error(started.error.message);
+    const failedRun = transition(started.state, {
+        kind: "decision",
+        decision: { kind: "fail", error: "Model decision failed" },
+    });
+    if (!failedRun.ok) throw new Error(failedRun.error.message);
+    const failed: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: failedRun.state,
+        },
+    };
+    await store.save(failed);
+    const coordinator = new GoalCoordinator({ store, scheduler: new NoopScheduler() });
+    const selected = await coordinator.enterPlanMode({ goalId: failed.id, runId: failed.state.run.id });
+    assert.equal(selected.ok, true);
+    assert.equal((await store.restore(failed.id))?.state.nextRunMode, "plan");
+    assert.equal((await store.restore(failed.id))?.state.run.status, "failed");
 });

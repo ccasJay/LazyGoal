@@ -189,6 +189,7 @@ test("JSON Snapshot survives Scheduler failure and a restarted Coordinator resum
         });
         assert.deepEqual(savedAfterFailure.state.completedRuns, [{
             runId: "run-1",
+            status: "completed",
             stepCount: 1,
             committedThroughSequence: 0,
             messageRange: { start: 0, end: 1 },

@@ -7,7 +7,7 @@ LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal
 | 概念 | 含义 |
 | --- | --- |
 | Goal | 由冻结 definition 与可变 state 组成的可恢复 Session 聚合；持有会话消息、独立 GoalPlan、下一 Run 的一次性模式选择和 Run 历史 |
-| Run | Goal 内一次执行边界，拥有独立 `runId`、模式和可选获批任务；completed 后由显式输入创建后继 Run |
+| Run | Goal 内一次执行边界，拥有独立 `runId`、模式和可选获批任务；completed 或 failed 后由显式输入创建后继 Run |
 | Task | Plan Run 的提案经用户批准后保存在该 Run 的目标与完成条件；普通 Run 直接以用户请求为目标 |
 | Step | 一次 Run 内最终已提交的 Agent 决策或 Tool Action/Observation 周期；中间 Decide/Think 阶段和 Think 检查点不增加 Step 序号 |
 | Snapshot | GoalStore 中某个 `goalId` 的最新完整状态 |
@@ -22,7 +22,7 @@ LazyGoal 是一个 Goal 驱动的可恢复 Agent Runtime。`runtime` 拥有 Goal
 flowchart LR
     C[CLI / TUI / Benchmark] --> L[Runtime: Launcher]
     L --> G[Runtime: GoalCoordinator]
-    C -->|/plan / waiting / completed input| G
+    C -->|/plan / waiting / terminal input| G
     G --> S[GoalStore / TrajectoryStore]
     G --> Q[Scheduler]
     Q --> R[Runtime: Runner]
@@ -52,9 +52,9 @@ flowchart LR
 ## 主流程
 
 1. Launcher 校验 intent、Profile、协议组合和持久化依赖，默认创建普通 Run；GoalPlan 可缺省，也可保留已有计划。
-2. `/plan` 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成时，将一次性选择保存为 `nextRunMode`，由下一 Run 消费。
+2. `/plan` 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，将一次性选择保存为 `nextRunMode`，由下一 Run 消费。
 3. Coordinator 调用统一 Runner。普通 Run 直接处理用户请求；Plan Run 的 Prompt 要求先提出任务提案，但 Runtime 仍按现有 Profile、Tool Policy 和 Action 审批授权已暴露的业务 Tool。Decide 可请求目标明确的 Think；Runner 提交 Think 输出后再调用 Decide，只有最终业务决策推进 Step。
-4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 输入先归档历史并提交新 Run。
+4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 或 failed 输入先归档历史及终态，再提交新 Run。
 5. 获批 Plan Run 可通过受模式能力授权的计划 Tool 更新 GoalPlan。一个 Run 可依次更新多个 Todo；标记 Todo 完成必须引用当前 Run 已提交 Observation。Run 终态独立于未完成 Todo，后者保留原状态且不会自动创建下一 Run。
 6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。TUI 从已提交的 Goal、Run 与计划状态投影交互面板和统一时间线。
 

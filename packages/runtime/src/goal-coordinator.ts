@@ -325,7 +325,7 @@ export class GoalCoordinator {
      *
      * @remarks
      * 同一 Goal 的模式选择与 `run_started` 提交按 Store 实例上的串行边界线性化。
-     * 未启动 Run 的模式和事件一起提交；已完成 Run 只把一次性选择写入
+     * 未启动 Run 的模式和事件一起提交；已完成或失败 Run 只把一次性选择写入
      * `nextRunMode`，由后续 Run 创建时消费。命令文本不会成为 Goal 消息或 Run
      * Step。重复选择不重复写入。已经提交 `run_started` 的普通 Run 及其它非终态
      * 等待点不能再切换；Trajectory 中存在未提交的 `run_started` 时也会拒绝。
@@ -349,7 +349,7 @@ export class GoalCoordinator {
             if (goal === undefined) return this.runNotFound(ref);
             this.validateGoalProtocol(goal);
 
-            if (goal.state.run.status === "completed") {
+            if (goal.state.run.status === "completed" || goal.state.run.status === "failed") {
                 if (goal.state.nextRunMode === "plan") {
                     return { ok: true, kind: "terminal", phase: "executing", goal };
                 }
@@ -408,7 +408,7 @@ export class GoalCoordinator {
             ok: false,
             error: {
                 code: "PLAN_MODE_BUSY",
-                message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+                message: "Plan Mode can only be selected before run_started is committed or after a Run completes or fails",
             },
         };
     }
@@ -477,17 +477,17 @@ export class GoalCoordinator {
     }
 
     /**
-     * 为已完成 Run 创建并推进一个新的会话 Run。
+     * 为已完成或失败的 Run 创建并推进一个新的会话 Run。
      *
      * @remarks
-     * `continue` 只接受当前 `completed` Run 和非空输入。它在同一个 Goal 内先
+     * `continue` 只接受当前 `completed` 或 `failed` Run 和非空输入。它在同一个 Goal 内先
      * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
      * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
      * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
      * Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个 Coordinator
-     * 实例按 Goal 串行化 continue 请求，避免同一 completed 快照被两次消费。
+     * 实例按 Goal 串行化 continue 请求，避免同一终态快照被两次消费。
      *
-     * @param ref - 当前已完成 Run 的 Goal/Run 关联键。
+     * @param ref - 当前已完成或失败 Run 的 Goal/Run 关联键。
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
      * @param control - 当前会话调用共享的可选中止控制。
      * @returns 新 Run 调度到 waiting 或终态后的结果；输入或状态非法时返回稳定错误。
@@ -523,7 +523,7 @@ export class GoalCoordinator {
                     if (goal === undefined) return { progress: this.runNotFound(ref) };
                     this.validateGoalProtocol(goal);
 
-                    if (goal.state.run.status !== "completed") {
+                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed") {
                         return { progress: this.goalNotCompleted(ref) };
                     }
 
@@ -545,6 +545,7 @@ export class GoalCoordinator {
                     const previousRangeEnd = priorHistory.at(-1)?.messageRange.end ?? 0;
                     const history: CompletedRunRecord = {
                         runId: goal.state.run.id,
+                        status: goal.state.run.status,
                         stepCount: goal.state.run.stepCount,
                         committedThroughSequence: goal.state.run.committedThroughSequence,
                         messageRange: {
@@ -1288,7 +1289,7 @@ export class GoalCoordinator {
             ok: false,
             error: {
                 code: "GOAL_NOT_COMPLETED",
-                message: `Goal "${ref.goalId}" is not completed for continuation`,
+                message: `Goal "${ref.goalId}" has no completed or failed Run to continue`,
             },
         };
     }

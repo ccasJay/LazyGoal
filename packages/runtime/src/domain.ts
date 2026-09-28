@@ -988,15 +988,30 @@ export interface GoalState {
     readonly modelSelection: GoalModelSelection;
     /** 可选的 Goal 进度计划；与当前 Run 模式及任务审批状态独立。 */
     readonly goalPlan?: GoalPlan;
-    /** 已完成 Run 的只读摘要；初始 Goal 为空。 */
+    /** 已归档终态 Run 的只读摘要；初始 Goal 为空。 */
     readonly completedRuns?: readonly CompletedRunRecord[];
 }
 
-/** 已完成 Run 的跨会话历史摘要。 */
+/**
+ * 已归档终态 Run 的跨会话历史摘要。
+ *
+ * @remarks
+ * 只保存归档时的状态、消息范围和轨迹边界；新 Run 不继承旧 Run 的证据。
+ *
+ * @example
+ * ```ts
+ * const previousRun: CompletedRunRecord = {
+ *   runId: "run-1", status: "failed", stepCount: 1,
+ *   committedThroughSequence: 8, messageRange: { start: 0, end: 1 },
+ * };
+ * ```
+ */
 export interface CompletedRunRecord {
-    /** 已完成 Run 的稳定 ID。 */
+    /** 已归档 Run 的稳定 ID。 */
     readonly runId: string;
-    /** 完成时的 Step 数量。 */
+    /** 归档时的终态，保留失败 Run 的真实状态。 */
+    readonly status: "completed" | "failed";
+    /** 归档时的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */
     readonly committedThroughSequence: number;

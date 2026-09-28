@@ -813,7 +813,7 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
                 ok: false,
                 error: {
                     code: "PLAN_MODE_BUSY",
-                    message: "Plan Mode can only be selected before run_started is committed or after a Run completes",
+                    message: "Plan Mode can only be selected before run_started is committed or after a Run completes or fails",
                 },
             });
             assert.deepEqual(trajectoryStore.events

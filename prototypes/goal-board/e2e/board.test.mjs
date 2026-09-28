@@ -119,6 +119,23 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Action result needs review')");
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Approve action'))"), true);
+
+    mock.resetToFailed();
+    await navigate(socket, `${webUrl}/?session=failed#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('.goal-card').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('This Run failed')");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Try again with the saved history");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      returnByValue: true,
+    });
+    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
+    assert.deepEqual(mock.lastMessage, { runId: "run-1", content: "Try again with the saved history" });
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
@@ -138,6 +155,7 @@ function createMockApi() {
   let currentListItem = listItem("waiting");
   let liveTransitionSent = false;
   let lastInteraction;
+  let lastMessage;
   const authorizationHeaders = [];
   let authorizedRequestCount = 0;
   const server = createServer(async (request, response) => {
@@ -188,6 +206,24 @@ function createMockApi() {
       json(response, { goalId: "goal-1", runId: "run-1", existing: false });
       return;
     }
+    if (request.url === "/api/goals/goal-1/messages" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      lastMessage = JSON.parse(body);
+      session = {
+        ...session,
+        currentRunId: "run-2",
+        runStatus: "waiting",
+        messages: [...session.messages, { role: "user", content: lastMessage.content }],
+        runs: [
+          ...session.runs.map((run) => ({ ...run, current: false })),
+          { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
+        ],
+      };
+      currentListItem = { ...listItem("waiting"), runId: "run-2" };
+      json(response, { goalId: "goal-1", runId: "run-2", existing: false });
+      return;
+    }
     response.writeHead(404, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
   });
@@ -195,6 +231,7 @@ function createMockApi() {
     server,
     authorizationHeaders,
     get lastInteraction() { return lastInteraction; },
+    get lastMessage() { return lastMessage; },
     authorizedRequests: () => authorizedRequestCount,
     resetToWaiting() {
       session = interactionSession();
@@ -212,6 +249,15 @@ function createMockApi() {
         },
       };
       currentListItem = listItem("waiting");
+      liveTransitionSent = true;
+    },
+    resetToFailed() {
+      session = {
+        ...waitingSession(),
+        runStatus: "failed",
+        runs: waitingSession().runs.map((run) => ({ ...run, status: "failed" })),
+      };
+      currentListItem = listItem("failed");
       liveTransitionSent = true;
     },
   };
@@ -379,6 +425,11 @@ async function value(socket, expression) {
   const result = await cdp(socket, "Runtime.evaluate", { expression, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
   return result.result.value;
+}
+
+async function setText(socket, selector, text) {
+  const expression = `(() => { const field = document.querySelector(${JSON.stringify(selector)}); if (!field) return false; const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value').set; setter.call(field, ${JSON.stringify(text)}); field.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`;
+  assert.equal(await value(socket, expression), true, `field exists: ${selector}`);
 }
 
 async function waitForExpression(socket, expression) {

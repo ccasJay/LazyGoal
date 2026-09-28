@@ -3,6 +3,9 @@ import type {
     GoalCatalog,
     GoalCatalogEntry,
     GoalStore,
+    JsonObject,
+    JsonValue,
+    Observation,
     RunMode,
     TrajectoryEvent,
     TrajectoryReadQuery,
@@ -14,6 +17,9 @@ const MAX_MESSAGES = 100;
 const MAX_RUNS = 50;
 const MAX_STEPS_PER_RUN = 200;
 const MAX_STEP_SUMMARY_LENGTH = 1_000;
+const MAX_BASH_EXECUTION_DETAILS = 100;
+const MAX_BASH_COMMAND_LENGTH = 2_000;
+const MAX_BASH_OUTPUT_LENGTH = 4_000;
 
 /**
  * Goal 看板中的安全列表条目。
@@ -54,8 +60,8 @@ export interface BrowserGoalListItem {
  * 可在浏览器会话中展示的用户或助手消息。
  *
  * @remarks
- * 消息保持 Goal Snapshot 中的原始顺序，但仅暴露角色和有长度上限的正文；
- * Profile 身份及其他 Goal 状态不会随消息返回。
+ * 消息保持 Goal Snapshot 中的原始顺序，仅暴露角色、有长度上限的正文和可确定时的
+ * Run 身份；Profile 身份及其他 Goal 状态不会随消息返回。
  *
  * @example
  * ```ts
@@ -67,14 +73,47 @@ export interface BrowserSessionMessage {
     readonly role: "user" | "assistant";
     /** 截断后的会话正文。 */
     readonly content: string;
+    /** 消息所属的 Run；旧历史无法归属时省略。 */
+    readonly runId?: string;
+}
+
+/**
+ * 可在已提交 Bash 步骤中查看的有限执行详情。
+ *
+ * @remarks
+ * 仅包含命令和已提交 Observation 中的白名单结果字段，字段均有字符上限；其他
+ * Tool 的输入和输出仍不会通过此类型暴露。
+ *
+ * @example
+ * ```ts
+ * const detail: BrowserBashExecutionDetail = {
+ *     command: "git status --short",
+ *     exitCode: 0,
+ *     stdout: "M README.md",
+ *     stderr: "",
+ * };
+ * ```
+ */
+export interface BrowserBashExecutionDetail {
+    /** Bash 收到的限长命令。 */
+    readonly command: string;
+    /** 仅成功 Observation 提供的退出码。 */
+    readonly exitCode?: number;
+    /** 仅成功 Observation 提供的标准输出。 */
+    readonly stdout?: string;
+    /** 仅成功 Observation 提供的标准错误。 */
+    readonly stderr?: string;
+    /** Bash 失败 Observation 的限长说明。 */
+    readonly failure?: string;
 }
 
 /**
  * 单条已提交执行步骤的安全浏览器投影。
  *
  * @remarks
- * 步骤只从 Snapshot 提交边界内的 Trajectory 事实构造。原始事件、模型推理、
- * Tool 输入及原始 Observation 输出不会暴露；成功结果仅展示 Tool 自报的限长摘要。
+ * 步骤只从 Snapshot 提交边界内的 Trajectory 事实构造，并按稳定的 Action 身份合并其
+ * 生命周期事件。原始事件、模型推理及非 Bash Tool 输入/输出不会暴露；Bash 步骤仅提供
+ * 命令与已提交 Observation 的有限白名单详情。
  *
  * @example
  * ```ts
@@ -109,14 +148,19 @@ export interface BrowserSessionStep {
     readonly status: "recorded" | "completed" | "failed" | "rejected";
     /** 限长后的 Tool Observation 摘要。 */
     readonly summary?: string;
+    /** 仅 Bash 步骤可见的限长命令与已提交执行结果。 */
+    readonly bashExecution?: BrowserBashExecutionDetail;
+    /** 会话详情数量上限导致此 Bash 步骤省略执行详情。 */
+    readonly bashExecutionOmitted?: true;
 }
 
 /**
  * Goal 中单个 Run 的浏览器历史。
  *
  * @remarks
- * 历史步骤只包含该 Run 的已提交 Trajectory；未提交 tail 不会显示。已完成 Run 的
- * 状态由 Snapshot 中的完成记录确定，当前 Run 的状态直接取自最新快照。
+ * 历史步骤只包含该 Run 的已提交 Trajectory；未提交 tail 不会显示。终态 complete
+ * 决策由 Run 状态表达，不重复作为单独步骤显示。已归档 Run 的终态由 Snapshot 中的
+ * 历史记录确定，当前 Run 的状态直接取自最新快照。
  *
  * @example
  * ```ts
@@ -130,7 +174,7 @@ export interface BrowserSessionRun {
     readonly runId: string;
     /** Run 的真实生命周期状态。 */
     readonly status: Goal["state"]["run"]["status"];
-    /** Snapshot 记录的 Step 数量。 */
+    /** Snapshot 记录的 Runtime Step 数量，可能包含不单独显示的 complete 决策。 */
     readonly stepCount: number;
     /** 该 Run 的有界、已提交步骤历史。 */
     readonly steps: readonly BrowserSessionStep[];
@@ -232,7 +276,7 @@ export interface BrowserGoalSession {
     readonly nextRunMode?: "plan";
     /** 按 Snapshot 顺序排列的有界真实消息。 */
     readonly messages: readonly BrowserSessionMessage[];
-    /** 按 Run 时间顺序排列的当前 Run 与近期已完成 Run。 */
+    /** 按 Run 时间顺序排列的当前 Run 与近期已归档 Run。 */
     readonly runs: readonly BrowserSessionRun[];
     /** 仅在 Snapshot 包含计划时出现。 */
     readonly goalPlan?: BrowserGoalPlan;
@@ -317,23 +361,11 @@ export async function readBrowserGoalSession(
     const recentCompletedRuns = completedRuns.slice(-Math.max(0, MAX_RUNS - 1));
     const projectedRuns: BrowserSessionRun[] = [];
     let historyTruncated = completedRuns.length > recentCompletedRuns.length;
-
-    for (const completed of recentCompletedRuns) {
-        const result = await readTrajectory({ goalId, runId: completed.runId });
-        const steps = projectBrowserSteps(completed.runId, result.committed);
-        if (steps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
-        projectedRuns.push({
-            runId: completed.runId,
-            status: "completed",
-            stepCount: completed.stepCount,
-            steps: steps.slice(-MAX_STEPS_PER_RUN),
-            current: false,
-        });
-    }
+    const bashDetailsBudget = { remaining: MAX_BASH_EXECUTION_DETAILS };
 
     const currentRun = goal.state.run;
     const currentResult = await readTrajectory({ goalId, runId: currentRun.id });
-    const currentSteps = projectBrowserSteps(currentRun.id, currentResult.committed);
+    const currentSteps = projectBrowserSteps(currentRun.id, currentResult.committed, bashDetailsBudget);
     if (currentSteps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
     projectedRuns.push({
         runId: currentRun.id,
@@ -343,12 +375,34 @@ export async function readBrowserGoalSession(
         current: true,
     });
 
+    for (const completed of [...recentCompletedRuns].reverse()) {
+        const result = await readTrajectory({ goalId, runId: completed.runId });
+        const steps = projectBrowserSteps(completed.runId, result.committed, bashDetailsBudget);
+        if (steps.length > MAX_STEPS_PER_RUN) historyTruncated = true;
+        projectedRuns.unshift({
+            runId: completed.runId,
+            status: completed.status,
+            stepCount: completed.stepCount,
+            steps: steps.slice(-MAX_STEPS_PER_RUN),
+            current: false,
+        });
+    }
+
     const allMessages = goal.state.messages;
     if (allMessages.length > MAX_MESSAGES) historyTruncated = true;
-    const messages = allMessages.slice(-MAX_MESSAGES).map((message) => ({
-        role: message.role,
-        content: boundedText(message.content, MAX_TEXT_LENGTH),
-    }));
+    const firstMessageIndex = Math.max(0, allMessages.length - MAX_MESSAGES);
+    const currentMessageStart = completedRuns.at(-1)?.messageRange.end ?? 0;
+    const messages = allMessages.slice(firstMessageIndex).map((message, offset) => {
+        const messageIndex = firstMessageIndex + offset;
+        const completedRun = findCompletedRunForMessage(completedRuns, messageIndex);
+        const runId = completedRun?.runId
+            ?? (messageIndex >= currentMessageStart ? currentRun.id : undefined);
+        return {
+            role: message.role,
+            content: boundedText(message.content, MAX_TEXT_LENGTH),
+            ...(runId === undefined ? {} : { runId }),
+        };
+    });
     if (allMessages.some((message) => message.content.length > MAX_TEXT_LENGTH)) {
         historyTruncated = true;
     }
@@ -387,26 +441,45 @@ export async function readBrowserGoalSession(
 function projectBrowserSteps(
     runId: string,
     committedEvents: readonly TrajectoryEvent[],
+    bashDetailsBudget: { remaining: number },
 ): readonly BrowserSessionStep[] {
+    const actionByExecutionUnit = new Map<string, string | null>();
+    for (const event of committedEvents) {
+        if (event.executionUnitId === undefined) continue;
+        const actionId = trajectoryActionId(event);
+        if (actionId === undefined) continue;
+        const existing = actionByExecutionUnit.get(event.executionUnitId);
+        if (existing === undefined) actionByExecutionUnit.set(event.executionUnitId, actionId);
+        else if (existing !== actionId) actionByExecutionUnit.set(event.executionUnitId, null);
+    }
+
     const groups = new Map<string, TrajectoryEvent[]>();
     for (const event of committedEvents) {
         if (event.executionUnitId === undefined) continue;
-        const group = groups.get(event.executionUnitId) ?? [];
+        const actionId = trajectoryActionId(event)
+            ?? actionByExecutionUnit.get(event.executionUnitId)
+            ?? undefined;
+        const groupId = actionId === undefined ? `unit:${event.executionUnitId}` : `action:${actionId}`;
+        const group = groups.get(groupId) ?? [];
         group.push(event);
-        groups.set(event.executionUnitId, group);
+        groups.set(groupId, group);
     }
 
     const steps: BrowserSessionStep[] = [];
-    for (const [executionUnitId, events] of groups) {
+    for (const events of groups.values()) {
         events.sort((left, right) => left.sequence - right.sequence);
         const first = events[0];
         if (first === undefined) continue;
 
+        const executionUnitId = first.executionUnitId;
+        if (executionUnitId === undefined) continue;
         let decisionKind: string | undefined;
         let toolId: string | undefined;
         let actionStatus: BrowserSessionStep["actionStatus"];
         let status: BrowserSessionStep["status"] = "recorded";
         let summary: string | undefined;
+        let bashCommand: string | undefined;
+        let bashObservation: Observation | undefined;
 
         for (const event of events) {
             const payload = event.payload;
@@ -418,12 +491,16 @@ function projectBrowserSteps(
             } else if (payload.type === "action_staged") {
                 toolId = payload.action.toolId;
                 actionStatus = payload.approvalStatus;
+                if (payload.action.toolId === "bash") {
+                    bashCommand = readBashCommand(payload.action.input);
+                }
             } else if (payload.type === "action_approved") {
                 actionStatus = "approved";
             } else if (payload.type === "action_rejected") {
                 actionStatus = "rejected";
                 status = "rejected";
             } else if (payload.type === "observation_recorded") {
+                bashObservation = payload.observation;
                 if (payload.observation.kind === "success") {
                     status = "completed";
                     summary = boundedText(payload.observation.summary, MAX_STEP_SUMMARY_LENGTH);
@@ -437,6 +514,23 @@ function projectBrowserSteps(
                 // A recovery checkpoint can adopt an old uncommitted tail; without the
                 // persisted Observation it must not present a Tool result as a saved Step.
                 toolId = payload.toolId;
+            } else if (payload.type === "tool_started" && payload.toolId === "bash") {
+                toolId = payload.toolId;
+                bashCommand = readBashCommand(payload.input);
+            }
+        }
+
+        // complete 决策由 Run 终态展示，不另列一条没有 Action 的重复步骤。
+        if (decisionKind === "complete" && toolId === undefined) continue;
+
+        let bashExecution: BrowserBashExecutionDetail | undefined;
+        let bashExecutionOmitted: true | undefined;
+        if (toolId === "bash" && bashCommand !== undefined) {
+            if (bashDetailsBudget.remaining > 0) {
+                bashDetailsBudget.remaining -= 1;
+                bashExecution = projectBashExecution(bashCommand, bashObservation);
+            } else {
+                bashExecutionOmitted = true;
             }
         }
 
@@ -450,6 +544,8 @@ function projectBrowserSteps(
             ...(actionStatus === undefined ? {} : { actionStatus }),
             status,
             ...(summary === undefined ? {} : { summary }),
+            ...(bashExecution === undefined ? {} : { bashExecution }),
+            ...(bashExecutionOmitted === undefined ? {} : { bashExecutionOmitted }),
         });
     }
     return steps.sort((left, right) => left.sequence - right.sequence);
@@ -500,6 +596,80 @@ function projectGoalPlan(plan: NonNullable<Goal["state"]["goalPlan"]>): BrowserG
             status: item.status,
         })),
     };
+}
+
+function trajectoryActionId(event: TrajectoryEvent): string | undefined {
+    if (event.actionId !== undefined) return event.actionId;
+    const payload = event.payload;
+    if (payload.type === "decision_received") {
+        return payload.decision.kind === "tool_call" ? payload.decision.action.actionId : undefined;
+    }
+    if (payload.type === "action_staged") return payload.action.actionId;
+    if (
+        payload.type === "action_approved"
+        || payload.type === "action_rejected"
+        || payload.type === "action_recovered"
+        || payload.type === "tool_started"
+        || payload.type === "tool_finished"
+        || payload.type === "observation_recorded"
+    ) {
+        return payload.actionId;
+    }
+    return undefined;
+}
+
+function readBashCommand(input: JsonValue): string | undefined {
+    if (!isJsonObject(input)) return undefined;
+    const command = input.command;
+    return typeof command === "string" ? command : undefined;
+}
+
+function projectBashExecution(
+    command: string,
+    observation: Observation | undefined,
+): BrowserBashExecutionDetail {
+    if (observation?.kind === "success") {
+        const output = observation.output;
+        const result = isJsonObject(output) ? output : undefined;
+        return {
+            command: boundedText(command, MAX_BASH_COMMAND_LENGTH),
+            ...(typeof result?.exitCode === "number" ? { exitCode: result.exitCode } : {}),
+            ...(typeof result?.stdout === "string"
+                ? { stdout: boundedText(result.stdout, MAX_BASH_OUTPUT_LENGTH) }
+                : {}),
+            ...(typeof result?.stderr === "string"
+                ? { stderr: boundedText(result.stderr, MAX_BASH_OUTPUT_LENGTH) }
+                : {}),
+        };
+    }
+    return {
+        command: boundedText(command, MAX_BASH_COMMAND_LENGTH),
+        ...(observation?.kind === "failure"
+            ? { failure: boundedText(observation.message, MAX_BASH_OUTPUT_LENGTH) }
+            : {}),
+    };
+}
+
+function isJsonObject(value: JsonValue): value is JsonObject {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function findCompletedRunForMessage(
+    completedRuns: Goal["state"]["completedRuns"],
+    messageIndex: number,
+): NonNullable<Goal["state"]["completedRuns"]>[number] | undefined {
+    const records = completedRuns ?? [];
+    let low = 0;
+    let high = records.length - 1;
+    while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const record = records[middle];
+        if (record === undefined) return undefined;
+        if (messageIndex < record.messageRange.start) high = middle - 1;
+        else if (messageIndex >= record.messageRange.end) low = middle + 1;
+        else return record;
+    }
+    return undefined;
 }
 
 function boundedText(value: string, maxLength: number): string {

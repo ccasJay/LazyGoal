@@ -101,6 +101,7 @@ test("TUI accepts the committed successor Run after a scheduler failure and igno
                 messages: [...initial.state.messages, { role: "user", content: "下一轮输入" }],
                 completedRuns: [{
                     runId: initial.state.run.id,
+                    status: "completed",
                     stepCount: initial.state.run.stepCount,
                     committedThroughSequence: initial.state.run.committedThroughSequence,
                     messageRange: { start: 0, end: initial.state.messages.length },

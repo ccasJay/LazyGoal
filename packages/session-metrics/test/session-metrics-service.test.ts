@@ -40,8 +40,8 @@ function goalWithRuns(goalId = "goal-projection") {
         state: {
             ...goal.state,
             completedRuns: [
-                { runId: "run-history", stepCount: 2, committedThroughSequence: 2, messageRange: { start: 0, end: 1 } },
-                { runId: "run-empty", stepCount: 0, committedThroughSequence: 0, messageRange: { start: 0, end: 0 } },
+                { runId: "run-history", status: "completed" as const, stepCount: 2, committedThroughSequence: 2, messageRange: { start: 0, end: 1 } },
+                { runId: "run-empty", status: "completed" as const, stepCount: 0, committedThroughSequence: 0, messageRange: { start: 0, end: 0 } },
             ],
             run: { ...goal.state.run, stepCount: 0 },
         },

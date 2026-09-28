@@ -40,7 +40,7 @@ class NotifyingMemoryStore implements GoalStore, BrowserGoalSaveNotifications {
     }
 }
 
-function goalFor(goalId: string, status: "waiting" | "completed" = "waiting"): Goal {
+function goalFor(goalId: string, status: "waiting" | "completed" | "failed" = "waiting"): Goal {
     const goal = createGoal({
         ...protocols,
         id: goalId,
@@ -128,8 +128,9 @@ test("普通等待消息恢复同一 Run，在途相同重试只保存并调用�
     ]);
 });
 
-test("已完成 Run 的普通输入调用 continue 并持久化唯一后继 Run", async () => {
-    const goal = goalFor("goal-message-completed", "completed");
+for (const terminalStatus of ["completed", "failed"] as const) {
+test(`${terminalStatus} Run 的普通输入调用 continue 并持久化唯一后继 Run`, async () => {
+    const goal = goalFor(`goal-message-${terminalStatus}`, terminalStatus);
     const store = new NotifyingMemoryStore();
     await store.save(goal);
     let continueCalls = 0;
@@ -142,7 +143,7 @@ test("已完成 Run 的普通输入调用 continue 并持久化唯一后继 Run"
         coordinator: {
             async resume() {
                 resumeCalls += 1;
-                throw new Error("completed Run must not resume");
+                throw new Error("terminal Run must not resume");
             },
             async continue(ref, content) {
                 continueCalls += 1;
@@ -155,6 +156,7 @@ test("已完成 Run 的普通输入调用 continue 并持久化唯一后继 Run"
                         messages: [...goal.state.messages, { role: "user", content }],
                         completedRuns: [{
                             runId: goal.state.run.id,
+                            status: terminalStatus,
                             stepCount: goal.state.run.stepCount,
                             committedThroughSequence: goal.state.run.committedThroughSequence,
                             messageRange: { start: 0, end: goal.state.messages.length },
@@ -188,6 +190,7 @@ test("已完成 Run 的普通输入调用 continue 并持久化唯一后继 Run"
         { role: "user", content: "开始后续任务" },
     ]);
 });
+}
 
 test("结构化等待、过期 Run、空消息和非接收状态不调用 Coordinator", async () => {
     const goal = goalFor("goal-message-invalid");

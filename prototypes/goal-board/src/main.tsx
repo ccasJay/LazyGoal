@@ -26,6 +26,7 @@ import type {
   BrowserGoalInteractionCommand,
   BrowserGoalListItem,
   BrowserGoalSession,
+  BrowserSessionMessage,
 } from "../../../packages/browser/src/index";
 import { createSlashCommandRegistry, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
@@ -99,7 +100,21 @@ function App() {
   const canSendText = session !== null
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
-    && (session.runStatus === "waiting" || session.runStatus === "completed");
+    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed");
+
+  function renderMessages(messages: readonly BrowserSessionMessage[]) {
+    return messages.map((message, index) => (
+      <article className={`message ${message.role}`} key={`${message.runId ?? "earlier"}:${index}:${message.role}`}>
+        <div className="message-heading">
+          <span className={`message-avatar ${message.role}`}>
+            {message.role === "user" ? "You" : <Zap size={12} />}
+          </span>
+          <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
+        </div>
+        <div className="message-body">{message.content}</div>
+      </article>
+    ));
+  }
 
   useEffect(() => {
     if (!browserApi.hasAccessToken) {
@@ -674,7 +689,7 @@ function App() {
                         <span className={`mode-badge ${session.currentRunMode === "plan" || session.nextRunMode === "plan" ? "plan" : ""}`}>
                           {session.nextRunMode === "plan" ? "Next Run · Plan Mode" : `${session.currentRunMode === "plan" ? "Plan" : "Normal"} Mode`}
                         </span>
-                        <span><Clock3 size={12} /> {currentRun?.stepCount ?? 0} saved steps</span>
+                        <span><Clock3 size={12} /> {currentRun?.stepCount ?? 0} runtime steps</span>
                       </div>
                     </div>
                     <div className="session-tabs">
@@ -708,51 +723,80 @@ function App() {
                         >
                           {session.historyTruncated && <div className="history-note">Some earlier history is omitted.</div>}
                           {session.messages.length === 0 && <div className="timeline-date"><span />No saved messages<span /></div>}
-                          {session.messages.map((message, index) => (
-                            <article className={`message ${message.role}`} key={`${index}:${message.role}`}>
-                              <div className="message-heading">
-                                <span className={`message-avatar ${message.role}`}>
-                                  {message.role === "user" ? "You" : <Zap size={12} />}
-                                </span>
-                                <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
-                              </div>
-                              <div className="message-body">{message.content}</div>
-                            </article>
+                          {renderMessages(session.messages.filter((message) =>
+                            message.runId === undefined || !session.runs.some((run) => run.runId === message.runId),
                           ))}
-                          {liveText && (
-                            <article className="message assistant transient-message" aria-label="Uncommitted assistant activity">
-                              <div className="message-heading">
-                                <span className="message-avatar assistant"><Zap size={12} /></span>
-                                <strong>Live response</strong><small>Not saved yet</small>
+                          {session.runs.map((run) => {
+                            const runMessages = session.messages.filter((message) => message.runId === run.runId);
+                            return (
+                              <div className="run-timeline" key={run.runId}>
+                                {renderMessages(runMessages.filter((message) => message.role === "user"))}
+                                {showTools && run.steps.length > 0 && (
+                                  <section className="run-steps">
+                                    <h3>{run.current ? "Current Run · committed steps" : `Earlier Run · ${run.runId}`}</h3>
+                                    {run.steps.map((step) => (
+                                      <details className="tool-event" key={step.executionUnitId}>
+                                        <summary>
+                                          <Terminal size={13} />
+                                          <span>{step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}`}</span>
+                                          <span className={`step-status ${step.status}`}>{step.status}</span>
+                                          <ChevronRight className="tool-chevron" size={13} />
+                                        </summary>
+                                        {step.bashExecution && (
+                                          <div className="tool-execution">
+                                            <div className="tool-execution-field">
+                                              <span>Command</span><pre>{step.bashExecution.command}</pre>
+                                            </div>
+                                            {step.bashExecution.exitCode !== undefined && (
+                                              <div className="tool-execution-field">
+                                                <span>Exit code</span><pre>{step.bashExecution.exitCode}</pre>
+                                              </div>
+                                            )}
+                                            {step.bashExecution.stdout !== undefined && (
+                                              <div className="tool-execution-field">
+                                                <span>stdout</span><pre>{step.bashExecution.stdout || "(empty)"}</pre>
+                                              </div>
+                                            )}
+                                            {step.bashExecution.stderr !== undefined && (
+                                              <div className="tool-execution-field">
+                                                <span>stderr</span><pre>{step.bashExecution.stderr || "(empty)"}</pre>
+                                              </div>
+                                            )}
+                                            {step.bashExecution.failure !== undefined && (
+                                              <div className="tool-execution-field">
+                                                <span>Result</span><pre>{step.bashExecution.failure}</pre>
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+                                        {step.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
+                                        {!step.bashExecution && !step.bashExecutionOmitted && step.summary && <pre>{step.summary}</pre>}
+                                      </details>
+                                    ))}
+                                  </section>
+                                )}
+                                {run.current && liveText && (
+                                  <article className="message assistant transient-message" aria-label="Uncommitted assistant activity">
+                                    <div className="message-heading">
+                                      <span className="message-avatar assistant"><Zap size={12} /></span>
+                                      <strong>Live response</strong><small>Not saved yet</small>
+                                    </div>
+                                    <div className="message-body">{liveText}<span className="cursor" /></div>
+                                  </article>
+                                )}
+                                {run.current && run.status === "running" && (
+                                  <div className="live-status" aria-live="polite">
+                                    <span className="pulse" />{liveActivity ?? "Runtime is working on this Goal"}
+                                    <span>{streamConnected ? "Temporary activity" : "Live connection reconnecting"}</span>
+                                  </div>
+                                )}
+                                {run.status === "completed" && <div className="completion"><Check size={14} />Run completed</div>}
+                                {run.status === "failed" && <div className="terminal-status failed">This Run failed. Its saved history is still available.</div>}
+                                {run.status === "cancelled" && <div className="terminal-status">This Run was cancelled.</div>}
+                                {renderMessages(runMessages.filter((message) => message.role === "assistant"))}
                               </div>
-                              <div className="message-body">{liveText}<span className="cursor" /></div>
-                            </article>
-                          )}
-                          {showTools && session.runs.map((run) => run.steps.length > 0 && (
-                            <section className="run-steps" key={run.runId}>
-                              <h3>{run.current ? "Current Run · committed steps" : `Earlier Run · ${run.runId}`}</h3>
-                              {run.steps.map((step) => (
-                                <details className="tool-event" key={step.executionUnitId}>
-                                  <summary>
-                                    <Terminal size={13} />
-                                    <span>{step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}`}</span>
-                                    <span className={`step-status ${step.status}`}>{step.status}</span>
-                                    <ChevronRight className="tool-chevron" size={13} />
-                                  </summary>
-                                  {step.summary && <pre>{step.summary}</pre>}
-                                </details>
-                              ))}
-                            </section>
-                          ))}
-                          {session.runStatus === "running" && (
-                            <div className="live-status" aria-live="polite">
-                              <span className="pulse" />{liveActivity ?? "Runtime is working on this Goal"}
-                              <span>{streamConnected ? "Temporary activity" : "Live connection reconnecting"}</span>
-                            </div>
-                          )}
-                          {session.runStatus === "completed" && <div className="completion"><Check size={14} />Run completed</div>}
-                          {session.runStatus === "failed" && <div className="terminal-status failed">This Run failed. Its saved history is still available.</div>}
-                          {session.runStatus === "cancelled" && <div className="terminal-status">This Run was cancelled.</div>}
+                            );
+                          })}
                         </div>
                       </>
                     )}
@@ -776,17 +820,17 @@ function App() {
                               onSubmit={(content) => void submitMessage(content)}
                             />
                       )}
-                      {session.runStatus === "completed" && session.pendingInteraction === undefined && session.pendingAction === undefined && (
+                      {(session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
                         <MessageComposer
                           key={`${session.currentRunId}:continue`}
                           busy={commandBusy}
-                          placeholder="Continue this Goal with a new task…"
+                          placeholder={session.runStatus === "failed" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
                           onSubmit={(content) => void submitMessage(content)}
                         />
                       )}
                       {session.runStatus === "running" && <div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div>}
                       {session.runStatus === "created" && <div className="composer-note">The Runtime is starting this Goal.</div>}
-                      {(session.runStatus === "failed" || session.runStatus === "cancelled") && (
+                      {session.runStatus === "cancelled" && (
                         <div className="composer-note">Text input is unavailable for this Run.</div>
                       )}
                       {session.runStatus === "waiting" && session.pendingInteraction === undefined && session.pendingAction !== undefined && session.pendingAction.status === "approved" && (
@@ -938,7 +982,7 @@ function errorMessage(error: unknown): string {
     switch (error.code) {
       case "unauthorized": return "This browser link has expired. Restart `lazygoal web` and open its new link.";
       case "goal_busy": return "Another Goal is still active. Wait for it to stop at a waiting point.";
-      case "plan_mode_busy": return "Plan Mode can only be selected before this Run starts or after it completes.";
+      case "plan_mode_busy": return "Plan Mode can only be selected before this Run starts or after it completes or fails.";
       case "plan_mode_failed": return "The local service could not save the Plan Mode selection.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
       case "stale_run":

@@ -132,10 +132,54 @@ test("completed normal Run is archived before a new Run is scheduled", async () 
     });
     assert.deepEqual(persisted.state.completedRuns, [{
         runId: "run-1",
+        status: "completed",
         stepCount: 1,
         committedThroughSequence: 0,
         messageRange: { start: 0, end: 1 },
     }]);
+});
+
+test("failed Run can accept a new message while preserving its failure in history", async () => {
+    const store = new InMemoryGoalStore();
+    const completed = completedGoal("normal");
+    const initial: Goal = {
+        ...completed,
+        state: {
+            ...completed.state,
+            run: {
+                ...completed.state.run,
+                status: "failed",
+                stopReason: {
+                    kind: "execution_error",
+                    code: "INVALID_AGENT_DECISION",
+                    message: "Model response did not match the decision contract",
+                },
+            },
+        },
+    };
+    await store.save(initial);
+    const scheduler = new WaitingScheduler(store);
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler,
+        trajectoryStore: trajectoryStoreFor(store),
+        runIdGenerator: () => "run-after-failure",
+    });
+
+    const result = await coordinator.continue(
+        { goalId: initial.id, runId: initial.state.run.id },
+        "重新检查最近的 commit",
+    );
+    assert.equal(result.ok, true);
+    const persisted = await store.restore(initial.id);
+    assert.ok(persisted);
+    assert.equal(persisted.state.run.id, "run-after-failure");
+    assert.equal(persisted.state.run.status, "waiting");
+    assert.equal(persisted.state.completedRuns?.[0]?.status, "failed");
+    assert.deepEqual(persisted.state.messages.at(-1), {
+        role: "user",
+        content: "重新检查最近的 commit",
+    });
 });
 
 test("continuing a Plan Run defaults to normal mode and preserves its independent GoalPlan", async () => {

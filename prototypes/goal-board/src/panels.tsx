@@ -67,7 +67,7 @@ export function GoalDetails({
           <dd>{session.currentRunId}</dd>
         </div>
         <div>
-          <dt>Committed steps</dt>
+          <dt>Runtime steps</dt>
           <dd>{currentRun?.stepCount ?? 0}</dd>
         </div>
         <div>

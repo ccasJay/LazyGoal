@@ -185,6 +185,9 @@ h1 span { margin-left: 8px; color: #81848e; font-size: 12px; font-weight: 400; l
 .tool-event summary > span:first-of-type { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-event[open] .tool-chevron { transform: rotate(90deg); }
 .tool-event pre { margin: 0; padding: 10px; border-top: 1px solid #30333d; color: #8e98aa; font-size: 10px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tool-execution { display: grid; gap: 8px; padding: 9px 10px 10px; border-top: 1px solid #30333d; }
+.tool-execution-field > span { display: block; margin-bottom: 3px; color: #78869a; font-size: 9px; }
+.tool-execution-field pre { padding: 0; border-top: 0; color: #b7c0cf; }
 .step-status { color: #8d97a8; font-size: 9px; }
 .step-status.completed { color: var(--green); }
 .step-status.failed, .step-status.rejected { color: #d18e92; }

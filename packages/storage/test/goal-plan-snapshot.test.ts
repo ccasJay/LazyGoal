@@ -48,6 +48,7 @@ function createPlanGoal(): Goal {
             },
             completedRuns: [{
                 runId: "run-plan-previous",
+                status: "completed",
                 stepCount: 3,
                 committedThroughSequence: 8,
                 messageRange: { start: 0, end: 1 },
@@ -65,6 +66,18 @@ test("Run mode、independent GoalPlan and completedRuns round-trip", () => {
     assert.deepEqual(decoded, goal);
     assert.deepEqual(decoded.state.goalPlan?.items[1], goal.state.goalPlan?.items[1]);
     assert.deepEqual(decoded.state.completedRuns, goal.state.completedRuns);
+});
+
+test("failed archived Run keeps its status across Snapshot round-trip", () => {
+    const goal = createPlanGoal();
+    const failed: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            completedRuns: [{ ...goal.state.completedRuns![0]!, status: "failed" }],
+        },
+    };
+    assert.deepEqual(goalSnapshotCodec.decode(goalSnapshotCodec.encode(failed)).state.completedRuns, failed.state.completedRuns);
 });
 
 test("Snapshot allows GoalPlan independent of Run mode and rejects invalid Todo structure", () => {

@@ -92,6 +92,7 @@ function createMultiRunGoal(): Goal {
             ],
             completedRuns: [{
                 runId: oldRunId,
+                status: "completed",
                 stepCount: 1,
                 committedThroughSequence: 2,
                 messageRange: { start: 0, end: 2 },

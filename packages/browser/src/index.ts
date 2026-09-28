@@ -29,6 +29,7 @@ export {
     type BrowserGoalListItem,
     type BrowserGoalPlan,
     type BrowserGoalSession,
+    type BrowserBashExecutionDetail,
     type BrowserPendingInteraction,
     type BrowserSessionMessage,
     type BrowserSessionRun,
