@@ -966,13 +966,40 @@ function MessageComposer({
   autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
-  function submit() {
-    if (busy || !draft.trim()) return;
-    onSubmit(draft);
+  const [selectedCommand, setSelectedCommand] = useState(0);
+  const [commandMenuClosed, setCommandMenuClosed] = useState(false);
+  const inspection = slashCommands.inspect(draft);
+  const candidates = inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
+  const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
+
+  function submit(content = draft) {
+    if (busy || !content.trim()) return;
+    onSubmit(content);
     setDraft("");
+    setCommandMenuClosed(false);
+    setSelectedCommand(0);
   }
   return (
     <>
+      {candidates.length > 0 && (
+        <div className="command-candidates" role="listbox" aria-label="Available commands">
+          {candidates.map((candidate, index) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={index === Math.min(selectedCommand, candidates.length - 1)}
+              className={`command-candidate ${index === Math.min(selectedCommand, candidates.length - 1) ? "active" : ""}`}
+              key={candidate.name}
+              disabled={busy}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => submit(candidate.usage)}
+            >
+              <span className="command-candidate-name">{candidate.usage}</span>
+              <span className="command-candidate-description">{candidate.description}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
         <textarea
           aria-label="Message the Goal"
@@ -980,8 +1007,29 @@ function MessageComposer({
           autoFocus={autoFocus}
           value={draft}
           disabled={busy}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            setDraft(event.target.value);
+            setSelectedCommand(0);
+            setCommandMenuClosed(false);
+          }}
           onKeyDown={(event) => {
+            if (candidates.length > 0 && !event.nativeEvent.isComposing) {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                setSelectedCommand((current) => (current + (event.key === "ArrowDown" ? 1 : -1) + candidates.length) % candidates.length);
+                return;
+              }
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                if (activeCandidate !== undefined) submit(activeCandidate.usage);
+                return;
+              }
+            }
+            if (event.key === "Escape" && candidates.length > 0) {
+              event.preventDefault();
+              setCommandMenuClosed(true);
+              return;
+            }
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               submit();

@@ -157,6 +157,31 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('This Run failed')");
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
+    await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/plan')");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('textarea[aria-label=\"Message the Goal\"]').focus()",
+      returnByValue: true,
+    });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/p");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/pl");
+    await waitForExpression(socket, "document.querySelector('.command-candidate') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
+    await waitForLocal(() => mock.planModeRequests === 1);
+    assert.deepEqual(mock.lastPlanMode, { runId: "run-1" });
+    assert.equal(mock.lastMessage, undefined, "command selection does not submit a Goal message");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
+    await waitForExpression(socket, "document.querySelector('.command-candidate') !== null");
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "document.querySelector('textarea[aria-label=\"Message the Goal\"]').focus()",
+      returnByValue: true,
+    });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await waitForLocal(() => mock.planModeRequests === 2);
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Try again with the saved history");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
@@ -164,6 +189,16 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
     assert.deepEqual(mock.lastMessage, { runId: "run-1", content: "Try again with the saved history" });
+    mock.resetToFailed();
+    await navigate(socket, `${webUrl}/?session=escaped#${token}`);
+    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "//plan");
+    assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForLocal(() => mock.lastMessage?.content === "/plan");
+    assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
@@ -184,6 +219,8 @@ function createMockApi() {
   let liveTransitionSent = false;
   let lastInteraction;
   let lastMessage;
+  let lastPlanMode;
+  let planModeRequests = 0;
   const authorizationHeaders = [];
   let authorizedRequestCount = 0;
   const server = createServer(async (request, response) => {
@@ -200,6 +237,15 @@ function createMockApi() {
     }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
       json(response, { goal: session });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/plan-mode" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      lastPlanMode = JSON.parse(body);
+      planModeRequests += 1;
+      session = { ...session, nextRunMode: "plan" };
+      json(response, { goalId: "goal-1", runId: "run-1", existing: planModeRequests > 1 });
       return;
     }
     if (request.url === "/api/goals/goal-1/actions/action-1?runId=run-1" && request.method === "GET") {
@@ -272,6 +318,8 @@ function createMockApi() {
     authorizationHeaders,
     get lastInteraction() { return lastInteraction; },
     get lastMessage() { return lastMessage; },
+    get lastPlanMode() { return lastPlanMode; },
+    get planModeRequests() { return planModeRequests; },
     authorizedRequests: () => authorizedRequestCount,
     resetToWaiting() {
       session = interactionSession();
@@ -503,4 +551,13 @@ async function waitForExpression(socket, expression) {
     await delay(50);
   }
   throw new Error(`Timed out waiting for browser expression: ${expression}; page text: ${await value(socket, "document.body.innerText")}`);
+}
+
+async function waitForLocal(predicate) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < 5_000) {
+    if (predicate()) return;
+    await delay(50);
+  }
+  throw new Error("Timed out waiting for local browser request");
 }
