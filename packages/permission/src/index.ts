@@ -5,11 +5,16 @@ export type {
     PermissionMode,
     PermissionScope,
     ProjectPermissionMode,
+    ProjectPermissionModeStore,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
     ToolGrantScope,
     ToolGrantStore,
+} from "./types";
+
+export {
+    PermissionModeConflictError,
 } from "./types";
 
 export {

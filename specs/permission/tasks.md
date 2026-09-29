@@ -9,7 +9,7 @@
   - 验证方式：待实现的 `packages/permission/test/tool-authorization.test.ts`；现有 Tool Grant／Runner 回归；`npm run check:dependencies`。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.4](./requirements.md#req-2-4), [4.2](./requirements.md#req-4-2), [4.4](./requirements.md#req-4-4)_
 
-- [ ] //TODO 2. 让项目模式在 Browser 与 TUI 中持久切换并作用于后续 Action
+- [x] //TODO 2. 让项目模式在 Browser 与 TUI 中持久切换并作用于后续 Action
 
   - 实现目标：加入项目模式记录和修订检查；Browser／TUI 聊天框左下角提供 Permission 入口与模式选择，现有快捷键改走同一服务端命令。
   - 成功判据：项目 A 选择 YOLO 后，A 的其他本机交互 Goal 和重启后的新 Goal 使用该模式，项目 B 仍为 Default；旧待审 Action 不自动获批，过期切换被拒绝，Benchmark 策略不变。

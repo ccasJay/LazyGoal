@@ -12,6 +12,10 @@ import type {
     ResumeGoalRequest,
     ToolGrant,
 } from "../../runtime/src/index";
+import {
+    PermissionModeConflictError,
+    type PermissionMode,
+} from "../../permission/src/index";
 
 /**
  * 浏览器发起的 Goal 创建命令。
@@ -121,6 +125,38 @@ export interface BrowserToolGrantRevokeCommand {
     readonly grantId: string;
     readonly scope: "goal" | "workspace";
 }
+
+/**
+ * 浏览器项目权限模式切换命令。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionModeCommand = {
+ *     mode: "yolo",
+ *     expectedRevision: 1,
+ * };
+ * ```
+ */
+export interface BrowserPermissionModeCommand {
+    /** 目标权限模式。 */
+    readonly mode: PermissionMode;
+    /** 期望修订号，用于乐观并发控制。 */
+    readonly expectedRevision: number;
+}
+
+/**
+ * 浏览器项目权限模式操作结果。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserPermissionModeResult = {
+ *     ok: true, mode: "yolo", revision: 2, workspaceId: "workspace-1",
+ * };
+ * ```
+ */
+export type BrowserPermissionModeResult =
+    | { readonly ok: true; readonly mode: PermissionMode; readonly revision: number; readonly workspaceId: string }
+    | { readonly ok: false; readonly error: "permissions_unavailable" | "conflict"; readonly actualRevision?: number };
 
 /**
  * 浏览器提交的普通会话文本。
@@ -372,6 +408,10 @@ export interface BrowserGoalCoordinator {
     listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
     /** 撤销由当前 Goal/Run 限定的持续授权。 */
     revokeToolGrant?(request: Parameters<GoalCoordinator["revokeToolGrant"]>[0]): ReturnType<GoalCoordinator["revokeToolGrant"]>;
+    /** 查询项目权限执行模式。 */
+    getPermissionMode?(workspaceId?: string): ReturnType<GoalCoordinator["getPermissionMode"]>;
+    /** 设置项目权限执行模式。 */
+    setPermissionMode?(mode: PermissionMode, expectedRevision: number, workspaceId?: string): ReturnType<GoalCoordinator["setPermissionMode"]>;
 }
 
 /**
@@ -697,6 +737,57 @@ export class BrowserGoalCommandService {
             });
             return this.listToolGrants(goalId, command.runId);
         } catch { return { ok: false, error: "grant_failed" }; }
+    }
+
+    /**
+     * 查询项目权限执行模式。
+     *
+     * @returns 当前项目权限模式快照；服务不可用时返回稳定错误。
+     * @example
+     * ```ts
+     * const result = await service.getPermissionMode();
+     * ```
+     */
+    async getPermissionMode(): Promise<
+        | { readonly ok: true; readonly mode: PermissionMode; readonly revision: number; readonly workspaceId: string }
+        | { readonly ok: false; readonly error: "permissions_unavailable" }
+    > {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.getPermissionMode === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        try {
+            const result = await coordinator.getPermissionMode();
+            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+        } catch {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+    }
+
+    /**
+     * 切换项目权限执行模式。
+     *
+     * @param command - 目标模式与期望修订号。
+     * @returns 成功切换后的权限模式结果；版本冲突或底层存储故障时返回稳定错误。
+     * @example
+     * ```ts
+     * const result = await service.setPermissionMode({ mode: "yolo", expectedRevision: 0 });
+     * ```
+     */
+    async setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.setPermissionMode === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        try {
+            const result = await coordinator.setPermissionMode(command.mode, command.expectedRevision);
+            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+        } catch (error) {
+            if (error instanceof PermissionModeConflictError) {
+                return { ok: false, error: "conflict", actualRevision: error.actualRevision };
+            }
+            return { ok: false, error: "permissions_unavailable" };
+        }
     }
 
     /**

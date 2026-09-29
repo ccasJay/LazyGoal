@@ -51,6 +51,9 @@ import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 import {
     createToolGrantMatcher,
     toolGrantMatchersEqual,
+    type PermissionMode,
+    type ProjectPermissionMode,
+    type ProjectPermissionModeStore,
     type ToolGrantScope,
     type ToolGrantStore,
 } from "./tool-grant";
@@ -276,6 +279,8 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
+    /** 可选的项目权限执行模式存储端口。 */
+    readonly permissionModeStore?: ProjectPermissionModeStore;
     /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
     readonly executionStream?: ExecutionStreamPublisher;
 }
@@ -302,6 +307,7 @@ export class GoalCoordinator {
     private readonly runIdGenerator: () => string;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolGrantStore: ToolGrantStore | undefined;
+    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
@@ -319,6 +325,7 @@ export class GoalCoordinator {
         this.runIdGenerator = dependencies.runIdGenerator ?? randomUUID;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
         this.toolGrantStore = dependencies.toolGrantStore;
+        this.permissionModeStore = dependencies.permissionModeStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
         this.trajectoryStore = dependencies.trajectoryStore;
@@ -400,6 +407,49 @@ export class GoalCoordinator {
         });
         await this.saveCheckpoint(goal);
         return revoked;
+    }
+
+    /**
+     * 查询指定或当前工作区的权限执行模式。
+     *
+     * @param workspaceId - 可选的工作区标识，省略时使用当前 Coordinator 绑定的 workspaceId。
+     * @returns 权限模式事实。若无存储或未配置，返回默认 default 模式。
+     * @example
+     * ```ts
+     * const mode = await coordinator.getPermissionMode();
+     * ```
+     */
+    async getPermissionMode(workspaceId?: string): Promise<ProjectPermissionMode> {
+        const targetWorkspace = workspaceId ?? this.workspaceId ?? "default";
+        if (this.permissionModeStore === undefined) {
+            return { workspaceId: targetWorkspace, mode: "default", revision: 0 };
+        }
+        return this.permissionModeStore.get(targetWorkspace);
+    }
+
+    /**
+     * 切换指定或当前工作区的权限执行模式。
+     *
+     * @param mode - 目标权限模式。
+     * @param expectedRevision - 期望修订号。
+     * @param workspaceId - 可选的工作区标识，省略时使用当前 Coordinator 绑定的 workspaceId。
+     * @returns 更新后的权限模式事实。
+     * @throws 版本冲突或存储故障时抛出异常。
+     * @example
+     * ```ts
+     * const updated = await coordinator.setPermissionMode("yolo", current.revision);
+     * ```
+     */
+    async setPermissionMode(
+        mode: PermissionMode,
+        expectedRevision: number,
+        workspaceId?: string,
+    ): Promise<ProjectPermissionMode> {
+        const targetWorkspace = workspaceId ?? this.workspaceId ?? "default";
+        if (this.permissionModeStore === undefined) {
+            throw new Error("Permission mode store is not configured");
+        }
+        return this.permissionModeStore.set(targetWorkspace, mode, expectedRevision);
     }
 
     /**

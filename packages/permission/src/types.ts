@@ -224,6 +224,70 @@ export interface ProjectPermissionMode {
 }
 
 /**
+ * 权限模式并发更新冲突异常。
+ *
+ * @remarks
+ * 当客户端提交的期望修订号与服务端已持久化的修订号不一致时抛出，指示并发修改冲突。
+ *
+ * @example
+ * ```ts
+ * throw new PermissionModeConflictError("ws-1", 1, 2);
+ * ```
+ */
+export class PermissionModeConflictError extends Error {
+    constructor(
+        readonly workspaceId: string,
+        readonly expectedRevision: number,
+        readonly actualRevision: number,
+    ) {
+        super(
+            `项目 ${workspaceId} 权限模式更新冲突：期望修订号 ${expectedRevision}，当前实际修订号 ${actualRevision}`,
+        );
+        this.name = "PermissionModeConflictError";
+    }
+}
+
+/**
+ * 项目级权限执行模式的持久化存储边界。
+ *
+ * @remarks
+ * 负责读写工作区的 Default/YOLO 模式配置，使用版本修订号进行乐观并发控制。
+ * 记录不存在时默认返回 Default 模式（revision 为 0）。
+ *
+ * @example
+ * ```ts
+ * const current = await store.get("ws-1");
+ * const updated = await store.set("ws-1", "yolo", current.revision);
+ * ```
+ */
+export interface ProjectPermissionModeStore {
+    /**
+     * 获取指定工作区的当前权限模式事实。
+     * 若尚无记录，默认返回 `{ workspaceId, mode: "default", revision: 0 }`。
+     *
+     * @param workspaceId - 项目工作区标识。
+     * @returns 当前权限模式事实。
+     * @throws 存储损坏或读取不可用时抛出异常。
+     */
+    get(workspaceId: string): Promise<ProjectPermissionMode>;
+
+    /**
+     * 乐观并发原子更新项目权限模式。
+     *
+     * @param workspaceId - 项目工作区标识。
+     * @param mode - 期望切换到的权限模式。
+     * @param expectedRevision - 调用方持有的期望修订号。
+     * @returns 更新后的新模式事实（revision + 1）。
+     * @throws 修订号不匹配抛出 PermissionModeConflictError；存储失败时抛出异常。
+     */
+    set(
+        workspaceId: string,
+        mode: PermissionMode,
+        expectedRevision: number,
+    ): Promise<ProjectPermissionMode>;
+}
+
+/**
  * Action 来源与执行身份的稳定引用。
  *
  * @example

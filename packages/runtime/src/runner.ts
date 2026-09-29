@@ -147,6 +147,8 @@ import {
 import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 import {
     createToolGrantMatcher,
+    type PermissionMode,
+    type ProjectPermissionModeStore,
     type ToolGrantLookup,
 } from "./tool-grant";
 
@@ -750,6 +752,8 @@ export interface RunnerDependencies {
      * Runner 在受限 Action 获准执行前调用此解析器以生成或验证沙箱执行计划。
      */
     readonly sandboxPlanResolver?: SandboxPlanResolver;
+    /** 可选的项目权限执行模式存储端口。 */
+    readonly permissionModeStore?: ProjectPermissionModeStore;
 }
 
 /**
@@ -795,6 +799,7 @@ export class Runner {
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
+    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -803,6 +808,7 @@ export class Runner {
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
         this.toolGrantLookup = dependencies.toolGrantLookup;
+        this.permissionModeStore = dependencies.permissionModeStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
         this.sandboxPlanResolver = dependencies.sandboxPlanResolver;
@@ -3655,6 +3661,25 @@ export class Runner {
                     }, control);
 
                     let grantMatched = false;
+                    let projectMode: PermissionMode = "default";
+                    if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
+                        try {
+                            const modeRecord = await this.permissionModeStore.get(this.workspaceId);
+                            projectMode = modeRecord.mode;
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
                     if (
                         validated.policy === "require_approval"
                         && this.toolGrantLookup !== undefined
@@ -3683,6 +3708,18 @@ export class Runner {
                                 control,
                             );
                         }
+                    }
+
+                    const rawActionInput = validated.action.input;
+                    const hasExtraSandboxAccess = isRecord(rawActionInput)
+                        && isRecord(rawActionInput.sandboxAccess)
+                        && (
+                            (Array.isArray(rawActionInput.sandboxAccess.files) && rawActionInput.sandboxAccess.files.length > 0)
+                            || (isRecord(rawActionInput.sandboxAccess.network) && Array.isArray(rawActionInput.sandboxAccess.network.targets) && rawActionInput.sandboxAccess.network.targets.length > 0)
+                        );
+
+                    if (!grantMatched && projectMode === "yolo" && !hasExtraSandboxAccess) {
+                        grantMatched = true;
                     }
 
                     if (validated.policy !== "allow" && !grantMatched) {

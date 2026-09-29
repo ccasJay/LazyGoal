@@ -41,6 +41,10 @@ import {
     StreamingTranscriptController,
     type TranscriptSnapshot,
 } from "./streaming-transcript-controller";
+import type {
+    PermissionMode,
+    ProjectPermissionMode,
+} from "../../permission/src/index";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -77,6 +81,8 @@ export class SessionController {
     private executionStreamSubscription: ExecutionStreamSubscription | undefined;
     private committedSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
+    private permissionMode: PermissionMode = "default";
+    private permissionRevision = 0;
     private modelCatalogGeneration = 0;
     private modelCatalogAbortController: AbortController | undefined;
     private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
@@ -111,6 +117,8 @@ export class SessionController {
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
         this.executionMode = dependencies.initialExecutionMode ?? "confirm";
+        this.permissionMode = this.executionMode === "yolo" ? "yolo" : "default";
+        void this.refreshPermissionMode();
         this.transcriptController = new StreamingTranscriptController({
             ...(dependencies.transcriptScheduler !== undefined
                 ? { scheduler: dependencies.transcriptScheduler }
@@ -383,7 +391,7 @@ export class SessionController {
         if (this.snapshot.busy) {
             if (command.kind === "toggleExecutionMode" || command.kind === "setExecutionMode") {
                 return this.setMode(command.kind === "setExecutionMode"
-                    ? command.mode : this.executionMode === "confirm" ? "yolo" : "confirm", false);
+                    ? command.mode : (this.permissionMode === "default" ? "yolo" : "confirm"));
             }
             if (command.kind === "cancelModelSelect" && this.snapshot.screen === "model_select") {
                 this.cancelModelSelect();
@@ -488,7 +496,7 @@ export class SessionController {
                 await this.openHistory();
                 return;
             case "toggleExecutionMode":
-                await this.setMode(this.executionMode === "confirm" ? "yolo" : "confirm");
+                await this.setMode(this.permissionMode === "default" ? "yolo" : "confirm");
                 return;
             case "setExecutionMode":
                 await this.setMode(command.mode);
@@ -940,28 +948,12 @@ export class SessionController {
     }
 
     private async applyProgress(result: ProgressResult): Promise<void> {
-        while (!this.shuttingDown) {
-            if (!result.ok) {
-                this.setError(result.error);
-                return;
-            }
-            this.setSnapshot(this.toSessionView(result.goal, result, true));
-            if (this.executionMode !== "yolo"
-                || result.kind !== "waiting"
-                || result.waitingFor !== "action_approval"
-                || result.goal.state.run.pendingAction?.action === undefined) return;
-
-            result = await this.dependencies.coordinator.resume({
-                ref: {
-                    goalId: result.goal.id,
-                    runId: result.goal.state.run.id,
-                },
-                action: {
-                    kind: "approve_action",
-                    actionId: result.goal.state.run.pendingAction.action.actionId,
-                },
-            }, this.dependencies.control);
+        if (this.shuttingDown) return;
+        if (!result.ok) {
+            this.setError(result.error);
+            return;
         }
+        this.setSnapshot(this.toSessionView(result.goal, result, true));
     }
 
     private openHome(): void {
@@ -998,36 +990,62 @@ export class SessionController {
         });
     }
 
-    private async setMode(mode: ExecutionMode, advance = true): Promise<void> {
-        this.executionMode = mode;
+    private async refreshPermissionMode(): Promise<void> {
+        if (this.dependencies.coordinator.getPermissionMode === undefined) return;
+        try {
+            const modeRecord = await this.dependencies.coordinator.getPermissionMode();
+            this.permissionMode = modeRecord.mode;
+            this.permissionRevision = modeRecord.revision;
+            this.executionMode = modeRecord.mode === "yolo" ? "yolo" : "confirm";
+            if (this.snapshot.screen === "session") {
+                this.setSnapshot({
+                    ...this.snapshot,
+                    executionMode: this.executionMode,
+                    permissionMode: this.permissionMode,
+                    permissionRevision: this.permissionRevision,
+                });
+            }
+        } catch {
+            // 保留本地状态
+        }
+    }
+
+    private async setMode(mode: ExecutionMode): Promise<void> {
+        const targetPermissionMode: PermissionMode = mode === "yolo" ? "yolo" : "default";
+        if (this.dependencies.coordinator.setPermissionMode !== undefined) {
+            try {
+                const updated = await this.dependencies.coordinator.setPermissionMode(
+                    targetPermissionMode,
+                    this.permissionRevision,
+                );
+                this.permissionMode = updated.mode;
+                this.permissionRevision = updated.revision;
+                this.executionMode = updated.mode === "yolo" ? "yolo" : "confirm";
+            } catch (error) {
+                await this.refreshPermissionMode();
+                if (this.snapshot.screen === "session") {
+                    this.setSnapshot({
+                        ...this.snapshot,
+                        error: {
+                            code: "PERMISSION_MODE_ERROR",
+                            message: error instanceof Error ? error.message : "Failed to update permission mode",
+                        },
+                    });
+                }
+                return;
+            }
+        } else {
+            this.executionMode = mode;
+            this.permissionMode = targetPermissionMode;
+        }
+
         if (this.snapshot.screen === "session") {
             this.setSnapshot({
                 ...this.snapshot,
-                executionMode: mode,
+                executionMode: this.executionMode,
+                permissionMode: this.permissionMode,
+                permissionRevision: this.permissionRevision,
             });
-            if (
-                advance && mode === "yolo"
-                && !this.shuttingDown
-                && this.snapshot.waitingFor === "action_approval"
-                && this.snapshot.pendingAction?.action !== undefined
-            ) {
-                const actionId = this.snapshot.pendingAction.action.actionId;
-                const request = {
-                    ref: {
-                        goalId: this.snapshot.goal.id,
-                        runId: this.snapshot.goal.state.run.id,
-                    },
-                    action: {
-                        kind: "approve_action" as const,
-                        actionId,
-                    },
-                };
-                const result = await this.dependencies.coordinator.resume(
-                    request,
-                    this.dependencies.control,
-                );
-                await this.applyProgress(result);
-            }
         }
     }
 
@@ -1383,6 +1401,8 @@ export class SessionController {
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
             executionMode: this.executionMode,
+            permissionMode: this.permissionMode,
+            permissionRevision: this.permissionRevision,
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             ...(sameRun && this.liveActivity !== undefined ? { liveActivity: this.liveActivity } : {}),

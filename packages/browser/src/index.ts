@@ -33,6 +33,8 @@ export {
     type BrowserToolGrantSummary,
     type BrowserToolGrantResult,
     type BrowserToolGrantRevokeCommand,
+    type BrowserPermissionModeCommand,
+    type BrowserPermissionModeResult,
     type BrowserGoalLauncher,
     type BrowserGoalSaveNotifications,
 } from "./browser-goal-command-service";

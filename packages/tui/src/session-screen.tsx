@@ -294,12 +294,13 @@ interface SessionStatusProps {
 }
 
 function SessionStatus({ session, onToggleExecutionMode, onOpenToolPermissions }: SessionStatusProps): React.JSX.Element {
-    const executionMode = session.executionMode ?? "confirm";
+    const modeTag = (session.permissionMode ?? session.executionMode ?? "default").toUpperCase();
+    const isYolo = modeTag === "YOLO";
     return (
         <Box flexDirection="column">
             <Text bold color="cyan">
                 Goal {truncateId(session.goal.id)}
-                {` [${executionMode.toUpperCase()}]`}
+                {` [${modeTag}]`}
                 {session.mode !== undefined ? ` [${session.mode.toUpperCase()}]` : ""}
                 {session.taskTitle !== undefined ? ` - ${session.taskTitle}` : ""}
             </Text>
@@ -338,8 +339,8 @@ function SessionStatus({ session, onToggleExecutionMode, onOpenToolPermissions }
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}
             {session.terminal === undefined ? <Text dimColor>
-                {executionMode === "yolo"
-                    ? "[Shift+Tab] Confirm at next approval  [Ctrl+C] Stop"
+                {isYolo
+                    ? "[Shift+Tab] Switch to Default  [Ctrl+C] Stop"
                     : "[Shift+Tab] Enable YOLO  [Ctrl+C] Stop"}
             </Text> : null}
         </Box>

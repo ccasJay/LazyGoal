@@ -16,6 +16,8 @@ import type {
     BrowserActionDetailsResult,
     BrowserToolGrantResult,
     BrowserToolGrantRevokeCommand,
+    BrowserPermissionModeCommand,
+    BrowserPermissionModeResult,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalLiveFeed,
@@ -126,6 +128,24 @@ export interface BrowserGoalApiPort {
     listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
     /** 撤销当前 Goal 或 workspace 的指定授权。 */
     revokeToolGrant?(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult>;
+    /**
+     * 查询当前工作区的项目权限执行模式。
+     *
+     * @returns 包含模式与修订号的权限事实；不可用时返回稳定拒绝码。
+     * @throws 底层存储读取失败时拒绝。
+     */
+    getPermissionMode?(): Promise<
+        | { readonly ok: true; readonly mode: "default" | "yolo"; readonly revision: number; readonly workspaceId: string }
+        | { readonly ok: false; readonly error: "permissions_unavailable" }
+    >;
+    /**
+     * 切换当前工作区的项目权限执行模式。
+     *
+     * @param command - 目标模式与期望修订号。
+     * @returns 成功切换后的权限事实；冲突或不可用时返回稳定错误。
+     * @throws 底层存储写入失败时拒绝。
+     */
+    setPermissionMode?(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult>;
 }
 
 /**
@@ -285,6 +305,33 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                     : 409;
             return context.json({ error: result.error }, status);
         } catch { return context.json({ error: "grant_failed" }, 500); }
+    });
+
+    routes.get("/api/project/permission-mode", async (context) => {
+        if (source.getPermissionMode === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        try {
+            const result = await source.getPermissionMode();
+            if (result.ok) return context.json(result);
+            return context.json({ error: result.error }, 500);
+        } catch {
+            return context.json({ error: "permissions_unavailable" }, 500);
+        }
+    });
+
+    routes.post("/api/project/permission-mode", async (context) => {
+        if (source.setPermissionMode === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const parsed = await parsePermissionModeCommand(context.req.raw);
+        if (!parsed.ok) {
+            return context.json({ error: parsed.error }, parsed.status);
+        }
+        try {
+            const result = await source.setPermissionMode(parsed.command);
+            if (result.ok) return context.json(result);
+            const status = result.error === "conflict" ? 409 : 500;
+            return context.json(result, status);
+        } catch {
+            return context.json({ error: "permissions_unavailable" }, 500);
+        }
     });
 
     routes.post("/api/goals", async (context) => {
@@ -608,6 +655,33 @@ async function parseGrantRevokeCommand(request: Request): Promise<
         return { ok: false, error: "invalid_grant_request" };
     }
     return { ok: true, command: { runId, scope } };
+}
+
+async function parsePermissionModeCommand(request: Request): Promise<
+    | { readonly ok: true; readonly command: BrowserPermissionModeCommand }
+    | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
+> {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return parsed;
+    const value = parsed.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
+    }
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["mode", "expectedRevision"])) {
+        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
+    }
+    const mode = body.mode;
+    const expectedRevision = body.expectedRevision;
+    if (
+        (mode !== "default" && mode !== "yolo")
+        || typeof expectedRevision !== "number"
+        || !Number.isSafeInteger(expectedRevision)
+        || expectedRevision < 0
+    ) {
+        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
+    }
+    return { ok: true, command: { mode, expectedRevision } };
 }
 
 async function readJsonBody(

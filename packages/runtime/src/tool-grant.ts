@@ -5,6 +5,7 @@ export type {
     PermissionMode,
     PermissionScope,
     ProjectPermissionMode,
+    ProjectPermissionModeStore,
     ToolAuthorizationContext,
     ToolAuthorizationDecision,
     ToolGrant,
