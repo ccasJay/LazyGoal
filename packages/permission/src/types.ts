@@ -3,6 +3,11 @@ import type {
     EffectiveSandboxScope,
 } from "../../sandbox/src/index";
 
+export type {
+    EffectiveExtraFile,
+    EffectiveSandboxScope,
+};
+
 /**
  * 项目权限模式。
  *
@@ -396,3 +401,234 @@ export type SandboxAuthorizationDecision =
         readonly decision: "approval_required";
         readonly review: EffectiveSandboxReview;
     };
+
+/**
+ * 沙箱持续授权作用域范围。
+ *
+ * @remarks
+ * - `goal`：当前 Goal 作用域，供该 Goal 后续 Run 复用，跨重启有效。
+ * - `workspace`：当前项目工作区作用域，供该项目下所有 Goal 复用，跨重启有效。
+ *
+ * @example
+ * ```ts
+ * const scope: SandboxGrantScope = "workspace";
+ * ```
+ */
+export type SandboxGrantScope = "goal" | "workspace";
+
+/**
+ * 沙箱能力授权身份匹配器。
+ *
+ * @remarks
+ * 严格绑定受限命令标识（目前为 bash）、执行的具体命令文本、已核准的实际文件范围与出站网络能力。
+ * 当授权规则语义发生演进时递增 `version`，使旧授权自动失配。
+ *
+ * @example
+ * ```ts
+ * const matcher: SandboxGrantMatcher = {
+ *     toolId: "bash",
+ *     command: "curl https://example.com",
+ *     scope: { extraFiles: [], network: "all_outbound" },
+ *     version: 1,
+ * };
+ * ```
+ */
+export interface SandboxGrantMatcher {
+    readonly toolId: "bash";
+    readonly command: string;
+    readonly scope: EffectiveSandboxScope;
+    readonly version: 1;
+}
+
+/**
+ * 一条会话或工作区级的用户 Sandbox 持续授权。
+ *
+ * @remarks
+ * `pending` 只用于审批提交恢复，不得匹配新 Action；仅 `active` 授权可用于查询。
+ * `source` 保留最初批准它的 Action 身份，以便协调器验证创建和重启恢复。
+ *
+ * @example
+ * ```ts
+ * const grant: SandboxGrant = {
+ *     id: "grant-s1",
+ *     scope: "goal",
+ *     workspaceId: "workspace-1",
+ *     goalId: "goal-1",
+ *     source: { goalId: "goal-1", runId: "run-1", actionId: "action-1" },
+ *     matcher: {
+ *         toolId: "bash",
+ *         command: "curl https://example.com",
+ *         scope: { extraFiles: [], network: "all_outbound" },
+ *         version: 1,
+ *     },
+ *     status: "active",
+ * };
+ * ```
+ */
+export interface SandboxGrant {
+    readonly id: string;
+    readonly scope: SandboxGrantScope;
+    readonly workspaceId: string;
+    readonly goalId?: string;
+    readonly source: {
+        readonly goalId: string;
+        readonly runId: string;
+        readonly actionId: string;
+    };
+    readonly matcher: SandboxGrantMatcher;
+    readonly status: GrantStatus;
+}
+
+/**
+ * Sandbox 持续授权的查询读取端口。
+ *
+ * @example
+ * ```ts
+ * const grant = await lookup.findActiveMatching({ workspaceId, goalId, matcher });
+ * ```
+ */
+export interface SandboxGrantLookup {
+    /**
+     * 查询严格匹配当前 Workspace、Goal 和操作能力身份的有效授权。
+     *
+     * @param query - 当前执行身份及由已验证命令与沙箱范围派生的匹配器。
+     * @returns 唯一匹配的 active 授权；不存在时返回 `undefined`。
+     * @throws 授权账本无法读取或违反协议时抛出异常；调用方必须失败关闭。
+     */
+    findActiveMatching(query: {
+        readonly workspaceId: string;
+        readonly goalId: string;
+        readonly matcher: SandboxGrantMatcher;
+    }): Promise<SandboxGrant | undefined>;
+}
+
+/**
+ * 支持审批事务与授权管理的持久化 Sandbox Grant 存储端口。
+ *
+ * @remarks
+ * 同一来源 Action 的重复 `stage` 必须幂等；相同来源但期限或匹配器不同属于冲突。
+ * `pending` 记录不得被查询为授权，只有 Coordinator 在 Goal 批准快照提交后才能激活。
+ *
+ * @example
+ * ```ts
+ * const grant = await store.stage(candidate);
+ * await store.activate(grant.id, grant.source);
+ * ```
+ */
+export interface SandboxGrantStore extends SandboxGrantLookup {
+    /**
+     * 按来源 Action 创建或恢复一条待生效 Grant。
+     *
+     * @param grant - 不含 ID 且状态固定为 pending 的授权申请。
+     * @returns 已持久化的 pending Grant；相同申请重复调用返回原记录。
+     * @throws 相同来源已绑定不同授权内容或账本损坏时拒绝。
+     */
+    stage(grant: Omit<SandboxGrant, "id" | "status">): Promise<SandboxGrant>;
+
+    /**
+     * 在 Coordinator 确认审批快照已提交后激活 Grant。
+     *
+     * @param grantId - 待生效授权的稳定 ID。
+     * @param source - 必须与 Grant 保存的原始 Goal/Run/Action 身份完全相同。
+     * @returns 激活后的 Grant；重复激活保持幂等。
+     * @throws ID、来源不匹配或 Grant 已撤销时拒绝。
+     */
+    activate(grantId: string, source: SandboxGrant["source"]): Promise<SandboxGrant>;
+
+    /**
+     * 列出当前用户有权查看的 Goal 与 Workspace Grant。
+     *
+     * @param query - 当前 Workspace，以及可选的 Goal 过滤条件。
+     * @returns 按创建 ID 稳定排序的授权列表，不包含其它 Workspace 数据。
+     */
+    list(query: { readonly workspaceId: string; readonly goalId?: string }): Promise<readonly SandboxGrant[]>;
+
+    /**
+     * 撤销当前 Workspace 中指定的 Grant。
+     *
+     * @param query - 授权 ID、Workspace 身份和可选 Goal 身份。
+     * @returns 已撤销记录；对已撤销记录重复调用幂等。
+     * @throws Grant 不存在、跨 Workspace/Goal 或仍处于 pending 时拒绝。
+     */
+    revoke(query: {
+        readonly grantId: string;
+        readonly workspaceId: string;
+        readonly goalId?: string;
+    }): Promise<SandboxGrant>;
+}
+
+/**
+ * 跨 Tool 与 Sandbox 账本的统一授权展示摘要。
+ *
+ * @remarks
+ * 供 UI 统一列出和审阅当前项目或会话中已存在的持续授权。
+ *
+ * @example
+ * ```ts
+ * const summary: UnifiedGrantSummary = {
+ *     kind: "sandbox",
+ *     id: "grant-1",
+ *     scope: "workspace",
+ *     workspaceId: "ws-1",
+ *     toolId: "bash",
+ *     command: "curl https://example.com",
+ *     status: "active",
+ *     extraFiles: [],
+ *     network: "all_outbound",
+ * };
+ * ```
+ */
+export type UnifiedGrantSummary =
+    | {
+        readonly kind: "tool";
+        readonly id: string;
+        readonly scope: ToolGrantScope;
+        readonly workspaceId: string;
+        readonly goalId?: string;
+        readonly toolId: string;
+        readonly status: GrantStatus;
+        readonly targetPath?: string;
+        readonly digest?: string;
+    }
+    | {
+        readonly kind: "sandbox";
+        readonly id: string;
+        readonly scope: SandboxGrantScope;
+        readonly workspaceId: string;
+        readonly goalId?: string;
+        readonly toolId: "bash";
+        readonly command: string;
+        readonly status: GrantStatus;
+        readonly extraFiles: readonly EffectiveExtraFile[];
+        readonly network: "none" | "all_outbound";
+    };
+
+/**
+ * 统一授权管理服务接口。
+ *
+ * @remarks
+ * 聚合 Tool 与 Sandbox 两个独立账本，提供统一的列表查询与精确撤销功能。
+ *
+ * @example
+ * ```ts
+ * const grants = await service.list({ workspaceId: "ws-1" });
+ * await service.revoke({ kind: "sandbox", grantId: "grant-1", workspaceId: "ws-1" });
+ * ```
+ */
+export interface PermissionGrantService {
+    /**
+     * 列出当前 Workspace 及可选 Goal 作用域下的所有 Tool 与 Sandbox 持续授权。
+     */
+    list(query: { readonly workspaceId: string; readonly goalId?: string }): Promise<readonly UnifiedGrantSummary[]>;
+
+    /**
+     * 精确撤销指定类别与 ID 的持续授权。
+     */
+    revoke(query: {
+        readonly kind: "tool" | "sandbox";
+        readonly grantId: string;
+        readonly workspaceId: string;
+        readonly goalId?: string;
+    }): Promise<void>;
+}
+

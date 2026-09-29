@@ -23,7 +23,7 @@ export function ToolPermissionsScreen({
     onBack,
 }: {
     readonly view: UiToolPermissionsViewModel;
-    readonly onRevoke: (grantId: string, scope: "goal" | "workspace") => void | Promise<void>;
+    readonly onRevoke: (grantId: string, scope: "goal" | "workspace", kind?: "tool" | "sandbox") => void | Promise<void>;
     readonly onBack: () => void | Promise<void>;
 }): React.JSX.Element {
     useInput((_input, key) => {
@@ -31,22 +31,28 @@ export function ToolPermissionsScreen({
     }, { isActive: !view.busy });
 
     const active = view.grants.filter((grant) => grant.status === "active");
-    const options = active.map((grant) => ({
-        label: `Revoke ${grant.toolId} · ${grant.scope === "goal" ? "This Goal" : "This project"}${grant.targetPath === undefined ? "" : ` · ${grant.targetPath}`}`,
-        value: `${grant.scope}:${grant.grantId}`,
-    }));
+    const options = active.map((grant) => {
+        const desc = grant.kind === "sandbox"
+            ? `bash (sandbox) · ${grant.command ?? "command"}`
+            : `${grant.toolId}${grant.targetPath === undefined ? "" : ` · ${grant.targetPath}`}`;
+        return {
+            label: `Revoke ${desc} · ${grant.scope === "goal" ? "This Goal" : "This project"}`,
+            value: `${grant.kind ?? "tool"}:${grant.scope}:${grant.grantId}`,
+        };
+    });
 
     return (
         <Box flexDirection="column" gap={1}>
-            <Text bold color="cyan">Tool permissions for {view.goal.id}</Text>
+            <Text bold color="cyan">Permissions for {view.goal.id}</Text>
             <Text>Only matching actions are allowed by these ongoing permissions.</Text>
             {view.error === undefined ? null : <ErrorLine error={view.error} />}
             {view.grants.length === 0 ? <Text dimColor>No permissions are saved for this Goal or project.</Text> : (
                 <Box flexDirection="column">
                     {view.grants.map((grant) => (
                         <Text key={grant.grantId} color={grant.status === "active" ? "green" : "gray"}>
-                            {grant.toolId} · {grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}
+                            {grant.kind === "sandbox" ? `bash (sandbox: ${grant.command ?? "command"})` : grant.toolId} · {grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}
                             {grant.targetPath === undefined ? "" : ` · ${grant.targetPath}`}
+                            {grant.network === "all_outbound" ? " · network: all_outbound" : ""}
                         </Text>
                     ))}
                 </Box>
@@ -58,10 +64,11 @@ export function ToolPermissionsScreen({
                         isDisabled={view.busy}
                         options={options}
                         onChange={(value) => {
-                            const separator = value.indexOf(":");
-                            const scope = value.slice(0, separator);
-                            const grantId = value.slice(separator + 1);
-                            if (scope === "goal" || scope === "workspace") void onRevoke(grantId, scope);
+                            const parts = value.split(":");
+                            const kind = parts[0] === "sandbox" ? "sandbox" : "tool";
+                            const scope = parts[1];
+                            const grantId = parts.slice(2).join(":");
+                            if (scope === "goal" || scope === "workspace") void onRevoke(grantId, scope, kind);
                         }}
                     />
                 </Box>

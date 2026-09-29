@@ -1,16 +1,28 @@
 export type {
     ActionRef,
+    EffectiveExtraFile,
+    EffectiveSandboxReview,
+    EffectiveSandboxScope,
     GrantRef,
     GrantStatus,
+    PermissionGrantService,
     PermissionMode,
     PermissionScope,
     ProjectPermissionMode,
     ProjectPermissionModeStore,
+    SandboxAuthorizationContext,
+    SandboxAuthorizationDecision,
+    SandboxGrant,
+    SandboxGrantLookup,
+    SandboxGrantMatcher,
+    SandboxGrantScope,
+    SandboxGrantStore,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
     ToolGrantScope,
     ToolGrantStore,
+    UnifiedGrantSummary,
 } from "./types";
 
 export {
@@ -33,8 +45,14 @@ export {
     NETWORK_ALL_OUTBOUND_NOTICE,
 } from "./sandbox-authorization";
 
-export type {
-    EffectiveSandboxReview,
-    SandboxAuthorizationContext,
-    SandboxAuthorizationDecision,
-} from "./types";
+export {
+    createSandboxGrantMatcher,
+    matchesSandboxGrant,
+    matchesSandboxGrantMatcher,
+    matchesToolGrant,
+    matchesToolGrantMatcher,
+} from "./grant-matching";
+
+export {
+    DefaultPermissionGrantService,
+} from "./permission-grant-service";

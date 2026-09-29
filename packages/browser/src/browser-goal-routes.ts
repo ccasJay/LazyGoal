@@ -648,13 +648,21 @@ async function parseGrantRevokeCommand(request: Request): Promise<
         return { ok: false, error: "invalid_grant_request" };
     }
     const body = value as Record<string, unknown>;
-    if (!hasExactKeys(body, ["runId", "scope"])) return { ok: false, error: "invalid_grant_request" };
+    const allowedKeys = ["runId", "scope", "kind"];
+    for (const key of Object.keys(body)) {
+        if (!allowedKeys.includes(key)) return { ok: false, error: "invalid_grant_request" };
+    }
+    if (!("runId" in body) || !("scope" in body)) return { ok: false, error: "invalid_grant_request" };
     const runId = readWireText(body.runId, 256);
     const scope = body.scope;
     if (runId === undefined || (scope !== "goal" && scope !== "workspace")) {
         return { ok: false, error: "invalid_grant_request" };
     }
-    return { ok: true, command: { runId, scope } };
+    const kind = body.kind;
+    if (kind !== undefined && kind !== "tool" && kind !== "sandbox") {
+        return { ok: false, error: "invalid_grant_request" };
+    }
+    return { ok: true, command: { runId, scope, ...(kind !== undefined ? { kind } : {}) } };
 }
 
 async function parsePermissionModeCommand(request: Request): Promise<

@@ -159,7 +159,7 @@ export async function resolveEffectiveSandboxScope(
     workspaceRoot: string,
     request?: SandboxAccessRequest,
 ): Promise<EffectiveSandboxScope> {
-    const canonicalWorkspace = await resolveCanonicalPath(workspaceRoot);
+    const canonicalWorkspace = await realpath(workspaceRoot);
     const network: "none" | "all_outbound" =
         request?.network !== undefined && request.network.targets.length > 0
             ? "all_outbound"

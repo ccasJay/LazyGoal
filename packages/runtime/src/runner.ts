@@ -154,9 +154,11 @@ import {
 } from "./context-epoch";
 import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 import {
+    createSandboxGrantMatcher,
     createToolGrantMatcher,
     type PermissionMode,
     type ProjectPermissionModeStore,
+    type SandboxGrantLookup,
     type ToolGrantLookup,
 } from "./tool-grant";
 
@@ -730,6 +732,8 @@ export interface RunnerDependencies {
     readonly toolPolicy?: ToolPolicy;
     /** 读取会话或 Workspace 级持续 Tool 授权；缺省时所有受 Policy 门控的 Action 仍需审批。 */
     readonly toolGrantLookup?: ToolGrantLookup;
+    /** 读取会话或 Workspace 级持续 Sandbox 授权；缺省时所有越界沙箱能力仍需审批。 */
+    readonly sandboxGrantLookup?: SandboxGrantLookup;
     /** 用于隔离 Workspace 授权的稳定身份；必须与授权账本位置一致。 */
     readonly workspaceId?: string;
     /** 文件 Tool 授权身份解析时使用的 Workspace 根目录。 */
@@ -796,6 +800,7 @@ export class Runner {
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
     private readonly toolGrantLookup: ToolGrantLookup | undefined;
+    private readonly sandboxGrantLookup: SandboxGrantLookup | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
@@ -816,6 +821,7 @@ export class Runner {
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
         this.toolGrantLookup = dependencies.toolGrantLookup;
+        this.sandboxGrantLookup = dependencies.sandboxGrantLookup;
         this.permissionModeStore = dependencies.permissionModeStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
@@ -3747,7 +3753,41 @@ export class Runner {
                         effectiveScope: effectiveSandboxScope,
                     });
 
-                    const requiresSandboxApproval = sandboxDecision.decision === "approval_required";
+                    let sandboxGrantMatched = false;
+                    if (
+                        sandboxDecision.decision === "approval_required"
+                        && this.sandboxGrantLookup !== undefined
+                        && this.workspaceId !== undefined
+                        && validated.action.toolId === "bash"
+                    ) {
+                        try {
+                            const bashCommand = typeof (rawActionInput as any).command === "string"
+                                ? (rawActionInput as any).command
+                                : "";
+                            const candidateMatcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
+                            const activeGrant = await this.sandboxGrantLookup.findActiveMatching({
+                                workspaceId: this.workspaceId,
+                                goalId: goal.id,
+                                matcher: candidateMatcher,
+                            });
+                            if (activeGrant !== undefined) {
+                                sandboxGrantMatched = true;
+                            }
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
+                    const requiresSandboxApproval = sandboxDecision.decision === "approval_required" && !sandboxGrantMatched;
                     const requiresToolApproval = validated.policy !== "allow" && !grantMatched && projectMode !== "yolo";
 
                     if (requiresSandboxApproval || requiresToolApproval) {

@@ -23,7 +23,7 @@
   - 验证方式：待实现的 `packages/permission/test/sandbox-decision.test.ts`、`packages/runtime/test/sandbox-permission-action.test.ts`、Browser／TUI 审批交互测试；复用 Sandbox Spec 的真实 macOS 受限进程测试。
   - _Requirements: [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [6.2](./requirements.md#req-6-2), [6.3](./requirements.md#req-6-3), [7.1](./requirements.md#req-7-1), [7.2](./requirements.md#req-7-2), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 4. 交付两类持续授权的复用、统一查看与撤销
+- [x] //TODO 4. 交付两类持续授权的复用、统一查看与撤销
 
   - 实现目标：新增独立 Sandbox Grant 账本，保留 Tool Grant 账本；Permission 统一列出和撤销两类授权，Browser／TUI 左下角入口可进入管理，批准后按 Action 检查点激活。
   - 成功判据：单次、Goal、项目授权各守其范围；同一路径写入可换内容，不同 Bash 命令和不同 Sandbox 能力不得复用；重启后只认已激活授权，撤销或过期请求不放行，页面不暴露凭据与未获准文件内容。

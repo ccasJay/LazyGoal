@@ -440,13 +440,24 @@ export type {
     ToolValidationResult,
 } from "./tool";
 export {
+    DefaultPermissionGrantService,
+    createSandboxGrantMatcher,
     createToolGrantMatcher,
+    evaluateSandboxAuthorization,
     evaluateToolAuthorization,
+    matchesSandboxGrant,
+    matchesSandboxGrantMatcher,
     toolGrantMatchersEqual,
 } from "./tool-grant";
 export type {
+    PermissionGrantService,
     PermissionMode,
     PermissionScope,
+    SandboxGrant,
+    SandboxGrantLookup,
+    SandboxGrantMatcher,
+    SandboxGrantScope,
+    SandboxGrantStore,
     ToolAuthorizationContext,
     ToolAuthorizationDecision,
     ToolGrant,
@@ -454,6 +465,7 @@ export type {
     ToolGrantMatcher,
     ToolGrantScope,
     ToolGrantStore,
+    UnifiedGrantSummary,
 } from "./tool-grant";
 export { launch } from "./launcher";
 export type {

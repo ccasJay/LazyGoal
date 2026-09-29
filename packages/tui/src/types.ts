@@ -20,7 +20,7 @@ import type { AskUserAnswer, AskUserQuestion } from "../../contracts/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
-import type { PermissionMode, ProjectPermissionMode } from "../../permission/src/index";
+import type { PermissionMode, ProjectPermissionMode, UnifiedGrantSummary } from "../../permission/src/index";
 
 /** Controller 在已有异步操作期间拒绝新命令时使用的稳定错误码。 */
 export const UI_BUSY_CODE = "UI_BUSY" as const;
@@ -87,7 +87,7 @@ export type UiCommand =
         readonly answers: readonly AskUserAnswer[];
     }
     | { readonly kind: "approveAction"; readonly actionId: string; readonly scope?: "action" | "goal" | "workspace" }
-    | { readonly kind: "revokeToolGrant"; readonly grantId: string; readonly scope: ToolGrant["scope"] }
+    | { readonly kind: "revokeToolGrant"; readonly grantId: string; readonly scope: ToolGrant["scope"]; readonly grantKind?: "tool" | "sandbox" }
     | { readonly kind: "openToolPermissions" }
     | { readonly kind: "closeToolPermissions" }
     | {
@@ -558,7 +558,10 @@ export interface UiToolGrantSummary {
     readonly scope: ToolGrant["scope"];
     readonly toolId: string;
     readonly status: ToolGrant["status"];
+    readonly kind?: "tool" | "sandbox";
     readonly targetPath?: string;
+    readonly command?: string;
+    readonly network?: "none" | "all_outbound";
 }
 
 /**
@@ -841,6 +844,23 @@ export interface SessionCoordinator {
         readonly grantId: string;
         readonly scope: ToolGrant["scope"];
     }) => Promise<ToolGrant>;
+    /**
+     * 统一列出当前 Goal 与工作区的所有 Tool 与 Sandbox 授权。
+     *
+     * @param ref - 当前 Goal 与 Run 的关联键。
+     * @returns 聚合的授权列表。
+     */
+    readonly listGrants?: (ref: RunRef) => Promise<readonly UnifiedGrantSummary[]>;
+    /**
+     * 统一撤销当前工作区中指定类别和 ID 的持续授权。
+     *
+     * @param request - 当前 Run、类别和授权 ID。
+     */
+    readonly revokeGrant?: (request: {
+        readonly ref: RunRef;
+        readonly kind: "tool" | "sandbox";
+        readonly grantId: string;
+    }) => Promise<void>;
     /**
      * 查询指定或当前工作区的权限执行模式。
      *

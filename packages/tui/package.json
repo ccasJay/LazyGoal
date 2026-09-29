@@ -9,8 +9,7 @@
     "react": "^19.1.1",
     "string-width": "^8.2.2",
     "wrap-ansi": "^9.0.2",
-    "marked": "^18.0.13",
-    "@lazygoal/permission": "*"
+    "marked": "^18.0.13"
   },
   "devDependencies": {
     "@types/react": "^19.1.10",

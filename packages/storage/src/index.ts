@@ -58,6 +58,7 @@ export {
 } from "./goal-store";
 export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export { JsonFileToolGrantStore } from "./json-file-tool-grant-store";
+export { JsonFileSandboxGrantStore } from "./json-file-sandbox-grant-store";
 export { JsonFileProjectPermissionModeStore } from "./json-file-project-permission-mode-store";
 export {
     JsonFileMetricsStore,

@@ -434,6 +434,40 @@ test("ToolPermissionsScreen shows scope and revokes the selected grant", async (
     assert.deepEqual(revocations, [{ grantId: "grant-screen-1", scope: "workspace" }]);
 });
 
+test("ToolPermissionsScreen shows sandbox command scope and revokes sandbox grant", async () => {
+    const goal = executingGoal("goal-sb-permissions-screen");
+    const view: UiToolPermissionsViewModel = {
+        screen: "tool_permissions",
+        busy: false,
+        goal,
+        grants: [{
+            grantId: "sb-grant-1",
+            kind: "sandbox",
+            scope: "goal",
+            toolId: "bash",
+            command: "curl https://example.com",
+            status: "active",
+            network: "all_outbound",
+        }],
+        session: session(goal),
+    };
+    const revocations: Array<{ grantId: string; scope: string; kind?: string }> = [];
+    const instance = render(
+        <ToolPermissionsScreen
+            view={view}
+            onRevoke={(grantId, scope, kind) => { revocations.push({ grantId, scope, ...(kind ? { kind } : {}) }); }}
+            onBack={() => undefined}
+        />,
+    );
+
+    assert.match(instance.lastFrame() ?? "", /bash \(sandbox: curl https:\/\/example\.com\)/);
+    assert.match(instance.lastFrame() ?? "", /network: all_outbound/);
+    assert.match(instance.lastFrame() ?? "", /This Goal/);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(revocations, [{ grantId: "sb-grant-1", scope: "goal", kind: "sandbox" }]);
+});
+
 test("SessionScreen submits non-empty text as rejection reason", async () => {
     const goal = executingGoal("goal-action-reject");
     const currentGoal: Goal = {
