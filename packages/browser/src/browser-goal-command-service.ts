@@ -174,6 +174,7 @@ export type BrowserGoalMessageResult =
             | "goal_not_waiting"
             | "goal_not_completed"
             | "structured_interaction_required"
+            | "model_restore_failed"
             | "message_conflict"
             | "invalid_message"
             | "message_failed";
@@ -310,6 +311,7 @@ export type BrowserGoalInteractionResult =
             | "goal_not_waiting"
             | "stale_request"
             | "action_not_waiting"
+            | "model_restore_failed"
             | "goal_busy"
             | "invalid_interaction"
             | "interaction_failed";
@@ -395,6 +397,8 @@ export interface BrowserGoalCommandDependencies {
     readonly resolveModelSelection?: (modelId: string, current: GoalModelSelection) => Promise<GoalModelSelection | undefined>;
     /** 在安全等待点持久化已验证的模型选择。 */
     readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
+    /** 推进前按 Goal 快照重建当前进程模型绑定。 */
+    readonly restoreModelBinding?: (goal: Goal) => Promise<boolean>;
     /** 浏览器创建使用的进程默认模型选择。 */
     readonly defaultModelSelection?: GoalModelSelection;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
@@ -738,6 +742,12 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: mismatch } };
             }
 
+            if (this.dependencies.restoreModelBinding !== undefined) {
+                let restored = false;
+                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
+                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
+            }
+
             this.activeGoalId = goalId;
             const accepted = this.startInteraction(goalId, command);
             this.inFlightInteractions.set(key, { fingerprint, accepted });
@@ -799,6 +809,12 @@ export class BrowserGoalCommandService {
                 }
             } else if (status !== "completed" && status !== "failed") {
                 return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
+            }
+
+            if (this.dependencies.restoreModelBinding !== undefined) {
+                let restored = false;
+                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
+                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
             }
 
             this.activeGoalId = goalId;

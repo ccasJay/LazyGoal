@@ -6,6 +6,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import { BrowserGoalCommandService } from "../../browser/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import {
     createGoal,
@@ -385,6 +386,159 @@ test("浏览器 Launcher 在首次调用前对齐模型，并在初始保存前�
         assert.equal(await root.workspaceGoalStore.restore("goal-browser-failed"), undefined);
         assert.equal(root.modelBinding.current().selection.modelId, "model-selected");
     } finally {
+        await cleanup();
+    }
+});
+
+test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 Goal 的模型", async () => {
+    const { workspace, cleanup } = await setupTestWorkspace();
+    let closeRoot: (() => Promise<void>) | undefined;
+    try {
+        const adapters: CompleteAdapter[] = [];
+        const root = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory: join(workspace, "lazygoal-data"),
+            adapter: new CompleteAdapter("model-default"),
+            adapterFactory: (selection, stage) => {
+                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+                adapters.push(adapter);
+                return adapter;
+            },
+            profile: { id: "default", systemPrompt: "System prompt", instructions: [], toolIds: [] },
+            toolPolicy: createDefaultToolPolicy(),
+        });
+        closeRoot = () => root.resources.closeAll();
+        const firstSelection: GoalModelSelection = { ...root.defaultModelSelection, modelId: "model-first" };
+        const secondSelection: GoalModelSelection = { ...root.defaultModelSelection, modelId: "model-second" };
+        const first = await root.browserLauncher.launch({
+            goalId: "goal-first", intent: "First goal", profileId: "default", modelSelection: firstSelection,
+        });
+        const second = await root.browserLauncher.launch({
+            goalId: "goal-second", intent: "Second goal", profileId: "default", modelSelection: secondSelection,
+        });
+        assert.equal(first.ok, true);
+        assert.equal(second.ok, true);
+        assert.equal(root.modelBinding.current().selection.modelId, "model-second");
+
+        const commands = new BrowserGoalCommandService({
+            store: root.workspaceGoalStore,
+            saveNotifications: root.notifyingStore,
+            profileId: "default",
+            launcher: root.browserLauncher,
+            coordinator: root.coordinator,
+            restoreModelBinding: async (goal) => {
+                if (goal.state.modelSelection.provider !== root.defaultModelSelection.provider) return false;
+                try { root.alignModelBinding(goal.state.modelSelection); return true; } catch { return false; }
+            },
+        });
+        const firstGoal = await root.workspaceGoalStore.restore("goal-first");
+        const secondGoal = await root.workspaceGoalStore.restore("goal-second");
+        assert.ok(firstGoal && secondGoal);
+        const firstNext = await commands.message(firstGoal.id, {
+            runId: firstGoal.state.run.id, content: "Continue first goal",
+        });
+        assert.equal(firstNext.ok, true);
+        assert.equal(root.modelBinding.current().selection.modelId, "model-first");
+        await waitForCompletedRun(root.workspaceGoalStore, firstGoal.id);
+        assert.ok(adapters.filter((adapter) => adapter.modelId === "model-first").reduce((total, adapter) => total + adapter.calls.length, 0) >= 2, JSON.stringify(adapters.map((adapter) => [adapter.modelId, adapter.calls.length])));
+
+        const secondNext = await commands.message(secondGoal.id, {
+            runId: secondGoal.state.run.id, content: "Continue second goal",
+        });
+        assert.equal(secondNext.ok, true);
+        assert.equal(root.modelBinding.current().selection.modelId, "model-second");
+        await waitForCompletedRun(root.workspaceGoalStore, secondGoal.id);
+        assert.ok(adapters.filter((adapter) => adapter.modelId === "model-second").reduce((total, adapter) => total + adapter.calls.length, 0) >= 2);
+    } finally {
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        await closeRoot?.();
+        await cleanup();
+    }
+});
+
+class CompleteAdapter extends FakeAdapter {
+    override async generate(request: LLMRequest): Promise<LLMResponse> {
+        this.calls.push(request);
+        return { content: JSON.stringify({ result: { kind: "complete", summary: `done by ${this.modelId}`, evidenceSequences: [], memoryPatch: null } }) };
+    }
+}
+
+async function waitForCompletedRun(store: { restore(goalId: string): Promise<import("../../runtime/src/index").Goal | undefined> }, goalId: string): Promise<void> {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        const goal = await store.restore(goalId);
+        if (goal?.state.run.status === "completed" || goal?.state.run.status === "failed") {
+            assert.equal(goal.state.run.status, "completed", JSON.stringify(goal.state.run));
+            return;
+        }
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }
+    assert.fail(`Goal ${goalId} did not complete`);
+}
+
+test("服务重启后首次 Web 推进从 Snapshot 恢复模型而不回退默认模型", async () => {
+    const { workspace, cleanup } = await setupTestWorkspace();
+    let closeRoot: (() => Promise<void>) | undefined;
+    try {
+        const dataDirectory = join(workspace, "restart-data");
+        const profile = { id: "default", systemPrompt: "System prompt", instructions: [], toolIds: [] };
+        const firstAdapters: CompleteAdapter[] = [];
+        const firstRoot = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            adapter: new CompleteAdapter("model-default"),
+            adapterFactory: (selection, stage) => {
+                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+                firstAdapters.push(adapter);
+                return adapter;
+            },
+            profile,
+            toolPolicy: createDefaultToolPolicy(),
+        });
+        closeRoot = () => firstRoot.resources.closeAll();
+        const savedSelection: GoalModelSelection = { ...firstRoot.defaultModelSelection, modelId: "model-saved" };
+        const launched = await firstRoot.browserLauncher.launch({
+            goalId: "goal-after-restart", intent: "Persist selected model", profileId: "default", modelSelection: savedSelection,
+        });
+        assert.equal(launched.ok, true);
+        assert.equal((await firstRoot.workspaceGoalStore.restore("goal-after-restart"))?.state.run.status, "completed");
+        await firstRoot.resources.closeAll();
+        closeRoot = undefined;
+
+        const restoredAdapters: CompleteAdapter[] = [];
+        const restoredRoot = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            adapter: new CompleteAdapter("model-default"),
+            adapterFactory: (selection, stage) => {
+                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+                restoredAdapters.push(adapter);
+                return adapter;
+            },
+            profile,
+            toolPolicy: createDefaultToolPolicy(),
+        });
+        closeRoot = () => restoredRoot.resources.closeAll();
+        assert.equal(restoredRoot.modelBinding.current().selection.modelId, "model-default");
+        const commands = new BrowserGoalCommandService({
+            store: restoredRoot.workspaceGoalStore,
+            saveNotifications: restoredRoot.notifyingStore,
+            profileId: "default",
+            launcher: restoredRoot.browserLauncher,
+            coordinator: restoredRoot.coordinator,
+            restoreModelBinding: async (goal) => {
+                if (goal.state.modelSelection.provider !== restoredRoot.defaultModelSelection.provider) return false;
+                try { restoredRoot.alignModelBinding(goal.state.modelSelection); return true; } catch { return false; }
+            },
+        });
+        const goal = await restoredRoot.workspaceGoalStore.restore("goal-after-restart");
+        assert.ok(goal);
+        const next = await commands.message(goal.id, { runId: goal.state.run.id, content: "Continue after restart" });
+        assert.equal(next.ok, true);
+        assert.equal(restoredRoot.modelBinding.current().selection.modelId, "model-saved");
+        await waitForCompletedRun(restoredRoot.workspaceGoalStore, goal.id);
+        assert.ok(restoredAdapters.some((adapter) => adapter.modelId === "model-saved" && adapter.calls.length > 0));
+    } finally {
+        await closeRoot?.();
         await cleanup();
     }
 });

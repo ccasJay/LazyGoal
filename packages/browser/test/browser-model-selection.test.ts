@@ -79,6 +79,7 @@ const chosen: GoalModelSelection = {
 
 function serviceFor(store: Store, resolve = async (modelId: string, current: GoalModelSelection): Promise<GoalModelSelection | undefined> =>
     modelId === "gpt-new" && current.provider === "openai" ? chosen : undefined,
+    restoreModelBinding?: (goal: Goal) => Promise<boolean>,
 ): BrowserGoalCommandService {
     return new BrowserGoalCommandService({
         store,
@@ -92,6 +93,7 @@ function serviceFor(store: Store, resolve = async (modelId: string, current: Goa
         },
         modelSelectionCoordinator: new DefaultGoalModelSelectionCoordinator({ store }),
         resolveModelSelection: resolve,
+        ...(restoreModelBinding === undefined ? {} : { restoreModelBinding }),
     });
 }
 
@@ -219,4 +221,24 @@ test("终态预选与下一 Run 串行，下一 Run 继承新选择且旧请求�
         ok: false, error: "stale_run",
     });
     assert.equal(store.goal?.state.modelSelection.modelId, "gpt-new");
+});
+
+test("无法重建 Snapshot 模型绑定时不调用 Runtime 推进", async () => {
+    const store = new Store();
+    store.goal = goalFor();
+    const service = serviceFor(store, undefined, async () => false);
+    assert.deepEqual(await service.message("goal-1", { runId: "run-1", content: "Continue" }), {
+        ok: false, error: "model_restore_failed",
+    });
+    assert.equal(store.saves, 0);
+    assert.equal(store.goal.state.modelSelection.modelId, "gpt-old");
+
+    store.goal = goalFor("waiting", {
+        action: { actionId: "action-1", toolId: "bash", input: { command: "pwd" } },
+        status: "awaiting_approval",
+    } as Goal["state"]["run"]["pendingAction"]);
+    assert.deepEqual(await service.interact("goal-1", {
+        kind: "reject_action", runId: "run-1", actionId: "action-1", reason: "Stop",
+    }), { ok: false, error: "model_restore_failed" });
+    assert.equal(store.saves, 0);
 });

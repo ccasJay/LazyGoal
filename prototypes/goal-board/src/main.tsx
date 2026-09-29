@@ -1241,6 +1241,7 @@ function errorMessage(error: unknown): string {
       case "model_catalog_protocol": return "The provider returned an invalid model catalog.";
       case "model_catalog_unavailable": return "The model catalog is unavailable. Retry after the provider connection recovers.";
       case "model_selection_failed": return "The local service could not save this model selection.";
+      case "model_restore_failed": return "The saved model binding could not be restored. This Run was not advanced.";
       case "invalid_model_selection": return "Choose a valid model from this list.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
       case "stale_run":

@@ -49,7 +49,7 @@
   - 验证方式：扩展 `prototypes/goal-board/e2e/board.test.mjs`（待实现），执行 `npm run test:e2e --prefix prototypes/goal-board`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [3.4](./requirements.md#req-3-4), [3.5](./requirements.md#req-3-5), [4.2](./requirements.md#req-4-2), [6.4](./requirements.md#req-6-4)_
 
-- [ ] //TODO 8. 验证每次 Web 推进前的 Goal 模型恢复与隔离
+- [x] //TODO 8. 验证每次 Web 推进前的 Goal 模型恢复与隔离
 
   - 实现目标：在创建、继续和恢复执行前按目标 Goal 对齐 Binding，并验证刷新、重启和多 Goal 交替执行。
   - 成功判据：假 Adapter 记录的实际模型及预算始终与目标 Goal Snapshot 一致；无法重建 Binding 时停止推进，不回退到其他 Goal 或环境默认模型。
@@ -77,4 +77,4 @@
 
 ### Latest Result
 
-未执行。实施后记录逐项结果、证据位置、验证时间、被测代码与需求版本、整体状态及时效。
+2026-09-29：通过。需求与 Design 未变更（Requirements 版本 1）。`npm test` 全量回归通过：类型检查、184 个源文件的依赖边界检查、GEPA adapter、1500 个项目测试和 14 个脚本测试全部通过；`npm run test:e2e --prefix prototypes/goal-board` 构建成功且 2 个浏览器 E2E 测试通过。Task 8 的组合根测试覆盖 Snapshot 模型恢复、多 Goal 交错调用及恢复失败时阻止推进；浏览器服务测试覆盖等待交互和消息推进的恢复失败路径。证据见 [browser-model-selection.test.ts](../../packages/browser/test/browser-model-selection.test.ts)、[composition-root-model-switching.test.ts](../../packages/tui/test/composition-root-model-switching.test.ts) 与 [board.test.mjs](../../prototypes/goal-board/e2e/board.test.mjs)。状态：自动化验收通过；真实本机 UI 的手动走查留待用户在 worktree 中验证。

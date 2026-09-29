@@ -44,6 +44,7 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     message: async () => ({ ok: false, error: "message_failed" }),
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
  *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+ *     selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
  *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
@@ -108,7 +109,7 @@ export interface BrowserGoalApiPort {
      */
     models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
     /** 保存由服务端重新验证的当前 Run 模型选择。 */
-    selectModel?(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
+    selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
     /**
      * 打开精确绑定到最新 Goal/Run 的实时进展流。
      *
@@ -183,7 +184,6 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     });
 
     routes.post("/api/goals/:goalId/model-selection", async (context) => {
-        if (source.selectModel === undefined) return context.json({ error: "model_selection_failed" }, 503);
         const goalId = context.req.param("goalId");
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_model_selection" }, 400);
         const body = await readJsonBody(context.req.raw);
@@ -719,22 +719,24 @@ function isWireId(value: unknown, maximumLength: number): value is string {
 
 function interactionErrorStatus(
     error: Extract<BrowserGoalInteractionResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 {
+): 400 | 404 | 409 | 500 | 503 {
     if (error === "goal_not_found") return 404;
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "stale_request" || error === "action_not_waiting") return 409;
     if (error === "interaction_failed") return 500;
+    if (error === "model_restore_failed") return 503;
     return 400;
 }
 
 function messageErrorStatus(
     error: Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 {
+): 400 | 404 | 409 | 500 | 503 {
     if (error === "goal_not_found") return 404;
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "goal_not_completed" || error === "structured_interaction_required"
         || error === "message_conflict") return 409;
     if (error === "message_failed") return 500;
+    if (error === "model_restore_failed") return 503;
     return 400;
 }
 

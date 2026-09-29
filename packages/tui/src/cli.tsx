@@ -1619,6 +1619,16 @@ async function runBrowserSessionCli(
             coordinator: root.coordinator,
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             defaultModelSelection: root.defaultModelSelection,
+            restoreModelBinding: async (goal) => {
+                const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
+                if (goal.state.modelSelection.provider !== provider) return false;
+                try {
+                    root.alignModelBinding(goal.state.modelSelection);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
             resolveModelSelection: async (modelId, current) => {
                 if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
                     return undefined;
