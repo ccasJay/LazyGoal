@@ -35,7 +35,22 @@ type Assert<Value extends true> = Value;
 
 type _BashInputIsInferred = Assert<Equal<
     InferContract<typeof BASH_INPUT_CONTRACT>,
-    { readonly command: string; readonly timeoutMs?: number }
+    {
+        readonly command: string;
+        readonly timeoutMs?: number;
+        readonly sandboxAccess?: {
+            readonly files?: readonly {
+                readonly path: string;
+                readonly access: "read" | "write";
+                readonly kind: "file" | "directory_tree";
+                readonly purpose: string;
+            }[];
+            readonly network?: {
+                readonly targets: readonly string[];
+                readonly purpose: string;
+            };
+        };
+    }
 >>;
 type _ReadFileInputIsInferred = Assert<Equal<
     InferContract<typeof READ_FILE_INPUT_CONTRACT>,
@@ -106,6 +121,38 @@ const contractCases = [
                     type: "integer",
                     minimum: 1,
                     maximum: BASH_MAX_TIMEOUT_MS,
+                },
+                sandboxAccess: {
+                    type: "object",
+                    properties: {
+                        files: {
+                            type: "array",
+                            items: {
+                                type: "object",
+                                properties: {
+                                    path: { type: "string" },
+                                    access: { enum: ["read", "write"] },
+                                    kind: { enum: ["file", "directory_tree"] },
+                                    purpose: { type: "string" },
+                                },
+                                required: ["path", "access", "kind", "purpose"],
+                                additionalProperties: false,
+                            },
+                        },
+                        network: {
+                            type: "object",
+                            properties: {
+                                targets: {
+                                    type: "array",
+                                    items: { type: "string" },
+                                },
+                                purpose: { type: "string" },
+                            },
+                            required: ["targets", "purpose"],
+                            additionalProperties: false,
+                        },
+                    },
+                    additionalProperties: false,
                 },
             },
             required: ["command"],

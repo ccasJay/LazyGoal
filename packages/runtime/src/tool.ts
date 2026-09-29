@@ -14,6 +14,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
+import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 
 /** Tool 输入 Contract 的 JSON AST 类型边界。 */
 export type ToolInputContract = Contract<JsonValue>;
@@ -80,6 +81,8 @@ export interface ToolExecutionRequest<Input extends JsonValue = JsonValue> {
     readonly actionId: string;
     /** 已通过 Input Contract 与 Tool 语义校验的结构化输入。 */
     readonly input: Input;
+    /** Runner 在执行期提供的受限沙箱执行计划（非持久化）。 */
+    readonly plan?: SandboxExecutionPlan;
 }
 
 /** Tool 输入校验结果。 */

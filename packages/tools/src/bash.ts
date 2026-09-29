@@ -45,6 +45,26 @@ export const BASH_MAX_OUTPUT_CHARS = 10_000;
 /** SIGTERM 发往进程组后等待其自行退出的固定宽限(毫秒),到期升级 SIGKILL。 */
 const BASH_TERMINATION_GRACE_MS = 2_000;
 
+/** 单项文件沙箱访问申请 Contract。 */
+export const SANDBOX_FILE_ACCESS_CONTRACT = contract.object({
+    path: contract.string(),
+    access: contract.enum(["read", "write"] as const),
+    kind: contract.enum(["file", "directory_tree"] as const),
+    purpose: contract.string(),
+});
+
+/** 网络沙箱访问申请 Contract。 */
+export const SANDBOX_NETWORK_ACCESS_CONTRACT = contract.object({
+    targets: contract.array(contract.string()),
+    purpose: contract.string(),
+});
+
+/** 沙箱额外能力申请 Contract。 */
+export const SANDBOX_ACCESS_CONTRACT = contract.object({
+    files: contract.optional(contract.array(SANDBOX_FILE_ACCESS_CONTRACT)),
+    network: contract.optional(SANDBOX_NETWORK_ACCESS_CONTRACT),
+});
+
 /** Bash Tool 的唯一输入 Contract。 */
 export const BASH_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -52,6 +72,7 @@ export const BASH_INPUT_CONTRACT = contract.object({
         minimum: 1,
         maximum: BASH_MAX_TIMEOUT_MS,
     })),
+    sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
 });
 
 type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
@@ -390,6 +411,38 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
             return invalidInput("bash.command 不能包含 NUL 字符");
         }
 
+        if (parsed.sandboxAccess !== undefined) {
+            const { files, network } = parsed.sandboxAccess;
+
+            if (files !== undefined) {
+                for (const file of files) {
+                    if (file.path.trim() === "") {
+                        return invalidInput("sandboxAccess.files.path 不能为空");
+                    }
+                    if (file.path.includes("\0")) {
+                        return invalidInput("sandboxAccess.files.path 不能包含 NUL 字符");
+                    }
+                    if (file.purpose.trim() === "") {
+                        return invalidInput("sandboxAccess.files.purpose 不能为空");
+                    }
+                }
+            }
+
+            if (network !== undefined) {
+                if (network.targets.length === 0) {
+                    return invalidInput("sandboxAccess.network.targets 不能为空列表");
+                }
+                for (const target of network.targets) {
+                    if (target.trim() === "") {
+                        return invalidInput("sandboxAccess.network.targets 包含空目标");
+                    }
+                }
+                if (network.purpose.trim() === "") {
+                    return invalidInput("sandboxAccess.network.purpose 不能为空");
+                }
+            }
+        }
+
         return { ok: true };
     }
 
@@ -450,6 +503,19 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         const stdout = createTailCollector(BASH_MAX_OUTPUT_CHARS);
         const stderr = createTailCollector(BASH_MAX_OUTPUT_CHARS);
 
+        const hasFiles = input.sandboxAccess?.files !== undefined && input.sandboxAccess.files.length > 0;
+        const hasNetwork = input.sandboxAccess?.network !== undefined && input.sandboxAccess.network.targets.length > 0;
+        const requiresExtraAccess = hasFiles || hasNetwork;
+
+        if (requiresExtraAccess && request.plan === undefined) {
+            return {
+                kind: "failure",
+                code: "SANDBOX_APPROVAL_REQUIRED",
+                message: "命令申请了额外的沙箱文件或网络能力，须经 Permission 核准后方可执行",
+                retryable: false,
+            };
+        }
+
         let privateTmpDir: string | undefined;
         let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
 
@@ -465,10 +531,22 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
             privateTmpDir = await createPrivateTmpDir();
             const protectedPaths = await resolveGitProtectionPaths(resolvedRoot);
+
+            const extraReadPaths = request.plan?.scope.extraFiles
+                .filter((f) => f.access === "read" || f.access === "write")
+                .map((f) => f.canonicalPath);
+            const extraWritePaths = request.plan?.scope.extraFiles
+                .filter((f) => f.access === "write")
+                .map((f) => f.canonicalPath);
+            const network = request.plan?.scope.network ?? "none";
+
             const policy = buildSeatbeltPolicy({
                 canonicalWorkspaceRoot: resolvedRoot,
                 privateTmpDir,
                 protectedPaths,
+                ...(extraReadPaths !== undefined ? { extraReadPaths } : {}),
+                ...(extraWritePaths !== undefined ? { extraWritePaths } : {}),
+                network,
             });
             const env = filterSandboxEnvironment({
                 workspaceRoot: resolvedRoot,

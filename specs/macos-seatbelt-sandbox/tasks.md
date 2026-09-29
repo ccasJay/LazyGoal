@@ -16,7 +16,7 @@
   - 验证方式：待实现的 `packages/sandbox/test/macos-seatbelt-default.test.ts` 与 `packages/tools/test/bash-sandbox-default.test.ts`，在真实 macOS 启动子进程；现有 Tool Policy／Bash 回归。
   - _Requirements: [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [2.1](./requirements.md#req-2-1), [2.2](./requirements.md#req-2-2), [2.3](./requirements.md#req-2-3), [2.4](./requirements.md#req-2-4), [3.1](./requirements.md#req-3-1), [5.1](./requirements.md#req-5-1), [5.2](./requirements.md#req-5-2), [6.1](./requirements.md#req-6-1)_
 
-- [ ] //TODO 3. 将额外文件与网络申请变为可强制的本次执行范围
+- [x] //TODO 3. 将额外文件与网络申请变为可强制的本次执行范围
 
   - 实现目标：扩展 Bash 输入与实际能力解析，为经核准的文件、目录子树、受保护元数据和 `all_outbound` 生成受限策略；向 Permission 提供规范化范围，Sandbox 本身不判断 Grant。
   - 成功判据：模型的目标和用途文本不产生权限；未获核准的计划拒绝启动，核准后只允许实际路径、读写方向及任意目标出站范围，回环随出站开放而入站不开放；不能把域名说明当作隔离规则。

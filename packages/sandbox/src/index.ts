@@ -22,3 +22,13 @@ export {
     SANDBOX_EXEC_PATH,
     type SeatbeltPolicyOptions,
 } from "./macos-seatbelt";
+
+export {
+    resolveEffectiveSandboxScope,
+    type EffectiveExtraFile,
+    type EffectiveSandboxScope,
+    type SandboxAccessRequest,
+    type SandboxExecutionPlan,
+    type SandboxFileAccessRequest,
+    type SandboxNetworkAccessRequest,
+} from "./capability";

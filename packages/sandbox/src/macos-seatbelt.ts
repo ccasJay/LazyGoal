@@ -155,7 +155,8 @@ export function buildSeatbeltPolicy(options: SeatbeltPolicyOptions): string {
         .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
         .join("\n");
 
-    const extraReadClauses = extraReadPaths
+    const allReadPaths = Array.from(new Set([...extraReadPaths, ...extraWritePaths]));
+    const extraReadClauses = allReadPaths
         .flatMap(expandPathVariants)
         .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
         .join("\n");
