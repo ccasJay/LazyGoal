@@ -20,6 +20,15 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import { invalidInput } from "./internal/invalid-input";
+import {
+    buildSeatbeltPolicy,
+    cleanupPrivateTmpDir,
+    createPrivateTmpDir,
+    filterSandboxEnvironment,
+    isSeatbeltSupported,
+    resolveGitProtectionPaths,
+    SANDBOX_EXEC_PATH,
+} from "../../sandbox/src/index";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -198,15 +207,30 @@ function runShellCommand(
         readonly stdout: TailCollector;
         readonly stderr: TailCollector;
         readonly onOutput?: (channel: "stdout" | "stderr", text: string) => void;
+        readonly sandbox?: {
+            readonly policy: string;
+            readonly env: NodeJS.ProcessEnv;
+        };
     },
 ): Promise<CommandOutcome> {
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, {
-            cwd: options.cwd,
-            shell: process.platform === "win32" ? true : "/bin/bash",
-            stdio: ["ignore", "pipe", "pipe"],
-            detached: process.platform !== "win32",
-        });
+        const child = options.sandbox !== undefined
+            ? spawn(
+                SANDBOX_EXEC_PATH,
+                ["-p", options.sandbox.policy, "/bin/bash", "-c", command],
+                {
+                    cwd: options.cwd,
+                    env: options.sandbox.env,
+                    stdio: ["ignore", "pipe", "pipe"],
+                    detached: true,
+                },
+            )
+            : spawn(command, {
+                cwd: options.cwd,
+                shell: process.platform === "win32" ? true : "/bin/bash",
+                stdio: ["ignore", "pipe", "pipe"],
+                detached: process.platform !== "win32",
+            });
         let settled = false;
         let timedOut = false;
         let terminationStarted = false;
@@ -425,16 +449,61 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
         const stdout = createTailCollector(BASH_MAX_OUTPUT_CHARS);
         const stderr = createTailCollector(BASH_MAX_OUTPUT_CHARS);
-        const outcome = await runShellCommand(input.command, {
-            cwd: resolvedRoot,
-            timeoutMs,
-            ...(control?.signal === undefined
-                ? {}
-                : { signal: control.signal }),
-            stdout,
-            stderr,
-            ...(onOutput === undefined ? {} : { onOutput }),
-        });
+
+        let privateTmpDir: string | undefined;
+        let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
+
+        if (process.platform === "darwin") {
+            if (!isSeatbeltSupported()) {
+                return {
+                    kind: "failure",
+                    code: "SANDBOX_UNAVAILABLE",
+                    message: "macOS Seatbelt 沙箱不可用，拒绝无沙箱执行",
+                    retryable: false,
+                };
+            }
+
+            privateTmpDir = await createPrivateTmpDir();
+            const protectedPaths = await resolveGitProtectionPaths(resolvedRoot);
+            const policy = buildSeatbeltPolicy({
+                canonicalWorkspaceRoot: resolvedRoot,
+                privateTmpDir,
+                protectedPaths,
+            });
+            const env = filterSandboxEnvironment({
+                workspaceRoot: resolvedRoot,
+                privateTmpDir,
+            });
+
+            sandboxRunOptions = { policy, env };
+        }
+
+        let outcome: CommandOutcome;
+        try {
+            outcome = await runShellCommand(input.command, {
+                cwd: resolvedRoot,
+                timeoutMs,
+                ...(control?.signal === undefined
+                    ? {}
+                    : { signal: control.signal }),
+                stdout,
+                stderr,
+                ...(onOutput === undefined ? {} : { onOutput }),
+                ...(sandboxRunOptions === undefined ? {} : { sandbox: sandboxRunOptions }),
+            });
+        } catch (error) {
+            throwIfAborted(control);
+            return {
+                kind: "failure",
+                code: "SANDBOX_FAILURE",
+                message: `命令启动故障: ${(error as Error).message}`,
+                retryable: false,
+            };
+        } finally {
+            if (privateTmpDir !== undefined) {
+                await cleanupPrivateTmpDir(privateTmpDir);
+            }
+        }
 
         throwIfAborted(control);
 

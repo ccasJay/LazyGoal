@@ -9,7 +9,7 @@
   - 验证方式：待实现的 `packages/sandbox/test/workspace-sandbox.test.ts`；现有文件 Tool 测试；`npm run check:dependencies`。
   - _Requirements: [1.1](./requirements.md#req-1-1), [2.2](./requirements.md#req-2-2)_
 
-- [ ] //TODO 2. 让默认 Bash 在 macOS Seatbelt 中安全执行
+- [x] //TODO 2. 让默认 Bash 在 macOS Seatbelt 中安全执行
 
   - 实现目标：完成默认拒绝策略、固定 `sandbox-exec` 启动、私有临时目录、凭据筛选与 macOS 默认 Bash Tool 策略接入。
   - 成功判据：符合 Profile 的默认 Bash 自动执行并仅访问项目普通文件与必要运行文件；项目外文件、Git 元数据写入、回环和外网被实际阻止，子进程同样受限；策略或启动失败不回退普通 shell。

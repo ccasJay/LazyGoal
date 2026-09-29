@@ -11,3 +11,14 @@ export {
     type ValidateRelativePathOptions,
     type WorkspaceSandbox,
 } from "./workspace-sandbox";
+
+export {
+    buildSeatbeltPolicy,
+    cleanupPrivateTmpDir,
+    createPrivateTmpDir,
+    filterSandboxEnvironment,
+    isSeatbeltSupported,
+    resolveGitProtectionPaths,
+    SANDBOX_EXEC_PATH,
+    type SeatbeltPolicyOptions,
+} from "./macos-seatbelt";
