@@ -5,17 +5,20 @@ export type {
     PermissionMode,
     PermissionScope,
     ProjectPermissionMode,
-    ToolAuthorizationContext,
-    ToolAuthorizationDecision,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
     ToolGrantScope,
     ToolGrantStore,
-} from "../../permission/src/index";
+} from "./types";
 
 export {
     createToolGrantMatcher,
-    evaluateToolAuthorization,
     toolGrantMatchersEqual,
-} from "../../permission/src/index";
+} from "./tool-grant-matcher";
+
+export {
+    evaluateToolAuthorization,
+    type ToolAuthorizationContext,
+    type ToolAuthorizationDecision,
+} from "./tool-authorization";

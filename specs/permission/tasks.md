@@ -2,7 +2,7 @@
 
 执行依赖：涉及 Sandbox 能力的任务须在 [macOS Seatbelt Sandbox Spec](../macos-seatbelt-sandbox/tasks.md) 完成重叠职责修订并重新获批后执行；其受限命令与实际能力契约是本计划的前置输入。此处不重复实施 Seatbelt 策略。
 
-- [ ] //TODO 1. 建立独立 Permission package 并迁入现有 Tool 授权判断
+- [x] //TODO 1. 建立独立 Permission package 并迁入现有 Tool 授权判断
 
   - 实现目标：创建 `@lazygoal/permission` 的 Tool matcher、Grant 契约和判定入口，接入 Runtime／Storage，保留现有 Tool Grant 文件格式与默认审批行为。
   - 成功判据：Default 下只读 Tool 自动执行、其他 Tool 按现有操作范围审批；已有 Tool Grant 仍可匹配，YOLO 不生成持续授权；Profile、输入或策略拒绝不能借授权放行，损坏账本不能回退放行。

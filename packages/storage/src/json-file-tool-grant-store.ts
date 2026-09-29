@@ -3,7 +3,7 @@ import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 
-import type { ToolGrant, ToolGrantStore } from "../../runtime/src/index";
+import type { ToolGrant, ToolGrantStore } from "../../permission/src/index";
 
 const MatcherSchema = z.discriminatedUnion("kind", [
     z.object({

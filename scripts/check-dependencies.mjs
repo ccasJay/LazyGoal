@@ -19,14 +19,15 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "slash-command": [],
     acp: [],
     sandbox: [],
-    runtime: ["contracts", "execution-stream", "sandbox"],
+    permission: ["contracts", "sandbox"],
+    runtime: ["contracts", "execution-stream", "sandbox", "permission"],
     llm: ["runtime", "contracts", "execution-stream"],
-    storage: ["runtime", "contracts"],
+    storage: ["runtime", "contracts", "permission"],
     agent: ["runtime", "llm", "contracts", "execution-stream"],
     "session-metrics": ["runtime", "http"],
     tools: ["runtime", "contracts", "execution-stream", "sandbox"],
-    browser: ["http", "runtime"],
-    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser"],
+    browser: ["http", "runtime", "permission"],
+    tui: ["runtime", "storage", "agent", "llm", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

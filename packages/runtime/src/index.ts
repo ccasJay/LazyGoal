@@ -439,8 +439,16 @@ export type {
     ToolRegistry,
     ToolValidationResult,
 } from "./tool";
-export { createToolGrantMatcher, toolGrantMatchersEqual } from "./tool-grant";
+export {
+    createToolGrantMatcher,
+    evaluateToolAuthorization,
+    toolGrantMatchersEqual,
+} from "./tool-grant";
 export type {
+    PermissionMode,
+    PermissionScope,
+    ToolAuthorizationContext,
+    ToolAuthorizationDecision,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
