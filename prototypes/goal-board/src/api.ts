@@ -8,6 +8,8 @@ import type {
   BrowserActionDetailsResult,
   BrowserToolGrantResult,
   BrowserToolGrantRevokeCommand,
+  BrowserModelCatalog,
+  BrowserModelSelectionCommand,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
 
@@ -43,6 +45,16 @@ export const browserApi = {
 
   createGoal(command: BrowserCreateGoalCommand): Promise<AcceptedCommand> {
     return postJson("/api/goals", command, isAcceptedCommand);
+  },
+
+  listModels(target?: { goalId: string; runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
+    const path = target === undefined ? "/api/models"
+      : `/api/goals/${encodeURIComponent(target.goalId)}/models?runId=${encodeURIComponent(target.runId)}`;
+    return requestJson(path, isModelCatalog, signal);
+  },
+
+  selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string }> {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, isModelSelectionAccepted);
   },
 
   interact(
@@ -207,6 +219,28 @@ async function responseError(response: Response): Promise<BrowserApiError> {
 
 function isGoalList(value: unknown): value is { readonly goals: readonly BrowserGoalListItem[] } {
   return isRecord(value) && Array.isArray(value.goals) && value.goals.every(isGoalListItem);
+}
+
+function isModelCatalog(value: unknown): value is BrowserModelCatalog {
+  return isRecord(value)
+    && isNonEmptyString(value.provider)
+    && isNonEmptyString(value.currentModelId)
+    && Array.isArray(value.models)
+    && value.models.every((model) => isRecord(model)
+      && isNonEmptyString(model.id)
+      && isNonEmptyString(model.displayName)
+      && ["live", "catalog", "configured"].includes(String(model.availabilitySource))
+      && ["live", "catalog", "configured", "mixed"].includes(String(model.metadataSource))
+      && typeof model.selectable === "boolean"
+      && (model.contextWindowTokens === undefined || (Number.isSafeInteger(model.contextWindowTokens) && Number(model.contextWindowTokens) > 0))
+      && (model.maxOutputTokens === undefined || (Number.isSafeInteger(model.maxOutputTokens) && Number(model.maxOutputTokens) > 0))
+      && (model.reasoning === undefined || typeof model.reasoning === "boolean")
+      && (model.vision === undefined || typeof model.vision === "boolean")
+      && (model.unavailableReason === undefined || typeof model.unavailableReason === "string"));
+}
+
+function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
+  return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId);
 }
 
 function isGoalListItem(value: unknown): value is BrowserGoalListItem {

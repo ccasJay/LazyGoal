@@ -28,8 +28,10 @@ import type {
   BrowserGoalSession,
   BrowserSessionMessage,
   BrowserToolGrantSummary,
+  BrowserModelCatalog,
+  BrowserModelOption,
 } from "../../../packages/browser/src/index";
-import { createSlashCommandRegistry, planCommandDefinition } from "../../../packages/slash-command/src/index";
+import { createSlashCommandRegistry, modelCommandDefinition, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
 import { BrowserApiError, browserApi } from "./api";
 import { GoalDetails, runStatusLabel, WaitingInteraction } from "./panels";
@@ -49,6 +51,9 @@ const statuses: readonly GoalStatus[] = [
 
 const slashCommands = createSlashCommandRegistry<ModelCommandEffect>();
 slashCommands.register(planCommandDefinition);
+slashCommands.register(modelCommandDefinition);
+
+type ModelPickerTarget = { readonly kind: "draft" } | { readonly kind: "goal"; readonly goalId: string; readonly runId: string };
 
 function statusFromRun(status: BrowserGoalListItem["runStatus"]): GoalStatus {
   switch (status) {
@@ -92,6 +97,8 @@ function App() {
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
+  const [draftModelId, setDraftModelId] = useState<string | null>(null);
+  const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget | null>(null);
   const draftGoalId = useRef<string | null>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const latestSession = useRef<BrowserGoalSession | null>(null);
@@ -106,6 +113,12 @@ function App() {
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
     && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed");
+
+  useEffect(() => {
+    if (modelPickerTarget?.kind === "goal" && session !== null && (
+      session.goalId !== modelPickerTarget.goalId || session.currentRunId !== modelPickerTarget.runId
+    )) setModelPickerTarget(null);
+  }, [session?.goalId, session?.currentRunId, modelPickerTarget]);
 
   function renderMessages(messages: readonly BrowserSessionMessage[]) {
     return messages.map((message, index) => (
@@ -331,6 +344,7 @@ function App() {
   }
 
   function toggleGoalSelection(goalId: string) {
+    setModelPickerTarget(null);
     setDraftSessionOpen(false);
     setSelectedGoalId((current) => current === goalId ? null : goalId);
     setExpanded(false);
@@ -338,7 +352,9 @@ function App() {
   }
 
   function openNewGoalDraft() {
+    setModelPickerTarget(null);
     draftGoalId.current = null;
+    setDraftModelId(null);
     setSelectedGoalId(null);
     setDraftPlanMode(false);
     setDraftSessionOpen(true);
@@ -348,6 +364,7 @@ function App() {
   }
 
   function closeSession() {
+    setModelPickerTarget(null);
     setSelectedGoalId(null);
     setDraftSessionOpen(false);
     setExpanded(false);
@@ -364,6 +381,11 @@ function App() {
       setCommandError(null);
       return true;
     }
+    if (dispatched.kind === "model") {
+      setModelPickerTarget({ kind: "draft" });
+      setCommandError(null);
+      return true;
+    }
     const intent = dispatched.content.trim();
     if (!intent || commandBusy) return false;
     setCommandBusy(true);
@@ -375,6 +397,7 @@ function App() {
         goalId,
         intent,
         ...(draftPlanMode ? { mode: "plan" as const } : {}),
+        ...(draftModelId === null ? {} : { modelId: draftModelId }),
       });
       setDraftSessionOpen(false);
       setSelectedGoalId(result.goalId);
@@ -393,6 +416,12 @@ function App() {
     if (dispatched.kind === "error") {
       setCommandError(dispatched.message);
       return false;
+    }
+    if (dispatched.kind === "model") {
+      if (!session || commandBusy || !["waiting", "completed", "failed"].includes(session.runStatus) || session.pendingAction !== undefined) return false;
+      setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId });
+      setCommandError(null);
+      return true;
     }
     if (dispatched.kind === "plan") {
       if (!session || commandBusy) return false;
@@ -442,6 +471,22 @@ function App() {
       if (error instanceof BrowserApiError && error.refresh) await refreshSelectedSession();
     } finally {
       setCommandBusy(false);
+    }
+  }
+
+  async function chooseModel(target: ModelPickerTarget, modelId: string): Promise<void> {
+    if (target.kind === "draft") {
+      setDraftModelId(modelId);
+      return;
+    }
+    try {
+      await browserApi.selectModel(target.goalId, { runId: target.runId, modelId });
+      if (latestSession.current?.goalId === target.goalId) await refreshSelectedSession();
+    } catch (error) {
+      if (error instanceof BrowserApiError && error.refresh && latestSession.current?.goalId === target.goalId) {
+        await refreshSelectedSession();
+      }
+      throw error;
     }
   }
 
@@ -696,7 +741,7 @@ function App() {
                     </div>
                     <div className="timeline draft-timeline">
                       <div className="timeline-date"><span />No saved messages<span /></div>
-                      <p>Send your first message to create a Goal and start the session. Use <code>/plan</code> to begin in Plan Mode.</p>
+                      <p>Send your first message to create a Goal and start the session. Use <code>/plan</code> for Plan Mode or <code>/model</code> to choose a model.</p>
                     </div>
                     {commandError && (
                       <div className="command-error" role="alert">
@@ -705,6 +750,9 @@ function App() {
                       </div>
                     )}
                     <div className="composer-area">
+                      <button className="model-shortcut" type="button" disabled={commandBusy} onClick={() => setModelPickerTarget({ kind: "draft" })}>
+                        Model{draftModelId === null ? "" : ` · ${draftModelId}`}
+                      </button>
                       <MessageComposer
                         key="new-goal-draft"
                         autoFocus
@@ -873,6 +921,11 @@ function App() {
                       </div>
                     )}
                     <div className="composer-area">
+                      {(session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed") && session.pendingAction === undefined && (
+                        <button className="model-shortcut" type="button" disabled={commandBusy} onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}>
+                          Choose model
+                        </button>
+                      )}
                       {session.runStatus === "waiting" && (
                         session.pendingInteraction !== undefined || session.pendingAction !== undefined
                           ? <WaitingInteraction session={session} busy={commandBusy} onSubmit={(command) => void submitInteraction(command)} />
@@ -907,6 +960,16 @@ function App() {
           )}
         </div>
       </main>
+      {modelPickerTarget !== null && (
+        <ModelPicker
+          key={modelPickerTarget.kind === "draft" ? "draft" : `${modelPickerTarget.goalId}:${modelPickerTarget.runId}`}
+          target={modelPickerTarget}
+          selectedId={modelPickerTarget.kind === "draft" ? draftModelId : null}
+          onSelect={(modelId) => chooseModel(modelPickerTarget, modelId)}
+          onClose={() => setModelPickerTarget(null)}
+          onDone={() => setModelPickerTarget((current) => current === modelPickerTarget ? null : current)}
+        />
+      )}
     </div>
   );
 }
@@ -956,6 +1019,81 @@ function GoalRow({
       <span className={`status-pill ${statusClass(status)}`}><span className="status-dot" />{status}</span>
       <time dateTime={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
     </button>
+  );
+}
+
+function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
+  target: ModelPickerTarget;
+  selectedId: string | null;
+  onSelect: (modelId: string) => Promise<void>;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [catalog, setCatalog] = useState<BrowserModelCatalog | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    const controller = new AbortController();
+    const goalTarget = target.kind === "goal" ? { goalId: target.goalId, runId: target.runId } : undefined;
+    void browserApi.listModels(goalTarget, controller.signal).then((result) => {
+      if (!controller.signal.aborted && mounted.current) setCatalog(result);
+    }).catch((failure: unknown) => {
+      if (!controller.signal.aborted && mounted.current) setError(errorMessage(failure));
+    });
+    return () => {
+      mounted.current = false;
+      controller.abort();
+    };
+  }, [target.kind, target.kind === "goal" ? target.goalId : undefined, target.kind === "goal" ? target.runId : undefined]);
+
+  async function pick(model: BrowserModelOption) {
+    if (!model.selectable || busyId !== null) return;
+    setBusyId(model.id);
+    setError(null);
+    try {
+      await onSelect(model.id);
+      if (mounted.current) onDone();
+    } catch (failure) {
+      if (mounted.current) setError(errorMessage(failure));
+    } finally {
+      if (mounted.current) setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="model-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="model-picker" role="dialog" aria-modal="true" aria-label="Choose model" onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
+        <div className="model-picker-head">
+          <div><h2>Choose model</h2><p>Models available from the current provider</p></div>
+          <button className="icon" type="button" aria-label="Close model picker" onClick={onClose}><X size={17} /></button>
+        </div>
+        {catalog !== null && <p className="model-provider">Provider · {catalog.provider}</p>}
+        {catalog === null && error === null && <p className="model-loading"><span className="loading-mark small" /> Loading models…</p>}
+        {error !== null && <p className="model-error" role="alert">{error}</p>}
+        {catalog !== null && (
+          <div className="model-list" role="list">
+            {catalog.models.map((model) => {
+              const current = (selectedId ?? catalog.currentModelId) === model.id;
+              return (
+                <button key={model.id} type="button" role="listitem" className={`model-option ${current ? "current" : ""}`} disabled={!model.selectable || busyId !== null} onClick={() => void pick(model)}>
+                  <span className="model-option-main"><strong>{model.displayName}</strong><code>{model.id}</code></span>
+                  <span className="model-option-meta">
+                    {current && <span className="model-current"><Check size={12} /> Current</span>}
+                    <span>{model.availabilitySource === "live" ? "Live" : model.availabilitySource === "catalog" ? "Catalog fallback" : "Configured"}</span>
+                    {model.contextWindowTokens !== undefined && <span>{Math.round(model.contextWindowTokens / 1000)}k context</span>}
+                    {!model.selectable && <span className="model-unavailable">{model.unavailableReason ?? "Unavailable"}</span>}
+                  </span>
+                </button>
+              );
+            })}
+            {catalog.models.length === 0 && <p className="model-empty">No selectable models were found for this provider.</p>}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -1058,6 +1196,7 @@ function MessageComposer({
 type BrowserInputDispatch =
   | { readonly kind: "text"; readonly content: string }
   | { readonly kind: "plan" }
+  | { readonly kind: "model" }
   | { readonly kind: "error"; readonly message: string };
 
 async function dispatchBrowserInput(input: string): Promise<BrowserInputDispatch> {
@@ -1070,9 +1209,7 @@ async function dispatchBrowserInput(input: string): Promise<BrowserInputDispatch
     case "rejected":
       return { kind: "error", message: result.message };
     case "executed":
-      return result.effect.kind === "enter_plan_mode"
-        ? { kind: "plan" }
-        : { kind: "error", message: "This command is not available in the browser session." };
+      return result.effect.kind === "enter_plan_mode" ? { kind: "plan" } : { kind: "model" };
   }
 }
 
@@ -1097,6 +1234,14 @@ function errorMessage(error: unknown): string {
       case "goal_busy": return "Another Goal is still active. Wait for it to stop at a waiting point.";
       case "plan_mode_busy": return "Plan Mode can only be selected before this Run starts or after it completes or fails.";
       case "plan_mode_failed": return "The local service could not save the Plan Mode selection.";
+      case "model_not_selectable": return "This model is unavailable. Choose another model from the current provider.";
+      case "model_switch_not_allowed": return "This Run cannot change models at its current step.";
+      case "model_catalog_authentication": return "Model catalog authentication failed. Check the provider credentials.";
+      case "model_catalog_permission": return "The provider denied access to its model catalog.";
+      case "model_catalog_protocol": return "The provider returned an invalid model catalog.";
+      case "model_catalog_unavailable": return "The model catalog is unavailable. Retry after the provider connection recovers.";
+      case "model_selection_failed": return "The local service could not save this model selection.";
+      case "invalid_model_selection": return "Choose a valid model from this list.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
       case "stale_run":
       case "stale_request":

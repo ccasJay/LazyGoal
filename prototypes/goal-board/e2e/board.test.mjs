@@ -71,10 +71,23 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.model-shortcut') !== null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Unavailable Model')).disabled"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-picker') === null");
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').click()",
       returnByValue: true,
     });
+    mock.rejectNextModelSelection();
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-error')?.textContent.includes('could not save')");
+    assert.equal(await value(socket, "[...document.querySelectorAll('label.answer-option')].find(label => label.innerText.includes('Approved notes')).querySelector('input').checked"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('button')].find(button => button.textContent.includes('Submit answer')).click()",
       returnByValue: true,
@@ -192,6 +205,23 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     await waitForLocal(() => mock.planModeRequests === 2);
     await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/mod");
+    await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/model')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
+    await waitForLocal(() => mock.lastModelSelection?.modelId === "model-selected");
+    await waitForExpression(socket, "document.querySelector('.model-picker') === null");
+    assert.equal(mock.lastMessage, undefined, "model command does not submit a Goal message");
+    mock.delayNextModelCatalog();
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-picker') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    await delay(250);
+    assert.equal(await value(socket, "document.querySelector('.model-picker')?.innerText.includes('Stale Model')"), false);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Try again with the saved history");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
@@ -209,6 +239,17 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastMessage?.content === "/plan");
     assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.board-title .primary').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/model");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-option') !== null");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.model-picker') === null");
+    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Inspect the current workspace");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForLocal(() => mock.lastCreate?.modelId === "model-selected");
+    assert.equal(mock.lastCreate.intent, "Inspect the current workspace");
     assert.ok(mock.authorizationHeaders.every((header) => header === `Bearer ${token}`));
   } finally {
     socket?.close();
@@ -230,6 +271,11 @@ function createMockApi() {
   let lastInteraction;
   let lastMessage;
   let lastPlanMode;
+  let lastModelSelection;
+  let lastCreate;
+  let selectedModelId = "model-default";
+  let rejectNextSelection = false;
+  let delayNextCatalog = false;
   let planModeRequests = 0;
   const authorizationHeaders = [];
   let authorizedRequestCount = 0;
@@ -245,8 +291,56 @@ function createMockApi() {
       json(response, { goals: [currentListItem] });
       return;
     }
+    if (request.url === "/api/models" && request.method === "GET") {
+      json(response, { provider: "openai", currentModelId: "model-default", models: [
+        { id: "model-default", displayName: "Default Model", availabilitySource: "live", metadataSource: "catalog", selectable: true },
+        { id: "model-selected", displayName: "Selected Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: true },
+      ] });
+      return;
+    }
+    if (request.url === "/api/goals" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      lastCreate = JSON.parse(body);
+      json(response, { goalId: lastCreate.goalId, runId: "new-run", existing: false });
+      return;
+    }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
       json(response, { goal: session });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/models?runId=run-1" && request.method === "GET") {
+      if (delayNextCatalog) {
+        delayNextCatalog = false;
+        await delay(180);
+        json(response, { provider: "openai", currentModelId: "stale", models: [
+          { id: "stale", displayName: "Stale Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: true },
+        ] });
+        return;
+      }
+      json(response, {
+        provider: "openai",
+        currentModelId: selectedModelId,
+        models: [
+          { id: "model-default", displayName: "Default Model", availabilitySource: "live", metadataSource: "catalog", selectable: true },
+          { id: "model-selected", displayName: "Selected Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: true },
+          { id: "model-disabled", displayName: "Unavailable Model", availabilitySource: "catalog", metadataSource: "catalog", selectable: false, unavailableReason: "Unsupported output mode" },
+        ],
+      });
+      return;
+    }
+    if (request.url === "/api/goals/goal-1/model-selection" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      lastModelSelection = JSON.parse(body);
+      if (rejectNextSelection) {
+        rejectNextSelection = false;
+        response.writeHead(503, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "model_selection_failed" }));
+        return;
+      }
+      selectedModelId = lastModelSelection.modelId;
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", modelId: selectedModelId });
       return;
     }
     if (request.url === "/api/goals/goal-1/plan-mode" && request.method === "POST") {
@@ -329,8 +423,12 @@ function createMockApi() {
     get lastInteraction() { return lastInteraction; },
     get lastMessage() { return lastMessage; },
     get lastPlanMode() { return lastPlanMode; },
+    get lastModelSelection() { return lastModelSelection; },
+    get lastCreate() { return lastCreate; },
     get planModeRequests() { return planModeRequests; },
     authorizedRequests: () => authorizedRequestCount,
+    rejectNextModelSelection() { rejectNextSelection = true; },
+    delayNextModelCatalog() { delayNextCatalog = true; },
     resetToWaiting() {
       session = interactionSession();
       currentListItem = listItem("waiting");
