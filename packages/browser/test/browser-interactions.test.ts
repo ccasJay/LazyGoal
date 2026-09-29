@@ -11,6 +11,7 @@ import {
     BrowserGoalCommandService,
     type BrowserGoalInteractionCommand,
     type BrowserGoalSaveNotifications,
+    createBrowserGoalRoutes,
 } from "../src/index";
 
 const protocols = {
@@ -273,4 +274,142 @@ test("过期 Run 或请求身份在 Coordinator 调用前被拒绝", async () =>
     });
     assert.deepEqual(await store.restore(goal.id), goal);
     assert.equal(coordinatorCalls, 0);
+});
+
+test("完整 Action 详情只对当前等待中的 Goal/Run/Action 身份开放", async () => {
+    const goal = goalAtWaitPoint("goal-action-details-1", "action_approval");
+    const fullInput = { path: "a.txt", content: "private complete content", metadata: { mode: 0o600 } };
+    const waitingGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                pendingAction: {
+                    action: { actionId: "action-1", toolId: "write_file", input: fullInput },
+                    status: "awaiting_approval",
+                },
+            },
+        },
+    };
+    const store = new NotifyingMemoryStore();
+    await store.save(waitingGoal);
+    const service = new BrowserGoalCommandService({
+        store,
+        saveNotifications: store,
+        profileId: "default",
+        launcher: { async launch() { throw new Error("Launcher is not used here"); } },
+        coordinator: {
+            async resume() { throw new Error("resume is not used here"); },
+            async continue() { throw new Error("continue is not used here"); },
+            async enterPlanMode() { throw new Error("plan mode is not used here"); },
+        },
+    });
+
+    assert.deepEqual(await service.readActionDetails(
+        waitingGoal.id,
+        waitingGoal.state.run.id,
+        "action-1",
+    ), {
+        ok: true,
+        goalId: waitingGoal.id,
+        runId: waitingGoal.state.run.id,
+        actionId: "action-1",
+        toolId: "write_file",
+        input: fullInput,
+    });
+    assert.deepEqual(await service.readActionDetails(waitingGoal.id, "stale-run", "action-1"), {
+        ok: false,
+        error: "stale_run",
+    });
+    assert.deepEqual(await service.readActionDetails(waitingGoal.id, waitingGoal.state.run.id, "stale-action"), {
+        ok: false,
+        error: "action_not_waiting",
+    });
+
+    await store.save({
+        ...waitingGoal,
+        state: { ...waitingGoal.state, run: { ...waitingGoal.state.run, status: "running" } },
+    });
+    assert.deepEqual(await service.readActionDetails(waitingGoal.id, waitingGoal.state.run.id, "action-1"), {
+        ok: false,
+        error: "action_not_waiting",
+    });
+});
+
+test("浏览器审批路由传递授权范围并拒绝未知范围", async () => {
+    const interactions: BrowserGoalInteractionCommand[] = [];
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
+        async interact(_goalId, command) {
+            interactions.push(command);
+            return { ok: true as const, goalId: "goal-1", runId: command.runId, existing: false };
+        },
+        async message() { return { ok: false as const, error: "message_failed" as const }; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
+    });
+    const approve = (scope: string) => routes.request("http://localhost/api/goals/goal-1/interactions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "approve_action", runId: "run-1", actionId: "action-1", scope }),
+    });
+
+    assert.equal((await approve("workspace")).status, 202);
+    assert.deepEqual(interactions, [{
+        kind: "approve_action",
+        runId: "run-1",
+        actionId: "action-1",
+        scope: "workspace",
+    }]);
+    assert.equal((await approve("unbounded")).status, 400);
+    assert.equal(interactions.length, 1);
+});
+
+test("Action 详情路由验证身份参数并只返回服务端授权读取结果", async () => {
+    const requests: string[] = [];
+    const routes = createBrowserGoalRoutes({
+        async list() { return []; },
+        async read() { return undefined; },
+        async create() { return { ok: false as const, error: "goal_create_failed" as const }; },
+        async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
+        async message() { return { ok: false as const, error: "message_failed" as const }; },
+        async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
+        async openStream() { return { ok: false as const, error: "goal_not_found" as const }; },
+        async readActionDetails(goalId, runId, actionId) {
+            requests.push(`${goalId}:${runId}:${actionId}`);
+            return runId === "run-old"
+                ? { ok: false as const, error: "stale_run" as const }
+                : {
+                    ok: true as const,
+                    goalId,
+                    runId,
+                    actionId,
+                    toolId: "write_file",
+                    input: { path: "src/a.ts", content: "private" },
+                };
+        },
+    });
+
+    const details = await routes.request("http://localhost/api/goals/goal-1/actions/action-1?runId=run-1");
+    assert.equal(details.status, 200);
+    assert.deepEqual(await details.json(), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        actionId: "action-1",
+        toolId: "write_file",
+        input: { path: "src/a.ts", content: "private" },
+    });
+    const stale = await routes.request("http://localhost/api/goals/goal-1/actions/action-1?runId=run-old");
+    assert.equal(stale.status, 409);
+    const invalid = await routes.request("http://localhost/api/goals/goal%20bad/actions/action-1?runId=run-1");
+    assert.equal(invalid.status, 400);
+    assert.deepEqual(requests, ["goal-1:run-1:action-1", "goal-1:run-old:action-1"]);
 });

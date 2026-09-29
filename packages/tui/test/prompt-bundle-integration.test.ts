@@ -458,7 +458,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         const chunks: Buffer[] = [];
         request.on("data", (chunk: Buffer) => chunks.push(chunk));
         request.on("end", () => {
-            const responseContent = responses[requests.length];
+            const responseContent = responses[Math.min(requests.length, responses.length - 1)];
             if (responseContent === undefined) {
                 response.statusCode = 500;
                 response.end("Unexpected model request");
@@ -517,11 +517,11 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
         if (failedView.screen === "session") {
             assert.equal(failedView.phase, "executing");
             assert.equal(failedView.terminal?.status, "failed");
-            assert.match(failedView.terminal?.reason ?? "", /^INVALID_LLM_RESPONSE: /);
+            assert.match(failedView.terminal?.reason ?? "", /INVALID_LLM_RESPONSE/);
             assert.equal(failedView.goal.state.run.stopReason?.kind, "execution_error");
             if (failedView.goal.state.run.stopReason?.kind === "execution_error") {
                 assert.equal(failedView.goal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
-                assert.match(failedView.goal.state.run.stopReason.message, /^INVALID_LLM_RESPONSE: /);
+                assert.match(failedView.goal.state.run.stopReason.message, /INVALID_LLM_RESPONSE/);
             }
         }
 

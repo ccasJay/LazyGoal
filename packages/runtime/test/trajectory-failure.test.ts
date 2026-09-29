@@ -195,7 +195,7 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
     assert.equal(toolCalled, false);
     const persisted = await store.restore(goal.id);
     assert.equal(persisted?.state.run.pendingAction?.status, "approved");
-    assert.equal(persisted?.state.run.committedThroughSequence, 4);
+    assert.equal(persisted?.state.run.committedThroughSequence, 8);
     assert.equal(sink.events.some((event) => event.eventType === "tool_started"), false);
 });
 
@@ -219,13 +219,15 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
         [
             "run_started",
             "state_committed",
+            "model_repair_attempt_started",
+            "state_committed",
             "decision_received",
             "action_staged",
             "state_committed",
+            "tool_attempt_started",
+            "state_committed",
             "tool_started",
-            "execution_error",
-            "context_epoch_closed",
-            "memory_patch_accepted",
+            "tool_attempt_failed",
             "state_committed",
         ],
     );
@@ -253,15 +255,19 @@ test("an Observation append failure keeps the durable pending Action and prior f
     assert.deepEqual(sink.events.map((event) => event.eventType), [
         "run_started",
         "state_committed",
+        "model_repair_attempt_started",
+        "state_committed",
         "decision_received",
         "action_staged",
+        "state_committed",
+        "tool_attempt_started",
         "state_committed",
         "tool_started",
         "tool_finished",
     ]);
     const persisted = await store.restore(goal.id);
     assert.equal(persisted?.state.run.pendingAction?.status, "approved");
-    assert.equal(persisted?.state.run.committedThroughSequence, 4);
+    assert.equal(persisted?.state.run.committedThroughSequence, 8);
 });
 
 test("a Tool without a result records an execution error without a fabricated finish", async () => {
@@ -280,7 +286,7 @@ test("a Tool without a result records an execution error without a fabricated fi
     assert.equal(result.ok, true);
     assert.equal(sink.events.some((event) => event.eventType === "tool_finished"), false);
     assert.equal(sink.events.some((event) => event.eventType === "observation_recorded"), false);
-    assert.equal(sink.events.some((event) => event.eventType === "execution_error"), true);
+    assert.equal(sink.events.some((event) => event.eventType === "tool_attempt_failed"), true);
 });
 
 test("a marker append failure preserves the saved Snapshot and reports a diagnostic gap", async () => {

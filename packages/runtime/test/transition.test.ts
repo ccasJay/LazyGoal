@@ -233,6 +233,7 @@ test("approve_action resumes the exact pending Action without consuming a Step",
     assert.deepEqual(approved.pendingAction, {
         action: waiting.pendingAction?.action,
         status: "approved",
+        approvalScope: "action",
     });
     assert.equal(approved.lastStep, undefined);
 
@@ -281,6 +282,7 @@ test("recover_action moves an approved Action to manual recovery without consumi
     assert.deepEqual(reapproved.pendingAction, {
         action: staged.pendingAction?.action,
         status: "approved",
+        approvalScope: "action",
     });
 });
 

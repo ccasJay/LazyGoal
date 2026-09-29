@@ -5,6 +5,11 @@ import type {
   BrowserGoalMessageCommand,
   BrowserGoalPlanModeCommand,
   BrowserGoalSession,
+  BrowserActionDetailsResult,
+  BrowserToolGrantResult,
+  BrowserToolGrantRevokeCommand,
+  BrowserModelCatalog,
+  BrowserModelSelectionCommand,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
 
@@ -42,6 +47,16 @@ export const browserApi = {
     return postJson("/api/goals", command, isAcceptedCommand);
   },
 
+  listModels(target?: { goalId: string; runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalog> {
+    const path = target === undefined ? "/api/models"
+      : `/api/goals/${encodeURIComponent(target.goalId)}/models?runId=${encodeURIComponent(target.runId)}`;
+    return requestJson(path, isModelCatalog, signal);
+  },
+
+  selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string }> {
+    return postJson(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, isModelSelectionAccepted);
+  },
+
   interact(
     goalId: string,
     command: BrowserGoalInteractionCommand,
@@ -72,6 +87,33 @@ export const browserApi = {
       `/api/goals/${encodeURIComponent(goalId)}/plan-mode`,
       command,
       isAcceptedCommand,
+    );
+  },
+
+  readActionDetails(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/actions/${encodeURIComponent(actionId)}?runId=${encodeURIComponent(runId)}`,
+      isActionDetailsResult,
+    );
+  },
+
+  listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/grants?runId=${encodeURIComponent(runId)}`,
+      isToolGrantResult,
+    );
+  },
+
+  revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+    return requestJson(
+      `/api/goals/${encodeURIComponent(goalId)}/grants/${encodeURIComponent(command.grantId)}`,
+      isToolGrantResult,
+      undefined,
+      {
+        method: "DELETE",
+        headers: authorizedHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify({ runId: command.runId, scope: command.scope }),
+      },
     );
   },
 
@@ -179,6 +221,28 @@ function isGoalList(value: unknown): value is { readonly goals: readonly Browser
   return isRecord(value) && Array.isArray(value.goals) && value.goals.every(isGoalListItem);
 }
 
+function isModelCatalog(value: unknown): value is BrowserModelCatalog {
+  return isRecord(value)
+    && isNonEmptyString(value.provider)
+    && isNonEmptyString(value.currentModelId)
+    && Array.isArray(value.models)
+    && value.models.every((model) => isRecord(model)
+      && isNonEmptyString(model.id)
+      && isNonEmptyString(model.displayName)
+      && ["live", "catalog", "configured"].includes(String(model.availabilitySource))
+      && ["live", "catalog", "configured", "mixed"].includes(String(model.metadataSource))
+      && typeof model.selectable === "boolean"
+      && (model.contextWindowTokens === undefined || (Number.isSafeInteger(model.contextWindowTokens) && Number(model.contextWindowTokens) > 0))
+      && (model.maxOutputTokens === undefined || (Number.isSafeInteger(model.maxOutputTokens) && Number(model.maxOutputTokens) > 0))
+      && (model.reasoning === undefined || typeof model.reasoning === "boolean")
+      && (model.vision === undefined || typeof model.vision === "boolean")
+      && (model.unavailableReason === undefined || typeof model.unavailableReason === "string"));
+}
+
+function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
+  return isRecord(value) && value.ok === true && isNonEmptyString(value.modelId);
+}
+
 function isGoalListItem(value: unknown): value is BrowserGoalListItem {
   return isRecord(value)
     && isNonEmptyString(value.goalId)
@@ -226,7 +290,12 @@ function isBrowserRun(value: unknown): boolean {
       && Number.isSafeInteger(step.sequence)
       && Number.isSafeInteger(step.stepIndex)
       && ["recorded", "completed", "failed", "rejected"].includes(String(step.status))
-      && (step.summary === undefined || typeof step.summary === "string"))
+      && (step.summary === undefined || typeof step.summary === "string")
+      && (step.recoveryAttempts === undefined || Array.isArray(step.recoveryAttempts)
+        && step.recoveryAttempts.every((attempt) => typeof attempt === "string")))
+    && (value.terminalDetail === undefined || isRecord(value.terminalDetail)
+      && typeof value.terminalDetail.message === "string"
+      && (value.terminalDetail.code === undefined || typeof value.terminalDetail.code === "string"))
     && typeof value.current === "boolean";
 }
 
@@ -268,7 +337,43 @@ function isPendingAction(value: unknown): boolean {
   return isRecord(value)
     && isNonEmptyString(value.actionId)
     && isNonEmptyString(value.toolId)
-    && ["approved", "awaiting_approval", "outcome_unknown"].includes(String(value.status));
+    && ["approved", "awaiting_approval", "outcome_unknown"].includes(String(value.status))
+    && typeof value.inputPreview === "string"
+    && typeof value.inputPreviewTruncated === "boolean"
+    && (value.targetPath === undefined || typeof value.targetPath === "string");
+}
+
+function isActionDetailsResult(value: unknown): value is BrowserActionDetailsResult {
+  if (!isRecord(value) || typeof value.ok !== "boolean") return false;
+  if (!value.ok) return typeof value.error === "string";
+  return isNonEmptyString(value.goalId)
+    && isNonEmptyString(value.runId)
+    && isNonEmptyString(value.actionId)
+    && isNonEmptyString(value.toolId)
+    && isJsonValue(value.input);
+}
+
+function isToolGrantResult(value: unknown): value is BrowserToolGrantResult {
+  return isRecord(value)
+    && (value.ok === false
+      ? typeof value.error === "string"
+      : value.ok === true
+        && isNonEmptyString(value.goalId)
+        && isNonEmptyString(value.runId)
+        && Array.isArray(value.grants)
+        && value.grants.every((grant) => isRecord(grant)
+          && isNonEmptyString(grant.grantId)
+          && (grant.scope === "goal" || grant.scope === "workspace")
+          && isNonEmptyString(grant.toolId)
+          && ["pending", "active", "revoked"].includes(String(grant.status))
+          && (grant.targetPath === undefined || typeof grant.targetPath === "string")));
+}
+
+function isJsonValue(value: unknown): boolean {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isRecord(value) && Object.values(value).every(isJsonValue);
 }
 
 function isAcceptedCommand(value: unknown): value is AcceptedCommand {

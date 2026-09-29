@@ -173,7 +173,7 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
     }
 });
 
-test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格拒绝换模", async () => {
+test("GoalModelSelectionCoordinator: 运行中、Action 审批点与取消态严格拒绝换模", async () => {
     // 1. active executing 阶段
     const activeGoal: Goal = {
         ...createBaseTestGoal(),
@@ -228,7 +228,7 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格
         assert.equal(resApproval.error.code, "GOAL_NOT_WAITING");
     }
 
-    // 3. 终态 (completed / failed / cancelled)
+    // 3. 终态允许预选下一 Run，取消态拒绝
     for (const status of ["completed", "failed", "cancelled"] as const) {
         const terminalGoal: Goal = {
             ...createBaseTestGoal(),
@@ -240,16 +240,15 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与终态严格
                 },
             },
         };
-        assert.equal(isSafeWaitingPointForModelSwitching(terminalGoal), false);
+        assert.equal(isSafeWaitingPointForModelSwitching(terminalGoal), status !== "cancelled");
         store.goal = terminalGoal;
         const res = await coordinator.updateModelSelection({
             ref: { goalId: terminalGoal.id, runId: terminalGoal.state.run.id },
             selection: targetSelection,
         });
-        assert.equal(res.ok, false);
-        if (!res.ok) {
-            assert.equal(res.error.code, "GOAL_NOT_WAITING");
-        }
+        assert.equal(res.ok, status !== "cancelled");
+        if (res.ok) assert.deepEqual(res.goal.state.modelSelection, targetSelection);
+        else assert.equal(res.error.code, "GOAL_NOT_WAITING");
     }
 });
 

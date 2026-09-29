@@ -8,6 +8,14 @@ export {
     type BrowserGoalApiPort,
 } from "./browser-goal-routes";
 export {
+    projectBrowserModelCatalog,
+    type BrowserModelCatalog,
+    type BrowserModelCatalogError,
+    type BrowserModelCatalogReadResult,
+    type BrowserModelOption,
+    type BrowserModelSource,
+} from "./browser-model-catalog";
+export {
     BrowserGoalCommandService,
     type BrowserCreateGoalCommand,
     type BrowserCreateGoalResult,
@@ -19,6 +27,12 @@ export {
     type BrowserGoalMessageResult,
     type BrowserGoalPlanModeCommand,
     type BrowserGoalPlanModeResult,
+    type BrowserModelSelectionCommand,
+    type BrowserModelSelectionResult,
+    type BrowserActionDetailsResult,
+    type BrowserToolGrantSummary,
+    type BrowserToolGrantResult,
+    type BrowserToolGrantRevokeCommand,
     type BrowserGoalLauncher,
     type BrowserGoalSaveNotifications,
 } from "./browser-goal-command-service";

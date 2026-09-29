@@ -11,6 +11,7 @@ import type {
     MemoryPatchAcceptedPayload,
     ModelContextEpochState,
 } from "./domain";
+import type { RuntimeFeedback } from "./runtime-feedback";
 import type { GoalPlanPatchOperation } from "./goal-plan";
 import type {
     ContextLookupRequest,
@@ -165,6 +166,26 @@ export type TrajectoryEventPayload =
         readonly goal: string;
         readonly output: string;
     }
+    | {
+        readonly type: "model_repair_attempt_started";
+        readonly stage: ModelContextStage;
+        readonly attempt: number;
+        readonly inputBoundary: string;
+        readonly thinkRequestId?: string;
+    }
+    | {
+        readonly type: "model_repair_feedback_recorded";
+        readonly stage: ModelContextStage;
+        readonly attempt: number;
+        readonly feedback: RuntimeFeedback;
+    }
+    | {
+        readonly type: "model_request_retry_recorded";
+        readonly stage: ModelContextStage;
+        readonly attempt: number;
+        readonly reason: "rate_limited" | "service_unavailable" | "connection" | "timeout";
+        readonly status?: number;
+    }
     | ModelContextFramePayload
     | {
         readonly type: "context_lookup_requested";
@@ -208,6 +229,13 @@ export type TrajectoryEventPayload =
     | {
         readonly type: "action_approved";
         readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
+    }
+    | {
+        readonly type: "tool_grant_revoked";
+        readonly grantId: string;
+        readonly scope: "goal" | "workspace";
     }
     | {
         readonly type: "action_rejected";
@@ -224,6 +252,18 @@ export type TrajectoryEventPayload =
         readonly actionId: string;
         readonly toolId: string;
         readonly input: JsonValue;
+    }
+    | {
+        readonly type: "tool_attempt_started";
+        readonly actionId: string;
+        readonly attempt: number;
+    }
+    | {
+        readonly type: "tool_attempt_failed";
+        readonly actionId: string;
+        readonly attempt: number;
+        readonly reason: string;
+        readonly retryAfterMs?: number;
     }
     | {
         readonly type: "tool_finished";
@@ -661,6 +701,9 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "decision_received",
     "think_requested",
     "think_completed",
+    "model_repair_attempt_started",
+    "model_repair_feedback_recorded",
+    "model_request_retry_recorded",
     "model_context_frame",
     "context_lookup_requested",
     "context_lookup_completed",
@@ -669,9 +712,12 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "memory_patch_accepted",
     "action_staged",
     "action_approved",
+    "tool_grant_revoked",
     "action_rejected",
     "action_recovered",
     "tool_started",
+    "tool_attempt_started",
+    "tool_attempt_failed",
     "tool_finished",
     "observation_recorded",
     "run_waiting",
@@ -720,6 +766,59 @@ function assertOptionalNonEmptyString(value: unknown, field: string): void {
     if (value !== undefined) assertNonEmptyString(value, field);
 }
 
+function assertRuntimeFeedback(value: unknown, stage: unknown, attempt: unknown): void {
+    const field = "model_repair_feedback_recorded.feedback";
+    if (!isRecord(value)
+        || Object.keys(value).some((key) => ![
+            "goalId", "runId", "executionUnitId", "stepOrdinal", "stage", "origin", "code",
+            "attempt", "issues", "constraints",
+        ].includes(key))) {
+        throw new TrajectoryProtocolError(`${field} has an invalid shape`);
+    }
+    for (const key of ["goalId", "runId", "executionUnitId", "code"] as const) {
+        assertNonEmptyString(value[key], `${field}.${key}`);
+    }
+    assertPositiveInteger(value.stepOrdinal, `${field}.stepOrdinal`);
+    assertPositiveInteger(value.attempt, `${field}.attempt`);
+    if (value.stage !== stage || value.attempt !== attempt) {
+        throw new TrajectoryProtocolError(`${field} stage and attempt must match the event`);
+    }
+    if (![
+        "response_parse", "output_contract", "decision_semantics", "tool_selection", "tool_input",
+        "completion_evidence",
+    ].includes(value.origin as string)) {
+        throw new TrajectoryProtocolError(`${field}.origin is invalid`);
+    }
+    if (!Array.isArray(value.issues) || value.issues.length > 8) {
+        throw new TrajectoryProtocolError(`${field}.issues must contain at most 8 items`);
+    }
+    for (const [index, issue] of value.issues.entries()) {
+        const issueField = `${field}.issues[${index}]`;
+        if (!isRecord(issue)
+            || Object.keys(issue).some((key) => !["code", "path", "message"].includes(key))) {
+            throw new TrajectoryProtocolError(`${issueField} has an invalid shape`);
+        }
+        for (const key of ["code", "message"] as const) assertNonEmptyString(issue[key], `${issueField}.${key}`);
+        if ((issue.code as string).length > 80 || (issue.message as string).length > 240) {
+            throw new TrajectoryProtocolError(`${issueField} exceeds its field limit`);
+        }
+        if (!Array.isArray(issue.path) || issue.path.length > 8
+            || issue.path.some((part) => typeof part === "string"
+                ? part.length > 80
+                : !Number.isSafeInteger(part) || (part as number) < 0)) {
+            throw new TrajectoryProtocolError(`${issueField}.path is invalid`);
+        }
+    }
+    if (value.constraints !== undefined
+        && (!Array.isArray(value.constraints)
+            || value.constraints.length > 8
+            || value.constraints.some((item) => typeof item !== "string" || item.length === 0 || item.length > 240))) {
+        throw new TrajectoryProtocolError(`${field}.constraints is invalid`);
+    }
+    assertNonEmptyString(value.code, `${field}.code`);
+    if (value.code.length > 80) throw new TrajectoryProtocolError(`${field}.code exceeds its field limit`);
+}
+
 function assertPayload(payload: unknown, eventType: unknown): void {
     if (!isRecord(payload) || payload.type !== eventType) {
         throw new TrajectoryProtocolError("payload.type must match eventType");
@@ -730,6 +829,36 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError(
                 `payload must not contain derived state field: ${key}`,
             );
+        }
+    }
+
+    if (eventType === "action_approved") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "approvalScope", "grantId"].includes(key))) {
+            throw new TrajectoryProtocolError("action_approved contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "action_approved.actionId");
+        if (payload.approvalScope !== undefined
+            && payload.approvalScope !== "action"
+            && payload.approvalScope !== "goal"
+            && payload.approvalScope !== "workspace") {
+            throw new TrajectoryProtocolError("action_approved.approvalScope is invalid");
+        }
+        if (payload.grantId !== undefined) assertNonEmptyString(payload.grantId, "action_approved.grantId");
+        if (payload.approvalScope !== undefined
+            && ((payload.approvalScope === "action") !== (payload.grantId === undefined))) {
+            throw new TrajectoryProtocolError("action_approved scope and Grant identity are inconsistent");
+        }
+        if (payload.approvalScope === undefined && payload.grantId !== undefined) {
+            throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
+        }
+    }
+    if (eventType === "tool_grant_revoked") {
+        if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_grant_revoked contains unknown fields");
+        }
+        assertNonEmptyString(payload.grantId, "tool_grant_revoked.grantId");
+        if (payload.scope !== "goal" && payload.scope !== "workspace") {
+            throw new TrajectoryProtocolError("tool_grant_revoked.scope is invalid");
         }
     }
 
@@ -754,6 +883,68 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         assertPositiveInteger(payload.stepOrdinal, "think_completed.stepOrdinal");
         assertNonBlankString(payload.goal, "think_completed.goal");
         assertNonBlankString(payload.output, "think_completed.output");
+    }
+    if (eventType === "tool_attempt_started") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "attempt"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_attempt_started contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "tool_attempt_started.actionId");
+        assertPositiveInteger(payload.attempt, "tool_attempt_started.attempt");
+        if (payload.attempt > 3) throw new TrajectoryProtocolError("tool_attempt_started.attempt exceeds three");
+    }
+    if (eventType === "tool_attempt_failed") {
+        if (Object.keys(payload).some((key) => !["type", "actionId", "attempt", "reason", "retryAfterMs"].includes(key))) {
+            throw new TrajectoryProtocolError("tool_attempt_failed contains unknown fields");
+        }
+        assertNonEmptyString(payload.actionId, "tool_attempt_failed.actionId");
+        assertPositiveInteger(payload.attempt, "tool_attempt_failed.attempt");
+        assertNonBlankString(payload.reason, "tool_attempt_failed.reason");
+        if (payload.attempt > 3 || payload.reason.length > 120) {
+            throw new TrajectoryProtocolError("tool_attempt_failed exceeds its bounds");
+        }
+        if (payload.retryAfterMs !== undefined
+            && (typeof payload.retryAfterMs !== "number"
+                || !Number.isSafeInteger(payload.retryAfterMs)
+                || payload.retryAfterMs < 0
+                || payload.retryAfterMs > 30_000)) {
+            throw new TrajectoryProtocolError("tool_attempt_failed.retryAfterMs is invalid");
+        }
+    }
+    if (eventType === "model_repair_attempt_started") {
+        if (Object.keys(payload).some((key) => !["type", "stage", "attempt", "inputBoundary", "thinkRequestId"].includes(key))) {
+            throw new TrajectoryProtocolError("model_repair_attempt_started contains unknown fields");
+        }
+        if (payload.stage !== "decide" && payload.stage !== "think") {
+            throw new TrajectoryProtocolError("model_repair_attempt_started stage is invalid");
+        }
+        assertPositiveInteger(payload.attempt, "model_repair_attempt_started.attempt");
+        if (typeof payload.inputBoundary !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(payload.inputBoundary)) {
+            throw new TrajectoryProtocolError("model_repair_attempt_started inputBoundary is invalid");
+        }
+        assertOptionalNonEmptyString(payload.thinkRequestId, "model_repair_attempt_started.thinkRequestId");
+    }
+    if (eventType === "model_repair_feedback_recorded") {
+        if (Object.keys(payload).some((key) => !["type", "stage", "attempt", "feedback"].includes(key))) {
+            throw new TrajectoryProtocolError("model_repair_feedback_recorded contains unknown fields");
+        }
+        if (payload.stage !== "decide" && payload.stage !== "think") {
+            throw new TrajectoryProtocolError("model_repair_feedback_recorded stage is invalid");
+        }
+        assertPositiveInteger(payload.attempt, "model_repair_feedback_recorded.attempt");
+        assertRuntimeFeedback(payload.feedback, payload.stage, payload.attempt);
+    }
+    if (eventType === "model_request_retry_recorded") {
+        if (Object.keys(payload).some((key) => !["type", "stage", "attempt", "reason", "status"].includes(key))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded contains unknown fields");
+        }
+        if ((payload.stage !== "decide" && payload.stage !== "think")
+            || !["rate_limited", "service_unavailable", "connection", "timeout"].includes(String(payload.reason))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded stage or reason is invalid");
+        }
+        assertPositiveInteger(payload.attempt, "model_request_retry_recorded.attempt");
+        if (payload.attempt > 3 || (payload.status !== undefined && (typeof payload.status !== "number" || !Number.isInteger(payload.status) || payload.status < 100 || payload.status > 599))) {
+            throw new TrajectoryProtocolError("model_request_retry_recorded exceeds its bounds");
+        }
     }
     if (eventType === "model_context_frame") {
         if (Object.keys(payload).some((key) => ![
@@ -1133,6 +1324,9 @@ export function classifyTrajectoryEvent(
         case "decision_received":
         case "think_requested":
         case "think_completed":
+        case "model_repair_attempt_started":
+        case "model_repair_feedback_recorded":
+        case "model_request_retry_recorded":
         case "model_context_frame":
         case "model_context_frame":
         case "context_lookup_requested":
@@ -1144,10 +1338,13 @@ export function classifyTrajectoryEvent(
             return "memory";
         case "action_staged":
         case "action_approved":
+        case "tool_grant_revoked":
         case "action_rejected":
         case "action_recovered":
             return "action";
         case "tool_started":
+        case "tool_attempt_started":
+        case "tool_attempt_failed":
         case "tool_finished":
             return "tool";
         case "observation_recorded":

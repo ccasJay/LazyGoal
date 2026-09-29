@@ -45,6 +45,7 @@ import {
     JsonFileMetricsStore,
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
+    JsonFileToolGrantStore,
 } from "../../storage/src/index";
 import {
     createHttpService,
@@ -58,6 +59,7 @@ import {
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     listBrowserGoals,
+    projectBrowserModelCatalog,
     readBrowserGoalSession,
 } from "../../browser/src/index";
 import { createSessionMetricsRoutes, SessionMetricsService } from "../../session-metrics/src/index";
@@ -97,6 +99,7 @@ import { createLlmStageAdapters, type LlmStageAdapters } from "../../llm/src/fac
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import {
     createLlmModelCatalog,
+    ModelCatalogError,
     type LlmModelCatalog,
     type LlmModelDescriptor,
 } from "../../llm/src/model-catalog";
@@ -559,6 +562,8 @@ export interface CompositionRoot {
     readonly modelCatalog: LlmModelCatalog;
     /** 当前生效的可变模型执行绑定管理器。 */
     readonly modelBinding: MutableModelBinding;
+    /** 按完整选择重建并发布下一代执行绑定；构建失败时不修改当前绑定。 */
+    readonly alignModelBinding: (selection: GoalModelSelection) => void;
     /** 当前生效的 Goal 模型选择协调器。 */
     readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
     /** 启动时初始的默认模型选择。 */
@@ -626,6 +631,8 @@ export interface CompositionRoot {
      * ```
      */
     readonly launcher: SessionLauncher;
+    /** 浏览器创建入口；先发布请求模型绑定，初始快照未保存时恢复旧绑定。 */
+    readonly browserLauncher: SessionLauncher;
     /** 当前进程唯一的 SessionController。 */
     readonly controller: SessionController;
     /** Controller 创建新 Goal 时使用的 ID 生成器。 */
@@ -858,6 +865,7 @@ export async function createCompositionRoot(
         },
     };
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -942,6 +950,16 @@ export async function createCompositionRoot(
             customEstimator: modelInputEstimator,
         }),
     );
+    const alignModelBinding = (selection: GoalModelSelection): void => {
+        const candidate = modelBinding.createCandidate({
+            selection,
+            ...createStageAdaptersForSelection(selection),
+            trajectoryStore,
+            modelContextBudget: options.modelContextBudget,
+            customEstimator: modelInputEstimator,
+        });
+        modelBinding.publish(candidate);
+    };
     const runner = new Runner({
         store: checkpointStore,
         executor: new LLMStepExecutor({
@@ -955,6 +973,9 @@ export async function createCompositionRoot(
         }),
         toolRegistry,
         toolPolicy,
+        toolGrantLookup: toolGrantStore,
+        workspaceId: workspaceHomePaths.workspaceId,
+        workspaceRoot,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -968,6 +989,9 @@ export async function createCompositionRoot(
         store: checkpointStore,
         scheduler,
         toolRegistry,
+        toolGrantStore,
+        workspaceId: workspaceHomePaths.workspaceId,
+        workspaceRoot,
         traceSink,
         trajectoryStore,
         workingMemoryLimits,
@@ -998,6 +1022,19 @@ export async function createCompositionRoot(
                 },
                 control,
             );
+        },
+    };
+    const browserLauncher: SessionLauncher = {
+        async launch(request, control) {
+            if (request.modelSelection === undefined) throw new Error("Browser launch requires model selection");
+            const previous = modelBinding.current().selection;
+            alignModelBinding(request.modelSelection);
+            try {
+                return await launcher.launch(request, control);
+            } finally {
+                const saved = await primaryGoalStore.restore(request.goalId);
+                if (saved === undefined) alignModelBinding(previous);
+            }
         },
     };
     const readTrajectory = (
@@ -1165,9 +1202,11 @@ export async function createCompositionRoot(
         coordinator,
         modelCatalog,
         modelBinding,
+        alignModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
         launcher,
+        browserLauncher,
         controller,
         goalIdGenerator,
         runIdGenerator,
@@ -1576,8 +1615,36 @@ async function runBrowserSessionCli(
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
             saveNotifications: root.notifyingStore,
-            launcher: root.launcher,
+            launcher: root.browserLauncher,
             coordinator: root.coordinator,
+            modelSelectionCoordinator: root.goalModelSelectionCoordinator,
+            defaultModelSelection: root.defaultModelSelection,
+            restoreModelBinding: async (goal) => {
+                const provider = root.llmConfig?.provider ?? root.defaultModelSelection.provider;
+                if (goal.state.modelSelection.provider !== provider) return false;
+                try {
+                    root.alignModelBinding(goal.state.modelSelection);
+                    return true;
+                } catch {
+                    return false;
+                }
+            },
+            resolveModelSelection: async (modelId, current) => {
+                if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
+                    return undefined;
+                }
+                const models = await root.modelCatalog.list({ ...root.llmConfig, model: current.modelId });
+                const model = models.find((entry) => entry.provider === current.provider && entry.id === modelId && entry.selectable);
+                if (model === undefined) return undefined;
+                return {
+                    provider: model.provider,
+                    modelId: model.id,
+                    structuredOutputMode: current.structuredOutputMode,
+                    ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
+                    ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+                    inputEstimator: current.inputEstimator,
+                };
+            },
             profileId: root.profile.id,
             control: { signal: root.abortController.signal },
         });
@@ -1597,6 +1664,33 @@ async function runBrowserSessionCli(
             interact: (goalId, command) => commandService.interact(goalId, command),
             message: (goalId, command) => commandService.message(goalId, command),
             enterPlanMode: (goalId, command) => commandService.enterPlanMode(goalId, command),
+            selectModel: (goalId, command) => commandService.selectModel(goalId, command),
+            models: async (target, signal) => {
+                let currentModelId = root.defaultModelSelection.modelId;
+                if (target !== undefined) {
+                    const goal = await root.workspaceGoalStore.restore(target.goalId);
+                    if (goal === undefined) return { ok: false, error: "goal_not_found" };
+                    if (goal.state.run.id !== target.runId) return { ok: false, error: "stale_run" };
+                    currentModelId = goal.state.modelSelection.modelId;
+                }
+                if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
+                try {
+                    const models = await root.modelCatalog.list({ ...root.llmConfig, model: currentModelId }, { signal });
+                    return {
+                        ok: true,
+                        catalog: projectBrowserModelCatalog(root.llmConfig.provider, currentModelId, models),
+                    };
+                } catch (error) {
+                    if (!(error instanceof ModelCatalogError)) return { ok: false, error: "model_catalog_unavailable" };
+                    if (error.kind === "authentication") return { ok: false, error: "model_catalog_authentication" };
+                    if (error.kind === "permission") return { ok: false, error: "model_catalog_permission" };
+                    if (error.kind === "protocol") return { ok: false, error: "model_catalog_protocol" };
+                    return { ok: false, error: "model_catalog_unavailable" };
+                }
+            },
+            readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
+            listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
+            revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
             openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));

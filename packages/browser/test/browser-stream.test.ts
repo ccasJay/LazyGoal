@@ -216,6 +216,8 @@ test("HTTP 事件流只接受单一 Goal/Run 身份并关闭时清理订阅", as
         async interact() { return { ok: false as const, error: "interaction_failed" as const }; },
         async message() { return { ok: false as const, error: "message_failed" as const }; },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
+        async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
         async openStream() {
             let index = 0;
             return {

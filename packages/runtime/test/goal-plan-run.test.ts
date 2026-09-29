@@ -246,8 +246,12 @@ test("首次成功 GoalPlan Patch 才创建计划，并作为非终态 Step 持�
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
         "run_started",
         "state_committed",
+        "model_repair_attempt_started",
+        "state_committed",
         "decision_received",
         "goal_plan_updated",
+        "state_committed",
+        "model_repair_attempt_started",
         "state_committed",
         "decision_received",
         "run_waiting",
@@ -303,6 +307,8 @@ test("当前 Run 完成后，GoalPlan Todo 状态独立保留", async () => {
         status: "pending",
     }]);
     assert.deepEqual(trajectory.events.map((event) => event.eventType), [
+        "model_repair_attempt_started",
+        "state_committed",
         "decision_received",
         "run_completed",
         "context_epoch_closed",
@@ -414,8 +420,11 @@ test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效�
 
         assert.equal(modelCalls, 1);
         assert.equal(toolCalls, 0);
-        assert.deepEqual(await store.restore(initial.id), initial);
-        assert.equal(trajectory.events.some((event) => event.eventType === "state_committed"), false);
+        const interrupted = await store.restore(initial.id);
+        assert.equal(interrupted?.state.run.status, "running");
+        assert.equal(interrupted?.state.run.stepCount, 0);
+        assert.equal(interrupted?.state.run.pendingModelRepair?.attemptsStarted, 1);
+        assert.equal(trajectory.events.some((event) => event.eventType === "state_committed"), true);
         assert.equal(
             trajectory.events.some((event) => event.eventType === "goal_plan_updated"),
             failingBoundary === "snapshot",

@@ -12,9 +12,11 @@ Session 的 `ActiveDrawer` 按等待点选择交互：
 
 - `AskUserPanel` 支持计划期/执行期模式、单选、多选和 `Other` 文本；
 - `TaskProposalPanel` 只在当前等待点为任务审批时展示 objective、完成条件和批准提示，并支持批准或反馈；
-- Action 审批抽屉展示 Tool 输入并支持批准/拒绝；
+- Action 审批抽屉展示完整 Tool 输入、三档授权选择和写入路径后果；单次批准不创建 Grant，YOLO 自动批准也不创建 Grant，结果不确定时只允许当前 Action 的人工恢复；
 - blocked、终态、错误和清理状态使用同一 Session 页面投影。
 - 已提交的 GoalPlan 从 Goal Snapshot 投影到只读 [`PlanPanel`](../../packages/tui/src/plan-panel.tsx)，独立于当前 Run 模式；计划不存在时不推测生成。completed Run 保留“Start the next Run”输入，失败和取消终态不接受新的 Run 输入。
+
+Session 中按 Ctrl+G 打开当前 Goal 与工作区授权列表。列表仅投影 Tool、授权期限、匹配路径和状态，不暴露输入摘要；用户可选择撤销 active Grant。撤销由 Controller 转交 Coordinator 持久化，完成后重新读取授权列表；返回时保留原 Session 与最新授权摘要。
 
 ## 统一时间线与流式输出
 
@@ -22,7 +24,7 @@ Controller 唯一持有单调不可变 `timeline`，元素包括已提交 User/S
 
 新的 Assistant 消息由 `StreamingTranscriptController` 接收 `started`、`delta`、`completed` 事件。稳定 Block 按节流 Tick 进入时间线；未提交部分保留为 `streamingTail`。新用户消息、步骤提交、等待点和恢复都会触发 flush barrier，保证内容顺序；恢复时直接 hydrate 已提交消息，不重复播放旧流。
 
-普通只读 Tool 和副作用 Tool 都通过 Goal Snapshot 的已提交 `lastStep` 投影为步骤摘要，使用 `(goalId, runId, stepNumber)` 身份去重；相同局部 step 序号在不同 Run 中不会合并。TUI 通过 `@lazygoal/execution-stream` 的通用订阅适配器接收 Step、模型和 Tool 活动，显示动态尾部及有限 Tool 输出；未提交的活动只属于实时 ViewModel，成功提交的每个 Step 仍由 Snapshot/Trajectory 提交通知进入 Session 时间线。
+普通只读 Tool 和副作用 Tool 都通过 Goal Snapshot 的已提交 `lastStep` 投影为步骤摘要，使用 `(goalId, runId, stepNumber)` 身份去重；相同局部 step 序号在不同 Run 中不会合并。Inspector 从已提交 Trajectory 展示模型纠错与模型/Tool 重试摘要及稳定终态原因，不展示未通过校验的原始模型响应。TUI 通过 `@lazygoal/execution-stream` 的通用订阅适配器接收 Step、模型和 Tool 活动，显示动态尾部及有限 Tool 输出；未提交的活动只属于实时 ViewModel，成功提交的每个 Step 仍由 Snapshot/Trajectory 提交通知进入 Session 时间线。
 
 ## 恢复、模型切换与关闭
 

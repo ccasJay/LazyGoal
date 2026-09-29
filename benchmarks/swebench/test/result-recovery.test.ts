@@ -27,7 +27,7 @@ test("recovers failed Snapshot and invalid-response usage without terminal ACP m
     assert.equal(diagnostics.length, 0);
     assert.equal(recovered?.runStatus, "failed");
     assert.deepEqual(recovered?.stopReason, result.goal.state.run.stopReason);
-    assert.deepEqual(recovered?.usage, { inputTokens: 15, outputTokens: 7, missingCalls: 0 });
+    assert.deepEqual(recovered?.usage, { inputTokens: 45, outputTokens: 21, missingCalls: 0 });
     const traceOnly = await recoverSwebenchResult({ traces: copied.traces }, metadata, message => diagnostics.push(message), new AbortController().signal);
     assert.equal(traceOnly?.runStatus, undefined);
     assert.deepEqual(traceOnly?.usage, recovered?.usage);

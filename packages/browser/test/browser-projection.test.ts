@@ -240,6 +240,100 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
+test("待审批 Action 只投影限长输入预览与写入目标路径", async () => {
+    const initial = createTestGoal();
+    const privateContent = "secret-".repeat(100);
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: {
+                        actionId: "action-preview",
+                        toolId: "write_file",
+                        input: { path: "src/example.ts", content: privateContent },
+                    },
+                    status: "awaiting_approval",
+                },
+            },
+        },
+    };
+
+    const session = await readBrowserGoalSession(
+        goal.id,
+        new TestGoalStore(goal),
+        async () => ({ committed: [], uncommittedTail: [] }),
+    );
+
+    assert.equal(session?.pendingAction?.actionId, "action-preview");
+    assert.equal(session?.pendingAction?.targetPath, "src/example.ts");
+    assert.equal(session?.pendingAction?.inputPreviewTruncated, true);
+    assert.ok((session?.pendingAction?.inputPreview.length ?? Number.POSITIVE_INFINITY) <= 321);
+    assert.equal(session?.pendingAction?.inputPreview.includes(privateContent), false);
+});
+
+test("会话投影展示已提交纠错尝试与稳定失败原因", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "failed",
+                stopReason: { kind: "execution_error", code: "MODEL_REQUEST_FAILED", message: "模型阶段重试已耗尽" },
+            },
+        },
+    };
+    const committed: TrajectoryEvent[] = [
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_repair_attempt_started",
+            payload: { type: "model_repair_attempt_started", stage: "decide", attempt: 2, inputBoundary: `sha256:${"a".repeat(64)}` },
+        }, 1),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_repair_feedback_recorded",
+            payload: {
+                type: "model_repair_feedback_recorded", stage: "decide", attempt: 2,
+                feedback: {
+                    goalId: goal.id, runId: goal.state.run.id, executionUnitId: "repair-unit", stepOrdinal: 1,
+                    stage: "decide", origin: "response_parse", code: "INVALID_JSON", attempt: 2,
+                    issues: [{ code: "syntax", path: [], message: "Return valid JSON" }],
+                },
+            },
+        }, 2),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            executionUnitId: "repair-unit", stepIndex: 1, eventType: "model_request_retry_recorded",
+            payload: { type: "model_request_retry_recorded", stage: "decide", attempt: 1, reason: "rate_limited", status: 429 },
+        }, 3),
+        allocateImmutableEvent({
+            goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+            eventType: "run_failed",
+            payload: { type: "run_failed", code: "MODEL_REQUEST_FAILED", message: "模型阶段重试已耗尽" },
+        }, 4),
+    ];
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed,
+        uncommittedTail: [],
+    }));
+
+    assert.deepEqual(session?.runs[0]?.terminalDetail, {
+        code: "MODEL_REQUEST_FAILED",
+        message: "模型阶段重试已耗尽",
+    });
+    assert.deepEqual(session?.runs[0]?.steps[0]?.recoveryAttempts, [
+        "decide repair attempt 2",
+        "decide repair feedback: INVALID_JSON",
+        "decide model request attempt 1 failed: rate_limited HTTP 429",
+    ]);
+    assert.equal(JSON.stringify(session).includes("Return valid JSON"), false);
+});
+
 test("Bash 决定与跨 execution unit 的执行合并为一行，complete 决策不重复显示", async () => {
     const goal = createTestGoal();
     const actionId = "bash-action-1";
@@ -414,6 +508,10 @@ test("读取 API 区分缺失与读取失败且不泄漏底层错误", async () 
         async enterPlanMode() {
             return { ok: false as const, error: "plan_mode_failed" as const };
         },
+        async models() {
+            return { ok: false as const, error: "model_catalog_unavailable" as const };
+        },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },
@@ -463,6 +561,10 @@ test("创建与交互路由拒绝非法 wire 输入并要求稳定身份", async
             planModes.push({ goalId, runId: command.runId });
             return { ok: true as const, goalId, runId: command.runId, existing: false };
         },
+        async models() {
+            return { ok: false as const, error: "model_catalog_unavailable" as const };
+        },
+        async selectModel() { return { ok: false as const, error: "model_selection_failed" as const }; },
         async openStream() {
             return { ok: false as const, error: "goal_not_found" as const };
         },

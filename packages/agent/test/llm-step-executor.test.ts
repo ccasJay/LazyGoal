@@ -6,6 +6,7 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
 import {
     createGoal,
+    ModelStageFeedbackError,
     Runner,
 } from "../../runtime/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
@@ -20,8 +21,6 @@ import type { ToolDefinition } from "../../runtime/src/tool";
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
-    LLM_RESPONSE_PROTOCOL_ERROR_CODE,
-    LLMResponseProtocolError,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
@@ -444,7 +443,7 @@ test("Adapter 原始异常会原样传播且不会重试", async () => {
     assert.equal(adapter.requests.length, 1);
 });
 
-test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
+test("协议错误转换为不含原始输出的 Decide RuntimeFeedback", async () => {
     const currentGoal = createTestGoal("run-5");
     const adapter = new FakeAdapter("不是合法 JSON");
     const executor = createExecutor(adapter);
@@ -456,15 +455,18 @@ test("协议错误不会触发修复或第二次 Adapter 调用", async () => {
             workingMemory: currentWorkingMemory,
         }),
         (error: unknown) => {
-            assert.ok(error instanceof LLMResponseProtocolError);
-            assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
+            assert.ok(error instanceof ModelStageFeedbackError);
+            assert.equal(error.feedback.stage, "decide");
+            assert.equal(error.feedback.origin, "response_parse");
+            assert.equal(error.feedback.issues[0]?.code, "invalid_json_syntax");
+            assert.equal(JSON.stringify(error.feedback).includes("不是合法 JSON"), false);
             return true;
         },
     );
     assert.equal(adapter.requests.length, 1);
 });
 
-test("LLMStepExecutor 收到非 executing 阶段分支时严格拒绝且不重试", async () => {
+test("LLMStepExecutor 收到非 executing 分支时生成输出契约 RuntimeFeedback", async () => {
     const currentGoal = createTestGoal("run-exclusive");
     const adapter = new FakeAdapter(JSON.stringify({
         result: {
@@ -483,9 +485,9 @@ test("LLMStepExecutor 收到非 executing 阶段分支时严格拒绝且不重�
             workingMemory: currentWorkingMemory,
         }),
         (error: unknown) => {
-            assert.ok(error instanceof LLMResponseProtocolError);
-            assert.equal(error.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
-            assert.match(error.message, /plan_mode_approved_executing_agent_decision/);
+            assert.ok(error instanceof ModelStageFeedbackError);
+            assert.equal(error.feedback.origin, "output_contract");
+            assert.equal(error.feedback.stage, "decide");
             return true;
         },
     );
@@ -565,7 +567,7 @@ test("Runner 通过 LLMStepExecutor 兼容持久化终止 AgentDecision", async 
 
 test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async () => {
     const store = new InMemoryGoalStore();
-    const adapter = new SequenceAdapter([JSON.stringify({
+    const invalidDecision = JSON.stringify({
         result: {
             kind: "tool_call",
             action: {
@@ -574,7 +576,8 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
                 input: { path: "README.md" },
             },
         },
-    })]);
+    });
+    const adapter = new SequenceAdapter([invalidDecision, invalidDecision, invalidDecision]);
     const executor = createExecutor(adapter);
     const trajectoryStore = createInMemoryTrajectoryStore();
     const runner = new Runner({
@@ -600,15 +603,15 @@ test("Runner 对未授权 Tool 保存稳定执行错误且不消费 Step", async
     assert.deepEqual(result.state.stopReason, {
         kind: "execution_error",
         code: "INVALID_AGENT_DECISION",
-        message: "INVALID_LLM_RESPONSE: 响应不符合 plan_mode_approved_executing_agent_decision 契约",
+        message: "Model output correction exhausted after three decide calls (INVALID_LLM_RESPONSE)",
     });
-    assert.equal(adapter.requests.length, 1);
+    assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 
 test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async () => {
     const store = new InMemoryGoalStore();
-    const adapter = new SequenceAdapter(["不是合法 JSON"]);
+    const adapter = new SequenceAdapter(["不是合法 JSON", "不是合法 JSON", "不是合法 JSON"]);
     const executor = createExecutor(adapter);
     const trajectoryStore = createInMemoryTrajectoryStore();
     const runner = new Runner({
@@ -639,9 +642,9 @@ test("Runner 将 AgentDecision 协议错误保存为稳定执行错误", async (
         result.state.stopReason?.kind === "execution_error"
             ? result.state.stopReason.message
             : "",
-        /^INVALID_LLM_RESPONSE: /,
+        /Model output correction exhausted after three decide calls/,
     );
-    assert.equal(adapter.requests.length, 1);
+    assert.equal(adapter.requests.length, 3);
     assert.deepEqual((await store.restore(goalId))?.state.run, result.state);
 });
 

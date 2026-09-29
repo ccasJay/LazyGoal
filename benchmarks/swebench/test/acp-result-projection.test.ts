@@ -282,7 +282,7 @@ test("real Headless protocol failure retains state and usage across ACP serializ
         assert.equal(failure?.stage, "runtime");
         assert.equal(failure?.code, "INVALID_AGENT_DECISION");
         assert.equal(failure?.meta?.runStatus, "failed");
-        assert.deepEqual(failure?.meta?.usage, { inputTokens: 37, outputTokens: 11, missingCalls: 0 });
+        assert.deepEqual(failure?.meta?.usage, { inputTokens: 111, outputTokens: 33, missingCalls: 0 });
         return true;
     });
 });

@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 
 import {
     computeContentHash,
     createGoal,
     createToolRegistration,
+    createToolGrantMatcher,
+    InMemoryToolRegistry,
     GoalCoordinator,
     InlineScheduler,
     Runner,
@@ -12,6 +17,7 @@ import {
     transition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import { contract } from "../../contracts/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import type {
@@ -29,6 +35,7 @@ import type {
     StepExecutor,
     Tool,
     ToolDefinition,
+    ToolGrantStore,
 } from "../src/index";
 
 const profile: AgentProfile = {
@@ -526,6 +533,7 @@ test("saves Action approval before scheduling the matching transient authorizati
         assert.deepEqual(approved.state.run.pendingAction, {
             action: waiting.state.run.pendingAction?.action,
             status: "approved",
+            approvalScope: "action",
         });
 
         const observedRun = applyRunTransition(approved.state.run, {
@@ -571,6 +579,201 @@ test("saves Action approval before scheduling the matching transient authorizati
     assert.ok(
         events.indexOf("save:executing") < events.indexOf("schedule:goal-action-approval"),
     );
+});
+
+test("persists a goal Grant before approving and activates it before scheduling", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-"));
+    try {
+        const waiting = createActionApprovalGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const grants = new JsonFileToolGrantStore(directory);
+        const matcher = await createToolGrantMatcher("read_file", { path: "README.md" });
+        const registration = createToolRegistration(createTool({
+            id: "read_file",
+            description: "Read a file",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
+        }));
+        let scheduled = false;
+        const coordinator = new GoalCoordinator({
+            store,
+            scheduler: new FakeScheduler(async () => {
+                scheduled = true;
+                const active = await grants.findActiveMatching({
+                    workspaceId: "workspace-1",
+                    goalId: waiting.id,
+                    matcher,
+                });
+                assert.ok(active);
+                const approved = await store.restore(waiting.id);
+                assert.equal(approved?.state.run.pendingAction?.approvalScope, "goal");
+                assert.equal(approved?.state.run.pendingAction?.grantId, active.id);
+                throw new Error("scheduler reached after authorization commit");
+            }),
+            toolGrantStore: grants,
+            workspaceId: "workspace-1",
+            toolRegistry: new InMemoryToolRegistry([registration]),
+        });
+
+        await assert.rejects(coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action: { kind: "approve_action", actionId: "action-approval", scope: "goal" },
+        }), /scheduler reached after authorization commit/);
+        assert.equal(scheduled, true);
+        assert.equal((await grants.list({ workspaceId: "workspace-1", goalId: waiting.id })).filter((grant) => grant.status === "active").length, 1);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("rejecting an Action never creates a persistent Grant", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-reject-"));
+    try {
+        const waiting = createActionApprovalGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const grants = new JsonFileToolGrantStore(directory);
+        const coordinator = new GoalCoordinator({
+            store,
+            scheduler: new FakeScheduler(async () => { throw new Error("rejection was scheduled"); }),
+            toolGrantStore: grants,
+            workspaceId: "workspace-1",
+        });
+        await assert.rejects(coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action: { kind: "reject_action", actionId: "action-approval", reason: "拒绝" },
+        }), /rejection was scheduled/);
+        assert.deepEqual(await grants.list({ workspaceId: "workspace-1", goalId: waiting.id }), []);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("manual unknown outcomes cannot widen an Action approval into a persistent Grant", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-unknown-"));
+    try {
+        const waiting = createActionRecoveryGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const grants = new JsonFileToolGrantStore(directory);
+        const coordinator = new GoalCoordinator({
+            store,
+            scheduler: new FakeScheduler(async () => { throw new Error("unknown outcome was scheduled"); }),
+            toolGrantStore: grants,
+            workspaceId: "workspace-1",
+        });
+        const result = await coordinator.resume({
+            ref: { goalId: waiting.id, runId: waiting.state.run.id },
+            action: { kind: "approve_action", actionId: "action-approval", scope: "workspace" },
+        });
+        assert.equal(result.ok, false);
+        assert.deepEqual(await grants.list({ workspaceId: "workspace-1", goalId: waiting.id }), []);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("Coordinator lists only the current Goal grants and commits revocation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-revoke-"));
+    try {
+        const waiting = createActionApprovalGoal();
+        const store = new RecordingGoalStore();
+        await store.seed(waiting);
+        const ledger = new JsonFileToolGrantStore(directory);
+        const matcher = await createToolGrantMatcher("bash", { command: "git status" });
+        const goalGrant = await ledger.stage({
+            scope: "goal",
+            goalId: waiting.id,
+            workspaceId: "workspace-1",
+            source: { goalId: waiting.id, runId: "earlier-run", actionId: "goal-action" },
+            matcher,
+        });
+        const workspaceGrant = await ledger.stage({
+            scope: "workspace",
+            workspaceId: "workspace-1",
+            source: { goalId: "another-goal", runId: "another-run", actionId: "workspace-action" },
+            matcher,
+        });
+        await ledger.activate(goalGrant.id, goalGrant.source);
+        await ledger.activate(workspaceGrant.id, workspaceGrant.source);
+        const coordinator = new GoalCoordinator({
+            store,
+            scheduler: new FakeScheduler(async () => { throw new Error("unexpected schedule"); }),
+            trajectoryStore: trajectoryStoreFor(store),
+            toolGrantStore: ledger,
+            workspaceId: "workspace-1",
+        });
+        const ref = { goalId: waiting.id, runId: waiting.state.run.id };
+
+        const visible = await coordinator.listToolGrants(ref);
+        assert.deepEqual(visible.map((grant) => grant.id).sort(), [goalGrant.id, workspaceGrant.id].sort());
+        const revoked = await coordinator.revokeToolGrant({ ref, grantId: goalGrant.id, scope: "goal" });
+        assert.equal(revoked.status, "revoked");
+        assert.equal((await ledger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }))?.id, workspaceGrant.id);
+        const restored = await store.restore(waiting.id);
+        assert.equal(restored?.state.run.status, "waiting");
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("recovers a committed approval by activating its pending Grant before retry scheduling", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-coordinator-grant-recovery-"));
+    try {
+        const waiting = createActionApprovalGoal();
+        const goalDirectory = join(directory, "goals");
+        const goalStore = new JsonFileGoalStore(goalDirectory);
+        await goalStore.save(waiting);
+        const ledger = new JsonFileToolGrantStore(directory);
+        let activationFailures = 1;
+        const grantStore: ToolGrantStore = {
+            findActiveMatching: (query) => ledger.findActiveMatching(query),
+            stage: (grant) => ledger.stage(grant),
+            list: (query) => ledger.list(query),
+            revoke: (query) => ledger.revoke(query),
+            async activate(grantId, source) {
+                if (activationFailures > 0) {
+                    activationFailures -= 1;
+                    throw new Error("temporary grant activation failure");
+                }
+                return ledger.activate(grantId, source);
+            },
+        };
+        const registration = createToolRegistration(createTool({
+            id: "read_file",
+            description: "Read a file",
+            inputContract: TEST_INPUT_CONTRACT,
+            isReadOnly: false,
+        }));
+        const matcher = await createToolGrantMatcher("read_file", { path: "README.md" });
+        const coordinator = new GoalCoordinator({
+            store: goalStore,
+            scheduler: new FakeScheduler(async () => {
+                assert.ok(await ledger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
+                throw new Error("resumed scheduler");
+            }),
+            toolGrantStore: grantStore,
+            workspaceId: "workspace-1",
+            toolRegistry: new InMemoryToolRegistry([registration]),
+        });
+        const ref = { goalId: waiting.id, runId: waiting.state.run.id };
+
+        await assert.rejects(coordinator.resume({
+            ref,
+            action: { kind: "approve_action", actionId: "action-approval", scope: "workspace" },
+        }), /temporary grant activation failure/);
+        const committed = await new JsonFileGoalStore(goalDirectory).restore(waiting.id);
+        assert.equal(committed?.state.run.pendingAction?.status, "approved");
+        assert.equal(committed?.state.run.pendingAction?.approvalScope, "workspace");
+        assert.equal(await ledger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }), undefined);
+
+        const restartedLedger = new JsonFileToolGrantStore(directory);
+        const restartedCoordinator = new GoalCoordinator({
+            store: new JsonFileGoalStore(goalDirectory),
+            scheduler: new FakeScheduler(async () => {
+                assert.ok(await restartedLedger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
+                throw new Error("resumed scheduler");
+            }),
+            toolGrantStore: restartedLedger,
+            workspaceId: "workspace-1",
+            toolRegistry: new InMemoryToolRegistry([registration]),
+        });
+        await assert.rejects(restartedCoordinator.advance(ref), /resumed scheduler/);
+        assert.ok(await restartedLedger.findActiveMatching({ workspaceId: "workspace-1", goalId: waiting.id, matcher }));
+    } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("reject_action completes a rejected Observation and continues without a message", async () => {

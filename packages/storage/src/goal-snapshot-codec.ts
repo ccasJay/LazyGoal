@@ -18,6 +18,7 @@ import type {
     PendingAction,
     PendingInteraction,
     PendingThink,
+    PendingModelRepair,
     StepRecord,
     ToolCallAction,
 } from "../../runtime/src/index";
@@ -37,6 +38,7 @@ import {
     type GoalSnapshotPendingActionV1,
     type GoalSnapshotPendingInteractionV1,
     type GoalSnapshotPendingThinkV1,
+    type GoalSnapshotPendingModelRepairV1,
     type GoalSnapshotProfileV1,
     type GoalSnapshotStepRecordV1,
     type GoalSnapshotTaskV1,
@@ -180,6 +182,21 @@ function encodePendingThink(pendingThink: PendingThink): GoalSnapshotPendingThin
         executionUnitId: pendingThink.executionUnitId,
         inputBoundary: pendingThink.inputBoundary,
         latestThinkEventId: pendingThink.latestThinkEventId,
+    };
+}
+
+function encodePendingModelRepair(pending: PendingModelRepair): GoalSnapshotPendingModelRepairV1 {
+    return {
+        goalId: pending.goalId,
+        runId: pending.runId,
+        stepOrdinal: pending.stepOrdinal,
+        executionUnitId: pending.executionUnitId,
+        stage: pending.stage,
+        inputBoundary: pending.inputBoundary,
+        attemptsStarted: pending.attemptsStarted,
+        latestAttemptEventId: pending.latestAttemptEventId,
+        ...(pending.latestFeedbackEventId === undefined ? {} : { latestFeedbackEventId: pending.latestFeedbackEventId }),
+        ...(pending.thinkRequestId === undefined ? {} : { thinkRequestId: pending.thinkRequestId }),
     };
 }
 
@@ -406,6 +423,15 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                         pendingAction: {
                             action: encodeAction(run.pendingAction.action),
                             status: run.pendingAction.status,
+                            ...(run.pendingAction.attemptsStarted === undefined
+                                ? {}
+                                : { attemptsStarted: run.pendingAction.attemptsStarted }),
+                            ...(run.pendingAction.approvalScope === undefined
+                                ? {}
+                                : { approvalScope: run.pendingAction.approvalScope }),
+                            ...(run.pendingAction.grantId === undefined
+                                ? {}
+                                : { grantId: run.pendingAction.grantId }),
                         },
                     }),
                 ...(run.pendingInteraction === undefined
@@ -414,6 +440,9 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
                 ...(run.pendingThink === undefined
                     ? {}
                     : { pendingThink: encodePendingThink(run.pendingThink) }),
+                ...(run.pendingModelRepair === undefined
+                    ? {}
+                    : { pendingModelRepair: encodePendingModelRepair(run.pendingModelRepair) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },
@@ -603,6 +632,9 @@ function decodePendingAction(pendingAction: GoalSnapshotPendingActionV1): Pendin
     return {
         action: decodeAction(pendingAction.action),
         status: pendingAction.status,
+        ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+        ...(pendingAction.approvalScope === undefined ? {} : { approvalScope: pendingAction.approvalScope }),
+        ...(pendingAction.grantId === undefined ? {} : { grantId: pendingAction.grantId }),
     };
 }
 
@@ -614,6 +646,21 @@ function decodePendingThink(pendingThink: GoalSnapshotPendingThinkV1): PendingTh
         executionUnitId: pendingThink.executionUnitId,
         inputBoundary: pendingThink.inputBoundary as `sha256:${string}`,
         latestThinkEventId: pendingThink.latestThinkEventId,
+    };
+}
+
+function decodePendingModelRepair(pending: GoalSnapshotPendingModelRepairV1): PendingModelRepair {
+    return {
+        goalId: pending.goalId,
+        runId: pending.runId,
+        stepOrdinal: pending.stepOrdinal,
+        executionUnitId: pending.executionUnitId,
+        stage: pending.stage,
+        inputBoundary: pending.inputBoundary as `sha256:${string}`,
+        attemptsStarted: pending.attemptsStarted,
+        latestAttemptEventId: pending.latestAttemptEventId,
+        ...(pending.latestFeedbackEventId === undefined ? {} : { latestFeedbackEventId: pending.latestFeedbackEventId }),
+        ...(pending.thinkRequestId === undefined ? {} : { thinkRequestId: pending.thinkRequestId }),
     };
 }
 
@@ -706,6 +753,9 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
                 ...(run.pendingThink === undefined
                     ? {}
                     : { pendingThink: decodePendingThink(run.pendingThink) }),
+                ...(run.pendingModelRepair === undefined
+                    ? {}
+                    : { pendingModelRepair: decodePendingModelRepair(run.pendingModelRepair) }),
                 ...(run.stopReason === undefined ? {} : { stopReason: structuredClone(run.stopReason) }),
                 contextEpoch: structuredClone(run.contextEpoch),
             },

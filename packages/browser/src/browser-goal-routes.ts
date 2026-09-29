@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { BrowserGoalListItem, BrowserGoalSession } from "./browser-projection";
+import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
     BrowserCreateGoalCommand,
     BrowserCreateGoalResult,
@@ -10,6 +11,11 @@ import type {
     BrowserGoalMessageResult,
     BrowserGoalPlanModeCommand,
     BrowserGoalPlanModeResult,
+    BrowserModelSelectionCommand,
+    BrowserModelSelectionResult,
+    BrowserActionDetailsResult,
+    BrowserToolGrantResult,
+    BrowserToolGrantRevokeCommand,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalLiveFeed,
@@ -37,6 +43,8 @@ const MAX_COMMAND_TEXT_LENGTH = 4_000;
  *     interact: async () => ({ ok: false, error: "interaction_failed" }),
  *     message: async () => ({ ok: false, error: "message_failed" }),
  *     enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
+ *     models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
+ *     selectModel: async () => ({ ok: false, error: "model_selection_failed" }),
  *     openStream: async () => ({ ok: false, error: "goal_not_found" }),
  * };
  * ```
@@ -93,6 +101,16 @@ export interface BrowserGoalApiPort {
      */
     enterPlanMode(goalId: string, command: BrowserGoalPlanModeCommand): Promise<BrowserGoalPlanModeResult>;
     /**
+     * 读取草稿默认模型或指定 Goal 当前 Run 的模型目录。
+     *
+     * @param target - 省略时读取草稿目录；指定时必须匹配最新 Goal/Run。
+     * @param signal - 浏览器断开时取消在线目录请求。
+     * @returns 白名单目录或稳定失败分类，不返回凭据或 Provider 原始响应。
+     */
+    models(target?: { readonly goalId: string; readonly runId: string }, signal?: AbortSignal): Promise<BrowserModelCatalogReadResult>;
+    /** 保存由服务端重新验证的当前 Run 模型选择。 */
+    selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult>;
+    /**
      * 打开精确绑定到最新 Goal/Run 的实时进展流。
      *
      * @param goalId - URL 路径中的 Goal 身份。
@@ -102,13 +120,19 @@ export interface BrowserGoalApiPort {
      * @throws 正式 Snapshot 读取失败时拒绝。
      */
     openStream(goalId: string, runId: string, signal?: AbortSignal): Promise<BrowserGoalStreamOpenResult>;
+    /** 精确读取当前等待 Action 的完整输入；普通会话投影不携带此数据。 */
+    readActionDetails?(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult>;
+    /** 列出当前 Goal 与 workspace 的授权摘要。 */
+    listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
+    /** 撤销当前 Goal 或 workspace 的指定授权。 */
+    revokeToolGrant?(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult>;
 }
 
 /**
  * 创建同源 Goal 列表、会话读取、命令和实时事件 API。
  *
  * @param source - 返回经过白名单投影的正式工作区数据并使用 Runtime Launcher 的端口。
- * @returns 提供列表/详情读取、`POST /api/goals`、创建/交互/消息/Plan Mode 路由、
+ * @returns 提供列表/详情、模型目录、`POST /api/goals`、交互/消息/Plan Mode、
  *   会话事件流路由和 Hono 应用。
  * @remarks
  * 缺失 Goal 返回 404；Catalog、Snapshot 或 Trajectory 损坏统一返回 500 与稳定错误码，
@@ -120,6 +144,75 @@ export interface BrowserGoalApiPort {
  */
 export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     const routes = new Hono();
+
+    routes.get("/api/models", async (context) => {
+        if (new URL(context.req.url).searchParams.size !== 0) {
+            return context.json({ error: "invalid_model_catalog_request" }, 400);
+        }
+        try {
+            const result = await source.models(undefined, context.req.raw.signal);
+            return result.ok
+                ? context.json(result.catalog)
+                : context.json({ error: result.error }, modelCatalogErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
+
+    routes.get("/api/goals/:goalId/models", async (context) => {
+        const goalId = context.req.param("goalId");
+        const query = new URL(context.req.url).searchParams;
+        const runIds = query.getAll("runId");
+        const runId = runIds[0];
+        if (
+            !isWireId(goalId, MAX_GOAL_ID_LENGTH)
+            || query.size !== 1
+            || runIds.length !== 1
+            || runId === undefined
+            || !isWireId(runId, 256)
+        ) {
+            return context.json({ error: "invalid_model_catalog_request" }, 400);
+        }
+        try {
+            const result = await source.models({ goalId, runId }, context.req.raw.signal);
+            return result.ok
+                ? context.json(result.catalog)
+                : context.json({ error: result.error, refresh: result.error === "stale_run" }, modelCatalogErrorStatus(result.error));
+        } catch {
+            return context.json({ error: "model_catalog_unavailable" }, 503);
+        }
+    });
+
+    routes.post("/api/goals/:goalId/model-selection", async (context) => {
+        const goalId = context.req.param("goalId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_model_selection" }, 400);
+        const body = await readJsonBody(context.req.raw);
+        if (!body.ok) return context.json({ error: body.error }, body.status);
+        const value = body.value;
+        if (typeof value !== "object" || value === null || Array.isArray(value)) {
+            return context.json({ error: "invalid_model_selection" }, 400);
+        }
+        const fields = value as Record<string, unknown>;
+        const modelId = readWireText(fields.modelId, 256);
+        if (
+            Object.keys(fields).length !== 2
+            || !isWireId(fields.runId, 256)
+            || modelId === undefined
+        ) return context.json({ error: "invalid_model_selection" }, 400);
+        try {
+            const result = await source.selectModel(goalId, {
+                runId: fields.runId,
+                modelId,
+            });
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "model_catalog_unavailable" || result.error === "model_selection_failed" ? 503
+                    : 409;
+            return context.json({ error: result.error, refresh: result.error === "stale_run" }, status);
+        } catch {
+            return context.json({ error: "model_selection_failed" }, 503);
+        }
+    });
 
     routes.get("/api/goals", async (context) => {
         try {
@@ -141,6 +234,59 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
+    routes.get("/api/goals/:goalId/actions/:actionId", async (context) => {
+        if (source.readActionDetails === undefined) return context.json({ error: "action_details_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const actionId = context.req.param("actionId");
+        const runId = context.req.query("runId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(actionId, 256) || !isWireId(runId, 256)) {
+            return context.json({ error: "invalid_action_details_request" }, 400);
+        }
+        try {
+            const result = await source.readActionDetails(goalId, runId, actionId);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "action_details_unavailable" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "action_details_unavailable" }, 500); }
+    });
+
+    routes.get("/api/goals/:goalId/grants", async (context) => {
+        if (source.listToolGrants === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const runId = context.req.query("runId");
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(runId, 256)) {
+            return context.json({ error: "invalid_grant_request" }, 400);
+        }
+        try {
+            const result = await source.listToolGrants(goalId, runId);
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "grant_failed" }, 500); }
+    });
+
+    routes.delete("/api/goals/:goalId/grants/:grantId", async (context) => {
+        if (source.revokeToolGrant === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const goalId = context.req.param("goalId");
+        const grantId = context.req.param("grantId");
+        const parsed = await parseGrantRevokeCommand(context.req.raw);
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(grantId, 256) || !parsed.ok) {
+            return context.json({ error: parsed.ok ? "invalid_grant_request" : parsed.error }, 400);
+        }
+        try {
+            const result = await source.revokeToolGrant(goalId, { ...parsed.command, grantId });
+            if (result.ok) return context.json(result);
+            const status = result.error === "goal_not_found" ? 404
+                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                    : 409;
+            return context.json({ error: result.error }, status);
+        } catch { return context.json({ error: "grant_failed" }, 500); }
+    });
+
     routes.post("/api/goals", async (context) => {
         const parsed = await parseCreateCommand(context.req.raw);
         if (!parsed.ok) {
@@ -156,6 +302,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                 }, result.existing ? 200 : 202);
             }
             const status = result.error === "goal_create_failed" ? 500
+                : result.error === "model_catalog_unavailable" ? 503
                 : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
                     : 400;
             return context.json({ error: result.error }, status);
@@ -267,6 +414,13 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     return routes;
 }
 
+function modelCatalogErrorStatus(error: Exclude<BrowserModelCatalogReadResult, { readonly ok: true }>["error"]): 404 | 409 | 502 | 503 {
+    if (error === "goal_not_found") return 404;
+    if (error === "stale_run") return 409;
+    if (error === "model_catalog_unavailable") return 503;
+    return 502;
+}
+
 async function parseCreateCommand(
     request: Request,
 ): Promise<
@@ -282,7 +436,7 @@ async function parseCreateCommand(
 
     const body = value as Record<string, unknown>;
     if (
-        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode")
+        Object.keys(body).some((key) => key !== "goalId" && key !== "intent" && key !== "mode" && key !== "modelId")
         || typeof body.goalId !== "string"
         || body.goalId.length === 0
         || body.goalId.length > MAX_GOAL_ID_LENGTH
@@ -291,6 +445,7 @@ async function parseCreateCommand(
         || body.intent.trim().length === 0
         || body.intent.length > MAX_COMMAND_TEXT_LENGTH
         || (body.mode !== undefined && body.mode !== "plan")
+        || (body.modelId !== undefined && readWireText(body.modelId, 256) === undefined)
     ) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
@@ -301,6 +456,7 @@ async function parseCreateCommand(
             goalId: body.goalId,
             intent: body.intent,
             ...(body.mode === undefined ? {} : { mode: body.mode }),
+            ...(body.modelId === undefined ? {} : { modelId: body.modelId as string }),
         },
     };
 }
@@ -381,13 +537,15 @@ async function parseInteractionCommand(
     }
 
     if (kind === "approve_action") {
-        if (!hasExactKeys(body, ["kind", "runId", "actionId"])) {
+        if (!hasExactKeys(body, ["kind", "runId", "actionId"], ["scope"])) {
             return { ok: false, error: "invalid_interaction", status: 400 };
         }
         const actionId = readWireText(body.actionId, 256);
+        const scope = body.scope ?? "action";
         return actionId === undefined
+            || (scope !== "action" && scope !== "goal" && scope !== "workspace")
             ? { ok: false, error: "invalid_interaction", status: 400 }
-            : { ok: true, command: { kind, runId, actionId } };
+            : { ok: true, command: { kind, runId, actionId, scope } };
     }
 
     if (kind === "reject_action") {
@@ -430,6 +588,26 @@ async function parseMessageCommand(
         return { ok: false, error: "invalid_message", status: 400 };
     }
     return { ok: true, command: { runId, content } };
+}
+
+async function parseGrantRevokeCommand(request: Request): Promise<
+    | { readonly ok: true; readonly command: Omit<BrowserToolGrantRevokeCommand, "grantId"> }
+    | { readonly ok: false; readonly error: string }
+> {
+    const parsed = await readJsonBody(request);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    const value = parsed.value;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { ok: false, error: "invalid_grant_request" };
+    }
+    const body = value as Record<string, unknown>;
+    if (!hasExactKeys(body, ["runId", "scope"])) return { ok: false, error: "invalid_grant_request" };
+    const runId = readWireText(body.runId, 256);
+    const scope = body.scope;
+    if (runId === undefined || (scope !== "goal" && scope !== "workspace")) {
+        return { ok: false, error: "invalid_grant_request" };
+    }
+    return { ok: true, command: { runId, scope } };
 }
 
 async function readJsonBody(
@@ -532,30 +710,33 @@ function readWireText(value: unknown, maximumLength: number): string | undefined
         : undefined;
 }
 
-function isWireId(value: string, maximumLength: number): boolean {
-    return value.length > 0
+function isWireId(value: unknown, maximumLength: number): value is string {
+    return typeof value === "string"
+        && value.length > 0
         && value.length <= maximumLength
         && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
 function interactionErrorStatus(
     error: Extract<BrowserGoalInteractionResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 {
+): 400 | 404 | 409 | 500 | 503 {
     if (error === "goal_not_found") return 404;
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "stale_request" || error === "action_not_waiting") return 409;
     if (error === "interaction_failed") return 500;
+    if (error === "model_restore_failed") return 503;
     return 400;
 }
 
 function messageErrorStatus(
     error: Extract<BrowserGoalMessageResult, { readonly ok: false }>["error"],
-): 400 | 404 | 409 | 500 {
+): 400 | 404 | 409 | 500 | 503 {
     if (error === "goal_not_found") return 404;
     if (error === "goal_busy" || error === "stale_run" || error === "goal_not_waiting"
         || error === "goal_not_completed" || error === "structured_interaction_required"
         || error === "message_conflict") return 409;
     if (error === "message_failed") return 500;
+    if (error === "model_restore_failed") return 503;
     return 400;
 }
 

@@ -89,6 +89,73 @@ test("draft validation rejects derived state and mismatched payload type", () =>
     }
 });
 
+test("model repair feedback events validate identity, origin, attempt, and bounded issue fields", () => {
+    const draft: TrajectoryEventDraft = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing",
+        executionUnitId: "unit-1",
+        stepIndex: 1,
+        eventType: "model_repair_feedback_recorded",
+        payload: {
+            type: "model_repair_feedback_recorded",
+            stage: "decide",
+            attempt: 1,
+            feedback: {
+                goalId: "goal-1",
+                runId: "run-1",
+                executionUnitId: "unit-1",
+                stepOrdinal: 1,
+                stage: "decide",
+                origin: "tool_input",
+                code: "INVALID_TOOL_INPUT",
+                attempt: 1,
+                issues: [{ code: "invalid_input", path: ["path"], message: "Correct the tool input." }],
+            },
+        },
+    };
+    assert.doesNotThrow(() => assertValidTrajectoryEventDraft(draft));
+
+    const invalidFeedbacks: unknown[] = [
+        { ...draft.payload.feedback, origin: "unknown" },
+        { ...draft.payload.feedback, attempt: 2 },
+        { ...draft.payload.feedback, issues: [{ code: "bad", path: [], message: "x".repeat(241) }] },
+        { ...draft.payload.feedback, secret: "unexpected" },
+    ];
+    for (const feedback of invalidFeedbacks) {
+        assert.throws(() => assertValidTrajectoryEventDraft({
+            ...draft,
+            payload: { ...draft.payload, feedback } as unknown as typeof draft.payload,
+        }));
+    }
+});
+
+test("Tool attempt facts reject unknown, unbounded, and out-of-order retry data", () => {
+    const base = {
+        goalId: "goal-1",
+        runId: "run-1",
+        phase: "executing" as const,
+        executionUnitId: "unit-1",
+        actionId: "action-1",
+    };
+    assert.doesNotThrow(() => assertValidTrajectoryEventDraft({
+        ...base,
+        eventType: "tool_attempt_started",
+        payload: { type: "tool_attempt_started", actionId: "action-1", attempt: 3 },
+    }));
+    for (const payload of [
+        { type: "tool_attempt_started", actionId: "action-1", attempt: 4 },
+        { type: "tool_attempt_failed", actionId: "action-1", attempt: 1, reason: "x".repeat(121) },
+        { type: "tool_attempt_failed", actionId: "action-1", attempt: 1, reason: "network", retryAfterMs: 30_001 },
+    ]) {
+        assert.throws(() => assertValidTrajectoryEventDraft({
+            ...base,
+            eventType: payload.type,
+            payload,
+        } as unknown as TrajectoryEventDraft));
+    }
+});
+
 test("computeContentHash 计算合法哈希，且旧 preparation_input_recorded 事件被严格拒绝", () => {
     assert.equal(
         computeContentHash("hello"),

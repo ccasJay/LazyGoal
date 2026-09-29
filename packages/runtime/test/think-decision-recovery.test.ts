@@ -16,7 +16,9 @@ import type {
 import {
     allocateImmutableEvent,
     createGoal,
+    createRuntimeFeedback,
     ExecutionAbortedError,
+    ModelStageFeedbackError,
     Runner,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
@@ -163,6 +165,155 @@ async function createRecoverableThinkChain(id: string) {
     return { store, trajectory, initial, saved, executor };
 }
 
+
+test("Decide 阶段反馈先提交再重试，恢复链记录尝试且不推进 Step", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    const initial = createExecutingGoal("decide-output-repair");
+    await store.save(initial);
+    const executor = new ScriptedExecutor(
+        async (input, call) => {
+            if (call === 1) {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: input.goal.id,
+                    runId: input.goal.state.run.id,
+                    executionUnitId: input.executionUnitId ?? "unbound",
+                    stepOrdinal: input.goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "output_contract",
+                    code: "INVALID_LLM_RESPONSE",
+                    attempt: 1,
+                    issues: [{ code: "missing_required_property", path: ["result"], message: "Return the required result object." }],
+                }), "invalid Decide output");
+            }
+            assert.ok(input.runtimeFeedback);
+            assert.equal(input.runtimeFeedback.stage, "decide");
+            assert.equal(input.runtimeFeedback.attempt, 1);
+            return waitDecision(input);
+        },
+        async () => { throw new Error("Decide repair must not call Think"); },
+    );
+
+    const result = await new Runner({ store, executor, trajectoryStore: trajectory })
+        .run({ goalId: initial.id, runId: "run-1" });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "waiting");
+    assert.equal(result.state.stepCount, 1);
+    assert.equal(result.state.pendingModelRepair, undefined);
+    assert.equal(executor.decideInputs.length, 2);
+    const persisted = await store.restore(initial.id);
+    assert.equal(persisted?.state.run.stepCount, 1);
+    const events = await trajectory.readWithBoundary(
+        { goalId: initial.id, runId: "run-1" },
+        persisted?.state.run.committedThroughSequence ?? 0,
+    );
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_attempt_started").length, 2);
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_feedback_recorded").length, 1);
+    const feedback = events.committed.find((event) => event.eventType === "model_repair_feedback_recorded");
+    assert.equal(feedback?.eventType === "model_repair_feedback_recorded" ? feedback.payload.feedback.attempt : -1, 1);
+});
+
+test("已提交阶段反馈后中止，恢复时重用反馈并继续同一 Decide 链", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    const initial = createExecutingGoal("decide-repair-recovery");
+    await store.save(initial);
+    const controller = new AbortController();
+    const first = new ScriptedExecutor(
+        async (input, call) => {
+            if (call === 1) {
+                throw new ModelStageFeedbackError(createRuntimeFeedback({
+                    goalId: input.goal.id,
+                    runId: input.goal.state.run.id,
+                    executionUnitId: input.executionUnitId ?? "unbound",
+                    stepOrdinal: input.goal.state.run.stepCount + 1,
+                    stage: "decide",
+                    origin: "output_contract",
+                    code: "INVALID_LLM_RESPONSE",
+                    attempt: 1,
+                    issues: [{ code: "missing_required_property", path: ["result"], message: "Return the required result object." }],
+                }), "invalid Decide output");
+            }
+            assert.equal(input.runtimeFeedback?.attempt, 1);
+            controller.abort();
+            throw new ExecutionAbortedError("cancel between repair attempts");
+        },
+        async () => { throw new Error("Decide recovery must not call Think"); },
+    );
+
+    await assert.rejects(
+        new Runner({ store, executor: first, trajectoryStore: trajectory })
+            .run({ goalId: initial.id, runId: "run-1" }, {}, { signal: controller.signal }),
+        (error: unknown) => error instanceof ExecutionAbortedError,
+    );
+    const suspended = await store.restore(initial.id);
+    assert.equal(suspended?.state.run.pendingModelRepair?.stage, "decide");
+    assert.equal(suspended?.state.run.pendingModelRepair?.attemptsStarted, 2);
+
+    const resumed = new ScriptedExecutor(
+        async (input) => {
+            assert.equal(input.runtimeFeedback?.attempt, 1);
+            return waitDecision(input);
+        },
+        async () => { throw new Error("Decide recovery must not call Think"); },
+    );
+    const result = await new Runner({ store, executor: resumed, trajectoryStore: trajectory })
+        .run({ goalId: initial.id, runId: "run-1" });
+
+    assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.state.status, "waiting");
+    assert.equal(resumed.decideInputs.length, 1);
+    assert.equal(resumed.decideInputs[0]?.runtimeFeedback?.attempt, 1);
+    const persisted = await store.restore(initial.id);
+    const events = await trajectory.readWithBoundary(
+        { goalId: initial.id, runId: "run-1" },
+        persisted?.state.run.committedThroughSequence ?? 0,
+    );
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_attempt_started").length, 3);
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_feedback_recorded").length, 1);
+});
+
+test("无效输出达到三次上限后明确失败并保留反馈尝试事实", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = new InMemoryTrajectoryStore();
+    const initial = createExecutingGoal("decide-repair-exhausted");
+    await store.save(initial);
+    const executor = new ScriptedExecutor(
+        async (input) => {
+            throw new ModelStageFeedbackError(createRuntimeFeedback({
+                goalId: input.goal.id,
+                runId: input.goal.state.run.id,
+                executionUnitId: input.executionUnitId ?? "unbound",
+                stepOrdinal: input.goal.state.run.stepCount + 1,
+                stage: "decide",
+                origin: "output_contract",
+                code: "INVALID_LLM_RESPONSE",
+                attempt: 1,
+                issues: [{ code: "missing_required_property", path: ["result"], message: "Return the required result object." }],
+            }), "invalid Decide output");
+        },
+        async () => { throw new Error("Decide correction must not call Think"); },
+    );
+
+    const result = await new Runner({ store, executor, trajectoryStore: trajectory })
+        .run({ goalId: initial.id, runId: "run-1" });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "failed");
+    assert.equal(result.state.stepCount, 0);
+    assert.equal(result.state.pendingModelRepair, undefined);
+    assert.equal(executor.decideInputs.length, 3);
+    const events = await trajectory.readWithBoundary(
+        { goalId: initial.id, runId: "run-1" },
+        result.state.committedThroughSequence,
+    );
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_attempt_started").length, 3);
+    assert.equal(events.committed.filter((event) => event.eventType === "model_repair_feedback_recorded").length, 3);
+});
+
 test("已提交 Think 后 Decide 失败，恢复复用输出并只重试 Decide", async () => {
     const { store, trajectory, initial, saved, executor: firstExecutor } =
         await createRecoverableThinkChain("think-recovery-decide-failure");
@@ -240,7 +391,7 @@ test("已提交 Think 后 Decide 被取消，Run 保留指针并在恢复时只�
     assert.equal(resumed.thinkInputs.length, 0);
 });
 
-test("Think 调用失败时忽略未完成请求，恢复 Decide 不携带未提交输出", async () => {
+test("Think 调用中断后从已提交请求恢复同一目标，不复用未提交输出", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = new InMemoryTrajectoryStore();
     const initial = createExecutingGoal("think-recovery-think-failure");
@@ -269,17 +420,23 @@ test("Think 调用失败时忽略未完成请求，恢复 Decide 不携带未提
 
     const resumed = new ScriptedExecutor(
         async (input) => {
-            assert.deepEqual(input.thinkHistory, []);
+            assert.deepEqual(input.thinkHistory.map((item) => item.output), ["Think 重试后完成的输出。"]);
             return waitDecision(input);
         },
-        async () => { throw new Error("Recovery must not reuse a failed Think response"); },
+        async (input) => ({
+            goal: input.thinkGoal,
+            output: "Think 重试后完成的输出。",
+            modelContextFrame: frame(input, "think"),
+        }),
     );
     const result = await new Runner({ store, executor: resumed, trajectoryStore: trajectory })
         .run({ goalId: initial.id, runId: "run-1" });
 
     assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.state.status, "waiting", JSON.stringify(result.state.stopReason));
     assert.equal(resumed.decideInputs.length, 1);
-    assert.equal(resumed.thinkInputs.length, 0);
+    assert.equal(resumed.thinkInputs.length, 1);
+    assert.equal(resumed.thinkInputs[0]?.thinkGoal, "核对阶段恢复边界");
 });
 
 test("Think 输出 append 成功但 Snapshot 保存失败时，uncommitted tail 不进入恢复历史", async () => {
@@ -317,17 +474,22 @@ test("Think 输出 append 成功但 Snapshot 保存失败时，uncommitted tail 
 
     const resumed = new ScriptedExecutor(
         async (input) => {
-            assert.deepEqual(input.thinkHistory, []);
+            assert.deepEqual(input.thinkHistory.map((item) => item.output), ["重试后已提交的输出。"]);
             return waitDecision(input);
         },
-        async () => { throw new Error("Recovery must ignore an uncommitted output"); },
+        async (input) => ({
+            goal: input.thinkGoal,
+            output: "重试后已提交的输出。",
+            modelContextFrame: frame(input, "think"),
+        }),
     );
     const result = await new Runner({ store, executor: resumed, trajectoryStore: trajectory })
         .run({ goalId: initial.id, runId: "run-1" });
 
     assert.equal(result.ok, true);
+    if (result.ok) assert.equal(result.state.status, "waiting", JSON.stringify(result.state.stopReason));
     assert.equal(resumed.decideInputs.length, 1);
-    assert.equal(resumed.thinkInputs.length, 0);
+    assert.equal(resumed.thinkInputs.length, 1);
 });
 
 test("多轮 Think 恢复只跟随 Snapshot 指向的父链，忽略已越过边界的旧输出", async () => {
@@ -371,26 +533,6 @@ test("多轮 Think 恢复只跟随 Snapshot 指向的父链，忽略已越过边
     assert.equal(completedBeforeRetry.uncommittedTail.some((event) => event.eventType === "think_completed"), true);
 
     const retry = new ScriptedExecutor(
-        async (input, call) => {
-            if (call === 1) {
-                assert.deepEqual(input.thinkHistory.map((item) => item.output), ["第一项已提交"]);
-                return requestThink(input, "完成第二项推演");
-            }
-            throw new Error("保留第二项的恢复检查点");
-        },
-        async (input) => ({
-            goal: input.thinkGoal,
-            output: "第二项重试后已提交",
-            modelContextFrame: frame(input, "think"),
-        }),
-    );
-    await assert.rejects(
-        new Runner({ store, executor: retry, trajectoryStore: trajectory })
-            .run({ goalId: initial.id, runId: "run-1" }),
-        /保留第二项的恢复检查点/,
-    );
-
-    const finalRetry = new ScriptedExecutor(
         async (input) => {
             assert.deepEqual(input.thinkHistory.map((item) => item.output), [
                 "第一项已提交",
@@ -398,14 +540,21 @@ test("多轮 Think 恢复只跟随 Snapshot 指向的父链，忽略已越过边
             ]);
             return waitDecision(input);
         },
-        async () => { throw new Error("Restored Think chain must not execute Think"); },
+        async (input) => {
+            assert.equal(input.thinkGoal, "完成第二项推演");
+            return {
+                goal: input.thinkGoal,
+                output: "第二项重试后已提交",
+                modelContextFrame: frame(input, "think"),
+            };
+        },
     );
-    const result = await new Runner({ store, executor: finalRetry, trajectoryStore: trajectory })
+    const result = await new Runner({ store, executor: retry, trajectoryStore: trajectory })
         .run({ goalId: initial.id, runId: "run-1" });
 
     assert.equal(result.ok, true);
-    assert.equal(finalRetry.decideInputs.length, 1);
-    assert.equal(finalRetry.thinkInputs.length, 0);
+    assert.equal(retry.decideInputs.length, 1);
+    assert.equal(retry.thinkInputs.length, 1);
 });
 
 test("Think 链的模型输入变化时 fail-closed，不调用阶段 Executor", async () => {

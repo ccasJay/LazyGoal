@@ -1,12 +1,16 @@
 import type {
     ExecutionControl,
     Goal,
+    GoalModelSelection,
+    GoalModelSelectionCoordinator,
     GoalCoordinator,
     GoalStore,
     GoalUserAction,
+    JsonValue,
     LaunchRequest,
     LaunchResult,
     ResumeGoalRequest,
+    ToolGrant,
 } from "../../runtime/src/index";
 
 /**
@@ -32,6 +36,8 @@ export interface BrowserCreateGoalCommand {
     readonly intent: string;
     /** 首个 Run 的显式模式；省略时使用 Normal Mode。 */
     readonly mode?: "plan";
+    /** 草稿预选的模型 ID；省略时使用进程默认模型。 */
+    readonly modelId?: string;
 }
 
 /**
@@ -67,6 +73,54 @@ export type BrowserGoalPlanModeResult =
         readonly ok: false;
         readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "plan_mode_busy" | "plan_mode_failed";
     };
+
+/**
+ * 浏览器提交的当前 Run 模型选择。
+ *
+ * @remarks
+ * 只接受模型 ID；Provider、能力和预算由服务端重新读取目录并构造。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserModelSelectionCommand = { runId: "run-1", modelId: "gpt-4o" };
+ * ```
+ */
+export interface BrowserModelSelectionCommand {
+    readonly runId: string;
+    readonly modelId: string;
+}
+
+/** 模型选择提交的稳定受理结果；失败不会修改 Goal Snapshot。 */
+export type BrowserModelSelectionResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "goal_busy" | "model_switch_not_allowed" | "model_not_selectable" | "model_catalog_unavailable" | "model_selection_failed" };
+
+/** 白名单化后的当前 Goal/workspace 授权摘要。 */
+export interface BrowserToolGrantSummary {
+    readonly grantId: string;
+    readonly scope: "goal" | "workspace";
+    readonly toolId: string;
+    readonly status: ToolGrant["status"];
+    /** 写入/编辑授权的规范化目标；完整命令与输入摘要不会暴露。 */
+    readonly targetPath?: string;
+}
+
+/** 浏览器按当前 Action 身份读取的完整已保存 Tool 输入。 */
+export type BrowserActionDetailsResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly actionId: string; readonly toolId: string; readonly input: JsonValue }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "action_not_waiting" | "action_details_unavailable" };
+
+/** 当前范围下授权列举/撤销的受理结果。 */
+export type BrowserToolGrantResult =
+    | { readonly ok: true; readonly goalId: string; readonly runId: string; readonly grants: readonly BrowserToolGrantSummary[] }
+    | { readonly ok: false; readonly error: "goal_not_found" | "stale_run" | "permissions_unavailable" | "grant_failed" };
+
+/** 浏览器授权撤销所需的当前 Goal/Run 身份与范围。 */
+export interface BrowserToolGrantRevokeCommand {
+    readonly runId: string;
+    readonly grantId: string;
+    readonly scope: "goal" | "workspace";
+}
 
 /**
  * 浏览器提交的普通会话文本。
@@ -120,6 +174,7 @@ export type BrowserGoalMessageResult =
             | "goal_not_waiting"
             | "goal_not_completed"
             | "structured_interaction_required"
+            | "model_restore_failed"
             | "message_conflict"
             | "invalid_message"
             | "message_failed";
@@ -148,7 +203,7 @@ export type BrowserCreateGoalResult =
     }
     | {
         readonly ok: false;
-        readonly error: "invalid_goal_input" | "goal_id_conflict" | "goal_busy" | "goal_create_failed";
+        readonly error: "invalid_goal_input" | "goal_id_conflict" | "goal_busy" | "model_not_selectable" | "model_catalog_unavailable" | "goal_create_failed";
     };
 
 /**
@@ -224,7 +279,7 @@ export type BrowserGoalInteractionCommand =
     }
     | { readonly kind: "approve_task"; readonly runId: string; readonly requestId: string }
     | { readonly kind: "feedback_task"; readonly runId: string; readonly requestId: string; readonly feedback: string }
-    | { readonly kind: "approve_action"; readonly runId: string; readonly actionId: string }
+    | { readonly kind: "approve_action"; readonly runId: string; readonly actionId: string; readonly scope?: "action" | "goal" | "workspace" }
     | { readonly kind: "reject_action"; readonly runId: string; readonly actionId: string; readonly reason: string };
 
 /**
@@ -256,6 +311,7 @@ export type BrowserGoalInteractionResult =
             | "goal_not_waiting"
             | "stale_request"
             | "action_not_waiting"
+            | "model_restore_failed"
             | "goal_busy"
             | "invalid_interaction"
             | "interaction_failed";
@@ -311,6 +367,11 @@ export interface BrowserGoalCoordinator {
         ref: Parameters<GoalCoordinator["enterPlanMode"]>[0],
         control?: ExecutionControl,
     ): ReturnType<GoalCoordinator["enterPlanMode"]>;
+
+    /** 当前 Goal 下列出 goal 与 workspace 授权。 */
+    listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
+    /** 撤销由当前 Goal/Run 限定的持续授权。 */
+    revokeToolGrant?(request: Parameters<GoalCoordinator["revokeToolGrant"]>[0]): ReturnType<GoalCoordinator["revokeToolGrant"]>;
 }
 
 /**
@@ -332,6 +393,14 @@ export interface BrowserGoalCommandDependencies {
     readonly launcher: BrowserGoalLauncher;
     /** 复用本机 GoalCoordinator；浏览器不能直接修改 Goal Snapshot。 */
     readonly coordinator: BrowserGoalCoordinator;
+    /** 由本机模型目录验证 ID 并构造完整非敏感选择。 */
+    readonly resolveModelSelection?: (modelId: string, current: GoalModelSelection) => Promise<GoalModelSelection | undefined>;
+    /** 在安全等待点持久化已验证的模型选择。 */
+    readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
+    /** 推进前按 Goal 快照重建当前进程模型绑定。 */
+    readonly restoreModelBinding?: (goal: Goal) => Promise<boolean>;
+    /** 浏览器创建使用的进程默认模型选择。 */
+    readonly defaultModelSelection?: GoalModelSelection;
     /** 本机 Composition Root 已验证并加载的 Profile ID。 */
     readonly profileId: string;
     /** 与本机 ShutdownCoordinator 共享的可选取消信号。 */
@@ -341,6 +410,7 @@ export interface BrowserGoalCommandDependencies {
 interface InFlightCreate {
     readonly intent: string;
     readonly mode: "normal" | "plan";
+    readonly modelId: string | undefined;
     readonly accepted: Promise<BrowserCreateGoalResult>;
 }
 
@@ -390,6 +460,50 @@ export class BrowserGoalCommandService {
     constructor(private readonly dependencies: BrowserGoalCommandDependencies) {}
 
     /**
+     * 在当前 Run 的安全等待点提交已重新验证的模型选择。
+     *
+     * @param goalId - URL 路径中的 Goal 身份。
+     * @param command - 当前 Run 身份及模型 ID。
+     * @returns 保存成功后的身份，或无副作用的稳定拒绝码。
+     */
+    async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult> {
+        return this.withReservationLock(async () => {
+            if (this.activeGoalId !== undefined) return { ok: false, error: "goal_busy" };
+            const goal = await this.dependencies.store.restore(goalId);
+            if (goal === undefined) return { ok: false, error: "goal_not_found" };
+            if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+            if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
+                return { ok: false, error: "model_catalog_unavailable" };
+            }
+            const status = goal.state.run.status;
+            if (
+                status !== "completed" && status !== "failed"
+                && (status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined)
+            ) {
+                return { ok: false, error: "model_switch_not_allowed" };
+            }
+            let selection: GoalModelSelection | undefined;
+            try {
+                selection = await this.dependencies.resolveModelSelection(command.modelId, goal.state.modelSelection);
+            } catch {
+                return { ok: false, error: "model_catalog_unavailable" };
+            }
+            if (selection === undefined) return { ok: false, error: "model_not_selectable" };
+            const saved = await this.dependencies.modelSelectionCoordinator.updateModelSelection({
+                ref: { goalId, runId: command.runId }, selection,
+            }, this.dependencies.control);
+            if (!saved.ok) {
+                const error = saved.error.code === "RUN_MISMATCH" ? "stale_run"
+                    : saved.error.code === "GOAL_NOT_FOUND" ? "goal_not_found"
+                        : saved.error.code === "GOAL_NOT_WAITING" ? "model_switch_not_allowed"
+                            : "model_selection_failed";
+                return { ok: false, error };
+            }
+            return { ok: true, goalId, runId: command.runId, modelId: selection.modelId };
+        });
+    }
+
+    /**
      * 按稳定 ID 受理一个 Goal 创建。
      *
      * @param command - 已通过 HTTP wire 校验的 Goal ID 和用户意图。
@@ -400,7 +514,7 @@ export class BrowserGoalCommandService {
         const reservation = await this.withReservationLock(async (): Promise<Reservation> => {
             const current = this.inFlight.get(command.goalId);
             if (current !== undefined) {
-                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal")) {
+                if (current.intent !== command.intent || current.mode !== (command.mode ?? "normal") || current.modelId !== command.modelId) {
                     return { kind: "result", result: { ok: false, error: "goal_id_conflict" } };
                 }
                 return {
@@ -415,6 +529,7 @@ export class BrowserGoalCommandService {
             if (existing !== undefined) {
                 return existing.definition.intent === command.intent
                     && existing.state.run.mode === (command.mode ?? "normal")
+                    && existing.state.modelSelection.modelId === (command.modelId ?? this.dependencies.defaultModelSelection?.modelId ?? existing.state.modelSelection.modelId)
                     ? {
                         kind: "result",
                         result: {
@@ -431,11 +546,27 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "goal_busy" } };
             }
 
+            const defaultSelection = this.dependencies.defaultModelSelection;
+            let modelSelection = defaultSelection;
+            if (command.modelId !== undefined) {
+                if (defaultSelection === undefined || this.dependencies.resolveModelSelection === undefined) {
+                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
+                }
+                try {
+                    modelSelection = await this.dependencies.resolveModelSelection(command.modelId, defaultSelection);
+                } catch {
+                    return { kind: "result", result: { ok: false, error: "model_catalog_unavailable" } };
+                }
+                if (modelSelection === undefined) {
+                    return { kind: "result", result: { ok: false, error: "model_not_selectable" } };
+                }
+            }
             this.activeGoalId = command.goalId;
-            const accepted = this.start(command);
+            const accepted = this.start(command, modelSelection);
             this.inFlight.set(command.goalId, {
                 intent: command.intent,
                 mode: command.mode ?? "normal",
+                modelId: command.modelId,
                 accepted,
             });
             return { kind: "in_flight", accepted };
@@ -491,6 +622,84 @@ export class BrowserGoalCommandService {
     }
 
     /**
+     * 按当前 Goal/Run/Action 身份读取完整待审批输入。
+     *
+     * @param goalId - 路径中的 Goal 身份。
+     * @param runId - 当前 Run 身份。
+     * @param actionId - 当前等待中的 Action 身份。
+     * @returns 完整 canonical Tool 输入；身份过期或 Action 不再等待时返回稳定错误。
+     */
+    async readActionDetails(goalId: string, runId: string, actionId: string): Promise<BrowserActionDetailsResult> {
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "action_details_unavailable" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        const pending = goal.state.run.pendingAction;
+        if (
+            goal.state.run.status !== "waiting"
+            || pending === undefined
+            || pending.action.actionId !== actionId
+            || (pending.status !== "awaiting_approval" && pending.status !== "outcome_unknown")
+        ) return { ok: false, error: "action_not_waiting" };
+        return {
+            ok: true,
+            goalId,
+            runId,
+            actionId,
+            toolId: pending.action.toolId,
+            input: structuredClone(pending.action.input),
+        };
+    }
+
+    /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
+    async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.listToolGrants === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "grant_failed" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
+        try {
+            const grants = await coordinator.listToolGrants({ goalId, runId });
+            return {
+                ok: true,
+                goalId,
+                runId,
+                grants: grants.map((grant) => ({
+                    grantId: grant.id,
+                    scope: grant.scope,
+                    toolId: grant.matcher.toolId,
+                    status: grant.status,
+                    ...(grant.matcher.kind === "target_path" ? { targetPath: grant.matcher.path } : {}),
+                })),
+            };
+        } catch { return { ok: false, error: "grant_failed" }; }
+    }
+
+    /** 撤销一条绑定当前 Goal/Run 身份的 Goal 或 workspace 授权。 */
+    async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.revokeToolGrant === undefined) return { ok: false, error: "permissions_unavailable" };
+        let goal: Goal | undefined;
+        try { goal = await this.dependencies.store.restore(goalId); }
+        catch { return { ok: false, error: "grant_failed" }; }
+        if (goal === undefined) return { ok: false, error: "goal_not_found" };
+        if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
+        try {
+            await coordinator.revokeToolGrant({
+                ref: { goalId, runId: command.runId },
+                grantId: command.grantId,
+                scope: command.scope,
+            });
+            return this.listToolGrants(goalId, command.runId);
+        } catch { return { ok: false, error: "grant_failed" }; }
+    }
+
+    /**
      * 将一个带当前 Run 身份的结构化操作交给 Runtime 当前等待点。
      *
      * @param goalId - 路径中的 Goal 稳定身份。
@@ -531,6 +740,12 @@ export class BrowserGoalCommandService {
             const mismatch = validateInteractionTarget(goal, command);
             if (mismatch !== undefined) {
                 return { kind: "result", result: { ok: false, error: mismatch } };
+            }
+
+            if (this.dependencies.restoreModelBinding !== undefined) {
+                let restored = false;
+                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
+                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
             }
 
             this.activeGoalId = goalId;
@@ -596,6 +811,12 @@ export class BrowserGoalCommandService {
                 return { kind: "result", result: { ok: false, error: "goal_not_waiting" } };
             }
 
+            if (this.dependencies.restoreModelBinding !== undefined) {
+                let restored = false;
+                try { restored = await this.dependencies.restoreModelBinding(goal); } catch { restored = false; }
+                if (!restored) return { kind: "result", result: { ok: false, error: "model_restore_failed" } };
+            }
+
             this.activeGoalId = goalId;
             const accepted = this.startMessage(goal, command);
             this.inFlightMessages.set(key, { content: command.content, accepted });
@@ -605,7 +826,7 @@ export class BrowserGoalCommandService {
         return reservation.kind === "result" ? reservation.result : reservation.accepted;
     }
 
-    private async start(command: BrowserCreateGoalCommand): Promise<BrowserCreateGoalResult> {
+    private async start(command: BrowserCreateGoalCommand, modelSelection?: GoalModelSelection): Promise<BrowserCreateGoalResult> {
         let settleAcceptance!: (result: BrowserCreateGoalResult) => void;
         let accepted = false;
         const acceptance = new Promise<BrowserCreateGoalResult>((resolve) => {
@@ -631,6 +852,7 @@ export class BrowserGoalCommandService {
                 intent: command.intent,
                 profileId: this.dependencies.profileId,
                 ...(command.mode === undefined ? {} : { mode: command.mode }),
+                ...(modelSelection === undefined ? {} : { modelSelection }),
             }, this.dependencies.control))
             .then(() => {
                 if (!accepted) {
@@ -844,7 +1066,7 @@ function toRuntimeAction(command: BrowserGoalInteractionCommand): GoalUserAction
                 feedback: command.feedback,
             };
         case "approve_action":
-            return { kind: "approve_action", actionId: command.actionId };
+            return { kind: "approve_action", actionId: command.actionId, scope: command.scope ?? "action" };
         case "reject_action":
             return {
                 kind: "reject_action",

@@ -8,6 +8,7 @@ import {
     allocateDiagnosticTraceRecord,
 } from "../../runtime/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import { TransientModelRequestFailure } from "../../runtime/src/model-request-failure";
 
 const MAX_TRACE_PAYLOAD_CHARS = 24_000;
 const MAX_TRACE_STRING_CHARS = 12_000;
@@ -109,6 +110,14 @@ export function recordLlmError(
         ? {
             name: error.name,
             message: error.message,
+            ...(error instanceof TransientModelRequestFailure
+                ? {
+                    retryable: true,
+                    failureReason: error.reason,
+                    ...(error.status === undefined ? {} : { status: error.status }),
+                    ...(error.retryAfterMs === undefined ? {} : { retryAfterMs: error.retryAfterMs }),
+                }
+                : {}),
             ...(error.stack === undefined ? {} : { stack: error.stack }),
         }
         : { message: String(error) };

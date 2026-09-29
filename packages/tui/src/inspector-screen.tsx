@@ -243,6 +243,17 @@ export function InspectorScreen({
             lines.push("");
         }
 
+        if (currentStep.recoveryDetails !== undefined && currentStep.recoveryDetails.length > 0) {
+            lines.push(formatSectionDivider("Recovery attempts", contentWidth, {
+                icon: "↻",
+                color: ansi.yellow,
+            }));
+            for (const detail of currentStep.recoveryDetails) {
+                lines.push(`  ${ansi.yellow(detail)}`);
+            }
+            lines.push("");
+        }
+
         // 7. 步骤结果区块 (Result)
         if (currentStep.result !== undefined) {
             const isCompleted = currentStep.result.outcome === "completed" || currentStep.result.outcome === "next_step";

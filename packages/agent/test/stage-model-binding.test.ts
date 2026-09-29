@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse } from "../../llm/src/core/types";
+import { ModelStageFeedbackError } from "../../runtime/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal } from "../../runtime/src/domain";
 import {
@@ -11,7 +12,6 @@ import {
 import {
     createDefaultPromptBundleRenderer,
     DropOldestContextCompactor,
-    LLMResponseProtocolError,
     LLMStepExecutor,
     createModelExecutionBinding,
     MutableModelBinding,
@@ -145,7 +145,9 @@ test("prompt_only Decide 仍经本地输出契约拒绝非法响应", async () =
             authorizedTools: [],
             workingMemory: createEmptyWorkingMemory(),
         }),
-        (error: unknown) => error instanceof LLMResponseProtocolError,
+        (error: unknown) => error instanceof ModelStageFeedbackError
+            && error.feedback.stage === "decide"
+            && error.feedback.code === "INVALID_LLM_RESPONSE",
     );
 
     assert.equal(thinkAdapter.requests.length, 0);
@@ -222,14 +224,18 @@ test("Think 拒绝空文本和任何工具调用", async () => {
     const emptyExecutor = createExecutor(emptyAdapter, decideAdapter, "openai");
     await assert.rejects(
         emptyExecutor.think(input),
-        (error: unknown) => error instanceof LLMResponseProtocolError,
+        (error: unknown) => error instanceof ModelStageFeedbackError
+            && error.feedback.stage === "think"
+            && error.feedback.code === "INVALID_LLM_RESPONSE",
     );
 
     const toolAdapter = new RequestThinkFunctionAdapter();
     const toolExecutor = createExecutor(toolAdapter, decideAdapter, "openai");
     await assert.rejects(
         toolExecutor.think(input),
-        (error: unknown) => error instanceof LLMResponseProtocolError,
+        (error: unknown) => error instanceof ModelStageFeedbackError
+            && error.feedback.stage === "think"
+            && error.feedback.code === "INVALID_LLM_RESPONSE",
     );
     assert.equal(toolAdapter.request?.tools, undefined);
     assert.equal(toolAdapter.request?.structuredOutput, undefined);

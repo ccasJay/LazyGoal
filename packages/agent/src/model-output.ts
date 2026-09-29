@@ -71,6 +71,11 @@ export function parseJson(content: string): unknown {
     } catch (error) {
         throw new LLMResponseProtocolError("响应不是合法 JSON", {
             cause: error,
+            issues: [{
+                code: "invalid_json_syntax",
+                path: [],
+                message: "Return valid JSON matching the active response contract.",
+            }],
         });
     }
 }

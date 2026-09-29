@@ -227,6 +227,37 @@ export type MemoryEntry =
  * const revision: MemoryRevision = { eventId: "event-12", sequence: 12 };
  * ```
  */
+
+/**
+ * 当前 Step 内未完成的 Decide/Think 输出修复链。
+ *
+ * @remarks
+ * 指针仅保存恢复所需的阶段、输入摘要、已开始次数和 Trajectory 事实身份；修复内容
+ * 从最新已提交的反馈事实读取。恢复必须核对 Goal、Run、Step、执行单元和阶段输入。
+ *
+ * @example
+ * ```ts
+ * const repair: PendingModelRepair = {
+ *     goalId: "goal-1", runId: "run-1", stepOrdinal: 1,
+ *     executionUnitId: "unit-1", stage: "decide",
+ *     inputBoundary: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+ *     attemptsStarted: 1, latestAttemptEventId: "event-10",
+ * };
+ * ```
+ */
+export interface PendingModelRepair {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly stepOrdinal: number;
+    readonly executionUnitId: string;
+    readonly stage: "decide" | "think";
+    readonly inputBoundary: `sha256:${string}`;
+    readonly attemptsStarted: number;
+    readonly latestAttemptEventId: string;
+    readonly latestFeedbackEventId?: string;
+    readonly thinkRequestId?: string;
+}
+
 export interface MemoryRevision {
     /** accepted Patch Event 的稳定事件 ID。 */
     readonly eventId: string;
@@ -789,6 +820,12 @@ export type {
 export interface PendingAction {
     readonly action: ToolCallAction;
     readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+    /** 已提交的 Tool 调用开始次数；只对获批 Action 设置，最多三次。 */
+    readonly attemptsStarted?: number;
+    /** 已批准 Action 使用的权限期限；单次批准为 action。 */
+    readonly approvalScope?: "action" | "goal" | "workspace";
+    /** 持续授权关联的待生效或有效 Grant；单次批准不设置。 */
+    readonly grantId?: string;
 }
 
 /**
@@ -831,6 +868,7 @@ export type ExecutionErrorCode =
     | "INVALID_TOOL_INPUT"
     | "INVALID_MEMORY_PATCH"
     | "INVALID_AGENT_DECISION"
+    | "MODEL_REQUEST_FAILED"
     | "TOOL_EXECUTION_ERROR";
 
 /** 非 Step 自身导致的 Run 终止原因。 */
@@ -881,6 +919,7 @@ export interface RunState {
     readonly pendingAction?: PendingAction;
     readonly pendingInteraction?: PendingInteraction;
     readonly pendingThink?: PendingThink;
+    readonly pendingModelRepair?: PendingModelRepair;
     readonly stopReason?: RunStopReason;
     /**
      * 当前模型上下文 Epoch。
@@ -1113,6 +1152,7 @@ export type RunInput =
         readonly actionId: string;
         readonly observation: Exclude<Observation, { readonly kind: "rejected" }>;
     }
+    | { readonly kind: "tool_outcome_unknown"; readonly actionId: string }
     | {
         readonly kind: "decision";
         readonly decision: Exclude<
@@ -1149,6 +1189,8 @@ export type RunInput =
     | {
         readonly kind: "approve_action";
         readonly actionId: string;
+        readonly approvalScope?: "action" | "goal" | "workspace";
+        readonly grantId?: string;
     }
     | {
         readonly kind: "recover_action";

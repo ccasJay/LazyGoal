@@ -37,6 +37,24 @@ export {
 } from "./execution-control";
 export type { ExecutionControl } from "./execution-control";
 export {
+    ModelRequestRetriesExhaustedError,
+    TransientModelRequestFailure,
+} from "./model-request-failure";
+export type {
+    ModelRequestAttemptFailure,
+    TransientModelFailureReason,
+} from "./model-request-failure";
+export {
+    createRuntimeFeedback,
+    ModelStageFeedbackError,
+} from "./runtime-feedback";
+export type {
+    RuntimeFeedback,
+    RuntimeFeedbackIssue,
+    RuntimeFeedbackOrigin,
+    RuntimeFeedbackStage,
+} from "./runtime-feedback";
+export {
     CHECKPOINT_GATE_FROZEN_CODE,
     CheckpointGateFrozenError,
     CheckpointGateGoalStore,
@@ -121,6 +139,7 @@ export type {
     PendingInteractionAskUser,
     PendingInteractionTaskApproval,
     PendingThink,
+    PendingModelRepair,
     StepRecord,
     ToolCallAction,
     TransitionResult,
@@ -404,6 +423,7 @@ export {
     InMemoryToolRegistry,
     isReadOnlyTool,
     resolveAuthorizedToolDefinitions,
+    TransientToolExecutionFailure,
 } from "./tool";
 export type {
     Tool,
@@ -419,6 +439,14 @@ export type {
     ToolRegistry,
     ToolValidationResult,
 } from "./tool";
+export { createToolGrantMatcher, toolGrantMatchersEqual } from "./tool-grant";
+export type {
+    ToolGrant,
+    ToolGrantLookup,
+    ToolGrantMatcher,
+    ToolGrantScope,
+    ToolGrantStore,
+} from "./tool-grant";
 export { launch } from "./launcher";
 export type {
     LauncherDependencies,

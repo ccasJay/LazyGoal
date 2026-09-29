@@ -8,6 +8,7 @@ import type { ToolDefinition } from "./tool";
 import type { ExecutionControl } from "./execution-control";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { ModelContextFramePayload } from "./trajectory";
+import type { RuntimeFeedback } from "./runtime-feedback";
 
 /**
  * 一个已提交的 Think 目标与模型输出。
@@ -115,6 +116,8 @@ export interface StepExecutionInput {
     readonly executionUnitId?: string;
     /** 当前 Goal/Run 的实时执行流发布端口。 */
     readonly executionStream?: ExecutionStreamPublisher;
+    /** 上一次被 Runtime 拒绝的模型输出之修复反馈；不属于真实 Goal Conversation。 */
+    readonly runtimeFeedback?: RuntimeFeedback;
 }
 
 /**

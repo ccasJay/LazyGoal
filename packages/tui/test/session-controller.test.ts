@@ -11,6 +11,7 @@ import {
     type LaunchRequest,
     type LaunchResult,
     type ResumeGoalRequest,
+    type ToolGrant,
     type TrajectoryEvent,
 } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
@@ -576,7 +577,7 @@ test("session commands map to Coordinator resume actions", async () => {
         requestId: "ask-1",
         answers: [{ questionId: "q-1", optionIds: ["opt-1"] }],
     });
-    await controller.dispatch({ kind: "approveAction", actionId: "action-1" });
+    await controller.dispatch({ kind: "approveAction", actionId: "action-1", scope: "goal" });
     await controller.dispatch({
         kind: "rejectAction",
         actionId: "action-2",
@@ -609,7 +610,7 @@ test("session commands map to Coordinator resume actions", async () => {
         },
         {
             ref: { goalId: goal.id, runId: goal.state.run.id },
-            action: { kind: "approve_action", actionId: "action-1" },
+            action: { kind: "approve_action", actionId: "action-1", scope: "goal" },
         },
         {
             ref: { goalId: goal.id, runId: goal.state.run.id },
@@ -620,6 +621,62 @@ test("session commands map to Coordinator resume actions", async () => {
             },
         },
     ]);
+});
+
+test("Tool permissions screen lists the current scope, revokes it, and returns to session", async () => {
+    const goal = createWaitingGoal("goal-permissions");
+    let grant: ToolGrant = {
+        id: "grant-1",
+        scope: "goal",
+        workspaceId: "workspace-1",
+        goalId: goal.id,
+        source: { goalId: goal.id, runId: goal.state.run.id, actionId: "action-1" },
+        matcher: { kind: "target_path", toolId: "write_file", version: 1, path: "src/app.ts" },
+        status: "active",
+    };
+    const coordinator: SessionCoordinator = {
+        async advance() { return waitingResult(goal); },
+        async resume() { return waitingResult(goal); },
+        async listToolGrants(ref) {
+            assert.deepEqual(ref, { goalId: goal.id, runId: goal.state.run.id });
+            return [grant];
+        },
+        async revokeToolGrant(request) {
+            assert.deepEqual(request, {
+                ref: { goalId: goal.id, runId: goal.state.run.id },
+                grantId: "grant-1",
+                scope: "goal",
+            });
+            grant = { ...grant, status: "revoked" };
+            return grant;
+        },
+    };
+    const controller = new SessionController({
+        ...dependencies(new FakeLauncher(waitingResult(goal)), coordinator, new FakeStore([goal]), new FakeCatalog([])),
+        initialGoal: goal,
+    });
+
+    await controller.dispatch({ kind: "openToolPermissions" });
+    let view = controller.getSnapshot();
+    assert.equal(view.screen, "tool_permissions");
+    if (view.screen !== "tool_permissions") assert.fail("Tool permissions screen did not open");
+    assert.deepEqual(view.grants, [{
+        grantId: "grant-1",
+        scope: "goal",
+        toolId: "write_file",
+        status: "active",
+        targetPath: "src/app.ts",
+    }]);
+
+    await controller.dispatch({ kind: "revokeToolGrant", grantId: "grant-1", scope: "goal" });
+    view = controller.getSnapshot();
+    assert.equal(view.screen, "tool_permissions");
+    if (view.screen !== "tool_permissions") assert.fail("Tool permissions screen closed unexpectedly");
+    assert.equal(view.grants[0]?.status, "revoked");
+    await controller.dispatch({ kind: "closeToolPermissions" });
+    view = controller.getSnapshot();
+    assert.equal(view.screen, "session");
+    if (view.screen === "session") assert.equal(view.toolGrants?.[0]?.status, "revoked");
 });
 
 test("completed Run message routes to Coordinator continue and keeps the new Run identity", async () => {

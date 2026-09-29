@@ -42,18 +42,23 @@ function clearPendingInteraction(
 
 function clearPendingThink(
     state: RunState,
-): Omit<RunState, "pendingThink"> {
-    const { pendingThink: _pendingThink, ...stateWithoutPendingThink } = state;
+): Omit<RunState, "pendingThink" | "pendingModelRepair"> {
+    const {
+        pendingThink: _pendingThink,
+        pendingModelRepair: _pendingModelRepair,
+        ...stateWithoutPendingThink
+    } = state;
     return stateWithoutPendingThink;
 }
 
 function clearAllPending(
     state: RunState,
-): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink"> {
+): Omit<RunState, "pendingAction" | "pendingInteraction" | "pendingThink" | "pendingModelRepair"> {
     const {
         pendingAction: _pendingAction,
         pendingInteraction: _pendingInteraction,
         pendingThink: _pendingThink,
+        pendingModelRepair: _pendingModelRepair,
         ...rest
     } = state;
     return rest;
@@ -196,6 +201,7 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "outcome_unknown",
+                            ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
                         },
                     },
                 };
@@ -488,6 +494,25 @@ export function transition(
                 };
             }
 
+            if (input.kind === "tool_outcome_unknown") {
+                const pendingAction = currentState.pendingAction;
+                if (pendingAction?.status !== "approved" || pendingAction.action.actionId !== input.actionId) {
+                    return invalidTransition(currentState, input, "Unknown Tool outcome must match an approved pendingAction");
+                }
+                return {
+                    ok: true,
+                    state: {
+                        ...clearPendingThink(clearPendingInteraction(currentState)),
+                        status: "waiting",
+                        pendingAction: {
+                            action: pendingAction.action,
+                            status: "outcome_unknown",
+                            ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                        },
+                    },
+                };
+            }
+
             // 运行期间取消：进入 cancelled，但不额外消费一次 step。
             if (input.kind === "cancel") {
                 return {
@@ -527,6 +552,19 @@ export function transition(
                     );
                 }
 
+                const approvalScope = input.approvalScope ?? "action";
+                if (
+                    (approvalScope === "action" && input.grantId !== undefined)
+                    || (approvalScope !== "action" && input.grantId === undefined)
+                    || (pendingAction.status === "outcome_unknown" && approvalScope !== "action")
+                ) {
+                    return invalidTransition(
+                        currentState,
+                        input,
+                        "Action approval scope and Grant identity are inconsistent",
+                    );
+                }
+
                 return {
                     ok: true,
                     state: {
@@ -535,6 +573,8 @@ export function transition(
                         pendingAction: {
                             action: pendingAction.action,
                             status: "approved",
+                            approvalScope,
+                            ...(input.grantId === undefined ? {} : { grantId: input.grantId }),
                         },
                     },
                 };

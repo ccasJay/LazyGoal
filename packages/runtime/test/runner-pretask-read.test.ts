@@ -552,7 +552,13 @@ test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完�
                     },
                 };
             }
-            const evidenceSequence = currentGoal.state.run.committedThroughSequence;
+            const committed = await trajectoryStore.readWithBoundary(
+                { goalId: currentGoal.id, runId: currentGoal.state.run.id },
+                currentGoal.state.run.committedThroughSequence ?? 0,
+            );
+            const evidenceSequence = [...committed.committed]
+                .reverse()
+                .find((event) => event.eventType === "tool_finished")?.sequence;
             assert.ok(evidenceSequence !== undefined && evidenceSequence > 0);
             return {
                 kind: "complete",
@@ -647,6 +653,9 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
             },
         },
         { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
+        { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
+        { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
+        { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
     );
     const observedRunner = new Runner({
         store: observedStore,
@@ -681,7 +690,7 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
         assert.equal(observedResult.goal.state.run.stopReason?.kind, "execution_error");
         if (observedResult.goal.state.run.stopReason?.kind === "execution_error") {
             assert.equal(observedResult.goal.state.run.stopReason.code, "INVALID_AGENT_DECISION");
-            assert.match(observedResult.goal.state.run.stopReason.message, /must cite current Run Tool\/Observation evidence/);
+            assert.match(observedResult.goal.state.run.stopReason.message, /correction exhausted after three decide calls/);
         }
     }
 });

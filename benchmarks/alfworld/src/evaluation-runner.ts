@@ -407,6 +407,12 @@ function failureFromRunnerResult(
     }
 
     const stopReason = result.state.stopReason;
+    if (result.state.pendingAction?.status === "outcome_unknown") {
+        return {
+            category: "infrastructure",
+            code: "TOOL_EXECUTION_ERROR",
+        };
+    }
     if (stopReason?.kind === "execution_error") {
         return {
             category: "infrastructure",

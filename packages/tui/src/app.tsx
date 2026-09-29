@@ -7,6 +7,7 @@ import { SettingsScreen } from "./settings-screen";
 import { IntentScreen } from "./intent-screen";
 import { GoalSelectScreen } from "./goal-select-screen";
 import { SessionScreen } from "./session-screen";
+import { ToolPermissionsScreen } from "./tool-permissions-screen";
 import { InspectorScreen } from "./inspector-screen";
 import { TerminalScreen } from "./terminal-screen";
 import { ModelSelector } from "./model-selector";
@@ -133,6 +134,12 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         kind: "approveAction",
                         actionId,
                     })}
+                    onApproveActionWithScope={(actionId, scope) => dispatch({
+                        kind: "approveAction",
+                        actionId,
+                        scope,
+                    })}
+                    onOpenToolPermissions={() => dispatch({ kind: "openToolPermissions" })}
                     onRejectAction={(actionId, reason) => dispatch({
                         kind: "rejectAction",
                         actionId,
@@ -154,6 +161,14 @@ export function TuiApp({ controller, onShutdown }: TuiAppProps): React.JSX.Eleme
                         requestId,
                         feedback,
                     })}
+                />
+            );
+        case "tool_permissions":
+            return (
+                <ToolPermissionsScreen
+                    view={snapshot}
+                    onBack={() => dispatch({ kind: "closeToolPermissions" })}
+                    onRevoke={(grantId, scope) => dispatch({ kind: "revokeToolGrant", grantId, scope })}
                 />
             );
         case "model_select":
