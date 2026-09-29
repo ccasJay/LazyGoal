@@ -507,7 +507,11 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         const hasNetwork = input.sandboxAccess?.network !== undefined && input.sandboxAccess.network.targets.length > 0;
         const requiresExtraAccess = hasFiles || hasNetwork;
 
-        if (requiresExtraAccess && request.plan === undefined) {
+        const isPlanValid = request.plan !== undefined
+            && (request.plan.actionId === undefined || request.plan.actionId === request.actionId)
+            && (request.plan.workspaceRoot === this.workspaceRoot || request.plan.workspaceRoot === resolvedRoot);
+
+        if (requiresExtraAccess && !isPlanValid) {
             return {
                 kind: "failure",
                 code: "SANDBOX_APPROVAL_REQUIRED",
@@ -532,13 +536,17 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
             privateTmpDir = await createPrivateTmpDir();
             const protectedPaths = await resolveGitProtectionPaths(resolvedRoot);
 
-            const extraReadPaths = request.plan?.scope.extraFiles
-                .filter((f) => f.access === "read" || f.access === "write")
-                .map((f) => f.canonicalPath);
-            const extraWritePaths = request.plan?.scope.extraFiles
-                .filter((f) => f.access === "write")
-                .map((f) => f.canonicalPath);
-            const network = request.plan?.scope.network ?? "none";
+            const extraReadPaths = isPlanValid
+                ? request.plan?.scope.extraFiles
+                    .filter((f) => f.access === "read" || f.access === "write")
+                    .map((f) => f.canonicalPath)
+                : undefined;
+            const extraWritePaths = isPlanValid
+                ? request.plan?.scope.extraFiles
+                    .filter((f) => f.access === "write")
+                    .map((f) => f.canonicalPath)
+                : undefined;
+            const network = isPlanValid ? (request.plan?.scope.network ?? "none") : "none";
 
             const policy = buildSeatbeltPolicy({
                 canonicalWorkspaceRoot: resolvedRoot,

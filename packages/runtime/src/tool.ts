@@ -226,11 +226,13 @@ export type PreparedToolAction =
         execute(
             actionId: string,
             control?: ExecutionControl,
+            plan?: SandboxExecutionPlan,
         ): Promise<ToolObservation>;
         /** 使用相同 canonical 输入执行一次可选流式 Tool。 */
         stream?(
             actionId: string,
             control?: ExecutionControl,
+            plan?: SandboxExecutionPlan,
         ): AsyncIterable<ToolStreamEvent>;
     }
     | Extract<ToolValidationResult, { readonly ok: false }>;
@@ -343,14 +345,22 @@ export function createToolRegistration<C extends ToolInputContract>(
             return {
                 ok: true,
                 input: parsed.data,
-                execute(actionId, executeControl) {
-                    return tool.execute({ actionId, input: parsed.data }, executeControl);
+                execute(actionId, executeControl, plan) {
+                    return tool.execute({
+                        actionId,
+                        input: parsed.data,
+                        ...(plan !== undefined ? { plan } : {}),
+                    }, executeControl);
                 },
                 ...(tool.stream === undefined
                     ? {}
                     : {
-                        stream(actionId: string, executeControl?: ExecutionControl) {
-                            return tool.stream!({ actionId, input: parsed.data }, executeControl);
+                        stream(actionId: string, executeControl?: ExecutionControl, plan?: SandboxExecutionPlan) {
+                            return tool.stream!({
+                                actionId,
+                                input: parsed.data,
+                                ...(plan !== undefined ? { plan } : {}),
+                            }, executeControl);
                         },
                     }),
             };

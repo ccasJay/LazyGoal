@@ -31,6 +31,7 @@ import type {
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
 import type { GoalPlan } from "./goal-plan";
+import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 
 export type {
     CompletionAcceptance,
@@ -40,6 +41,7 @@ export type {
     AskUserQuestion,
     AskUserAnswer,
     ToolObservation,
+    SandboxExecutionPlan,
 };
 export type { GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
 
@@ -1105,6 +1107,14 @@ export interface RunExecutionOptions {
     readonly signal?: AbortSignal;
     /** 上一轮已提交 Context Lookup 的瞬时结果；不会写入 Snapshot。 */
     readonly contextLookupResult?: ContextLookupResult;
+    /**
+     * 经核准或显式授权的本次非持久化沙箱执行计划。
+     *
+     * @remarks
+     * 仅用于当前调用的 Action 执行；不写入 Snapshot 或 Trajectory。
+     * 进程重启或 Action 重新核准后须重新构建。
+     */
+    readonly sandboxExecutionPlan?: SandboxExecutionPlan;
 }
 
 /** Run 生命周期状态；completed、failed、cancelled 是终态。 */

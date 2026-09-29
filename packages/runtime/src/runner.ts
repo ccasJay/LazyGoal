@@ -63,6 +63,23 @@ import type {
     ToolRegistry,
 } from "./tool";
 import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from "./tool";
+import type { SandboxExecutionPlan } from "../../sandbox/src/index";
+
+/**
+ * 沙箱执行计划解析器接口。
+ *
+ * @remarks
+ * Runner 在受限 Action 执行前调用该函数以获取核准的执行计划。
+ *
+ * @example
+ * ```ts
+ * const resolver: SandboxPlanResolver = async ({ workspaceRoot, action }) => plan;
+ * ```
+ */
+export type SandboxPlanResolver = (query: {
+    readonly workspaceRoot: string;
+    readonly action: ToolCallAction;
+}) => Promise<SandboxExecutionPlan | undefined> | SandboxExecutionPlan | undefined;
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -421,8 +438,9 @@ interface PreparedToolAction {
     readonly registration: ToolRegistration;
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
-    execute(control?: ExecutionControl): Promise<ToolObservation>;
-    stream?(control?: ExecutionControl): AsyncIterable<ToolStreamEvent>;
+    readonly plan?: SandboxExecutionPlan;
+    execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
+    stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
 function prepareToolAction(
@@ -432,6 +450,7 @@ function prepareToolAction(
     policy: ToolPolicy,
     evaluatePolicy = true,
     control?: ExecutionControl,
+    plan?: SandboxExecutionPlan,
 ): PreparedToolAction {
     throwIfAborted(control);
 
@@ -531,12 +550,14 @@ function prepareToolAction(
             registration,
             action: canonicalAction,
             policy: "allow",
-            execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+            ...(plan !== undefined ? { plan } : {}),
+            execute: (executeControl, execPlan) =>
+                prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
             ...(prepared.stream === undefined
                 ? {}
                 : {
-                    stream: (executeControl?: ExecutionControl) =>
-                        prepared.stream!(canonicalAction.actionId, executeControl),
+                    stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
+                        prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
                 }),
         };
     }
@@ -574,12 +595,14 @@ function prepareToolAction(
         registration,
         action: canonicalAction,
         policy: policyResult,
-        execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+        ...(plan !== undefined ? { plan } : {}),
+        execute: (executeControl, execPlan) =>
+            prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
         ...(prepared.stream === undefined
             ? {}
             : {
-                stream: (executeControl?: ExecutionControl) =>
-                    prepared.stream!(canonicalAction.actionId, executeControl),
+                stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
+                    prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
             }),
     };
 }
@@ -720,6 +743,13 @@ export interface RunnerDependencies {
     readonly contextLookupPort?: ContextLookupPort;
     /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
     readonly executionStream?: ExecutionStreamPublisher;
+    /**
+     * 可选的沙箱执行计划解析器。
+     *
+     * @remarks
+     * Runner 在受限 Action 获准执行前调用此解析器以生成或验证沙箱执行计划。
+     */
+    readonly sandboxPlanResolver?: SandboxPlanResolver;
 }
 
 /**
@@ -764,6 +794,7 @@ export class Runner {
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
+    private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -774,6 +805,7 @@ export class Runner {
         this.toolGrantLookup = dependencies.toolGrantLookup;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
+        this.sandboxPlanResolver = dependencies.sandboxPlanResolver;
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
@@ -974,6 +1006,8 @@ export class Runner {
                 options.authorizedActionId,
                 effectiveControl,
                 contextLookupResult,
+                undefined,
+                options.sandboxExecutionPlan,
             );
         }
 
@@ -985,6 +1019,8 @@ export class Runner {
             options.authorizedActionId,
             effectiveControl,
             contextLookupResult,
+            undefined,
+            options.sandboxExecutionPlan,
         );
     }
 
@@ -2569,12 +2605,14 @@ export class Runner {
         prepared: PreparedToolAction,
         executionUnitId: string,
         control?: ExecutionControl,
+        plan?: SandboxExecutionPlan,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
         let observation: ToolObservation | undefined;
         const replaySafe = prepared.registration.replayPolicy === "safe";
+        const effectivePlan = plan ?? prepared.plan;
         while (observation === undefined) {
             throwIfAborted(control);
             const pending = goal.state.run.pendingAction;
@@ -2630,8 +2668,8 @@ export class Runner {
                     },
                 }, control);
                 const rawObservation = prepared.stream === undefined
-                    ? await prepared.execute(control)
-                    : await this.consumeToolStream(goal, prepared, executionUnitId, control);
+                    ? await prepared.execute(control, effectivePlan)
+                    : await this.consumeToolStream(goal, prepared, executionUnitId, control, effectivePlan);
                 throwIfAborted(control);
                 observation = validateToolObservation(rawObservation);
             } catch (error) {
@@ -2787,14 +2825,15 @@ export class Runner {
         prepared: PreparedToolAction,
         executionUnitId: string,
         control?: ExecutionControl,
+        plan?: SandboxExecutionPlan,
     ): Promise<ToolObservation> {
         const stream = prepared.stream;
         if (stream === undefined) {
-            return prepared.execute(control);
+            return prepared.execute(control, plan);
         }
 
         let observation: ToolObservation | undefined;
-        for await (const event of stream(control)) {
+        for await (const event of stream(control, plan)) {
             throwIfAborted(control);
             if (event.kind === "output") {
                 if (event.text.length === 0) continue;
@@ -2838,9 +2877,11 @@ export class Runner {
         control?: ExecutionControl,
         initialContextLookupResult?: ContextLookupResult,
         initialPreparedAction?: PreparedToolAction,
+        initialSandboxPlan?: SandboxExecutionPlan,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
+        let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
@@ -2857,6 +2898,20 @@ export class Runner {
                     );
                 }
 
+                let effectivePlan: SandboxExecutionPlan | undefined = undefined;
+                if (
+                    transientSandboxPlan !== undefined
+                    && (transientSandboxPlan.actionId === undefined || transientSandboxPlan.actionId === pendingAction.action.actionId)
+                    && (this.workspaceRoot === undefined || transientSandboxPlan.workspaceRoot === this.workspaceRoot)
+                ) {
+                    effectivePlan = transientSandboxPlan;
+                } else if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                    effectivePlan = await this.sandboxPlanResolver({
+                        workspaceRoot: this.workspaceRoot,
+                        action: pendingAction.action,
+                    });
+                }
+
                 let validated: PreparedToolAction;
 
                 try {
@@ -2868,6 +2923,7 @@ export class Runner {
                             this.toolPolicy,
                             false,
                             control,
+                            effectivePlan,
                         )
                         : preparedAction;
                     preparedAction = undefined;
@@ -2892,8 +2948,10 @@ export class Runner {
                     validated,
                     createExecutionUnitId(),
                     control,
+                    effectivePlan,
                 );
                 transientAuthorization = undefined;
+                transientSandboxPlan = undefined;
 
                 if (outcome.kind === "stopped") {
                     return outcome.result;
@@ -3685,11 +3743,20 @@ export class Runner {
                         control,
                     );
 
+                    let effectivePlan: SandboxExecutionPlan | undefined = undefined;
+                    if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                        effectivePlan = await this.sandboxPlanResolver({
+                            workspaceRoot: this.workspaceRoot,
+                            action: validated.action,
+                        });
+                    }
+
                     const outcome = await this.executeToolAndObserve(
                         stagedCheckpoint,
                         validated,
                         executionUnitId,
                         control,
+                        effectivePlan,
                     );
 
                     if (outcome.kind === "stopped") {

@@ -115,6 +115,8 @@ export interface EffectiveSandboxScope {
  * ```
  */
 export interface SandboxExecutionPlan {
+    /** 绑定的 Action 唯一标识，防止跨 Action 复用。 */
+    readonly actionId?: string;
     /** 规范化的工作区根目录绝对路径。 */
     readonly workspaceRoot: string;
     /** 本次 Action 执行期间获准生效的实际能力。 */

@@ -23,7 +23,7 @@
   - 验证方式：待实现的 `packages/tools/test/bash-sandbox-input.test.ts`、`packages/sandbox/test/macos-seatbelt-capability.test.ts` 与 `packages/runtime/test/sandbox-scope.test.ts`；真实 macOS 文件和网络连接检查。
   - _Requirements: [2.4](./requirements.md#req-2-4), [3.2](./requirements.md#req-3-2), [3.3](./requirements.md#req-3-3), [3.4](./requirements.md#req-3-4), [4.1](./requirements.md#req-4-1), [4.2](./requirements.md#req-4-2), [4.3](./requirements.md#req-4-3), [5.2](./requirements.md#req-5-2)_
 
-- [ ] //TODO 4. 接入 Permission 核准后的执行计划与恢复故障反馈
+- [x] //TODO 4. 接入 Permission 核准后的执行计划与恢复故障反馈
 
   - 实现目标：Runner 在 Action 执行前以当前 Permission 结果重建计划；Bash 只消费本次可信计划，并把边界拒绝、启动故障及结果不确定交回 Runtime。
   - 成功判据：撤销或失配后未开始的命令不能凭旧计划执行；重启后重新核准并构建范围，执行结果不明时维持人工等待；边界拒绝与启动故障可区分且诊断不泄露密钥或未获准文件内容。
