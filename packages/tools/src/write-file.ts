@@ -22,7 +22,7 @@ import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
     type WorkspaceSandbox,
-} from "./internal/workspace-sandbox";
+} from "../../sandbox/src/index";
 
 /** `WriteFileTool` 在 Profile 中使用的稳定标识。 */
 export const WRITE_FILE_TOOL_ID = "write_file";

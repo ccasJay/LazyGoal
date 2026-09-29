@@ -6,18 +6,6 @@ import {
     win32,
 } from "node:path";
 
-import type {
-    ToolObservation,
-} from "../../../runtime/src/index";
-import {
-    ExecutionAbortedError,
-    isExecutionAbortedError,
-    throwIfAborted,
-    type ExecutionControl,
-} from "../../../runtime/src/execution-control";
-
-// TODO(sandbox-extraction): 迁移为独立包 @lazygoal/sandbox —— 物理移动本文件 → 经入口导出 → check-dependencies.mjs 加白名单 → 替换消费方 import 路径
-
 /**
  * 文件级 Tool 共享的 errno 消息表：把 Node 错误码映射为面向 Agent 的中文文案。
  *
@@ -52,15 +40,72 @@ export type RelativePathViolation =
     | "rejected-segment";
 
 /**
+ * 沙箱操作失败的领域描述。
+ *
+ * @remarks
+ * 结构与 ToolObservation 失败形态兼容，同时避免 sandbox 包反向依赖 runtime。
+ *
+ * @example
+ * ```ts
+ * const failure: SandboxFailure = {
+ *     kind: "failure",
+ *     code: "PATH_OUTSIDE_WORKSPACE",
+ *     message: "目标不在工作区内: ../out.txt",
+ *     retryable: false,
+ * };
+ * ```
+ */
+export interface SandboxFailure {
+    readonly kind: "failure";
+    readonly code: string;
+    readonly message: string;
+    readonly retryable: false;
+}
+
+/**
  * 一次已通过沙箱校验的目标路径解析结果。
  *
  * @remarks
  * `ok` 表示已解析且位于工作区内的绝对路径；`ok: false` 时 `failure` 携带
- * 稳定的 `PATH_OUTSIDE_WORKSPACE` 领域失败 Observation。
+ * 稳定的 `PATH_OUTSIDE_WORKSPACE` 领域失败结构。
  */
 export type SandboxResolveResult =
     | { readonly ok: true; readonly path: string }
-    | { readonly ok: false; readonly failure: ToolObservation };
+    | { readonly ok: false; readonly failure: SandboxFailure };
+
+/**
+ * 沙箱调用的中止控制信号。
+ *
+ * @remarks
+ * 接受标准的 AbortSignal 或包含 signal 的控制对象，与 Runtime 的 ExecutionControl 结构兼容。
+ *
+ * @example
+ * ```ts
+ * const control: SandboxAbortControl = { signal: new AbortController().signal };
+ * ```
+ */
+export interface SandboxAbortControl {
+    readonly signal?: AbortSignal;
+}
+
+/** 中止控制流使用的稳定错误代码。 */
+export const EXECUTION_ABORTED_ERROR_CODE = "EXECUTION_ABORTED" as const;
+
+/**
+ * 沙箱操作被中止时抛出的错误。
+ *
+ * @remarks
+ * 其 name 为 `ExecutionAbortedError` 且 code 为 `EXECUTION_ABORTED`，
+ * 可被上层 Runtime 的 `isExecutionAbortedError` 识别。
+ */
+export class SandboxAbortedError extends Error {
+    readonly code = EXECUTION_ABORTED_ERROR_CODE;
+
+    constructor(message = "Execution aborted") {
+        super(message);
+        this.name = "ExecutionAbortedError";
+    }
+}
 
 /**
  * 在指定 workspaceRoot 内执行路径校验与文件读写的自包含沙箱。
@@ -68,13 +113,12 @@ export type SandboxResolveResult =
  * @remarks
  * 实例持有构造期解析的 workspaceRoot 真实路径，四个文件级 Tool 复用同一
  * 沙箱边界：拒绝绝对路径、`..` 路径段、指定前缀段，以及解析后越出工作区的
- * 符号链接。本接口按"后续可整体迁移为独立包"设计——只依赖 `node:*` 与
- * runtime 类型，不导入任何 Tool 实现，无反向依赖。
+ * 符号链接。本接口不导入任何 Tool 实现，对 Runtime 保持零依赖。
  *
  * @example
  * ```ts
  * const sandbox = createWorkspaceSandbox("/workspace/project");
- * const resolved = await sandbox.resolveTarget("src/a.ts");
+ * const resolved = await sandbox.resolveTarget("src/a.ts", {});
  * ```
  */
 export interface WorkspaceSandbox {
@@ -96,13 +140,13 @@ export interface WorkspaceSandbox {
      * @param requestedPath - Agent 提交的相对路径。
      * @param messages - 本工具的领域失败文案表，用于映射解析阶段的 Node 错误。
      * @param control - 可选的中止控制。
-     * @returns 解析后的绝对路径，或越界/领域失败 Observation。
-     * @throws 中止时抛出 {@link ExecutionAbortedError}；未分类文件系统异常原样抛出。
+     * @returns 解析后的绝对路径，或越界/领域失败结构。
+     * @throws 中止时抛出中止错误；未分类文件系统异常原样抛出。
      */
     resolveTarget(
         requestedPath: string,
         messages: DomainFailureMessages,
-        control?: ExecutionControl,
+        control?: SandboxAbortControl,
     ): Promise<SandboxResolveResult>;
 
     /**
@@ -114,13 +158,13 @@ export interface WorkspaceSandbox {
      * @param requestedPath - Agent 提交的相对路径。
      * @param displayPath - 越界失败消息中展示的路径，默认等于 `requestedPath`。
      * @param control - 可选的中止控制。
-     * @returns 解析后的绝对路径，或越界失败 Observation。
-     * @throws Node 错误原样抛出（含 `ENOENT`）；中止时抛出 {@link ExecutionAbortedError}。
+     * @returns 解析后的绝对路径，或越界失败结构。
+     * @throws Node 错误原样抛出（含 `ENOENT`）；中止时抛出中止错误。
      */
     resolveExistingPath(
         requestedPath: string,
         displayPath?: string,
-        control?: ExecutionControl,
+        control?: SandboxAbortControl,
     ): Promise<SandboxResolveResult>;
 
     /**
@@ -129,9 +173,9 @@ export interface WorkspaceSandbox {
      * @param path - 已解析的绝对路径。
      * @param control - 可选的中止控制。
      * @returns 文件内容。
-     * @throws 中止时抛出 {@link ExecutionAbortedError}；未分类文件系统异常原样抛出。
+     * @throws 中止时抛出中止错误；未分类文件系统异常原样抛出。
      */
-    readTextFile(path: string, control?: ExecutionControl): Promise<string>;
+    readTextFile(path: string, control?: SandboxAbortControl): Promise<string>;
 
     /**
      * 写入 UTF-8 文本文件（覆盖）。
@@ -139,27 +183,27 @@ export interface WorkspaceSandbox {
      * @param path - 已解析的绝对路径。
      * @param content - 要写入的完整文本。
      * @param control - 可选的中止控制。
-     * @throws 中止时抛出 {@link ExecutionAbortedError}；未分类文件系统异常原样抛出。
+     * @throws 中止时抛出中止错误；未分类文件系统异常原样抛出。
      */
     writeTextFile(
         path: string,
         content: string,
-        control?: ExecutionControl,
+        control?: SandboxAbortControl,
     ): Promise<void>;
 
     /**
-     * 把 Node 错误映射为领域失败 Observation。
+     * 把 Node 错误映射为领域失败结构。
      *
      * @param error - 待分类的 Node 错误。
      * @param messages - 本工具的错误文案表。
      * @param requestedPath - 用于文案的原始相对路径。
-     * @returns 领域失败 Observation；未命中消息表时返回 `undefined`。
+     * @returns 领域失败结构；未命中消息表时返回 `undefined`。
      */
     toDomainFailure(
         error: NodeJS.ErrnoException,
         messages: DomainFailureMessages,
         requestedPath: string,
-    ): ToolObservation | undefined;
+    ): SandboxFailure | undefined;
 }
 
 function isAbsolutePath(value: string): boolean {
@@ -193,11 +237,28 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
     return error instanceof Error && "code" in error;
 }
 
+function isAborted(error: unknown): boolean {
+    return (
+        error instanceof Error
+        && (
+            error.name === "ExecutionAbortedError"
+            || error.name === "AbortError"
+            || ("code" in error && error.code === EXECUTION_ABORTED_ERROR_CODE)
+        )
+    );
+}
+
+function throwIfAbortedCheck(control?: SandboxAbortControl): void {
+    if (control?.signal?.aborted) {
+        throw new SandboxAbortedError();
+    }
+}
+
 function mapDomainFailure(
     error: NodeJS.ErrnoException,
     messages: DomainFailureMessages,
     requestedPath: string,
-): ToolObservation | undefined {
+): SandboxFailure | undefined {
     if (error.code === undefined) {
         return undefined;
     }
@@ -219,7 +280,7 @@ function mapDomainFailure(
 /**
  * 越界失败消息的渲染器：不同 Tool 使用不同名词（"目标"/"搜索范围"）。
  */
-type OutsideMessageRenderer = (requestedPath: string) => string;
+export type OutsideMessageRenderer = (requestedPath: string) => string;
 
 /**
  * 创建绑定到指定工作区的沙箱实例。
@@ -244,7 +305,7 @@ export function createWorkspaceSandbox(
 
     const resolvedWorkspaceRoot = resolve(workspaceRoot);
 
-    const outsideWorkspace = (requestedPath: string): ToolObservation => ({
+    const outsideWorkspace = (requestedPath: string): SandboxFailure => ({
         kind: "failure",
         code: "PATH_OUTSIDE_WORKSPACE",
         message: outsideMessage(requestedPath),
@@ -282,24 +343,24 @@ export function createWorkspaceSandbox(
         },
 
         async resolveTarget(requestedPath, messages, control) {
-            throwIfAborted(control);
+            throwIfAbortedCheck(control);
 
             const resolvedRoot = await realpath(resolvedWorkspaceRoot);
-            throwIfAborted(control);
+            throwIfAbortedCheck(control);
 
             const candidatePath = resolve(resolvedRoot, requestedPath);
             let resolvedTarget: string;
 
             try {
                 resolvedTarget = await realpath(candidatePath);
-                throwIfAborted(control);
+                throwIfAbortedCheck(control);
             } catch (error) {
-                if (isExecutionAbortedError(error)) {
+                if (isAborted(error)) {
                     throw error;
                 }
 
                 if (control?.signal?.aborted) {
-                    throw new ExecutionAbortedError();
+                    throw new SandboxAbortedError();
                 }
 
                 if (isNodeError(error)) {
@@ -325,24 +386,24 @@ export function createWorkspaceSandbox(
         },
 
         async resolveExistingPath(requestedPath, displayPath, control) {
-            throwIfAborted(control);
+            throwIfAbortedCheck(control);
 
             const resolvedRoot = await realpath(resolvedWorkspaceRoot);
-            throwIfAborted(control);
+            throwIfAbortedCheck(control);
 
             const candidatePath = resolve(resolvedRoot, requestedPath);
             let resolvedTarget: string;
 
             try {
                 resolvedTarget = await realpath(candidatePath);
-                throwIfAborted(control);
+                throwIfAbortedCheck(control);
             } catch (error) {
-                if (isExecutionAbortedError(error)) {
+                if (isAborted(error)) {
                     throw error;
                 }
 
                 if (control?.signal?.aborted) {
-                    throw new ExecutionAbortedError();
+                    throw new SandboxAbortedError();
                 }
 
                 throw error;

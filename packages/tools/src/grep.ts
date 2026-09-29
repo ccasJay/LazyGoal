@@ -30,7 +30,7 @@ import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
     type WorkspaceSandbox,
-} from "./internal/workspace-sandbox";
+} from "../../sandbox/src/index";
 
 /** `GrepTool` 在 Profile 中使用的稳定标识。 */
 export const GREP_TOOL_ID = "grep";

@@ -2,7 +2,7 @@
 
 本计划只实现受限命令的实际能力与执行边界；Tool／Sandbox Grant、项目模式、审批 UI 和撤销由 [Permission Tasks](../permission/tasks.md) 实施。额外能力的端到端执行须在两份 Spec 的接口完成后共同验证。
 
-- [ ] //TODO 1. 建立独立 Sandbox package 并迁入文件 Tool 项目路径边界
+- [x] //TODO 1. 建立独立 Sandbox package 并迁入文件 Tool 项目路径边界
 
   - 实现目标：新增 `@lazygoal/sandbox`，让四个文件 Tool 使用同一真实项目路径判断，并保留原领域错误与中止映射。
   - 成功判据：项目内路径可访问；绝对路径、父目录和越界符号链接仍按原规则拒绝，Sandbox 不依赖 Runtime 或 Permission。
