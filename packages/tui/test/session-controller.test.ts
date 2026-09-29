@@ -23,6 +23,7 @@ import {
     type SessionLauncher,
     type UiViewModel,
 } from "../src/index";
+import type { PermissionMode, ProjectPermissionMode } from "../../permission/src/index";
 
 const profile = {
     id: "profile-1",
@@ -158,6 +159,30 @@ class FakeCoordinator implements SessionCoordinator {
     ): Promise<GoalProgressResult> {
         this.continueRequests.push({ ref, newInput });
         return this.continueResult;
+    }
+
+    permissionMode: PermissionMode = "default";
+    permissionRevision = 0;
+
+    async getPermissionMode(): Promise<ProjectPermissionMode> {
+        return {
+            workspaceId: "test-workspace",
+            mode: this.permissionMode,
+            revision: this.permissionRevision,
+        };
+    }
+
+    async setPermissionMode(mode: PermissionMode, expectedRevision: number): Promise<ProjectPermissionMode> {
+        if (expectedRevision !== this.permissionRevision) {
+            throw new Error(`Conflict: expected ${expectedRevision}, actual ${this.permissionRevision}`);
+        }
+        this.permissionMode = mode;
+        this.permissionRevision += 1;
+        return {
+            workspaceId: "test-workspace",
+            mode: this.permissionMode,
+            revision: this.permissionRevision,
+        };
     }
 }
 
@@ -1197,7 +1222,7 @@ test("executionMode defaults to confirm, reflects in session, and toggles seamle
     assert.equal(sessionView(controller).executionMode, "yolo");
 });
 
-test("switching to yolo mode auto-approves pending action waiting in session", async () => {
+test("switching to yolo mode does NOT auto-approve pending action waiting in session", async () => {
     const pendingGoal = createGoal({
         ...currentProtocols,
         promptBundleVersion: 1,
@@ -1220,20 +1245,8 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
                     status: "awaiting_approval",
                     action: { actionId: "act-99", toolId: "bash", input: {} },
                 },
-
-                mode: "plan", approvedTask: { objective: "Execute", completionCriteria: [] },
-            },
-        },
-    };
-
-    const { pendingAction: _pendingAction, ...runWithoutPendingAction } = awaitingGoal.state.run;
-    const completedGoal: Goal = {
-        ...awaitingGoal,
-        state: {
-            ...awaitingGoal.state,
-            run: {
-                ...runWithoutPendingAction,
-                status: "completed",
+                mode: "plan",
+                approvedTask: { objective: "Execute", completionCriteria: [] },
             },
         },
     };
@@ -1246,14 +1259,7 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
         goal: awaitingGoal,
     };
 
-    const resumeResult: GoalProgressResult = {
-        ok: true,
-        kind: "terminal",
-        phase: "executing",
-        goal: completedGoal,
-    };
-
-    const coordinator = new FakeCoordinator(advanceResult, resumeResult);
+    const coordinator = new FakeCoordinator(advanceResult);
     const controller = new SessionController(
         dependencies(
             new FakeLauncher(advanceResult),
@@ -1267,101 +1273,79 @@ test("switching to yolo mode auto-approves pending action waiting in session", a
     assert.equal(sessionView(controller).waitingFor, "action_approval");
     assert.equal(coordinator.resumeRequests.length, 0);
 
-    // 切到 yolo，触发自动放行
+    // 切到 yolo，旧待审 Action 绝不能被自动批准
     await controller.dispatch({ kind: "toggleExecutionMode" });
     assert.equal(sessionView(controller).executionMode, "yolo");
-    assert.equal(coordinator.resumeRequests.length, 1);
-    assert.deepEqual(coordinator.resumeRequests[0], {
-        ref: { goalId: "goal-pending-act", runId: "run-pending-act" },
-        action: { kind: "approve_action", actionId: "act-99" },
-    });
-    assert.equal(sessionView(controller).runStatus, "completed");
+    assert.equal(sessionView(controller).permissionMode, "yolo");
+    assert.equal(coordinator.resumeRequests.length, 0, "旧待审 Action 不自动获批");
+    assert.equal(sessionView(controller).waitingFor, "action_approval");
+    assert.equal(sessionView(controller).pendingAction?.action.actionId, "act-99");
 });
 
-test("YOLO keeps advancement serialized and switches to Confirm during an in-flight action", async () => {
-    const base = createWaitingGoal("goal-live-mode");
-    const { pendingInteraction: _pendingInteraction, ...runWithoutPendingInteraction } = base.state.run;
-    const goal: Goal = { ...base, state: { ...base.state,
-        workflow: { phase: "executing",
-},
-        run: { ...runWithoutPendingInteraction, status: "waiting", pendingAction: {
-            status: "awaiting_approval",
-            action: { actionId: "act-1", toolId: "bash", input: {} },
-        } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
-    } };
-    const result: GoalProgressResult = { ok: true, kind: "waiting", phase: "executing",
-        waitingFor: "action_approval", goal };
-    let resolvePending!: (val: GoalProgressResult) => void;
-    const pendingPromise = new Promise<GoalProgressResult>((resolve) => {
-        resolvePending = resolve;
-    });
-    const pending = {
-        promise: pendingPromise,
-        resolve: resolvePending,
+test("permission mode switches persist to Coordinator with revision increment", async () => {
+    const goal = createWaitingGoal("goal-mode-persist");
+    const result: GoalProgressResult = {
+        ok: true,
+        kind: "waiting",
+        phase: "executing",
+        waitingFor: "ask_user",
+        goal,
     };
-    const requests: ResumeGoalRequest[] = [];
-    const coordinator: SessionCoordinator = {
-        advance: async () => result,
-        resume: async request => { requests.push(request); return pending.promise; },
-    };
+    const coordinator = new FakeCoordinator(result);
     const controller = new SessionController({
         ...dependencies(new FakeLauncher(result), coordinator, new FakeStore([]), new FakeCatalog([])),
         initialGoal: goal,
     });
-    const running = controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
-    assert.equal(sessionView(controller).busy, true);
-    assert.equal(requests.length, 1);
-    await controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
-    assert.equal(requests.length, 1, "setting the mode while busy must not approve twice");
-    await controller.dispatch({ kind: "toggleExecutionMode" });
+
+    // 初始状态
     assert.equal(sessionView(controller).executionMode, "confirm");
-    assert.equal(sessionView(controller).busy, true);
-    await assert.rejects(controller.dispatch({ kind: "approveAction", actionId: "act-1" }),
-        error => error instanceof UiDispatchRejectedError && error.code === "UI_BUSY");
-    resolvePending({ ...result, goal: { ...goal, state: { ...goal.state,
-        run: { ...goal.state.run, pendingAction: { status: "awaiting_approval",
-            action: { actionId: "act-2", toolId: "bash", input: {} } } },
-    } } });
-    await running;
-    assert.equal(requests.length, 1, "Confirm must leave the next action for the user");
-    assert.equal(sessionView(controller).pendingAction?.action.actionId, "act-2");
-    assert.equal(sessionView(controller).busy, false);
+    assert.equal(sessionView(controller).permissionMode, "default");
+    assert.equal(sessionView(controller).permissionRevision, 0);
+
+    // 切换到 yolo
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(coordinator.permissionMode, "yolo");
+    assert.equal(coordinator.permissionRevision, 1);
+    assert.equal(sessionView(controller).executionMode, "yolo");
+    assert.equal(sessionView(controller).permissionMode, "yolo");
+    assert.equal(sessionView(controller).permissionRevision, 1);
+
+    // 切换回 default
+    await controller.dispatch({ kind: "toggleExecutionMode" });
+    assert.equal(coordinator.permissionMode, "default");
+    assert.equal(coordinator.permissionRevision, 2);
+    assert.equal(sessionView(controller).executionMode, "confirm");
+    assert.equal(sessionView(controller).permissionMode, "default");
+    assert.equal(sessionView(controller).permissionRevision, 2);
 });
 
-test("YOLO publishes busy snapshots throughout consecutive approvals", async () => {
-    const base = createWaitingGoal("goal-auto-chain");
-    const resultAt = (index: number): GoalProgressResult => ({
-        ok: true, kind: "waiting", phase: "executing", waitingFor: "action_approval",
-        goal: { ...base, state: { ...base.state,
-            workflow: { phase: "executing",
-},
-            run: { ...base.state.run, status: "waiting", stepCount: index, pendingAction: {
-                status: "awaiting_approval", action: { actionId: `act-${index}`, toolId: "bash", input: {} },
-            } , mode: "plan", approvedTask: { objective: "Review files", completionCriteria: [] } },
-        } },
-    });
-    let count = 0;
-    const coordinator: SessionCoordinator = {
-        advance: async () => resultAt(0),
-        resume: async () => resultAt(++count),
+test("permission mode conflict refreshes from Coordinator and sets error notice", async () => {
+    const goal = createWaitingGoal("goal-mode-conflict");
+    const result: GoalProgressResult = {
+        ok: true,
+        kind: "waiting",
+        phase: "executing",
+        waitingFor: "ask_user",
+        goal,
     };
+    const coordinator = new FakeCoordinator(result);
     const controller = new SessionController({
-        ...dependencies(new FakeLauncher(resultAt(0)), coordinator, new FakeStore([]), new FakeCatalog([])),
-        initialExecutionMode: "yolo",
+        ...dependencies(new FakeLauncher(result), coordinator, new FakeStore([]), new FakeCatalog([])),
+        initialGoal: goal,
     });
-    const states: boolean[] = [];
-    controller.subscribe(() => {
-        const view = controller.getSnapshot();
-        if (view.screen !== "session") return;
-        states.push(view.busy);
-        if (view.stepCount === 100 && view.executionMode === "yolo") {
-            void controller.dispatch({ kind: "setExecutionMode", mode: "confirm" });
-        }
-    });
-    await controller.dispatch({ kind: "create", intent: "Review files" });
-    assert.equal(count, 100);
-    assert.equal(states.at(-1), false);
-    assert.ok(states.slice(0, -1).every(Boolean), "the lock is released only after the chain ends");
+
+    // 模拟服务端已被其他进程更新，导致 revision 前进
+    coordinator.permissionRevision = 5;
+    coordinator.permissionMode = "yolo";
+
+    // 当前 controller 持有的仍是 revision 0，提交切换应触发 conflict
+    await controller.dispatch({ kind: "setExecutionMode", mode: "yolo" });
+
+    // 验证捕获错误并刷新为服务端当前最新状态
+    assert.equal(sessionView(controller).error?.code, "PERMISSION_MODE_ERROR");
+    assert.equal(sessionView(controller).permissionRevision, 5);
+    assert.equal(sessionView(controller).permissionMode, "yolo");
+    assert.equal(sessionView(controller).executionMode, "yolo");
 });
 
 test("openInspector, inspectStep, and toggleReasoning manage inspector state", async () => {

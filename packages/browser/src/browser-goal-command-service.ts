@@ -12,6 +12,12 @@ import type {
     ResumeGoalRequest,
     ToolGrant,
 } from "../../runtime/src/index";
+import {
+    PermissionModeConflictError,
+    type EffectiveExtraFile,
+    type PermissionMode,
+    type UnifiedGrantSummary,
+} from "../../permission/src/index";
 
 /**
  * 浏览器发起的 Goal 创建命令。
@@ -101,8 +107,15 @@ export interface BrowserToolGrantSummary {
     readonly scope: "goal" | "workspace";
     readonly toolId: string;
     readonly status: ToolGrant["status"];
+    readonly kind?: "tool" | "sandbox";
     /** 写入/编辑授权的规范化目标；完整命令与输入摘要不会暴露。 */
     readonly targetPath?: string;
+    /** 沙箱受限命令预览。 */
+    readonly command?: string;
+    /** 沙箱实际出站网络能力。 */
+    readonly network?: "none" | "all_outbound";
+    /** 沙箱实际额外访问的文件或目录。 */
+    readonly extraFiles?: readonly EffectiveExtraFile[];
 }
 
 /** 浏览器按当前 Action 身份读取的完整已保存 Tool 输入。 */
@@ -120,7 +133,40 @@ export interface BrowserToolGrantRevokeCommand {
     readonly runId: string;
     readonly grantId: string;
     readonly scope: "goal" | "workspace";
+    readonly kind?: "tool" | "sandbox";
 }
+
+/**
+ * 浏览器项目权限模式切换命令。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionModeCommand = {
+ *     mode: "yolo",
+ *     expectedRevision: 1,
+ * };
+ * ```
+ */
+export interface BrowserPermissionModeCommand {
+    /** 目标权限模式。 */
+    readonly mode: PermissionMode;
+    /** 期望修订号，用于乐观并发控制。 */
+    readonly expectedRevision: number;
+}
+
+/**
+ * 浏览器项目权限模式操作结果。
+ *
+ * @example
+ * ```ts
+ * const result: BrowserPermissionModeResult = {
+ *     ok: true, mode: "yolo", revision: 2, workspaceId: "workspace-1",
+ * };
+ * ```
+ */
+export type BrowserPermissionModeResult =
+    | { readonly ok: true; readonly mode: PermissionMode; readonly revision: number; readonly workspaceId: string }
+    | { readonly ok: false; readonly error: "permissions_unavailable" | "conflict"; readonly actualRevision?: number };
 
 /**
  * 浏览器提交的普通会话文本。
@@ -372,6 +418,14 @@ export interface BrowserGoalCoordinator {
     listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
     /** 撤销由当前 Goal/Run 限定的持续授权。 */
     revokeToolGrant?(request: Parameters<GoalCoordinator["revokeToolGrant"]>[0]): ReturnType<GoalCoordinator["revokeToolGrant"]>;
+    /** 当前 Goal 下统一列出 Tool 与 Sandbox 持续授权。 */
+    listGrants?(ref: Parameters<GoalCoordinator["listGrants"]>[0]): ReturnType<GoalCoordinator["listGrants"]>;
+    /** 统一撤销由当前 Goal/Run 限定的 Tool 或 Sandbox 持续授权。 */
+    revokeGrant?(request: Parameters<GoalCoordinator["revokeGrant"]>[0]): ReturnType<GoalCoordinator["revokeGrant"]>;
+    /** 查询项目权限执行模式。 */
+    getPermissionMode?(workspaceId?: string): ReturnType<GoalCoordinator["getPermissionMode"]>;
+    /** 设置项目权限执行模式。 */
+    setPermissionMode?(mode: PermissionMode, expectedRevision: number, workspaceId?: string): ReturnType<GoalCoordinator["setPermissionMode"]>;
 }
 
 /**
@@ -655,7 +709,7 @@ export class BrowserGoalCommandService {
     /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
     async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.listToolGrants === undefined) {
+        if (coordinator.listGrants === undefined && coordinator.listToolGrants === undefined) {
             return { ok: false, error: "permissions_unavailable" };
         }
         let goal: Goal | undefined;
@@ -664,13 +718,35 @@ export class BrowserGoalCommandService {
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
         try {
-            const grants = await coordinator.listToolGrants({ goalId, runId });
+            if (coordinator.listGrants !== undefined) {
+                const grants = await coordinator.listGrants({ goalId, runId });
+                return {
+                    ok: true,
+                    goalId,
+                    runId,
+                    grants: grants.map((grant) => ({
+                        grantId: grant.id,
+                        kind: grant.kind,
+                        scope: grant.scope,
+                        toolId: grant.toolId,
+                        status: grant.status,
+                        ...(grant.kind === "tool" && grant.targetPath !== undefined ? { targetPath: grant.targetPath } : {}),
+                        ...(grant.kind === "sandbox" ? {
+                            command: grant.command,
+                            network: grant.network,
+                            extraFiles: grant.extraFiles,
+                        } : {}),
+                    })),
+                };
+            }
+            const grants = await coordinator.listToolGrants!({ goalId, runId });
             return {
                 ok: true,
                 goalId,
                 runId,
                 grants: grants.map((grant) => ({
                     grantId: grant.id,
+                    kind: "tool" as const,
                     scope: grant.scope,
                     toolId: grant.matcher.toolId,
                     status: grant.status,
@@ -683,20 +759,81 @@ export class BrowserGoalCommandService {
     /** 撤销一条绑定当前 Goal/Run 身份的 Goal 或 workspace 授权。 */
     async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.revokeToolGrant === undefined) return { ok: false, error: "permissions_unavailable" };
+        if (coordinator.revokeGrant === undefined && coordinator.revokeToolGrant === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
         let goal: Goal | undefined;
         try { goal = await this.dependencies.store.restore(goalId); }
         catch { return { ok: false, error: "grant_failed" }; }
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
         try {
-            await coordinator.revokeToolGrant({
-                ref: { goalId, runId: command.runId },
-                grantId: command.grantId,
-                scope: command.scope,
-            });
+            if (coordinator.revokeGrant !== undefined) {
+                await coordinator.revokeGrant({
+                    ref: { goalId, runId: command.runId },
+                    kind: command.kind ?? "tool",
+                    grantId: command.grantId,
+                });
+            } else {
+                await coordinator.revokeToolGrant!({
+                    ref: { goalId, runId: command.runId },
+                    grantId: command.grantId,
+                    scope: command.scope,
+                });
+            }
             return this.listToolGrants(goalId, command.runId);
         } catch { return { ok: false, error: "grant_failed" }; }
+    }
+
+    /**
+     * 查询项目权限执行模式。
+     *
+     * @returns 当前项目权限模式快照；服务不可用时返回稳定错误。
+     * @example
+     * ```ts
+     * const result = await service.getPermissionMode();
+     * ```
+     */
+    async getPermissionMode(): Promise<
+        | { readonly ok: true; readonly mode: PermissionMode; readonly revision: number; readonly workspaceId: string }
+        | { readonly ok: false; readonly error: "permissions_unavailable" }
+    > {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.getPermissionMode === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        try {
+            const result = await coordinator.getPermissionMode();
+            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+        } catch {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+    }
+
+    /**
+     * 切换项目权限执行模式。
+     *
+     * @param command - 目标模式与期望修订号。
+     * @returns 成功切换后的权限模式结果；版本冲突或底层存储故障时返回稳定错误。
+     * @example
+     * ```ts
+     * const result = await service.setPermissionMode({ mode: "yolo", expectedRevision: 0 });
+     * ```
+     */
+    async setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.setPermissionMode === undefined) {
+            return { ok: false, error: "permissions_unavailable" };
+        }
+        try {
+            const result = await coordinator.setPermissionMode(command.mode, command.expectedRevision);
+            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+        } catch (error) {
+            if (error instanceof PermissionModeConflictError) {
+                return { ok: false, error: "conflict", actualRevision: error.actualRevision };
+            }
+            return { ok: false, error: "permissions_unavailable" };
+        }
     }
 
     /**

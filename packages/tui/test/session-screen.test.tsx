@@ -283,6 +283,53 @@ test("SessionScreen keeps Action approval mounted but disabled while busy", asyn
     assert.deepEqual(approved, []);
 });
 
+test("SessionScreen 明确展示沙箱外部文件与出站整网含回环的实际能力", () => {
+    const goal = executingGoal("goal-sandbox-action-tui");
+    const sandboxAction: PendingAction = {
+        status: "awaiting_approval",
+        approvalKind: "sandbox",
+        effectiveSandboxScope: {
+            extraFiles: [
+                { canonicalPath: "/etc/hosts", access: "read", kind: "file" },
+            ],
+            network: "all_outbound",
+        },
+        action: {
+            actionId: "act-sandbox-tui",
+            toolId: "bash",
+            input: { command: "curl https://api.github.com" },
+        },
+    };
+    const currentGoal: Goal = {
+        ...goal,
+        state: {
+            ...goal.state,
+            run: {
+                ...goal.state.run,
+                status: "waiting",
+                pendingAction: sandboxAction,
+            },
+        },
+    };
+
+    const instance = render(
+        <SessionScreen
+            session={session(currentGoal, {
+                waitingFor: "action_approval",
+                pendingAction: sandboxAction,
+            })}
+            onSubmitMessage={() => undefined}
+            onApproveAction={() => undefined}
+            onRejectAction={() => undefined}
+        />,
+    );
+
+    const frame = instance.lastFrame() ?? "";
+    assert.match(frame, /Network: Any outbound network access, including loopback \(任意出站目标，含本机回环\)/);
+    assert.match(frame, /Extra Files:/);
+    assert.match(frame, /\/etc\/hosts \(read, file\)/);
+});
+
 test("SessionScreen displays the complete Action input for review", () => {
     const goal = executingGoal("goal-action-input");
     const largeAction: PendingAction = {
@@ -385,6 +432,40 @@ test("ToolPermissionsScreen shows scope and revokes the selected grant", async (
     instance.stdin.write("\r");
     await nextFrame();
     assert.deepEqual(revocations, [{ grantId: "grant-screen-1", scope: "workspace" }]);
+});
+
+test("ToolPermissionsScreen shows sandbox command scope and revokes sandbox grant", async () => {
+    const goal = executingGoal("goal-sb-permissions-screen");
+    const view: UiToolPermissionsViewModel = {
+        screen: "tool_permissions",
+        busy: false,
+        goal,
+        grants: [{
+            grantId: "sb-grant-1",
+            kind: "sandbox",
+            scope: "goal",
+            toolId: "bash",
+            command: "curl https://example.com",
+            status: "active",
+            network: "all_outbound",
+        }],
+        session: session(goal),
+    };
+    const revocations: Array<{ grantId: string; scope: string; kind?: string }> = [];
+    const instance = render(
+        <ToolPermissionsScreen
+            view={view}
+            onRevoke={(grantId, scope, kind) => { revocations.push({ grantId, scope, ...(kind ? { kind } : {}) }); }}
+            onBack={() => undefined}
+        />,
+    );
+
+    assert.match(instance.lastFrame() ?? "", /bash \(sandbox: curl https:\/\/example\.com\)/);
+    assert.match(instance.lastFrame() ?? "", /network: all_outbound/);
+    assert.match(instance.lastFrame() ?? "", /This Goal/);
+    instance.stdin.write("\r");
+    await nextFrame();
+    assert.deepEqual(revocations, [{ grantId: "sb-grant-1", scope: "goal", kind: "sandbox" }]);
 });
 
 test("SessionScreen submits non-empty text as rejection reason", async () => {

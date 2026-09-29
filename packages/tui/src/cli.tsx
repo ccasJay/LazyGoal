@@ -104,6 +104,7 @@ import {
     type LlmModelDescriptor,
 } from "../../llm/src/model-catalog";
 import {
+    BASH_TOOL_ID,
     BashTool,
     EditFileTool,
     GREP_TOOL_ID,
@@ -142,12 +143,30 @@ const DEFAULT_PROFILE_ID = "default";
  *
  * @example
  * ```ts
+/**
+ * 创建只读 Tool 和受限 Bash 自动放行、其它 Tool 均需用户审批的默认策略。
+ *
+ * @remarks
+ * 在 macOS 上，默认沙箱范围内的 `bash` 命令直接自动执行；在非 macOS 平台上
+ * `bash` 继续要求逐次审批。
+ *
+ * @param options - 可选配置，包含模拟平台。
+ * @returns 默认 ToolPolicy 实例。
+ *
+ * @example
+ * ```ts
  * const policy = createDefaultToolPolicy();
- * policy.evaluate({ goal, action, tool: { id: "bash" } }); // "require_approval"
  * ```
  */
-export function createDefaultToolPolicy(): ToolPolicy {
-    const autoAllowedToolIds = new Set([READ_FILE_TOOL_ID, GREP_TOOL_ID]);
+export function createDefaultToolPolicy(options?: {
+    readonly platform?: NodeJS.Platform;
+}): ToolPolicy {
+    const platform = options?.platform ?? process.platform;
+    const autoAllowedToolIds = new Set(
+        platform === "darwin"
+            ? [READ_FILE_TOOL_ID, GREP_TOOL_ID, BASH_TOOL_ID]
+            : [READ_FILE_TOOL_ID, GREP_TOOL_ID],
+    );
 
     return {
         evaluate: ({ tool }) =>

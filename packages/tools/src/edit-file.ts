@@ -20,7 +20,7 @@ import {
     createWorkspaceSandbox,
     type DomainFailureMessages,
     type WorkspaceSandbox,
-} from "./internal/workspace-sandbox";
+} from "../../sandbox/src/index";
 
 /** `EditFileTool` 在 Profile 中使用的稳定标识。 */
 export const EDIT_FILE_TOOL_ID = "edit_file";

@@ -442,6 +442,7 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
         await waitForCompletedRun(root.workspaceGoalStore, firstGoal.id);
         assert.ok(adapters.filter((adapter) => adapter.modelId === "model-first").reduce((total, adapter) => total + adapter.calls.length, 0) >= 2, JSON.stringify(adapters.map((adapter) => [adapter.modelId, adapter.calls.length])));
 
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
         const secondNext = await commands.message(secondGoal.id, {
             runId: secondGoal.state.run.id, content: "Continue second goal",
         });

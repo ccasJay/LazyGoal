@@ -19,6 +19,7 @@ import type {
 } from "./context-retrieval";
 import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
+import type { EffectiveSandboxScope } from "../../sandbox/src/index";
 
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
 export type TrajectoryPhase = "executing";
@@ -225,6 +226,8 @@ export type TrajectoryEventPayload =
         readonly type: "action_staged";
         readonly action: ToolCallAction;
         readonly approvalStatus: "approved" | "awaiting_approval";
+        readonly approvalKind?: "tool" | "sandbox" | undefined;
+        readonly effectiveSandboxScope?: EffectiveSandboxScope | undefined;
     }
     | {
         readonly type: "action_approved";
@@ -234,6 +237,11 @@ export type TrajectoryEventPayload =
     }
     | {
         readonly type: "tool_grant_revoked";
+        readonly grantId: string;
+        readonly scope: "goal" | "workspace";
+    }
+    | {
+        readonly type: "sandbox_grant_revoked";
         readonly grantId: string;
         readonly scope: "goal" | "workspace";
     }
@@ -713,6 +721,7 @@ const TRAJECTORY_EVENT_TYPES: ReadonlySet<TrajectoryEventType> = new Set([
     "action_staged",
     "action_approved",
     "tool_grant_revoked",
+    "sandbox_grant_revoked",
     "action_rejected",
     "action_recovered",
     "tool_started",
@@ -852,13 +861,13 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             throw new TrajectoryProtocolError("action_approved Grant requires an approval scope");
         }
     }
-    if (eventType === "tool_grant_revoked") {
+    if (eventType === "tool_grant_revoked" || eventType === "sandbox_grant_revoked") {
         if (Object.keys(payload).some((key) => !["type", "grantId", "scope"].includes(key))) {
-            throw new TrajectoryProtocolError("tool_grant_revoked contains unknown fields");
+            throw new TrajectoryProtocolError(`${eventType} contains unknown fields`);
         }
-        assertNonEmptyString(payload.grantId, "tool_grant_revoked.grantId");
+        assertNonEmptyString(payload.grantId, `${eventType}.grantId`);
         if (payload.scope !== "goal" && payload.scope !== "workspace") {
-            throw new TrajectoryProtocolError("tool_grant_revoked.scope is invalid");
+            throw new TrajectoryProtocolError(`${eventType}.scope is invalid`);
         }
     }
 
@@ -1339,6 +1348,7 @@ export function classifyTrajectoryEvent(
         case "action_staged":
         case "action_approved":
         case "tool_grant_revoked":
+        case "sandbox_grant_revoked":
         case "action_rejected":
         case "action_recovered":
             return "action";

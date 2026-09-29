@@ -41,6 +41,11 @@ import {
     StreamingTranscriptController,
     type TranscriptSnapshot,
 } from "./streaming-transcript-controller";
+import type {
+    PermissionMode,
+    ProjectPermissionMode,
+    UnifiedGrantSummary,
+} from "../../permission/src/index";
 
 type ProgressResult = GoalProgressResult | LaunchResult;
 type WaitingProgress = Extract<
@@ -77,6 +82,8 @@ export class SessionController {
     private executionStreamSubscription: ExecutionStreamSubscription | undefined;
     private committedSteps: UiStepSummary[] = [];
     private executionMode: ExecutionMode;
+    private permissionMode: PermissionMode = "default";
+    private permissionRevision = 0;
     private modelCatalogGeneration = 0;
     private modelCatalogAbortController: AbortController | undefined;
     private previousSnapshotBeforeModelSelect: UiViewModel | undefined;
@@ -111,6 +118,8 @@ export class SessionController {
     constructor(dependencies: SessionControllerDependencies) {
         this.dependencies = dependencies;
         this.executionMode = dependencies.initialExecutionMode ?? "confirm";
+        this.permissionMode = this.executionMode === "yolo" ? "yolo" : "default";
+        void this.refreshPermissionMode();
         this.transcriptController = new StreamingTranscriptController({
             ...(dependencies.transcriptScheduler !== undefined
                 ? { scheduler: dependencies.transcriptScheduler }
@@ -383,7 +392,7 @@ export class SessionController {
         if (this.snapshot.busy) {
             if (command.kind === "toggleExecutionMode" || command.kind === "setExecutionMode") {
                 return this.setMode(command.kind === "setExecutionMode"
-                    ? command.mode : this.executionMode === "confirm" ? "yolo" : "confirm", false);
+                    ? command.mode : (this.permissionMode === "default" ? "yolo" : "confirm"));
             }
             if (command.kind === "cancelModelSelect" && this.snapshot.screen === "model_select") {
                 this.cancelModelSelect();
@@ -466,7 +475,7 @@ export class SessionController {
                 if (this.snapshot.screen === "tool_permissions") this.setSnapshot(this.snapshot.session);
                 return;
             case "revokeToolGrant":
-                await this.revokeToolGrant(command.grantId, command.scope);
+                await this.revokeToolGrant(command.grantId, command.scope, command.grantKind);
                 return;
             case "rejectAction":
                 await this.resumeSession({
@@ -488,7 +497,7 @@ export class SessionController {
                 await this.openHistory();
                 return;
             case "toggleExecutionMode":
-                await this.setMode(this.executionMode === "confirm" ? "yolo" : "confirm");
+                await this.setMode(this.permissionMode === "default" ? "yolo" : "confirm");
                 return;
             case "setExecutionMode":
                 await this.setMode(command.mode);
@@ -940,28 +949,12 @@ export class SessionController {
     }
 
     private async applyProgress(result: ProgressResult): Promise<void> {
-        while (!this.shuttingDown) {
-            if (!result.ok) {
-                this.setError(result.error);
-                return;
-            }
-            this.setSnapshot(this.toSessionView(result.goal, result, true));
-            if (this.executionMode !== "yolo"
-                || result.kind !== "waiting"
-                || result.waitingFor !== "action_approval"
-                || result.goal.state.run.pendingAction?.action === undefined) return;
-
-            result = await this.dependencies.coordinator.resume({
-                ref: {
-                    goalId: result.goal.id,
-                    runId: result.goal.state.run.id,
-                },
-                action: {
-                    kind: "approve_action",
-                    actionId: result.goal.state.run.pendingAction.action.actionId,
-                },
-            }, this.dependencies.control);
+        if (this.shuttingDown) return;
+        if (!result.ok) {
+            this.setError(result.error);
+            return;
         }
+        this.setSnapshot(this.toSessionView(result.goal, result, true));
     }
 
     private openHome(): void {
@@ -998,36 +991,62 @@ export class SessionController {
         });
     }
 
-    private async setMode(mode: ExecutionMode, advance = true): Promise<void> {
-        this.executionMode = mode;
+    private async refreshPermissionMode(): Promise<void> {
+        if (this.dependencies.coordinator.getPermissionMode === undefined) return;
+        try {
+            const modeRecord = await this.dependencies.coordinator.getPermissionMode();
+            this.permissionMode = modeRecord.mode;
+            this.permissionRevision = modeRecord.revision;
+            this.executionMode = modeRecord.mode === "yolo" ? "yolo" : "confirm";
+            if (this.snapshot.screen === "session") {
+                this.setSnapshot({
+                    ...this.snapshot,
+                    executionMode: this.executionMode,
+                    permissionMode: this.permissionMode,
+                    permissionRevision: this.permissionRevision,
+                });
+            }
+        } catch {
+            // 保留本地状态
+        }
+    }
+
+    private async setMode(mode: ExecutionMode): Promise<void> {
+        const targetPermissionMode: PermissionMode = mode === "yolo" ? "yolo" : "default";
+        if (this.dependencies.coordinator.setPermissionMode !== undefined) {
+            try {
+                const updated = await this.dependencies.coordinator.setPermissionMode(
+                    targetPermissionMode,
+                    this.permissionRevision,
+                );
+                this.permissionMode = updated.mode;
+                this.permissionRevision = updated.revision;
+                this.executionMode = updated.mode === "yolo" ? "yolo" : "confirm";
+            } catch (error) {
+                await this.refreshPermissionMode();
+                if (this.snapshot.screen === "session") {
+                    this.setSnapshot({
+                        ...this.snapshot,
+                        error: {
+                            code: "PERMISSION_MODE_ERROR",
+                            message: error instanceof Error ? error.message : "Failed to update permission mode",
+                        },
+                    });
+                }
+                return;
+            }
+        } else {
+            this.executionMode = mode;
+            this.permissionMode = targetPermissionMode;
+        }
+
         if (this.snapshot.screen === "session") {
             this.setSnapshot({
                 ...this.snapshot,
-                executionMode: mode,
+                executionMode: this.executionMode,
+                permissionMode: this.permissionMode,
+                permissionRevision: this.permissionRevision,
             });
-            if (
-                advance && mode === "yolo"
-                && !this.shuttingDown
-                && this.snapshot.waitingFor === "action_approval"
-                && this.snapshot.pendingAction?.action !== undefined
-            ) {
-                const actionId = this.snapshot.pendingAction.action.actionId;
-                const request = {
-                    ref: {
-                        goalId: this.snapshot.goal.id,
-                        runId: this.snapshot.goal.state.run.id,
-                    },
-                    action: {
-                        kind: "approve_action" as const,
-                        actionId,
-                    },
-                };
-                const result = await this.dependencies.coordinator.resume(
-                    request,
-                    this.dependencies.control,
-                );
-                await this.applyProgress(result);
-            }
         }
     }
 
@@ -1383,6 +1402,8 @@ export class SessionController {
             stepCount: snapshot.state.run.stepCount,
             messages: snapshot.state.messages,
             executionMode: this.executionMode,
+            permissionMode: this.permissionMode,
+            permissionRevision: this.permissionRevision,
             timeline: this.timeline.slice(),
             ...(this.streamingTail !== undefined ? { streamingTail: this.streamingTail } : {}),
             ...(sameRun && this.liveActivity !== undefined ? { liveActivity: this.liveActivity } : {}),
@@ -1818,21 +1839,34 @@ export class SessionController {
         }
     }
 
+    private async fetchGrantSummaries(ref: { readonly goalId: string; readonly runId: string }): Promise<readonly UiToolGrantSummary[]> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.listGrants !== undefined) {
+            const grants = await coordinator.listGrants(ref);
+            return grants.map(toUiUnifiedGrantSummary);
+        }
+        if (coordinator.listToolGrants !== undefined) {
+            const grants = await coordinator.listToolGrants(ref);
+            return grants.map(toUiToolGrantSummary);
+        }
+        return [];
+    }
+
     private async refreshToolGrants(goal: Goal): Promise<void> {
-        const listGrants = this.dependencies.coordinator.listToolGrants;
-        if (listGrants === undefined) return;
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.listGrants === undefined && coordinator.listToolGrants === undefined) return;
         const ref = { goalId: goal.id, runId: goal.state.run.id };
         const key = `${ref.goalId}\0${ref.runId}`;
         if (this.grantsRunKey === key) return;
         this.grantsRunKey = key;
         try {
-            const grants = await listGrants.call(this.dependencies.coordinator, ref);
+            const summaries = await this.fetchGrantSummaries(ref);
             if (this.snapshot.screen !== "session"
                 || this.snapshot.goal.id !== ref.goalId
                 || this.snapshot.goal.state.run.id !== ref.runId) return;
             this.setSnapshot({
                 ...this.snapshot,
-                toolGrants: grants.map(toUiToolGrantSummary),
+                toolGrants: summaries,
             });
         } catch (error: unknown) {
             if (this.snapshot.screen !== "session"
@@ -1845,10 +1879,10 @@ export class SessionController {
         }
     }
 
-    private async revokeToolGrant(grantId: string, scope: "goal" | "workspace"): Promise<void> {
+    private async revokeToolGrant(grantId: string, scope: "goal" | "workspace", kind: "tool" | "sandbox" = "tool"): Promise<void> {
         if (this.snapshot.screen !== "tool_permissions") return;
-        const revoke = this.dependencies.coordinator.revokeToolGrant;
-        if (revoke === undefined) {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.revokeGrant === undefined && coordinator.revokeToolGrant === undefined) {
             this.setError({ code: "TOOL_GRANTS_UNAVAILABLE", message: "Tool permissions are unavailable" });
             return;
         }
@@ -1856,9 +1890,12 @@ export class SessionController {
         const goal = current.goal;
         const ref = { goalId: goal.id, runId: goal.state.run.id };
         try {
-            await revoke.call(this.dependencies.coordinator, { ref, grantId, scope });
-            const grants = await this.dependencies.coordinator.listToolGrants?.(ref) ?? [];
-            const summaries = grants.map(toUiToolGrantSummary);
+            if (coordinator.revokeGrant !== undefined) {
+                await coordinator.revokeGrant({ ref, kind, grantId });
+            } else {
+                await coordinator.revokeToolGrant!({ ref, grantId, scope });
+            }
+            const summaries = await this.fetchGrantSummaries(ref);
             const session = { ...current.session, toolGrants: summaries };
             this.setSnapshot({ ...current, session, grants: summaries, busy: false });
         } catch (error: unknown) {
@@ -1869,8 +1906,8 @@ export class SessionController {
     private async openToolPermissions(): Promise<void> {
         if (this.snapshot.screen !== "session") return;
         const session = this.snapshot;
-        const list = this.dependencies.coordinator.listToolGrants;
-        if (list === undefined) {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.listGrants === undefined && coordinator.listToolGrants === undefined) {
             this.setSnapshot({
                 screen: "tool_permissions",
                 busy: true,
@@ -1883,8 +1920,7 @@ export class SessionController {
         }
         const ref = { goalId: session.goal.id, runId: session.goal.state.run.id };
         try {
-            const grants = await list.call(this.dependencies.coordinator, ref);
-            const summaries = grants.map(toUiToolGrantSummary);
+            const summaries = await this.fetchGrantSummaries(ref);
             this.setSnapshot({
                 screen: "tool_permissions",
                 busy: true,
@@ -1903,6 +1939,28 @@ export class SessionController {
             });
         }
     }
+}
+
+function toUiUnifiedGrantSummary(grant: UnifiedGrantSummary): UiToolGrantSummary {
+    if (grant.kind === "sandbox") {
+        return {
+            grantId: grant.id,
+            scope: grant.scope,
+            toolId: "bash",
+            status: grant.status,
+            kind: "sandbox",
+            command: grant.command,
+            network: grant.network,
+        };
+    }
+    return {
+        grantId: grant.id,
+        scope: grant.scope,
+        toolId: grant.toolId,
+        status: grant.status,
+        kind: "tool",
+        ...(grant.targetPath !== undefined ? { targetPath: grant.targetPath } : {}),
+    };
 }
 
 function toUiToolGrantSummary(grant: import("../../runtime/src/index").ToolGrant): UiToolGrantSummary {

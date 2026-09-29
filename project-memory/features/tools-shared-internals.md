@@ -6,7 +6,7 @@ source_spec: specs/tools-shared-internals/
 distilled_at: 2026-08-25
 reviewed_at: 2026-08-25
 tags: [tools, sandbox, internals, exports, validation]
-authorities: [docs/architecture/runtime.md, packages/tools/src/internal/workspace-sandbox.ts, packages/tools/src/index.ts]
+authorities: [docs/architecture/runtime.md, packages/sandbox/src/index.ts, packages/tools/src/index.ts]
 ---
 
 # Tools Shared Internals
@@ -36,7 +36,7 @@ authorities: [docs/architecture/runtime.md, packages/tools/src/internal/workspac
 
 - S1: `specs/tools-shared-internals/requirements.md`
 - S2: `specs/tools-shared-internals/design.md`
-- S3: `packages/tools/src/internal/workspace-sandbox.ts`
+- S3: `packages/sandbox/src/index.ts`
 - S4: `packages/tools/src/read-file.ts`
 - S5: `packages/tools/src/grep.ts`
 - S6: `packages/tools/test/read-file.test.ts`

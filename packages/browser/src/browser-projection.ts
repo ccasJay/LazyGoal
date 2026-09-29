@@ -11,6 +11,10 @@ import type {
     TrajectoryReadQuery,
     TrajectoryReadResult,
 } from "../../runtime/src/index";
+import {
+    NETWORK_ALL_OUTBOUND_NOTICE,
+    type EffectiveSandboxReview,
+} from "../../permission/src/index";
 
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_ACTION_PREVIEW_LENGTH = 320;
@@ -295,6 +299,8 @@ export interface BrowserGoalSession {
         readonly inputPreview: string;
         readonly inputPreviewTruncated: boolean;
         readonly targetPath?: string;
+        readonly approvalKind?: "tool" | "sandbox";
+        readonly sandboxReview?: EffectiveSandboxReview;
     };
     /** 是否因输出上限截去了较早消息、Run 或步骤。 */
     readonly historyTruncated: boolean;
@@ -450,6 +456,18 @@ function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingA
         && typeof input.path === "string"
         ? boundedText(input.path, MAX_ACTION_PREVIEW_LENGTH)
         : undefined;
+    let sandboxReview: EffectiveSandboxReview | undefined = undefined;
+    if (action.effectiveSandboxScope !== undefined) {
+        const { extraFiles, network } = action.effectiveSandboxScope;
+        if (extraFiles.length > 0 || network !== "none") {
+            sandboxReview = {
+                extraFiles,
+                network,
+                ...(network === "all_outbound" ? { networkNotice: NETWORK_ALL_OUTBOUND_NOTICE } : {}),
+            };
+        }
+    }
+
     return {
         actionId: action.action.actionId,
         toolId: action.action.toolId,
@@ -457,6 +475,8 @@ function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingA
         inputPreview,
         inputPreviewTruncated: completeInput.length > MAX_ACTION_PREVIEW_LENGTH,
         ...(targetPath === undefined ? {} : { targetPath }),
+        ...(action.approvalKind === undefined ? {} : { approvalKind: action.approvalKind }),
+        ...(sandboxReview === undefined ? {} : { sandboxReview }),
     };
 }
 

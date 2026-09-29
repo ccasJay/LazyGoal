@@ -411,7 +411,7 @@ export type {
     TrajectoryCheckpointCommitterDependencies,
 } from "./trajectory-checkpoint-committer";
 export { Runner } from "./runner";
-export type { RunnerDependencies, RunnerResult } from "./runner";
+export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
 export type {
     AgentProfile,
@@ -439,13 +439,33 @@ export type {
     ToolRegistry,
     ToolValidationResult,
 } from "./tool";
-export { createToolGrantMatcher, toolGrantMatchersEqual } from "./tool-grant";
+export {
+    DefaultPermissionGrantService,
+    createSandboxGrantMatcher,
+    createToolGrantMatcher,
+    evaluateSandboxAuthorization,
+    evaluateToolAuthorization,
+    matchesSandboxGrant,
+    matchesSandboxGrantMatcher,
+    toolGrantMatchersEqual,
+} from "./tool-grant";
 export type {
+    PermissionGrantService,
+    PermissionMode,
+    PermissionScope,
+    SandboxGrant,
+    SandboxGrantLookup,
+    SandboxGrantMatcher,
+    SandboxGrantScope,
+    SandboxGrantStore,
+    ToolAuthorizationContext,
+    ToolAuthorizationDecision,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
     ToolGrantScope,
     ToolGrantStore,
+    UnifiedGrantSummary,
 } from "./tool-grant";
 export { launch } from "./launcher";
 export type {
@@ -513,3 +533,7 @@ export type {
     GoalModelSelectionRequest,
     GoalModelSelectionResult,
 } from "./goal-model-selection-coordinator";
+export {
+    getSandboxProtectionStatus,
+    type SandboxProtectionStatus,
+} from "../../sandbox/src/index";

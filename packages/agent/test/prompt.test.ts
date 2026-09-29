@@ -355,7 +355,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
     const projectedTools = JSON.parse(
         toolsContent.slice(toolsOffset + toolsMarker.length),
     );
-    assert.equal(JSON.stringify(projectedTools).includes('"kind"'), false);
+    assert.equal(/"kind"\s*:\s*"(?:string|object|integer|array|boolean|enum)"/.test(JSON.stringify(projectedTools)), false);
     assert.deepEqual(
         projectedTools,
         [
@@ -385,6 +385,42 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
                     type: "object",
                     properties: {
                         command: { type: "string" },
+                        sandboxAccess: {
+                            type: "object",
+                            properties: {
+                                files: {
+                                    type: "array",
+                                    items: {
+                                        type: "object",
+                                        properties: {
+                                            access: {
+                                                enum: ["read", "write"],
+                                            },
+                                            kind: {
+                                                enum: ["file", "directory_tree"],
+                                            },
+                                            path: { type: "string" },
+                                            purpose: { type: "string" },
+                                        },
+                                        required: ["path", "access", "kind", "purpose"],
+                                        additionalProperties: false,
+                                    },
+                                },
+                                network: {
+                                    type: "object",
+                                    properties: {
+                                        purpose: { type: "string" },
+                                        targets: {
+                                            type: "array",
+                                            items: { type: "string" },
+                                        },
+                                    },
+                                    required: ["targets", "purpose"],
+                                    additionalProperties: false,
+                                },
+                            },
+                            additionalProperties: false,
+                        },
                         timeoutMs: {
                             type: "integer",
                             minimum: 1,

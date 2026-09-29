@@ -31,6 +31,7 @@ import type {
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
 import type { GoalPlan } from "./goal-plan";
+import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
 
 export type {
     CompletionAcceptance,
@@ -40,6 +41,7 @@ export type {
     AskUserQuestion,
     AskUserAnswer,
     ToolObservation,
+    SandboxExecutionPlan,
 };
 export type { GoalPlan, GoalPlanItem, GoalPlanPatch, GoalPlanPatchOperation, GoalPlanStatus } from "./goal-plan";
 
@@ -826,6 +828,10 @@ export interface PendingAction {
     readonly approvalScope?: "action" | "goal" | "workspace";
     /** 持续授权关联的待生效或有效 Grant；单次批准不设置。 */
     readonly grantId?: string;
+    /** 审批类别：tool（常规工具审批）或 sandbox（沙箱越界能力审批）。 */
+    readonly approvalKind?: "tool" | "sandbox";
+    /** 获批或待审的规范化沙箱范围。 */
+    readonly effectiveSandboxScope?: EffectiveSandboxScope;
 }
 
 /**
@@ -1105,6 +1111,14 @@ export interface RunExecutionOptions {
     readonly signal?: AbortSignal;
     /** 上一轮已提交 Context Lookup 的瞬时结果；不会写入 Snapshot。 */
     readonly contextLookupResult?: ContextLookupResult;
+    /**
+     * 经核准或显式授权的本次非持久化沙箱执行计划。
+     *
+     * @remarks
+     * 仅用于当前调用的 Action 执行；不写入 Snapshot 或 Trajectory。
+     * 进程重启或 Action 重新核准后须重新构建。
+     */
+    readonly sandboxExecutionPlan?: SandboxExecutionPlan;
 }
 
 /** Run 生命周期状态；completed、failed、cancelled 是终态。 */
@@ -1146,6 +1160,8 @@ export type RunInput =
         readonly kind: "stage_action";
         readonly action: ToolCallAction;
         readonly status?: "approved" | "awaiting_approval";
+        readonly approvalKind?: "tool" | "sandbox";
+        readonly effectiveSandboxScope?: EffectiveSandboxScope;
     }
     | {
         readonly kind: "observe_action";

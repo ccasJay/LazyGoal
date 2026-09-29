@@ -20,6 +20,7 @@ import type { AskUserAnswer, AskUserQuestion } from "../../contracts/src/index";
 import type { LlmModelCatalog, LlmModelDescriptor } from "../../llm/src/model-catalog";
 import type { LlmConfig } from "../../llm/src/config";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
+import type { PermissionMode, ProjectPermissionMode, UnifiedGrantSummary } from "../../permission/src/index";
 
 /** Controller 在已有异步操作期间拒绝新命令时使用的稳定错误码。 */
 export const UI_BUSY_CODE = "UI_BUSY" as const;
@@ -86,7 +87,7 @@ export type UiCommand =
         readonly answers: readonly AskUserAnswer[];
     }
     | { readonly kind: "approveAction"; readonly actionId: string; readonly scope?: "action" | "goal" | "workspace" }
-    | { readonly kind: "revokeToolGrant"; readonly grantId: string; readonly scope: ToolGrant["scope"] }
+    | { readonly kind: "revokeToolGrant"; readonly grantId: string; readonly scope: ToolGrant["scope"]; readonly grantKind?: "tool" | "sandbox" }
     | { readonly kind: "openToolPermissions" }
     | { readonly kind: "closeToolPermissions" }
     | {
@@ -441,6 +442,10 @@ export interface UiSessionViewModel {
     readonly waitingFor?: UiWaitingFor;
     /** 执行期人机协同模式（"confirm" 逐项确认 / "yolo" 自动放行）。 */
     readonly executionMode?: ExecutionMode;
+    /** 服务端持久化的项目权限执行模式（"default" 默认逐项确认 / "yolo" 自动放行）。 */
+    readonly permissionMode?: PermissionMode;
+    /** 服务端项目权限模式的当前修订号。 */
+    readonly permissionRevision?: number;
     /** 当前挂起的 AskUser 问卷请求（当 waitingFor 为 "ask_user" 时有效）。 */
     readonly askUser?: UiAskUserRequest;
     /** 问卷所属任务模式（"plan" 任务批准前 / "execution" 任务批准后）。 */
@@ -553,7 +558,10 @@ export interface UiToolGrantSummary {
     readonly scope: ToolGrant["scope"];
     readonly toolId: string;
     readonly status: ToolGrant["status"];
+    readonly kind?: "tool" | "sandbox";
     readonly targetPath?: string;
+    readonly command?: string;
+    readonly network?: "none" | "all_outbound";
 }
 
 /**
@@ -836,6 +844,45 @@ export interface SessionCoordinator {
         readonly grantId: string;
         readonly scope: ToolGrant["scope"];
     }) => Promise<ToolGrant>;
+    /**
+     * 统一列出当前 Goal 与工作区的所有 Tool 与 Sandbox 授权。
+     *
+     * @param ref - 当前 Goal 与 Run 的关联键。
+     * @returns 聚合的授权列表。
+     */
+    readonly listGrants?: (ref: RunRef) => Promise<readonly UnifiedGrantSummary[]>;
+    /**
+     * 统一撤销当前工作区中指定类别和 ID 的持续授权。
+     *
+     * @param request - 当前 Run、类别和授权 ID。
+     */
+    readonly revokeGrant?: (request: {
+        readonly ref: RunRef;
+        readonly kind: "tool" | "sandbox";
+        readonly grantId: string;
+    }) => Promise<void>;
+    /**
+     * 查询指定或当前工作区的权限执行模式。
+     *
+     * @param workspaceId - 可选的工作区标识。
+     * @returns 权限模式事实。
+     * @throws 底层存储故障时抛出异常。
+     */
+    readonly getPermissionMode?: (workspaceId?: string) => Promise<ProjectPermissionMode>;
+    /**
+     * 切换指定或当前工作区的权限执行模式。
+     *
+     * @param mode - 目标权限模式。
+     * @param expectedRevision - 期望修订号。
+     * @param workspaceId - 可选的工作区标识。
+     * @returns 更新后的权限模式事实。
+     * @throws 版本冲突或底层存储故障时抛出异常。
+     */
+    readonly setPermissionMode?: (
+        mode: PermissionMode,
+        expectedRevision: number,
+        workspaceId?: string,
+    ) => Promise<ProjectPermissionMode>;
 }
 
 /**

@@ -260,6 +260,15 @@ export interface GoalSnapshotPendingActionV1 {
     readonly attemptsStarted?: number;
     readonly approvalScope?: "action" | "goal" | "workspace";
     readonly grantId?: string;
+    readonly approvalKind?: "tool" | "sandbox";
+    readonly effectiveSandboxScope?: {
+        readonly extraFiles: readonly {
+            readonly canonicalPath: string;
+            readonly access: "read" | "write";
+            readonly kind: "file" | "directory_tree";
+        }[];
+        readonly network: "none" | "all_outbound";
+    };
 }
 
 /** Snapshot 中非 Step 自身导致的 Run 终止原因。 */
@@ -767,6 +776,15 @@ const PendingActionSchema = z.object({
     attemptsStarted: z.number().int().min(1).max(3).optional(),
     approvalScope: z.enum(["action", "goal", "workspace"]).optional(),
     grantId: NonEmptyStringSchema.optional(),
+    approvalKind: z.enum(["tool", "sandbox"]).optional(),
+    effectiveSandboxScope: z.object({
+        extraFiles: z.array(z.object({
+            canonicalPath: NonEmptyStringSchema,
+            access: z.enum(["read", "write"]),
+            kind: z.enum(["file", "directory_tree"]),
+        }).strict()),
+        network: z.enum(["none", "all_outbound"]),
+    }).strict().optional(),
 }).strict().superRefine((pending, context) => {
     if (pending.status !== "approved" && (pending.approvalScope !== undefined || pending.grantId !== undefined)) {
         context.addIssue({ code: "custom", path: ["approvalScope"], message: "unapproved Action cannot retain authorization" });

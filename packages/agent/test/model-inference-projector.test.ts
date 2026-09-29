@@ -199,7 +199,9 @@ function assertNoContractAst(value: unknown, path: string): void {
     if (value === null || typeof value !== "object") return;
 
     const record = value as Record<string, unknown>;
-    assert.equal("kind" in record, false, `${path} 泄漏了 Contract AST`);
+    if (!path.endsWith(".properties")) {
+        assert.equal("kind" in record, false, `${path} 泄漏了 Contract AST`);
+    }
     for (const [key, child] of Object.entries(record)) {
         assertNoContractAst(child, `${path}.${key}`);
     }
@@ -481,6 +483,42 @@ test("Projector 从七个当前 Contract 生成稳定且可移植的模型 Schem
                         type: "integer",
                         minimum: 1,
                         maximum: BASH_MAX_TIMEOUT_MS,
+                    },
+                    sandboxAccess: {
+                        type: "object",
+                        properties: {
+                            files: {
+                                type: "array",
+                                items: {
+                                    type: "object",
+                                    properties: {
+                                        path: { type: "string" },
+                                        access: {
+                                            enum: ["read", "write"],
+                                        },
+                                        kind: {
+                                            enum: ["file", "directory_tree"],
+                                        },
+                                        purpose: { type: "string" },
+                                    },
+                                    required: ["path", "access", "kind", "purpose"],
+                                    additionalProperties: false,
+                                },
+                            },
+                            network: {
+                                type: "object",
+                                properties: {
+                                    targets: {
+                                        type: "array",
+                                        items: { type: "string" },
+                                    },
+                                    purpose: { type: "string" },
+                                },
+                                required: ["targets", "purpose"],
+                                additionalProperties: false,
+                            },
+                        },
+                        additionalProperties: false,
                     },
                 },
                 required: ["command"],

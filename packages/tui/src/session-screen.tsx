@@ -294,12 +294,13 @@ interface SessionStatusProps {
 }
 
 function SessionStatus({ session, onToggleExecutionMode, onOpenToolPermissions }: SessionStatusProps): React.JSX.Element {
-    const executionMode = session.executionMode ?? "confirm";
+    const modeTag = (session.permissionMode ?? session.executionMode ?? "default").toUpperCase();
+    const isYolo = modeTag === "YOLO";
     return (
         <Box flexDirection="column">
             <Text bold color="cyan">
                 Goal {truncateId(session.goal.id)}
-                {` [${executionMode.toUpperCase()}]`}
+                {` [${modeTag}]`}
                 {session.mode !== undefined ? ` [${session.mode.toUpperCase()}]` : ""}
                 {session.taskTitle !== undefined ? ` - ${session.taskTitle}` : ""}
             </Text>
@@ -338,8 +339,8 @@ function SessionStatus({ session, onToggleExecutionMode, onOpenToolPermissions }
                 ? <StatusSpinner label={sessionSpinnerLabel(session)} />
                 : null}
             {session.terminal === undefined ? <Text dimColor>
-                {executionMode === "yolo"
-                    ? "[Shift+Tab] Confirm at next approval  [Ctrl+C] Stop"
+                {isYolo
+                    ? "[Shift+Tab] Switch to Default  [Ctrl+C] Stop"
                     : "[Shift+Tab] Enable YOLO  [Ctrl+C] Stop"}
             </Text> : null}
         </Box>
@@ -572,6 +573,21 @@ function ActionPanel({
             {pendingAction === undefined
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}
+            {pendingAction?.effectiveSandboxScope?.network === "all_outbound" ? (
+                <Text color="yellow">
+                    Network: Any outbound network access, including loopback (任意出站目标，含本机回环)
+                </Text>
+            ) : null}
+            {pendingAction?.effectiveSandboxScope?.extraFiles !== undefined && pendingAction.effectiveSandboxScope.extraFiles.length > 0 ? (
+                <Box flexDirection="column">
+                    <Text color="yellow">Extra Files:</Text>
+                    {pendingAction.effectiveSandboxScope.extraFiles.map((file) => (
+                        <Text key={`${file.canonicalPath}:${file.access}`} color="yellow">
+                            - {file.canonicalPath} ({file.access}, {file.kind})
+                        </Text>
+                    ))}
+                </Box>
+            ) : null}
             {!recovery && pendingAction !== undefined && onApproveWithScope !== undefined ? (
                 <Box flexDirection="column">
                     <Text>Approval scope:</Text>

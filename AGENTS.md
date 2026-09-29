@@ -29,6 +29,7 @@ packages/        Private `@lazygoal/*` workspaces
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes
   storage/       Persistence DTOs, schemas, codecs, errors, and JSON stores for Runtime ports
+  sandbox/       Workspace path boundaries, canonical capability contracts, and macOS Seatbelt isolation
   tools/         Agent tools such as filesystem, shell, and workspace utilities
   tui/           React Ink terminal UI, screens, session controller, and CLI integration
 docs/            Current implemented architecture documentation under `docs/architecture/`

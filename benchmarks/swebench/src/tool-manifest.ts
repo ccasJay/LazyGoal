@@ -49,7 +49,7 @@ export function getSwebenchToolManifest(): readonly ToolManifestEntry[] {
         new WriteFileTool(dummyRoot),
         new EditFileTool(dummyRoot),
         new GrepTool(dummyRoot),
-        new BashTool(dummyRoot),
+        new BashTool(dummyRoot, { enableSeatbelt: false }),
     ];
 
     return Object.freeze(
@@ -81,6 +81,6 @@ export function createSwebenchToolRegistrations(workspaceRoot: string): readonly
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
-        createToolRegistration(new BashTool(workspaceRoot)),
+        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false })),
     ];
 }

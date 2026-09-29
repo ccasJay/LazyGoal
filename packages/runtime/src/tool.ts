@@ -14,6 +14,7 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "./execution-control";
+import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 
 /** Tool 输入 Contract 的 JSON AST 类型边界。 */
 export type ToolInputContract = Contract<JsonValue>;
@@ -80,6 +81,8 @@ export interface ToolExecutionRequest<Input extends JsonValue = JsonValue> {
     readonly actionId: string;
     /** 已通过 Input Contract 与 Tool 语义校验的结构化输入。 */
     readonly input: Input;
+    /** Runner 在执行期提供的受限沙箱执行计划（非持久化）。 */
+    readonly plan?: SandboxExecutionPlan;
 }
 
 /** Tool 输入校验结果。 */
@@ -223,11 +226,13 @@ export type PreparedToolAction =
         execute(
             actionId: string,
             control?: ExecutionControl,
+            plan?: SandboxExecutionPlan,
         ): Promise<ToolObservation>;
         /** 使用相同 canonical 输入执行一次可选流式 Tool。 */
         stream?(
             actionId: string,
             control?: ExecutionControl,
+            plan?: SandboxExecutionPlan,
         ): AsyncIterable<ToolStreamEvent>;
     }
     | Extract<ToolValidationResult, { readonly ok: false }>;
@@ -340,14 +345,22 @@ export function createToolRegistration<C extends ToolInputContract>(
             return {
                 ok: true,
                 input: parsed.data,
-                execute(actionId, executeControl) {
-                    return tool.execute({ actionId, input: parsed.data }, executeControl);
+                execute(actionId, executeControl, plan) {
+                    return tool.execute({
+                        actionId,
+                        input: parsed.data,
+                        ...(plan !== undefined ? { plan } : {}),
+                    }, executeControl);
                 },
                 ...(tool.stream === undefined
                     ? {}
                     : {
-                        stream(actionId: string, executeControl?: ExecutionControl) {
-                            return tool.stream!({ actionId, input: parsed.data }, executeControl);
+                        stream(actionId: string, executeControl?: ExecutionControl, plan?: SandboxExecutionPlan) {
+                            return tool.stream!({
+                                actionId,
+                                input: parsed.data,
+                                ...(plan !== undefined ? { plan } : {}),
+                            }, executeControl);
                         },
                     }),
             };

@@ -64,6 +64,31 @@ import type {
 } from "./tool";
 import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from "./tool";
 import {
+    isSeatbeltSupported,
+    resolveEffectiveSandboxScope,
+    type EffectiveSandboxScope,
+    type SandboxAccessRequest,
+    type SandboxExecutionPlan,
+} from "../../sandbox/src/index";
+import { evaluateSandboxAuthorization } from "../../permission/src/index";
+
+/**
+ * 沙箱执行计划解析器接口。
+ *
+ * @remarks
+ * Runner 在受限 Action 执行前调用该函数以获取核准的执行计划。
+ *
+ * @example
+ * ```ts
+ * const resolver: SandboxPlanResolver = async ({ workspaceRoot, action, effectiveScope }) => plan;
+ * ```
+ */
+export type SandboxPlanResolver = (query: {
+    readonly workspaceRoot: string;
+    readonly action: ToolCallAction;
+    readonly effectiveScope?: EffectiveSandboxScope | undefined;
+}) => Promise<SandboxExecutionPlan | undefined> | SandboxExecutionPlan | undefined;
+import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
@@ -129,7 +154,11 @@ import {
 } from "./context-epoch";
 import { withRunModeSelectionGate } from "./run-mode-selection-gate";
 import {
+    createSandboxGrantMatcher,
     createToolGrantMatcher,
+    type PermissionMode,
+    type ProjectPermissionModeStore,
+    type SandboxGrantLookup,
     type ToolGrantLookup,
 } from "./tool-grant";
 
@@ -421,8 +450,9 @@ interface PreparedToolAction {
     readonly registration: ToolRegistration;
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
-    execute(control?: ExecutionControl): Promise<ToolObservation>;
-    stream?(control?: ExecutionControl): AsyncIterable<ToolStreamEvent>;
+    readonly plan?: SandboxExecutionPlan;
+    execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
+    stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
 function prepareToolAction(
@@ -432,6 +462,7 @@ function prepareToolAction(
     policy: ToolPolicy,
     evaluatePolicy = true,
     control?: ExecutionControl,
+    plan?: SandboxExecutionPlan,
 ): PreparedToolAction {
     throwIfAborted(control);
 
@@ -531,12 +562,14 @@ function prepareToolAction(
             registration,
             action: canonicalAction,
             policy: "allow",
-            execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+            ...(plan !== undefined ? { plan } : {}),
+            execute: (executeControl, execPlan) =>
+                prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
             ...(prepared.stream === undefined
                 ? {}
                 : {
-                    stream: (executeControl?: ExecutionControl) =>
-                        prepared.stream!(canonicalAction.actionId, executeControl),
+                    stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
+                        prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
                 }),
         };
     }
@@ -574,12 +607,14 @@ function prepareToolAction(
         registration,
         action: canonicalAction,
         policy: policyResult,
-        execute: (executeControl) => prepared.execute(canonicalAction.actionId, executeControl),
+        ...(plan !== undefined ? { plan } : {}),
+        execute: (executeControl, execPlan) =>
+            prepared.execute(canonicalAction.actionId, executeControl, execPlan ?? plan),
         ...(prepared.stream === undefined
             ? {}
             : {
-                stream: (executeControl?: ExecutionControl) =>
-                    prepared.stream!(canonicalAction.actionId, executeControl),
+                stream: (executeControl?: ExecutionControl, streamPlan?: SandboxExecutionPlan) =>
+                    prepared.stream!(canonicalAction.actionId, executeControl, streamPlan ?? plan),
             }),
     };
 }
@@ -697,6 +732,8 @@ export interface RunnerDependencies {
     readonly toolPolicy?: ToolPolicy;
     /** 读取会话或 Workspace 级持续 Tool 授权；缺省时所有受 Policy 门控的 Action 仍需审批。 */
     readonly toolGrantLookup?: ToolGrantLookup;
+    /** 读取会话或 Workspace 级持续 Sandbox 授权；缺省时所有越界沙箱能力仍需审批。 */
+    readonly sandboxGrantLookup?: SandboxGrantLookup;
     /** 用于隔离 Workspace 授权的稳定身份；必须与授权账本位置一致。 */
     readonly workspaceId?: string;
     /** 文件 Tool 授权身份解析时使用的 Workspace 根目录。 */
@@ -720,6 +757,15 @@ export interface RunnerDependencies {
     readonly contextLookupPort?: ContextLookupPort;
     /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
     readonly executionStream?: ExecutionStreamPublisher;
+    /**
+     * 可选的沙箱执行计划解析器。
+     *
+     * @remarks
+     * Runner 在受限 Action 获准执行前调用此解析器以生成或验证沙箱执行计划。
+     */
+    readonly sandboxPlanResolver?: SandboxPlanResolver;
+    /** 可选的项目权限执行模式存储端口。 */
+    readonly permissionModeStore?: ProjectPermissionModeStore;
 }
 
 /**
@@ -754,6 +800,7 @@ export class Runner {
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
     private readonly toolGrantLookup: ToolGrantLookup | undefined;
+    private readonly sandboxGrantLookup: SandboxGrantLookup | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
@@ -764,6 +811,8 @@ export class Runner {
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
+    private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
+    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -772,8 +821,11 @@ export class Runner {
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
         this.toolGrantLookup = dependencies.toolGrantLookup;
+        this.sandboxGrantLookup = dependencies.sandboxGrantLookup;
+        this.permissionModeStore = dependencies.permissionModeStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
+        this.sandboxPlanResolver = dependencies.sandboxPlanResolver;
         this.trajectoryStore = dependencies.trajectoryStore;
         this.workingMemoryLimits = dependencies.workingMemoryLimits;
         this.protocolValidator = dependencies.protocolValidator;
@@ -974,6 +1026,8 @@ export class Runner {
                 options.authorizedActionId,
                 effectiveControl,
                 contextLookupResult,
+                undefined,
+                options.sandboxExecutionPlan,
             );
         }
 
@@ -985,6 +1039,8 @@ export class Runner {
             options.authorizedActionId,
             effectiveControl,
             contextLookupResult,
+            undefined,
+            options.sandboxExecutionPlan,
         );
     }
 
@@ -2569,12 +2625,14 @@ export class Runner {
         prepared: PreparedToolAction,
         executionUnitId: string,
         control?: ExecutionControl,
+        plan?: SandboxExecutionPlan,
     ): Promise<
         | { readonly kind: "observed"; readonly goal: Goal }
         | { readonly kind: "stopped"; readonly result: RunnerResult }
     > {
         let observation: ToolObservation | undefined;
         const replaySafe = prepared.registration.replayPolicy === "safe";
+        const effectivePlan = plan ?? prepared.plan;
         while (observation === undefined) {
             throwIfAborted(control);
             const pending = goal.state.run.pendingAction;
@@ -2630,8 +2688,8 @@ export class Runner {
                     },
                 }, control);
                 const rawObservation = prepared.stream === undefined
-                    ? await prepared.execute(control)
-                    : await this.consumeToolStream(goal, prepared, executionUnitId, control);
+                    ? await prepared.execute(control, effectivePlan)
+                    : await this.consumeToolStream(goal, prepared, executionUnitId, control, effectivePlan);
                 throwIfAborted(control);
                 observation = validateToolObservation(rawObservation);
             } catch (error) {
@@ -2787,14 +2845,15 @@ export class Runner {
         prepared: PreparedToolAction,
         executionUnitId: string,
         control?: ExecutionControl,
+        plan?: SandboxExecutionPlan,
     ): Promise<ToolObservation> {
         const stream = prepared.stream;
         if (stream === undefined) {
-            return prepared.execute(control);
+            return prepared.execute(control, plan);
         }
 
         let observation: ToolObservation | undefined;
-        for await (const event of stream(control)) {
+        for await (const event of stream(control, plan)) {
             throwIfAborted(control);
             if (event.kind === "output") {
                 if (event.text.length === 0) continue;
@@ -2838,9 +2897,11 @@ export class Runner {
         control?: ExecutionControl,
         initialContextLookupResult?: ContextLookupResult,
         initialPreparedAction?: PreparedToolAction,
+        initialSandboxPlan?: SandboxExecutionPlan,
     ): Promise<RunnerResult> {
         let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
+        let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
         let preparedAction = initialPreparedAction;
         let contextLookupChainCount = await this.restoreContextLookupChainCount(goal, control);
@@ -2857,6 +2918,21 @@ export class Runner {
                     );
                 }
 
+                let effectivePlan: SandboxExecutionPlan | undefined = undefined;
+                if (
+                    transientSandboxPlan !== undefined
+                    && (transientSandboxPlan.actionId === undefined || transientSandboxPlan.actionId === pendingAction.action.actionId)
+                    && (this.workspaceRoot === undefined || transientSandboxPlan.workspaceRoot === this.workspaceRoot)
+                ) {
+                    effectivePlan = transientSandboxPlan;
+                } else if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                    effectivePlan = await this.sandboxPlanResolver({
+                        workspaceRoot: this.workspaceRoot,
+                        action: pendingAction.action,
+                        effectiveScope: pendingAction.effectiveSandboxScope,
+                    });
+                }
+
                 let validated: PreparedToolAction;
 
                 try {
@@ -2868,6 +2944,7 @@ export class Runner {
                             this.toolPolicy,
                             false,
                             control,
+                            effectivePlan,
                         )
                         : preparedAction;
                     preparedAction = undefined;
@@ -2892,8 +2969,10 @@ export class Runner {
                     validated,
                     createExecutionUnitId(),
                     control,
+                    effectivePlan,
                 );
                 transientAuthorization = undefined;
+                transientSandboxPlan = undefined;
 
                 if (outcome.kind === "stopped") {
                     return outcome.result;
@@ -3597,6 +3676,25 @@ export class Runner {
                     }, control);
 
                     let grantMatched = false;
+                    let projectMode: PermissionMode = "default";
+                    if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
+                        try {
+                            const modeRecord = await this.permissionModeStore.get(this.workspaceId);
+                            projectMode = modeRecord.mode;
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
                     if (
                         validated.policy === "require_approval"
                         && this.toolGrantLookup !== undefined
@@ -3627,12 +3725,81 @@ export class Runner {
                         }
                     }
 
-                    if (validated.policy !== "allow" && !grantMatched) {
+                    const rawActionInput = validated.action.input;
+                    let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
+                    if (this.workspaceRoot !== undefined && isRecord(rawActionInput) && isRecord(rawActionInput.sandboxAccess)) {
+                        try {
+                            effectiveSandboxScope = await resolveEffectiveSandboxScope(
+                                this.workspaceRoot,
+                                rawActionInput.sandboxAccess as SandboxAccessRequest,
+                            );
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
+                    const sandboxDecision = evaluateSandboxAuthorization({
+                        isSeatbeltSupported: isSeatbeltSupported(),
+                        workspaceRoot: this.workspaceRoot,
+                        effectiveScope: effectiveSandboxScope,
+                    });
+
+                    let sandboxGrantMatched = false;
+                    if (
+                        sandboxDecision.decision === "approval_required"
+                        && this.sandboxGrantLookup !== undefined
+                        && this.workspaceId !== undefined
+                        && validated.action.toolId === "bash"
+                    ) {
+                        try {
+                            const bashCommand = typeof (rawActionInput as any).command === "string"
+                                ? (rawActionInput as any).command
+                                : "";
+                            const candidateMatcher = createSandboxGrantMatcher(bashCommand, effectiveSandboxScope);
+                            const activeGrant = await this.sandboxGrantLookup.findActiveMatching({
+                                workspaceId: this.workspaceId,
+                                goalId: goal.id,
+                                matcher: candidateMatcher,
+                            });
+                            if (activeGrant !== undefined) {
+                                sandboxGrantMatched = true;
+                            }
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
+                    }
+
+                    const requiresSandboxApproval = sandboxDecision.decision === "approval_required" && !sandboxGrantMatched;
+                    const requiresToolApproval = validated.policy !== "allow" && !grantMatched && projectMode !== "yolo";
+
+                    if (requiresSandboxApproval || requiresToolApproval) {
                         throwIfAborted(control);
+                        const approvalKind = requiresSandboxApproval ? "sandbox" : undefined;
+                        const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: validated.action,
                             status: "awaiting_approval",
+                            ...(approvalKind === undefined ? {} : { approvalKind }),
+                            ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
                         const stagedGoal = this.withRun(goal, stagedRun);
 
@@ -3649,6 +3816,8 @@ export class Runner {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
+                                    ...(approvalKind === undefined ? {} : { approvalKind }),
+                                    ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                                 },
                             }],
                             acceptedPatch,
@@ -3658,10 +3827,12 @@ export class Runner {
                     }
 
                     throwIfAborted(control);
+                    const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
                         action: validated.action,
                         status: "approved",
+                        ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                     });
                     const stagedGoal = this.withRun(goal, stagedRun);
 
@@ -3685,11 +3856,21 @@ export class Runner {
                         control,
                     );
 
+                    let effectivePlan: SandboxExecutionPlan | undefined = undefined;
+                    if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
+                        effectivePlan = await this.sandboxPlanResolver({
+                            workspaceRoot: this.workspaceRoot,
+                            action: validated.action,
+                            effectiveScope: effectiveSandboxScope,
+                        });
+                    }
+
                     const outcome = await this.executeToolAndObserve(
                         stagedCheckpoint,
                         validated,
                         executionUnitId,
                         control,
+                        effectivePlan,
                     );
 
                     if (outcome.kind === "stopped") {

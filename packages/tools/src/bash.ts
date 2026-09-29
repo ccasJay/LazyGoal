@@ -20,6 +20,15 @@ import {
     type ExecutionControl,
 } from "../../runtime/src/execution-control";
 import { invalidInput } from "./internal/invalid-input";
+import {
+    buildSeatbeltPolicy,
+    cleanupPrivateTmpDir,
+    createPrivateTmpDir,
+    filterSandboxEnvironment,
+    isSeatbeltSupported,
+    resolveGitProtectionPaths,
+    SANDBOX_EXEC_PATH,
+} from "../../sandbox/src/index";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -36,6 +45,26 @@ export const BASH_MAX_OUTPUT_CHARS = 10_000;
 /** SIGTERM 发往进程组后等待其自行退出的固定宽限(毫秒),到期升级 SIGKILL。 */
 const BASH_TERMINATION_GRACE_MS = 2_000;
 
+/** 单项文件沙箱访问申请 Contract。 */
+export const SANDBOX_FILE_ACCESS_CONTRACT = contract.object({
+    path: contract.string(),
+    access: contract.enum(["read", "write"] as const),
+    kind: contract.enum(["file", "directory_tree"] as const),
+    purpose: contract.string(),
+});
+
+/** 网络沙箱访问申请 Contract。 */
+export const SANDBOX_NETWORK_ACCESS_CONTRACT = contract.object({
+    targets: contract.array(contract.string()),
+    purpose: contract.string(),
+});
+
+/** 沙箱额外能力申请 Contract。 */
+export const SANDBOX_ACCESS_CONTRACT = contract.object({
+    files: contract.optional(contract.array(SANDBOX_FILE_ACCESS_CONTRACT)),
+    network: contract.optional(SANDBOX_NETWORK_ACCESS_CONTRACT),
+});
+
 /** Bash Tool 的唯一输入 Contract。 */
 export const BASH_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -43,9 +72,31 @@ export const BASH_INPUT_CONTRACT = contract.object({
         minimum: 1,
         maximum: BASH_MAX_TIMEOUT_MS,
     })),
+    sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
 });
 
 type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
+
+/**
+ * BashTool 的配置选项。
+ *
+ * @remarks
+ * 控制命令执行环境与操作系统级安全沙箱策略。
+ *
+ * @example
+ * ```ts
+ * const tool = new BashTool("/workspace/project", { enableSeatbelt: false });
+ * ```
+ */
+export interface BashToolOptions {
+    /**
+     * 是否在受支持的平台（如 macOS）上启用 Seatbelt 沙箱保护。
+     *
+     * @remarks
+     * 默认为 `true`。沙箱容器环境（如 Benchmark 评测容器）或无沙箱测试可将其设为 `false`。
+     */
+    readonly enableSeatbelt?: boolean;
+}
 
 /**
  * 单个子进程输出流的有界尾部收集器。
@@ -198,15 +249,30 @@ function runShellCommand(
         readonly stdout: TailCollector;
         readonly stderr: TailCollector;
         readonly onOutput?: (channel: "stdout" | "stderr", text: string) => void;
+        readonly sandbox?: {
+            readonly policy: string;
+            readonly env: NodeJS.ProcessEnv;
+        };
     },
 ): Promise<CommandOutcome> {
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(command, {
-            cwd: options.cwd,
-            shell: process.platform === "win32" ? true : "/bin/bash",
-            stdio: ["ignore", "pipe", "pipe"],
-            detached: process.platform !== "win32",
-        });
+        const child = options.sandbox !== undefined
+            ? spawn(
+                SANDBOX_EXEC_PATH,
+                ["-p", options.sandbox.policy, "/bin/bash", "-c", command],
+                {
+                    cwd: options.cwd,
+                    env: options.sandbox.env,
+                    stdio: ["ignore", "pipe", "pipe"],
+                    detached: true,
+                },
+            )
+            : spawn(command, {
+                cwd: options.cwd,
+                shell: process.platform === "win32" ? true : "/bin/bash",
+                stdio: ["ignore", "pipe", "pipe"],
+                detached: process.platform !== "win32",
+            });
         let settled = false;
         let timedOut = false;
         let terminationStarted = false;
@@ -334,17 +400,20 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
     readonly replayPolicy = "manual" as const;
 
     private readonly workspaceRoot: string;
+    private readonly enableSeatbelt: boolean;
 
     /**
      * @param workspaceRoot - 命令执行时的工作区根目录，可为相对或绝对路径。
+     * @param options - 可选配置项，控制是否启用操作系统级沙箱等选项。
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
-    constructor(workspaceRoot: string) {
+    constructor(workspaceRoot: string, options?: BashToolOptions) {
         if (workspaceRoot.trim() === "") {
             throw new Error("workspaceRoot must be non-empty");
         }
 
         this.workspaceRoot = resolve(workspaceRoot);
+        this.enableSeatbelt = options?.enableSeatbelt ?? true;
     }
 
     /**
@@ -364,6 +433,38 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
         if (parsed.command.includes("\0")) {
             return invalidInput("bash.command 不能包含 NUL 字符");
+        }
+
+        if (parsed.sandboxAccess !== undefined) {
+            const { files, network } = parsed.sandboxAccess;
+
+            if (files !== undefined) {
+                for (const file of files) {
+                    if (file.path.trim() === "") {
+                        return invalidInput("sandboxAccess.files.path 不能为空");
+                    }
+                    if (file.path.includes("\0")) {
+                        return invalidInput("sandboxAccess.files.path 不能包含 NUL 字符");
+                    }
+                    if (file.purpose.trim() === "") {
+                        return invalidInput("sandboxAccess.files.purpose 不能为空");
+                    }
+                }
+            }
+
+            if (network !== undefined) {
+                if (network.targets.length === 0) {
+                    return invalidInput("sandboxAccess.network.targets 不能为空列表");
+                }
+                for (const target of network.targets) {
+                    if (target.trim() === "") {
+                        return invalidInput("sandboxAccess.network.targets 包含空目标");
+                    }
+                }
+                if (network.purpose.trim() === "") {
+                    return invalidInput("sandboxAccess.network.purpose 不能为空");
+                }
+            }
         }
 
         return { ok: true };
@@ -425,16 +526,94 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
         const stdout = createTailCollector(BASH_MAX_OUTPUT_CHARS);
         const stderr = createTailCollector(BASH_MAX_OUTPUT_CHARS);
-        const outcome = await runShellCommand(input.command, {
-            cwd: resolvedRoot,
-            timeoutMs,
-            ...(control?.signal === undefined
-                ? {}
-                : { signal: control.signal }),
-            stdout,
-            stderr,
-            ...(onOutput === undefined ? {} : { onOutput }),
-        });
+
+        const hasFiles = input.sandboxAccess?.files !== undefined && input.sandboxAccess.files.length > 0;
+        const hasNetwork = input.sandboxAccess?.network !== undefined && input.sandboxAccess.network.targets.length > 0;
+        const requiresExtraAccess = hasFiles || hasNetwork;
+
+        const isPlanValid = request.plan !== undefined
+            && (request.plan.actionId === undefined || request.plan.actionId === request.actionId)
+            && (request.plan.workspaceRoot === this.workspaceRoot || request.plan.workspaceRoot === resolvedRoot);
+
+        if (requiresExtraAccess && !isPlanValid) {
+            return {
+                kind: "failure",
+                code: "SANDBOX_APPROVAL_REQUIRED",
+                message: "命令申请了额外的沙箱文件或网络能力，须经 Permission 核准后方可执行",
+                retryable: false,
+            };
+        }
+
+        let privateTmpDir: string | undefined;
+        let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
+
+        if (process.platform === "darwin" && this.enableSeatbelt) {
+            if (!isSeatbeltSupported()) {
+                return {
+                    kind: "failure",
+                    code: "SANDBOX_UNAVAILABLE",
+                    message: "macOS Seatbelt 沙箱不可用，拒绝无沙箱执行",
+                    retryable: false,
+                };
+            }
+
+            privateTmpDir = await createPrivateTmpDir();
+            const protectedPaths = await resolveGitProtectionPaths(resolvedRoot);
+
+            const extraReadPaths = isPlanValid
+                ? request.plan?.scope.extraFiles
+                    .filter((f) => f.access === "read" || f.access === "write")
+                    .map((f) => f.canonicalPath)
+                : undefined;
+            const extraWritePaths = isPlanValid
+                ? request.plan?.scope.extraFiles
+                    .filter((f) => f.access === "write")
+                    .map((f) => f.canonicalPath)
+                : undefined;
+            const network = isPlanValid ? (request.plan?.scope.network ?? "none") : "none";
+
+            const policy = buildSeatbeltPolicy({
+                canonicalWorkspaceRoot: resolvedRoot,
+                privateTmpDir,
+                protectedPaths,
+                ...(extraReadPaths !== undefined ? { extraReadPaths } : {}),
+                ...(extraWritePaths !== undefined ? { extraWritePaths } : {}),
+                network,
+            });
+            const env = filterSandboxEnvironment({
+                workspaceRoot: resolvedRoot,
+                privateTmpDir,
+            });
+
+            sandboxRunOptions = { policy, env };
+        }
+
+        let outcome: CommandOutcome;
+        try {
+            outcome = await runShellCommand(input.command, {
+                cwd: resolvedRoot,
+                timeoutMs,
+                ...(control?.signal === undefined
+                    ? {}
+                    : { signal: control.signal }),
+                stdout,
+                stderr,
+                ...(onOutput === undefined ? {} : { onOutput }),
+                ...(sandboxRunOptions === undefined ? {} : { sandbox: sandboxRunOptions }),
+            });
+        } catch (error) {
+            throwIfAborted(control);
+            return {
+                kind: "failure",
+                code: "SANDBOX_FAILURE",
+                message: `命令启动故障: ${(error as Error).message}`,
+                retryable: false,
+            };
+        } finally {
+            if (privateTmpDir !== undefined) {
+                await cleanupPrivateTmpDir(privateTmpDir);
+            }
+        }
 
         throwIfAborted(control);
 

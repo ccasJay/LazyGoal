@@ -1,0 +1,10 @@
+{
+  "name": "@lazygoal/permission",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@lazygoal/contracts": "*",
+    "@lazygoal/sandbox": "*"
+  }
+}

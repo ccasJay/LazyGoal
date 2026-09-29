@@ -542,7 +542,7 @@ test("Gemini native adapter applies configured output limit unless request overr
 
 test("Gemini preserves executing Working Memory updates and rejects task-planning-only operations", async () => {
     const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [{ id: "bash", inputContract: BASH_INPUT_CONTRACT }] });
-    const result = { kind: "tool_call", action: { actionId: "a", toolId: "bash", input: { command: "true", timeoutMs: null } },
+    const result = { kind: "tool_call", action: { actionId: "a", toolId: "bash", input: { command: "true", timeoutMs: null, sandboxAccess: null } },
         memoryPatch: { protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
             subject: "test", predicate: "status", value: "passed", stability: "stable", evidenceSequences: [5], scope: null,
         } }] } };
