@@ -4,6 +4,7 @@ export {
     BASH_INPUT_CONTRACT,
     BASH_TOOL_ID,
     BashTool,
+    type BashToolOptions,
 } from "./bash";
 export { EDIT_FILE_INPUT_CONTRACT, EDIT_FILE_TOOL_ID, EditFileTool } from "./edit-file";
 export { GREP_INPUT_CONTRACT, GREP_TOOL_ID, GrepTool } from "./grep";

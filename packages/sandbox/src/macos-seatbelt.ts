@@ -53,6 +53,60 @@ export function isSeatbeltSupported(): boolean {
 }
 
 /**
+ * 命令沙箱保护状态描述。
+ *
+ * @remarks
+ * 用于准确报告当前操作系统平台与运行环境的沙箱能力，防止向用户或上层虚假声明受 Seatbelt 保护。
+ *
+ * @example
+ * ```ts
+ * const status = getSandboxProtectionStatus();
+ * console.log(status.backend); // "macos_seatbelt" | "unsupported"
+ * ```
+ */
+export interface SandboxProtectionStatus {
+    /** 当前生效的沙箱后端技术标识。 */
+    readonly backend: "macos_seatbelt" | "unsupported";
+    /** 当前是否处于 Seatbelt 保护下。 */
+    readonly isProtected: boolean;
+    /** 面向展示或诊断的状态可读说明。 */
+    readonly description: string;
+}
+
+/**
+ * 获取当前平台与环境的命令沙箱保护状态。
+ *
+ * @param platform - 目标平台，默认为 process.platform。
+ * @returns 规范化的沙箱保护状态对象。
+ *
+ * @example
+ * ```ts
+ * const status = getSandboxProtectionStatus("linux");
+ * assert.equal(status.backend, "unsupported");
+ * assert.equal(status.isProtected, false);
+ * ```
+ */
+export function getSandboxProtectionStatus(
+    platform: NodeJS.Platform = process.platform,
+): SandboxProtectionStatus {
+    if (platform === "darwin" && isSeatbeltSupported()) {
+        return {
+            backend: "macos_seatbelt",
+            isProtected: true,
+            description: "macOS Seatbelt 沙箱保护已启用",
+        };
+    }
+
+    return {
+        backend: "unsupported",
+        isProtected: false,
+        description: platform === "darwin"
+            ? "macOS Seatbelt 不可用"
+            : `当前平台 (${platform}) 未启用 Seatbelt 沙箱保护`,
+    };
+}
+
+/**
  * 递归/规范化解析项目内 Git 元数据的真实路径以供保护。
  *
  * @remarks

@@ -78,6 +78,27 @@ export const BASH_INPUT_CONTRACT = contract.object({
 type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
 
 /**
+ * BashTool 的配置选项。
+ *
+ * @remarks
+ * 控制命令执行环境与操作系统级安全沙箱策略。
+ *
+ * @example
+ * ```ts
+ * const tool = new BashTool("/workspace/project", { enableSeatbelt: false });
+ * ```
+ */
+export interface BashToolOptions {
+    /**
+     * 是否在受支持的平台（如 macOS）上启用 Seatbelt 沙箱保护。
+     *
+     * @remarks
+     * 默认为 `true`。沙箱容器环境（如 Benchmark 评测容器）或无沙箱测试可将其设为 `false`。
+     */
+    readonly enableSeatbelt?: boolean;
+}
+
+/**
  * 单个子进程输出流的有界尾部收集器。
  *
  * @remarks
@@ -379,17 +400,20 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
     readonly replayPolicy = "manual" as const;
 
     private readonly workspaceRoot: string;
+    private readonly enableSeatbelt: boolean;
 
     /**
      * @param workspaceRoot - 命令执行时的工作区根目录，可为相对或绝对路径。
+     * @param options - 可选配置项，控制是否启用操作系统级沙箱等选项。
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
-    constructor(workspaceRoot: string) {
+    constructor(workspaceRoot: string, options?: BashToolOptions) {
         if (workspaceRoot.trim() === "") {
             throw new Error("workspaceRoot must be non-empty");
         }
 
         this.workspaceRoot = resolve(workspaceRoot);
+        this.enableSeatbelt = options?.enableSeatbelt ?? true;
     }
 
     /**
@@ -523,7 +547,7 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
         let privateTmpDir: string | undefined;
         let sandboxRunOptions: { policy: string; env: NodeJS.ProcessEnv } | undefined;
 
-        if (process.platform === "darwin") {
+        if (process.platform === "darwin" && this.enableSeatbelt) {
             if (!isSeatbeltSupported()) {
                 return {
                     kind: "failure",

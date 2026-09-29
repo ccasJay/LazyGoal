@@ -17,9 +17,11 @@ export {
     cleanupPrivateTmpDir,
     createPrivateTmpDir,
     filterSandboxEnvironment,
+    getSandboxProtectionStatus,
     isSeatbeltSupported,
     resolveGitProtectionPaths,
     SANDBOX_EXEC_PATH,
+    type SandboxProtectionStatus,
     type SeatbeltPolicyOptions,
 } from "./macos-seatbelt";
 

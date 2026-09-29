@@ -86,7 +86,7 @@ export function createSwebenchAcpToolSet(workspaceRoot: string): SwebenchAcpTool
         createToolRegistration(new WriteFileTool(workspaceRoot)),
         createToolRegistration(new EditFileTool(workspaceRoot)),
         createToolRegistration(new GrepTool(workspaceRoot)),
-        createToolRegistration(new BashTool(workspaceRoot)),
+        createToolRegistration(new BashTool(workspaceRoot, { enableSeatbelt: false })),
     ]);
     return { profile: SWE_ACP_PROFILE, registry };
 }

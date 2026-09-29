@@ -513,3 +513,7 @@ export type {
     GoalModelSelectionRequest,
     GoalModelSelectionResult,
 } from "./goal-model-selection-coordinator";
+export {
+    getSandboxProtectionStatus,
+    type SandboxProtectionStatus,
+} from "../../sandbox/src/index";
