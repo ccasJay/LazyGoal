@@ -521,8 +521,25 @@ test("ToolPolicy 允许但无核准 plan 时，受限能力依然被拦截拒绝
     const goalId = initialGoal.id;
     const runId = initialGoal.state.run.id;
 
-    // 直接执行：decide 之后立即 stage_action 并执行
+    // 在统一 Permission 架构下，即使 ToolPolicy 为 allow，越界能力也必须先挂起审批
     await runner.run({ goalId, runId });
+    const waitingGoal = (await store.restore(goalId))!;
+    assert.equal(waitingGoal.state.run.status, "waiting");
+    assert.equal(waitingGoal.state.run.pendingAction?.status, "awaiting_approval");
+
+    // 审批通过但未提供任何核准 plan
+    const approveResult = transition(waitingGoal.state.run, { kind: "approve_action", actionId });
+    assert.equal(approveResult.ok, true);
+    await store.save({
+        ...waitingGoal,
+        state: {
+            ...waitingGoal.state,
+            run: approveResult.state,
+        },
+    });
+
+    // 恢复执行：因无核准 plan，受限能力依然被沙箱拒绝
+    await runner.run({ goalId, runId }, { authorizedActionId: actionId });
 
     assert.ok(capturedRequest);
     assert.equal(capturedRequest.plan, undefined);

@@ -19,6 +19,7 @@ import type {
 } from "./context-retrieval";
 import type { GoalStore } from "./goal-store";
 import type { ToolObservation } from "./tool";
+import type { EffectiveSandboxScope } from "../../sandbox/src/index";
 
 /** Trajectory 事件允许出现的 Runtime 业务阶段。 */
 export type TrajectoryPhase = "executing";
@@ -225,6 +226,8 @@ export type TrajectoryEventPayload =
         readonly type: "action_staged";
         readonly action: ToolCallAction;
         readonly approvalStatus: "approved" | "awaiting_approval";
+        readonly approvalKind?: "tool" | "sandbox" | undefined;
+        readonly effectiveSandboxScope?: EffectiveSandboxScope | undefined;
     }
     | {
         readonly type: "action_approved";

@@ -31,7 +31,7 @@ import type {
 } from "./context-retrieval";
 import type { ToolObservation } from "./tool";
 import type { GoalPlan } from "./goal-plan";
-import type { SandboxExecutionPlan } from "../../sandbox/src/index";
+import type { EffectiveSandboxScope, SandboxExecutionPlan } from "../../sandbox/src/index";
 
 export type {
     CompletionAcceptance,
@@ -828,6 +828,10 @@ export interface PendingAction {
     readonly approvalScope?: "action" | "goal" | "workspace";
     /** 持续授权关联的待生效或有效 Grant；单次批准不设置。 */
     readonly grantId?: string;
+    /** 审批类别：tool（常规工具审批）或 sandbox（沙箱越界能力审批）。 */
+    readonly approvalKind?: "tool" | "sandbox";
+    /** 获批或待审的规范化沙箱范围。 */
+    readonly effectiveSandboxScope?: EffectiveSandboxScope;
 }
 
 /**
@@ -1156,6 +1160,8 @@ export type RunInput =
         readonly kind: "stage_action";
         readonly action: ToolCallAction;
         readonly status?: "approved" | "awaiting_approval";
+        readonly approvalKind?: "tool" | "sandbox";
+        readonly effectiveSandboxScope?: EffectiveSandboxScope;
     }
     | {
         readonly kind: "observe_action";

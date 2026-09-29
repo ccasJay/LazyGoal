@@ -63,7 +63,14 @@ import type {
     ToolRegistry,
 } from "./tool";
 import { resolveAuthorizedToolDefinitions, TransientToolExecutionFailure } from "./tool";
-import type { SandboxExecutionPlan } from "../../sandbox/src/index";
+import {
+    isSeatbeltSupported,
+    resolveEffectiveSandboxScope,
+    type EffectiveSandboxScope,
+    type SandboxAccessRequest,
+    type SandboxExecutionPlan,
+} from "../../sandbox/src/index";
+import { evaluateSandboxAuthorization } from "../../permission/src/index";
 
 /**
  * 沙箱执行计划解析器接口。
@@ -73,12 +80,13 @@ import type { SandboxExecutionPlan } from "../../sandbox/src/index";
  *
  * @example
  * ```ts
- * const resolver: SandboxPlanResolver = async ({ workspaceRoot, action }) => plan;
+ * const resolver: SandboxPlanResolver = async ({ workspaceRoot, action, effectiveScope }) => plan;
  * ```
  */
 export type SandboxPlanResolver = (query: {
     readonly workspaceRoot: string;
     readonly action: ToolCallAction;
+    readonly effectiveScope?: EffectiveSandboxScope | undefined;
 }) => Promise<SandboxExecutionPlan | undefined> | SandboxExecutionPlan | undefined;
 import {
     ExecutionAbortedError,
@@ -2915,6 +2923,7 @@ export class Runner {
                     effectivePlan = await this.sandboxPlanResolver({
                         workspaceRoot: this.workspaceRoot,
                         action: pendingAction.action,
+                        effectiveScope: pendingAction.effectiveSandboxScope,
                     });
                 }
 
@@ -3711,23 +3720,46 @@ export class Runner {
                     }
 
                     const rawActionInput = validated.action.input;
-                    const hasExtraSandboxAccess = isRecord(rawActionInput)
-                        && isRecord(rawActionInput.sandboxAccess)
-                        && (
-                            (Array.isArray(rawActionInput.sandboxAccess.files) && rawActionInput.sandboxAccess.files.length > 0)
-                            || (isRecord(rawActionInput.sandboxAccess.network) && Array.isArray(rawActionInput.sandboxAccess.network.targets) && rawActionInput.sandboxAccess.network.targets.length > 0)
-                        );
-
-                    if (!grantMatched && projectMode === "yolo" && !hasExtraSandboxAccess) {
-                        grantMatched = true;
+                    let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
+                    if (this.workspaceRoot !== undefined && isRecord(rawActionInput) && isRecord(rawActionInput.sandboxAccess)) {
+                        try {
+                            effectiveSandboxScope = await resolveEffectiveSandboxScope(
+                                this.workspaceRoot,
+                                rawActionInput.sandboxAccess as SandboxAccessRequest,
+                            );
+                        } catch (error) {
+                            if (isExecutionAbortedError(error)) throw error;
+                            throwIfAborted(control);
+                            return this.stopWithExecutionError(
+                                goal,
+                                new RunnerExecutionError(
+                                    "TOOL_EXECUTION_ERROR",
+                                    error instanceof Error ? error.message : String(error),
+                                ),
+                                control,
+                            );
+                        }
                     }
 
-                    if (validated.policy !== "allow" && !grantMatched) {
+                    const sandboxDecision = evaluateSandboxAuthorization({
+                        isSeatbeltSupported: isSeatbeltSupported(),
+                        workspaceRoot: this.workspaceRoot,
+                        effectiveScope: effectiveSandboxScope,
+                    });
+
+                    const requiresSandboxApproval = sandboxDecision.decision === "approval_required";
+                    const requiresToolApproval = validated.policy !== "allow" && !grantMatched && projectMode !== "yolo";
+
+                    if (requiresSandboxApproval || requiresToolApproval) {
                         throwIfAborted(control);
+                        const approvalKind = requiresSandboxApproval ? "sandbox" : undefined;
+                        const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: validated.action,
                             status: "awaiting_approval",
+                            ...(approvalKind === undefined ? {} : { approvalKind }),
+                            ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
                         const stagedGoal = this.withRun(goal, stagedRun);
 
@@ -3744,6 +3776,8 @@ export class Runner {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
+                                    ...(approvalKind === undefined ? {} : { approvalKind }),
+                                    ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                                 },
                             }],
                             acceptedPatch,
@@ -3753,10 +3787,12 @@ export class Runner {
                     }
 
                     throwIfAborted(control);
+                    const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
                     const stagedRun = this.applyTransition(goal.state.run, {
                         kind: "stage_action",
                         action: validated.action,
                         status: "approved",
+                        ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                     });
                     const stagedGoal = this.withRun(goal, stagedRun);
 
@@ -3785,6 +3821,7 @@ export class Runner {
                         effectivePlan = await this.sandboxPlanResolver({
                             workspaceRoot: this.workspaceRoot,
                             action: validated.action,
+                            effectiveScope: effectiveSandboxScope,
                         });
                     }
 

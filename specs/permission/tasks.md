@@ -16,7 +16,7 @@
   - 验证方式：待实现的 `packages/storage/test/project-permission-mode.test.ts`、`packages/browser/test/browser-permission-mode.test.ts` 与 `packages/tui/test/session-permission-mode.test.tsx`；现有 `session-controller.test.ts` 和 Browser 命令回归。
   - _Requirements: [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [2.2](./requirements.md#req-2-2), [7.1](./requirements.md#req-7-1), [7.3](./requirements.md#req-7-3)_
 
-- [ ] //TODO 3. 接通 Sandbox 越界能力的单次审批与真实范围展示
+- [x] //TODO 3. 接通 Sandbox 越界能力的单次审批与真实范围展示
 
   - 实现目标：把规范化 Sandbox 能力送入 Permission 判断、Runtime pending Action 与 Browser／TUI 审批；Sandbox 仅消费核准范围执行。
   - 成功判据：macOS 默认沙箱内 Bash 自动执行；外部路径、受保护路径和联网请求在 Default／YOLO 下均需有效能力，整网出站含回环按真实范围展示；完整输入可审阅，拒绝或过期审批不启动命令，结果未知不自动重放。

@@ -27,3 +27,14 @@ export {
     type ToolAuthorizationContext,
     type ToolAuthorizationDecision,
 } from "./tool-authorization";
+
+export {
+    evaluateSandboxAuthorization,
+    NETWORK_ALL_OUTBOUND_NOTICE,
+} from "./sandbox-authorization";
+
+export type {
+    EffectiveSandboxReview,
+    SandboxAuthorizationContext,
+    SandboxAuthorizationDecision,
+} from "./types";

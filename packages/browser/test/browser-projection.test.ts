@@ -275,6 +275,46 @@ test("待审批 Action 只投影限长输入预览与写入目标路径", async 
     assert.equal(session?.pendingAction?.inputPreview.includes(privateContent), false);
 });
 
+test("会话投影包含沙箱越界能力的审阅信息及真实全网出站明示", async () => {
+    const initial = createTestGoal();
+    const goal: Goal = {
+        ...initial,
+        state: {
+            ...initial.state,
+            run: {
+                ...initial.state.run,
+                status: "waiting",
+                pendingAction: {
+                    action: {
+                        actionId: "act-sandbox-preview",
+                        toolId: "bash",
+                        input: { command: "curl https://api.github.com" },
+                    },
+                    status: "awaiting_approval",
+                    approvalKind: "sandbox",
+                    effectiveSandboxScope: {
+                        extraFiles: [{ canonicalPath: "/etc/hosts", access: "read", kind: "file" }],
+                        network: "all_outbound",
+                    },
+                },
+            },
+        },
+    };
+
+    const session = await readBrowserGoalSession(
+        goal.id,
+        new TestGoalStore(goal),
+        async () => ({ committed: [], uncommittedTail: [] }),
+    );
+
+    assert.equal(session?.pendingAction?.approvalKind, "sandbox");
+    assert.ok(session?.pendingAction?.sandboxReview);
+    assert.equal(session?.pendingAction?.sandboxReview?.network, "all_outbound");
+    assert.equal(session?.pendingAction?.sandboxReview?.extraFiles.length, 1);
+    assert.equal(session?.pendingAction?.sandboxReview?.extraFiles[0]?.canonicalPath, "/etc/hosts");
+    assert.ok(session?.pendingAction?.sandboxReview?.networkNotice?.includes("任意出站目标，含本机回环"));
+});
+
 test("会话投影展示已提交纠错尝试与稳定失败原因", async () => {
     const initial = createTestGoal();
     const goal: Goal = {

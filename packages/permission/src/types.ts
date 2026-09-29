@@ -1,3 +1,8 @@
+import type {
+    EffectiveExtraFile,
+    EffectiveSandboxScope,
+} from "../../sandbox/src/index";
+
 /**
  * 项目权限模式。
  *
@@ -324,3 +329,70 @@ export interface GrantRef {
     readonly id: string;
     readonly scope: ToolGrantScope;
 }
+
+/**
+ * 沙箱能力审阅视图模型。
+ *
+ * @remarks
+ * 面向用户审阅，展示实际可强制的文件路径、读写方向以及真实网络访问范围。
+ *
+ * @example
+ * ```ts
+ * const review: EffectiveSandboxReview = {
+ *     extraFiles: [{ canonicalPath: "/etc/hosts", access: "read", kind: "file" }],
+ *     network: "all_outbound",
+ *     networkNotice: "任意出站目标，含本机回环 (Any outbound network access, including loopback)",
+ * };
+ * ```
+ */
+export interface EffectiveSandboxReview {
+    /** 规范化后的外部文件或目录访问列表。 */
+    readonly extraFiles: readonly EffectiveExtraFile[];
+    /** 内核实际可强制的网络范围。 */
+    readonly network: "none" | "all_outbound";
+    /** 当开放网络时提供的真实范围明示说明。 */
+    readonly networkNotice?: string;
+}
+
+/**
+ * 沙箱授权评估上下文。
+ *
+ * @remarks
+ * 包含平台是否支持 Seatbelt 沙箱、当前工作区根路径以及已解析的实际能力范围。
+ *
+ * @example
+ * ```ts
+ * const context: SandboxAuthorizationContext = {
+ *     isSeatbeltSupported: true,
+ *     workspaceRoot: "/workspace",
+ *     effectiveScope: { extraFiles: [], network: "none" },
+ * };
+ * ```
+ */
+export interface SandboxAuthorizationContext {
+    /** 当前宿主环境是否支持 macOS Seatbelt 沙箱。 */
+    readonly isSeatbeltSupported: boolean;
+    /** 工作区真实绝对路径。 */
+    readonly workspaceRoot?: string | undefined;
+    /** 规范化的实际沙箱能力范围。 */
+    readonly effectiveScope: EffectiveSandboxScope;
+}
+
+/**
+ * 沙箱能力授权评估结果。
+ *
+ * @remarks
+ * - `allow`：在默认沙箱内或非受限平台，无需额外审批；
+ * - `approval_required`：存在越界文件或网络能力，必须经用户审批。
+ *
+ * @example
+ * ```ts
+ * const decision: SandboxAuthorizationDecision = { decision: "allow" };
+ * ```
+ */
+export type SandboxAuthorizationDecision =
+    | { readonly decision: "allow" }
+    | {
+        readonly decision: "approval_required";
+        readonly review: EffectiveSandboxReview;
+    };
