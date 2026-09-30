@@ -879,15 +879,19 @@ function App() {
                       </div>
                     )}
                     <div className="composer-area">
-                      <button className="model-shortcut" type="button" disabled={commandBusy} onClick={() => setModelPickerTarget({ kind: "draft" })}>
-                        Model{draftModelId === null ? "" : ` · ${draftModelId}`}
-                      </button>
                       <MessageComposer
                         key="new-goal-draft"
                         autoFocus
                         busy={commandBusy}
                         placeholder="Message LazyGoal…"
-                        footerControls={renderPermissionControl(false)}
+                        footerControls={<>
+                          {renderPermissionControl(false)}
+                          <CurrentModelControl
+                            label={draftModelId ?? "Choose model"}
+                            enabled={!commandBusy}
+                            onClick={() => setModelPickerTarget({ kind: "draft" })}
+                          />
+                        </>}
                         onSubmit={submitDraftMessage}
                       />
                     </div>

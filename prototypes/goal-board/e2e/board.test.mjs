@@ -71,8 +71,8 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
-    assert.equal(await value(socket, "document.querySelector('.model-shortcut') !== null"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    assert.equal(await value(socket, "document.querySelector('.composer-area .current-model-control') !== null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     assert.equal(await value(socket, "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Unavailable Model')).disabled"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
@@ -82,7 +82,7 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
       returnByValue: true,
     });
     mock.rejectNextModelSelection();
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-error')?.textContent.includes('could not save')");
@@ -214,10 +214,10 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
     assert.equal(mock.lastMessage, undefined, "model command does not submit a Goal message");
     mock.delayNextModelCatalog();
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-picker') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.model-shortcut').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await delay(250);
     assert.equal(await value(socket, "document.querySelector('.model-picker')?.innerText.includes('Stale Model')"), false);

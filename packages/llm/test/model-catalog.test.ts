@@ -133,7 +133,7 @@ test("ModelCatalog: 稳定排序（当前项优先、可选项优先、displayNa
     );
 });
 
-test("ModelCatalog: 不可选条件判定（非文本、模式不兼容、缺少容量）", () => {
+test("ModelCatalog: 不可选条件判定（非文本、模式不兼容、Token 预算缺少容量）", () => {
     // 1. 非文本模型
     const nonText = determineSelectability(
         "openai",
@@ -175,7 +175,7 @@ test("ModelCatalog: 不可选条件判定（非文本、模式不兼容、缺少
     assert.equal(strictMismatch.selectable, false);
     assert.match(strictMismatch.unavailableReason ?? "", /strict/);
 
-    // 4. 缺少上下文容量
+    // 字符预算允许缺少容量；Token 预算需要完整容量。
     const missingContext = determineSelectability(
         "openai",
         "custom-model",
@@ -184,8 +184,43 @@ test("ModelCatalog: 不可选条件判定（非文本、模式不兼容、缺少
         {},
         baseOpenAIConfig,
     );
-    assert.equal(missingContext.selectable, false);
-    assert.match(missingContext.unavailableReason ?? "", /context window/);
+    assert.equal(missingContext.selectable, true);
+
+    const tokenMissingContext = determineSelectability(
+        "openai", "custom-model", undefined, undefined, {}, baseOpenAIConfig, true,
+    );
+    assert.equal(tokenMissingContext.selectable, false);
+    assert.match(tokenMissingContext.unavailableReason ?? "", /context window/);
+
+    const tokenMissingOutput = determineSelectability(
+        "openai", "custom-model", 128000, undefined, {}, baseOpenAIConfig, true,
+    );
+    assert.equal(tokenMissingOutput.selectable, false);
+    assert.match(tokenMissingOutput.unavailableReason ?? "", /max output/);
+
+    const invalidCapacityPair = determineSelectability(
+        "openai", "custom-model", 8192, 8192, {}, baseOpenAIConfig,
+    );
+    assert.equal(invalidCapacityPair.selectable, false);
+    assert.match(invalidCapacityPair.unavailableReason ?? "", /less than context window/);
+});
+
+test("ModelCatalog: 网关模型缺少容量时按预算模式判定可选性", async () => {
+    const catalog = createLlmModelCatalog({
+        async fetchModels() {
+            return [{ id: "gemini-3.8-flash-high", displayName: "Gemini 3.8 Flash", supportedGenerationMethods: ["generateContent"] }];
+        },
+    });
+    const config: LlmConfig = { ...baseOpenAIConfig, provider: "google" };
+
+    const characterModels = await catalog.list(config);
+    assert.equal(characterModels[0]?.selectable, true);
+    assert.equal(characterModels[0]?.contextWindowTokens, undefined);
+    assert.equal(characterModels[0]?.maxOutputTokens, undefined);
+
+    const tokenModels = await catalog.list(config, { requireTokenCapacity: true });
+    assert.equal(tokenModels[0]?.selectable, false);
+    assert.match(tokenModels[0]?.unavailableReason ?? "", /context window/);
 });
 
 test("ModelCatalog: 允许降级故障（timeout, unavailable, unsupported）触发静态目录或配置兜底", async () => {

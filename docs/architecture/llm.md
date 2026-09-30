@@ -40,6 +40,7 @@ strict 仍需经过同一套本地校验。公开契约见 [adapter.ts](../../pa
 - 适配 OpenAI、Google、Anthropic、OpenRouter、DeepSeek 与 `openai-compatible` 的官方/配置端点与专属鉴权头；
 - Google (`pageToken`) 与 Anthropic (`has_more` / `last_id`) 支持安全完整分页，拒绝不递进或循环 cursor；
 - 共享 5000ms 超时与外部取消，并以 pi-ai 静态目录补充上下文容量、展示名与视觉能力；
+- 模型容量可缺省：字符预算模式允许选择缺少上下文容量或输出上限的模型；Token 预算模式仅允许同时具备两项容量的模型，且输出上限须小于上下文容量；
 - 网络故障、超时或端点不支持 (404/405/501) 允许静态目录或配置兜底；鉴权 (401)、权限 (403) 与协议非法错误坚决拒绝且不静默降级；
 - 所有异常与日志严格脱敏，不复制任何 API Key、Authorization 头或敏感响应正文。
 

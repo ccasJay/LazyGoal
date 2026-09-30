@@ -1629,7 +1629,11 @@ export class SessionController {
                 apiKey: "",
                 structuredOutputMode: defaultSelection?.structuredOutputMode ?? "strict",
             } as LlmConfig;
-            const models = await this.dependencies.modelCatalog.list(config, { signal });
+            const currentSelection = this.snapshot.screen === "model_select"
+                ? this.snapshot.goal?.state.modelSelection
+                : undefined;
+            const requireTokenCapacity = (currentSelection ?? defaultSelection)?.inputEstimator.kind === "token-encoding";
+            const models = await this.dependencies.modelCatalog.list(config, { signal, requireTokenCapacity });
             if (signal.aborted || this.modelCatalogGeneration !== generation || this.snapshot.screen !== "model_select") return;
             this.setSnapshot({ ...this.snapshot, state: { status: "list", generation, models } });
         } catch (error: unknown) {

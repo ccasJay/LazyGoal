@@ -1660,7 +1660,10 @@ async function runBrowserSessionCli(
                 if (root.llmConfig === undefined || current.provider !== root.llmConfig.provider) {
                     return undefined;
                 }
-                const models = await root.modelCatalog.list({ ...root.llmConfig, model: current.modelId });
+                const models = await root.modelCatalog.list(
+                    { ...root.llmConfig, model: current.modelId },
+                    { requireTokenCapacity: current.inputEstimator.kind === "token-encoding" },
+                );
                 const model = models.find((entry) => entry.provider === current.provider && entry.id === modelId && entry.selectable);
                 if (model === undefined) return undefined;
                 return {
@@ -1694,15 +1697,20 @@ async function runBrowserSessionCli(
             selectModel: (goalId, command) => commandService.selectModel(goalId, command),
             models: async (target, signal) => {
                 let currentModelId = root.defaultModelSelection.modelId;
+                let requireTokenCapacity = root.defaultModelSelection.inputEstimator.kind === "token-encoding";
                 if (target !== undefined) {
                     const goal = await root.workspaceGoalStore.restore(target.goalId);
                     if (goal === undefined) return { ok: false, error: "goal_not_found" };
                     if (goal.state.run.id !== target.runId) return { ok: false, error: "stale_run" };
                     currentModelId = goal.state.modelSelection.modelId;
+                    requireTokenCapacity = goal.state.modelSelection.inputEstimator.kind === "token-encoding";
                 }
                 if (root.llmConfig === undefined) return { ok: false, error: "model_catalog_unavailable" };
                 try {
-                    const models = await root.modelCatalog.list({ ...root.llmConfig, model: currentModelId }, { signal });
+                    const models = await root.modelCatalog.list(
+                        { ...root.llmConfig, model: currentModelId },
+                        { signal, requireTokenCapacity },
+                    );
                     return {
                         ok: true,
                         catalog: projectBrowserModelCatalog(root.llmConfig.provider, currentModelId, models),

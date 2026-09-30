@@ -35,9 +35,9 @@ export interface LlmModelDescriptor {
     readonly id: string;
     /** 面向用户的模型可读名称。 */
     readonly displayName: string;
-    /** 上下文窗口容量 Token 数；缺少时无法构建安全上下文预算。 */
+    /** 上下文窗口容量 Token 数；Token 预算模式必需，字符预算模式可缺省。 */
     readonly contextWindowTokens?: number | undefined;
-    /** 单次补全最大输出 Token 上限。 */
+    /** 单次补全最大输出 Token 上限；Token 预算模式必需，字符预算模式可缺省。 */
     readonly maxOutputTokens?: number | undefined;
     /** 模型是否具备原生推理思维链能力。 */
     readonly reasoning?: boolean | undefined;
@@ -147,7 +147,9 @@ export interface ProviderModelFetcher {
  * @example
  * ```ts
  * const catalog = createLlmModelCatalog();
- * const models = await catalog.list(config);
+ * const models = await catalog.list(config, {
+ *   requireTokenCapacity: selection.inputEstimator.kind === "token-encoding",
+ * });
  * ```
  */
 export interface LlmModelCatalog {
@@ -155,13 +157,17 @@ export interface LlmModelCatalog {
      * 查询并列出当前配置 Provider 的模型列表。
      *
      * @param config - 当前 LLM 配置。
-     * @param options - 包含取消信号与注入 fetch 的可选参数。
+     * @param options - 包含取消信号、注入 fetch 和是否需要 Token 容量的可选参数；Token 预算模式必须声明后者。
      * @returns 排序并补全后的模型描述符列表。
      * @throws ModelCatalogError 鉴权失败、权限被拒、协议格式错误或已取消时抛出。
      */
     list(
         config: LlmConfig,
-        options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
+        options?: {
+            readonly signal?: AbortSignal | undefined;
+            readonly fetch?: typeof fetch | undefined;
+            readonly requireTokenCapacity?: boolean | undefined;
+        },
     ): Promise<readonly LlmModelDescriptor[]>;
 }
 
@@ -201,7 +207,9 @@ function isKnownNonTextModel(id: string): boolean {
 }
 
 /**
- * 判定模型在当前配置下是否可选及原因。
+ * 判定模型在当前配置与预算模式下是否可选及原因。
+ *
+ * @param requireTokenCapacity - Token 预算模式要求上下文容量与输出上限；字符预算模式允许两者缺省。
  */
 export function determineSelectability(
     provider: LlmProvider,
@@ -214,6 +222,7 @@ export function determineSelectability(
         readonly supportsStrictOutput?: boolean | undefined;
     },
     config: LlmConfig,
+    requireTokenCapacity = false,
 ): { readonly selectable: boolean; readonly unavailableReason?: string | undefined } {
     // 1. 明确声明不支持文本生成，或命中明显非文本正则
     if (rawDetails.isTextGeneration === false || isKnownNonTextModel(id)) {
@@ -252,15 +261,21 @@ export function determineSelectability(
         }
     }
 
-    // 3. 上下文容量校验（必须存在且合法以构造安全 Binding）
-    if (contextWindowTokens === undefined || contextWindowTokens <= 0) {
+    if (requireTokenCapacity && (contextWindowTokens === undefined || contextWindowTokens <= 0)) {
         return {
             selectable: false,
-            unavailableReason: "Missing context window capacity metadata required for safe execution.",
+            unavailableReason: "Token budgeting requires context window capacity metadata.",
         };
     }
 
-    if (maxOutputTokens !== undefined && maxOutputTokens >= contextWindowTokens) {
+    if (requireTokenCapacity && (maxOutputTokens === undefined || maxOutputTokens <= 0)) {
+        return {
+            selectable: false,
+            unavailableReason: "Token budgeting requires max output token metadata.",
+        };
+    }
+
+    if (contextWindowTokens !== undefined && maxOutputTokens !== undefined && maxOutputTokens >= contextWindowTokens) {
         return {
             selectable: false,
             unavailableReason: "Max output tokens must be strictly less than context window.",
@@ -309,7 +324,11 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
 
     public async list(
         config: LlmConfig,
-        options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
+        options?: {
+            readonly signal?: AbortSignal | undefined;
+            readonly fetch?: typeof fetch | undefined;
+            readonly requireTokenCapacity?: boolean | undefined;
+        },
     ): Promise<readonly LlmModelDescriptor[]> {
         if (options?.signal?.aborted) {
             throw new ModelCatalogError("cancelled", "Model catalog request was cancelled.");
@@ -319,7 +338,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
         if (this.fetcher !== undefined) {
             try {
                 const rawList = await this.fetcher.fetchModels(config, options);
-                return this.processLiveModels(rawList, config);
+                return this.processLiveModels(rawList, config, options?.requireTokenCapacity ?? false);
             } catch (error) {
                 if (error instanceof ModelCatalogError) {
                     // 鉴权、权限、协议错误及已取消绝对禁止降级
@@ -332,19 +351,20 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                         throw error;
                     }
                     // 超时、不可用或端点不支持时允许降级
-                    return this.fallback(config);
+                    return this.fallback(config, options?.requireTokenCapacity ?? false);
                 }
                 throw error;
             }
         }
 
         // 若未提供 fetcher，直接降级到静态目录/配置
-        return this.fallback(config);
+        return this.fallback(config, options?.requireTokenCapacity ?? false);
     }
 
     private processLiveModels(
         rawList: readonly RawFetchedModel[],
         config: LlmConfig,
+        requireTokenCapacity: boolean,
     ): readonly LlmModelDescriptor[] {
         const seenIds = new Set<string>();
         const results: LlmModelDescriptor[] = [];
@@ -399,6 +419,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                     supportsStrictOutput: raw.supportsStrictOutput,
                 },
                 config,
+                requireTokenCapacity,
             );
 
             results.push({
@@ -419,7 +440,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
         return sortModelDescriptors(results, config.model);
     }
 
-    private fallback(config: LlmConfig): readonly LlmModelDescriptor[] {
+    private fallback(config: LlmConfig, requireTokenCapacity: boolean): readonly LlmModelDescriptor[] {
         if (config.provider === "openai-compatible") {
             const descriptor: LlmModelDescriptor = {
                 provider: config.provider,
@@ -453,6 +474,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                     isTextGeneration: sm.input.includes("text"),
                 },
                 config,
+                requireTokenCapacity,
             );
 
             results.push({
