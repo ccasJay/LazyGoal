@@ -75,6 +75,15 @@ function App() {
     const event = data.find(e => e.sequence === sequence)!;
     setCollapsed(current => current.filter(step => step !== stepOf(event)));
   }
+  function locateEvent(sequence: number) {
+    setTab("Trajectory"); setRange(null); setDraft(null); setQuery(""); setFilter("All events");
+    selectEvent(sequence);
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`event-${sequence}`);
+      target?.scrollIntoView({block: "nearest"});
+      target?.focus({preventScroll: true});
+    });
+  }
   async function copy() {
     if (!entry) return;
     try { await navigator.clipboard.writeText(eventJson(entry, run.id)); setCopied(true); setCopyError(false); window.setTimeout(() => setCopied(false), 1800); }
@@ -91,12 +100,30 @@ function App() {
       {open && <section className={`tp-session ${wide ? "" : "tp-compact"}`} aria-label="Goal session">
         <div className="tp-session-head"><i/><span>714a07ed-b16</span><ChevronRight size={12}/><span>Session</span><div/><button title={wide ? "Compact view" : "Expand view"} aria-label={wide ? "Compact view" : "Expand view"} onClick={() => setWide(!wide)}>{wide ? <Minimize2 size={16}/> : <Maximize2 size={16}/>}</button><button aria-label="Close session" onClick={() => setOpen(false)}><X size={17}/></button></div>
         <div className="tp-project"><GitBranch size={14}/> dev <span>/</span><Folder size={14}/>LazyGoal</div><div className="tp-tabs">{["Activity", "Trajectory"].map(t => <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>{t}</button>)}<span className="tp-sample">Sample data</span></div>
-        {tab === "Activity" ? <div className="tp-activity"><h2>Architecture analysis</h2><p>The Runtime owns Goal scheduling and execution. The Agent constructs model requests. Tools run workspace actions, while Storage persists snapshots and the trajectory.</p><button onClick={() => setTab("Trajectory")}><Layers size={15}/> Inspect the execution trajectory</button></div> : <>
+        {tab === "Activity" ? <div className="tp-activity">
+          <header><h2>Architecture analysis</h2><span>{run.label} / {run.status}</span></header>
+          <p>Follow each decision and inspect its recorded tool input and output.</p>
+          {[...new Set(data.map(stepOf))].filter(step => step > 0).map(step => {
+            const records = data.filter(event => stepOf(event) === step);
+            const decision = records.find(event => event.category === "Decision")!;
+            return <details className="tp-activity-step" key={`${run.id}-${step}`}>
+              <summary><ChevronRight size={14}/><span>Step {step}</span><strong>{decision.title}</strong><small>{records.length} events</small></summary>
+              <div className="tp-activity-content">
+                <p>{decision.description}</p>
+                {decision.payload.thought !== undefined && <section><h3>Recorded thought</h3><p>{String(decision.payload.thought)}</p></section>}
+                {records.filter(event => event.category === "Tool").map(event => <section key={event.sequence}><h3>{event.title}</h3><pre>{JSON.stringify(event.payload.input ?? event.payload.observation, null, 2)}</pre></section>)}
+                {records.filter(event => event.type === "run_failed" || event.type === "run_completed").map(event => <p key={event.sequence} className={event.type === "run_failed" ? "tr-error-copy" : ""}>{event.description}</p>)}
+                {decision.payload.summary !== undefined && <p>{String(decision.payload.summary)}</p>}
+                <footer><button aria-label={`View Step ${step} in trajectory`} onClick={() => locateEvent(decision.sequence)}><Layers size={14}/>View in trajectory<ChevronRight size={13}/></button></footer>
+              </div>
+            </details>;
+          })}
+        </div> : <>
           <div className="tr-runbar"><select aria-label="Select run" value={runIndex} onChange={e => { setRunIndex(Number(e.target.value)); setSelected(null); setRange(null); setCollapsed([]); setQuery(""); setFilter("All events"); }}>{runs.map((r,i) => <option key={r.id} value={i}>{r.label}{i === 0 ? " (latest)" : ""}</option>)}</select><span className={`tr-status ${runIndex ? "failed" : ""}`}>{runIndex ? <X size={12}/> : <Check size={12}/>} {run.status}</span><span>{run.duration}</span><span className="tr-date">{run.date}</span><span className="tr-event-count">{data.length} events</span></div>
           <div className="tr-toolbar"><button className={duration ? "enabled" : ""} aria-pressed={duration} onClick={() => { setDuration(!duration); setRange(null); }} title="Switch between recorded time and event sequence"><span className="tr-toggle"/>Duration</button><button onClick={() => setCollapsed(allCollapsed ? [] : groups.filter(g => g > 0))} aria-label={allCollapsed ? "Expand steps" : "Collapse steps"}><Layers size={13}/>Steps <span>{allCollapsed ? "+" : "−"}</span></button><select aria-label="Filter events" value={filter} onChange={e => setFilter(e.target.value)}>{["All events", "Decision", "Tool", "State", "Lifecycle"].map(f => <option key={f}>{f}</option>)}</select><label className="tr-search"><Search size={13}/><input aria-label="Search trajectory" placeholder="Search" value={query} onChange={e => setQuery(e.target.value)}/>{query && <button aria-label="Clear search" onClick={() => setQuery("")}><X size={12}/></button>}</label></div>
           <section className="tr-overview" aria-label="Trajectory overview"><div className="tr-lane-labels"><span>Run</span><span>Agent</span><span>Tools</span></div><div className="tr-plot" tabIndex={0} aria-label="Drag to focus a time range; Escape to clear" onKeyDown={e => { if (e.key === "Escape") { setRange(null); setDraft(null); } }} onPointerDown={e => { dragStart.current = fraction(e); setDraft(null); e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { if (dragStart.current !== null) setDraft([Math.min(dragStart.current,fraction(e)),Math.max(dragStart.current,fraction(e))]); }} onPointerUp={e => { if (dragStart.current !== null) { const start = dragStart.current; const end = fraction(e); setRange(Math.abs(end-start) > .015 ? [Math.min(start,end),Math.max(start,end)] : null); } dragStart.current = null; setDraft(null); }} onPointerCancel={() => { dragStart.current = null; setDraft(null); }} onDoubleClick={() => setRange(null)}>
             <div className="tr-grid">{[0,25,50,75,100].map(n => <span key={n} style={{left:`${n}%`}}/>)}</div>
-            {data.filter(e => e.category !== "State" && e.type !== "tool_finished").map(e => { const end = e.type === "tool_started" ? data.find(other => other.type === "tool_finished" && other.payload.actionId === e.payload.actionId) : e.category === "Decision" ? data.find(other => other.sequence === e.sequence + 1) : undefined; const pos = positionOf(e); return <button key={e.sequence} title={`#${e.sequence} ${e.title} · ${e.time}`} aria-label={`Locate event ${e.sequence}: ${e.title}`} className={`tr-span ${e.category.toLowerCase()} ${(selected === e.sequence || entry?.payload.actionId !== undefined && entry.payload.actionId === e.payload.actionId) ? "selected" : ""} ${!visible.includes(e) ? "faded" : ""} ${e.type === "run_failed" ? "error" : ""}`} style={{left:`${pos * 98}%`,width:`${end ? Math.max(1,(positionOf(end)-pos)*98) : .7}%`,top:e.category === "Tool" ? 39 : e.category === "Decision" ? 24 : 9}} onPointerDown={event => event.stopPropagation()} onClick={() => { setRange(null); setQuery(""); setFilter("All events"); selectEvent(e.sequence); window.requestAnimationFrame(() => document.getElementById(`event-${e.sequence}`)?.scrollIntoView({block:"nearest"})); }}/>; })}
+            {data.filter(e => e.category !== "State" && e.type !== "tool_finished").map(e => { const end = e.type === "tool_started" ? data.find(other => other.type === "tool_finished" && other.payload.actionId === e.payload.actionId) : e.category === "Decision" ? data.find(other => other.sequence === e.sequence + 1) : undefined; const pos = positionOf(e); return <button key={e.sequence} title={`#${e.sequence} ${e.title} · ${e.time}`} aria-label={`Locate event ${e.sequence}: ${e.title}`} className={`tr-span ${e.category.toLowerCase()} ${(selected === e.sequence || entry?.payload.actionId !== undefined && entry.payload.actionId === e.payload.actionId) ? "selected" : ""} ${!visible.includes(e) ? "faded" : ""} ${e.type === "run_failed" ? "error" : ""}`} style={{left:`${pos * 98}%`,width:`${end ? Math.max(1,(positionOf(end)-pos)*98) : .7}%`,top:e.category === "Tool" ? 39 : e.category === "Decision" ? 24 : 9}} onPointerDown={event => event.stopPropagation()} onClick={() => { locateEvent(e.sequence); }}/>; })}
             {activeRange && <div className="tr-range" style={{left:`${activeRange[0]*98}%`,width:`${(activeRange[1]-activeRange[0])*98}%`}}/>}
             <div className="tr-ruler">{[0,.25,.5,.75,1].map(n => <span key={n} style={{left:`${n*98}%`}}>{duration ? `${Math.round(elapsed*n)}s` : Math.round(1+(data.length-1)*n)}</span>)}</div>
           </div></section>
