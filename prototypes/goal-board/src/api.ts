@@ -12,8 +12,10 @@ import type {
   BrowserModelSelectionCommand,
   BrowserPermissionModeCommand,
   BrowserPermissionModeResult,
+  BrowserWorkspaceContext,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
+import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/src/session-metrics-service";
 
 const token = window.location.hash.slice(1);
 
@@ -43,6 +45,27 @@ export const browserApi = {
       isGoalSessionEnvelope,
       signal,
     ).then((body) => body.goal);
+  },
+
+  readMetrics(goalId: string, signal?: AbortSignal): Promise<SessionMetricsSnapshot> {
+    return requestJson(`/goals/${encodeURIComponent(goalId)}/metrics`, isMetricsSnapshot, signal);
+  },
+
+  async *metrics(goalId: string, signal: AbortSignal): AsyncGenerator<SessionMetricsSnapshot> {
+    const response = await fetch(`/goals/${encodeURIComponent(goalId)}/metrics/stream`, {
+      headers: authorizedHeaders({ accept: "text/event-stream" }), signal,
+    });
+    if (!response.ok) throw await responseError(response);
+    if (response.body === null) throw new Error("metrics_stream_missing_body");
+    for await (const block of sseBlocks(response.body)) {
+      const event = block.split("\n").find((line) => line.startsWith("event:"))?.slice(6).trim();
+      if (event === "error") throw new Error("metrics_unavailable");
+      if (event !== "snapshot") continue;
+      const data = block.split("\n").filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trimStart()).join("\n");
+      const value: unknown = JSON.parse(data);
+      if (!isMetricsSnapshot(value)) throw new Error("invalid_metrics_response");
+      yield value;
+    }
   },
 
   createGoal(command: BrowserCreateGoalCommand): Promise<AcceptedCommand> {
@@ -123,6 +146,10 @@ export const browserApi = {
     return requestJson("/api/project/permission-mode", isPermissionModeResult);
   },
 
+  readWorkspace(signal?: AbortSignal): Promise<BrowserWorkspaceContext> {
+    return requestJson("/api/project/workspace", isWorkspaceContext, signal);
+  },
+
   setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
     return postJson("/api/project/permission-mode", command, isPermissionModeResult);
   },
@@ -172,6 +199,55 @@ export const browserApi = {
     }
   },
 };
+
+async function* sseBlocks(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      buffer += chunk.done ? decoder.decode() : decoder.decode(chunk.value, { stream: true });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary >= 0) {
+        yield buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        boundary = buffer.indexOf("\n\n");
+      }
+      if (chunk.done) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+  }
+}
+
+function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapshot {
+  return isRecord(value)
+    && isNonEmptyString(value.goalId)
+    && isMetricValues(value)
+    && Number.isInteger(value.roundCount)
+    && Array.isArray(value.runs)
+    && value.runs.every((run) => isRecord(run) && isNonEmptyString(run.runId) && isMetricValues(run));
+}
+
+function isMetricValues(value: Record<string, unknown>): boolean {
+  const count = (item: unknown) => typeof item === "number" && Number.isSafeInteger(item) && item >= 0;
+  const optionalNumber = (item: unknown) => item === null || (typeof item === "number" && Number.isFinite(item) && item >= 0);
+  return count(value.stepCount)
+    && count(value.reportedCalls)
+    && count(value.missingCalls)
+    && optionalNumber(value.inputTokens)
+    && optionalNumber(value.outputTokens)
+    && ["complete", "partial", "unavailable"].includes(String(value.coverage))
+    && count(value.cacheMeasuredCalls)
+    && count(value.cacheExcludedCalls)
+    && optionalNumber(value.cacheHitRate)
+    && (value.cacheHitRate === null || Number(value.cacheHitRate) <= 1)
+    && count(value.throughputMeasuredCalls)
+    && count(value.throughputExcludedCalls)
+    && optionalNumber(value.tokensPerSecond);
+}
 
 interface AcceptedCommand {
   readonly goalId: string;
@@ -394,6 +470,13 @@ function isPermissionModeResult(value: unknown): value is BrowserPermissionModeR
     && (value.mode === "default" || value.mode === "yolo")
     && Number.isInteger(value.revision)
     && isNonEmptyString(value.workspaceId);
+}
+
+function isWorkspaceContext(value: unknown): value is BrowserWorkspaceContext {
+  return isRecord(value)
+    && isNonEmptyString(value.workspaceRoot)
+    && (value.worktreeRoot === null || isNonEmptyString(value.worktreeRoot))
+    && (value.branch === null || isNonEmptyString(value.branch));
 }
 
 function isJsonValue(value: unknown): boolean {

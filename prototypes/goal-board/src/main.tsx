@@ -34,16 +34,19 @@ import type {
   BrowserModelCatalog,
   BrowserModelOption,
   BrowserPermissionModeResult,
+  BrowserWorkspaceContext,
 } from "../../../packages/browser/src/index";
 import { createSlashCommandRegistry, modelCommandDefinition, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
+import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/src/session-metrics-service";
 import { BrowserApiError, browserApi } from "./api";
-import { GoalDetails, runStatusLabel, WaitingInteraction } from "./panels";
+import { GoalDetails, WaitingInteraction } from "./panels";
 import "./style.css";
 
 type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "Stopped";
 type SessionTab = "Activity" | "Plan" | "Details";
 type BoardView = "board" | "list";
+type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
 
 const statuses: readonly GoalStatus[] = [
   "Ready",
@@ -76,9 +79,12 @@ function statusClass(status: GoalStatus): string {
 
 function App() {
   const [goals, setGoals] = useState<readonly BrowserGoalListItem[]>([]);
+  const [metricsByGoal, setMetricsByGoal] = useState<Record<string, MetricsState>>({});
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [session, setSession] = useState<BrowserGoalSession | null>(null);
+  const [workspaceContext, setWorkspaceContext] = useState<BrowserWorkspaceContext | null>(null);
+  const [workspaceContextError, setWorkspaceContextError] = useState(false);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
@@ -132,6 +138,25 @@ function App() {
   const canSwitchCurrentModel = session !== null
     && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed")
     && session.pendingAction === undefined;
+
+  useEffect(() => {
+    if (!sessionVisible) return;
+    const controller = new AbortController();
+    const refresh = () => {
+      void browserApi.readWorkspace(controller.signal).then((context) => {
+        if (controller.signal.aborted) return;
+        setWorkspaceContext(context);
+        setWorkspaceContextError(false);
+      }).catch(() => {
+        if (controller.signal.aborted) return;
+        setWorkspaceContext(null);
+        setWorkspaceContextError(true);
+      });
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => { controller.abort(); window.removeEventListener("focus", refresh); };
+  }, [sessionVisible, session]);
 
   useEffect(() => {
     let active = true;
@@ -316,6 +341,43 @@ function App() {
       active = false;
       controller.abort();
     };
+  }, [selectedGoalId]);
+
+  useEffect(() => {
+    if (goals.length === 0) return;
+    const controller = new AbortController();
+    for (const goal of goals) {
+      void browserApi.readMetrics(goal.goalId, controller.signal).then((value) => {
+        if (!controller.signal.aborted) setMetricsByGoal((current) => ({ ...current, [goal.goalId]: { kind: "ready", value } }));
+      }).catch(() => {
+        if (!controller.signal.aborted) setMetricsByGoal((current) => ({ ...current, [goal.goalId]: { kind: "error" } }));
+      });
+    }
+    return () => controller.abort();
+  }, [goals]);
+
+  useEffect(() => {
+    if (selectedGoalId === null) return;
+    const controller = new AbortController();
+    const listen = async () => {
+      while (!controller.signal.aborted) {
+        try {
+          for await (const value of browserApi.metrics(selectedGoalId, controller.signal)) {
+            if (controller.signal.aborted) return;
+            setMetricsByGoal((current) => ({ ...current, [selectedGoalId]: { kind: "ready", value } }));
+          }
+        } catch {
+          if (controller.signal.aborted) return;
+          setMetricsByGoal((current) => ({ ...current, [selectedGoalId]: { kind: "error" } }));
+        }
+        await new Promise<void>((resolve) => {
+          const timeout = window.setTimeout(resolve, 800);
+          controller.signal.addEventListener("abort", () => { window.clearTimeout(timeout); resolve(); }, { once: true });
+        });
+      }
+    };
+    void listen();
+    return () => controller.abort();
   }, [selectedGoalId]);
 
   useEffect(() => {
@@ -709,7 +771,14 @@ function App() {
         </header>
         <div className={`content ${sessionVisible ? "session-open" : ""}`}>
           {(!expanded || !sessionVisible) && (
-            <section className="board-area">
+            <section
+              className="board-area"
+              onClick={(event) => {
+                if (selectedGoalId === null) return;
+                if (event.target instanceof Element && event.target.closest("button, input, label, a")) return;
+                closeSession();
+              }}
+            >
               <div className="board-title">
                 <div>
                   <h1>Goals <span>{goals.length}</span></h1>
@@ -800,6 +869,7 @@ function App() {
                           {statusGoals.map((goal) => <GoalCard
                             key={goal.goalId}
                             goal={goal}
+                            metrics={metricsByGoal[goal.goalId]}
                             selected={selectedGoalId === goal.goalId}
                             onSelect={() => toggleGoalSelection(goal.goalId)}
                           />)}
@@ -857,13 +927,7 @@ function App() {
                 </header>
                 {draftSessionOpen ? (
                   <>
-                    <div className="session-intro">
-                      <h2>New conversation</h2>
-                      <div>
-                        <span className="status-pill ready"><span className="status-dot" />Draft · not saved</span>
-                        <span><GitBranch size={12} />{draftPlanMode ? "Plan Mode" : "Normal Mode"}</span>
-                      </div>
-                    </div>
+                    <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
                     <div className="session-tabs">
                       <div className="session-tab-buttons"><button aria-pressed="true">Activity</button></div>
                       <span className="stream-state"><span className="dot" />Local Runtime</span>
@@ -908,19 +972,7 @@ function App() {
                   <div className="session-empty"><p>Loading session…</p></div>
                 ) : (
                   <>
-                    <div className="session-intro">
-                      <h2>{session.intent}</h2>
-                      <div>
-                        <span className={`status-pill ${statusClass(statusFromRun(session.runStatus))}`}>
-                          <span className="status-dot" />{runStatusLabel(session.runStatus)}
-                        </span>
-                        <span><GitBranch size={12} /> {session.currentRunId}</span>
-                        <span className={`mode-badge ${session.currentRunMode === "plan" || session.nextRunMode === "plan" ? "plan" : ""}`}>
-                          {session.nextRunMode === "plan" ? "Next Run · Plan Mode" : `${session.currentRunMode === "plan" ? "Plan" : "Normal"} Mode`}
-                        </span>
-                        <span><Clock3 size={12} /> {currentRun?.stepCount ?? 0} runtime steps</span>
-                      </div>
-                    </div>
+                    <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
                     <div className="session-tabs">
                       <div className="session-tab-buttons">
                         {sessionTabs.map((tab) => (
@@ -950,6 +1002,7 @@ function App() {
                           </label>
                           <span>{session.messages.length} saved messages</span>
                         </div>
+                        <div className="timeline-region">
                         <div
                           className="timeline"
                           ref={timeline}
@@ -1043,10 +1096,11 @@ function App() {
                             );
                           })}
                         </div>
+                        {!follow && (
+                          <button className="jump" aria-label="Back to latest" title="Back to latest" onClick={() => setFollow(true)}><ArrowDown size={17} aria-hidden="true" /></button>
+                        )}
+                        </div>
                       </>
-                    )}
-                    {sessionTab === "Activity" && !follow && (
-                      <button className="jump" onClick={() => setFollow(true)}><ArrowDown size={13} /> Back to latest</button>
                     )}
                     {commandError && (
                       <div className="command-error" role="alert">
@@ -1070,6 +1124,7 @@ function App() {
                             </>
                           : <MessageComposer
                               key={session.currentRunId}
+                              showHint={false}
                               busy={commandBusy}
                               placeholder="Give direction or ask a question…"
                               footerControls={<>
@@ -1086,6 +1141,7 @@ function App() {
                       {(session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
                         <MessageComposer
                           key={`${session.currentRunId}:continue`}
+                          showHint={false}
                           busy={commandBusy}
                           placeholder={session.runStatus === "failed" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
                           footerControls={<>
@@ -1107,6 +1163,7 @@ function App() {
                       {session.runStatus === "waiting" && session.pendingInteraction === undefined && session.pendingAction !== undefined && session.pendingAction.status === "approved" && (
                         <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The approved action is being recorded.</div></>
                       )}
+                      <SessionMetricsBar state={metricsByGoal[session.goalId]} />
                     </div>
                   </>
                 )}
@@ -1234,12 +1291,27 @@ function CurrentModelControl({ label, enabled, onClick }: {
   );
 }
 
+function WorkspaceContext({ context, error }: { context: BrowserWorkspaceContext | null; error: boolean }) {
+  const branch = context === null ? (error ? "Branch unavailable" : "Loading branch…")
+    : context.branch ?? (context.worktreeRoot === null ? "No Git branch" : "Detached HEAD");
+  const path = context?.worktreeRoot ?? context?.workspaceRoot;
+  const worktree = path?.split(/[\\/]/).filter(Boolean).at(-1) ?? path
+    ?? (error ? "Worktree unavailable" : "Loading worktree…");
+  return <div className="session-workspace" aria-label="Execution workspace">
+    <span className="workspace-branch" title={branch} aria-label={`Branch: ${branch}`}><GitBranch size={13} /><span>{branch}</span></span>
+    <span className="workspace-divider" aria-hidden="true">/</span>
+    <span className="workspace-location" title={path ?? "Reload the session to retry."} aria-label={`${context?.worktreeRoot === null ? "Workspace" : "Worktree"}: ${path ?? worktree}`}><Folder size={13} /><span>{worktree}</span></span>
+  </div>;
+}
+
 function GoalCard({
   goal,
+  metrics,
   selected,
   onSelect,
 }: {
   goal: BrowserGoalListItem;
+  metrics?: MetricsState;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -1254,13 +1326,60 @@ function GoalCard({
               : <MoreHorizontal size={15} />}
       </div>
       <h3>{goal.intent}</h3>
-      <p>{status === "Needs input" ? "Waiting for a response or approval." : `Run ${goal.runId}`}</p>
+      <CardMetrics state={metrics} />
       <div className="card-footer">
         <span className={`status-pill ${statusClass(status)}`}><span className="status-dot" />{status}</span>
         <time dateTime={goal.updatedAt} title={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
       </div>
     </button>
   );
+}
+
+function metricNumber(value: number | null): string {
+  return value === null ? "—" : new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
+
+function metricPercent(value: number | null): string {
+  return value === null ? "—" : `${Math.round(value * 100)}%`;
+}
+
+function metricSpeed(value: number | null): string {
+  return value === null ? "—" : new Intl.NumberFormat("en", { maximumFractionDigits: 1 }).format(value);
+}
+
+function metricCoverage(metrics: Pick<SessionMetricsSnapshot, "coverage" | "missingCalls">): string | null {
+  if (metrics.coverage === "unavailable") return "Usage unavailable";
+  if (metrics.coverage === "partial") return metrics.missingCalls > 0
+    ? `${metrics.missingCalls} call${metrics.missingCalls === 1 ? "" : "s"} unreported`
+    : "Partial coverage";
+  return null;
+}
+
+function CardMetrics({ state }: { state?: MetricsState }) {
+  if (state?.kind === "error") return <div className="card-metrics muted">Metrics unavailable</div>;
+  if (state === undefined) return <div className="card-metrics muted">Loading metrics…</div>;
+  const metrics = state.value;
+  const coverage = metricCoverage(metrics);
+  return <div className="card-metrics" aria-label={`Goal total: ${metrics.stepCount} committed steps, ${metrics.inputTokens ?? "unavailable"} input tokens, ${metrics.outputTokens ?? "unavailable"} output tokens`}>
+    <span><strong>{metrics.stepCount}</strong> step{metrics.stepCount === 1 ? "" : "s"}<i /> <strong>{metricNumber(metrics.inputTokens)}</strong> in <span className="metric-separator">/</span> <strong>{metricNumber(metrics.outputTokens)}</strong> out</span>
+    <span className={coverage === null ? "" : "metric-coverage"} title={coverage ?? "Goal cache hit rate and generation speed"}>
+      {coverage ?? <><strong>{metricPercent(metrics.cacheHitRate)}</strong> cache<i /><strong>{metricSpeed(metrics.tokensPerSecond)}</strong> tok/s</>}
+    </span>
+  </div>;
+}
+
+function SessionMetricsBar({ state }: { state?: MetricsState }) {
+  if (state?.kind === "error") return <div className="session-metrics-state">Recorded metrics unavailable</div>;
+  if (state === undefined) return <div className="session-metrics-state">Loading recorded metrics…</div>;
+  const metrics = state.value;
+  const coverage = metricCoverage(metrics);
+  return <div className="session-metrics" aria-label="Recorded Goal metrics">
+    <div className="session-metric"><span>Steps</span><strong>{metrics.stepCount}</strong></div>
+    <div className="session-metric"><span>Tokens in / out</span><strong>{metricNumber(metrics.inputTokens)} <em>/</em> {metricNumber(metrics.outputTokens)}</strong></div>
+    <div className="session-metric" title={`${metrics.cacheMeasuredCalls} measured calls; ${metrics.cacheExcludedCalls} excluded calls`}><span>Cache hit</span><strong>{metricPercent(metrics.cacheHitRate)}</strong></div>
+    <div className="session-metric" title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}><span>Generation</span><strong>{metricSpeed(metrics.tokensPerSecond)} <small>tok/s</small></strong></div>
+    {coverage !== null && <span className="session-metrics-coverage" title="Provider usage coverage">{coverage}</span>}
+  </div>;
 }
 
 function GoalRow({
@@ -1363,12 +1482,14 @@ function MessageComposer({
   footerControls,
   onSubmit,
   autoFocus = false,
+  showHint = true,
 }: {
   busy: boolean;
   placeholder: string;
   onSubmit: (content: string) => Promise<boolean>;
   footerControls?: ReactNode;
   autoFocus?: boolean;
+  showHint?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [selectedCommand, setSelectedCommand] = useState(0);
@@ -1410,6 +1531,8 @@ function MessageComposer({
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <textarea
           aria-label="Message the Goal"
+          aria-keyshortcuts="Enter Shift+Enter"
+          title="Enter to send · Shift + Enter for a new line"
           placeholder={placeholder}
           autoFocus={autoFocus}
           value={draft}
@@ -1453,7 +1576,7 @@ function MessageComposer({
           </button>
         </div>
       </form>
-      <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>
+      {showHint && <div className="composer-hint">Enter to send · Shift + Enter for a new line</div>}
     </>
   );
 }

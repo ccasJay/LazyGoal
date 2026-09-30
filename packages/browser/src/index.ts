@@ -7,6 +7,7 @@ export {
     createBrowserGoalRoutes,
     type BrowserGoalApiPort,
 } from "./browser-goal-routes";
+export { createBrowserWorkspaceRoutes, type BrowserWorkspaceContext } from "./browser-workspace";
 export {
     projectBrowserModelCatalog,
     type BrowserModelCatalog,

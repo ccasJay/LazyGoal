@@ -58,6 +58,7 @@ import {
     BrowserGoalCommandService,
     BrowserGoalStreamService,
     createBrowserGoalRoutes,
+    createBrowserWorkspaceRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     listBrowserGoals,
@@ -1683,6 +1684,7 @@ async function runBrowserSessionCli(
             saveNotifications: root.notifyingStore,
             publisher: root.executionStream,
         });
+        root.httpService.mount("/", createBrowserWorkspaceRoutes(root.workspaceRoot));
         root.httpService.mount("/", createBrowserGoalRoutes({
             list: () => listBrowserGoals(root.workspaceGoalStore),
             read: (goalId) => readBrowserGoalSession(

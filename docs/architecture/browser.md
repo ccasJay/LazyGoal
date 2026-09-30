@@ -32,6 +32,10 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 
 ## 页面交互
 
+`GET /api/project/workspace` 在同一访问边界内读取 Composition Root 的执行工作目录和当前 Git 分支、worktree 根路径；非 Git 工作区及 detached HEAD 明确区分。所有本机 Goal 共用启动工作区，这些值不表示 Goal 创建时的历史绑定。页面在打开会话、已提交会话刷新及重新获得焦点时读取位置，并在紧凑的一行中展示分支与 worktree；完整路径可悬停查看。
+
 React 看板源码位于 [`prototypes/goal-board`](../../prototypes/goal-board/README.md)，构建后输出到 `packages/browser/static`，由上述同源静态路由提供。New Goal 先打开仅保存在页面状态的空白会话草稿；首条非空普通消息才调用创建接口，作为 Goal 意图和首条用户消息启动唯一 Run。草稿刷新即丢弃，不创建 Goal 或启动模型。页面复用 Slash Command Registry 识别 `/plan` 与 `/model`：前者设置创建模式或提交 Plan Mode；后者打开当前 Provider 的模型选择器，草稿仅暂存模型 ID，已有 Goal 在安全文本等待点或 completed/failed 终态提交到服务端。命令文本本身不发送到消息接口。页面通过 Bearer 头调用 Goal 列表、会话、创建、消息、模型目录与选择、Plan Mode、结构化交互和授权管理接口，并用同一授权边界连接实时事件；Fragment 凭据不会写入本地存储。模型目录请求随选择器关闭或目标变化而取消，迟到结果不会覆盖当前选择器；保存错误保留原选择及结构化等待表单内容。会话视图按 Run 排列消息和已提交步骤：用户消息在步骤前，助手消息在步骤与终态之后；步骤详情可展开查看。Action 审批显示有限输入预览；若预览被截断，用户需先读取当前 Action 的完整输入才能选择持续授权。Goal 与 Workspace 授权可在详情页查看和撤销；切换 Goal 时清空旧授权列表。实时文本与活动单独显示，快照刷新后以新提交事实为准。
+
+看板通过受同一 Bearer 令牌保护的 [`session-metrics` 查询路由](./session-metrics.md)读取各 Goal 的累计指标；已选 Goal 额外订阅指标 SSE。卡片和会话输入区下方均展示 Goal 汇总，包括已提交 Step 与模型用量。未上报用量和不可计算的缓存命中率、生成速度显示为缺失值；部分覆盖单独提示，不将缺失值计为零。
 
 `npm run dev --prefix prototypes/goal-board` 只启动无后端授权的布局预览，不代理正式 Runtime API。真实操作须先构建静态页，再从 `lazygoal web` 打印的本机入口打开。页面不提供模拟 Goal、示例计划、虚构完成状态、项目分配或设置操作。
