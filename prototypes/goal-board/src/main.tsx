@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import type { ReactNode } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -17,6 +18,8 @@ import {
   PanelLeftClose,
   Plus,
   Search,
+  Shield,
+  ChevronDown,
   Terminal,
   X,
   Zap,
@@ -30,6 +33,7 @@ import type {
   BrowserToolGrantSummary,
   BrowserModelCatalog,
   BrowserModelOption,
+  BrowserPermissionModeResult,
 } from "../../../packages/browser/src/index";
 import { createSlashCommandRegistry, modelCommandDefinition, planCommandDefinition } from "../../../packages/slash-command/src/index";
 import type { ModelCommandEffect } from "../../../packages/slash-command/src/index";
@@ -95,10 +99,19 @@ function App() {
   const [toolGrantsLoading, setToolGrantsLoading] = useState(false);
   const [toolGrantsError, setToolGrantsError] = useState<string | null>(null);
   const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
+  const [permissionMode, setPermissionMode] = useState<Extract<BrowserPermissionModeResult, { ok: true }> | null>(null);
+  const [permissionModeError, setPermissionModeError] = useState<string | null>(null);
+  const [permissionModeBusy, setPermissionModeBusy] = useState(false);
+  const [permissionMenuGrants, setPermissionMenuGrants] = useState<readonly BrowserToolGrantSummary[]>([]);
+  const [permissionMenuGrantsLoading, setPermissionMenuGrantsLoading] = useState(false);
+  const [permissionMenuGrantsError, setPermissionMenuGrantsError] = useState<string | null>(null);
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
   const [draftModelId, setDraftModelId] = useState<string | null>(null);
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget | null>(null);
+  const [currentModelCatalog, setCurrentModelCatalog] = useState<BrowserModelCatalog | null>(null);
+  const [modelCatalogRefreshKey, setModelCatalogRefreshKey] = useState(0);
   const draftGoalId = useRef<string | null>(null);
   const timeline = useRef<HTMLDivElement>(null);
   const latestSession = useRef<BrowserGoalSession | null>(null);
@@ -113,6 +126,119 @@ function App() {
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
     && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed");
+  const currentModelName = currentModelCatalog === null ? "Current model unavailable"
+    : currentModelCatalog.models.find((model) => model.id === currentModelCatalog.currentModelId)?.displayName
+      ?? currentModelCatalog.currentModelId;
+  const canSwitchCurrentModel = session !== null
+    && (session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed")
+    && session.pendingAction === undefined;
+
+  useEffect(() => {
+    let active = true;
+    void browserApi.getPermissionMode().then((result) => {
+      if (!active) return;
+      if (result.ok) {
+        setPermissionMode(result);
+        setPermissionModeError(null);
+      } else {
+        setPermissionModeError("Project permissions are unavailable.");
+      }
+    }).catch(() => {
+      if (active) setPermissionModeError("Could not load project permissions.");
+    });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!permissionMenuOpen || session === null) {
+      setPermissionMenuGrants([]);
+      return;
+    }
+    let active = true;
+    setPermissionMenuGrantsLoading(true);
+    setPermissionMenuGrantsError(null);
+    void browserApi.listToolGrants(session.goalId, session.currentRunId).then((result) => {
+      if (!active) return;
+      if (!result.ok) throw new Error(result.error);
+      setPermissionMenuGrants(result.grants);
+    }).catch(() => {
+      if (active) setPermissionMenuGrantsError("Could not load saved permissions. Close and reopen the menu to retry.");
+    }).finally(() => { if (active) setPermissionMenuGrantsLoading(false); });
+    return () => { active = false; };
+  }, [permissionMenuOpen, session?.goalId, session?.currentRunId]);
+
+  useEffect(() => {
+    if (session === null) {
+      setCurrentModelCatalog(null);
+      return;
+    }
+    let active = true;
+    setCurrentModelCatalog(null);
+    void browserApi.listModels({ goalId: session.goalId, runId: session.currentRunId }).then((catalog) => {
+      if (active) setCurrentModelCatalog(catalog);
+    }).catch(() => {
+      if (active) setCurrentModelCatalog(null);
+    });
+    return () => { active = false; };
+  }, [session?.goalId, session?.currentRunId, modelCatalogRefreshKey]);
+
+  async function updatePermissionMode(mode: "default" | "yolo") {
+    if (permissionMode === null || permissionModeBusy || mode === permissionMode.mode) return;
+    setPermissionModeBusy(true);
+    setPermissionModeError(null);
+    try {
+      const result = await browserApi.setPermissionMode({ mode, expectedRevision: permissionMode.revision });
+      if (!result.ok) {
+        const current = await browserApi.getPermissionMode().catch(() => null);
+        if (current?.ok) setPermissionMode(current);
+        throw new Error(result.error === "conflict" ? "Project permissions changed elsewhere. The current mode was reloaded." : result.error);
+      }
+      setPermissionMode(result);
+    } catch (error) {
+      setPermissionModeError(error instanceof Error && error.message !== "permissions_unavailable"
+        ? error.message
+        : "Could not save the project permission mode.");
+    } finally {
+      setPermissionModeBusy(false);
+    }
+  }
+
+  async function revokePermissionGrant(grant: BrowserToolGrantSummary) {
+    if (session === null || revokingGrantId !== null) return;
+    setRevokingGrantId(grant.grantId);
+    try {
+      const result = await browserApi.revokeToolGrant(session.goalId, {
+        runId: session.currentRunId,
+        grantId: grant.grantId,
+        scope: grant.scope,
+        kind: grant.kind ?? "tool",
+      });
+      if (!result.ok) throw new Error(result.error);
+      setPermissionMenuGrants(result.grants);
+      setToolGrants(result.grants);
+    } catch {
+      setPermissionModeError("Could not revoke this permission. Reload the session and try again.");
+    } finally {
+      setRevokingGrantId(null);
+    }
+  }
+
+  const renderPermissionControl = (hasGoal: boolean) => (
+    <PermissionControl
+      open={permissionMenuOpen}
+      onToggle={() => setPermissionMenuOpen((value) => !value)}
+      mode={permissionMode?.mode ?? null}
+      modeError={permissionModeError}
+      modeBusy={permissionModeBusy}
+      onChooseMode={(mode) => void updatePermissionMode(mode)}
+      grants={permissionMenuGrants}
+      grantsLoading={permissionMenuGrantsLoading}
+      grantsError={permissionMenuGrantsError}
+      hasGoal={hasGoal}
+      revokingGrantId={revokingGrantId}
+      onRevokeGrant={(grant) => void revokePermissionGrant(grant)}
+    />
+  );
 
   useEffect(() => {
     if (modelPickerTarget?.kind === "goal" && session !== null && (
@@ -481,7 +607,10 @@ function App() {
     }
     try {
       await browserApi.selectModel(target.goalId, { runId: target.runId, modelId });
-      if (latestSession.current?.goalId === target.goalId) await refreshSelectedSession();
+      if (latestSession.current?.goalId === target.goalId) {
+        setModelCatalogRefreshKey((current) => current + 1);
+        await refreshSelectedSession();
+      }
     } catch (error) {
       if (error instanceof BrowserApiError && error.refresh && latestSession.current?.goalId === target.goalId) {
         await refreshSelectedSession();
@@ -758,6 +887,7 @@ function App() {
                         autoFocus
                         busy={commandBusy}
                         placeholder="Message LazyGoal…"
+                        footerControls={renderPermissionControl(false)}
                         onSubmit={submitDraftMessage}
                       />
                     </div>
@@ -921,18 +1051,31 @@ function App() {
                       </div>
                     )}
                     <div className="composer-area">
-                      {(session.runStatus === "waiting" || session.runStatus === "completed" || session.runStatus === "failed") && session.pendingAction === undefined && (
-                        <button className="model-shortcut" type="button" disabled={commandBusy} onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}>
-                          Choose model
-                        </button>
-                      )}
                       {session.runStatus === "waiting" && (
                         session.pendingInteraction !== undefined || session.pendingAction !== undefined
-                          ? <WaitingInteraction session={session} busy={commandBusy} onSubmit={(command) => void submitInteraction(command)} />
+                          ? <>
+                              <div className="composer-extra-controls">
+                                {renderPermissionControl(true)}
+                                <CurrentModelControl
+                                  label={currentModelName}
+                                  enabled={canSwitchCurrentModel && !commandBusy}
+                                  onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                                />
+                              </div>
+                              <WaitingInteraction session={session} busy={commandBusy} onSubmit={(command) => void submitInteraction(command)} />
+                            </>
                           : <MessageComposer
                               key={session.currentRunId}
                               busy={commandBusy}
                               placeholder="Give direction or ask a question…"
+                              footerControls={<>
+                                {renderPermissionControl(true)}
+                                <CurrentModelControl
+                                  label={currentModelName}
+                                  enabled={canSwitchCurrentModel && !commandBusy}
+                                  onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                                />
+                              </>}
                               onSubmit={submitMessage}
                             />
                       )}
@@ -941,16 +1084,24 @@ function App() {
                           key={`${session.currentRunId}:continue`}
                           busy={commandBusy}
                           placeholder={session.runStatus === "failed" ? "Send a message to continue in a new Run…" : "Continue this Goal with a new task…"}
+                          footerControls={<>
+                            {renderPermissionControl(true)}
+                            <CurrentModelControl
+                              label={currentModelName}
+                              enabled={canSwitchCurrentModel && !commandBusy}
+                              onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                            />
+                          </>}
                           onSubmit={submitMessage}
                         />
                       )}
-                      {session.runStatus === "running" && <div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div>}
-                      {session.runStatus === "created" && <div className="composer-note">The Runtime is starting this Goal.</div>}
+                      {session.runStatus === "running" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Wait for the current Run to reach a saved waiting point or finish.</div></>}
+                      {session.runStatus === "created" && <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The Runtime is starting this Goal.</div></>}
                       {session.runStatus === "cancelled" && (
-                        <div className="composer-note">Text input is unavailable for this Run.</div>
+                        <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">Text input is unavailable for this Run.</div></>
                       )}
                       {session.runStatus === "waiting" && session.pendingInteraction === undefined && session.pendingAction !== undefined && session.pendingAction.status === "approved" && (
-                        <div className="composer-note">The approved action is being recorded.</div>
+                        <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The approved action is being recorded.</div></>
                       )}
                     </div>
                   </>
@@ -971,6 +1122,111 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+function PermissionControl({
+  open,
+  onToggle,
+  mode,
+  modeError,
+  modeBusy,
+  onChooseMode,
+  grants,
+  grantsLoading,
+  grantsError,
+  hasGoal,
+  revokingGrantId,
+  onRevokeGrant,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  mode: "default" | "yolo" | null;
+  modeError: string | null;
+  modeBusy: boolean;
+  onChooseMode: (mode: "default" | "yolo") => void;
+  grants: readonly BrowserToolGrantSummary[];
+  grantsLoading: boolean;
+  grantsError: string | null;
+  hasGoal: boolean;
+  revokingGrantId: string | null;
+  onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
+}) {
+  return (
+    <div className="permission-control">
+      <button
+        type="button"
+        className={`permission-trigger ${mode === "yolo" ? "yolo" : ""}`}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <Shield size={13} />
+        <span>Permission{mode === null ? "" : ` · ${mode === "yolo" ? "YOLO" : "Default"}`}</span>
+        <ChevronDown size={12} />
+      </button>
+      {open && <section className="permission-popover" aria-label="Project permissions">
+        <header>
+          <strong>Project permissions</strong>
+          <span>Applies to local Goals in this project</span>
+        </header>
+        <fieldset className="permission-modes" disabled={modeBusy || mode === null}>
+          <legend>Execution mode</legend>
+          <label className={mode === "default" ? "selected" : ""}>
+            <input type="radio" name="project-permission-mode" checked={mode === "default"} onChange={() => onChooseMode("default")} />
+            <span><strong>Default</strong><small>Review actions that need approval.</small></span>
+          </label>
+          <label className={mode === "yolo" ? "selected" : ""}>
+            <input type="radio" name="project-permission-mode" checked={mode === "yolo"} onChange={() => onChooseMode("yolo")} />
+            <span><strong>YOLO</strong><small>Automatically approve eligible tools. Sandbox limits still apply.</small></span>
+          </label>
+        </fieldset>
+        {modeError && <p className="permission-error" role="alert">{modeError}</p>}
+        <div className="permission-grants">
+          <h4>Saved permissions</h4>
+          {!hasGoal ? <p>Select a Goal to review or revoke its saved permissions.</p>
+            : grantsLoading ? <p>Loading permissions…</p>
+              : grantsError ? <p className="permission-error" role="alert">{grantsError}</p>
+              : grants.length === 0 ? <p>No ongoing permissions.</p>
+                : <ul>{grants.map((grant) => (
+                  <li key={grant.grantId}>
+                    <div className="permission-grant-copy">
+                      <strong>{grant.kind === "sandbox" ? "Sandbox · " : ""}{grant.toolId}</strong>
+                      <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
+                      {grant.kind === "sandbox" && grant.command && <code>{grant.command}</code>}
+                      {grant.targetPath && <code>{grant.targetPath}</code>}
+                      {grant.kind === "sandbox" && <span>{grant.network === "all_outbound" ? "All outbound network" : "No network"}</span>}
+                      {grant.extraFiles?.map((file) => <code key={`${file.canonicalPath}:${file.access}`}>{file.access} · {file.canonicalPath}{file.kind === "directory_tree" ? "/…" : ""}</code>)}
+                    </div>
+                    {grant.status === "active" && <button
+                      type="button"
+                      className="permission-revoke"
+                      disabled={revokingGrantId !== null}
+                      onClick={() => onRevokeGrant(grant)}
+                    >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</button>}
+                  </li>
+                ))}</ul>}
+        </div>
+      </section>}
+    </div>
+  );
+}
+
+function CurrentModelControl({ label, enabled, onClick }: {
+  label: string;
+  enabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="current-model-control"
+      disabled={!enabled}
+      aria-label={`Current model: ${label}${enabled ? ". Change model" : ""}`}
+      title={label}
+      onClick={onClick}
+    >
+      <span>Model</span><strong>{label}</strong>{enabled && <ChevronDown size={11} />}
+    </button>
   );
 }
 
@@ -1100,12 +1356,14 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
 function MessageComposer({
   busy,
   placeholder,
+  footerControls,
   onSubmit,
   autoFocus = false,
 }: {
   busy: boolean;
   placeholder: string;
   onSubmit: (content: string) => Promise<boolean>;
+  footerControls?: ReactNode;
   autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
@@ -1182,7 +1440,10 @@ function MessageComposer({
           }}
         />
         <div className="composer-tools">
-          <span><Zap size={12} /> Local Runtime</span>
+          <div className="composer-controls">
+            {footerControls}
+            <span><Zap size={12} /> Local Runtime</span>
+          </div>
           <button type="submit" className="send" aria-label="Send message" disabled={busy || !draft.trim()}>
             {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
           </button>

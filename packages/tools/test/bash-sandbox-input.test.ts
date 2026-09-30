@@ -45,6 +45,7 @@ describe("BashTool Sandbox Input Validation & Approval Gate", () => {
         assert.equal(emptyPath.ok, false);
         if (!emptyPath.ok) {
             assert.match(emptyPath.error.message, /path 不能为空/);
+            assert.deepEqual(emptyPath.error.issues?.[0]?.path, ["sandboxAccess", "files", 0, "path"]);
         }
 
         // NUL 字符
@@ -69,6 +70,7 @@ describe("BashTool Sandbox Input Validation & Approval Gate", () => {
         assert.equal(emptyPurpose.ok, false);
         if (!emptyPurpose.ok) {
             assert.match(emptyPurpose.error.message, /purpose 不能为空/);
+            assert.deepEqual(emptyPurpose.error.issues?.[0]?.path, ["sandboxAccess", "files", 0, "purpose"]);
         }
     });
 

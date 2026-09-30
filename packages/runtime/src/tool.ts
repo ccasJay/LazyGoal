@@ -15,6 +15,7 @@ import {
     type ExecutionControl,
 } from "./execution-control";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
+import type { RuntimeFeedbackIssue } from "./runtime-feedback";
 
 /** Tool 输入 Contract 的 JSON AST 类型边界。 */
 export type ToolInputContract = Contract<JsonValue>;
@@ -92,6 +93,9 @@ export type ToolValidationResult =
         readonly ok: false;
         readonly error: {
             readonly code: "INVALID_TOOL_INPUT";
+            /** 可定位且不包含原始输入值的诊断，供同阶段模型纠错使用。 */
+            readonly issues?: readonly RuntimeFeedbackIssue[];
+            /** 稳定、非敏感的错误说明；不得拼入模型提供的原始字段值。 */
             readonly message: string;
         };
     };
@@ -324,6 +328,11 @@ export function createToolRegistration<C extends ToolInputContract>(
                     error: {
                         code: "INVALID_TOOL_INPUT",
                         message: `${definition.id} 输入 Contract 校验失败：${issue?.code ?? "unknown"} at ${path}${truncated}`,
+                        issues: parsed.issues.map(({ code, path: issuePath, message }) => ({
+                            code,
+                            path: issuePath,
+                            message,
+                        })),
                     },
                 };
             }

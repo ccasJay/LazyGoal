@@ -286,6 +286,8 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
     assert.match(dynamicText, /读取工作区内文本文件/);
     assert.ok(request.tools?.some((definition) => definition.id === "read_file"));
     assert.match(systemContent, /Active Decide Instructions:/);
+    assert.match(systemContent, /Before each Bash Tool call, check whether the command requires outbound network access/);
+    assert.match(systemContent, /Omit `sandboxAccess` entirely when neither is needed/);
 });
 
 const CURRENT_TOOL_DEFINITIONS: readonly ToolDefinition[] = [

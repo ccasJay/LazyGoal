@@ -428,41 +428,41 @@ export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
 
     private checkSemantics(parsed: BashInput): ToolValidationResult {
         if (parsed.command.trim() === "") {
-            return invalidInput("bash.command 不能为空");
+            return invalidInput("bash.command 不能为空", ["command"]);
         }
 
         if (parsed.command.includes("\0")) {
-            return invalidInput("bash.command 不能包含 NUL 字符");
+            return invalidInput("bash.command 不能包含 NUL 字符", ["command"]);
         }
 
         if (parsed.sandboxAccess !== undefined) {
             const { files, network } = parsed.sandboxAccess;
 
             if (files !== undefined) {
-                for (const file of files) {
+                for (const [index, file] of files.entries()) {
                     if (file.path.trim() === "") {
-                        return invalidInput("sandboxAccess.files.path 不能为空");
+                        return invalidInput("sandboxAccess.files.path 不能为空", ["sandboxAccess", "files", index, "path"]);
                     }
                     if (file.path.includes("\0")) {
-                        return invalidInput("sandboxAccess.files.path 不能包含 NUL 字符");
+                        return invalidInput("sandboxAccess.files.path 不能包含 NUL 字符", ["sandboxAccess", "files", index, "path"]);
                     }
                     if (file.purpose.trim() === "") {
-                        return invalidInput("sandboxAccess.files.purpose 不能为空");
+                        return invalidInput("sandboxAccess.files.purpose 不能为空", ["sandboxAccess", "files", index, "purpose"]);
                     }
                 }
             }
 
             if (network !== undefined) {
                 if (network.targets.length === 0) {
-                    return invalidInput("sandboxAccess.network.targets 不能为空列表");
+                    return invalidInput("sandboxAccess.network.targets 不能为空列表", ["sandboxAccess", "network", "targets"]);
                 }
-                for (const target of network.targets) {
+                for (const [index, target] of network.targets.entries()) {
                     if (target.trim() === "") {
-                        return invalidInput("sandboxAccess.network.targets 包含空目标");
+                        return invalidInput("sandboxAccess.network.targets 包含空目标", ["sandboxAccess", "network", "targets", index]);
                     }
                 }
                 if (network.purpose.trim() === "") {
-                    return invalidInput("sandboxAccess.network.purpose 不能为空");
+                    return invalidInput("sandboxAccess.network.purpose 不能为空", ["sandboxAccess", "network", "purpose"]);
                 }
             }
         }

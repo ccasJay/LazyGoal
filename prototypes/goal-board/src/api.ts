@@ -10,6 +10,8 @@ import type {
   BrowserToolGrantRevokeCommand,
   BrowserModelCatalog,
   BrowserModelSelectionCommand,
+  BrowserPermissionModeCommand,
+  BrowserPermissionModeResult,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
 
@@ -115,6 +117,14 @@ export const browserApi = {
         body: JSON.stringify({ runId: command.runId, scope: command.scope }),
       },
     );
+  },
+
+  getPermissionMode(): Promise<BrowserPermissionModeResult> {
+    return requestJson("/api/project/permission-mode", isPermissionModeResult);
+  },
+
+  setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+    return postJson("/api/project/permission-mode", command, isPermissionModeResult);
   },
 
   async *events(
@@ -366,7 +376,24 @@ function isToolGrantResult(value: unknown): value is BrowserToolGrantResult {
           && (grant.scope === "goal" || grant.scope === "workspace")
           && isNonEmptyString(grant.toolId)
           && ["pending", "active", "revoked"].includes(String(grant.status))
-          && (grant.targetPath === undefined || typeof grant.targetPath === "string")));
+          && (grant.kind === undefined || grant.kind === "tool" || grant.kind === "sandbox")
+          && (grant.targetPath === undefined || typeof grant.targetPath === "string")
+          && (grant.command === undefined || typeof grant.command === "string")
+          && (grant.network === undefined || grant.network === "none" || grant.network === "all_outbound")
+          && (grant.extraFiles === undefined || (Array.isArray(grant.extraFiles) && grant.extraFiles.every((file) =>
+            isRecord(file)
+              && isNonEmptyString(file.canonicalPath)
+              && (file.access === "read" || file.access === "write")
+              && (file.kind === "file" || file.kind === "directory_tree"))))));
+}
+
+function isPermissionModeResult(value: unknown): value is BrowserPermissionModeResult {
+  if (!isRecord(value)) return false;
+  if (value.ok === false) return typeof value.error === "string";
+  return value.ok === true
+    && (value.mode === "default" || value.mode === "yolo")
+    && Number.isInteger(value.revision)
+    && isNonEmptyString(value.workspaceId);
 }
 
 function isJsonValue(value: unknown): boolean {

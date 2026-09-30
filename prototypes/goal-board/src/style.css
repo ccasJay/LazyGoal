@@ -203,7 +203,41 @@ h1 span { margin-left: 8px; color: #81848e; font-size: 12px; font-weight: 400; l
 .session-empty p { max-width: 360px; font-size: 11px; line-height: 1.7; }
 .command-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 14px; border-top: 1px solid #65464b; background: #302326; color: #e4b5b8; font-size: 10px; line-height: 1.5; }
 .command-error button { display: grid; place-items: center; color: #edc4c6; }
-.composer-area { flex-shrink: 0; padding: 15px 18px 12px; border-top: 1px solid #292c34; background: #1b1c20; }
+.composer-area { position: relative; flex-shrink: 0; padding: 15px 18px 12px; border-top: 1px solid #292c34; background: #1b1c20; }
+.permission-control { position: relative; z-index: 3; margin: 0; }
+.permission-trigger { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid #373b45; border-radius: 6px; background: #24262c; color: #b9c4de; font-size: 10px; }
+.permission-trigger.yolo { border-color: #725c3c; color: #e5c58f; }
+.permission-popover { position: absolute; bottom: calc(100% + 7px); left: 0; width: min(350px, calc(100vw - 36px)); max-height: min(430px, 68vh); overflow: auto; padding: 14px; border: 1px solid #41444e; border-radius: 9px; background: #202126; box-shadow: 0 12px 34px #0009; color: #e4e6eb; }
+.permission-popover > header { display: grid; gap: 4px; padding-bottom: 11px; border-bottom: 1px solid #34363e; }
+.permission-popover > header strong { font-size: 12px; font-weight: 600; }
+.permission-popover > header span, .permission-grants > p { color: #969aa6; font-size: 10px; line-height: 1.5; }
+.permission-modes { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; border: 0; }
+.permission-modes legend { margin-bottom: 6px; color: #aeb3c0; font-size: 10px; }
+.permission-modes label { display: flex; align-items: flex-start; gap: 8px; padding: 8px; border: 1px solid #373941; border-radius: 6px; cursor: pointer; }
+.permission-modes label.selected { border-color: #65789f; background: #282d38; }
+.permission-modes input { margin: 2px 0 0; accent-color: #9bb1e8; }
+.permission-modes label > span { display: grid; gap: 3px; }
+.permission-modes strong { font-size: 10px; font-weight: 550; }
+.permission-modes small { color: #989daa; font-size: 9px; line-height: 1.45; }
+.permission-error { margin: 9px 0 0; color: #e3a8a8; font-size: 10px; line-height: 1.5; }
+.permission-grants { margin-top: 13px; padding-top: 11px; border-top: 1px solid #34363e; }
+.permission-grants h4 { margin: 0 0 7px; font-size: 10px; font-weight: 600; }
+.permission-grants > p { margin: 0; }
+.permission-grants ul { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.permission-grants li { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid #34363e; border-radius: 5px; background: #24252a; }
+.permission-grant-copy { display: grid; min-width: 0; gap: 4px; }
+.permission-grant-copy strong { font-size: 10px; font-weight: 550; }
+.permission-grant-copy span { color: #969aa6; font-size: 9px; }
+.permission-grant-copy code { color: #c1cbe0; font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.permission-revoke { flex-shrink: 0; padding: 5px 7px; border: 1px solid #54443f; border-radius: 4px; color: #d4a99a; font-size: 9px; }
+.composer-controls { display: flex; min-width: 0; align-items: center; gap: 9px; }
+.composer-controls > span { display: flex; align-items: center; gap: 5px; color: #9097a7; font-size: 10px; white-space: nowrap; }
+.current-model-control { display: inline-flex; min-width: 0; max-width: 180px; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 5px; color: #aeb9d0; font-size: 9px; }
+.current-model-control:hover:not(:disabled) { background: #303440; }
+.current-model-control strong { overflow: hidden; color: #cbd4e8; font-size: 9px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.current-model-control:disabled { opacity: .75; cursor: default; }
+.composer-extra-controls { display: flex; align-items: center; gap: 10px; padding: 0 0 8px; }
+.composer-extra-controls .composer-controls { display: none; }
 .command-candidates { display: grid; gap: 3px; margin-bottom: 8px; padding: 5px; border: 1px solid #3b404c; border-radius: 8px; background: #24262c; }
 .command-candidate { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border-radius: 5px; text-align: left; }
 .command-candidate.active, .command-candidate:hover:not(:disabled) { background: #303747; }

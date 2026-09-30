@@ -18,6 +18,7 @@ import {
     contract,
     type InferContract,
 } from "../../contracts/src/index";
+import { BASH_INPUT_CONTRACT } from "../../tools/src/bash";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import {
     currentProtocols,
@@ -35,6 +36,7 @@ import type {
     RunnerResult,
     RunRef,
     RunState,
+    RuntimeFeedback,
     StepExecutionInput,
     StepExecutor,
     Tool,
@@ -91,11 +93,13 @@ class FakeStepExecutor implements StepExecutor {
 
 class FakeDecisionExecutor implements StepExecutor {
     readonly receivedTools: ToolDefinition[][] = [];
+    readonly receivedFeedback: (RuntimeFeedback | undefined)[] = [];
 
     constructor(private readonly decision: AgentDecision) {}
 
-    async execute({ authorizedTools }: StepExecutionInput): Promise<AgentDecision> {
+    async execute({ authorizedTools, runtimeFeedback }: StepExecutionInput): Promise<AgentDecision> {
         this.receivedTools.push([...authorizedTools]);
+        this.receivedFeedback.push(runtimeFeedback);
         return structuredClone(this.decision);
     }
 }
@@ -1505,6 +1509,11 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
         message: "Model output correction exhausted after three decide calls (INVALID_TOOL_INPUT)",
     });
     assert.equal(executeCalls, 0);
+    assert.deepEqual(executor.receivedFeedback[1]?.issues, [{
+        code: "INVALID_TOOL_INPUT",
+        path: ["result", "action", "input"],
+        message: "path 必须是工作区内相对路径",
+    }]);
 });
 
 test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也不记录 Action 事实", async () => {
@@ -1568,9 +1577,72 @@ test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也�
     assert.equal(validateCalls, 0);
     assert.equal(policyCalls, 0);
     assert.equal(executeCalls, 0);
+    assert.deepEqual(executor.receivedFeedback[1]?.issues[0], {
+        code: "missing_field",
+        path: ["result", "action", "input", "path"],
+        message: "Required field is missing",
+    });
     assert.equal(trajectory.events.some((event) => event.eventType === "decision_received"), false);
     assert.equal(trajectory.events.some((event) => event.eventType === "action_staged"), false);
     assert.equal(trajectory.events.some((event) => event.eventType === "tool_started"), false);
+});
+
+test("Runner 将非法 sandboxAccess 的字段诊断送回模型并接受修正调用", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = createInitialGoal(
+        "run-sandbox-input-repair",
+        "goal-1",
+        { ...profile, toolIds: ["bash"] },
+        [],
+        1,
+    );
+    await store.save(initial);
+    const receivedFeedback: (RuntimeFeedback | undefined)[] = [];
+    let executeCalls = 0;
+    const tool: Tool<typeof BASH_INPUT_CONTRACT> = {
+        definition: {
+            id: "bash",
+            description: "执行本地命令",
+            inputContract: BASH_INPUT_CONTRACT,
+            isReadOnly: false,
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute() {
+            executeCalls += 1;
+            return { kind: "success", output: "", summary: "已读取 Git 历史" };
+        },
+    };
+    const executor: StepExecutor = {
+        async execute({ runtimeFeedback }) {
+            receivedFeedback.push(runtimeFeedback);
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: "action-git-history",
+                    toolId: "bash",
+                    input: runtimeFeedback === undefined
+                        ? { command: "git log -5 --oneline", sandboxAccess: -1 }
+                        : { command: "git log -5 --oneline" },
+                },
+            };
+        },
+    };
+
+    const result = await new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => createToolRegistration(tool) },
+    }).run(createRef(initial, "run-sandbox-input-repair"));
+
+    assert.equal(requireSuccessfulState(result).stepCount, 1);
+    assert.equal(executeCalls, 1);
+    assert.deepEqual(receivedFeedback[1]?.issues[0], {
+        code: "invalid_type",
+        path: ["result", "action", "input", "sandboxAccess"],
+        message: "Expected a JSON object",
+    });
 });
 
 test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事实与 Tool 共享 canonical 输入", async () => {

@@ -105,6 +105,7 @@ import {
     type RuntimeFeedback,
     type RuntimeFeedbackOrigin,
     type RuntimeFeedbackStage,
+    type RuntimeFeedbackIssue,
 } from "./runtime-feedback";
 import { transition } from "./transition";
 import {
@@ -173,7 +174,7 @@ const ALLOW_ALL_TOOL_POLICY: ToolPolicy = {
 class RunnerExecutionError extends Error {
     readonly code: ExecutionErrorCode;
 
-    constructor(code: ExecutionErrorCode, message: string) {
+    constructor(code: ExecutionErrorCode, message: string, readonly issues?: readonly RuntimeFeedbackIssue[]) {
         super(message.trim().length > 0 ? message : code);
         this.name = "RunnerExecutionError";
         this.code = code;
@@ -360,10 +361,11 @@ function createRunnerFeedbackError(
     constraints: readonly string[] = [],
 ): ModelStageFeedbackError {
     const code = error instanceof RunnerExecutionError ? error.code : "INVALID_AGENT_DECISION";
+    const toolInputError = origin === "tool_input" && error instanceof RunnerExecutionError ? error : undefined;
     const message = origin === "tool_selection"
         ? "Select a Tool listed as available in this request."
         : origin === "tool_input"
-            ? "Correct the Tool input to match its supplied schema and constraints."
+            ? toolInputError?.message ?? "Correct the Tool input to match its supplied schema and constraints."
             : origin === "completion_evidence"
                 ? "Use only committed evidence that satisfies every completion criterion."
                 : "Return a decision that satisfies the active output contract and semantic rules.";
@@ -376,17 +378,22 @@ function createRunnerFeedbackError(
         origin,
         code,
         attempt: 1,
-        issues: [{
-            code,
-            path: origin === "tool_selection"
-                ? ["result", "action", "toolId"]
-                : origin === "tool_input"
-                    ? ["result", "action", "input"]
-                    : origin === "completion_evidence"
-                        ? ["result", "completionEvidence"]
-                        : ["result"],
-            message,
-        }],
+        issues: toolInputError?.issues?.length
+            ? toolInputError.issues.map((issue) => ({
+                ...issue,
+                path: ["result", "action", "input", ...issue.path],
+            }))
+            : [{
+                code,
+                path: origin === "tool_selection"
+                    ? ["result", "action", "toolId"]
+                    : origin === "tool_input"
+                        ? ["result", "action", "input"]
+                        : origin === "completion_evidence"
+                            ? ["result", "completionEvidence"]
+                            : ["result"],
+                message,
+            }],
         constraints,
     }),
     `${stage} decision failed ${origin} validation`,
@@ -538,6 +545,7 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "INVALID_TOOL_INPUT",
             prepared.error.message,
+            prepared.error.issues,
         );
     }
 

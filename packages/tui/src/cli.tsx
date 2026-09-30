@@ -46,6 +46,8 @@ import {
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
     JsonFileToolGrantStore,
+    JsonFileSandboxGrantStore,
+    JsonFileProjectPermissionModeStore,
 } from "../../storage/src/index";
 import {
     createHttpService,
@@ -885,6 +887,8 @@ export async function createCompositionRoot(
     };
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
+    const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceHomePaths.workspaceDirectory);
+    const permissionModeStore = new JsonFileProjectPermissionModeStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = new AggregatedTrajectoryStore(primaryTrajectoryStore, benchmarksDirectory);
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -993,6 +997,8 @@ export async function createCompositionRoot(
         toolRegistry,
         toolPolicy,
         toolGrantLookup: toolGrantStore,
+        sandboxGrantLookup: sandboxGrantStore,
+        permissionModeStore,
         workspaceId: workspaceHomePaths.workspaceId,
         workspaceRoot,
         traceSink,
@@ -1009,6 +1015,8 @@ export async function createCompositionRoot(
         scheduler,
         toolRegistry,
         toolGrantStore,
+        sandboxGrantStore,
+        permissionModeStore,
         workspaceId: workspaceHomePaths.workspaceId,
         workspaceRoot,
         traceSink,
@@ -1710,6 +1718,8 @@ async function runBrowserSessionCli(
             readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
             listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
             revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
+            getPermissionMode: () => commandService.getPermissionMode(),
+            setPermissionMode: (command) => commandService.setPermissionMode(command),
             openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
