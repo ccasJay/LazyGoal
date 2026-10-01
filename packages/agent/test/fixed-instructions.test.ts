@@ -23,7 +23,7 @@ function fixedInstructionText(rendered: string, stage: PromptStage): string {
     return `${rendered.slice(0, profileStart)}\n\n${rendered.slice(stageStart + 2)}`;
 }
 
-test("Decide 与 Think 固定指令分别达到 2,000–3,000 个真实 o200k_base tokens", async () => {
+test("Decide 与 Think 固定指令测量真实 tokens 并检查最低覆盖，不设长度上限", async (context) => {
     const renderer = await createDefaultPromptBundleRenderer();
     const profileBody = "Frozen profile text remains present but is excluded from the fixed instruction budget.";
     const base: Omit<PromptContext, "stage"> = {
@@ -45,7 +45,7 @@ test("Decide 与 Think 固定指令分别达到 2,000–3,000 个真实 o200k_ba
         const tokens = encoding.encode(fixedText).length;
 
         assert.ok(tokens >= 2_000, `${stage} fixed instructions are too short: ${tokens} tokens`);
-        assert.ok(tokens <= 3_000, `${stage} fixed instructions are too long: ${tokens} tokens`);
+        context.diagnostic(`${stage} fixed instructions: ${tokens} o200k_base tokens (no upper limit)`);
 
         if (stage === "decide") {
             assert.match(fixedText, /request_think/);

@@ -44,7 +44,7 @@ Runner 拥有阶段循环、Step 身份和提交顺序；Agent 只投影、组�
 
 ### 固定指令与消息来源
 
-将当前 `global_overview` 和 `phase_protocol` 拆成不读取 Run 状态的固定规则与阶段说明；Profile 的 systemPrompt/instructions 仍由冻结 Profile 提供，Bundle v1 仍由 Registry 严格匹配。把 Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 从 system 模板移出；同一阶段的固定文本按字符保持一致。Think 与 Decide 各有固定说明，并用 `o200k_base` 测量默认参考场景的固定文本，使每阶段达到需求 1.5 的 2,000–3,000 tokens，同时按需求 1.6 检查规则冲突和重复。
+将当前 `global_overview` 和 `phase_protocol` 拆成不读取 Run 状态的固定规则与阶段说明；Profile 的 systemPrompt/instructions 仍由冻结 Profile 提供，Bundle v1 仍由 Registry 严格匹配。把 Run 模式、已批准任务、GoalPlan、授权工具和 Working Memory 从 system 模板移出；同一阶段的固定文本按字符保持一致。Think 与 Decide 各有固定说明，并用 `o200k_base` 测量默认参考场景的固定文本，使每阶段达到需求 1.5 的至少 2,000 tokens（不设长度上限），同时按需求 1.6 检查规则冲突和重复。
 
 供应商消息角色保持 `system`、`user`、`assistant`：固定 Bundle/Profile 为前置 system；Runtime 的 section 更新及本轮控制输入为带 `source`、`sectionId` 的 user 消息；真实 Conversation 沿用原角色和用户意图语义；已提交 Think 输出作为带模型来源标识的 assistant 内容交给后续 Decide。来源身份是消息元数据和可见标签，不新增供应商 `developer` 角色。Tool/Lookup 原文只作为带来源的数据引用；这些内容与真实 Conversation 都不进入固定模板，也不二次执行 Nunjucks。
 

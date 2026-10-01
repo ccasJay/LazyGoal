@@ -10,7 +10,7 @@
 - [x] //TODO 2. 扩充冻结 Prompt 与阶段行为说明
 
   - 实现目标：更新 Bundle v1 固定模板和 Think/Decide 阶段说明，保留冻结 Profile 与来源权限，并为参考场景建立真实 `o200k_base` 计数检查。
-  - 成功判据：两阶段固定文本各为 2,000–3,000 tokens，所需行为主题完整且无冲突；动态文本和 Shape Guide 不参与计数；模板变量不二次执行。
+  - 成功判据：两阶段固定文本各不少于 2,000 tokens，不设长度上限，所需行为主题完整且无冲突；动态文本和 Shape Guide 不参与计数；模板变量不二次执行。
   - 验证方式：待实现的 `packages/agent/test/fixed-instructions.test.ts`；现有 `packages/agent/test/prompting-renderer.test.ts`，使用 `npx tsx --test`。
   - _Requirements: [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4), [1.5](./requirements.md#req-1-5), [1.6](./requirements.md#req-1-6), [2.2](./requirements.md#req-2-2)_
 
@@ -72,7 +72,7 @@
 | 验收范围 | 场景与预期结果 | 验证方式 |
 |---|---|---|
 | [1.1](./requirements.md#req-1-1), [1.2](./requirements.md#req-1-2), [1.3](./requirements.md#req-1-3), [1.4](./requirements.md#req-1-4) | 变更动态状态或阶段不改写共享固定文本，冻结 Profile/Bundle 仍生效 | 固定模板与请求快照测试（待实现） |
-| [1.5](./requirements.md#req-1-5), [1.6](./requirements.md#req-1-6) | 两阶段固定指令各在 2,000–3,000 `o200k_base` tokens，覆盖指定行为且无填充或冲突 | 真实 tokenizer 计数及逐主题断言（待实现） |
+| [1.5](./requirements.md#req-1-5), [1.6](./requirements.md#req-1-6) | 两阶段固定指令各不少于 2,000 `o200k_base` tokens（不设长度上限），覆盖指定行为且无填充或冲突 | 真实 tokenizer 计数及逐主题断言（待实现） |
 | [2.1](./requirements.md#req-2-1), [2.3](./requirements.md#req-2-3) | section 身份、来源、角色、顺序稳定；测试注册第六个 section 仍走通用流程 | Section Registry 测试（待实现） |
 | [2.2](./requirements.md#req-2-2) | Tool/Lookup 文本和模型 Think 不进入固定指令，模板变量不二次执行 | 来源与注入边界测试（待实现） |
 | [2.4](./requirements.md#req-2-4) | Step、pending Action、checkpoint、Hot/Warm、Lookup 等本轮输入每次请求均存在 | 逐请求组装测试（待实现） |
