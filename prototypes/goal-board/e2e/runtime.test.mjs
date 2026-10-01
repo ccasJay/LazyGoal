@@ -170,6 +170,27 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(actionLines.length, 1);
     assert.deepEqual(JSON.parse(actionLines[0]), { actionId: pendingActionId, value: "controlled write" });
 
+    const toolStep = session.runs.find(run => run.current).steps.find(step => step.toolId === "browser_fixture_write");
+    const trajectory = await api(restarted.origin, `/api/goals/${goalId}/trajectory?runId=${firstRunId}&executionUnitId=${toolStep.executionUnitId}`, { token: restarted.token });
+    assert.equal(trajectory.response.status, 200);
+    assert.ok(trajectory.body.locatedSequence > 0);
+    assert.ok(trajectory.body.entries.every(event => event.sequence <= trajectory.body.run.committedThroughSequence));
+    const toolEvent = trajectory.body.entries.find(event => event.eventType === "tool_finished");
+    const fullDetail = await api(restarted.origin, `/api/goals/${goalId}/trajectory/events/${toolEvent.sequence}?runId=${firstRunId}`, { token: restarted.token });
+    assert.equal(fullDetail.response.status, 200);
+    assert.equal(fullDetail.body.observationConfirmed, true);
+    assert.ok(JSON.stringify(fullDetail.body.result).includes("PRIVATE_CONTROLLED_TOOL_OUTPUT"));
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tool-event')].find(step => step.querySelector('summary').textContent.includes('browser_fixture_write')).querySelector('summary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tool-event')].find(step => step.querySelector('summary').textContent.includes('browser_fixture_write')).querySelector('.trajectory-link button').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.trajectory-view .tr-row[aria-pressed=\"true\"]') !== null");
+    await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
+    assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${trajectory.body.locatedSequence}`);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-" + toolEvent.sequence + "').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-detail-title')?.innerText.includes('tool_finished')");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.tr-detail-tabs button')].find(button => button.textContent === 'Result').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-detail-body')?.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity').click()", returnByValue: true });
+
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Record one follow-up note");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
@@ -194,7 +215,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null && document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
@@ -245,6 +266,11 @@ test("real local service restores and completes one authorized Goal conversation
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 2);
+    const completedPlanSession = await waitForSession(
+      restarted.origin,
+      restarted.token,
+      (candidate) => candidate.runStatus === "completed" && candidate.currentRunMode === "plan",
+    );
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
     const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");
@@ -253,11 +279,7 @@ test("real local service restores and completes one authorized Goal conversation
       try { stopReason = await readFile(`${statusPath}.run-stop`, "utf8"); } catch { stopReason = "not recorded"; }
       assert.ok(planCompleted, `Plan Run did not complete: ${JSON.stringify(completedList.body.goals)}; stop=${stopReason}`);
     }
-    const completedPlanSession = await waitForSession(
-      restarted.origin,
-      restarted.token,
-      (candidate) => candidate.runStatus === "completed" && candidate.currentRunMode === "plan",
-    );
+
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
     await cdp(socket, "Runtime.evaluate", {
       expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",

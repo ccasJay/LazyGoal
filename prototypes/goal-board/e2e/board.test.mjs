@@ -153,13 +153,14 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
 
     mock.resetGrants();
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'Details').click()",
+      expression: "document.querySelector('button[aria-label=\"Goal information and permissions\"]').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.grant-panel')?.innerText.includes('src/file.ts')");
     assert.equal(await value(socket, "[...document.querySelectorAll('.grant-panel button')].some(button => button.textContent.includes('Revoke'))"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.grant-revoke').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.grant-panel')?.innerText.includes('No ongoing permissions.')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close Goal information\"]').click()", returnByValue: true });
 
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=failed#${token}`);

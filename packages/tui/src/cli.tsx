@@ -58,6 +58,7 @@ import {
     BrowserGoalCommandService,
     BrowserGoalStreamService,
     createBrowserGoalRoutes,
+    createBrowserTrajectoryRoutes,
     createBrowserWorkspaceRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -1732,6 +1733,7 @@ async function runBrowserSessionCli(
             setPermissionMode: (command) => commandService.setPermissionMode(command),
             openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
+        root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);
         access.bindOrigin(address.origin);

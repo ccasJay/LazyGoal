@@ -13,6 +13,7 @@ import type {
   BrowserPermissionModeCommand,
   BrowserPermissionModeResult,
   BrowserWorkspaceContext,
+  BrowserTrajectoryRun, BrowserTrajectoryPage, BrowserTrajectoryDetail, BrowserTrajectoryEntry,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
 import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/src/session-metrics-service";
@@ -45,6 +46,18 @@ export const browserApi = {
       isGoalSessionEnvelope,
       signal,
     ).then((body) => body.goal);
+  },
+
+  trajectoryRuns(goalId: string, offset = 0, signal?: AbortSignal): Promise<{ runs: BrowserTrajectoryRun[]; nextOffset: number | null }> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, isTrajectoryRuns, signal);
+  },
+
+  trajectory(goalId: string, query: URLSearchParams, signal?: AbortSignal): Promise<BrowserTrajectoryPage> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, isTrajectoryPage, signal);
+  },
+
+  trajectoryDetail(goalId: string, runId: string, sequence: number, signal?: AbortSignal): Promise<BrowserTrajectoryDetail> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory/events/${sequence}?runId=${encodeURIComponent(runId)}`, isTrajectoryDetail, signal);
   },
 
   readMetrics(goalId: string, signal?: AbortSignal): Promise<SessionMetricsSnapshot> {
@@ -515,4 +528,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
+  return isRecord(value) && isNonEmptyString(value.runId) && isRunStatus(value.status)
+    && typeof value.current === "boolean" && Number.isSafeInteger(value.committedThroughSequence) && Number(value.committedThroughSequence) >= 0;
+}
+function isTrajectoryRuns(value: unknown): value is { runs: BrowserTrajectoryRun[]; nextOffset: number | null } {
+  return isRecord(value) && Array.isArray(value.runs) && value.runs.every(isTrajectoryRun) && nullableSequence(value.nextOffset);
+}
+function nullableSequence(value: unknown): boolean { return value === null || Number.isSafeInteger(value) && Number(value) >= 0; }
+function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEntry {
+  return isRecord(value) && isNonEmptyString(value.eventId) && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0
+    && typeof value.occurredAt === "string" && typeof value.eventType === "string"
+    && ["lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"].includes(String(value.category))
+    && typeof value.title === "string" && typeof value.preview === "string" && typeof value.previewTruncated === "boolean"
+    && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
+    && (value.stepIndex === undefined || Number.isSafeInteger(value.stepIndex)) && (value.actionId === undefined || isNonEmptyString(value.actionId));
+}
+function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
+  return isRecord(value) && isNonEmptyString(value.goalId) && isTrajectoryRun(value.run) && Array.isArray(value.entries)
+    && value.entries.every(isTrajectoryEntry) && Number.isSafeInteger(value.total) && Number(value.total) >= 0
+    && Number.isSafeInteger(value.committedCount) && Number(value.committedCount) >= 0
+    && nullableSequence(value.previousCursor) && nullableSequence(value.nextCursor) && nullableSequence(value.locatedSequence);
+}
+function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDetail {
+  return isRecord(value) && isRecord(value.event) && value.event.eventSchemaVersion === 1
+    && isNonEmptyString(value.event.eventId) && isNonEmptyString(value.event.goalId) && isNonEmptyString(value.event.runId)
+    && Number.isSafeInteger(value.event.sequence) && Number(value.event.sequence) > 0 && typeof value.event.occurredAt === "string"
+    && value.event.phase === "executing" && typeof value.event.eventType === "string" && isRecord(value.event.payload) && value.event.eventType === value.event.payload.type
+    && typeof value.observationConfirmed === "boolean" && (value.toolDurationMs === null || typeof value.toolDurationMs === "number" && Number.isFinite(value.toolDurationMs) && value.toolDurationMs >= 0)
+    && (value.toolStartedAt === undefined || typeof value.toolStartedAt === "string") && (value.toolFinishedAt === undefined || typeof value.toolFinishedAt === "string")
+    && (value.result === undefined || isRecord(value.result)) && (value.toolFinished === undefined || isRecord(value.toolFinished)
+      && value.toolFinished.eventType === "tool_finished" && isRecord(value.toolFinished.payload) && isRecord(value.toolFinished.payload.observation));
 }

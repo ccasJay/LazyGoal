@@ -11,6 +11,7 @@ import {
   Folder,
   GitBranch,
   LayoutGrid,
+  Layers,
   List,
   Maximize2,
   Minimize2,
@@ -42,9 +43,10 @@ import type { SessionMetricsSnapshot } from "../../../packages/session-metrics/s
 import { BrowserApiError, browserApi } from "./api";
 import { GoalDetails, WaitingInteraction } from "./panels";
 import "./style.css";
+import { Trajectory } from "./trajectory";
 
 type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "Stopped";
-type SessionTab = "Activity" | "Plan" | "Details";
+type SessionTab = "Activity" | "Plan" | "Trajectory";
 type BoardView = "board" | "list";
 type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
 
@@ -92,6 +94,8 @@ function App() {
   const [boardView, setBoardView] = useState<BoardView>("board");
   const [search, setSearch] = useState("");
   const [needsInputOnly, setNeedsInputOnly] = useState(false);
+  const [goalInfoOpen, setGoalInfoOpen] = useState(false);
+  const [trajectoryTarget, setTrajectoryTarget] = useState<{runId: string; executionUnitId: string; nonce: number} | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
   const [expanded, setExpanded] = useState(false);
   const [sidebar, setSidebar] = useState(true);
@@ -307,6 +311,8 @@ function App() {
     if (selectedGoalId === null) {
       latestSession.current = null;
       setSession(null);
+      setGoalInfoOpen(false);
+      setTrajectoryTarget(null);
       setSessionLoading(false);
       if (browserApi.hasAccessToken) setSessionError(null);
       setLiveText("");
@@ -318,6 +324,8 @@ function App() {
     let active = true;
     latestSession.current = null;
     setSession(null);
+    setGoalInfoOpen(false);
+    setTrajectoryTarget(null);
     setToolGrants([]);
     setToolGrantsError(null);
     setToolGrantsLoading(false);
@@ -381,7 +389,7 @@ function App() {
   }, [selectedGoalId]);
 
   useEffect(() => {
-    if (sessionTab !== "Details" || session === null || selectedGoalId === null) return;
+    if (!goalInfoOpen || session === null || selectedGoalId === null) return;
     let active = true;
     setToolGrantsLoading(true);
     setToolGrantsError(null);
@@ -393,7 +401,7 @@ function App() {
       if (active) setToolGrantsError(errorMessage(error));
     }).finally(() => { if (active) setToolGrantsLoading(false); });
     return () => { active = false; };
-  }, [sessionTab, session?.goalId, session?.currentRunId, selectedGoalId]);
+  }, [goalInfoOpen, session?.goalId, session?.currentRunId, selectedGoalId]);
 
   useEffect(() => {
     if (
@@ -701,8 +709,8 @@ function App() {
   }
 
   const sessionTabs: readonly SessionTab[] = session?.goalPlan === undefined
-    ? ["Activity", "Details"]
-    : ["Activity", "Plan", "Details"];
+    ? ["Activity", "Trajectory"]
+    : ["Activity", "Plan", "Trajectory"];
 
   return (
     <div className="app">
@@ -919,12 +927,14 @@ function App() {
                     <ChevronRight size={12} /> Session
                   </span>
                   <div>
+                    {session && <button className="goal-info-toggle" aria-label="Goal information and permissions" onClick={() => setGoalInfoOpen(true)}>Goal info</button>}
                     <button className="icon" aria-label={expanded ? "Collapse session" : "Expand session"} onClick={() => setExpanded((value) => !value)}>
                       {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
                     </button>
                     <button className="icon" aria-label="Close session" onClick={closeSession}><X size={17} /></button>
                   </div>
                 </header>
+                {goalInfoOpen && session && <section className="goal-info-panel" aria-label="Goal information"><header><strong>Goal information</strong><button className="icon" aria-label="Close Goal information" onClick={() => setGoalInfoOpen(false)}><X size={17}/></button></header><GoalDetails session={session} tab="Details" grants={toolGrants} grantsLoading={toolGrantsLoading} grantsError={toolGrantsError} revokingGrantId={revokingGrantId} onRevokeGrant={grant => void revokeToolGrant(grant)}/></section>}
                 {draftSessionOpen ? (
                   <>
                     <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
@@ -934,6 +944,7 @@ function App() {
                     </div>
                     <div className="timeline draft-timeline">
                       <div className="timeline-date"><span />No saved messages<span /></div>
+                      {draftPlanMode && <div className="session-intro">Plan Mode · The first message will start a Plan Run.</div>}
                       <p>Send your first message to create a Goal and start the session. Use <code>/plan</code> for Plan Mode or <code>/model</code> to choose a model.</p>
                     </div>
                     {commandError && (
@@ -973,20 +984,23 @@ function App() {
                 ) : (
                   <>
                     <WorkspaceContext context={workspaceContext} error={workspaceContextError} />
+                    {session.nextRunMode === "plan" && <div className="session-intro">Next Run · Plan Mode</div>}
                     <div className="session-tabs">
                       <div className="session-tab-buttons">
                         {sessionTabs.map((tab) => (
-                          <button key={tab} aria-pressed={sessionTab === tab} onClick={() => setSessionTab(tab)}>{tab}</button>
+                          <button key={tab} aria-pressed={sessionTab === tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}>{tab}</button>
                         ))}
                       </div>
                       <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
                         <span className="dot" />{streamConnected ? "Live" : "Reconnecting"}
                       </span>
                     </div>
-                    {sessionTab !== "Activity" ? (
+                    {sessionTab === "Trajectory" ? (
+                      <Trajectory key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`} session={session} target={trajectoryTarget}/>
+                    ) : sessionTab === "Plan" ? (
                       <GoalDetails
                         session={session}
-                        tab={sessionTab}
+                        tab="Plan"
                         grants={toolGrants}
                         grantsLoading={toolGrantsLoading}
                         grantsError={toolGrantsError}
@@ -1064,6 +1078,7 @@ function App() {
                                         )}
                                         {step.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
                                         {!step.bashExecution && !step.bashExecutionOmitted && step.summary && <pre>{step.summary}</pre>}
+                                        <footer className="trajectory-link"><button aria-label={`View Step ${step.stepIndex} in trajectory`} onClick={() => { setTrajectoryTarget({ runId: run.runId, executionUnitId: step.executionUnitId, nonce: Date.now() }); setSessionTab("Trajectory"); }}><Layers size={13}/>View in trajectory<ChevronRight size={12}/></button></footer>
                                       </details>
                                     ))}
                                   </section>

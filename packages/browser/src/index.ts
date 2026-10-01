@@ -62,3 +62,5 @@ export {
     type BrowserGoalStreamDependencies,
     type BrowserGoalStreamOpenResult,
 } from "./browser-goal-stream";
+
+export { createBrowserTrajectoryRoutes, type BrowserTrajectoryRun, type BrowserTrajectoryEntry, type BrowserTrajectoryPage, type BrowserTrajectoryDetail } from "./browser-trajectory";

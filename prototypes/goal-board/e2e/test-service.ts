@@ -10,6 +10,7 @@ import {
 import type { AgentProfile, Tool, ToolPolicy } from "../../../packages/runtime/src/index";
 import {
     createBrowserGoalRoutes,
+    createBrowserTrajectoryRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     BrowserGoalCommandService,
@@ -225,6 +226,7 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     },
     openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));
+root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
 root.httpService.mount("/", createBrowserStaticRoutes(resolve("packages/browser/static")));
 const address = await root.httpService.start(0);
 access.bindOrigin(address.origin);
