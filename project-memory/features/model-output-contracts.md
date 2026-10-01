@@ -23,11 +23,12 @@ authorities: [docs/architecture/agent.md, docs/architecture/llm.md, packages/con
 - D4 — LLM Adapter 固定模式与原生 Schema 映射：Adapter 在构造时显式固定 `structuredOutputMode: "strict" | "prompt_only"`，网络请求前校验模式一致性；`OpenAICompatible` 映射为 `response_format.json_schema`，`Gemini` 映射为 `responseJsonSchema` 与 `responseMimeType`，SDK 拒绝直接抛出，严禁隐式降级重试。 [S1, S6, S7]
 - D5 — TUI 与 Benchmark 配置显式化：`LLM_STRUCTURED_OUTPUT_MODE` 成为 TUI 与 ALFWorld CLI 的必填环境变量，只接受 `strict` 或 `prompt_only`，在产生 Store 或 Goal 副作用前快速失败。 [S1, S8]
 - D6 — Runtime Canonical 协议隔离：模型 wire 响应在解码后立即将外层 `result` 解包并剔除占位 `null`，进入 Runtime 的 canonical Goal Snapshot、Trajectory 与 Diagnostic Trace 绝不包含 wire envelope 或占位 `null`。 [S1, S4, S10]
+- D7 — 当失败输出中的已知 `kind` 与授权 `toolId` 唯一确定契约分支时，decoder 返回该分支的字段级路径诊断；分支不能唯一确定时保留整体错误。细化诊断不规范化输入、不扩大可接受结果。 [S1, S3, S12]
 
 ## Guardrails
 
 - Agent 模块严禁引入 Zod 生产依赖。 [S1, S2, S4]
-- 解码失败必须抛出带有 issue path 的 `LLMResponseProtocolError`（`INVALID_LLM_RESPONSE`），严禁自动重试、自动修复或静默降级模式。 [S1, S4, S9]
+- 解码失败必须抛出带有 issue path 的 `LLMResponseProtocolError`（`INVALID_LLM_RESPONSE`），严禁自动重试、自动修复或静默降级模式。 [S1, S4, S9, S13]
 - LLM Adapter 严禁在 SDK 报错时回退到非结构化模式请求。 [S1, S6, S7]
 
 ## Revisit When
@@ -49,3 +50,5 @@ authorities: [docs/architecture/agent.md, docs/architecture/llm.md, packages/con
 - S9: `packages/agent/test/model-output.test.ts`
 - S10: `packages/tui/test/prompt-bundle-integration.test.ts`
 - S11: `specs/preparation-phase-removal/design.md`
+- S12: `packages/contracts/test/model-output-wire.test.ts`
+- S13: `specs/runtime-feedback-tool-approval/requirements.md`
