@@ -40,6 +40,7 @@ import {
 import {
     AgentProfileConfigurationError,
     JsonFileDiagnosticTraceSink,
+    JsonFileModelInputStore,
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
     JsonFileMetricsStore,
@@ -59,6 +60,7 @@ import {
     BrowserGoalStreamService,
     createBrowserGoalRoutes,
     createBrowserTrajectoryRoutes,
+    createBrowserModelInputRoutes,
     createBrowserWorkspaceRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -629,6 +631,15 @@ export interface CompositionRoot {
     readWorkspaceTrajectory(
         query: TrajectoryReadQuery,
     ): Promise<Readonly<TrajectoryReadResult>>;
+    /**
+     * 只读正式工作区的模型输入日志，不受 Snapshot 提交边界限制。
+     * @returns 完整输入事实；历史未记录时为空，文件损坏时拒绝。
+     * @example
+     * ```ts
+     * const calls = await root.readWorkspaceModelInputs("goal-1", "run-1");
+     * ```
+     */
+    readWorkspaceModelInputs(goalId: string, runId: string): Promise<readonly import("../../runtime/src/model-input").ModelInputRecord[]>;
     /** 保护项目级 Store 写入边界的单向检查点闸门。 */
     readonly checkpointStore: CheckpointGateGoalStore;
     /** 当前进程拥有的可关闭资源注册表。 */
@@ -898,6 +909,7 @@ export async function createCompositionRoot(
         indexStore: retrievalIndexStore,
     });
     const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
+    const modelInputStore = new JsonFileModelInputStore(join(dataDirectory, "model-inputs"));
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         policy: modelContextPolicy,
@@ -992,6 +1004,7 @@ export async function createCompositionRoot(
             renderer,
             contextCompactor,
             traceSink,
+            modelInputStore,
             metricsRecorder: sessionMetricsService,
             trajectoryContextAssembler,
             ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
@@ -1224,6 +1237,7 @@ export async function createCompositionRoot(
         executionStream,
         readTrajectory,
         readWorkspaceTrajectory,
+        readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
         checkpointStore,
         resources,
         abortController,
@@ -1734,6 +1748,7 @@ async function runBrowserSessionCli(
             openStream: (goalId, runId, signal) => streamService.open(goalId, runId, signal),
         }));
         root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
+        root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, root.readWorkspaceModelInputs));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);
         access.bindOrigin(address.origin);

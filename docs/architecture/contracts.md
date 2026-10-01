@@ -19,7 +19,7 @@
 - Plan Mode：在对应任务分支额外加入 `goal_plan_update`；普通模式不暴露该分支；
 - Context Checkpoint 是独占的当前协议分支。
 
-Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投影为 required-nullable，适配 strict Provider；解码器移除可逆的占位 null，再按原始输入 Contract 复验 Tool 输入。分支、工具 ID 和 Contract 定义错误在构造期失败。
+Canonical Contract 面向 Runtime 领域；Wire Contract 将 optional 字段投影为 required-nullable，适配 strict Provider；解码器移除可逆的占位 null，再按原始输入 Contract 复验 Tool 输入。分支、工具 ID 和 Contract 定义错误在构造期失败。Executing 输出校验失败时，解码器通过已知 `kind` 与授权 `toolId` 唯一定位分支，再以同一 envelope 生成字段级诊断；未知或不唯一的分支保留整体错误。该诊断不修正输入，也不改变契约接受范围。
 
 ## 当前模型决策
 

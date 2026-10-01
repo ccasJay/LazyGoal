@@ -93,7 +93,7 @@ export function evaluateResponse(scenario: Scenario, plan: ReturnType<typeof eva
     };
 }
 
-/** 显式运行最多 72 次对照请求；逐次保存原始响应，配置或传输错误时停止并标记未完成。 */
+/** 每个场景显式运行三轮旧、新对照请求；逐次保存原始响应，配置或传输错误时停止并标记未完成。 */
 export async function runDecisionEvaluation(env: Readonly<Record<string, string | undefined>>) {
     const outputDir = resolve("build/decision-guidance", new Date().toISOString().replace(/[:.]/g, "-"));
     await mkdir(outputDir, { recursive: true });
@@ -154,12 +154,13 @@ export async function runDecisionEvaluation(env: Readonly<Record<string, string 
         unnecessaryQuestions: rows.filter(r => r.variant === variant && r.unnecessaryQuestion).length,
         criticalViolations: rows.filter(r => r.variant === variant && r.criticalViolation).length });
     const old = totals("old"); const current = totals("new");
-    const complete = !transportFailure && rows.length === 72;
+    const expectedPerVariant = decisionScenarios.length * 3;
+    const complete = !transportFailure && rows.length === expectedPerVariant * 2;
     const passed = complete && current.criticalViolations === 0 && current.passed >= old.passed && scenarios.every(s => s.new >= s.old);
     const report = { status: !complete ? "incomplete" : passed ? "passed" : "failed", requestsCompleted: rows.length,
         provider: config.provider, model: config.model, mode: config.structuredOutputMode,
         old, new: current, scenarios, outputDir,
-        conclusion: complete && old.passed === 36 && current.passed === 36 ? "No regression observed in these scenarios; no significant improvement claim." : "Bounded single-step comparison; not a long-running task success estimate." };
+        conclusion: complete && old.passed === expectedPerVariant && current.passed === expectedPerVariant ? "No regression observed in these scenarios; no significant improvement claim." : "Bounded single-step comparison; not a long-running task success estimate." };
     await writeFile(resolve(outputDir, "summary.json"), JSON.stringify(report, null, 2));
     return report;
 }

@@ -1,3 +1,4 @@
+import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import type { LLMAdapter } from "../../llm/src/core/adapter";
@@ -72,6 +73,8 @@ export interface LLMStepExecutorDependencies {
     readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     /** 可选的独立诊断通道；写入失败不会改变执行结果。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /** 完整模型输入查看日志；配置后写入失败阻止此次 Adapter 调用，不改变上下文比较基线。 */
+    readonly modelInputStore?: ModelInputStore;
     /** 可选的独立指标事实 Store；写入失败不会改变执行结果。 */
     readonly metricsRecorder?: ModelCallMetricsRecorder;
     /** 当前 trajectory-layered@1 调用级上下文组装器。 */
@@ -100,6 +103,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly renderer: PromptBundleRenderer;
     private readonly contextCompactor: ContextCompactor<ModelConversationMessage>;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly modelInputStore: ModelInputStore | undefined;
     private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
@@ -109,6 +113,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.renderer = dependencies.renderer;
         this.contextCompactor = dependencies.contextCompactor;
         this.traceSink = dependencies.traceSink;
+        this.modelInputStore = dependencies.modelInputStore;
         this.metricsRecorder = dependencies.metricsRecorder;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
@@ -214,11 +219,13 @@ export class LLMStepExecutor implements StepExecutor {
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
         );
-        const { response, startedAt } = await this.generateModelResponse(
+        const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,
             plan.request,
             input,
             binding.modelCapabilities,
+            "think",
+            plan.modelContextFrame.sections.map(section => section.content),
         );
         if ((response.toolCalls?.length ?? 0) > 0) {
             const error = new LLMResponseProtocolError("Think stage must not return tool calls");
@@ -234,7 +241,7 @@ export class LLMStepExecutor implements StepExecutor {
         return {
             goal: input.thinkGoal.trim(),
             output,
-            modelContextFrame: plan.modelContextFrame,
+            modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId },
         };
     }
 
@@ -264,11 +271,13 @@ export class LLMStepExecutor implements StepExecutor {
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
         );
-        const { response, startedAt } = await this.generateModelResponse(
+        const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,
             plan.request,
             input,
             binding.modelCapabilities,
+            "decide",
+            plan.modelContextFrame.sections.map(section => section.content),
         );
 
         let output: DecideOutput;
@@ -303,7 +312,13 @@ export class LLMStepExecutor implements StepExecutor {
                     ? new LLMResponseProtocolError(
                         `Tool call "${toolCall.toolId}" validation failed: ${error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
                         {
-                            issues: error.issues.map(i => ({ code: i.code, path: i.path, message: i.message })),
+                            issues: error.issues.map(i => ({
+                                code: i.code,
+                                path: input.authorizedTools.some(tool => tool.id === toolCall.toolId)
+                                    ? ["action", "input", ...i.path]
+                                    : i.path,
+                                message: i.message,
+                            })),
                             cause: error,
                         },
                     )
@@ -345,8 +360,8 @@ export class LLMStepExecutor implements StepExecutor {
         }
 
         return output.kind === "request_think"
-            ? { kind: "request_think", goal: output.goal, modelContextFrame: plan.modelContextFrame }
-            : { kind: "decision", decision: output, modelContextFrame: plan.modelContextFrame };
+            ? { kind: "request_think", goal: output.goal, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId } }
+            : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId } };
     }
 
     private async generateModelResponse(
@@ -354,7 +369,9 @@ export class LLMStepExecutor implements StepExecutor {
         request: Parameters<LLMAdapter["generate"]>[0],
         input: StepExecutionInput,
         modelCapabilities: ModelCapabilities | undefined,
-    ): Promise<{ readonly response: LLMResponse; readonly startedAt: number }> {
+        stage: ModelInputRecord["stage"],
+        sections: readonly string[],
+    ): Promise<{ readonly response: LLMResponse; readonly startedAt: number; readonly callId: string }> {
         const { goal, control } = input;
         throwIfAborted(control);
         const startedAt = Date.now();
@@ -368,7 +385,21 @@ export class LLMStepExecutor implements StepExecutor {
         const providerRequest = modelCapabilities === undefined
             ? request
             : { ...request, maxOutputTokens: modelCapabilities.maxOutputTokens };
-        await recordLlmRequest(this.traceSink, goal, providerRequest);
+        await this.modelInputStore?.append({
+            ...metricIdentity, stepIndex: goal.state.run.stepCount + 1, stage,
+            occurredAt: new Date().toISOString(),
+            messages: providerRequest.messages.map((message, index) => ({
+                ...message,
+                source: message.role === "system" ? "system" as const
+                    : index === providerRequest.messages.length - 1 ? "working_context" as const
+                    : goal.state.messages.some(saved => saved.role === message.role && saved.content === message.content) ? "conversation" as const
+                    : sections.includes(message.content) ? "section" as const
+                    : input.thinkHistory?.some(exchange => exchange.output === message.content) ? "stage" as const
+                    : "request" as const,
+            })),
+        });
+        throwIfAborted(control);
+        await recordLlmRequest(this.traceSink, goal, providerRequest, this.modelInputStore === undefined ? undefined : callId);
         await this.appendModelMetric({
             recordType: "call_started",
             ...metricIdentity,
@@ -409,7 +440,7 @@ export class LLMStepExecutor implements StepExecutor {
             ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
         });
         await recordLlmResponse(this.traceSink, goal, response, Date.now() - startedAt);
-        return { response, startedAt };
+        return { response, startedAt, callId };
     }
 
     private async consumeModelStream(

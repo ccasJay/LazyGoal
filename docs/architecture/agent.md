@@ -46,10 +46,14 @@ Contracts 根据 `workflow.task` 和后端 `planMode` 动态生成 Wire Schema�
 
 ## 输出处理
 
-Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，可作为标记为 `runtime_feedback` 的临时阶段消息注入原阶段请求；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多重试同一 Decide 或 Think 阶段三次（含首次调用）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
+Decide 的模型原始文本由当前请求 Wire Contract 严格解析：`request_think` 解码为独立阶段控制结果，业务输出解码为 Canonical `AgentDecision`。Think 不解析 AgentDecision，拒绝空文本和任何工具调用。Plan Mode 的 `goal_plan_update` 仍只是模型提案，由 Runtime 的 GoalPlan reducer 分配 Todo ID、校验 revision/状态并提交 Snapshot；普通模式不会解码该分支。解析、Schema、分支或 Tool 参数错误会转换为带稳定来源、路径和有界安全提示的 `RuntimeFeedback`，字段提示按稳定错误码生成，业务工具参数路径统一标记为 `action.input`（正文 JSON 带 `result` 前缀），并指导模型纠正调用后继续取证。反馈可作为标记为 `runtime_feedback` 的临时阶段消息注入原阶段请求；它不会追加到 Goal Conversation，也不会改变 strict 或 prompt_only 输出模式。Runner 在提交反馈后最多重试同一 Decide 或 Think 阶段三次（含首次调用）；恢复只读取 Snapshot 边界内的反馈事实，并忽略未提交输出。原始响应可进入独立诊断 Trace，但不进入 Goal Conversation；已提交 Think 的目标与输出以专用 Trajectory 事实保存。
 
 Agent 不拥有 UI；当 Adapter 提供 `stream` 时，`LLMStepExecutor` 将模型增量映射到
 `@lazygoal/execution-stream`，同时只用最终 `completed` 响应解析 AgentDecision。没有流接口的 Adapter
 继续调用 `generate()` 并发布一次性模型事件；实时显示由 TUI 或未来 WebUI 的适配器管理。
 
 每次模型调用由 `LLMStepExecutor` 向可选的 Runtime 指标 Recorder 记录开始和结束事实。输入/输出 token 只取原生 Adapter 的供应商上报用量；pi-ai 诊断计数和无用量响应记为不可用。流式调用的生成时长从首个非空文本增量计至完成；非流式调用不推测生成速度。Recorder 失败被隔离，不改变 AgentDecision。
+
+## 模型消息记录
+
+正式组合根为 LLMStepExecutor 注入独立的 [`ModelInputStore`](../../packages/runtime/src/model-input.ts)。每次 Think/Decide 在 Adapter 调用前保存最终消息正文与顺序，调用身份与指标共享，并由成功 frame 的 modelCallId 关联。写入失败阻止当前调用；调用失败不删除已保存输入，输入事实不推进 Section 比较基线。诊断请求日志通过调用引用指向完整消息，避免再次写入 system 正文。

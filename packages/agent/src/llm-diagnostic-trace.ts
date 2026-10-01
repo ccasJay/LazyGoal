@@ -60,17 +60,21 @@ export async function recordLlmDiagnosticTrace(input: {
 }
 
 
-/** 记录一次已发送的模型请求。 */
+/**
+ * 记录一次模型请求准备；已有完整输入日志时只保存引用，避免重复 system 正文。
+ * @param modelInputCallId - 已落盘的完整输入身份；未配置输入 Store 时保留有界诊断预览。
+ */
 export function recordLlmRequest(
     sink: DiagnosticTraceSink | undefined,
     goal: Goal,
     request: LLMRequest,
+    modelInputCallId?: string,
 ): Promise<void> {
     return recordLlmDiagnosticTrace({
         sink,
         goal,
         kind: "model_request",
-        payload: { messages: request.messages },
+        payload: modelInputCallId === undefined ? { messages: request.messages } : { modelInputCallId },
     });
 }
 

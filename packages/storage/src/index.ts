@@ -78,3 +78,5 @@ export {
 export type {
     ContextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
+
+export { JsonFileModelInputStore } from "./json-file-model-input-store";

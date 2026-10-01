@@ -46,3 +46,9 @@ Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按严格 
 ## 当前限制与背景
 
 Runtime 执行协议按 Goal 冻结的唯一 `structured@1 + trajectory-layered@1 + bm25-lite@1` 组合解码；Storage 只负责表示，不判断 Prompt Bundle 是否受 Agent 支持。当前 v1 保存完整协议选择、`memoryRevision`（如有）、`committedThroughSequence` 和 Context Epoch，仍不保存 Working Memory 投影；`state_committed` 只是 Snapshot 成功后的审计 marker，恢复以提交边界和 revision 指针为权威。Sidecar 通过同一边界和来源摘要自校验，失配即可重建。
+
+## 模型消息日志
+
+[`JsonFileModelInputStore`](../../packages/storage/src/json-file-model-input-store.ts) 实现 Runtime 的独立输入查看端口。每个 Goal/Run 在 `model-inputs/` 下保存调用 JSONL 清单，消息正文在同一 Goal 的 Run 之间按 SHA-256 寻址复用；相同 system 或历史消息只写一次。清单保留 role、来源、消息顺序和调用身份，正文写入完成后才追加引用。读取校验当前 schema、路径引用与内容哈希；未记录时为空，损坏时拒绝。文件权限为 0600。
+
+该日志不参与 Snapshot、Trajectory 或上下文基线恢复。正式 CLI 组合根配置写入端口，写入失败会阻止当前 Adapter 调用；诊断 Trace 只保留完整输入的调用引用。崩溃可能留下未引用正文；不提供多进程共同写入或 exactly-once 保证，当前读取遍历完整 Run。

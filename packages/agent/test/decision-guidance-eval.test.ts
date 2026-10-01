@@ -7,7 +7,7 @@ const renderers = await evaluationRenderers();
 const response = (toolId: string, args: unknown) => ({ content: "", toolCalls: [{ callId: "test", toolId, argumentsJson: JSON.stringify(args) }] });
 
 test("对照请求仅改变模板与系统工具描述，不改变状态、授权、输入 Schema 或判据", () => {
-    assert.equal(decisionScenarios.length, 12);
+    assert.equal(decisionScenarios.length, 15);
     for (const scenario of decisionScenarios) {
         for (const mode of ["strict", "prompt_only", "two_stage"] as const) {
             const old = evaluationRequest(scenario, renderers.old, mode, renderers.oldDescriptions);
@@ -64,4 +64,26 @@ test("非原生文本决策虽可解析，也不算通过原生调用协议", ()
         { content: JSON.stringify({ result: { kind: "context_checkpoint", memoryPatch: null } }) });
     assert.equal(result.passed, false);
     assert.equal(result.protocolValid, false);
+});
+
+
+test("仓库取证与寒暄场景使用现有评估入口，拒绝目录列表后的提前完成", () => {
+    const listing = decisionScenarios.find(scenario => scenario.id === "repository-listing")!;
+    const content = decisionScenarios.find(scenario => scenario.id === "repository-content")!;
+    const greeting = decisionScenarios.find(scenario => scenario.id === "greeting")!;
+    const plan = evaluationRequest(listing, renderers.new, "strict");
+    assert.equal(evaluateResponse(listing, plan, response("read_state", { target: "AGENTS.md", value: null })).passed, true);
+    const premature = evaluateResponse(listing, plan, response("system_complete_task", { summary: "The rules are excellent", evidenceSequences: [4], memoryPatch: null }));
+    assert.equal(premature.passed, false);
+    assert.equal(premature.criticalViolation, true);
+    assert.equal(evaluateResponse(content, evaluationRequest(content, renderers.new, "strict"), response("system_complete_task", {
+        summary: "Contract documentation makes public TypeScript responsibilities explicit.", evidenceSequences: [4], memoryPatch: null,
+    })).passed, true);
+    assert.equal(evaluateResponse(greeting, evaluationRequest(greeting, renderers.new, "strict"), response("system_complete_task", {
+        summary: "Hello! How can I help?", evidenceSequences: [], memoryPatch: null,
+    })).passed, true);
+    const system = plan.request.messages[0]!.content;
+    assert.match(system, /directory listings prove only file existence/);
+    assert.match(system, /correct the fields identified by Runtime feedback/);
+    assert.match(system, /JSON `null`, never a string sentinel/);
 });

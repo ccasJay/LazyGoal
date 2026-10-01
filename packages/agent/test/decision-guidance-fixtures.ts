@@ -11,6 +11,7 @@ import { currentProtocols, currentWorkingMemory, currentContextEpoch } from "./c
 type Scenario = {
     id: string;
     approved: boolean;
+    normal?: boolean;
     intent: string;
     observation?: { tool: string; target: string; outcome: "success" | "failure"; text: string };
     checkpoint?: boolean;
@@ -42,6 +43,9 @@ export const decisionScenarios: readonly Scenario[] = [
     { id: "fail", approved: true, intent: "Recover the original archive bytes exactly. Substitutes are not acceptable.", observation: { tool: "read_state", target: "archive", outcome: "success", text: "Recovery audit is complete: archive bytes are permanently destroyed; every replica and backup is destroyed; no reconstruction or external recovery is possible." }, expected: ["fail"], detail: /destroy|recover|backup|permanent/i },
     { id: "complete", approved: true, intent: "Set banner text to Welcome and verify banner.", observation: { tool: "verify", target: "banner", outcome: "success", text: "All criteria passed: banner text is Welcome, banner verification passed. No relevant state changed after this observation." }, expected: ["complete"] },
     { id: "checkpoint", approved: true, intent: "Set banner text to Welcome and verify banner.", checkpoint: true, expected: ["context_checkpoint"] },
+    { id: "repository-listing", approved: false, normal: true, intent: "Evaluate this repository's development rules based on their contents.", observation: { tool: "read_state", target: "repository", outcome: "success", text: "Directory listing: AGENTS.md, CLAUDE.md, packages/. No file contents have been read." }, expected: ["read_state"], target: "AGENTS.md" },
+    { id: "repository-content", approved: false, normal: true, intent: "Explain the contract documentation rule stated in AGENTS.md. Evaluate only that stated rule, not implementation compliance.", observation: { tool: "read_state", target: "AGENTS.md", outcome: "success", text: "AGENTS.md contents: Every public TypeScript interface must include contract-level documentation covering responsibilities, lifecycle semantics and a minimal example. These are the complete relevant rules for this request." }, expected: ["complete"], detail: /contract|TypeScript|documentation/i },
+    { id: "greeting", approved: false, normal: true, intent: "Hi!", expected: ["complete"] },
 ];
 
 /** 构造固定的模型输入夹具；观察作为已提交轨迹投影提供，不执行任何业务工具。 */
@@ -53,7 +57,7 @@ export function decisionScenarioView(scenario: Scenario): ModelInferenceView {
         run: {
             ...base.state.run,
             status: "running",
-            mode: "plan",
+            mode: scenario.normal ? "normal" : "plan",
             ...(scenario.approved
                 ? { approvedTask: { objective: scenario.intent, completionCriteria: [{ text: scenario.intent }] } }
                 : {}),
@@ -105,7 +109,14 @@ export function scoreDecision(scenario: Scenario, decision: AgentDecision): bool
             && decision.task.completionCriteria.some(c => /Welcome|banner/i.test(c.text))
             && decision.task.completionCriteria.every(c => c.acceptance === undefined || decisionTools.some(t => t.id === c.acceptance?.expectToolId))
             && decision.approvalRequest.trim().length > 0;
-        case "complete": return decision.summary.trim().length > 0
+        case "complete":
+            if (scenario.normal) return decision.summary.trim().length > 0
+                && (!scenario.detail || scenario.detail.test(decision.summary))
+                && "evidenceSequences" in decision
+                && (scenario.observation
+                    ? decision.evidenceSequences.length > 0 && decision.evidenceSequences.every(sequence => sequence === 3 || sequence === 4)
+                    : decision.evidenceSequences.length === 0);
+            return decision.summary.trim().length > 0
             && "completionEvidence" in decision
             && decision.completionEvidence.length === 1
             && decision.completionEvidence[0]!.criterionIndex === 0

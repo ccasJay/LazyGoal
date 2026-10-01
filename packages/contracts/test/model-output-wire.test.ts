@@ -367,3 +367,46 @@ test("无授权 Tool 时 executing 拒绝 tool_call 分支（Req 3.5）", () => 
         },
     );
 });
+
+
+test("executing Wire 失败按已知 kind/toolId 报告字段错误，仍拒绝原输入", () => {
+    const bundle = createModelOutputContractBundle({
+        kind: "executing", taskPresent: false,
+        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+    });
+    const result = {
+        kind: "tool_call", action: { actionId: "read_agents_md_1", toolId: "read_file",
+            input: { command: "", timeoutMs: null, sandboxAccess: null } },
+        memoryPatch: "__lazygoal_null__",
+    };
+    assert.throws(() => bundle.decode({ result, extraMetadata: true }), (error: unknown) => {
+        assert.ok(error instanceof ContractValidationError);
+        const issues = error.issues.map(issue => [issue.code, issue.path.join(".")]);
+        for (const issue of [
+            ["missing_field", "result.action.input.path"],
+            ["extra_field", "result.action.input.command"],
+            ["extra_field", "result.action.input.timeoutMs"],
+            ["extra_field", "result.action.input.sandboxAccess"],
+            ["invalid_type", "result.memoryPatch"],
+            ["extra_field", "extraMetadata"],
+        ]) assert.ok(issues.some(actual => actual[0] === issue[0] && actual[1] === issue[1]), JSON.stringify(issues));
+        return true;
+    });
+    const valid = { result: { ...result, action: { ...result.action, input: { path: "AGENTS.md" } }, memoryPatch: null } };
+    assert.deepEqual(bundle.decode(valid), { kind: "tool_call", action: valid.result.action });
+    assert.throws(() => bundle.decode({ ...valid, extraMetadata: true }), ContractValidationError);
+    assert.throws(() => bundle.decode({ result: { kind: "complete", memoryPatch: null } }), (error: unknown) => {
+        assert.ok(error instanceof ContractValidationError);
+        assert.ok(error.issues.some(issue => issue.code === "missing_field" && issue.path.join(".") === "result.summary"));
+        return true;
+    });
+    for (const unknown of [
+        { kind: "unknown_kind" }, {},
+        { ...result, action: { ...result.action, toolId: "unknown_tool" } },
+        { ...result, action: { input: {} } },
+    ]) assert.throws(() => bundle.decode({ result: unknown }), (error: unknown) => {
+        assert.ok(error instanceof ContractValidationError);
+        assert.deepEqual(error.issues.map(issue => [issue.code, issue.path]), [["union_no_match", ["result"]]]);
+        return true;
+    });
+});

@@ -2,7 +2,7 @@ import { contract } from "../contract";
 import { safeParse } from "../parser";
 import { ContractValidationError } from "../errors";
 import type { JsonSchema202012 } from "../json-schema";
-import type { Contract, ObjectContract, ObjectShape } from "../types";
+import type { Contract, LiteralContract, ObjectContract, ObjectShape } from "../types";
 import {
     type AgentDecision,
     type DecideOutput,
@@ -121,6 +121,10 @@ export interface ModelOutputContractBundle<Result> {
     /**
      * 将符合 Wire 契约的模型原始输出解码为通过 Canonical 校验的领域对象。
      *
+     * @remarks
+     * 失败输入的 kind 与授权 toolId 唯一确定 executing 分支时，报告该分支的字段错误；
+     * 无法唯一定位时保留完整契约的诊断。诊断细化不修正输入，也不放宽接受范围。
+     *
      * @param value - 模型的原始 JSON 输出。
      * @returns 解码并通过校验的领域只读对象。
      * @throws 校验不通过时抛出 `ContractValidationError`。
@@ -222,6 +226,11 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
     let name: string;
     let canonicalContract: Contract<unknown>;
     let wireContract: Contract<unknown>;
+    const diagnosticBranches: {
+        kind: string;
+        toolId?: string;
+        envelope: Contract<unknown>;
+    }[] = [];
 
     switch (request.kind) {
         case "executing": {
@@ -269,6 +278,13 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
                 nonToolCanonicalBranches.push(GoalPlanUpdateAgentDecisionContract);
             }
             const nonToolWireBranches = nonToolCanonicalBranches.map((c) => deriveWireContract(c));
+            nonToolCanonicalBranches.forEach((branch, index) => {
+                const kind = (branch as ObjectContract<ObjectShape>).shape.kind as LiteralContract<string>;
+                diagnosticBranches.push({
+                    kind: kind.value,
+                    envelope: contract.object({ result: nonToolWireBranches[index]! }),
+                });
+            });
 
             if (effectiveTools.length === 0) {
                 // 无授权工具时完全省略 tool_call 分支
@@ -284,6 +300,13 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
                 // 动态组合 tool_call 分支与非 tool 分支
                 const toolCanonicalBranches = effectiveTools.map(buildCanonicalToolBranch);
                 const toolWireBranches = effectiveTools.map(buildWireToolBranch);
+                effectiveTools.forEach((tool, index) => {
+                    diagnosticBranches.push({
+                        kind: "tool_call",
+                        toolId: tool.id,
+                        envelope: contract.object({ result: toolWireBranches[index]! }),
+                    });
+                });
 
                 const canonicalBranches = [
                     ...toolCanonicalBranches,
@@ -325,6 +348,20 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
         decode(value: unknown): Result {
             const wireParsed = safeParse(wireContract, value);
             if (!wireParsed.success) {
+                if (isObject(value) && isObject(value.result)) {
+                    const result = value.result;
+                    const candidates = diagnosticBranches.filter((branch) =>
+                        branch.kind === result.kind
+                        && (branch.kind !== "tool_call"
+                            || (isObject(result.action) && branch.toolId === result.action.toolId)),
+                    );
+                    if (candidates.length === 1) {
+                        const diagnostic = safeParse(candidates[0]!.envelope, value);
+                        if (!diagnostic.success) {
+                            throw new ContractValidationError(diagnostic.issues, diagnostic.truncated);
+                        }
+                    }
+                }
                 throw new ContractValidationError(wireParsed.issues, wireParsed.truncated);
             }
             const decoded = decodeWireResult(wireParsed.data, canonicalContract);
@@ -334,6 +371,10 @@ export function createModelOutputContractBundle<Result extends DecideOutput = Ag
             return decoded as Result;
         },
     };
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isRequestThink(value: unknown): value is Extract<DecideOutput, { readonly kind: "request_think" }> {

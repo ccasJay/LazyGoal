@@ -334,6 +334,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                 eventType: "model_context_frame",
                 payload: {
                     type: "model_context_frame",
+                    ...(frame.modelCallId === undefined ? {} : { modelCallId: frame.modelCallId }),
                     stage: frame.stage,
                     epochNumber: frame.epochNumber,
                     conversationPosition: frame.conversationPosition,

@@ -25,7 +25,10 @@ export function toModelStageFeedback(
         path: [],
         message: safeStageMessage(stage),
     }];
-    const origin = classifyOrigin(issues.map((issue) => issue.code), stage);
+    const origin = stage === "decide" && issues.some((issue) =>
+        issue.path.some((part, index) => part === "action" && issue.path[index + 1] === "input")
+        || issue.path[0] === "arguments",
+    ) ? "tool_input" : classifyOrigin(issues.map((issue) => issue.code), stage);
     const feedback: RuntimeFeedback = createRuntimeFeedback({
         goalId: input.goal.id,
         runId: input.goal.state.run.id,
@@ -38,6 +41,9 @@ export function toModelStageFeedback(
         issues,
         constraints: [
             "Follow the response schema and rules already included in this request.",
+            ...(stage === "decide" ? [
+                "Correct the invalid call and continue the original task, or choose a more suitable authorized Tool. A validation failure does not complete the task; gather missing evidence before completing.",
+            ] : []),
             ...(stage === "think" ? ["Keep the requested Think goal; provide non-empty text and no Tool call."] : []),
         ],
     });
@@ -63,6 +69,15 @@ function classifyOrigin(codes: readonly string[], stage: RuntimeFeedbackStage): 
 }
 
 function safeIssueMessage(code: string): string {
+    switch (code) {
+        case "missing_field": return "Supply this required field using the current schema.";
+        case "extra_field": return "Remove this field; the current schema does not allow it.";
+        case "invalid_type": return "Use the type required by the current schema at this path.";
+        case "invalid_literal":
+        case "invalid_enum_value":
+        case "unknown_discriminator": return "Use a value declared by the current schema at this path.";
+        case "union_no_match": return "Use an allowed shape at this path; use JSON null only where the schema allows it, never a string sentinel.";
+    }
     if (code.toLowerCase().includes("invalid_json")) {
         return "Return valid JSON matching the active response contract.";
     }

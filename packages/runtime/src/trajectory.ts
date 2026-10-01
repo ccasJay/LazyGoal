@@ -79,7 +79,8 @@ export interface ModelContextSectionUpdate extends ModelContextSectionIdentity {
  *
  * @remarks
  * frame 只记录本请求实际发送的动态 Section 更新；空数组表示本次请求没有追加 Section
- * 消息。Frame 自身仍作为 Trajectory 事实提交，以保留阶段和 Conversation 位置。
+ * 消息。Frame 自身仍作为 Trajectory 事实提交，以保留阶段和 Conversation 位置；
+ * modelCallId 仅关联独立的完整输入日志，不推进或重建上下文基线。
  *
  * @example
  * ```ts
@@ -90,6 +91,8 @@ export interface ModelContextSectionUpdate extends ModelContextSectionIdentity {
  * ```
  */
 export interface ModelContextFramePayload {
+    /** 对应完整模型输入日志的调用身份；不作为 Section 比较或恢复基线。 */
+    readonly modelCallId?: string;
     readonly type: "model_context_frame";
     readonly stage: ModelContextStage;
     readonly epochNumber: number;
@@ -956,8 +959,9 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
     }
     if (eventType === "model_context_frame") {
+        if (payload.modelCallId !== undefined) assertNonEmptyString(payload.modelCallId, "model_context_frame.modelCallId");
         if (Object.keys(payload).some((key) => ![
-            "type", "stage", "epochNumber", "conversationPosition", "sections",
+            "type", "stage", "epochNumber", "conversationPosition", "sections", "modelCallId",
         ].includes(key))) {
             throw new TrajectoryProtocolError("model_context_frame contains unknown fields");
         }

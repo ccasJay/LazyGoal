@@ -6,6 +6,8 @@ import type { LLMAdapter } from "../../llm/src/core/adapter";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm/src/core/types";
 import {
     createGoal,
+    createToolRegistration,
+    InMemoryToolRegistry,
     ModelStageFeedbackError,
     Runner,
 } from "../../runtime/src/index";
@@ -848,4 +850,93 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
     assert.equal(decision.kind, "complete");
     assert.equal((decision as any).summary, "第一代挂起完成");
     assert.equal(adapter2.requests.length, 0); // adapter2 绝未被调用
+});
+
+
+for (const native of [false, true]) {
+    test(`读取参数错误通过${native ? "原生调用" : "正文 JSON"}保留字段级安全反馈`, async () => {
+        const adapter: LLMAdapter = {
+            structuredOutputMode: "strict",
+            async generate() {
+                const input = { command: "PRIVATE_INPUT_VALUE", timeoutMs: null, sandboxAccess: null };
+                return native ? {
+                    content: "", toolCalls: [{ callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) }],
+                } : { content: JSON.stringify({ result: {
+                    kind: "tool_call", action: { actionId: "read-1", toolId: "read_file", input },
+                    memoryPatch: "__lazygoal_null__",
+                } }) };
+            },
+        };
+        await assert.rejects(createExecutor(adapter).execute({
+            goal: createTestGoal(), workingMemory: currentWorkingMemory,
+            authorizedTools: [{ id: "read_file", description: "Read a file", isReadOnly: true,
+                inputContract: contract.object({ path: contract.string() }) }],
+        }), (error: unknown) => {
+            assert.ok(error instanceof ModelStageFeedbackError);
+            assert.equal(error.feedback.origin, "tool_input");
+            assert.ok(error.feedback.issues.some(issue => issue.code === "missing_field" && issue.path.at(-1) === "path" && /Supply/.test(issue.message)));
+            assert.ok(error.feedback.issues.some(issue => issue.code === "extra_field" && issue.path.at(-1) === "command" && /Remove/.test(issue.message)));
+            if (!native) assert.ok(error.feedback.issues.some(issue => issue.path.join(".") === "result.memoryPatch"));
+            assert.equal(JSON.stringify(error.feedback).includes("PRIVATE_INPUT_VALUE"), false);
+            assert.ok(error.feedback.constraints?.some(text => /continue the original task/.test(text)));
+            return true;
+        });
+    });
+}
+
+test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进入 Conversation 或 Tool 执行", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const definitions: ToolDefinition[] = [
+        { id: "bash", description: "List files", isReadOnly: true, inputContract: contract.object({ command: contract.string() }) },
+        { id: "read_file", description: "Read a file", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+    ];
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+        definition, replayPolicy: "safe", validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executed.push(definition.id);
+            assert.deepEqual(input, definition.id === "bash" ? { command: "ls -la" } : { path: "AGENTS.md" });
+            return { kind: "success", output: { text: definition.id === "bash" ? "AGENTS.md" : "Read source and report evidence." }, summary: "Observed" };
+        },
+    })));
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(request) {
+            requests.push(request);
+            const call = (toolId: string, args: unknown): LLMResponse => ({ content: "", toolCalls: [{ callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }] });
+            if (requests.length === 1) return call("bash", { command: "ls -la" });
+            if (requests.length === 2) return { content: JSON.stringify({ result: {
+                kind: "tool_call", action: { actionId: "invalid-read", toolId: "read_file", input: { command: "" } }, memoryPatch: "__lazygoal_null__",
+            } }) };
+            if (requests.length === 3) {
+                const feedback = request.messages.find(message => message.content.includes('"source":"runtime_feedback"'));
+                assert.ok(feedback);
+                assert.match(feedback.content, /missing_field/);
+                assert.match(feedback.content, /continue the original task/);
+                assert.deepEqual(executed, ["bash"]);
+                return call("read_file", { path: "AGENTS.md" });
+            }
+            assert.equal(requests.length, 4);
+            const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
+            const evidence = events.filter(event => event.payload.type === "observation_recorded").at(-1)!;
+            return call("system_complete_task", { summary: "The rules require source inspection and evidence.", evidenceSequences: [evidence.sequence], memoryPatch: null });
+        },
+    };
+    const initial = createGoal({ ...currentProtocols, id: goalId, runId: "run-repair-read", intent: "Evaluate repository rules", promptBundleVersion: 1,
+        profile: { ...profile, toolIds: definitions.map(tool => tool.id) } });
+    await store.save(initial);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-repair-read" });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "completed", JSON.stringify({ state: result.state, calls: requests.length, executed }));
+    assert.equal(requests.length, 4);
+    assert.deepEqual(executed, ["bash", "read_file"]);
+    const messages = (await store.restore(goalId))!.state.messages;
+    assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(message.content)), false);
+    const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
+    assert.equal(events.filter(event => event.payload.type === "model_repair_feedback_recorded").length, 1);
+    assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
 });

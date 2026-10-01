@@ -64,3 +64,5 @@ export {
 } from "./browser-goal-stream";
 
 export { createBrowserTrajectoryRoutes, type BrowserTrajectoryRun, type BrowserTrajectoryEntry, type BrowserTrajectoryPage, type BrowserTrajectoryDetail } from "./browser-trajectory";
+
+export { createBrowserModelInputRoutes, type BrowserModelInputSummary, type BrowserModelInputDetail } from "./browser-model-input";
