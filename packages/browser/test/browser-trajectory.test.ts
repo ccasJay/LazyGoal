@@ -89,6 +89,15 @@ test("details associate Action facts across pages and never treat tool_finished 
     assert.equal(invalidTiming.toolDurationMs, null);
 });
 
+test("accepted output links to its preceding stage frame without borrowing another unit's prompt", async () => {
+    const metadata = { goalId: "goal-1", runId: "run-1", phase: "executing" as const, executionUnitId: "unit", stepIndex: 1 };
+    const frame = fact(1, { ...metadata, eventType: "model_context_frame", payload: { type: "model_context_frame", stage: "think", epochNumber: 0, conversationPosition: 1, sections: [], modelCallId: "saved-call" } });
+    const output = fact(2, { ...metadata, eventType: "think_completed", payload: { type: "think_completed", requestId: "think-1", stepOrdinal: 1, goal: "Inspect", output: "Evidence found" } });
+    const page = await (await routes(goal(), [frame, output, { ...output, eventId: "other", sequence: 3, executionUnitId: "other-unit" }]).request("/api/goals/goal-1/trajectory?runId=run-1")).json() as BrowserTrajectoryPage;
+    assert.equal(page.entries[1]!.modelCallId, "saved-call");
+    assert.equal(page.entries[2]!.modelCallId, undefined);
+});
+
 test("trajectory query rejects malformed wire input and distinguishes missing data from read failures", async () => {
     const app = routes();
     for (const suffix of ["runId=run-1&runId=run-2", "runId=run-1&after=-1", "runId=run-1&after=1.2", "runId=run-1&after=1&before=2", "runId=run-1&unknown=1", "runId=run-1&category=invalid", "runId=run-1&executionUnitId=unit-1&q=other", "runId=run-1&fromSequence=8&toSequence=2"]) {

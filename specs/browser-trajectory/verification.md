@@ -20,4 +20,18 @@
 
 ## 限制
 
-Storage 仍整文件解析，HTTP 与 DOM 分页不使磁盘读取成本有界。单个完整详情响应超过 256 KiB 时明确拒绝，列表预览超过 800 字符时标识截断；模型耗时与逐事件用量不做推测。历史事件缺少 Step 身份时无法补造分组。Diagnostic Trace、轨迹修改与重放不在本次范围内。
+Storage 仍整文件解析，HTTP 与 DOM 分页不使磁盘读取成本有界。单个完整详情响应超过 256 KiB 时明确拒绝，列表预览超过 800 字符时标识截断；模型耗时与逐事件用量不做推测。历史事件缺少 Step 身份时无法补造分组。轨迹修改与重放不在本次范围内。
+
+## 紧凑记录与模型输入扩展
+
+验证日期：2026-10-01。用户批准紧凑暗色原型后接入正式后端。
+
+- [模型输入记录契约](../../packages/runtime/src/model-input.ts)与 [Agent 写入点](../../packages/agent/src/llm-step-executor.ts)保存 Adapter 调用前准备的完整消息顺序、内容和调用身份；写入失败阻止发送，成功调用的上下文帧关联同一 callId。
+- [文件存储](../../packages/storage/src/json-file-model-input-store.ts)在同一 Goal 内跨 Run 共享内容寻址正文，Run 日志只保存引用；读取验证正文哈希。配置完整记录时，Diagnostic Trace 使用 callId 引用。
+- [只读接口](../../packages/browser/src/browser-model-input.ts)提供每页最多 100 次调用、完整消息搜索与详情、相邻请求的系统提示词版本比较；沿用浏览器访问控制。
+- [紧凑记录表](../../prototypes/goal-board/src/trajectory-records.tsx)保留领域事件序列，合并工具输入与结果预览，插入真实请求与新增上下文；[检查器](../../prototypes/goal-board/src/model-input-inspector.tsx)展示完整 Messages、System Prompt、Diff、Source 和 Raw。旧 Run 明确显示未记录，不使用当前配置补造历史 Prompt。
+- 新增六个存储、Agent 和 HTTP 测试通过，覆盖 100K 系统正文、跨 Run 去重、重启读取、损坏数据、失败前记录、写入失败阻止发送、全量搜索、分页比较和访问控制。
+- 全量回归：1,598 个 TypeScript 测试与 14 个 scripts 测试通过；最终显示调整后，10 个浏览器接口测试与两个真实服务端到端流程再次通过。端到端断言检查器的 System Prompt 与持久化消息正文完全一致。
+- 正式静态资源已重新构建；真实工作区人工核验 Run 切换、紧凑布局和历史输入缺失状态。
+
+记录表示调用前已准备的消息，不证明 Provider 已收到请求；不包含原生工具声明和 Provider 转换后的 Wire 参数。完整输入详情超过 2 MiB 时返回明确错误；Diff 超过 2,000 行时转为完整正文查看。模型输入日志不参与 Snapshot 恢复，读取仍需解析整份 Run 日志，不提供多进程共享写入保证。

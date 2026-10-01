@@ -771,10 +771,11 @@ function App() {
             {activeGoal && <><ChevronRight size={13} /><strong className="breadcrumb-current">{activeGoal.intent}</strong></>}
           </div>
           <div className="header-actions">
-            <span className={`runtime-state ${browserApi.hasAccessToken ? "connected" : ""}`}>
-              <span className="dot" />
-              {browserApi.hasAccessToken ? "Local Runtime" : "Preview only"}
-            </span>
+            {(!expanded || !sessionVisible) && (
+              <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}>
+                <Plus size={15} /> New goal
+              </button>
+            )}
           </div>
         </header>
         <div className={`content ${sessionVisible ? "session-open" : ""}`}>
@@ -787,15 +788,6 @@ function App() {
                 closeSession();
               }}
             >
-              <div className="board-title">
-                <div>
-                  <h1>Goals <span>{goals.length}</span></h1>
-                  <p>Choose a Goal to open its saved session.</p>
-                </div>
-                <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}>
-                  <Plus size={15} /> New goal
-                </button>
-              </div>
               <div className="toolbar">
                 <div className="view-switch" aria-label="Goal view">
                   <button aria-pressed={boardView === "board"} onClick={() => setBoardView("board")}>
@@ -821,15 +813,14 @@ function App() {
                     onChange={(event) => setSearch(event.target.value)}
                   />
                 </label>
+                {(search || needsInputOnly) && (
+                  <button className="icon" aria-label="Clear filters" title="Clear filters" onClick={() => { setSearch(""); setNeedsInputOnly(false); }}>
+                    <X size={14} />
+                  </button>
+                )}
                 <button className="icon refresh-button" aria-label="Refresh goals" onClick={() => void refreshGoals()}>
                   <Clock3 size={14} />
                 </button>
-              </div>
-              <div className="filter-row">
-                <span>{visibleGoals.length} matching goals</span>
-                {(search || needsInputOnly) && (
-                  <button onClick={() => { setSearch(""); setNeedsInputOnly(false); }}>Clear filters</button>
-                )}
               </div>
               {sessionError && selectedGoalId === null && (
                 <div className="page-error" role="alert">
@@ -992,7 +983,7 @@ function App() {
                         ))}
                       </div>
                       <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
-                        <span className="dot" />{streamConnected ? "Live" : "Reconnecting"}
+                        <span className="dot" />{streamConnected ? "Connected" : "Reconnecting"}
                       </span>
                     </div>
                     {sessionTab === "Trajectory" ? (
@@ -1012,7 +1003,7 @@ function App() {
                         <div className="activity-filter">
                           <label>
                             <input type="checkbox" checked={showTools} onChange={(event) => setShowTools(event.target.checked)} />
-                            Committed steps
+                            Execution steps
                           </label>
                           <span>{session.messages.length} saved messages</span>
                         </div>
@@ -1037,13 +1028,13 @@ function App() {
                                 {renderMessages(runMessages.filter((message) => message.role === "user"))}
                                 {showTools && run.steps.length > 0 && (
                                   <section className="run-steps">
-                                    <h3>{run.current ? "Current Run · committed steps" : `Earlier Run · ${run.runId}`}</h3>
+                                    <h3>{run.current ? "Current Run · execution steps" : `Earlier Run · ${run.runId}`}</h3>
                                     {run.steps.map((step) => (
                                       <details className="tool-event" key={step.executionUnitId}>
                                         <summary>
                                           <Terminal size={13} />
                                           <span>{step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}`}</span>
-                                          <span className={`step-status ${step.status}`}>{step.status}</span>
+                                          <span className={`step-status ${step.status}`}>{step.status === "recorded" ? "Attempt recorded" : step.status}</span>
                                           <ChevronRight className="tool-chevron" size={13} />
                                         </summary>
                                         {step.recoveryAttempts?.map((attempt, index) => (

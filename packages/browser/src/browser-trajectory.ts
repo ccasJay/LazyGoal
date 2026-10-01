@@ -40,6 +40,13 @@ export interface BrowserTrajectoryEntry {
     readonly title: string;
     readonly preview: string;
     readonly previewTruncated: boolean;
+    /** 工具单行记录的输入/结束结果预览；完整事实仍通过详情读取。 */
+    readonly inputPreview?: string;
+    readonly resultPreview?: string;
+    /** 模型请求记录身份，只有成功 frame 存在时提供。 */
+    readonly modelCallId?: string;
+    /** 模型尝试或校验反馈所属阶段；不从 Step 顺序推测。 */
+    readonly modelStage?: "think" | "decide";
 }
 
 /**
@@ -153,7 +160,7 @@ export function createBrowserTrajectoryRoutes(
             }
             const page = matched.slice(start, pageEnd ?? start + PAGE_SIZE);
             const response: BrowserTrajectoryPage = {
-                goalId, run, entries: page.map(summary), total: matched.length, committedCount: events.length,
+                goalId, run, entries: page.map(event => summary(event, events)), total: matched.length, committedCount: events.length,
                 previousCursor: start > 0 ? page[0]?.sequence ?? null : null,
                 nextCursor: start + page.length < matched.length ? page.at(-1)?.sequence ?? null : null,
                 locatedSequence: target?.sequence ?? null,
@@ -214,15 +221,53 @@ function actionOf(event: TrajectoryEvent): string | undefined {
     if ("actionId" in event.payload) return event.payload.actionId;
     return undefined;
 }
-function summary(event: TrajectoryEvent): BrowserTrajectoryEntry {
-    const preview = JSON.stringify(event.payload);
+function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): BrowserTrajectoryEntry {
+    let preview = JSON.stringify(event.payload);
+    if (event.eventType === "decision_received") {
+        const decision = event.payload.decision;
+        preview = decision.kind === "tool_call" ? "Tool call only" : "summary" in decision ? decision.summary : JSON.stringify(decision);
+    }
+    if (event.eventType === "run_created") preview = `Run created · ${event.payload.mode}`;
+    if (event.eventType === "run_started") preview = "Run started";
+    if (event.eventType === "goal_created") preview = event.payload.intent;
+    if (event.eventType === "tool_attempt_started") preview = `Tool attempt ${event.payload.attempt}`;
+    if (event.eventType === "execution_error") preview = `${event.payload.code}: ${event.payload.message}`;
+    if (event.eventType === "model_repair_feedback_recorded") preview = `${event.payload.stage} rejected: ${event.payload.feedback.issues.slice(0, 3).map(issue => { const path = issue.path.join(".").replace(/^result\.action\./, "") || "response"; return issue.code === "missing_field" ? `${path} is required` : issue.code === "extra_field" ? `Remove ${path}` : `${path}: ${issue.message}`; }).join("; ")}${event.payload.feedback.issues.length > 3 ? ` (+${event.payload.feedback.issues.length - 3} more)` : ""}`;
+    if (event.eventType === "model_context_frame") preview = event.payload.sections.map(section => section.content).join("\n") || "No dynamic context updates";
+    if (event.eventType === "model_repair_attempt_started") preview = `${event.payload.stage} · Output repair attempt ${event.payload.attempt}`;
+    if (event.eventType === "context_epoch_closed") preview = "Context epoch closed";
+    if (event.eventType === "memory_patch_accepted") preview = "Working memory updated";
+    if (event.eventType === "think_completed") preview = event.payload.output;
+    const finished = event.eventType === "tool_started" ? events.find(candidate => candidate.eventType === "tool_finished" && actionOf(candidate) === actionOf(event)) : undefined;
+    const inputPreview = event.eventType === "tool_started" ? JSON.stringify(event.payload.input) : undefined;
+    const observation = finished?.eventType === "tool_finished" ? finished.payload.observation : event.eventType === "tool_finished" ? event.payload.observation : undefined;
+    const resultPreview = observation === undefined ? undefined : observationPreview(observation);
+    const modelStage = event.eventType === "model_repair_attempt_started" || event.eventType === "model_repair_feedback_recorded" || event.eventType === "model_context_frame" ? event.payload.stage : undefined;
+    const frame = event.eventType === "model_context_frame" ? event : event.eventType === "decision_received" || event.eventType === "think_completed"
+        ? events.filter(candidate => event.executionUnitId !== undefined && candidate.eventType === "model_context_frame" && candidate.executionUnitId === event.executionUnitId && candidate.sequence < event.sequence && candidate.payload.stage === (event.eventType === "think_completed" ? "think" : "decide")).at(-1) : undefined;
+    const modelCallId = frame?.eventType === "model_context_frame" ? frame.payload.modelCallId : undefined;
     const actionId = actionOf(event);
     const toolId = "toolId" in event.payload ? event.payload.toolId : event.eventType === "decision_received" && event.payload.decision.kind === "tool_call" ? event.payload.decision.action.toolId : undefined;
     return { eventId: event.eventId, sequence: event.sequence, occurredAt: event.occurredAt, eventType: event.eventType,
         category: projectTrajectoryEvent(event).category, title: toolId === undefined ? event.eventType : `${event.eventType}: ${toolId}`,
+        ...(inputPreview === undefined ? {} : { inputPreview: inputPreview.slice(0, 400) }),
+        ...(resultPreview === undefined ? {} : { resultPreview: resultPreview.slice(0, 500) }),
+        ...(modelCallId === undefined ? {} : { modelCallId }),
+        ...(modelStage === undefined ? {} : { modelStage }),
         preview: preview.slice(0, 800), previewTruncated: preview.length > 800,
         ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
         ...(event.stepIndex === undefined ? {} : { stepIndex: event.stepIndex }), ...(actionId === undefined ? {} : { actionId }) };
+}
+
+function observationPreview(observation: Observation): string {
+    if (observation.kind === "failure") return `${observation.code}: ${observation.message}`;
+    if (observation.kind === "rejected") return observation.reason;
+    const output = observation.output;
+    if (typeof output === "string") return output;
+    if (output !== null && typeof output === "object" && "stdout" in output && typeof output.stdout === "string") {
+        return output.stdout || ("stderr" in output && typeof output.stderr === "string" ? output.stderr : "") || ("exitCode" in output ? `Exit code ${output.exitCode}` : "Empty output");
+    }
+    return JSON.stringify(output);
 }
 function validId(value: string | null): value is string { return value !== null && value.length <= 256 && /^[A-Za-z0-9_-]+$/.test(value); }
 function validNumber(value: string | null, optional: boolean): boolean { return value === null ? optional : /^\d+$/.test(value) && Number.isSafeInteger(Number(value)); }

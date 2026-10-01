@@ -1,3 +1,4 @@
+import { JsonFileModelInputStore } from "../../../packages/storage/src/index";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
@@ -11,6 +12,7 @@ import type { AgentProfile, Tool, ToolPolicy } from "../../../packages/runtime/s
 import {
     createBrowserGoalRoutes,
     createBrowserTrajectoryRoutes,
+    createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
     BrowserGoalCommandService,
@@ -227,6 +229,7 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     openStream: (goalId, runId, signal) => streams.open(goalId, runId, signal),
 }));
 root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
+root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));
 root.httpService.mount("/", createBrowserStaticRoutes(resolve("packages/browser/static")));
 const address = await root.httpService.start(0);
 access.bindOrigin(address.origin);

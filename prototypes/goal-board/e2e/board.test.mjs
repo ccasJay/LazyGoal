@@ -240,7 +240,7 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
     await waitForLocal(() => mock.lastMessage?.content === "/plan");
     assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.board-title .primary').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.header-actions .primary').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
     await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/model");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
@@ -261,7 +261,7 @@ test("Goal board uses saved state, structured waits, and a narrow session view",
     }
     webServer.kill("SIGTERM");
     mock.server.close();
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   }
 });
 

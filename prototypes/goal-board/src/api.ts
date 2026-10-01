@@ -13,6 +13,7 @@ import type {
   BrowserPermissionModeCommand,
   BrowserPermissionModeResult,
   BrowserWorkspaceContext,
+  BrowserModelInputSummary, BrowserModelInputDetail,
   BrowserTrajectoryRun, BrowserTrajectoryPage, BrowserTrajectoryDetail, BrowserTrajectoryEntry,
 } from "../../../packages/browser/src/index";
 import type { BrowserGoalLiveEvent } from "../../../packages/browser/src/browser-goal-stream";
@@ -48,6 +49,12 @@ export const browserApi = {
     ).then((body) => body.goal);
   },
 
+  modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<{ calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null }> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, isModelInputs, signal);
+  },
+  modelInput(goalId: string, runId: string, callId: string, signal?: AbortSignal): Promise<BrowserModelInputDetail> {
+    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, isModelInputDetail, signal);
+  },
   trajectoryRuns(goalId: string, offset = 0, signal?: AbortSignal): Promise<{ runs: BrowserTrajectoryRun[]; nextOffset: number | null }> {
     return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, isTrajectoryRuns, signal);
   },
@@ -542,6 +549,8 @@ function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEntry {
   return isRecord(value) && isNonEmptyString(value.eventId) && Number.isSafeInteger(value.sequence) && Number(value.sequence) > 0
     && typeof value.occurredAt === "string" && typeof value.eventType === "string"
     && ["lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"].includes(String(value.category))
+    && [value.inputPreview, value.resultPreview, value.modelCallId].every(field => field === undefined || typeof field === "string")
+    && (value.modelStage === undefined || value.modelStage === "think" || value.modelStage === "decide")
     && typeof value.title === "string" && typeof value.preview === "string" && typeof value.previewTruncated === "boolean"
     && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
     && (value.stepIndex === undefined || Number.isSafeInteger(value.stepIndex)) && (value.actionId === undefined || isNonEmptyString(value.actionId));
@@ -561,4 +570,24 @@ function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDetail {
     && (value.toolStartedAt === undefined || typeof value.toolStartedAt === "string") && (value.toolFinishedAt === undefined || typeof value.toolFinishedAt === "string")
     && (value.result === undefined || isRecord(value.result)) && (value.toolFinished === undefined || isRecord(value.toolFinished)
       && value.toolFinished.eventType === "tool_finished" && isRecord(value.toolFinished.payload) && isRecord(value.toolFinished.payload.observation));
+}
+
+function isInputIdentity(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && isNonEmptyString(value.callId) && isNonEmptyString(value.goalId) && isNonEmptyString(value.runId)
+    && (value.stage === "think" || value.stage === "decide") && Number.isSafeInteger(value.stepIndex) && Number(value.stepIndex) > 0
+    && typeof value.occurredAt === "string" && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId));
+}
+function isInputMessage(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && ["system", "user", "assistant"].includes(String(value.role))
+    && ["system", "conversation", "section", "working_context", "stage", "request"].includes(String(value.source));
+}
+function isModelInputs(value: unknown): value is { calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null } {
+  return isRecord(value) && nullableSequence(value.nextOffset) && Number.isSafeInteger(value.total) && Number(value.total) >= 0 && Array.isArray(value.calls)
+    && value.calls.every(call => isInputIdentity(call) && typeof call.systemVersion === "string" && typeof call.systemChanged === "boolean" && typeof call.firstSystem === "boolean"
+      && (call.previousCallId === null || isNonEmptyString(call.previousCallId)) && Number.isSafeInteger(call.omittedMessageCount) && Number(call.omittedMessageCount) >= 0
+      && Array.isArray(call.messages) && call.messages.every(message => isInputMessage(message) && typeof message.preview === "string" && typeof message.truncated === "boolean" && Number.isSafeInteger(message.index) && Number(message.index) >= 0));
+}
+function isModelInputDetail(value: unknown): value is BrowserModelInputDetail {
+  return isRecord(value) && isInputIdentity(value.call) && Array.isArray(value.call.messages) && value.call.messages.every(message => isInputMessage(message) && typeof message.content === "string")
+    && (value.previousSystem === null || typeof value.previousSystem === "string") && (value.previousCallId === null || isNonEmptyString(value.previousCallId)) && typeof value.systemVersion === "string";
 }
