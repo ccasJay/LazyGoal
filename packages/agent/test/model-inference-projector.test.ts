@@ -316,7 +316,6 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
             status: "in_progress",
         }],
     });
-    assert.deepEqual(view.workingMemory.plan, currentWorkingMemory.plan);
     assert.equal(Object.isFrozen(view.dynamicContext.goalPlan), true);
 
     const normalGoal = createUnapprovedGoal();
@@ -334,7 +333,6 @@ test("Projector 在各 Run 模式投影已提交 GoalPlan，且不混入 Working
     assert.deepEqual(normalView.dynamicContext.goalPlan, view.dynamicContext.goalPlan);
     assert.equal(normalView.dynamicContext.runMode, "normal");
     assert.equal(normalView.dynamicContext.goalPlanWritable, false);
-    assert.deepEqual(normalView.workingMemory.plan, currentWorkingMemory.plan);
 });
 
 test("Projector 只投影 executing 阶段的任务与有界执行记忆", () => {

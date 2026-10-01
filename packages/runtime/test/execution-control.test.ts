@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createStepExecutor,
     createToolRegistration,
     ExecutionAbortedError,
     GoalCoordinator,
@@ -98,22 +99,20 @@ test("Runner propagates control into an executor and preserves the last snapshot
     const executorStarted = new Promise<void>((resolve) => {
         started = resolve;
     });
-    const executor: StepExecutor = {
-        async execute({ control }): Promise<AgentDecision> {
-            assert.strictEqual(control?.signal, controller.signal);
-            started?.();
-            await new Promise<void>((resolve) => {
-                control?.signal?.addEventListener("abort", () => resolve(), {
-                    once: true,
-                });
+    const executor: StepExecutor = createStepExecutor(async ({ control }): Promise<AgentDecision> => {
+        assert.strictEqual(control?.signal, controller.signal);
+        started?.();
+        await new Promise<void>((resolve) => {
+            control?.signal?.addEventListener("abort", () => resolve(), {
+                once: true,
             });
-            return {
-                kind: "complete",
-                summary: "unreachable",
-                completionEvidence: [],
-            };
-        },
-    };
+        });
+        return {
+            kind: "complete",
+            summary: "unreachable",
+            completionEvidence: [],
+        };
+    });
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const operation = runner.run(
         { goalId: goal.id, runId: goal.state.run.id },
@@ -148,16 +147,14 @@ test("Runner aborts after a model result without saving a failure", async () => 
             await delegate.save(nextGoal);
         },
     };
-    const executor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            controller.abort();
-            return {
-                kind: "complete",
-                summary: "not persisted",
-                completionEvidence: [],
-            };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        controller.abort();
+        return {
+            kind: "complete",
+            summary: "not persisted",
+            completionEvidence: [],
+        };
+    });
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
 
     await assert.rejects(
@@ -207,18 +204,16 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
             };
         },
     };
-    const executor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            return {
-                kind: "tool_call",
-                action: {
-                    actionId: "action-1",
-                    toolId: "echo",
-                    input: { value: "hello" },
-                },
-            };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        return {
+            kind: "tool_call",
+            action: {
+                actionId: "action-1",
+                toolId: "echo",
+                input: { value: "hello" },
+            },
+        };
+    });
     const runner = new Runner({
         trajectoryStore: trajectoryStoreFor(store),
         store,
@@ -279,14 +274,12 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
     const runner = new Runner({
         store,
         trajectoryStore: new InMemoryTrajectoryStore(),
-        executor: {
-            async execute() {
-                return {
-                    kind: "tool_call" as const,
-                    action: { actionId: "action-parse-abort", toolId: "echo", input },
-                };
-            },
-        },
+        executor: createStepExecutor(async () => {
+            return {
+                kind: "tool_call" as const,
+                action: { actionId: "action-parse-abort", toolId: "echo", input },
+            };
+        }),
         toolRegistry: { get: () => createToolRegistration(tool) },
     });
 
@@ -328,18 +321,16 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
     const runner = new Runner({
         store,
         trajectoryStore: new InMemoryTrajectoryStore(),
-        executor: {
-            async execute() {
-                return {
-                    kind: "tool_call" as const,
-                    action: {
-                        actionId: "action-semantic-abort",
-                        toolId: "echo",
-                        input: { value: "hello" },
-                    },
-                };
-            },
-        },
+        executor: createStepExecutor(async () => {
+            return {
+                kind: "tool_call" as const,
+                action: {
+                    actionId: "action-semantic-abort",
+                    toolId: "echo",
+                    input: { value: "hello" },
+                },
+            };
+        }),
         toolRegistry: { get: () => createToolRegistration(tool) },
         toolPolicy: {
             evaluate: () => {
@@ -385,18 +376,16 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
     const runner = new Runner({
         store,
         trajectoryStore: trajectory,
-        executor: {
-            async execute() {
-                return {
-                    kind: "tool_call" as const,
-                    action: {
-                        actionId: "action-execute-abort",
-                        toolId: "echo",
-                        input: { value: "hello" },
-                    },
-                };
-            },
-        },
+        executor: createStepExecutor(async () => {
+            return {
+                kind: "tool_call" as const,
+                action: {
+                    actionId: "action-execute-abort",
+                    toolId: "echo",
+                    input: { value: "hello" },
+                },
+            };
+        }),
         toolRegistry: { get: () => createToolRegistration(tool) },
     });
 

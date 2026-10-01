@@ -221,16 +221,6 @@ export interface ModelHypothesis extends ModelMemoryEntryBase {
     readonly status: "active" | "resolved" | "superseded";
 }
 
-/** 模型可见的计划条目投影。 */
-export interface ModelPlanItem extends ModelMemoryEntryBase {
-    readonly kind: "plan";
-    readonly description: string;
-    readonly status: "pending" | "active" | "completed" | "blocked" | "superseded";
-    readonly dependsOnFactIds: readonly string[];
-    readonly dependsOnPlanItemIds: readonly string[];
-    readonly completionEvidenceSequences: readonly number[];
-}
-
 /** 模型可见的阻塞条目投影。 */
 export interface ModelBlocker extends ModelMemoryEntryBase {
     readonly kind: "blocker";
@@ -253,7 +243,6 @@ export interface ModelBlocker extends ModelMemoryEntryBase {
  *   derivedThroughSequence: 12,
  *   facts: [],
  *   hypotheses: [],
- *   plan: [],
  *   blockers: [],
  * };
  * ```
@@ -264,7 +253,6 @@ export interface ModelWorkingMemory {
     readonly revision?: { readonly eventId: string; readonly sequence: number };
     readonly facts: readonly ModelFact[];
     readonly hypotheses: readonly ModelHypothesis[];
-    readonly plan: readonly ModelPlanItem[];
     readonly blockers: readonly ModelBlocker[];
 }
 

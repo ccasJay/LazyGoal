@@ -7,6 +7,7 @@ import {
     TrajectoryCheckpointCommitter,
     allocateImmutableEvent,
     createGoal,
+    createStepExecutor,
     createToolRegistration,
     transition,
 } from "../src/index";
@@ -147,12 +148,10 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
         toolRegistry: {
             get: (id) => id === tool.definition.id ? createToolRegistration(tool) : undefined,
         },
-        executor: {
-            async execute() {
-                decisionCount += 1;
-                return decisions[decisionCount - 1]!;
-            },
-        },
+        executor: createStepExecutor(async () => {
+            decisionCount += 1;
+            return decisions[decisionCount - 1]!;
+        }),
     });
 
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
@@ -250,11 +249,9 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
         toolRegistry: {
             get: (toolId) => toolId === action.toolId ? registration : undefined,
         },
-        executor: {
-            async execute() {
-                return { kind: "complete", completionEvidence: [], summary: "done" };
-            },
-        },
+        executor: createStepExecutor(async () => {
+            return { kind: "complete", completionEvidence: [], summary: "done" };
+        }),
     });
 
     const result = await runner.run({

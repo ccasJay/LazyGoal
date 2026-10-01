@@ -15,8 +15,6 @@ import type {
     MemoryEntrySource,
     MemoryEntryStatus,
     MemoryPatchOperation,
-    PlanItem,
-    PlanItemStatus,
     WorkingMemory,
     WorkingMemoryPatch,
 } from "./domain";
@@ -71,8 +69,6 @@ export interface WorkingMemoryLimits {
     readonly maxFacts: number;
     /** 当前 Hypothesis 数量上限。 */
     readonly maxHypotheses: number;
-    /** 当前 PlanItem 数量上限。 */
-    readonly maxPlanItems: number;
     /** 当前 Blocker 数量上限。 */
     readonly maxBlockers: number;
 }
@@ -89,7 +85,6 @@ export const DEFAULT_WORKING_MEMORY_LIMITS: WorkingMemoryLimits = Object.freeze(
     maxEvidenceReferences: 16,
     maxFacts: 64,
     maxHypotheses: 8,
-    maxPlanItems: 16,
     maxBlockers: 8,
 });
 
@@ -203,20 +198,12 @@ type RecordValue = Record<string, unknown>;
 const MEMORY_ENTRY_KINDS: readonly MemoryEntryKind[] = [
     "fact",
     "hypothesis",
-    "plan",
     "blocker",
 ];
 const MEMORY_ENTRY_SCOPES: readonly MemoryEntryScope[] = ["goal", "phase"];
 const MEMORY_ENTRY_STATUSES: readonly MemoryEntryStatus[] = [
     "active",
     "resolved",
-    "superseded",
-];
-const PLAN_ITEM_STATUSES: readonly PlanItemStatus[] = [
-    "pending",
-    "active",
-    "completed",
-    "blocked",
     "superseded",
 ];
 const FACT_STABILITIES = ["stable", "last_observed"] as const;
@@ -388,7 +375,6 @@ export function resolveWorkingMemoryLimits(
     assertLimit(limits.maxEvidenceReferences, "maxEvidenceReferences");
     assertLimit(limits.maxFacts, "maxFacts");
     assertLimit(limits.maxHypotheses, "maxHypotheses");
-    assertLimit(limits.maxPlanItems, "maxPlanItems");
     assertLimit(limits.maxBlockers, "maxBlockers");
     return Object.freeze(limits);
 }
@@ -519,65 +505,6 @@ function assertOperation(
                 throw new WorkingMemoryPatchError(`${label}.hypothesis must change a field`);
             }
             return;
-        case "create_plan_item":
-            assertExactKeys(value, ["type", "planItem"], label);
-            assertAllowedKeys(
-                value.planItem,
-                ["description"],
-                ["description", "status", "dependsOnFactIds", "dependsOnPlanItemIds"],
-                `${label}.planItem`,
-            );
-            assertText(value.planItem.description, `${label}.planItem.description`, limits);
-            if (value.planItem.status !== undefined) {
-                assertOneOf(value.planItem.status, ["pending", "active", "blocked"] as const, `${label}.planItem.status`);
-            }
-            if (value.planItem.dependsOnFactIds !== undefined) {
-                assertStringIds(value.planItem.dependsOnFactIds, `${label}.planItem.dependsOnFactIds`, limits);
-            }
-            if (value.planItem.dependsOnPlanItemIds !== undefined) {
-                assertStringIds(value.planItem.dependsOnPlanItemIds, `${label}.planItem.dependsOnPlanItemIds`, limits);
-            }
-            return;
-        case "update_plan_item":
-            assertExactKeys(value, ["type", "planItem"], label);
-            assertAllowedKeys(
-                value.planItem,
-                ["id"],
-                [
-                    "id",
-                    "description",
-                    "status",
-                    "dependsOnFactIds",
-                    "dependsOnPlanItemIds",
-                    "completionEvidenceSequences",
-                ],
-                `${label}.planItem`,
-            );
-            assertId(value.planItem.id, `${label}.planItem.id`, limits);
-            if (value.planItem.description !== undefined) {
-                assertText(value.planItem.description, `${label}.planItem.description`, limits);
-            }
-            if (value.planItem.status !== undefined) {
-                assertOneOf(value.planItem.status, PLAN_ITEM_STATUSES, `${label}.planItem.status`);
-            }
-            if (value.planItem.dependsOnFactIds !== undefined) {
-                assertStringIds(value.planItem.dependsOnFactIds, `${label}.planItem.dependsOnFactIds`, limits);
-            }
-            if (value.planItem.dependsOnPlanItemIds !== undefined) {
-                assertStringIds(value.planItem.dependsOnPlanItemIds, `${label}.planItem.dependsOnPlanItemIds`, limits);
-            }
-            if (value.planItem.completionEvidenceSequences !== undefined) {
-                assertEvidence(
-                    value.planItem.completionEvidenceSequences,
-                    `${label}.planItem.completionEvidenceSequences`,
-                    limits,
-                    true,
-                );
-            }
-            if (Object.keys(value.planItem).length === 1) {
-                throw new WorkingMemoryPatchError(`${label}.planItem must change a field`);
-            }
-            return;
         case "create_blocker":
             assertExactKeys(value, ["type", "blocker"], label);
             assertAllowedKeys(value.blocker, ["description"], ["description", "scope"], `${label}.blocker`);
@@ -626,7 +553,7 @@ function assertPatch(
 }
 
 function allEntries(memory: WorkingMemory): MemoryEntry[] {
-    return [...memory.facts, ...memory.hypotheses, ...memory.plan, ...memory.blockers];
+    return [...memory.facts, ...memory.hypotheses, ...memory.blockers];
 }
 
 function assertBase(entry: MemoryEntry, memory: WorkingMemory): void {
@@ -648,13 +575,13 @@ export function assertValidWorkingMemory(memory: WorkingMemory): void {
     if (!isRecord(memory)) throw new WorkingMemoryPatchError("workingMemory must be an object");
     assertAllowedKeys(
         memory,
-        ["protocolVersion", "derivedThroughSequence", "facts", "hypotheses", "plan", "blockers"],
-        ["protocolVersion", "derivedThroughSequence", "revision", "facts", "hypotheses", "plan", "blockers"],
+        ["protocolVersion", "derivedThroughSequence", "facts", "hypotheses", "blockers"],
+        ["protocolVersion", "derivedThroughSequence", "revision", "facts", "hypotheses", "blockers"],
         "workingMemory",
     );
     if (memory.protocolVersion !== 1) throw new WorkingMemoryPatchError("workingMemory.protocolVersion must be 1");
     assertNonNegativeInteger(memory.derivedThroughSequence, "workingMemory.derivedThroughSequence");
-    if (!Array.isArray(memory.facts) || !Array.isArray(memory.hypotheses) || !Array.isArray(memory.plan) || !Array.isArray(memory.blockers)) {
+    if (!Array.isArray(memory.facts) || !Array.isArray(memory.hypotheses) || !Array.isArray(memory.blockers)) {
         throw new WorkingMemoryPatchError("workingMemory collections must be arrays");
     }
     if (memory.revision !== undefined) {
@@ -680,17 +607,6 @@ export function assertValidWorkingMemory(memory: WorkingMemory): void {
             assertPositiveInteger(entry.reinforcementCount, "workingMemory fact.reinforcementCount");
             if (entry.lastEvidenceSequence !== Math.max(...entry.evidenceSequences)) {
                 throw new WorkingMemoryPatchError("Fact lastEvidenceSequence is inconsistent");
-            }
-        } else if (entry.kind === "plan") {
-            assertOneOf(entry.status, PLAN_ITEM_STATUSES, "workingMemory plan.status");
-            if (entry.dependsOnFactIds.some((id) => !memory.facts.some((fact) => fact.id === id))) {
-                throw new WorkingMemoryPatchError("Plan references a missing Fact");
-            }
-            if (entry.dependsOnPlanItemIds.some((id) => !memory.plan.some((item) => item.id === id))) {
-                throw new WorkingMemoryPatchError("Plan references a missing PlanItem");
-            }
-            if (entry.status === "completed" && entry.completionEvidenceSequences.length === 0) {
-                throw new WorkingMemoryPatchError("completed PlanItem requires evidence");
             }
         } else {
             assertOneOf(entry.status, MEMORY_ENTRY_STATUSES, `workingMemory ${entry.kind}.status`);
@@ -734,24 +650,6 @@ export function validateMemoryPatchPhase(
 ): asserts patch is WorkingMemoryPatch {
     assertOneOf(phase, GOAL_PHASES, "phase");
     validateMemoryPatch(patch, context);
-    const workingMemory = context.workingMemory ?? createEmptyWorkingMemory();
-    const planOperations = patch.operations.filter(
-        (operation): operation is Extract<MemoryPatchOperation, { readonly type: "create_plan_item" | "update_plan_item" }> =>
-            operation.type === "create_plan_item" || operation.type === "update_plan_item",
-    );
-
-    for (const operation of planOperations) {
-        if (operation.type === "create_plan_item") {
-            throw new WorkingMemoryPatchError(
-                "executing does not allow create_plan_item",
-            );
-        }
-        if (!workingMemory.plan.some((item) => item.id === operation.planItem.id)) {
-            throw new WorkingMemoryPatchError(
-                `${operation.type}.id does not reference an existing PlanItem`,
-            );
-        }
-    }
 }
 
 /** 根据规范化 `{subject, predicate}` 生成稳定 Fact ID。 */
@@ -760,7 +658,7 @@ export function createCanonicalFactId(subject: string, predicate: string): strin
     return `fact:${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
 }
 
-function runtimeId(kind: "hypothesis" | "plan" | "blocker", sequence: number, index: number): string {
+function runtimeId(kind: "hypothesis" | "blocker", sequence: number, index: number): string {
     return `${kind}:${sequence}:${index}`;
 }
 
@@ -803,25 +701,11 @@ function assertLifecycleTransition(
     }
 }
 
-function assertPlanTransition(current: PlanItemStatus, next: PlanItemStatus): void {
-    const allowed: Record<PlanItemStatus, readonly PlanItemStatus[]> = {
-        pending: ["pending", "active", "blocked", "superseded"],
-        active: ["active", "blocked", "completed", "superseded"],
-        blocked: ["blocked", "active", "completed", "superseded"],
-        completed: [],
-        superseded: [],
-    };
-    if (!allowed[current].includes(next)) {
-        throw new WorkingMemoryPatchError(`PlanItem transition ${current} -> ${next} is invalid`);
-    }
-}
-
 function applyOne(memory: WorkingMemory, operation: CanonicalMemoryOperation): WorkingMemory {
     const remove = (ids: ReadonlySet<string>): WorkingMemory => ({
         ...memory,
         facts: memory.facts.filter((entry) => !ids.has(entry.id)),
         hypotheses: memory.hypotheses.filter((entry) => !ids.has(entry.id)),
-        plan: memory.plan.filter((entry) => !ids.has(entry.id)),
         blockers: memory.blockers.filter((entry) => !ids.has(entry.id)),
     });
     switch (operation.type) {
@@ -842,13 +726,6 @@ function applyOne(memory: WorkingMemory, operation: CanonicalMemoryOperation): W
                     ],
                 }
                 : remove(new Set([operation.hypothesis.id]));
-        case "upsert_plan_item":
-            return operation.planItem.status === "completed" || operation.planItem.status === "superseded"
-                ? remove(new Set([operation.planItem.id]))
-                : {
-                    ...memory,
-                    plan: [...memory.plan.filter((entry) => entry.id !== operation.planItem.id), operation.planItem],
-                };
         case "upsert_blocker":
             return operation.blocker.status === "active"
                 ? {
@@ -876,7 +753,6 @@ function withoutDerivedMetadata(memory: WorkingMemory): WorkingMemory {
         ...memory,
         facts: [...memory.facts],
         hypotheses: [...memory.hypotheses],
-        plan: [...memory.plan],
         blockers: [...memory.blockers],
     };
 }
@@ -996,61 +872,6 @@ function canonicalizeOperation(
                 },
             };
         }
-        case "create_plan_item": {
-            const dependsOnFactIds = operation.planItem.dependsOnFactIds ?? [];
-            const dependsOnPlanItemIds = operation.planItem.dependsOnPlanItemIds ?? [];
-            dependsOnFactIds.forEach((id) => assertActiveReference(memory, id, "fact", "dependsOnFactIds"));
-            dependsOnPlanItemIds.forEach((id) => assertActiveReference(memory, id, "plan", "dependsOnPlanItemIds"));
-            return {
-                operation: {
-                    type: "upsert_plan_item",
-                    planItem: {
-                        kind: "plan",
-                        id: runtimeId("plan", context.originSequence, index),
-                        description: normalizeText(operation.planItem.description),
-                        status: operation.planItem.status ?? "pending",
-                        dependsOnFactIds: [...dependsOnFactIds],
-                        dependsOnPlanItemIds: [...dependsOnPlanItemIds],
-                        completionEvidenceSequences: [],
-                        scope: "phase",
-                        originPhase: context.phase,
-                        originSequence: context.originSequence,
-                        updatedAtSequence,
-                    },
-                },
-            };
-        }
-        case "update_plan_item": {
-            const existing = assertActiveReference(memory, operation.planItem.id, "plan", "update_plan_item.id");
-            const status = operation.planItem.status ?? existing.status;
-            assertPlanTransition(existing.status, status);
-            const dependsOnFactIds = operation.planItem.dependsOnFactIds ?? existing.dependsOnFactIds;
-            const dependsOnPlanItemIds = operation.planItem.dependsOnPlanItemIds ?? existing.dependsOnPlanItemIds;
-            dependsOnFactIds.forEach((id) => assertActiveReference(memory, id, "fact", "dependsOnFactIds"));
-            dependsOnPlanItemIds.forEach((id) => {
-                if (id === existing.id) throw new WorkingMemoryPatchError("PlanItem cannot depend on itself");
-                assertActiveReference(memory, id, "plan", "dependsOnPlanItemIds");
-            });
-            const completionEvidence = operation.planItem.completionEvidenceSequences
-                ?? existing.completionEvidenceSequences;
-            if (status === "completed" && completionEvidence.length === 0) {
-                throw new WorkingMemoryPatchError("completed PlanItem requires completion evidence");
-            }
-            const next: PlanItem = {
-                ...existing,
-                description: operation.planItem.description === undefined
-                    ? existing.description
-                    : normalizeText(operation.planItem.description),
-                status,
-                dependsOnFactIds: [...dependsOnFactIds],
-                dependsOnPlanItemIds: [...dependsOnPlanItemIds],
-                completionEvidenceSequences: sortedEvidence(completionEvidence),
-                updatedAtSequence,
-            };
-            const comparable = { ...next, updatedAtSequence: existing.updatedAtSequence };
-            if (JSON.stringify(comparable) === JSON.stringify(existing)) return { suppression: "duplicate" };
-            return { operation: { type: "upsert_plan_item", planItem: next } };
-        }
         case "create_blocker":
             return {
                 operation: {
@@ -1090,18 +911,12 @@ function protectedIds(memory: WorkingMemory): Set<string> {
     for (const blocker of memory.blockers) {
         if (blocker.status === "active") protectedSet.add(blocker.id);
     }
-    for (const item of memory.plan) {
-        if (item.status !== "active") continue;
-        protectedSet.add(item.id);
-        item.dependsOnFactIds.forEach((id) => protectedSet.add(id));
-    }
     return protectedSet;
 }
 
 function memoryViolatesLimits(memory: WorkingMemory, limits: WorkingMemoryLimits): boolean {
     return memory.facts.length > limits.maxFacts
         || memory.hypotheses.length > limits.maxHypotheses
-        || memory.plan.length > limits.maxPlanItems
         || memory.blockers.length > limits.maxBlockers
         || serializedByteLength(memory) > limits.maxWorkingMemoryBytes;
 }
@@ -1139,9 +954,7 @@ function selectEvictions(
             ? { type: "upsert_fact", fact: entry }
             : entry.kind === "hypothesis"
                 ? { type: "upsert_hypothesis", hypothesis: entry }
-                : entry.kind === "plan"
-                    ? { type: "upsert_plan_item", planItem: entry }
-                    : { type: "upsert_blocker", blocker: entry });
+                : { type: "upsert_blocker", blocker: entry });
     }
     if (memoryViolatesLimits(protectedMemory, limits)) {
         throw new WorkingMemoryPatchError("protected Working Memory exceeds capacity");
@@ -1199,7 +1012,6 @@ export function normalizeMemoryPatch(
         canonical.push(result.operation);
         if (result.operation.type === "upsert_fact") candidateIds.set(result.operation.fact.id, index);
         if (result.operation.type === "upsert_hypothesis") candidateIds.set(result.operation.hypothesis.id, index);
-        if (result.operation.type === "upsert_plan_item") candidateIds.set(result.operation.planItem.id, index);
         if (result.operation.type === "upsert_blocker") candidateIds.set(result.operation.blocker.id, index);
         draft = applyOne(draft, result.operation);
     });
@@ -1219,11 +1031,9 @@ export function normalizeMemoryPatch(
                 ? operation.fact.id
                 : operation.type === "upsert_hypothesis"
                     ? operation.hypothesis.id
-                    : operation.type === "upsert_plan_item"
-                        ? operation.planItem.id
-                        : operation.type === "upsert_blocker"
-                            ? operation.blocker.id
-                            : undefined;
+                    : operation.type === "upsert_blocker"
+                        ? operation.blocker.id
+                        : undefined;
             return id === undefined || !suppressedCandidates.has(id);
         });
         const existingEvictions = evicted.filter((id) => !suppressedCandidates.has(id));
@@ -1269,11 +1079,9 @@ export function reduceWorkingMemory(
                 ? operation.fact.updatedAtSequence
                 : operation.type === "upsert_hypothesis"
                     ? operation.hypothesis.updatedAtSequence
-                    : operation.type === "upsert_plan_item"
-                        ? operation.planItem.updatedAtSequence
-                        : operation.type === "upsert_blocker"
-                            ? operation.blocker.updatedAtSequence
-                            : boundary;
+                    : operation.type === "upsert_blocker"
+                        ? operation.blocker.updatedAtSequence
+                        : boundary;
             return Math.max(boundary, sequence);
         }, memory.derivedThroughSequence);
     const revision = options.revision ?? memory.revision;
@@ -1286,7 +1094,6 @@ export function reduceWorkingMemory(
         ...next,
         facts: Object.freeze([...next.facts]),
         hypotheses: Object.freeze([...next.hypotheses]),
-        plan: Object.freeze([...next.plan]),
         blockers: Object.freeze([...next.blockers]),
     };
     assertValidWorkingMemory(next);

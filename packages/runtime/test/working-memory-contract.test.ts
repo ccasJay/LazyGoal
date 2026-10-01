@@ -77,7 +77,6 @@ test("Working Memory keeps only derived entries and validates its revision bound
         revision,
         facts: [],
         hypotheses: [],
-        plan: [],
         blockers: [],
     });
     for (const forbiddenField of [

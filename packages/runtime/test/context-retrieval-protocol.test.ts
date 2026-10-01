@@ -8,6 +8,7 @@ import {
     CONTEXT_LOOKUP_PROTOCOL_ERROR_CODE,
     ContextLookupProtocolError,
     createGoal,
+    createStepExecutor,
     invokeContextLookup,
     normalizeContextLookupRequest,
     Runner,
@@ -191,23 +192,21 @@ test("Runner 将规范化请求直接交给 invokeContextLookup", async () => {
     };
 
     let stepCalls = 0;
-    const stepExecutor: StepExecutor = {
-        async execute(input: StepExecutionInput): Promise<AgentDecision> {
-            stepCalls += 1;
-            if (stepCalls === 1) {
-                return {
-                    kind: "context_lookup",
-                    need: "conversation_history",
-                    question: "之前的对话",
-                };
-            }
+    const stepExecutor: StepExecutor = createStepExecutor(async () => {
+        stepCalls += 1;
+        if (stepCalls === 1) {
             return {
-                kind: "complete",
-                summary: "完成",
-                completionEvidence: [],
+                kind: "context_lookup",
+                need: "conversation_history",
+                question: "之前的对话",
             };
-        },
-    };
+        }
+        return {
+            kind: "complete",
+            summary: "完成",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,

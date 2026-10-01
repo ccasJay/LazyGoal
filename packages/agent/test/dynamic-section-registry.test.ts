@@ -24,7 +24,6 @@ const view: ModelInferenceView = {
         derivedThroughSequence: 0,
         facts: [],
         hypotheses: [],
-        plan: [],
         blockers: [],
     },
     contextEpoch: {

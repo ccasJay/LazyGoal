@@ -488,83 +488,6 @@ export const HypothesisUpdateContract = contract.object({
 export type HypothesisUpdate = InferContract<typeof HypothesisUpdateContract>;
 
 /**
- * PlanItem 创建状态枚举契约。
- *
- * @remarks
- * 新建计划项仅允许 pending、active 或 blocked。
- *
- * @example
- * ```ts
- * const status: PlanItemCreateStatus = "pending";
- * ```
- */
-export const PlanItemCreateStatusContract = contract.enum([
-    "pending",
-    "active",
-    "blocked",
-] as const);
-
-/** PlanItem 创建状态枚举类型。 */
-export type PlanItemCreateStatus = InferContract<typeof PlanItemCreateStatusContract>;
-
-/**
- * PlanItem 完整状态枚举契约。
- *
- * @example
- * ```ts
- * const status: PlanItemStatus = "completed";
- * ```
- */
-export const PlanItemStatusContract = contract.enum([
-    "pending",
-    "active",
-    "completed",
-    "blocked",
-    "superseded",
-] as const);
-
-/** PlanItem 状态公开类型。 */
-export type PlanItemStatus = InferContract<typeof PlanItemStatusContract>;
-
-/**
- * 创建 PlanItem 提议契约。
- *
- * @example
- * ```ts
- * const create: PlanItemCreate = { description: "实现接口" };
- * ```
- */
-export const PlanItemCreateContract = contract.object({
-    description: contract.string(),
-    status: contract.optional(PlanItemCreateStatusContract),
-    dependsOnFactIds: contract.optional(contract.array(contract.string())),
-    dependsOnPlanItemIds: contract.optional(contract.array(contract.string())),
-});
-
-/** 创建 PlanItem 公开类型。 */
-export type PlanItemCreate = InferContract<typeof PlanItemCreateContract>;
-
-/**
- * 更新 PlanItem 提议契约。
- *
- * @example
- * ```ts
- * const update: PlanItemUpdate = { id: "plan-1", status: "completed" };
- * ```
- */
-export const PlanItemUpdateContract = contract.object({
-    id: contract.string(),
-    description: contract.optional(contract.string()),
-    status: contract.optional(PlanItemStatusContract),
-    dependsOnFactIds: contract.optional(contract.array(contract.string())),
-    dependsOnPlanItemIds: contract.optional(contract.array(contract.string())),
-    completionEvidenceSequences: contract.optional(contract.array(contract.integer({ minimum: 0 }))),
-});
-
-/** 更新 PlanItem 公开类型。 */
-export type PlanItemUpdate = InferContract<typeof PlanItemUpdateContract>;
-
-/**
  * 创建 Blocker 提议契约。
  *
  * @example
@@ -613,8 +536,6 @@ export const MemoryPatchOperationContract = contract.discriminatedUnion("type", 
     contract.object({ type: contract.literal("retire_fact"), fact: RetireFactProposalContract }),
     contract.object({ type: contract.literal("create_hypothesis"), hypothesis: HypothesisCreateContract }),
     contract.object({ type: contract.literal("update_hypothesis"), hypothesis: HypothesisUpdateContract }),
-    contract.object({ type: contract.literal("create_plan_item"), planItem: PlanItemCreateContract }),
-    contract.object({ type: contract.literal("update_plan_item"), planItem: PlanItemUpdateContract }),
     contract.object({ type: contract.literal("create_blocker"), blocker: BlockerCreateContract }),
     contract.object({ type: contract.literal("update_blocker"), blocker: BlockerUpdateContract }),
 ]);
@@ -641,56 +562,17 @@ export const WorkingMemoryPatchContract = contract.object({
 /** Working Memory 增量 Patch 公开类型。 */
 export type WorkingMemoryPatch = InferContract<typeof WorkingMemoryPatchContract>;
 
-/**
- * Executing 阶段 Memory Patch 单项操作契约。
- *
- * @remarks
- * 统一执行流只能更新已存在的 PlanItem；PlanItem 的创建由任务提案承载，
- * 因此此契约刻意不包含 `create_plan_item` 分支。
- *
- * @example
- * ```ts
- * const op: ExecutingMemoryPatchOperation = {
- *     type: "update_plan_item",
- *     planItem: { id: "plan-1", status: "completed" },
- * };
- * ```
- */
-export const ExecutingMemoryPatchOperationContract = contract.discriminatedUnion("type", [
-    contract.object({ type: contract.literal("upsert_fact"), fact: FactProposalContract }),
-    contract.object({ type: contract.literal("retire_fact"), fact: RetireFactProposalContract }),
-    contract.object({ type: contract.literal("create_hypothesis"), hypothesis: HypothesisCreateContract }),
-    contract.object({ type: contract.literal("update_hypothesis"), hypothesis: HypothesisUpdateContract }),
-    contract.object({ type: contract.literal("update_plan_item"), planItem: PlanItemUpdateContract }),
-    contract.object({ type: contract.literal("create_blocker"), blocker: BlockerCreateContract }),
-    contract.object({ type: contract.literal("update_blocker"), blocker: BlockerUpdateContract }),
-]);
+/** Executing 阶段 Memory Patch 单项操作契约（与 MemoryPatchOperationContract 统一）。 */
+export const ExecutingMemoryPatchOperationContract = MemoryPatchOperationContract;
 
 /** Executing 阶段 Memory Patch 单项操作公开类型。 */
-export type ExecutingMemoryPatchOperation = InferContract<typeof ExecutingMemoryPatchOperationContract>;
+export type ExecutingMemoryPatchOperation = MemoryPatchOperation;
 
-/**
- * Executing 阶段 Working Memory 增量 Patch 契约。
- *
- * @remarks
- * 与统一执行使用的 `WorkingMemoryPatchContract` 共用协议版本，
- * 但禁止创建 PlanItem；Runtime 的阶段门仍负责对已解码 Patch 做最终校验。
- *
- * @example
- * ```ts
- * const patch: ExecutingWorkingMemoryPatch = {
- *     protocolVersion: 1,
- *     operations: [],
- * };
- * ```
- */
-export const ExecutingWorkingMemoryPatchContract = contract.object({
-    protocolVersion: contract.literal(1),
-    operations: contract.array(ExecutingMemoryPatchOperationContract),
-});
+/** Executing 阶段 Working Memory 增量 Patch 契约（与 WorkingMemoryPatchContract 统一）。 */
+export const ExecutingWorkingMemoryPatchContract = WorkingMemoryPatchContract;
 
 /** Executing 阶段 Working Memory 增量 Patch 公开类型。 */
-export type ExecutingWorkingMemoryPatch = InferContract<typeof ExecutingWorkingMemoryPatchContract>;
+export type ExecutingWorkingMemoryPatch = WorkingMemoryPatch;
 
 /**
  * 获授权模式更新 GoalPlan 的模型决策契约。
@@ -789,21 +671,9 @@ export const FailAgentDecisionContract = contract.object({
 });
 
 /**
- * Executing 阶段 Tool 调用决策契约。
- *
- * @remarks
- * 与通用 Agent 决策共用 Action 结构，但 Memory Patch 禁止创建 PlanItem。
- *
- * @example
- * ```ts
- * const decision = { kind: "tool_call", action: { actionId: "a1", toolId: "bash", input: {} } };
- * ```
+ * Executing 阶段 Tool 调用决策契约（与 ToolCallAgentDecisionContract 统一）。
  */
-export const ExecutingToolCallAgentDecisionContract = contract.object({
-    kind: contract.literal("tool_call"),
-    action: ToolCallActionContract,
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
-});
+export const ExecutingToolCallAgentDecisionContract = ToolCallAgentDecisionContract;
 
 /** Plan Run 获批后的逐条件完成决策契约。 */
 export const ExecutingCompleteAgentDecisionContract = contract.object({
@@ -830,19 +700,11 @@ export const CompleteAgentDecisionContract = contract.union([
     ExecutingCompleteAgentDecisionContract,
 ]);
 
-/** Executing 阶段等待决策契约。 */
-export const ExecutingWaitAgentDecisionContract = contract.object({
-    kind: contract.literal("wait"),
-    reason: contract.string(),
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
-});
+/** Executing 阶段等待决策契约（与 WaitAgentDecisionContract 统一）。 */
+export const ExecutingWaitAgentDecisionContract = WaitAgentDecisionContract;
 
-/** Executing 阶段失败决策契约。 */
-export const ExecutingFailAgentDecisionContract = contract.object({
-    kind: contract.literal("fail"),
-    error: contract.string(),
-    memoryPatch: contract.optional(ExecutingWorkingMemoryPatchContract),
-});
+/** Executing 阶段失败决策契约（与 FailAgentDecisionContract 统一）。 */
+export const ExecutingFailAgentDecisionContract = FailAgentDecisionContract;
 
 /**
  * AskUser 问题选项输入契约。
@@ -1399,54 +1261,6 @@ function validateMemoryPatchSemantics(
                             code: "empty_update",
                             path: [...opPath, "hypothesis"],
                             message: "update_hypothesis must update at least one field",
-                        });
-                    }
-                }
-                break;
-            }
-            case "create_plan_item": {
-                if (isRecord(op.planItem)) {
-                    checkNonBlank(op.planItem.description, [...opPath, "planItem", "description"], issues, "description");
-                    if (Array.isArray(op.planItem.dependsOnFactIds)) {
-                        op.planItem.dependsOnFactIds.forEach((id, idIndex) => {
-                            checkNonBlank(id, [...opPath, "planItem", "dependsOnFactIds", idIndex], issues, "dependsOnFactId");
-                        });
-                    }
-                    if (Array.isArray(op.planItem.dependsOnPlanItemIds)) {
-                        op.planItem.dependsOnPlanItemIds.forEach((id, idIndex) => {
-                            checkNonBlank(id, [...opPath, "planItem", "dependsOnPlanItemIds", idIndex], issues, "dependsOnPlanItemId");
-                        });
-                    }
-                }
-                break;
-            }
-            case "update_plan_item": {
-                if (isRecord(op.planItem)) {
-                    checkNonBlank(op.planItem.id, [...opPath, "planItem", "id"], issues, "id");
-                    if (op.planItem.description !== undefined) {
-                        checkNonBlank(op.planItem.description, [...opPath, "planItem", "description"], issues, "description");
-                    }
-                    if (Array.isArray(op.planItem.dependsOnFactIds)) {
-                        op.planItem.dependsOnFactIds.forEach((id, idIndex) => {
-                            checkNonBlank(id, [...opPath, "planItem", "dependsOnFactIds", idIndex], issues, "dependsOnFactId");
-                        });
-                    }
-                    if (Array.isArray(op.planItem.dependsOnPlanItemIds)) {
-                        op.planItem.dependsOnPlanItemIds.forEach((id, idIndex) => {
-                            checkNonBlank(id, [...opPath, "planItem", "dependsOnPlanItemIds", idIndex], issues, "dependsOnPlanItemId");
-                        });
-                    }
-                    if (
-                        op.planItem.description === undefined
-                        && op.planItem.status === undefined
-                        && op.planItem.dependsOnFactIds === undefined
-                        && op.planItem.dependsOnPlanItemIds === undefined
-                        && op.planItem.completionEvidenceSequences === undefined
-                    ) {
-                        issues.push({
-                            code: "empty_update",
-                            path: [...opPath, "planItem"],
-                            message: "update_plan_item must update at least one field",
                         });
                     }
                 }

@@ -16,8 +16,6 @@ import type {
     HypothesisUpdate,
     MemoryPatchOperation,
     ModelContextCheckpointResult,
-    PlanItemCreate,
-    PlanItemUpdate,
     RetireFactProposal,
     StructuredAgentDecision,
     ToolCallAction,
@@ -70,14 +68,6 @@ export type ContextRetrievalProtocol = {
 /** Hypothesis 与 Blocker 使用的生命周期状态。 */
 export type MemoryEntryStatus = "active" | "resolved" | "superseded";
 
-/** PlanItem 的显式生命周期状态。 */
-export type PlanItemStatus =
-    | "pending"
-    | "active"
-    | "completed"
-    | "blocked"
-    | "superseded";
-
 /** Working Memory 条目跨阶段保留的作用域。 */
 export type MemoryEntryScope = "goal" | "phase";
 
@@ -85,7 +75,6 @@ export type MemoryEntryScope = "goal" | "phase";
 export type MemoryEntryKind =
     | "fact"
     | "hypothesis"
-    | "plan"
     | "blocker";
 
 export type {
@@ -176,29 +165,6 @@ export interface Hypothesis extends MemoryEntryBase {
 }
 
 /**
- * 表达未完成工作意图的 Plan 条目。
- *
- * @example
- * ```ts
- * const item: PlanItem = { ...base, kind: "plan", description: "verify output", status: "active",
- *   dependsOnFactIds: [], dependsOnPlanItemIds: [], completionEvidenceSequences: [] };
- * ```
- */
-export interface PlanItem extends MemoryEntryBase {
-    readonly kind: "plan";
-    /** 计划步骤描述；不表示对应外部 Action 已执行。 */
-    readonly description: string;
-    /** Runtime 不会自动推断的显式计划状态。 */
-    readonly status: PlanItemStatus;
-    /** 当前计划依赖的有效 Fact IDs。 */
-    readonly dependsOnFactIds: readonly string[];
-    /** 当前计划依赖的其他 PlanItem IDs。 */
-    readonly dependsOnPlanItemIds: readonly string[];
-    /** 进入 completed 时必须提供的已提交证据。 */
-    readonly completionEvidenceSequences: readonly number[];
-}
-
-/**
  * 表达当前阻塞的 Memory 条目。
  *
  * @example
@@ -218,7 +184,6 @@ export interface Blocker extends MemoryEntryBase {
 export type MemoryEntry =
     | EvidenceBackedFact
     | Hypothesis
-    | PlanItem
     | Blocker;
 
 /**
@@ -309,8 +274,6 @@ export type {
     HypothesisCreate,
     HypothesisUpdate,
     MemoryPatchOperation,
-    PlanItemCreate,
-    PlanItemUpdate,
     RetireFactProposal,
     WorkingMemoryPatch,
 };
@@ -324,7 +287,6 @@ export type CanonicalMemoryOperation =
     | { readonly type: "upsert_fact"; readonly fact: EvidenceBackedFact }
     | { readonly type: "retire_fact"; readonly factId: string }
     | { readonly type: "upsert_hypothesis"; readonly hypothesis: Hypothesis }
-    | { readonly type: "upsert_plan_item"; readonly planItem: PlanItem }
     | { readonly type: "upsert_blocker"; readonly blocker: Blocker }
     | { readonly type: "evict_entries"; readonly entryIds: readonly string[] }
     | {
@@ -368,7 +330,6 @@ export interface MemoryPatchAcceptedPayload {
  *     derivedThroughSequence: 12,
  *     facts: [],
  *     hypotheses: [],
- *     plan: [],
  *     blockers: [],
  * };
  * ```
@@ -379,7 +340,6 @@ export interface WorkingMemory {
     readonly revision?: MemoryRevision;
     readonly facts: readonly EvidenceBackedFact[];
     readonly hypotheses: readonly Hypothesis[];
-    readonly plan: readonly PlanItem[];
     readonly blockers: readonly Blocker[];
 }
 
@@ -546,7 +506,6 @@ export function createEmptyWorkingMemory(
             }),
         facts: [],
         hypotheses: [],
-        plan: [],
         blockers: [],
     };
 }

@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createStepExecutor,
     Runner,
     type AgentDecision,
     type AgentProfile,
@@ -127,34 +128,32 @@ test("真实 Runner 驱动远端代理执行工具，宿主同名工具不被调
     let stepCounter = 0;
     let authorizedToolsSeen: readonly string[] = [];
 
-    const mockExecutor: StepExecutor = {
-        async execute(input: StepExecutionInput): Promise<AgentDecision> {
-            stepCounter++;
-            authorizedToolsSeen = input.authorizedTools.map((toolDef) => toolDef.id);
+    const mockExecutor: StepExecutor = createStepExecutor(async (input: StepExecutionInput): Promise<AgentDecision> => {
+        stepCounter++;
+        authorizedToolsSeen = input.authorizedTools.map((toolDef) => toolDef.id);
 
-            if (stepCounter === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-read-remote",
-                        toolId: "read_file",
-                        input: { path: "task.txt" },
-                    },
-                };
-            }
-
-            const latestObservation = [...trajectoryStore.events].reverse().find((event) =>
-                event.goalId === input.goal.id
-                && event.runId === input.goal.state.run.id
-                && event.eventType === "tool_finished");
-            if (latestObservation === undefined) throw new Error("remote Tool Observation was not committed");
+        if (stepCounter === 1) {
             return {
-                kind: "complete",
-                summary: "Remote read verified",
-                evidenceSequences: [latestObservation.sequence],
+                kind: "tool_call",
+                action: {
+                    actionId: "act-read-remote",
+                    toolId: "read_file",
+                    input: { path: "task.txt" },
+                },
             };
-        },
-    };
+        }
+
+        const latestObservation = [...trajectoryStore.events].reverse().find((event) =>
+            event.goalId === input.goal.id
+            && event.runId === input.goal.state.run.id
+            && event.eventType === "tool_finished");
+        if (latestObservation === undefined) throw new Error("remote Tool Observation was not committed");
+        return {
+            kind: "complete",
+            summary: "Remote read verified",
+            evidenceSequences: [latestObservation.sequence],
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -227,18 +226,16 @@ test("Worker 响应身份不符时中止执行并保留检查点", async () => {
         toolIds: ["read_file"],
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            return {
-                kind: "tool_call",
-                action: {
-                    actionId: "act-expected",
-                    toolId: "read_file",
-                    input: { path: "test.txt" },
-                },
-            };
-        },
-    };
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        return {
+            kind: "tool_call",
+            action: {
+                actionId: "act-expected",
+                toolId: "read_file",
+                input: { path: "test.txt" },
+            },
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -283,20 +280,18 @@ test("连接断开时中止执行并保留检查点", async () => {
         toolIds: ["read_file"],
     };
 
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            // 在执行动作前关闭底层传输
-            await pipe.close();
-            return {
-                kind: "tool_call",
-                action: {
-                    actionId: "act-disconnect",
-                    toolId: "read_file",
-                    input: { path: "test.txt" },
-                },
-            };
-        },
-    };
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        // 在执行动作前关闭底层传输
+        await pipe.close();
+        return {
+            kind: "tool_call",
+            action: {
+                actionId: "act-disconnect",
+                toolId: "read_file",
+                input: { path: "test.txt" },
+            },
+        };
+    });
 
     const runner = new Runner({
         store,

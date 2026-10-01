@@ -159,7 +159,6 @@ export type {
     ModelMemoryEntryBase,
     ModelFact,
     ModelHypothesis,
-    ModelPlanItem,
     ModelBlocker,
     ModelCompletionEvidence,
     ModelContextLookupFreshness,

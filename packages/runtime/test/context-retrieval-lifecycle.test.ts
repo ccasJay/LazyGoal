@@ -5,6 +5,7 @@ import {
     allocateImmutableEvent,
     classifyTrajectoryTail,
     createGoal,
+    createStepExecutor,
     Runner,
     type AgentDecision,
     type AgentProfile,
@@ -19,6 +20,7 @@ import {
     type TrajectoryStore,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { BaseTestStepExecutor } from "./current-fixtures";
 
 const profile: AgentProfile = {
     id: "context-retrieval-profile",
@@ -112,11 +114,13 @@ function seedObservation(goal: Goal): Readonly<TrajectoryEvent> {
     }, 1, "seed-observation");
 }
 
-class RecordingStepExecutor implements StepExecutor {
+class RecordingStepExecutor extends BaseTestStepExecutor {
     readonly inputs: StepExecutionInput[] = [];
     private index = 0;
 
-    constructor(private readonly decisions: readonly AgentDecision[]) {}
+    constructor(private readonly decisions: readonly AgentDecision[]) {
+        super();
+    }
 
     async execute(input: StepExecutionInput): Promise<AgentDecision> {
         this.inputs.push(input);
@@ -217,20 +221,18 @@ test("Runner resumes a committed lookup result after interruption without queryi
     await store.save(goal);
     const controller = new AbortController();
     let firstExecutorCalls = 0;
-    const firstExecutor: StepExecutor = {
-        async execute() {
-            firstExecutorCalls += 1;
-            if (firstExecutorCalls === 1) {
-                return {
-                    kind: "context_lookup",
-                    need: "historical_execution",
-                    question: "之前做过什么？",
-                };
-            }
-            controller.abort();
-            return { kind: "complete", summary: "不会提交", completionEvidence: [] };
-        },
-    };
+    const firstExecutor: StepExecutor = createStepExecutor(async () => {
+        firstExecutorCalls += 1;
+        if (firstExecutorCalls === 1) {
+            return {
+                kind: "context_lookup",
+                need: "historical_execution",
+                question: "之前做过什么？",
+            };
+        }
+        controller.abort();
+        return { kind: "complete", summary: "不会提交", completionEvidence: [] };
+    });
     let portCalls = 0;
     const port: ContextLookupPort = {
         async lookup(input) {
@@ -263,12 +265,10 @@ test("Runner resumes a committed lookup result after interruption without queryi
                 throw new Error("committed lookup should be reused");
             },
         },
-        executor: {
-            async execute(input) {
-                resumedInputs.push(input);
-                return { kind: "complete", summary: "已恢复", completionEvidence: [] };
-            },
-        },
+        executor: createStepExecutor(async (input) => {
+            resumedInputs.push(input);
+            return { kind: "complete", summary: "已恢复", completionEvidence: [] };
+        }),
     }).run({ goalId: goal.id, runId: goal.state.run.id });
 
     assert.equal(resumed.ok, true);

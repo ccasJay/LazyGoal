@@ -69,7 +69,7 @@ test("FactProposalContract 仅接受标量与一维标量数组（Req 2.5）", (
     assert.equal(arrayWithObjectResult.success, false);
 });
 
-test("统一执行 Patch 契约拒绝创建 PlanItem", () => {
+test("统一执行 Patch 契约拒绝已废除的 PlanItem 操作", () => {
     const createPlanItemPatch = {
         protocolVersion: 1 as const,
         operations: [{
@@ -78,17 +78,17 @@ test("统一执行 Patch 契约拒绝创建 PlanItem", () => {
         }],
     };
 
-    assert.equal(safeParse(WorkingMemoryPatchContract, createPlanItemPatch).success, true);
+    assert.equal(safeParse(WorkingMemoryPatchContract, createPlanItemPatch).success, false);
     assert.equal(safeParse(ExecutingWorkingMemoryPatchContract, createPlanItemPatch).success, false);
 
-    const validExecutingPatch = {
+    const updatePlanItemPatch = {
         protocolVersion: 1 as const,
         operations: [{
             type: "update_plan_item" as const,
             planItem: { id: "plan-1", status: "completed" as const },
         }],
     };
-    assert.equal(safeParse(ExecutingWorkingMemoryPatchContract, validExecutingPatch).success, true);
+    assert.equal(safeParse(ExecutingWorkingMemoryPatchContract, updatePlanItemPatch).success, false);
 });
 
 test("统一 AgentDecision 接受 ask_user 与 task_proposal 并拒绝额外字段", () => {
@@ -297,21 +297,6 @@ test("validateModelOutputSemantics 拦截反转 sequenceRange 和无变更 updat
     assert.equal(hypoIssues[0]?.code, "empty_update");
     assert.deepEqual(hypoIssues[0]?.path, ["operations", 0, "hypothesis"]);
 
-    // 无变更 update_plan_item
-    const emptyUpdatePlan = {
-        protocolVersion: 1,
-        operations: [
-            {
-                type: "update_plan_item",
-                planItem: { id: "plan-1" },
-            },
-        ],
-    };
-    const planIssues = validateModelOutputSemantics(emptyUpdatePlan);
-    assert.equal(planIssues.length, 1);
-    assert.equal(planIssues[0]?.code, "empty_update");
-    assert.deepEqual(planIssues[0]?.path, ["operations", 0, "planItem"]);
-
     // 无变更 update_blocker
     const emptyUpdateBlocker = {
         protocolVersion: 1,
@@ -334,10 +319,6 @@ test("validateModelOutputSemantics 拦截反转 sequenceRange 和无变更 updat
             {
                 type: "update_hypothesis",
                 hypothesis: { id: "hypo-1", status: "resolved" },
-            },
-            {
-                type: "update_plan_item",
-                planItem: { id: "plan-1", description: "新描述" },
             },
             {
                 type: "update_blocker",

@@ -138,11 +138,6 @@ import {
 } from "./evidence-gate";
 import type { CommittedEvidenceIndex } from "./evidence-gate";
 import {
-    createNoopToolMemoryProjectorRegistry,
-    normalizeToolMemoryProjectionResult,
-    type ToolMemoryProjectorRegistry,
-} from "./tool-memory-projector";
-import {
     TrajectoryCheckpointCommitter,
     type AcceptedMemoryPatchInput,
     type TrajectoryCheckpointCommitResult,
@@ -750,8 +745,6 @@ export interface RunnerDependencies {
     readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
-    /** 可选 Tool Observation 事实投影表；省略时不生成 Runtime Fact proposal。 */
-    readonly toolMemoryProjectors?: ToolMemoryProjectorRegistry;
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
@@ -818,7 +811,6 @@ export class Runner {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
-    private readonly toolMemoryProjectors: ToolMemoryProjectorRegistry;
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
     private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
 
@@ -840,8 +832,6 @@ export class Runner {
         this.contextLookupPort = dependencies.contextLookupPort;
         this.executionStream = dependencies.executionStream;
         this.traceSink = dependencies.traceSink;
-        this.toolMemoryProjectors = dependencies.toolMemoryProjectors
-            ?? createNoopToolMemoryProjectorRegistry();
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -1305,97 +1295,6 @@ export class Runner {
         return event;
     }
 
-    private async recordToolProjectorDiagnostic(
-        goal: Goal,
-        action: ToolCallAction,
-        error: unknown,
-    ): Promise<void> {
-        if (this.traceSink === undefined) return;
-        try {
-            await this.traceSink.append(allocateDiagnosticTraceRecord({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                kind: "tool_memory_projector_failed",
-                payload: {
-                    toolId: action.toolId,
-                    actionId: action.actionId,
-                    error: error instanceof Error ? error.message : String(error),
-                },
-            }));
-        } catch {
-            // Diagnostic Trace 是旁路，不能覆盖 Observation 提交语义。
-        }
-    }
-
-    private async projectToolMemoryPatch(
-        goal: Goal,
-        action: ToolCallAction,
-        observation: ToolObservation,
-        observationSequence: number,
-        control?: ExecutionControl,
-    ): Promise<AcceptedMemoryPatchInput | undefined> {
-        const projector = this.toolMemoryProjectors.get(action.toolId);
-        if (projector === undefined) return undefined;
-        const session = await this.openWorkingMemorySession(goal, control);
-        try {
-            const projected = normalizeToolMemoryProjectionResult(projector.project({
-                goal: structuredClone(goal),
-                action: structuredClone(action),
-                observation: structuredClone(observation),
-                observationSequence,
-                workingMemory: structuredClone(session.workingMemory),
-            }));
-            if (projected.status !== "changed") return undefined;
-
-            for (const fact of projected.facts) {
-                if (!fact.evidenceSequences.includes(observationSequence)) {
-                    throw new TypeError(
-                        "ToolMemoryProjector Fact must reference the current observation sequence",
-                    );
-                }
-                const committedEvidence = fact.evidenceSequences.filter(
-                    (sequence) => sequence !== observationSequence,
-                );
-                if (committedEvidence.length > 0) session.validateEvidence(committedEvidence);
-            }
-
-            const patch: WorkingMemoryPatch = {
-                protocolVersion: 1,
-                operations: projected.facts.map((fact) => ({
-                    type: "upsert_fact" as const,
-                    fact,
-                })),
-            };
-            validateMemoryPatchPhase(patch, "executing", {
-                workingMemory: session.workingMemory,
-                ...(this.workingMemoryLimits === undefined
-                    ? {}
-                    : { limits: this.workingMemoryLimits }),
-            });
-            const normalized = normalizeMemoryPatch(patch, {
-                phase: "executing",
-                originSequence: observationSequence + 2,
-                source: "tool_projector",
-                workingMemory: session.workingMemory,
-                ...(this.workingMemoryLimits === undefined
-                    ? {}
-                    : { limits: this.workingMemoryLimits }),
-            });
-            if (normalized.operations.length === 0) return undefined;
-            return {
-                phase: "executing",
-                producers: ["tool_projector"],
-                operations: normalized.operations,
-                actionId: action.actionId,
-            };
-        } catch (error) {
-            await this.recordToolProjectorDiagnostic(goal, action, error);
-            return undefined;
-        } finally {
-            session.close();
-        }
-    }
-
     private async openWorkingMemorySession(
         goal: Goal,
         control?: ExecutionControl,
@@ -1454,7 +1353,7 @@ export class Runner {
             const terminalLifecycle = decision.kind === "complete" || decision.kind === "fail"
                 ? [createSupersedeScopeOperation("phase", {
                     phase: "executing",
-                    kinds: ["hypothesis", "plan", "blocker"],
+                    kinds: ["hypothesis", "blocker"],
                 })]
                 : [];
             const operations = [...normalized.operations, ...terminalLifecycle];
@@ -2795,15 +2694,6 @@ export class Runner {
                 observation,
             },
         }, control);
-        const projectorPatch = toolFinishedEvent === undefined
-            ? undefined
-            : await this.projectToolMemoryPatch(
-                goal,
-                prepared.action,
-                observation,
-                toolFinishedEvent.sequence,
-                control,
-            );
         const observedRun = this.applyTransition(goal.state.run, {
             kind: "observe_action",
             actionId: prepared.action.actionId,
@@ -2811,8 +2701,6 @@ export class Runner {
         });
         const observedGoal = this.withRun(goal, observedRun);
 
-        // Observation、Projector Patch 与 Snapshot 共用提交边界；Projector 失败只会
-        // 省略 accepted Patch，原始 Observation 仍然提交。
         const committed = await this.checkpointCommitter.commit(observedGoal, {
             facts: [{
                 goalId: goal.id,
@@ -2827,7 +2715,6 @@ export class Runner {
                     observation,
                 },
             }],
-            ...(projectorPatch === undefined ? {} : { acceptedPatch: projectorPatch }),
             ...(control === undefined ? {} : { control }),
         });
         this.publishCommittedEvents(committed);
@@ -3066,16 +2953,9 @@ export class Runner {
                             ? {}
                             : { executionStream: this.executionStream }),
                     };
-                    const supportsStages = this.executor.decide !== undefined
-                        && this.executor.think !== undefined;
-                    if ((this.executor.decide === undefined) !== (this.executor.think === undefined)) {
-                        throw invalidAgentDecision("StepExecutor must provide both decide() and think() for staged execution");
-                    }
-
                     const stepOrdinal = goal.state.run.stepCount + 1;
                     const thinkInputBoundary = createThinkInputBoundary(stepInput, stepOrdinal);
-                    if (supportsStages) {
-                        const thinkHistory = await this.restoreThinkHistory(
+                    const thinkHistory = await this.restoreThinkHistory(
                             goal,
                             stepOrdinal,
                             executionUnitId,
@@ -3116,7 +2996,7 @@ export class Runner {
                                 "decide",
                                 decideBoundary,
                                 undefined,
-                                (activeGoal, runtimeFeedback) => this.executor.decide!({
+                                (activeGoal, runtimeFeedback) => this.executor.decide({
                                     ...stepInput,
                                     goal: activeGoal,
                                     thinkHistory,
@@ -3249,44 +3129,6 @@ export class Runner {
                             };
                             break;
                         }
-                    } else {
-                        const repairBoundary = this.createRepairInputBoundary(thinkInputBoundary, "decide");
-                        const executed = await this.executeRepairableModelStage(
-                            goal,
-                            stepInput,
-                            "decide",
-                            repairBoundary,
-                            undefined,
-                            (activeGoal, runtimeFeedback) => this.executor.execute({
-                                ...stepInput,
-                                goal: activeGoal,
-                                ...(runtimeFeedback === undefined ? {} : { runtimeFeedback }),
-                            }),
-                            (activeGoal, execution) => {
-                                const isResultObject = typeof execution === "object"
-                                    && execution !== null
-                                    && "decision" in execution;
-                                const extractedDecision = isResultObject ? (execution as any).decision : execution;
-                                const extractedThought = isResultObject && typeof (execution as any).thought === "string"
-                                    ? (execution as any).thought
-                                    : undefined;
-                                const validated = this.validateDecisionForStage(
-                                    activeGoal,
-                                    extractedDecision,
-                                    executionUnitId,
-                                    control,
-                                );
-                                this.validateEvidenceForStage(activeGoal, validated.decision, session, executionUnitId);
-                                return {
-                                    ...validated,
-                                    ...(extractedThought === undefined ? {} : { thought: extractedThought }),
-                                };
-                            },
-                            control,
-                        );
-                        goal = executed.goal;
-                        normalized = executed.result;
-                    }
                 } catch (error) {
                     if (isExecutionAbortedError(error)) {
                         throw error;

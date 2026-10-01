@@ -82,7 +82,6 @@ function buildView(
             derivedThroughSequence: 0,
             facts: [],
             hypotheses: [],
-            plan: [],
             blockers: [],
         },
         contextEpoch: {

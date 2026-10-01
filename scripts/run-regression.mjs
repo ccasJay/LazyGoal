@@ -71,7 +71,11 @@ function discoverTestFiles() {
 /** 执行一段子命令;返回其退出码(null 表示无法启动)。 */
 function runStage(label, command, args) {
     console.log(`[regression] ${label}`);
-    const result = spawnSync(command, args, { stdio: "inherit", cwd: repoRoot });
+    const result = spawnSync(command, args, {
+        stdio: "inherit",
+        cwd: repoRoot,
+        env: { ...process.env, NODE_NO_WARNINGS: "1" },
+    });
     return result.status ?? 1;
 }
 

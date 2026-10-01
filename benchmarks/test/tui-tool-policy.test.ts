@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import {
     createGoal,
+    createStepExecutor,
     GoalCoordinator,
     InlineScheduler,
     Runner,
@@ -118,26 +119,24 @@ test("auto 模式下自动放行合法授权动作，无需审批直接发往 Wo
     const policy = createSwebenchTuiToolPolicy("auto");
 
     let step = 0;
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            step++;
-            if (step === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-auto-write",
-                        toolId: "write_file",
-                        input: { path: "auto.txt", content: "auto content" },
-                    },
-                };
-            }
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        step++;
+        if (step === 1) {
             return {
-                kind: "complete",
-                summary: "All done",
-                completionEvidence: [],
+                kind: "tool_call",
+                action: {
+                    actionId: "act-auto-write",
+                    toolId: "write_file",
+                    input: { path: "auto.txt", content: "auto content" },
+                },
             };
-        },
-    };
+        }
+        return {
+            kind: "complete",
+            summary: "All done",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -191,26 +190,24 @@ test("review 模式下自动放行只读工具（read_file），无需审批", a
     const policy = createSwebenchTuiToolPolicy("review");
 
     let step = 0;
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            step++;
-            if (step === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-review-read",
-                        toolId: "read_file",
-                        input: { path: "hello.txt" },
-                    },
-                };
-            }
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        step++;
+        if (step === 1) {
             return {
-                kind: "complete",
-                summary: "Finished read",
-                completionEvidence: [],
+                kind: "tool_call",
+                action: {
+                    actionId: "act-review-read",
+                    toolId: "read_file",
+                    input: { path: "hello.txt" },
+                },
             };
-        },
-    };
+        }
+        return {
+            kind: "complete",
+            summary: "Finished read",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -281,36 +278,34 @@ test("review 模式拦截非只读动作（write_file），审批前 Worker 计�
     const policy = createSwebenchTuiToolPolicy("review");
 
     let step = 0;
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            step++;
-            if (step === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-write-1",
-                        toolId: "write_file",
-                        input: { path: "reviewed.txt", content: "approved content 1" },
-                    },
-                };
-            }
-            if (step === 2) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-write-2",
-                        toolId: "write_file",
-                        input: { path: "reviewed2.txt", content: "approved content 2" },
-                    },
-                };
-            }
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        step++;
+        if (step === 1) {
             return {
-                kind: "complete",
-                summary: "All finished",
-                completionEvidence: [],
+                kind: "tool_call",
+                action: {
+                    actionId: "act-write-1",
+                    toolId: "write_file",
+                    input: { path: "reviewed.txt", content: "approved content 1" },
+                },
             };
-        },
-    };
+        }
+        if (step === 2) {
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: "act-write-2",
+                    toolId: "write_file",
+                    input: { path: "reviewed2.txt", content: "approved content 2" },
+                },
+            };
+        }
+        return {
+            kind: "complete",
+            summary: "All finished",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -403,37 +398,35 @@ test("review 模式下拒绝动作（reject_action），Worker 执行计数保�
     let step = 0;
     let receivedRejectedObservation = false;
 
-    const mockExecutor: StepExecutor = {
-        async execute(input: StepExecutionInput): Promise<AgentDecision> {
-            step++;
-            if (step === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-danger-bash",
-                        toolId: "bash",
-                        input: { command: "rm -rf /" },
-                    },
-                };
-            }
-            if (step === 2) {
-                const lastStep = input.goal.state.run.lastStep;
-                if (lastStep?.kind === "action" && lastStep.observation.kind === "rejected") {
-                    receivedRejectedObservation = true;
-                }
-                return {
-                    kind: "complete",
-                    summary: "Handled rejection gracefully",
-                    completionEvidence: [],
-                };
+    const mockExecutor: StepExecutor = createStepExecutor(async (input: StepExecutionInput): Promise<AgentDecision> => {
+        step++;
+        if (step === 1) {
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: "act-danger-bash",
+                    toolId: "bash",
+                    input: { command: "rm -rf /" },
+                },
+            };
+        }
+        if (step === 2) {
+            const lastStep = input.goal.state.run.lastStep;
+            if (lastStep?.kind === "action" && lastStep.observation.kind === "rejected") {
+                receivedRejectedObservation = true;
             }
             return {
                 kind: "complete",
-                summary: "Done",
+                summary: "Handled rejection gracefully",
                 completionEvidence: [],
             };
-        },
-    };
+        }
+        return {
+            kind: "complete",
+            summary: "Done",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,
@@ -516,38 +509,36 @@ test("GAIA review 模式自动放行 web_search 但拦截 submit_answer", async 
     const policy = createGaiaTuiToolPolicy("review");
 
     let step = 0;
-    const mockExecutor: StepExecutor = {
-        async execute(): Promise<AgentDecision> {
-            step++;
-            if (step === 1) {
-                // web_search 是只读工具，应该自动放行
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-gaia-search",
-                        toolId: "web_search",
-                        input: { query: "meaning of life" },
-                    },
-                };
-            }
-            if (step === 2) {
-                // submit_answer 应该被拦截审批
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "act-gaia-submit",
-                        toolId: "submit_answer",
-                        input: { answer: "42" },
-                    },
-                };
-            }
+    const mockExecutor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+        step++;
+        if (step === 1) {
+            // web_search 是只读工具，应该自动放行
             return {
-                kind: "complete",
-                summary: "GAIA solved",
-                completionEvidence: [],
+                kind: "tool_call",
+                action: {
+                    actionId: "act-gaia-search",
+                    toolId: "web_search",
+                    input: { query: "meaning of life" },
+                },
             };
-        },
-    };
+        }
+        if (step === 2) {
+            // submit_answer 应该被拦截审批
+            return {
+                kind: "tool_call",
+                action: {
+                    actionId: "act-gaia-submit",
+                    toolId: "submit_answer",
+                    input: { answer: "42" },
+                },
+            };
+        }
+        return {
+            kind: "complete",
+            summary: "GAIA solved",
+            completionEvidence: [],
+        };
+    });
 
     const runner = new Runner({
         store,

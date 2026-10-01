@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import {
     createGoal,
+    createStepExecutor,
     Runner,
     transition,
 } from "../../runtime/src/index";
@@ -1087,16 +1088,14 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
         const runner = new Runner({
         trajectoryStore: trajectoryStoreFor(blockedStore),
             store: blockedStore,
-            executor: {
-                async execute() {
-                    executeCalls += 1;
-                    return {
-                        kind: "complete" as const,
-                        completionEvidence: [],
-                        summary: "不应执行",
-                    };
-                },
-            },
+            executor: createStepExecutor(async () => {
+                executeCalls += 1;
+                return {
+                    kind: "complete" as const,
+                    completionEvidence: [],
+                    summary: "不应执行",
+                };
+            }),
         });
 
         await assert.rejects(
@@ -1186,16 +1185,14 @@ test("a cross-process waiting Goal resumes with its run and latest snapshot", as
         const runner = new Runner({
         trajectoryStore: trajectoryStoreFor(store),
             store,
-            executor: {
-                async execute({ goal: currentGoal }: StepExecutionInput) {
-                    receivedGoals.push(currentGoal);
-                    return {
-                        kind: "complete" as const,
-                        completionEvidence: [],
-                        summary: "跨进程恢复后完成",
-                    };
-                },
-            },
+            executor: createStepExecutor(async ({ goal: currentGoal }: StepExecutionInput) => {
+                receivedGoals.push(currentGoal);
+                return {
+                    kind: "complete" as const,
+                    completionEvidence: [],
+                    summary: "跨进程恢复后完成",
+                };
+            }),
         });
         const ref = { goalId: goal.id, runId: goal.state.run.id };
 

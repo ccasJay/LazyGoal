@@ -98,7 +98,7 @@ test("动态 Tool 按稳定 ID 码点序派生 tool_call 分支，空集合省�
     assert.equal(unapprovedAnyOf.length, 7);
 });
 
-test("Executing Schema、Shape Guide 与 decode 均拒绝 create_plan_item，并允许合法更新", () => {
+test("Executing Schema、Shape Guide 与 decode 均拒绝 PlanItem 操作，并允许合法 blocker/hypothesis 更新", () => {
     const bundle = createModelOutputContractBundle({ kind: "executing" });
     const validate = new Ajv2020({ allErrors: true, strict: true }).compile(bundle.jsonSchema);
     const invalidCreatePlanItem = {
@@ -121,38 +121,36 @@ test("Executing Schema、Shape Guide 与 decode 均拒绝 create_plan_item，并
     };
     assert.equal(validate(invalidCreatePlanItem), false);
     assert.equal(bundle.shapeGuide.includes("create_plan_item"), false);
+    assert.equal(bundle.shapeGuide.includes("update_plan_item"), false);
     assert.throws(
         () => bundle.decode(invalidCreatePlanItem),
         (error: unknown) => error instanceof ContractValidationError,
     );
 
-    const validUpdatePlanItem = {
+    const validUpdateBlocker = {
         result: {
             kind: "wait",
             reason: "等待执行",
             memoryPatch: {
                 protocolVersion: 1,
                 operations: [{
-                    type: "update_plan_item",
-                    planItem: {
-                        id: "plan-1",
+                    type: "update_blocker",
+                    blocker: {
+                        id: "blocker-1",
                         description: null,
-                        status: "completed",
-                        dependsOnFactIds: null,
-                        dependsOnPlanItemIds: null,
-                        completionEvidenceSequences: null,
+                        status: "resolved",
                     },
                 }],
             },
         },
     };
-    assert.equal(validate(validUpdatePlanItem), true);
-    const decoded = bundle.decode(validUpdatePlanItem);
+    assert.equal(validate(validUpdateBlocker), true);
+    const decoded = bundle.decode(validUpdateBlocker);
     assert.equal(decoded.kind, "wait");
     if (decoded.kind === "wait") {
         assert.deepEqual(decoded.memoryPatch?.operations, [{
-            type: "update_plan_item",
-            planItem: { id: "plan-1", status: "completed" },
+            type: "update_blocker",
+            blocker: { id: "blocker-1", status: "resolved" },
         }]);
     }
 });

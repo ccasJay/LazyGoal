@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createGoal,
     createRun,
+    createStepExecutor,
     createToolGrantMatcher,
     createToolRegistration,
     ExecutionAbortedError,
@@ -89,6 +90,15 @@ class FakeStepExecutor implements StepExecutor {
 
         return action(goal);
     }
+
+    async decide(input: StepExecutionInput): Promise<{ kind: "decision"; decision: AgentDecision }> {
+        const decision = await this.execute(input);
+        return { kind: "decision", decision };
+    }
+
+    async think(): Promise<never> {
+        throw new Error("think not supported in test");
+    }
 }
 
 class FakeDecisionExecutor implements StepExecutor {
@@ -101,6 +111,15 @@ class FakeDecisionExecutor implements StepExecutor {
         this.receivedTools.push([...authorizedTools]);
         this.receivedFeedback.push(runtimeFeedback);
         return structuredClone(this.decision);
+    }
+
+    async decide(input: StepExecutionInput): Promise<{ kind: "decision"; decision: AgentDecision }> {
+        const decision = await this.execute(input);
+        return { kind: "decision", decision };
+    }
+
+    async think(): Promise<never> {
+        throw new Error("think not supported in test");
     }
 }
 
@@ -124,6 +143,15 @@ class SequenceDecisionExecutor implements StepExecutor {
         }
 
         return structuredClone(decision);
+    }
+
+    async decide(input: StepExecutionInput): Promise<{ kind: "decision"; decision: AgentDecision }> {
+        const decision = await this.execute(input);
+        return { kind: "decision", decision };
+    }
+
+    async think(): Promise<never> {
+        throw new Error("think not supported in test");
     }
 }
 
@@ -427,13 +455,11 @@ test("retries only typed transient model failures and caps the model call sequen
     const store = new InMemoryGoalStore();
     await store.save(initial);
     let calls = 0;
-    const executor: StepExecutor = {
-        async execute() {
-            calls += 1;
-            if (calls < 3) throw new TransientModelRequestFailure("service_unavailable", { status: 503 });
-            return { kind: "complete", summary: "完成", completionEvidence: [] };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async () => {
+        calls += 1;
+        if (calls < 3) throw new TransientModelRequestFailure("service_unavailable", { status: 503 });
+        return { kind: "complete", summary: "完成", completionEvidence: [] };
+    });
     const trajectory = trajectoryStoreFor(store);
     const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
@@ -612,14 +638,12 @@ test("records stable causes and stops after three transient model request failur
     const store = new InMemoryGoalStore();
     await store.save(initial);
     let calls = 0;
-    const executor: StepExecutor = {
-        async execute() {
-            calls += 1;
-            throw new TransientModelRequestFailure(calls === 2 ? "rate_limited" : "service_unavailable", {
-                status: calls === 2 ? 429 : 503,
-            });
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async () => {
+        calls += 1;
+        throw new TransientModelRequestFailure(calls === 2 ? "rate_limited" : "service_unavailable", {
+            status: calls === 2 ? 429 : 503,
+        });
+    });
     const trajectory = trajectoryStoreFor(store);
     const runner = new Runner({ store, executor, trajectoryStore: trajectory });
 
@@ -645,12 +669,10 @@ test("cancelling model backoff prevents the next model request", async () => {
     const store = new InMemoryGoalStore();
     await store.save(initial);
     let calls = 0;
-    const executor: StepExecutor = {
-        async execute() {
-            calls += 1;
-            throw new TransientModelRequestFailure("rate_limited", { status: 429 });
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async () => {
+        calls += 1;
+        throw new TransientModelRequestFailure("rate_limited", { status: 429 });
+    });
     const runner = new Runner({ store, executor, trajectoryStore: trajectoryStoreFor(store) });
     const controller = new AbortController();
     const cancelTimer = setTimeout(() => controller.abort(), 20);
@@ -1613,21 +1635,19 @@ test("Runner 将非法 sandboxAccess 的字段诊断送回模型并接受修正�
             return { kind: "success", output: "", summary: "已读取 Git 历史" };
         },
     };
-    const executor: StepExecutor = {
-        async execute({ runtimeFeedback }) {
-            receivedFeedback.push(runtimeFeedback);
-            return {
-                kind: "tool_call",
-                action: {
-                    actionId: "action-git-history",
-                    toolId: "bash",
-                    input: runtimeFeedback === undefined
-                        ? { command: "git log -5 --oneline", sandboxAccess: -1 }
-                        : { command: "git log -5 --oneline" },
-                },
-            };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async ({ runtimeFeedback }) => {
+        receivedFeedback.push(runtimeFeedback);
+        return {
+            kind: "tool_call",
+            action: {
+                actionId: "action-git-history",
+                toolId: "bash",
+                input: runtimeFeedback === undefined
+                    ? { command: "git log -5 --oneline", sandboxAccess: -1 }
+                    : { command: "git log -5 --oneline" },
+            },
+        };
+    });
 
     const result = await new Runner({
         store,
@@ -1664,18 +1684,16 @@ test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事�
         },
     };
     let executorCalls = 0;
-    const executor: StepExecutor = {
-        async execute() {
-            executorCalls += 1;
-            return executorCalls === 1
-                ? decision
-                : {
-                    kind: "complete" as const,
-                    completionEvidence: [],
-                    summary: "完成",
-                };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async () => {
+        executorCalls += 1;
+        return executorCalls === 1
+            ? decision
+            : {
+                kind: "complete" as const,
+                completionEvidence: [],
+                summary: "完成",
+            };
+    });
     let validateCalls = 0;
     let policyCalls = 0;
     let executeCalls = 0;
@@ -1829,28 +1847,26 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
         },
     };
     let executorCalls = 0;
-    const executor: StepExecutor = {
-        async execute({ authorizedTools }) {
-            events.push(`executor:${authorizedTools.length}`);
+    const executor: StepExecutor = createStepExecutor(async ({ authorizedTools }) => {
+        events.push(`executor:${authorizedTools.length}`);
 
-            if (executorCalls++ > 0) {
-                return {
-                    kind: "complete",
-                    completionEvidence: [],
-                    summary: "完成",
-                };
-            }
-
+        if (executorCalls++ > 0) {
             return {
-                kind: "tool_call",
-                action: {
-                    actionId: "action-policy-order",
-                    toolId: "read_file",
-                    input: { path: "README.md" },
-                },
+                kind: "complete",
+                completionEvidence: [],
+                summary: "完成",
             };
-        },
-    };
+        }
+
+        return {
+            kind: "tool_call",
+            action: {
+                actionId: "action-policy-order",
+                toolId: "read_file",
+                input: { path: "README.md" },
+            },
+        };
+    });
     const registry: ToolRegistry = {
         get: (toolId) => {
             events.push(`registry:${toolId}`);
@@ -1921,14 +1937,12 @@ test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同
     const result = await new Runner({
         store,
         trajectoryStore: trajectoryStoreFor(store),
-        executor: {
-            async execute() {
-                executorCalls += 1;
-                return executorCalls === 1
-                    ? { kind: "tool_call", action }
-                    : { kind: "complete", completionEvidence: [], summary: "完成" };
-            },
-        },
+        executor: createStepExecutor(async () => {
+            executorCalls += 1;
+            return executorCalls === 1
+                ? { kind: "tool_call", action }
+                : { kind: "complete", completionEvidence: [], summary: "完成" };
+        }),
         toolRegistry: {
             get() {
                 return createToolRegistration({

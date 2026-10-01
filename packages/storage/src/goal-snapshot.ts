@@ -616,26 +616,6 @@ const MemoryPatchOperationSchema = z.discriminatedUnion("type", [
         ),
     }).strict(),
     z.object({
-        type: z.literal("create_plan_item"),
-        planItem: z.object({
-            description: NonEmptyStringSchema,
-            status: z.enum(["pending", "active", "blocked"]).optional(),
-            dependsOnFactIds: z.array(NonEmptyStringSchema).optional(),
-            dependsOnPlanItemIds: z.array(NonEmptyStringSchema).optional(),
-        }).strict(),
-    }).strict(),
-    z.object({
-        type: z.literal("update_plan_item"),
-        planItem: z.object({
-            id: NonEmptyStringSchema,
-            description: NonEmptyStringSchema.optional(),
-            status: z.enum(["pending", "active", "completed", "blocked", "superseded"]).optional(),
-            dependsOnFactIds: z.array(NonEmptyStringSchema).optional(),
-            dependsOnPlanItemIds: z.array(NonEmptyStringSchema).optional(),
-            completionEvidenceSequences: z.array(z.number().int().positive()).optional(),
-        }).strict().refine((value) => Object.keys(value).some((key) => key !== "id")),
-    }).strict(),
-    z.object({
         type: z.literal("create_blocker"),
         blocker: z.object({
             description: NonEmptyStringSchema,

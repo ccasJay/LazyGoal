@@ -158,7 +158,6 @@ const REPLAY_LIMITS: WorkingMemoryLimitsInput = Object.freeze({
     maxEvidenceReferences: Number.MAX_SAFE_INTEGER,
     maxFacts: Number.MAX_SAFE_INTEGER,
     maxHypotheses: Number.MAX_SAFE_INTEGER,
-    maxPlanItems: Number.MAX_SAFE_INTEGER,
     maxBlockers: Number.MAX_SAFE_INTEGER,
 });
 

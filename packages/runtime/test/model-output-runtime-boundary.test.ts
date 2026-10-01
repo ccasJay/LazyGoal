@@ -7,7 +7,7 @@ import {
     Runner,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -58,8 +58,10 @@ function createRef(goal: Goal, runId = "run-1"): RunRef {
     };
 }
 
-class MaliciousStepExecutor implements StepExecutor {
-    constructor(private readonly decision: unknown) {}
+class MaliciousStepExecutor extends BaseTestStepExecutor {
+    constructor(private readonly decision: unknown) {
+        super();
+    }
 
     async execute(_input: StepExecutionInput): Promise<AgentDecision> {
         return this.decision as AgentDecision;

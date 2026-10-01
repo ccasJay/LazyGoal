@@ -122,10 +122,6 @@ export type {
     MemoryRevision,
     ModelContextProtocol,
     ModelContextEpochState,
-    PlanItem,
-    PlanItemCreate,
-    PlanItemStatus,
-    PlanItemUpdate,
     RetireFactProposal,
     RunInput,
     RunExecutionOptions,
@@ -162,12 +158,12 @@ export type {
     GoalCatalogEntry,
     GoalStore,
 } from "./goal-store";
+export { createStepExecutor } from "./step-executor";
 export type { StepExecutor } from "./step-executor";
 export type {
     DecideStageResult,
     ModelContextFrameForStage,
     StepExecutionInput,
-    StepExecutionResult,
     ThinkExchange,
     ThinkStageResult,
 } from "./step-executor";
@@ -201,17 +197,6 @@ export {
     validateMemoryPatch,
     validateMemoryPatchPhase,
 } from "./working-memory-core";
-export {
-    createNoopToolMemoryProjectorRegistry,
-    normalizeToolMemoryProjectionResult,
-} from "./tool-memory-projector";
-export type {
-    ToolMemoryProjectionInput,
-    ToolMemoryProjectionResult,
-    ToolMemoryProjectionStatus,
-    ToolMemoryProjector,
-    ToolMemoryProjectorRegistry,
-} from "./tool-memory-projector";
 export {
     CONTEXT_LOOKUP_CHAIN_LIMIT_CODE,
     CONTEXT_LOOKUP_FAILED_CODE,

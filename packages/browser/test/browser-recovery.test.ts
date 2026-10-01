@@ -8,6 +8,7 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import {
     createGoal,
+    createStepExecutor,
     createToolRegistration,
     readTrajectoryAtSnapshot,
     Runner,
@@ -127,7 +128,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
             store: initialStore,
             trajectoryStore: firstProcessTrajectory,
             toolRegistry: { get: () => registration },
-            executor: { async execute() { throw new Error("pending action must bypass the model"); } },
+            executor: createStepExecutor(async () => { throw new Error("pending action must bypass the model"); }),
         });
 
         await assert.rejects(firstRunner.run(
@@ -143,7 +144,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
             store: restartedStore,
             trajectoryStore: restartedTrajectory,
             toolRegistry: { get: () => registration },
-            executor: { async execute() { throw new Error("manual recovery must not request a new decision"); } },
+            executor: createStepExecutor(async () => { throw new Error("manual recovery must not request a new decision"); }),
         });
         const recovered = await restartedRunner.run({
             goalId: interrupted.id,

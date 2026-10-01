@@ -6,6 +6,7 @@ import {
     InlineScheduler,
     Runner,
     createGoal,
+    createStepExecutor,
     createToolRegistration,
     InMemoryToolRegistry,
     type AgentDecision,
@@ -18,7 +19,7 @@ import {
     type ToolPolicy,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
 
 const profile: AgentProfile = {
@@ -79,9 +80,13 @@ function createMockTool(
     };
 }
 
-class QueueStepExecutor implements StepExecutor {
+class QueueStepExecutor extends BaseTestStepExecutor {
     private queue: AgentDecision[] = [];
     calls = 0;
+
+    constructor() {
+        super();
+    }
 
     enqueue(...decisions: AgentDecision[]): void {
         this.queue.push(...decisions);
@@ -539,34 +544,32 @@ test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完�
     let writeExecuted = false;
     let policyEvaluated = false;
     let step = 0;
-    const executor: StepExecutor = {
-        async execute({ goal: currentGoal }) {
-            step += 1;
-            if (step === 1) {
-                return {
-                    kind: "tool_call",
-                    action: {
-                        actionId: "action-normal-write",
-                        toolId: "write_file",
-                        input: { path: "direct.txt", content: "normal run" },
-                    },
-                };
-            }
-            const committed = await trajectoryStore.readWithBoundary(
-                { goalId: currentGoal.id, runId: currentGoal.state.run.id },
-                currentGoal.state.run.committedThroughSequence ?? 0,
-            );
-            const evidenceSequence = [...committed.committed]
-                .reverse()
-                .find((event) => event.eventType === "tool_finished")?.sequence;
-            assert.ok(evidenceSequence !== undefined && evidenceSequence > 0);
+    const executor: StepExecutor = createStepExecutor(async ({ goal: currentGoal }) => {
+        step += 1;
+        if (step === 1) {
             return {
-                kind: "complete",
-                summary: "当前请求已完成",
-                evidenceSequences: [evidenceSequence],
+                kind: "tool_call",
+                action: {
+                    actionId: "action-normal-write",
+                    toolId: "write_file",
+                    input: { path: "direct.txt", content: "normal run" },
+                },
             };
-        },
-    };
+        }
+        const committed = await trajectoryStore.readWithBoundary(
+            { goalId: currentGoal.id, runId: currentGoal.state.run.id },
+            currentGoal.state.run.committedThroughSequence ?? 0,
+        );
+        const evidenceSequence = [...committed.committed]
+            .reverse()
+            .find((event) => event.eventType === "tool_finished")?.sequence;
+        assert.ok(evidenceSequence !== undefined && evidenceSequence > 0);
+        return {
+            kind: "complete",
+            summary: "当前请求已完成",
+            evidenceSequences: [evidenceSequence],
+        };
+    });
     const runner = new Runner({
         store,
         executor,

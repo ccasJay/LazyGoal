@@ -1,5 +1,5 @@
 import { JsonFileGoalStore } from "../../src/index";
-import { Runner, createToolRegistration } from "../../../runtime/src/index";
+import { Runner, createStepExecutor, createToolRegistration } from "../../../runtime/src/index";
 import { contract } from "../../../contracts/src/index";
 import type {
     Goal,
@@ -72,20 +72,18 @@ async function main(): Promise<void> {
         const result = await new Runner({
             trajectoryStore: new InMemoryTrajectoryStore(),
             store: new JsonFileGoalStore(directory),
-            executor: {
-                async execute({ goal }: StepExecutionInput) {
-                    const lastStep = goal.state.run.lastStep;
+            executor: createStepExecutor(async ({ goal }: StepExecutionInput) => {
+                const lastStep = goal.state.run.lastStep;
 
-                    observedActionId = lastStep?.kind === "action"
-                        ? lastStep.action.actionId
-                        : undefined;
-                    return {
-                        kind: "complete" as const,
-                        completionEvidence: [],
-                        summary: "跨进程重放后完成",
-                    };
-                },
-            },
+                observedActionId = lastStep?.kind === "action"
+                    ? lastStep.action.actionId
+                    : undefined;
+                return {
+                    kind: "complete" as const,
+                    completionEvidence: [],
+                    summary: "跨进程重放后完成",
+                };
+            }),
             toolRegistry: {
                 get(toolId) {
                     return toolId === READ_FILE_TOOL_ID ? registration : undefined;
@@ -141,28 +139,26 @@ async function main(): Promise<void> {
                 return tool.execute(request, control);
             },
         };
-        const executor: StepExecutor = {
-            async execute({ goal: currentGoal }: StepExecutionInput) {
-                events.push(`executor:${currentGoal.state.run.stepCount}`);
+        const executor: StepExecutor = createStepExecutor(async ({ goal: currentGoal }: StepExecutionInput) => {
+            events.push(`executor:${currentGoal.state.run.stepCount}`);
 
-                if (currentGoal.state.run.stepCount === 0) {
-                    return {
-                        kind: "tool_call",
-                        action: {
-                            actionId: "action-lifecycle",
-                            toolId: READ_FILE_TOOL_ID,
-                            input: { path: "README.md" },
-                        },
-                    };
-                }
-
+            if (currentGoal.state.run.stepCount === 0) {
                 return {
-                    kind: "complete",
-                    completionEvidence: [],
-                    summary: "生命周期完成",
+                    kind: "tool_call",
+                    action: {
+                        actionId: "action-lifecycle",
+                        toolId: READ_FILE_TOOL_ID,
+                        input: { path: "README.md" },
+                    },
                 };
-            },
-        };
+            }
+
+            return {
+                kind: "complete",
+                completionEvidence: [],
+                summary: "生命周期完成",
+            };
+        });
         const result = await new Runner({
             trajectoryStore: trajectoryStoreFor(store),
             store,
@@ -214,12 +210,10 @@ async function main(): Promise<void> {
         const result = await new Runner({
             trajectoryStore: new InMemoryTrajectoryStore(),
             store: new JsonFileGoalStore(directory),
-            executor: {
-                async execute() {
-                    executorCalls += 1;
-                    return { kind: "complete", completionEvidence: [], summary: "不应执行" };
-                },
-            },
+            executor: createStepExecutor(async () => {
+                executorCalls += 1;
+                return { kind: "complete", completionEvidence: [], summary: "不应执行" };
+            }),
             toolRegistry: {
                 get(id) {
                     return id === "manual_tool"
@@ -256,11 +250,9 @@ async function main(): Promise<void> {
         const buildRunner = (observe: (actionId: string) => void) => new Runner({
             trajectoryStore: trajectoryStoreFor(store),
             store,
-            executor: {
-                async execute() {
-                    return { kind: "complete", completionEvidence: [], summary: "授权后完成" };
-                },
-            },
+            executor: createStepExecutor(async () => {
+                return { kind: "complete", completionEvidence: [], summary: "授权后完成" };
+            }),
             toolRegistry: {
                 get(id) {
                     if (id !== READ_FILE_TOOL_ID) {

@@ -3,6 +3,11 @@ import type {
     MemoryProtocol,
     ModelContextProtocol,
 } from "../src/domain";
+import type {
+    AgentDecision,
+    StepExecutionInput,
+    StepExecutor,
+} from "../src/index";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,
@@ -21,6 +26,20 @@ export const currentProtocols: {
     modelContextProtocol: { kind: "trajectory-layered", version: 1 },
     contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
 };
+
+/** Base StepExecutor for tests that adapt single execute() to decide()/think(). */
+export abstract class BaseTestStepExecutor implements StepExecutor {
+    abstract execute(input: StepExecutionInput): Promise<AgentDecision>;
+
+    async decide(input: StepExecutionInput): Promise<{ kind: "decision"; decision: AgentDecision }> {
+        const decision = await this.execute(input);
+        return { kind: "decision", decision };
+    }
+
+    async think(): Promise<never> {
+        throw new Error("think not supported in test");
+    }
+}
 
 /** Minimal in-memory Trajectory port for Runtime tests without domain events. */
 export class InMemoryTrajectoryStore implements TrajectoryStore {

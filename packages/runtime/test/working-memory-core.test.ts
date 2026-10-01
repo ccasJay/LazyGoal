@@ -103,43 +103,7 @@ test("newer evidence supersedes a Fact value and same-sequence Projector wins", 
     );
 });
 
-test("统一执行阶段只允许更新已有 PlanItem 并验证完成证据", () => {
-    const seeded = reduceWorkingMemory(createEmptyWorkingMemory(), [{
-        type: "upsert_plan_item",
-        planItem: {
-            kind: "plan",
-            id: "plan:seed",
-            description: "Run tests",
-            status: "active",
-            dependsOnFactIds: [],
-            dependsOnPlanItemIds: [],
-            completionEvidenceSequences: [],
-            scope: "phase",
-            originPhase: "executing",
-            originSequence: 1,
-            updatedAtSequence: 1,
-        },
-    }], { derivedThroughSequence: 1 });
-    assert.throws(
-        () => applyMemoryPatch(seeded, patch({
-            type: "create_plan_item",
-            planItem: { description: "Illegal new plan" },
-        }), { phase: "executing", originSequence: 2 }),
-        /does not allow create_plan_item/,
-    );
-
-    const completed = applyMemoryPatch(seeded, patch({
-        type: "update_plan_item",
-        planItem: {
-            id: "plan:seed",
-            status: "completed",
-            completionEvidenceSequences: [2],
-        },
-    }), { phase: "executing", originSequence: 3 });
-    assert.deepEqual(completed.plan, []);
-});
-
-test("统一执行阶段允许事实、假设和阻塞项，但不允许新建 PlanItem", () => {
+test("统一执行阶段允许事实、假设和阻塞项", () => {
     const executingPatch = patch(
         factPatch("user", "requested_format", "json", 1).operations[0]!,
         { type: "create_hypothesis", hypothesis: { statement: "Needs clarification" } },
@@ -154,65 +118,6 @@ test("统一执行阶段允许事实、假设和阻塞项，但不允许新建 P
     assert.equal(executingMemory.facts.length, 1);
     assert.equal(executingMemory.hypotheses.length, 1);
     assert.equal(executingMemory.blockers.length, 1);
-    assert.equal(executingMemory.plan.length, 0);
-});
-
-test("phase policy rejects forbidden PlanItem operations atomically", () => {
-    const current = reduceWorkingMemory(createEmptyWorkingMemory(), [{
-        type: "upsert_plan_item",
-        planItem: {
-            kind: "plan",
-            id: "plan:existing",
-            description: "Existing plan",
-            status: "active",
-            dependsOnFactIds: [],
-            dependsOnPlanItemIds: [],
-            completionEvidenceSequences: [],
-            scope: "phase",
-            originPhase: "executing",
-            originSequence: 1,
-            updatedAtSequence: 1,
-        },
-    }], { derivedThroughSequence: 1 });
-    const before = structuredClone(current);
-    const mixedPatch = patch(
-        { type: "create_hypothesis", hypothesis: { statement: "Allowed by itself" } },
-        {
-            type: "create_plan_item",
-            planItem: { description: "Forbidden in executing" },
-        },
-    );
-
-    assert.throws(
-        () => validateMemoryPatchPhase(mixedPatch, "executing", { workingMemory: current }),
-        /does not allow create_plan_item/,
-    );
-    assert.throws(
-        () => applyMemoryPatch(current, mixedPatch, { phase: "executing", originSequence: 2 }),
-        /does not allow create_plan_item/,
-    );
-    assert.deepEqual(current, before);
-
-    assert.throws(
-        () => validateMemoryPatchPhase(
-            patch({
-                type: "update_plan_item",
-                planItem: { id: "plan:missing:0", status: "blocked" },
-            }),
-            "executing",
-            { workingMemory: current },
-        ),
-        /does not reference an existing PlanItem/,
-    );
-    const updated = applyMemoryPatch(
-        current,
-        patch({
-            type: "update_plan_item",
-            planItem: { id: current.plan[0]!.id, status: "blocked" },
-        }),
-        { phase: "executing", originSequence: 2 },
-    );
-    assert.equal(updated.plan[0]?.status, "blocked");
 });
 
 test("Runtime control state cannot be persisted as Fact", () => {
@@ -255,43 +160,6 @@ test("capacity suppresses a low-utility candidate and persists existing eviction
     assert.equal(replayed.facts[0]?.subject, "new");
 });
 
-test("protected active Plan dependencies reject an impossible capacity", () => {
-    const withFact = applyMemoryPatch(
-        createEmptyWorkingMemory(),
-        factPatch("workspace", "ready", true, 1),
-        { phase: "executing", originSequence: 2 },
-    );
-    const protectedMemory = reduceWorkingMemory(withFact, [{
-        type: "upsert_plan_item",
-        planItem: {
-            kind: "plan",
-            id: "plan:protected",
-            description: "Protected plan",
-            status: "active",
-            dependsOnFactIds: [withFact.facts[0]!.id],
-            dependsOnPlanItemIds: [],
-            completionEvidenceSequences: [],
-            scope: "phase",
-            originPhase: "executing",
-            originSequence: 3,
-            updatedAtSequence: 3,
-        },
-    }], { derivedThroughSequence: 3 });
-
-    assert.throws(
-        () => normalizeMemoryPatch(patch({
-            type: "create_hypothesis",
-            hypothesis: { statement: "extra" },
-        }), {
-            phase: "executing",
-            originSequence: 4,
-            workingMemory: protectedMemory,
-            limits: { ...DEFAULT_WORKING_MEMORY_LIMITS, maxFacts: 0 },
-        }),
-        /protected Working Memory exceeds capacity/,
-    );
-});
-
 test("phase lifecycle removes executing intent but retains goal Facts", () => {
     let memory: WorkingMemory = applyMemoryPatch(
         createEmptyWorkingMemory(),
@@ -306,7 +174,7 @@ test("phase lifecycle removes executing intent but retains goal Facts", () => {
         memory,
         [createSupersedeScopeOperation("phase", {
             phase: "executing",
-            kinds: ["hypothesis", "plan", "blocker"],
+            kinds: ["hypothesis", "blocker"],
         })],
         { derivedThroughSequence: 4 },
     );

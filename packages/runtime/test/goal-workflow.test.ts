@@ -11,7 +11,7 @@ import {
 } from "../src/index";
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
 import type {
     AgentDecision,
     AgentProfile,
@@ -77,7 +77,7 @@ class WorkflowStore implements GoalStore {
     }
 }
 
-class WorkflowStepExecutor implements StepExecutor {
+class WorkflowStepExecutor extends BaseTestStepExecutor {
     private readonly decisions: readonly AgentDecision[] = [
         {
             kind: "ask_user",
@@ -121,7 +121,9 @@ class WorkflowStepExecutor implements StepExecutor {
     ];
     private callCount = 0;
 
-    constructor(private readonly events: string[]) {}
+    constructor(private readonly events: string[]) {
+        super();
+    }
 
     async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.events.push(`step:${goal.state.run.stepCount}`);

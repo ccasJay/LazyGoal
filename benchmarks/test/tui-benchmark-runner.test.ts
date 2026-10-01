@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { AgentDecision, LLMAdapter, StepExecutionInput, StepExecutor } from "../../packages/agent/src/index.js";
-import type { ExitPort } from "../../packages/runtime/src/index.js";
+import { createStepExecutor, type ExitPort } from "../../packages/runtime/src/index.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     runTuiWithSandbox,
@@ -92,11 +92,7 @@ const mockAdapter: LLMAdapter = {
 function withDirectExecution(
     next: (input: StepExecutionInput) => Promise<AgentDecision> | AgentDecision,
 ): StepExecutor {
-    return {
-        async execute(input) {
-            return next(input);
-        },
-    };
+    return createStepExecutor(next);
 }
 
 test("默认 LLMStepExecutor 装配完整模型上下文依赖并完成单步执行", async (t) => {

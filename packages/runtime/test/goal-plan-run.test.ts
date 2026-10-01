@@ -5,6 +5,7 @@ import {
     createGoal,
     createEmptyGoalPlan,
     createRun,
+    createStepExecutor,
     createToolRegistration,
     InMemoryToolRegistry,
     reduceGoalPlan,
@@ -20,7 +21,7 @@ import {
     type ToolDefinition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
 
 const profile: AgentProfile = {
@@ -52,10 +53,12 @@ const observationTool: Tool<typeof OBSERVATION_TOOL_INPUT> = {
     },
 };
 
-class SequenceExecutor implements StepExecutor {
+class SequenceExecutor extends BaseTestStepExecutor {
     private index = 0;
 
-    constructor(private readonly decisions: readonly AgentDecision[]) {}
+    constructor(private readonly decisions: readonly AgentDecision[]) {
+        super();
+    }
 
     async execute(_input: StepExecutionInput): Promise<AgentDecision> {
         const decision = this.decisions[this.index];
@@ -65,10 +68,12 @@ class SequenceExecutor implements StepExecutor {
     }
 }
 
-class TodoCompletionExecutor implements StepExecutor {
+class TodoCompletionExecutor extends BaseTestStepExecutor {
     private index = 0;
 
-    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {}
+    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {
+        super();
+    }
 
     async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.index += 1;
@@ -103,10 +108,12 @@ class TodoCompletionExecutor implements StepExecutor {
     }
 }
 
-class MultiTodoExecutor implements StepExecutor {
+class MultiTodoExecutor extends BaseTestStepExecutor {
     private index = 0;
 
-    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {}
+    constructor(private readonly trajectory: ReturnType<typeof trajectoryStoreFor>) {
+        super();
+    }
 
     async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.index += 1;
@@ -388,25 +395,23 @@ test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效�
                 return { kind: "success", output: "unexpected", summary: "unexpected tool call" };
             },
         };
-        const executor: StepExecutor = {
-            async execute(): Promise<AgentDecision> {
-                modelCalls += 1;
-                return modelCalls === 1
-                    ? {
-                        kind: "goal_plan_update",
-                        baseRevision: initial.state.goalPlan!.revision,
-                        operations: [{ type: "update", id: "todo-1", content: "提交后的内容" }],
-                    }
-                    : {
-                        kind: "tool_call",
-                        action: {
-                            actionId: "must-not-run",
-                            toolId: OBSERVATION_TOOL_DEFINITION.id,
-                            input: {},
-                        },
-                    };
-            },
-        };
+        const executor: StepExecutor = createStepExecutor(async (): Promise<AgentDecision> => {
+            modelCalls += 1;
+            return modelCalls === 1
+                ? {
+                    kind: "goal_plan_update",
+                    baseRevision: initial.state.goalPlan!.revision,
+                    operations: [{ type: "update", id: "todo-1", content: "提交后的内容" }],
+                }
+                : {
+                    kind: "tool_call",
+                    action: {
+                        actionId: "must-not-run",
+                        toolId: OBSERVATION_TOOL_DEFINITION.id,
+                        input: {},
+                    },
+                };
+        });
 
         await assert.rejects(
             () => new Runner({
@@ -554,7 +559,10 @@ test("未提交 Observation 不能让 GoalPlan Patch 部分生效", async () => 
     const initial = planGoal();
     await store.save(initial);
     const trajectory = trajectoryStoreFor(store);
-    class UncommittedEvidenceExecutor implements StepExecutor {
+    class UncommittedEvidenceExecutor extends BaseTestStepExecutor {
+        constructor() {
+            super();
+        }
         async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
             const event = await trajectory.append({
                 goalId: goal.id,

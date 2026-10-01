@@ -16,7 +16,7 @@ import {
     type ToolDefinition,
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
 import { contract, type AskUserQuestionInput } from "../../contracts/src/index";
 
 const profile: AgentProfile = {
@@ -55,9 +55,13 @@ function createMockTool(definition: ToolDefinition): Tool {
     };
 }
 
-class QueueStepExecutor implements StepExecutor {
+class QueueStepExecutor extends BaseTestStepExecutor {
     private queue: AgentDecision[] = [];
     calls = 0;
+
+    constructor() {
+        super();
+    }
 
     enqueue(...decisions: AgentDecision[]): void {
         this.queue.push(...decisions);
@@ -73,10 +77,12 @@ class QueueStepExecutor implements StepExecutor {
     }
 }
 
-class GoalPlanCompletionExecutor implements StepExecutor {
+class GoalPlanCompletionExecutor extends BaseTestStepExecutor {
     private index = 0;
 
-    constructor(private readonly trajectoryStore: ReturnType<typeof trajectoryStoreFor>) {}
+    constructor(private readonly trajectoryStore: ReturnType<typeof trajectoryStoreFor>) {
+        super();
+    }
 
     async execute({ goal }: StepExecutionInput): Promise<AgentDecision> {
         this.index += 1;

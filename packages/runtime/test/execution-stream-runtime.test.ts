@@ -18,7 +18,7 @@ import {
     InMemoryExecutionStreamPublisher,
     type ExecutionStreamPublisher,
 } from "../../execution-stream/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 
 const inputContract = contract.record(contract.string());
 
@@ -48,8 +48,12 @@ function createStreamGoal(): Goal {
     };
 }
 
-class StreamDecisionExecutor implements StepExecutor {
+class StreamDecisionExecutor extends BaseTestStepExecutor {
     private calls = 0;
+
+    constructor() {
+        super();
+    }
 
     async execute(_input: StepExecutionInput): Promise<AgentDecision> {
         this.calls += 1;

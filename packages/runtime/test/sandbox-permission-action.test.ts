@@ -25,7 +25,7 @@ import {
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ProjectPermissionModeStore } from "../../permission/src/index";
-import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -59,11 +59,12 @@ type SandboxTestInput = {
     };
 };
 
-class FakeStepExecutor implements StepExecutor {
+class FakeStepExecutor extends BaseTestStepExecutor {
     private readonly decisions: readonly AgentDecision[];
     private index = 0;
 
     constructor(decisions: readonly AgentDecision[]) {
+        super();
         this.decisions = decisions;
     }
 

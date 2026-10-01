@@ -121,65 +121,35 @@ export interface StepExecutionInput {
 }
 
 /**
- * 携带可选阶段说明文本的兼容单步执行结果。
+ * Agent 与 Runtime 之间的分阶段执行边界。
  *
  * @remarks
- * 保留给仍使用 `execute()` 单调用边界的外部 StepExecutor。新的 Think 阶段通过
- * `decide()`/`think()` 明确返回，并由 Runner 在下一次 Decide 前提交。
- *
- * @example
- * ```ts
- * const result: StepExecutionResult = {
- *   decision: { kind: "complete", summary: "完成", completionEvidence: [] },
- *   thought: "已根据文件内容完成审查，可以安全结束。",
- * };
- * ```
- */
-export type StepExecutionResult = AgentDecision & {
-    /** 当前 structured@1 的决策动作。 */
-    readonly decision: AgentDecision;
-    /** 兼容实现附带的阶段说明文本（如果有）。 */
-    readonly thought?: string;
-};
-
-/**
- * Agent 与 Runtime 之间的单步/阶段执行边界。
- *
- * @remarks
- * 实现必须接收当前 Profile 已授权的 ToolDefinition。旧式实现只提供 `execute()`；
- * 阶段化实现同时提供 `decide()` 和 `think()`，由 Runner 管理循环和 Think 检查点。
+ * 实现必须接收当前 Profile 已授权的 ToolDefinition。阶段化实现必须提供 `decide()` 和 `think()`，
+ * 由 Runner 管理循环和 Think 检查点。
  * 实现只应读取传入 Goal，不应自行持久化、执行 Tool 或修改它；Runner 负责状态转换、
  * 授权、Tool 编排和保存。
  *
  * @example
  * ```ts
  * const executor: StepExecutor = {
- *   async execute({ goal }) {
+ *   async decide({ goal }) {
  *     return {
- *       kind: "complete",
- *       summary: "目标完成",
- *       completionEvidence: [],
+ *       kind: "decision",
+ *       decision: { kind: "complete", summary: "目标完成", completionEvidence: [] },
  *     };
+ *   },
+ *   async think() {
+ *     throw new Error("unsupported");
  *   },
  * };
  * ```
  */
 export interface StepExecutor {
     /**
-     * @param input - 当前已恢复并处于 `running` 的 Goal、授权 Tool 描述、当前
-     *   Working Memory 与瞬时中止控制。
-     * @returns 当前 structured@1 的 AgentDecision 或携带思考链的 StepExecutionResult。
-     * @throws 执行失败时抛出异常；中止时抛出 `ExecutionAbortedError`，Runner
-     *   会按执行边界处理其余异常。
-     */
-    execute(input: StepExecutionInput): Promise<AgentDecision | StepExecutionResult>;
-
-    /**
      * 执行一次 Decide 阶段。
      *
      * @remarks
-     * 支持阶段循环的实现返回业务决策或 `request_think`；后一种结果只请求 Runner
-     * 调用 Think，不表示 Action，也不推进 Step。
+     * 返回业务决策或 `request_think`；后一种结果只请求 Runner 调用 Think，不表示 Action，也不推进 Step。
      *
      * @param input - 当前 Step 输入及已提交的 Think 链。
      * @returns 通过本地契约解析的 Think 请求或业务决策，可附本次模型请求 frame。
@@ -188,10 +158,10 @@ export interface StepExecutor {
      *
      * @example
      * ```ts
-     * const result = await executor.decide?.({ ...input, thinkHistory: [] });
+     * const result = await executor.decide({ ...input, thinkHistory: [] });
      * ```
      */
-    decide?(input: StepExecutionInput & {
+    decide(input: StepExecutionInput & {
         readonly thinkHistory: readonly ThinkExchange[];
     }): Promise<DecideStageResult>;
 
@@ -205,15 +175,73 @@ export interface StepExecutor {
      *
      * @example
      * ```ts
-     * const result = await executor.think?.({
+     * const result = await executor.think({
      *     ...input,
      *     thinkGoal: "比较两种方案",
      *     thinkHistory: [],
      * });
      * ```
      */
-    think?(input: StepExecutionInput & {
+    think(input: StepExecutionInput & {
         readonly thinkGoal: string;
         readonly thinkHistory: readonly ThinkExchange[];
     }): Promise<ThinkStageResult>;
+
+    /**
+     * 可选的顶层执行方法。
+     */
+    execute?(input: StepExecutionInput): Promise<AgentDecision>;
+}
+
+/**
+ * 便于将基于单个决策或单步处理函数快速构造为标准阶段化 StepExecutor 的工厂函数。
+ *
+ * @remarks
+ * 常用于确定性单步测试或不需要推演思考的简单执行者。在 Decide 阶段直接包装目标决策，
+ * 遇到未预期的 Think 阶段时抛出未支持异常。
+ *
+ * @param handler - 决策生成函数、决策列表或单个决策。
+ * @returns 完整的阶段化 StepExecutor。
+ *
+ * @example
+ * ```ts
+ * const executor = createStepExecutor(async ({ goal }) => ({
+ *     kind: "complete",
+ *     summary: "完成",
+ *     completionEvidence: [],
+ * }));
+ * ```
+ */
+export function createStepExecutor(
+    handler:
+        | AgentDecision
+        | readonly AgentDecision[]
+        | ((input: StepExecutionInput & { readonly thinkHistory?: readonly ThinkExchange[] }) => Promise<AgentDecision> | AgentDecision),
+): StepExecutor {
+    if (typeof handler === "function") {
+        return {
+            async decide(input) {
+                const decision = await handler(input);
+                return { kind: "decision", decision };
+            },
+            async think() {
+                throw new Error("think not supported by createStepExecutor");
+            },
+            async execute(input) {
+                return handler({ ...input, thinkHistory: [] });
+            },
+        };
+    }
+    const decisions = Array.isArray(handler) ? [...handler] : [handler];
+    let index = 0;
+    return {
+        async decide() {
+            const decision = decisions[index++];
+            if (decision === undefined) throw new Error("no more decisions in StepExecutor");
+            return { kind: "decision", decision };
+        },
+        async think() {
+            throw new Error("think not supported by createStepExecutor");
+        },
+    };
 }

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import {
     computeContentHash,
     createGoal,
+    createStepExecutor,
     createToolRegistration,
     createToolGrantMatcher,
     InMemoryToolRegistry,
@@ -917,15 +918,13 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
             };
         },
     };
-    const executor: StepExecutor = {
-        async execute() {
-            return {
-                kind: "complete",
-                completionEvidence: [],
-                summary: "任务完成",
-            };
-        },
-    };
+    const executor: StepExecutor = createStepExecutor(async () => {
+        return {
+            kind: "complete",
+            completionEvidence: [],
+            summary: "任务完成",
+        };
+    });
     const coordinator = new GoalCoordinator({
         trajectoryStore: trajectoryStoreFor(store),
         store,
@@ -965,18 +964,16 @@ test("/plan 与 run_started 按 Snapshot 提交顺序线性化", async () => {
             store,
             trajectoryStore,
             checkpointCommitter,
-            executor: {
-                async execute({ goal }) {
-                    observedModes.push(goal.state.run.mode);
-                    return goal.state.run.mode === "plan"
-                        ? {
-                            kind: "task_proposal",
-                            task: { objective: "完成本次请求", completionCriteria: [{ text: "请求已处理" }] },
-                            approvalRequest: "请批准任务提案",
-                        }
-                        : { kind: "wait", reason: "等待本次运行结束" };
-                },
-            },
+            executor: createStepExecutor(async ({ goal }) => {
+                observedModes.push(goal.state.run.mode);
+                return goal.state.run.mode === "plan"
+                    ? {
+                        kind: "task_proposal",
+                        task: { objective: "完成本次请求", completionCriteria: [{ text: "请求已处理" }] },
+                        approvalRequest: "请批准任务提案",
+                    }
+                    : { kind: "wait", reason: "等待本次运行结束" };
+            }),
         });
         const coordinator = new GoalCoordinator({
             store,

@@ -355,18 +355,12 @@ export function validateFactEvidence(
 
 function evidenceFromOperation(
     operation: MemoryPatchOperation,
-): { readonly kind: "fact" | "retire_fact" | "plan_completion"; readonly sequences: readonly number[] } | undefined {
+): { readonly kind: "fact" | "retire_fact"; readonly sequences: readonly number[] } | undefined {
     if (operation.type === "upsert_fact") {
         return { kind: "fact", sequences: operation.fact.evidenceSequences };
     }
     if (operation.type === "retire_fact") {
         return { kind: "retire_fact", sequences: operation.fact.evidenceSequences };
-    }
-    if (operation.type === "update_plan_item") {
-        return {
-            kind: "plan_completion",
-            sequences: operation.planItem.completionEvidenceSequences ?? [],
-        };
     }
     return undefined;
 }
@@ -409,7 +403,7 @@ export function validateMemoryPatchEvidence(
         validateFactEvidence(
             evidence.sequences,
             index,
-            evidence.kind === "plan_completion" ? "execution" : scope,
+            scope,
         );
     }
 }
@@ -431,16 +425,6 @@ export function validateCanonicalFactEvidence(
     for (const operation of operations) {
         if (operation.type === "upsert_fact") {
             validateFactEvidence(operation.fact.evidenceSequences, index, scope);
-        }
-        if (
-            operation.type === "upsert_plan_item"
-            && operation.planItem.completionEvidenceSequences.length > 0
-        ) {
-            validateFactEvidence(
-                operation.planItem.completionEvidenceSequences,
-                index,
-                "execution",
-            );
         }
     }
 }

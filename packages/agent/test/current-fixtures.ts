@@ -21,7 +21,6 @@ export const currentWorkingMemory: WorkingMemory = {
     derivedThroughSequence: 0,
     facts: [],
     hypotheses: [],
-    plan: [],
     blockers: [],
 };
 
