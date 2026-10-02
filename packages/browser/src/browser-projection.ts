@@ -117,8 +117,8 @@ export interface BrowserBashExecutionDetail {
  *
  * @remarks
  * 步骤只从 Snapshot 提交边界内的 Trajectory 事实构造，并按稳定的 Action 身份合并其
- * 生命周期事件。原始事件、模型推理及非 Bash Tool 输入/输出不会暴露；Bash 步骤仅提供
- * 命令与已提交 Observation 的有限白名单详情。
+ * 生命周期事件。原始事件、模型推理及完整 Tool 输入/输出不会暴露；操作标题只提供
+ * 内置工具的限长路径或搜索摘要，Bash 步骤提供命令与已提交 Observation 的白名单详情。
  *
  * @example
  * ```ts
@@ -129,6 +129,7 @@ export interface BrowserBashExecutionDetail {
  *     stepIndex: 1,
  *     decisionKind: "tool_call",
  *     toolId: "read_file",
+ *     inputSummary: "README.md",
  *     status: "completed",
  *     summary: "已读取文件",
  * };
@@ -147,6 +148,12 @@ export interface BrowserSessionStep {
     readonly decisionKind?: string;
     /** 公开的 Tool 标识，不包含 action input。 */
     readonly toolId?: string;
+    /**
+     * 操作标题使用的输入摘要，最多 240 字符及省略标记。
+     * 只投影内置文件工具的路径、grep 的 pattern、web_search 的 query 和 web_fetch 的 URL；
+     * 不包含写入正文、替换内容或其他参数。Bash 命令由 bashExecution 提供。
+     */
+    readonly inputSummary?: string;
     /** 已提交 Action 的审批结果。 */
     readonly actionStatus?: "awaiting_approval" | "approved" | "rejected";
     /** 步骤结果类别；不由临时流事件推断。 */
@@ -523,6 +530,7 @@ function projectBrowserSteps(
         let actionStatus: BrowserSessionStep["actionStatus"];
         let status: BrowserSessionStep["status"] = "recorded";
         let summary: string | undefined;
+        let inputSummary: string | undefined;
         let bashCommand: string | undefined;
         let bashObservation: Observation | undefined;
         const recoveryAttempts: string[] = [];
@@ -536,6 +544,7 @@ function projectBrowserSteps(
                 }
             } else if (payload.type === "action_staged") {
                 toolId = payload.action.toolId;
+                inputSummary = projectToolInputSummary(toolId, payload.action.input);
                 actionStatus = payload.approvalStatus;
                 if (payload.action.toolId === "bash") {
                     bashCommand = readBashCommand(payload.action.input);
@@ -560,9 +569,10 @@ function projectBrowserSteps(
                 // A recovery checkpoint can adopt an old uncommitted tail; without the
                 // persisted Observation it must not present a Tool result as a saved Step.
                 toolId = payload.toolId;
-            } else if (payload.type === "tool_started" && payload.toolId === "bash") {
+            } else if (payload.type === "tool_started") {
                 toolId = payload.toolId;
-                bashCommand = readBashCommand(payload.input);
+                inputSummary = projectToolInputSummary(toolId, payload.input);
+                if (toolId === "bash") bashCommand = readBashCommand(payload.input);
             } else if (payload.type === "tool_attempt_started") {
                 recoveryAttempts.push(`Tool attempt ${payload.attempt}`);
             } else if (payload.type === "tool_attempt_failed") {
@@ -600,6 +610,7 @@ function projectBrowserSteps(
             ...(actionStatus === undefined ? {} : { actionStatus }),
             status,
             ...(summary === undefined ? {} : { summary }),
+            ...(inputSummary === undefined ? {} : { inputSummary }),
             ...(bashExecution === undefined ? {} : { bashExecution }),
             ...(bashExecutionOmitted === undefined ? {} : { bashExecutionOmitted }),
             ...(recoveryAttempts.length === 0 ? {} : { recoveryAttempts }),
@@ -693,6 +704,16 @@ function trajectoryActionId(event: TrajectoryEvent): string | undefined {
         return payload.actionId;
     }
     return undefined;
+}
+
+function projectToolInputSummary(toolId: string, input: JsonValue): string | undefined {
+    if (!isJsonObject(input)) return undefined;
+    const key = toolId === "read_file" || toolId === "write_file" || toolId === "edit_file" ? "path"
+        : toolId === "grep" ? "pattern"
+            : toolId === "web_search" ? "query"
+                : toolId === "web_fetch" ? "url" : undefined;
+    const value = key === undefined ? undefined : input[key];
+    return typeof value === "string" ? boundedText(value.replace(/\s+/g, " ").trim(), 240) : undefined;
 }
 
 function readBashCommand(input: JsonValue): string | undefined {

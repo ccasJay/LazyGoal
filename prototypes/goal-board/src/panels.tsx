@@ -354,21 +354,13 @@ function ActionApprovalForm({
   }
 
   return (
-    <section className="approval structured-form">
+    <section className="approval structured-form action-approval">
       <div className="approval-heading">
         <CircleHelp size={15} />
         <strong>{recovery ? "Action result needs review" : "Your approval is needed"}</strong>
+        <span className="action-summary"><Zap size={13} />{action.toolId}</span>
       </div>
-      <p>
-        {recovery
-          ? "The previous result could not be confirmed. Review this action before choosing what to do."
-          : "LazyGoal wants to run a workspace action."}
-      </p>
-      <div className="action-summary">
-        <Zap size={14} />
-        <span>{action.toolId}</span>
-        <small>{action.actionId}</small>
-      </div>
+      {recovery && <p>The previous result could not be confirmed. Review this action before choosing what to do.</p>}
       <div className="action-input-preview">
         <label>Tool input</label>
         <pre>{action.inputPreview}</pre>
@@ -397,40 +389,44 @@ function ActionApprovalForm({
           <input type="radio" name={`scope-${action.actionId}`} checked={scope === "workspace"} disabled={persistentDisabled} onChange={() => setScope("workspace")} />
           <span><strong>This project</strong><small>Allow matching actions in future Goals.</small></span>
         </label>
-        {persistentDisabled && action.inputPreviewTruncated && fullInput === null && <small className="scope-lock-note">View the complete input to enable ongoing permissions.</small>}
       </fieldset>}
-      <button
-        className="approval-primary"
-        disabled={busy}
-        onClick={() => onSubmit({
-          kind: "approve_action",
-          runId: session.currentRunId,
-          actionId: action.actionId,
-          scope: recovery ? "action" : scope,
-        })}
-      >
-        <Check size={13} /> Approve action
-      </button>
-      <form className="feedback-form" onSubmit={(event) => {
-        event.preventDefault();
-        if (!reason.trim()) return;
-        onSubmit({
-          kind: "reject_action",
-          runId: session.currentRunId,
-          actionId: action.actionId,
-          reason: reason.trim(),
-        });
-      }}>
-        <label htmlFor="action-reason">Or reject with a reason</label>
-        <textarea
-          id="action-reason"
-          value={reason}
+      <div className="action-approval-actions">
+        <button
+          className="approval-primary"
           disabled={busy}
-          onChange={(event) => setReason(event.target.value)}
-          placeholder="Explain why this action should not run…"
-        />
-        <button disabled={busy || !reason.trim()} type="submit">Reject action</button>
-      </form>
+          onClick={() => onSubmit({
+            kind: "approve_action",
+            runId: session.currentRunId,
+            actionId: action.actionId,
+            scope: recovery ? "action" : scope,
+          })}
+        >
+          <Check size={13} /> Approve action
+        </button>
+        <details className="action-rejection">
+          <summary>Reject action</summary>
+          <form className="feedback-form" onSubmit={(event) => {
+            event.preventDefault();
+            if (!reason.trim()) return;
+            onSubmit({
+              kind: "reject_action",
+              runId: session.currentRunId,
+              actionId: action.actionId,
+              reason: reason.trim(),
+            });
+          }}>
+            <label htmlFor="action-reason">Reason for rejecting</label>
+            <textarea
+              id="action-reason"
+              value={reason}
+              disabled={busy}
+              onChange={(event) => setReason(event.target.value)}
+              placeholder="Explain why this action should not run…"
+            />
+            <button disabled={busy || !reason.trim()} type="submit">Reject action</button>
+          </form>
+        </details>
+      </div>
     </section>
   );
 }

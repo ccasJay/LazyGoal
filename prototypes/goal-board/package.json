@@ -9,9 +9,11 @@
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "lucide-react": "^0.468.0"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/react": "^19.1.10",

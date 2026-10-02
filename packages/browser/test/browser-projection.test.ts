@@ -63,7 +63,7 @@ function event(
                     action: {
                         actionId: "action-1",
                         toolId: "read_file",
-                        input: { path: "PRIVATE_TOOL_INPUT" },
+                        input: { path: "README.md", content: "PRIVATE_TOOL_INPUT" },
                     },
                 },
                 thought: "PRIVATE_REASONING_SHOULD_NOT_ESCAPE",
@@ -84,7 +84,7 @@ function event(
                 action: {
                     actionId: "action-1",
                     toolId: "read_file",
-                    input: { path: "PRIVATE_TOOL_INPUT" },
+                    input: { path: "README.md", content: "PRIVATE_TOOL_INPUT" },
                 },
                 approvalStatus: "approved",
             },
@@ -230,6 +230,7 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
         actionStatus: "approved",
         status: "completed",
         summary: "读取了一个文件",
+        inputSummary: "README.md",
     });
 
     const serialized = JSON.stringify(session);
@@ -495,6 +496,32 @@ test("Bash 决定与跨 execution unit 的执行合并为一行，complete 决�
         stderr: "",
     });
     assert.equal(JSON.stringify(session).includes("privateField"), false);
+});
+
+test("操作标题只投影有界目标，不暴露正文、额外参数或未提交输入", async () => {
+    const goal = createTestGoal();
+    const actions = [
+        { toolId: "write_file", input: { path: "notes.md", content: "private-content" }, expected: "notes.md" },
+        { toolId: "edit_file", input: { path: "src/app.ts", oldString: "private-old", newString: "private-new" }, expected: "src/app.ts" },
+        { toolId: "grep", input: { pattern: "TODO", path: "private-root" }, expected: "TODO" },
+        { toolId: "web_search", input: { query: "a".repeat(300), apiKey: "private-key" }, expected: `${"a".repeat(240)}…` },
+        { toolId: "web_fetch", input: { url: "https://example.com", headers: "private-headers" }, expected: "https://example.com" },
+        { toolId: "custom_tool", input: { path: "private-custom" }, expected: undefined },
+    ];
+    const staged = actions.map(({ toolId, input }, index) => allocateImmutableEvent({
+        goalId: goal.id, runId: goal.state.run.id, phase: "executing",
+        executionUnitId: `unit-${index}`, stepIndex: index + 1, eventType: "action_staged",
+        payload: {
+            type: "action_staged",
+            action: { actionId: `action-${index}`, toolId, input },
+            approvalStatus: "approved",
+        },
+    }, index + 1));
+    const session = await readBrowserGoalSession(goal.id, new TestGoalStore(goal), async () => ({
+        committed: staged, uncommittedTail: [event(5, "action_staged")],
+    }));
+    assert.deepEqual(session?.runs[0]?.steps.map((step) => step.inputSummary), actions.map((action) => action.expected));
+    assert.equal(JSON.stringify(session).includes("private-"), false);
 });
 
 test("未创建 GoalPlan 时省略计划；不存在 Goal 返回 undefined，损坏读取拒绝", async () => {

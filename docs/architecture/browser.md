@@ -8,7 +8,7 @@
 
 显式 `lazygoal web` 命令创建随机能力令牌，将其放入页面 URL fragment，并把访问中间件配置到 Composition Root 的 HTTP Host。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
-授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，截断较长历史和文本，并省略 Profile、模型配置、推理、原始事件及一般 Tool 输入/输出。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。
+授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回会话视图。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。会话投影只纳入 Snapshot 提交边界内的事件，截断较长历史和文本，并省略 Profile、模型配置、推理、原始事件及完整 Tool 输入/输出。内置文件、搜索和网页工具仅投影有界路径或查询摘要，用于 Activity 操作标题；写入正文和其他参数仍不投影。Bash 步骤按 Action 身份合并模型决定与执行事件；展开后只显示限长命令，以及已提交 Observation 中的成功输出白名单字段或失败说明，整个会话最多投影 100 组 Bash 详情。步骤可显示已提交的模型纠错和模型/Tool 重试摘要；Run 终态显示稳定失败原因或等待原因。终态 `complete` 决策由 Run 状态显示，不另生成一条步骤。Tool 结果只有在 Snapshot 纳入 `observation_recorded` 后才显示为已完成步骤；恢复后被纳入的新提交边界可能包含旧的 `tool_finished`，单独该事件不会确认结果。缺失 Goal 与不可读数据分别返回 404 和稳定的 500 错误码。
 
 `POST /api/goals` 只接受有界 JSON 中的稳定 Goal ID、非空意图、可选 `mode: "plan"` 与可选 `modelId`；省略模式时由 Runtime 使用 Normal Mode，省略模型时采用进程默认选择。模型 ID 由服务端目录重新验证；Profile 和执行策略仍由本机决定。同 ID、同意图、同初始模式及同模型 ID 的重试复用在途受理或已有快照；冲突请求拒绝。另一个 Goal 正在运行时拒绝新建。浏览器 Launcher 在初始快照保存前对齐请求模型的执行绑定；保存前失败则重建先前绑定。受理仅在初始 Snapshot 成功保存后返回，执行继续由现有 Launcher 推进到等待点或终态；页面断开不会取消已受理的执行。
 
@@ -30,7 +30,7 @@ SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关�
 
 详情保留原始事件信封与载荷，并按同一 Run/Action 关联输入、工具结束记录及已提交 Observation。工具结束与观察确认分别表示；工具耗时只取真实起止时间，缺失、无效或负值不可用，模型耗时不估算。列表明确标记预览截断，完整详情超过 256 KiB 时拒绝，不把截断载荷当作完整 Raw。接口不附带 Diagnostic Trace 或领域事件以外的配置。
 
-页面以 Trajectory 替换 Details 标签，概览明确仅覆盖当前事件页。紧凑列表每条记录占一行，轮次与请求入口位于左侧；工具输入和结果并排预览，完整内容按需读取。缺少执行单元或 Step 身份的记录保留在 Run 层级；列表保持真实序列顺序。Activity 展开 Step 底部的按钮按 Run 与执行单元定位首条已提交记录，跨页读取、选中并打开详情。Goal info 面板保留信息和授权操作。页面复用已提交会话刷新通知更新轨迹，保留历史 Run 选择、筛选、已选事件及阅读位置；末页跟随与 Latest 入口用于查看新增事实。切换 Run 或关闭视图取消在途读取，迟到响应不能覆盖当前视图。
+页面以 Trajectory 替换 Details 标签，概览明确仅覆盖当前事件页。轨道支持按指针位置缩放、横向平移和恢复全范围；视觉缩放不改变事件查询，普通拖动框选仍按序列筛选。切换 Run、事件页或时间/序列轴时重置视窗。紧凑列表每条记录占一行，轮次与请求入口位于左侧；工具输入和结果并排预览，完整内容按需读取。缺少执行单元或 Step 身份的记录保留在 Run 层级；列表保持真实序列顺序。Activity 展开 Step 底部的按钮按 Run 与执行单元定位首条已提交记录，跨页读取、选中并打开详情。Goal info 面板保留信息和授权操作。页面复用已提交会话刷新通知更新轨迹，保留历史 Run 选择、筛选、已选事件及阅读位置；末页跟随与 Latest 入口用于查看新增事实。切换 Run 或关闭视图取消在途读取，迟到响应不能覆盖当前视图。
 
 [`browser-model-input`](../../packages/browser/src/browser-model-input.ts) 在同一授权边界读取正式工作区的独立模型消息日志。输入在 Adapter 调用前保存，不证明供应商已接收，也不受 Snapshot 提交边界限制；失败调用仍可查看。列表按调用分页，新增消息预览与首次/变更的 System 行附在相关记录前，领域事件保持序列顺序。输入与领域轨迹分别分页；搜索完整保存的消息正文。成功 frame 的 modelCallId 精确关联请求，历史未记录时明确显示缺失。
 

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   ArrowDown,
   ArrowUp,
+  BookOpen,
   Check,
   ChevronRight,
   CircleHelp,
@@ -20,6 +23,7 @@ import {
   Shield,
   ChevronDown,
   Terminal,
+  FilePenLine,
   X,
   Zap,
 } from "lucide-react";
@@ -29,6 +33,7 @@ import type {
   BrowserGoalListItem,
   BrowserGoalSession,
   BrowserSessionMessage,
+  BrowserSessionStep,
   BrowserToolGrantSummary,
   BrowserModelCatalog,
   BrowserModelOption,
@@ -212,6 +217,7 @@ function App() {
         throw new Error(result.error === "conflict" ? "Project permissions changed elsewhere. The current mode was reloaded." : result.error);
       }
       setPermissionMode(result);
+      setPermissionMenuOpen(false);
     } catch (error) {
       setPermissionModeError(error instanceof Error && error.message !== "permissions_unavailable"
         ? error.message
@@ -245,6 +251,7 @@ function App() {
     <PermissionControl
       open={permissionMenuOpen}
       onToggle={() => setPermissionMenuOpen((value) => !value)}
+      onClose={() => setPermissionMenuOpen(false)}
       mode={permissionMode?.mode ?? null}
       modeError={permissionModeError}
       modeBusy={permissionModeBusy}
@@ -273,7 +280,9 @@ function App() {
           </span>
           <strong>{message.role === "user" ? "You" : "LazyGoal"}</strong>
         </div>
-        <div className="message-body">{message.content}</div>
+        <div className={`message-body ${message.role === "assistant" ? "markdown-body" : ""}`}>
+          {message.role === "assistant" ? <AssistantMarkdown content={message.content} /> : message.content}
+        </div>
       </article>
     ));
   }
@@ -899,52 +908,60 @@ function App() {
                               <div className="run-timeline" key={run.runId}>
                                 {renderMessages(runMessages.filter((message) => message.role === "user"))}
                                 {showTools && run.steps.length > 0 && (
-                                  <section className="run-steps">
-                                    <h3>{run.current ? "Current Run · execution steps" : `Earlier Run · ${run.runId}`}</h3>
-                                    {run.steps.map((step) => (
-                                      <details className="tool-event" key={step.executionUnitId}>
+                                  <details className="run-steps" open>
+                                    <summary className="run-steps-heading">
+                                      <Layers size={13} aria-hidden="true" />
+                                      <span>{run.current ? "Execution activity" : "Earlier activity"}</span>
+                                      <ChevronDown className="activity-chevron" size={12} aria-hidden="true" />
+                                    </summary>
+                                    {run.steps.map((step) => {
+                                      const activity = stepActivity(step);
+                                      const ActivityIcon = activity.icon;
+                                      return <details className="tool-event" key={step.executionUnitId}>
                                         <summary>
-                                          <Terminal size={13} />
-                                          <span>{step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}`}</span>
-                                          <span className={`step-status ${step.status}`}>{step.status === "recorded" ? "Attempt recorded" : step.status}</span>
-                                          <ChevronRight className="tool-chevron" size={13} />
+                                          <ActivityIcon size={13} aria-hidden="true" />
+                                          <span className="tool-activity-label" title={activity.label}>{activity.label}</span>
+                                          {step.status !== "completed" && <span className={`step-status ${step.status}`}>{step.status === "recorded" ? "Attempt recorded" : step.status}</span>}
+                                          <ChevronRight className="tool-chevron" size={12} aria-hidden="true" />
                                         </summary>
-                                        {step.recoveryAttempts?.map((attempt, index) => (
-                                          <div className="step-recovery" key={`${step.executionUnitId}:recovery:${index}`}>{attempt}</div>
-                                        ))}
-                                        {step.bashExecution && (
-                                          <div className="tool-execution">
-                                            <div className="tool-execution-field">
-                                              <span>Command</span><pre>{step.bashExecution.command}</pre>
+                                        <div className="tool-event-detail">
+                                          {step.recoveryAttempts?.map((attempt, index) => (
+                                            <div className="step-recovery" key={`${step.executionUnitId}:recovery:${index}`}>{attempt}</div>
+                                          ))}
+                                          {step.bashExecution && (
+                                            <div className="tool-execution">
+                                              <div className="tool-execution-field">
+                                                <span>Command</span><pre>{step.bashExecution.command}</pre>
+                                              </div>
+                                              {step.bashExecution.exitCode !== undefined && (
+                                                <div className="tool-execution-field">
+                                                  <span>Exit code</span><pre>{step.bashExecution.exitCode}</pre>
+                                                </div>
+                                              )}
+                                              {step.bashExecution.stdout !== undefined && (
+                                                <div className="tool-execution-field">
+                                                  <span>stdout</span><pre>{step.bashExecution.stdout || "(empty)"}</pre>
+                                                </div>
+                                              )}
+                                              {step.bashExecution.stderr !== undefined && (
+                                                <div className="tool-execution-field">
+                                                  <span>stderr</span><pre>{step.bashExecution.stderr || "(empty)"}</pre>
+                                                </div>
+                                              )}
+                                              {step.bashExecution.failure !== undefined && (
+                                                <div className="tool-execution-field">
+                                                  <span>Result</span><pre>{step.bashExecution.failure}</pre>
+                                                </div>
+                                              )}
                                             </div>
-                                            {step.bashExecution.exitCode !== undefined && (
-                                              <div className="tool-execution-field">
-                                                <span>Exit code</span><pre>{step.bashExecution.exitCode}</pre>
-                                              </div>
-                                            )}
-                                            {step.bashExecution.stdout !== undefined && (
-                                              <div className="tool-execution-field">
-                                                <span>stdout</span><pre>{step.bashExecution.stdout || "(empty)"}</pre>
-                                              </div>
-                                            )}
-                                            {step.bashExecution.stderr !== undefined && (
-                                              <div className="tool-execution-field">
-                                                <span>stderr</span><pre>{step.bashExecution.stderr || "(empty)"}</pre>
-                                              </div>
-                                            )}
-                                            {step.bashExecution.failure !== undefined && (
-                                              <div className="tool-execution-field">
-                                                <span>Result</span><pre>{step.bashExecution.failure}</pre>
-                                              </div>
-                                            )}
-                                          </div>
-                                        )}
-                                        {step.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
-                                        {!step.bashExecution && !step.bashExecutionOmitted && step.summary && <pre>{step.summary}</pre>}
-                                        <footer className="trajectory-link"><button aria-label={`View Step ${step.stepIndex} in trajectory`} onClick={() => { setTrajectoryTarget({ runId: run.runId, executionUnitId: step.executionUnitId, nonce: Date.now() }); setSessionTab("Trajectory"); }}><Layers size={13}/>View in trajectory<ChevronRight size={12}/></button></footer>
-                                      </details>
-                                    ))}
-                                  </section>
+                                          )}
+                                          {step.bashExecutionOmitted && <pre>Execution details omitted by the session size limit.</pre>}
+                                          {!step.bashExecution && !step.bashExecutionOmitted && step.summary && <pre>{step.summary}</pre>}
+                                          <footer className="trajectory-link"><button aria-label={`View Step ${step.stepIndex} in trajectory`} onClick={() => { setTrajectoryTarget({ runId: run.runId, executionUnitId: step.executionUnitId, nonce: Date.now() }); setSessionTab("Trajectory"); }}><Layers size={13}/>View in trajectory<ChevronRight size={12}/></button></footer>
+                                        </div>
+                                      </details>;
+                                    })}
+                                  </details>
                                 )}
                                 {run.current && liveText && (
                                   <article className="message assistant transient-message" aria-label="Uncommitted assistant activity">
@@ -952,7 +969,7 @@ function App() {
                                       <span className="message-avatar assistant"><Zap size={12} /></span>
                                       <strong>Live response</strong><small>Not saved yet</small>
                                     </div>
-                                    <div className="message-body">{liveText}<span className="cursor" /></div>
+                                    <div className="message-body markdown-body"><AssistantMarkdown content={liveText} /><span className="cursor" /></div>
                                   </article>
                                 )}
                                 {run.current && run.status === "running" && (
@@ -1063,9 +1080,39 @@ function App() {
   );
 }
 
+function stepActivity(step: BrowserSessionStep) {
+  const executed = step.status === "completed" || step.status === "failed";
+  const target = step.inputSummary;
+  if (step.toolId === "bash") {
+    const command = step.bashExecution?.command.replace(/\s+/g, " ").trim();
+    return { icon: Terminal, label: `${executed ? "Ran" : "Run"} ${command || "a command"}` };
+  }
+  if (step.toolId === "read_file") return { icon: BookOpen, label: `Read ${target || "a file"}` };
+  if (step.toolId === "write_file") return { icon: FilePenLine, label: `${step.status === "completed" ? "Wrote" : "Write"} ${target || "a file"}` };
+  if (step.toolId === "edit_file") return { icon: FilePenLine, label: `${step.status === "completed" ? "Edited" : "Edit"} ${target || "a file"}` };
+  if (step.toolId === "grep" || step.toolId === "web_search") return { icon: Search, label: target ? `${executed ? "Searched" : "Search"} for ${target}` : `${executed ? "Searched" : "Search"} ${step.toolId === "grep" ? "files" : "the web"}` };
+  if (step.toolId === "web_fetch") return { icon: BookOpen, label: `${executed ? "Fetched" : "Fetch"} ${target || "a page"}` };
+  return { icon: step.decisionKind === "request_think" ? Clock3 : Zap, label: step.toolId ?? step.decisionKind ?? `Step ${step.stepIndex}` };
+}
+
+function AssistantMarkdown({ content }: { content: string }) {
+  return <Markdown
+    remarkPlugins={[remarkGfm]}
+    skipHtml
+    components={{
+      table: ({ children }) => <div className="markdown-table-scroll"><table>{children}</table></div>,
+      a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+      img: ({ src, alt }) => src
+        ? <a href={src} target="_blank" rel="noopener noreferrer">{alt || "Image"}</a>
+        : <span>{alt || "Image"}</span>,
+    }}
+  >{content}</Markdown>;
+}
+
 function PermissionControl({
   open,
   onToggle,
+  onClose,
   mode,
   modeError,
   modeBusy,
@@ -1079,6 +1126,7 @@ function PermissionControl({
 }: {
   open: boolean;
   onToggle: () => void;
+  onClose: () => void;
   mode: "default" | "yolo" | null;
   modeError: string | null;
   modeBusy: boolean;
@@ -1090,8 +1138,26 @@ function PermissionControl({
   revokingGrantId: string | null;
   onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
 }) {
+  const controlRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !controlRef.current?.contains(event.target)) onClose();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open, onClose]);
+
   return (
-    <div className="permission-control">
+    <div className="permission-control" ref={controlRef}>
       <button
         type="button"
         className={`permission-trigger ${mode === "yolo" ? "yolo" : ""}`}
@@ -1103,47 +1169,48 @@ function PermissionControl({
         <ChevronDown size={12} />
       </button>
       {open && <section className="permission-popover" aria-label="Project permissions">
-        <header>
-          <strong>Project permissions</strong>
-          <span>Applies to local Goals in this project</span>
-        </header>
-        <fieldset className="permission-modes" disabled={modeBusy || mode === null}>
-          <legend>Execution mode</legend>
+        <fieldset className="permission-modes" aria-label="Execution mode" disabled={modeBusy || mode === null}>
           <label className={mode === "default" ? "selected" : ""}>
             <input type="radio" name="project-permission-mode" checked={mode === "default"} onChange={() => onChooseMode("default")} />
+            <Shield size={16} aria-hidden="true" />
             <span><strong>Default</strong><small>Review actions that need approval.</small></span>
+            {mode === "default" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
           </label>
           <label className={mode === "yolo" ? "selected" : ""}>
             <input type="radio" name="project-permission-mode" checked={mode === "yolo"} onChange={() => onChooseMode("yolo")} />
+            <Zap size={16} aria-hidden="true" />
             <span><strong>YOLO</strong><small>Automatically approve eligible tools. Sandbox limits still apply.</small></span>
+            {mode === "yolo" && <Check className="permission-selected-icon" size={15} aria-hidden="true" />}
           </label>
         </fieldset>
         {modeError && <p className="permission-error" role="alert">{modeError}</p>}
-        <div className="permission-grants">
-          <h4>Saved permissions</h4>
-          {!hasGoal ? <p>Select a Goal to review or revoke its saved permissions.</p>
-            : grantsLoading ? <p>Loading permissions…</p>
-              : grantsError ? <p className="permission-error" role="alert">{grantsError}</p>
-              : grants.length === 0 ? <p>No ongoing permissions.</p>
-                : <ul>{grants.map((grant) => (
-                  <li key={grant.grantId}>
-                    <div className="permission-grant-copy">
-                      <strong>{grant.kind === "sandbox" ? "Sandbox · " : ""}{grant.toolId}</strong>
-                      <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
-                      {grant.kind === "sandbox" && grant.command && <code>{grant.command}</code>}
-                      {grant.targetPath && <code>{grant.targetPath}</code>}
-                      {grant.kind === "sandbox" && <span>{grant.network === "all_outbound" ? "All outbound network" : "No network"}</span>}
-                      {grant.extraFiles?.map((file) => <code key={`${file.canonicalPath}:${file.access}`}>{file.access} · {file.canonicalPath}{file.kind === "directory_tree" ? "/…" : ""}</code>)}
-                    </div>
-                    {grant.status === "active" && <button
-                      type="button"
-                      className="permission-revoke"
-                      disabled={revokingGrantId !== null}
-                      onClick={() => onRevokeGrant(grant)}
-                    >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</button>}
-                  </li>
-                ))}</ul>}
-        </div>
+        <details className="permission-grants">
+          <summary>Saved permissions{grants.length > 0 ? ` (${grants.length})` : ""}</summary>
+          <div className="permission-grants-content">
+            {!hasGoal ? <p>Select a Goal to review or revoke its saved permissions.</p>
+              : grantsLoading ? <p>Loading permissions…</p>
+                : grantsError ? <p className="permission-error" role="alert">{grantsError}</p>
+                  : grants.length === 0 ? <p>No ongoing permissions.</p>
+                    : <ul>{grants.map((grant) => (
+                      <li key={grant.grantId}>
+                        <div className="permission-grant-copy">
+                          <strong>{grant.kind === "sandbox" ? "Sandbox · " : ""}{grant.toolId}</strong>
+                          <span>{grant.scope === "goal" ? "This Goal" : "This project"} · {grant.status}</span>
+                          {grant.kind === "sandbox" && grant.command && <code>{grant.command}</code>}
+                          {grant.targetPath && <code>{grant.targetPath}</code>}
+                          {grant.kind === "sandbox" && <span>{grant.network === "all_outbound" ? "All outbound network" : "No network"}</span>}
+                          {grant.extraFiles?.map((file) => <code key={`${file.canonicalPath}:${file.access}`}>{file.access} · {file.canonicalPath}{file.kind === "directory_tree" ? "/…" : ""}</code>)}
+                        </div>
+                        {grant.status === "active" && <button
+                          type="button"
+                          className="permission-revoke"
+                          disabled={revokingGrantId !== null}
+                          onClick={() => onRevokeGrant(grant)}
+                        >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</button>}
+                      </li>
+                    ))}</ul>}
+          </div>
+        </details>
       </section>}
     </div>
   );
