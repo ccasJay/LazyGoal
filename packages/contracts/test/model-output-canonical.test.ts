@@ -67,6 +67,10 @@ test("FactProposalContract 仅接受标量与一维标量数组（Req 2.5）", (
 
     const arrayWithObjectResult = safeParse(FactProposalContract, { ...baseProposal, value: [{ obj: 1 }] });
     assert.equal(arrayWithObjectResult.success, false);
+
+    // 拒绝空 evidenceSequences
+    const emptyEvidenceResult = safeParse(FactProposalContract, { ...baseProposal, value: 42, evidenceSequences: [] });
+    assert.equal(emptyEvidenceResult.success, false);
 });
 
 test("统一执行 Patch 契约拒绝已废除的 PlanItem 操作", () => {

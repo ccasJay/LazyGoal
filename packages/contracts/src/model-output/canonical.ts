@@ -414,7 +414,7 @@ export const FactProposalContract = contract.object({
     predicate: contract.string(),
     value: FactValueContract,
     stability: FactStabilityContract,
-    evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
+    evidenceSequences: contract.array(contract.integer({ minimum: 0 }), { minItems: 1 }),
     scope: contract.optional(MemoryEntryScopeContract),
 });
 
@@ -431,7 +431,7 @@ export type FactProposal = InferContract<typeof FactProposalContract>;
  */
 export const RetireFactProposalContract = contract.object({
     id: contract.string(),
-    evidenceSequences: contract.array(contract.integer({ minimum: 0 })),
+    evidenceSequences: contract.array(contract.integer({ minimum: 0 }), { minItems: 1 }),
 });
 
 /** Fact 注销提议公开类型。 */
