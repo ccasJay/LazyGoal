@@ -2,7 +2,7 @@
 
 ## 职责
 
-Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已提交 Context Lookup 结果投影为模型请求。Decide 返回经本地契约校验的业务 `AgentDecision`，或独立的 `request_think` 控制请求；Think 返回自由文本和模型可见上下文 frame。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
+Agent 将 Runtime 提供的 Goal、Profile、授权 Tool、Working Memory 和已提交 Context Lookup 结果投影为模型请求。Decide 返回经本地契约校验的业务 `AgentDecision`，或独立的 `request_think` 控制请求；Think 返回自由文本和模型可见上下文 frame。主要入口是 [`LLMStepExecutor`](../../packages/agent/src/llm-step-executor.ts)、[`model-inference-view.ts`](../../packages/agent/src/model-inference-view.ts)、[`prompt.ts`](../../packages/agent/src/prompt.ts) 和 [`render.ts`](../../packages/agent/src/render.ts)。授权列表含 `execute_program` 时，Prompt 说明由模型按任务选择程序或直接 Tool；PTC 内部调用事实不进入原生历史、Hot/Warm 或检索索引，只有已结算的父程序结果参与下一次模型请求。Agent 不保存 Goal，不执行 Tool，不生成 Runtime ID，也不决定审批结果。
 
 ## Prompt Bundle
 

@@ -112,6 +112,8 @@ import {
 import {
     BASH_TOOL_ID,
     BashTool,
+    EXECUTE_PROGRAM_TOOL_ID,
+    createExecuteProgramRegistration,
     EditFileTool,
     GREP_TOOL_ID,
     GrepTool,
@@ -142,7 +144,8 @@ const DEFAULT_PROFILE_ID = "default";
  *
  * @remarks
  * fail-closed：只有显式列入白名单的只读 Tool（当前为 `read_file` 与
- * `grep`）会被 `allow` 自动放行；`write_file`、`edit_file`、`bash` 以及
+ * `grep`）与仅启动受限计算的 `execute_program` 会被 `allow` 自动放行；
+ * `write_file`、`edit_file`、`bash` 以及
  * 任何未识别的 Tool 都返回 `require_approval`，由 Runner 保存等待中的
  * Action 并交给用户批准或拒绝。该策略不执行 Tool、不推进 Run，也不持久化
  * 授权。
@@ -170,8 +173,8 @@ export function createDefaultToolPolicy(options?: {
     const platform = options?.platform ?? process.platform;
     const autoAllowedToolIds = new Set(
         platform === "darwin"
-            ? [READ_FILE_TOOL_ID, GREP_TOOL_ID, BASH_TOOL_ID]
-            : [READ_FILE_TOOL_ID, GREP_TOOL_ID],
+            ? [READ_FILE_TOOL_ID, GREP_TOOL_ID, BASH_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID]
+            : [READ_FILE_TOOL_ID, GREP_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID],
     );
 
     return {
@@ -813,6 +816,7 @@ export async function createCompositionRoot(
                     "edit_file",
                     GREP_TOOL_ID,
                     "bash",
+                    EXECUTE_PROGRAM_TOOL_ID,
                 ],
             };
         }
@@ -843,6 +847,7 @@ export async function createCompositionRoot(
             createToolRegistration(editFileTool),
             createToolRegistration(grepTool),
             createToolRegistration(bashTool),
+            createExecuteProgramRegistration(),
         ]);
     }
 

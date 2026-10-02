@@ -18,6 +18,8 @@ function createEvent(partial: Partial<TrajectoryEvent> & { eventType: string; pa
         ...(partial.executionUnitId !== undefined ? { executionUnitId: partial.executionUnitId } : {}),
         ...(partial.stepIndex !== undefined ? { stepIndex: partial.stepIndex } : {}),
         ...(partial.actionId !== undefined ? { actionId: partial.actionId } : {}),
+        ...(partial.programId !== undefined ? { programId: partial.programId } : {}),
+        ...(partial.callIndex !== undefined ? { callIndex: partial.callIndex } : {}),
     } as TrajectoryEvent;
 }
 
@@ -31,6 +33,40 @@ test("projectTrajectoryEvents handles empty committed events gracefully", () => 
     assert.equal(steps[0]?.title, "Step 1: Goal Initialized");
     assert.equal(steps[0]?.totalSteps, 1);
     assert.deepEqual(steps[0]?.lifecycleDetails, ["No trajectory events recorded."]);
+});
+
+test("program child events stay out of the TUI Step count", () => {
+    const events: TrajectoryEvent[] = [
+        createEvent({
+            sequence: 1, executionUnitId: "parent", eventType: "decision_received",
+            payload: { type: "decision_received", decision: {
+                kind: "tool_call", action: { actionId: "parent-action", toolId: "execute_program", input: { code: "return 1" } },
+            } },
+        }),
+        createEvent({
+            sequence: 2, executionUnitId: "parent", eventType: "action_staged",
+            payload: { type: "action_staged", action: { actionId: "parent-action", toolId: "execute_program", input: { code: "return 1" } }, approvalStatus: "approved" },
+        }),
+        createEvent({
+            sequence: 3, executionUnitId: "child", programId: "program-1", callIndex: 0,
+            eventType: "tool_started", payload: { type: "tool_started", actionId: "child-action", toolId: "read_file", input: { path: "a" } },
+        }),
+        createEvent({
+            sequence: 4, executionUnitId: "child", programId: "program-1", callIndex: 0,
+            eventType: "observation_recorded", payload: { type: "observation_recorded", actionId: "child-action", observation: { kind: "success", output: "bulk", summary: "Read" } },
+        }),
+        createEvent({
+            sequence: 5, executionUnitId: "parent", eventType: "tool_finished",
+            payload: { type: "tool_finished", actionId: "parent-action", toolId: "execute_program", observation: { kind: "success", output: 1, summary: "Done" } },
+        }),
+        createEvent({
+            sequence: 6, executionUnitId: "parent", eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId: "parent-action", observation: { kind: "success", output: 1, summary: "Done" } },
+        }),
+    ];
+    const steps = projectTrajectoryEvents({ goalId: "goal-test", committedEvents: events });
+    assert.equal(steps.length, 2);
+    assert.equal(steps[1]?.action?.actionId, "parent-action");
 });
 
 test("projectTrajectoryEvents groups initialization events into Step 1", () => {

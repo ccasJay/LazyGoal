@@ -448,7 +448,11 @@ function isPendingAction(value: unknown): boolean {
     && typeof value.inputPreview === "string"
     && typeof value.inputPreviewTruncated === "boolean"
     && (value.targetPath === undefined || typeof value.targetPath === "string")
-    && (value.inputSummary === undefined || typeof value.inputSummary === "string");
+    && (value.inputSummary === undefined || typeof value.inputSummary === "string")
+    && (value.parentProgram === undefined || isRecord(value.parentProgram)
+      && isNonEmptyString(value.parentProgram.actionId)
+      && Number.isSafeInteger(value.parentProgram.callNumber)
+      && Number(value.parentProgram.callNumber) > 0);
 }
 
 function isActionDetailsResult(value: unknown): value is BrowserActionDetailsResult {
@@ -555,7 +559,10 @@ function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEntry {
     && (value.modelStage === undefined || value.modelStage === "think" || value.modelStage === "decide")
     && typeof value.title === "string" && typeof value.preview === "string" && typeof value.previewTruncated === "boolean"
     && (value.executionUnitId === undefined || isNonEmptyString(value.executionUnitId))
-    && (value.stepIndex === undefined || Number.isSafeInteger(value.stepIndex)) && (value.actionId === undefined || isNonEmptyString(value.actionId));
+    && (value.stepIndex === undefined || Number.isSafeInteger(value.stepIndex)) && (value.actionId === undefined || isNonEmptyString(value.actionId))
+    && (value.programId === undefined || isNonEmptyString(value.programId))
+    && (value.callIndex === undefined || Number.isSafeInteger(value.callIndex) && Number(value.callIndex) >= 0)
+    && (value.parentActionId === undefined || isNonEmptyString(value.parentActionId));
 }
 function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
   return isRecord(value) && isNonEmptyString(value.goalId) && isTrajectoryRun(value.run) && Array.isArray(value.entries)

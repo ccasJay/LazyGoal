@@ -457,6 +457,8 @@ export interface UiSessionViewModel {
     readonly approvalRequest?: string;
     readonly blockedReason?: string;
     readonly pendingAction?: PendingAction;
+    /** 当前子操作的 PTC 父 Action，供审批界面说明来源。 */
+    readonly pendingProgramParent?: { readonly actionId: string; readonly callNumber: number };
     /** 当前 Goal 与工作区的授权摘要，不包含精确输入摘要。 */
     readonly toolGrants?: readonly UiToolGrantSummary[];
     /** 授权摘要读取失败时供界面说明。 */

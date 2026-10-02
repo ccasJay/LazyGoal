@@ -1258,11 +1258,29 @@ export class GoalCoordinator {
                     );
                 }
 
+                const program = goal.state.run.pendingProgram;
+                const rejectedObservation = { kind: "rejected" as const, reason: request.action.reason };
+                const programAssociation = program === undefined ? {} : {
+                    executionUnitId: `${program.executionUnitId}:call:${program.nextCallIndex}`,
+                    programId: program.programId,
+                    callIndex: program.nextCallIndex,
+                };
+                const updatedRun = program === undefined ? rejectedRun.state : {
+                    ...rejectedRun.state,
+                    pendingProgram: {
+                        ...rejectedRun.state.pendingProgram!,
+                        resultBytes: program.resultBytes + Buffer.byteLength(JSON.stringify({
+                            observation: rejectedObservation,
+                            sourceReferences: [0],
+                        })),
+                    },
+                };
+
                 const rejectedGoal: Goal = {
                     ...goal,
                     state: {
                         ...goal.state,
-                        run: rejectedRun.state,
+                        run: updatedRun,
                     },
                 };
                 throwIfAborted(control);
@@ -1271,6 +1289,7 @@ export class GoalCoordinator {
                     runId: goal.state.run.id,
                     phase: "executing",
                     actionId: request.action.actionId,
+                    ...programAssociation,
                     eventType: "action_rejected",
                     payload: {
                         type: "action_rejected",
@@ -1283,11 +1302,12 @@ export class GoalCoordinator {
                     runId: goal.state.run.id,
                     phase: "executing",
                     actionId: request.action.actionId,
+                    ...programAssociation,
                     eventType: "observation_recorded",
                     payload: {
                         type: "observation_recorded",
                         actionId: request.action.actionId,
-                        observation: { kind: "rejected", reason: request.action.reason },
+                        observation: rejectedObservation,
                     },
                 }, control);
                 await this.saveCheckpoint(rejectedGoal, control);

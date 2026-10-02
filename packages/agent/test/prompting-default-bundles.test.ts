@@ -181,6 +181,21 @@ test("动态 section 中的数据文本只插值一次，保留 Nunjucks 字面�
     assert.match(tools, /\{\{ another_missing \}\}/);
 });
 
+test("PTC 指引仅随专用 Tool 授权出现", async () => {
+    const renderer = await createDefaultPromptBundleRenderer();
+    const authorized = sectionText("authorized_tools", renderer.renderDynamicSections(view({
+        authorizedTools: [{
+            id: "execute_program",
+            description: "Run a program",
+            inputSchema: { type: "object" },
+        }],
+    })));
+    assert.match(authorized, /tools\[toolId\]\(input\)/);
+    assert.match(authorized, /explicitly return one JSON-safe conclusion/);
+    const withoutProgram = sectionText("authorized_tools", renderer.renderDynamicSections(view()));
+    assert.doesNotMatch(withoutProgram, /tools\[toolId\]\(input\)/);
+});
+
 test("GoalPlan、Working Memory 与检查点各自保持独立来源和动态 section 身份", async () => {
     const renderer = await createDefaultPromptBundleRenderer();
     const checkpoint = view({ runMode: "plan", goalPlanWritable: true }, { checkpoint: true });

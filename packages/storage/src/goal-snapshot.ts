@@ -271,6 +271,33 @@ export interface GoalSnapshotPendingActionV1 {
     };
 }
 
+/**
+ * 当前程序的父 Action 与恢复身份；中间结果仍只存 Trajectory。
+ *
+ * @example
+ * ```ts
+ * const pointer: GoalSnapshotPendingProgramV1 = {
+ *   programId: "p1", action: { actionId: "a1", toolId: "execute_program", input: { code: "return 1" } },
+ *   executionUnitId: "u1", codeHash: "abc", workerHash: "def",
+ *   nodeVersion: "v22", fixedTime: 0, seed: 1, nextCallIndex: 0,
+ *   resultBytes: 0,
+ * };
+ * ```
+ */
+export interface GoalSnapshotPendingProgramV1 {
+    readonly programId: string;
+    readonly action: GoalSnapshotToolCallActionV1;
+    readonly executionUnitId: string;
+    readonly codeHash: string;
+    readonly workerHash: string;
+    readonly nodeVersion: string;
+    readonly fixedTime: number;
+    readonly seed: number;
+    readonly nextCallIndex: number;
+    readonly resultBytes: number;
+    readonly pendingStop?: { readonly code: string; readonly message: string };
+}
+
 /** Snapshot 中非 Step 自身导致的 Run 终止原因。 */
 export type GoalSnapshotStopReasonV1 =
     | { readonly kind: "max_steps_exceeded" }
@@ -330,6 +357,7 @@ export interface GoalSnapshotRunStateV1 {
     readonly memoryRevision?: GoalSnapshotMemoryRevisionV1 | undefined;
     readonly lastStep?: GoalSnapshotStepRecordV1 | undefined;
     readonly pendingAction?: GoalSnapshotPendingActionV1 | undefined;
+    readonly pendingProgram?: GoalSnapshotPendingProgramV1 | undefined;
     readonly pendingInteraction?: GoalSnapshotPendingInteractionV1 | undefined;
     readonly pendingThink?: GoalSnapshotPendingThinkV1 | undefined;
     readonly pendingModelRepair?: GoalSnapshotPendingModelRepairV1 | undefined;
@@ -780,6 +808,23 @@ const PendingActionSchema = z.object({
     }
 });
 
+const PendingProgramSchema = z.object({
+    programId: NonEmptyStringSchema,
+    action: ToolCallActionSchema,
+    executionUnitId: NonEmptyStringSchema,
+    codeHash: z.string().regex(/^[a-f0-9]{64}$/),
+    workerHash: z.string().regex(/^[a-f0-9]{64}$/),
+    nodeVersion: NonEmptyStringSchema,
+    fixedTime: z.number().int().nonnegative(),
+    seed: z.number().int().nonnegative(),
+    nextCallIndex: z.number().int().nonnegative().max(128),
+    resultBytes: z.number().int().nonnegative().max(256 * 1024 * 1024),
+    pendingStop: z.object({
+        code: NonEmptyStringSchema.max(80),
+        message: NonEmptyStringSchema.max(240),
+    }).strict().optional(),
+}).strict();
+
 const PendingThinkSchema = z.object({
     goalId: NonEmptyStringSchema,
     runId: NonEmptyStringSchema,
@@ -958,6 +1003,7 @@ const GoalSnapshotV1BaseSchema = z.object({
             }).strict().optional(),
             lastStep: StepRecordSchema.optional(),
             pendingAction: PendingActionSchema.optional(),
+            pendingProgram: PendingProgramSchema.optional(),
             pendingInteraction: PendingInteractionSchema.optional(),
             pendingThink: PendingThinkSchema.optional(),
             pendingModelRepair: PendingModelRepairSchema.optional(),
@@ -1051,6 +1097,7 @@ function validateSnapshotInvariants(
         run.stepCount !== 0
         || step !== undefined
         || run.pendingAction !== undefined
+        || run.pendingProgram !== undefined
         || run.pendingInteraction !== undefined
         || run.stopReason !== undefined
     )) {
@@ -1062,9 +1109,25 @@ function validateSnapshotInvariants(
     }
 
     const pendingAction = run.pendingAction;
+    const pendingProgram = run.pendingProgram;
     const pendingInteraction = run.pendingInteraction;
     const pendingThink = run.pendingThink;
     const pendingModelRepair = run.pendingModelRepair;
+
+    if (pendingProgram !== undefined) {
+        const input = pendingProgram.action.input;
+        if ((run.status !== "running" && run.status !== "waiting")
+            || pendingProgram.action.toolId !== "execute_program"
+            || !goal.definition.profile.toolIds.includes("execute_program")
+            || typeof input !== "object" || input === null || Array.isArray(input)
+            || typeof input.code !== "string"
+            || pendingInteraction !== undefined || pendingThink !== undefined
+            || pendingModelRepair !== undefined
+            || (pendingAction !== undefined
+                && pendingAction.action.actionId !== `${pendingProgram.programId}:${pendingProgram.nextCallIndex}`)) {
+            addInvariantIssue(context, "pendingProgram does not match the active Run and child Action");
+        }
+    }
 
     if (pendingModelRepair !== undefined) {
         if (pendingModelRepair.goalId !== goal.id || pendingModelRepair.runId !== run.id) {

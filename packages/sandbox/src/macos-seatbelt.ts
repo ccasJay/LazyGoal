@@ -282,6 +282,64 @@ ${protectedDenyClauses}
 ${networkClause}`;
 }
 
+/**
+ * 为程序 worker 构建拒绝宿主访问的 Seatbelt 策略。
+ *
+ * @remarks
+ * 调用方须提供 Node.js 及其动态库的真实文件路径；本策略仅对这些文件和
+ * 系统运行时开放读取，不继承业务 Tool 的工作区能力。
+ *
+ * @example
+ * ```ts
+ * const policy = buildProgramSeatbeltPolicy({
+ *   runtimeFiles: ["/usr/local/bin/node", "/tmp/worker.cjs"],
+ *   privateTmpDir: "/tmp/program-1",
+ *   nodeExecutable: "/usr/local/bin/node",
+ * });
+ * ```
+ */
+export function buildProgramSeatbeltPolicy(options: {
+    readonly runtimeFiles: readonly string[];
+    readonly privateTmpDir: string;
+    readonly nodeExecutable: string;
+}): string {
+    const quote = (value: string): string => {
+        if (!isAbsolute(value) || value.includes("\u0000")) throw new Error("PTC_SANDBOX_UNAVAILABLE");
+        return JSON.stringify(value);
+    };
+    const paths = new Set<string>(["/", "/dev/null", "/dev/urandom"]);
+    for (const file of [...options.runtimeFiles, options.privateTmpDir, options.nodeExecutable]) {
+        let current = file;
+        while (current !== "/") {
+            paths.add(current);
+            current = resolve(current, "..");
+        }
+    }
+    const readFiles = Array.from(paths).flatMap(expandPathVariants)
+        .map((path) => `    (literal ${quote(path)})`).join("\n");
+    const runtimeLibraryDirs = Array.from(new Set(options.runtimeFiles
+        .filter((path) => path.endsWith(".dylib"))
+        .map((path) => resolve(path, ".."))))
+        .map((path) => `    (subpath ${quote(path)})`).join("\n");
+    const privatePaths = expandPathVariants(options.privateTmpDir)
+        .map((path) => `    (subpath ${quote(path)})`).join("\n");
+    return `(version 1)
+(deny default)
+(import "system.sb")
+(allow process-exec (literal ${quote(options.nodeExecutable)}))
+(allow signal (target self))
+(allow file-read*
+${readFiles}
+${runtimeLibraryDirs}
+    (subpath "/usr/lib")
+    (subpath "/System/Library")
+${privatePaths}
+)
+(allow file-write* ${privatePaths})
+(allow file-write-data (literal "/dev/null"))
+`;
+}
+
 /** 明确允许受限命令继承的无害系统环境变量。 */
 const SAFE_ENV_ALLOWLIST = new Set([
     "PATH",

@@ -86,6 +86,7 @@ flowchart LR
 - [Storage](./storage.md)：Snapshot/Profile DTO、Schema、Codec 与 Store。
 - [Agent](./agent.md)：模型视图、Prompt Bundle、请求组装与决策解析。
 - [Contracts](./contracts.md)：Canonical/Wire 模型输出契约和 Tool 输入契约。
+- [Sandbox](./sandbox.md)：工作区边界、Seatbelt 与 PTC 独立计算进程。
 - [LLM](./llm.md)：供应商无关 Adapter、配置与取消语义。
 - [Execution Stream](./execution-stream.md)：Goal/Run 实时事件 Envelope、可见性策略和进程内订阅。
 - [Session Metrics](./session-metrics.md)：用量事实、会话投影、覆盖状态与只读订阅路由。

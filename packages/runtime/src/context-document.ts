@@ -501,6 +501,8 @@ function collectExecutionGroups(
     let activeUnitId: string | undefined;
 
     for (const event of events) {
+        if (event.programId !== undefined || event.eventType === "program_time_reserved"
+            || event.eventType === "program_started" || event.eventType === "program_settled") continue;
         if (isLookupEvent(event) || event.eventType === "state_committed") continue;
         if (!isExecutionEvent(event)) continue;
 

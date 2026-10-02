@@ -85,6 +85,7 @@ export function projectTrajectoryEvents(
     const terminalEvents: TrajectoryEvent[] = [];
 
     for (const event of committedEvents) {
+        if (event.programId !== undefined || event.eventType === "program_time_reserved") continue;
         if (event.executionUnitId !== undefined) {
             let list = executionUnitMap.get(event.executionUnitId);
             if (list === undefined) {

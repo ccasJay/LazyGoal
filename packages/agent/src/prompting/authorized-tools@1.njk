@@ -1,2 +1,5 @@
 Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):
 {{ section.projection | stableJson }}
+{% for tool in section.projection %}{% if tool.id == "execute_program" %}
+Use execute_program({code}) when many tool calls, deterministic multi-step work, or large results can be filtered in one JavaScript program. For a small simple operation or when you need to reason over each result, call the business tool directly. Program code is an async function body: call tools[toolId](input), inspect {observation, sourceReferences}, and explicitly return one JSON-safe conclusion. For example: const result = await tools.read_file({path:"README.md"}); return {found:result.observation.kind === "success"};. A program call does not grant its inner tools permission; handle success, failure, and rejected observations.
+{% endif %}{% endfor %}

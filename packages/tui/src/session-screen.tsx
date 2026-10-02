@@ -439,6 +439,9 @@ function SessionInteraction({
                 {...(session.pendingAction === undefined
                     ? {}
                     : { pendingAction: session.pendingAction })}
+                {...(session.pendingProgramParent === undefined
+                    ? {}
+                    : { pendingProgramParent: session.pendingProgramParent })}
                 onApprove={onApproveAction}
                     {...(onApproveActionWithScope === undefined ? {} : { onApproveWithScope: onApproveActionWithScope })}
                 onReject={onRejectAction}
@@ -507,6 +510,7 @@ interface ActionPanelProps {
     readonly busy: boolean;
     readonly recovery: boolean;
     readonly pendingAction?: PendingAction;
+    readonly pendingProgramParent?: { readonly actionId: string; readonly callNumber: number };
     readonly onApprove: (actionId: string) => void | Promise<void>;
     readonly onApproveWithScope?: (actionId: string, scope: "action" | "goal" | "workspace") => void | Promise<void>;
     readonly onReject: (actionId: string, reason: string) => void | Promise<void>;
@@ -517,6 +521,7 @@ function ActionPanel({
     busy,
     recovery,
     pendingAction,
+    pendingProgramParent,
     onApprove,
     onApproveWithScope,
     onReject,
@@ -570,6 +575,9 @@ function ActionPanel({
                     The previous action may have run. Approving can replay the same action.
                 </Text>
                 : <Text>The agent wants to run the following Action:</Text>}
+            {pendingProgramParent === undefined ? null : (
+                <Text>Program {pendingProgramParent.actionId}, call {pendingProgramParent.callNumber}</Text>
+            )}
             {pendingAction === undefined
                 ? <Text color="red">Action details are unavailable.</Text>
                 : <ActionDetails action={pendingAction.action} />}

@@ -163,6 +163,8 @@ export class TrajectoryExecutionUnitAdapter {
         let activeUnitId: string | undefined;
 
         for (const event of committed) {
+            if (event.programId !== undefined || event.eventType === "program_time_reserved"
+                || event.eventType === "program_started" || event.eventType === "program_settled") continue;
             if (!isExecutionUnitEvent(event)) continue;
 
             if (event.phase !== "executing") {

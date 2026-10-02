@@ -619,14 +619,23 @@ export function transition(
 
                 return {
                     ok: true,
-                    state: completeAction(
-                        currentState,
-                        pendingAction.action,
-                        {
-                            kind: "rejected",
-                            reason: input.reason,
+                    state: currentState.pendingProgram === undefined
+                        ? completeAction(
+                            currentState,
+                            pendingAction.action,
+                            {
+                                kind: "rejected",
+                                reason: input.reason,
+                            },
+                        )
+                        : {
+                            ...clearPendingAction(currentState),
+                            status: "running",
+                            pendingProgram: {
+                                ...currentState.pendingProgram,
+                                nextCallIndex: currentState.pendingProgram.nextCallIndex + 1,
+                            },
                         },
-                    ),
                 };
             }
 

@@ -11,6 +11,12 @@ export { GREP_INPUT_CONTRACT, GREP_TOOL_ID, GrepTool } from "./grep";
 export { READ_FILE_INPUT_CONTRACT, READ_FILE_TOOL_ID, ReadFileTool } from "./read-file";
 export { WRITE_FILE_INPUT_CONTRACT, WRITE_FILE_TOOL_ID, WriteFileTool } from "./write-file";
 export {
+    EXECUTE_PROGRAM_TOOL_ID,
+    EXECUTE_PROGRAM_INPUT_CONTRACT,
+    EXECUTE_PROGRAM_DEFINITION,
+    createExecuteProgramRegistration,
+} from "./execute-program";
+export {
     WEB_SEARCH_TOOL_ID,
     WEB_SEARCH_DEFAULT_MAX_RESULTS,
     WEB_SEARCH_MAX_RESULTS_LIMIT,
