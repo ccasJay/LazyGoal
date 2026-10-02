@@ -267,7 +267,8 @@ export interface BrowserGoalPlan {
  * @remarks
  * 这是显式白名单 DTO，不可替换为序列化 Goal、Trajectory Event 或 TUI ViewModel。
  * 消息、Run 和步骤历史具有确定的数量/文本上限，`historyTruncated` 指示是否省略了
- * 更早内容。待处理 Action 只返回身份、Tool 名称与审批状态，不返回原始输入。
+ * 更早内容。待处理 Action 返回身份、审批状态及白名单内置工具的有界展示摘要；
+ * 不返回原始完整输入，摘要不能代替持续授权所需的完整输入审阅。
  *
  * @example
  * ```ts
@@ -303,6 +304,8 @@ export interface BrowserGoalSession {
         readonly actionId: string;
         readonly toolId: string;
         readonly status: "approved" | "awaiting_approval" | "outcome_unknown";
+        /** 内置工具的有界命令或目标摘要，仅供展示；持续授权仍需读取完整输入。 */
+        readonly inputSummary?: string;
         readonly inputPreview: string;
         readonly inputPreviewTruncated: boolean;
         readonly targetPath?: string;
@@ -458,6 +461,9 @@ function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingA
     const completeInput = JSON.stringify(action.action.input);
     const inputPreview = boundedText(completeInput, MAX_ACTION_PREVIEW_LENGTH);
     const input = action.action.input;
+    const command = action.action.toolId === "bash" ? readBashCommand(input) : undefined;
+    const inputSummary = command === undefined ? projectToolInputSummary(action.action.toolId, input)
+        : boundedText(command, MAX_ACTION_PREVIEW_LENGTH);
     const targetPath = isJsonObject(input)
         && (action.action.toolId === "write_file" || action.action.toolId === "edit_file")
         && typeof input.path === "string"
@@ -479,6 +485,7 @@ function projectPendingAction(action: NonNullable<Goal["state"]["run"]["pendingA
         actionId: action.action.actionId,
         toolId: action.action.toolId,
         status: action.status,
+        ...(inputSummary === undefined ? {} : { inputSummary }),
         inputPreview,
         inputPreviewTruncated: completeInput.length > MAX_ACTION_PREVIEW_LENGTH,
         ...(targetPath === undefined ? {} : { targetPath }),

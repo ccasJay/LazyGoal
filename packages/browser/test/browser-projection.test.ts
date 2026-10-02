@@ -241,7 +241,7 @@ test("会话只返回已提交步骤、真实消息与实际存在的计划", as
     assert.equal(serialized.includes("systemPrompt"), false);
 });
 
-test("待审批 Action 只投影限长输入预览与写入目标路径", async () => {
+test("待审批 Action 只投影限长输入预览与内置工具摘要", async () => {
     const initial = createTestGoal();
     const privateContent = "secret-".repeat(100);
     const goal: Goal = {
@@ -271,9 +271,21 @@ test("待审批 Action 只投影限长输入预览与写入目标路径", async 
 
     assert.equal(session?.pendingAction?.actionId, "action-preview");
     assert.equal(session?.pendingAction?.targetPath, "src/example.ts");
+    assert.equal(session?.pendingAction?.inputSummary, "src/example.ts");
     assert.equal(session?.pendingAction?.inputPreviewTruncated, true);
     assert.ok((session?.pendingAction?.inputPreview.length ?? Number.POSITIVE_INFINITY) <= 321);
     assert.equal(session?.pendingAction?.inputPreview.includes(privateContent), false);
+    for (const [toolId, input, expected] of [
+        ["bash", { command: "x".repeat(500), privateField: privateContent }, "x".repeat(320) + "…"],
+        ["custom_tool", { command: "private command", path: "private path" }, undefined],
+    ] as const) {
+        const candidate: Goal = { ...goal, state: { ...goal.state, run: { ...goal.state.run, pendingAction: {
+            action: { actionId: "summary", toolId, input }, status: "awaiting_approval",
+        } } } };
+        const projected = await readBrowserGoalSession(candidate.id, new TestGoalStore(candidate), async () => ({ committed: [], uncommittedTail: [] }));
+        assert.equal(projected?.pendingAction?.inputSummary, expected);
+    }
+
 });
 
 test("会话投影包含沙箱越界能力的审阅信息及真实全网出站明示", async () => {

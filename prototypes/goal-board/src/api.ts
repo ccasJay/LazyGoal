@@ -447,7 +447,8 @@ function isPendingAction(value: unknown): boolean {
     && ["approved", "awaiting_approval", "outcome_unknown"].includes(String(value.status))
     && typeof value.inputPreview === "string"
     && typeof value.inputPreviewTruncated === "boolean"
-    && (value.targetPath === undefined || typeof value.targetPath === "string");
+    && (value.targetPath === undefined || typeof value.targetPath === "string")
+    && (value.inputSummary === undefined || typeof value.inputSummary === "string");
 }
 
 function isActionDetailsResult(value: unknown): value is BrowserActionDetailsResult {

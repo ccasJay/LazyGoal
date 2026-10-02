@@ -155,7 +155,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 2, toolCalls: 0 });
 
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve action')).click()",
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
@@ -294,7 +294,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve task')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve action')", 15_000);
+    await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve once')", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
     const planActionSession = await waitForSession(
       restarted.origin,
@@ -303,7 +303,7 @@ test("real local service restores and completes one authorized Goal conversation
     );
     assert.equal(planActionSession.pendingAction.toolId, "browser_fixture_write");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve action')).click()",
+      expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);

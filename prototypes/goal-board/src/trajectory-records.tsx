@@ -9,6 +9,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
   const [offset, setOffset] = useState(0);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [error, setError] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [total, setTotal] = useState(0);
   const [expandedRetries, setExpandedRetries] = useState<string[]>([]);
   const [selected, setSelected] = useState<{ callId: string | null; tab: string } | null>(null);
@@ -20,7 +21,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
       if (!controller.signal.aborted) { setCalls(result.calls); setNextOffset(result.nextOffset); setTotal(result.total); }
     }).catch(() => { if (!controller.signal.aborted) { setError(true); setCalls([]); } });
     return () => controller.abort();
-  }, [goalId, runId, offset, refresh, query]);
+  }, [goalId, runId, offset, refresh, query, retry]);
   useEffect(() => { setOffset(0); }, [query]);
   useEffect(() => { onCalls(calls); }, [calls, onCalls]);
   type RecordRow = { id: string; role: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string };
@@ -79,7 +80,7 @@ export function TrajectoryRecords({ goalId, runId, entries, refresh, selectEvent
     <button id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={row.entry?.sequence === selectedSequence} onClick={() => row.entry ? (setSelected(null), selectEvent(row.entry)) : setSelected({ callId: row.call!.callId, tab: row.tab ?? "Messages" })}><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-preview"><strong>{row.text}</strong>{row.input && <code>{row.input}</code>}{row.result && <><span className="ct-arrow">→</span><code className="ct-output">{row.result}</code></>}</span></button>
   </div>;
   return <>
-    <div className="mi-input-status">{error ? <span role="alert">Could not read model inputs. Refresh to retry.</span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs · Independent of Snapshot commits`}{total > 100 && <span><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</button><button disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</button></span>}</div>
+    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. Committed events are still available. <button onClick={() => setRetry(value => value + 1)}>Retry inputs</button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs · Independent of Snapshot commits`}{total > 100 && <span><button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</button><button disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</button></span>}</div>
     {chunks.map(chunk => {
       if (!chunk.retry) return chunk.rows.map(renderRow);
       const peers = visibleCalls.filter(call => `${call.executionUnitId}:${call.stage}` === chunk.key);

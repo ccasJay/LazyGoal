@@ -362,12 +362,12 @@ function ActionApprovalForm({
       </div>
       {recovery && <p>The previous result could not be confirmed. Review this action before choosing what to do.</p>}
       <div className="action-input-preview">
-        <label>Tool input</label>
-        <pre>{action.inputPreview}</pre>
+        <label>{action.inputSummary !== undefined ? action.toolId === "bash" ? "Command" : "Target" : "Tool input"}</label>
+        <pre>{action.inputSummary ?? action.inputPreview}</pre>
         {action.inputPreviewTruncated && fullInput === null && <p>Preview shortened. View the complete input before granting ongoing permission.</p>}
         <button className="action-details-toggle" disabled={detailsLoading} onClick={() => {
           if (fullInput === null) void revealFullInput();
-          else setFullInput(null);
+          else { setFullInput(null); if (pendingAction.inputPreviewTruncated) setScope("action"); }
         }}>
           <Eye size={13} /> {detailsLoading ? "Loading…" : fullInput === null ? "View complete input" : "Hide complete input"}
         </button>
@@ -401,7 +401,7 @@ function ActionApprovalForm({
             scope: recovery ? "action" : scope,
           })}
         >
-          <Check size={13} /> Approve action
+          <Check size={13} /> {busy ? "Saving approval…" : recovery ? "Approve action" : scope === "goal" ? "Approve for this Goal" : scope === "workspace" ? "Approve for this project" : "Approve once"}
         </button>
         <details className="action-rejection">
           <summary>Reject action</summary>

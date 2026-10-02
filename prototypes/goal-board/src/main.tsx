@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Modal } from "./modal";
 import { createRoot } from "react-dom/client";
 import type { ReactNode } from "react";
 import Markdown from "react-markdown";
@@ -17,7 +18,6 @@ import {
   GitBranch,
   LayoutGrid,
   Layers,
-  MoreHorizontal,
   Plus,
   Search,
   Shield,
@@ -863,9 +863,12 @@ function App() {
                           <button key={tab} aria-pressed={sessionTab === tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}>{tab}</button>
                         ))}
                       </div>
-                      <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
-                        <span className="dot" />{streamConnected ? "Connected" : "Reconnecting"}
-                      </span>
+                      <div className="session-state">
+                        <span className={`task-state ${session.pendingAction?.status === "awaiting_approval" || session.pendingAction?.status === "outcome_unknown" || session.pendingInteraction ? "attention" : ""}`}>{sessionStatus(session)}</span>
+                        <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
+                          <span className="dot" />{streamConnected ? "Connected" : "Reconnecting"}
+                        </span>
+                      </div>
                     </div>
                     {sessionTab === "Board" ? boardContent : sessionTab === "Trajectory" ? (
                       <Trajectory key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`} session={session} target={trajectoryTarget}/>
@@ -1033,7 +1036,8 @@ function App() {
                               onSubmit={submitMessage}
                             />
                       )}
-                      {(session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
+                      {sessionTab === "Trajectory" && canSendText && <button className="trajectory-message-link" onClick={() => setSessionTab("Activity")}>Message this Goal from Activity <ChevronRight size={14}/></button>}
+                      {sessionTab !== "Trajectory" && (session.runStatus === "completed" || session.runStatus === "failed") && session.pendingInteraction === undefined && session.pendingAction === undefined && (
                         <MessageComposer
                           key={`${session.currentRunId}:continue`}
                           showHint={false}
@@ -1227,7 +1231,7 @@ function CurrentModelControl({ label, enabled, onClick }: {
       className="current-model-control"
       disabled={!enabled}
       aria-label={`Current model: ${label}${enabled ? ". Change model" : ""}`}
-      title={label}
+      title={enabled ? label : `${label}. Change model after the current action settles or the Run finishes.`}
       onClick={onClick}
     >
       <span>Model</span><strong>{label}</strong>{enabled && <ChevronDown size={11} />}
@@ -1248,6 +1252,15 @@ function WorkspaceContext({ context, error }: { context: BrowserWorkspaceContext
   </div>;
 }
 
+function sessionStatus(session: BrowserGoalSession): string {
+  if (session.pendingAction?.status === "outcome_unknown") return "Outcome needs review";
+  if (session.pendingAction?.status === "awaiting_approval") return "Awaiting approval";
+  if (session.pendingAction?.status === "approved") return "Action accepted";
+  if (session.pendingInteraction?.kind === "task_approval") return "Awaiting task approval";
+  if (session.pendingInteraction) return "Awaiting your response";
+  return session.runStatus.charAt(0).toUpperCase() + session.runStatus.slice(1);
+}
+
 function GoalCard({
   goal,
   metrics,
@@ -1262,13 +1275,6 @@ function GoalCard({
   const status = statusFromRun(goal.runStatus);
   return (
     <button className={`goal-card ${selected ? "is-selected" : ""}`} onClick={onSelect} aria-pressed={selected}>
-      <div className="card-meta">
-        <span>{goal.goalId.slice(0, 12)}</span>
-        {status === "Running" ? <span className="live-mini"><span />Live</span>
-          : status === "Completed" ? <Check size={13} />
-            : status === "Needs input" ? <CircleHelp size={13} className="amber" />
-              : <MoreHorizontal size={15} />}
-      </div>
       <h3>{goal.intent}</h3>
       <CardMetrics state={metrics} />
       <div className="card-footer">
@@ -1313,29 +1319,40 @@ function CardMetrics({ state }: { state?: MetricsState }) {
 }
 
 function SessionMetricsBar({ state }: { state?: MetricsState }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   if (state?.kind === "error") return <div className="session-metrics-state">Recorded metrics unavailable</div>;
   if (state === undefined) return <div className="session-metrics-state">Loading recorded metrics…</div>;
   const metrics = state.value;
   const coverage = metricCoverage(metrics);
-  return <div className="session-metrics" aria-label="Recorded Goal metrics">
-    <div className="session-metric">
+  return <><button type="button" className="session-metrics" aria-label="View recorded Goal metrics" onClick={() => setDetailsOpen(true)}>
+    <span className="session-metric">
       <Gauge size={15} aria-hidden="true" />
       <span>{metrics.roundCount} run{metrics.roundCount === 1 ? "" : "s"} · {metrics.stepCount} step{metrics.stepCount === 1 ? "" : "s"}</span>
       <span className="session-metric-divider">·</span>
       <span title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}>{metricSpeed(metrics.tokensPerSecond)} tok/s</span>
-    </div>
-    <div className="session-metric">
+    </span>
+    <span className="session-metric">
       <Database size={15} aria-hidden="true" />
       <span>{metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out</span>
       <span className="session-metric-divider">·</span>
       <span title={`${metrics.cacheMeasuredCalls} measured calls; ${metrics.cacheExcludedCalls} excluded calls`}>Cache hit {metricPercent(metrics.cacheHitRate)}</span>
-    </div>
-    <div className="session-metric" title="Remaining context after the latest confirmed call on the current model">
-      <span className="context-ring" style={{ background: `conic-gradient(#aebbd1 ${(metrics.contextRemainingPercent ?? 0) * 100}%, #4b5360 0)` }} aria-hidden="true" />
+    </span>
+    <span className="session-metric" title="Remaining context after the latest confirmed call on the current model">
+      <span className="context-ring" style={{ background: metrics.contextRemainingPercent == null ? "#59606d" : `conic-gradient(var(--blue) ${metrics.contextRemainingPercent * 100}%, #59606d 0)` }} aria-hidden="true" />
       <span>Context left {metricPercent(metrics.contextRemainingPercent ?? null)}</span>
-    </div>
+    </span>
     {coverage !== null && <span className="session-metrics-coverage" title="Provider usage coverage">{coverage}</span>}
-  </div>;
+  </button>{detailsOpen && <Modal className="metrics-dialog" label="Recorded Goal metrics" onClose={() => setDetailsOpen(false)}>
+    <div className="model-picker-head"><h2>Recorded Goal metrics</h2><button className="icon" aria-label="Close metrics" onClick={() => setDetailsOpen(false)}><X size={17}/></button></div>
+    <dl className="metrics-details">
+      <dt>Runs / committed steps</dt><dd>{metrics.roundCount} / {metrics.stepCount}</dd>
+      <dt>Input / output tokens</dt><dd>{metricNumber(metrics.inputTokens)} / {metricNumber(metrics.outputTokens)}</dd>
+      <dt>Generation</dt><dd>{metricSpeed(metrics.tokensPerSecond)} tok/s <small>{metrics.throughputMeasuredCalls} measured · {metrics.throughputExcludedCalls} excluded calls</small></dd>
+      <dt>Cache hit</dt><dd>{metricPercent(metrics.cacheHitRate)} <small>{metrics.cacheMeasuredCalls} measured · {metrics.cacheExcludedCalls} excluded calls</small></dd>
+      <dt>Context left</dt><dd>{metricPercent(metrics.contextRemainingPercent ?? null)} <small>Latest confirmed call on the current model</small></dd>
+      <dt>Usage coverage</dt><dd>{coverage ?? "Complete coverage"}</dd>
+    </dl><p className="metrics-note">— means unavailable. Missing values are not counted as zero.</p>
+  </Modal>}</>;
 }
 
 function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
@@ -1349,6 +1366,7 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const mounted = useRef(true);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     mounted.current = true;
@@ -1380,21 +1398,21 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
   }
 
   return (
-    <div className="model-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="model-picker" role="dialog" aria-modal="true" aria-label="Choose model" onKeyDown={(event) => { if (event.key === "Escape") onClose(); }}>
+    <Modal className="model-picker" label="Choose model" onClose={onClose}>
         <div className="model-picker-head">
           <div><h2>Choose model</h2><p>Models available from the current provider</p></div>
           <button className="icon" type="button" aria-label="Close model picker" onClick={onClose}><X size={17} /></button>
         </div>
-        {catalog !== null && <p className="model-provider">Provider · {catalog.provider}</p>}
+        {catalog !== null && <p className="model-provider">Configured provider · {catalog.provider}</p>}
         {catalog === null && error === null && <p className="model-loading"><span className="loading-mark small" /> Loading models…</p>}
         {error !== null && <p className="model-error" role="alert">{error}</p>}
+        <input className="model-search" data-modal-autofocus type="search" aria-label="Search models" placeholder="Search models…" value={search} onChange={event => setSearch(event.target.value)}/>
         {catalog !== null && (
-          <div className="model-list" role="list">
-            {catalog.models.map((model) => {
+          <div className="model-list">
+            {catalog.models.filter(model => `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase())).map((model) => {
               const current = (selectedId ?? catalog.currentModelId) === model.id;
               return (
-                <button key={model.id} type="button" role="listitem" className={`model-option ${current ? "current" : ""}`} disabled={!model.selectable || busyId !== null} onClick={() => void pick(model)}>
+                <button key={model.id} type="button" className={`model-option ${current ? "current" : ""}`} disabled={!model.selectable || busyId !== null} onClick={() => void pick(model)}>
                   <span className="model-option-main"><strong>{model.displayName}</strong><code>{model.id}</code></span>
                   <span className="model-option-meta">
                     {current && <span className="model-current"><Check size={12} /> Current</span>}
@@ -1405,11 +1423,10 @@ function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
                 </button>
               );
             })}
-            {catalog.models.length === 0 && <p className="model-empty">No selectable models were found for this provider.</p>}
+            {!catalog.models.some(model => `${model.displayName} ${model.id}`.toLowerCase().includes(search.toLowerCase())) && <p className="model-empty">No models match this search.</p>}
           </div>
         )}
-      </section>
-    </div>
+    </Modal>
   );
 }
 
