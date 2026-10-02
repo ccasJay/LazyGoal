@@ -233,8 +233,11 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
     if (event.eventType === "tool_attempt_started") preview = `Tool attempt ${event.payload.attempt}`;
     if (event.eventType === "execution_error") preview = `${event.payload.code}: ${event.payload.message}`;
     if (event.eventType === "model_repair_feedback_recorded") preview = `${event.payload.stage} rejected: ${event.payload.feedback.issues.slice(0, 3).map(issue => { const path = issue.path.join(".").replace(/^result\.action\./, "") || "response"; return issue.code === "missing_field" ? `${path} is required` : issue.code === "extra_field" ? `Remove ${path}` : `${path}: ${issue.message}`; }).join("; ")}${event.payload.feedback.issues.length > 3 ? ` (+${event.payload.feedback.issues.length - 3} more)` : ""}`;
+    if (event.eventType === "model_response_received") preview = event.payload.message.content || "Native model response";
     if (event.eventType === "model_context_frame") preview = event.payload.sections.map(section => section.content).join("\n") || "No dynamic context updates";
-    if (event.eventType === "model_repair_attempt_started") preview = `${event.payload.stage} · Output repair attempt ${event.payload.attempt}`;
+    if (event.eventType === "model_repair_attempt_started") preview = event.payload.attempt === 1
+        ? `${event.payload.stage} · Model request 1`
+        : `${event.payload.stage} · Output retry ${event.payload.attempt}`;
     if (event.eventType === "context_epoch_closed") preview = "Context epoch closed";
     if (event.eventType === "memory_patch_accepted") preview = "Working memory updated";
     if (event.eventType === "think_completed") preview = event.payload.output;
@@ -242,10 +245,11 @@ function summary(event: TrajectoryEvent, events: readonly TrajectoryEvent[]): Br
     const inputPreview = event.eventType === "tool_started" ? JSON.stringify(event.payload.input) : undefined;
     const observation = finished?.eventType === "tool_finished" ? finished.payload.observation : event.eventType === "tool_finished" ? event.payload.observation : undefined;
     const resultPreview = observation === undefined ? undefined : observationPreview(observation);
-    const modelStage = event.eventType === "model_repair_attempt_started" || event.eventType === "model_repair_feedback_recorded" || event.eventType === "model_context_frame" ? event.payload.stage : undefined;
+    const modelStage = event.eventType === "model_repair_attempt_started" || event.eventType === "model_repair_feedback_recorded" || (event.eventType === "model_context_frame" || event.eventType === "model_response_received") ? event.payload.stage : undefined;
     const frame = event.eventType === "model_context_frame" ? event : event.eventType === "decision_received" || event.eventType === "think_completed"
         ? events.filter(candidate => event.executionUnitId !== undefined && candidate.eventType === "model_context_frame" && candidate.executionUnitId === event.executionUnitId && candidate.sequence < event.sequence && candidate.payload.stage === (event.eventType === "think_completed" ? "think" : "decide")).at(-1) : undefined;
-    const modelCallId = frame?.eventType === "model_context_frame" ? frame.payload.modelCallId : undefined;
+    const modelCallId = event.eventType === "model_response_received" ? event.payload.modelCallId
+        : frame?.eventType === "model_context_frame" ? frame.payload.modelCallId : undefined;
     const actionId = actionOf(event);
     const toolId = "toolId" in event.payload ? event.payload.toolId : event.eventType === "decision_received" && event.payload.decision.kind === "tool_call" ? event.payload.decision.action.toolId : undefined;
     return { eventId: event.eventId, sequence: event.sequence, occurredAt: event.occurredAt, eventType: event.eventType,

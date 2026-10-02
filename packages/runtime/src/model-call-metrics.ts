@@ -13,6 +13,7 @@
  *     goalId: "goal-1",
  *     runId: "run-1",
  *     callId: "call-1",
+ *     modelId: "current-model",
  *     occurredAt: new Date().toISOString(),
  * };
  * ```
@@ -32,6 +33,10 @@ interface ModelCallMetricIdentity {
 /**
  * 模型调用开始事实。
  *
+ * @remarks
+ * `modelId` 绑定调用时的模型身份，供当前模型的上下文容量指标配对；缺失时该指标不可用。
+ * 不保存供应商凭据或请求正文。
+ *
  * @example
  * ```ts
  * const record: ModelCallStartedMetricRecord = {
@@ -39,12 +44,15 @@ interface ModelCallMetricIdentity {
  *     goalId: "goal-1",
  *     runId: "run-1",
  *     callId: "call-1",
+ *     modelId: "current-model",
  *     occurredAt: new Date().toISOString(),
  * };
  * ```
  */
 export interface ModelCallStartedMetricRecord extends ModelCallMetricIdentity {
     readonly recordType: "call_started";
+    /** 调用时绑定的模型；缺失时无法将用量归属于当前模型的上下文窗口。 */
+    readonly modelId?: string;
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { ModelContextFrameForStage } from "./step-executor";
 import type {
     CanonicalMemoryOperation,
     Goal,
@@ -76,7 +77,7 @@ export interface TrajectoryCheckpointCommitRequest {
     /** 可选的独立 accepted Memory Patch 事实。 */
     readonly acceptedPatch?: AcceptedMemoryPatchInput;
     /** 成功模型响应对应的已发送动态 Section frame。 */
-    readonly modelContextFrame?: Omit<ModelContextFramePayload, "type"> & {
+    readonly modelContextFrame?: ModelContextFrameForStage & {
         readonly executionUnitId?: string;
         readonly stepIndex?: number;
     };
@@ -325,6 +326,23 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
         > | undefined;
         if (request.modelContextFrame !== undefined) {
             const frame = request.modelContextFrame;
+            if (frame.modelResponse !== undefined) {
+                if (frame.modelCallId === undefined || frame.executionUnitId === undefined) {
+                    throw new TrajectoryAppendError("Native model responses require call and execution unit identities");
+                }
+                const responseEvent = await this.append({
+                    goalId: goal.id, runId: goal.state.run.id, phase: goal.state.workflow.phase,
+                    executionUnitId: frame.executionUnitId,
+                    ...(frame.stepIndex === undefined ? {} : { stepIndex: frame.stepIndex }),
+                    eventType: "model_response_received",
+                    payload: {
+                        type: "model_response_received", modelCallId: frame.modelCallId, stage: frame.stage,
+                        conversationPosition: frame.conversationPosition, epochNumber: frame.epochNumber,
+                        message: structuredClone(frame.modelResponse),
+                    },
+                }, request.control);
+                if (responseEvent !== undefined) events.push(responseEvent);
+            }
             const event = await this.append({
                 goalId: goal.id,
                 runId: goal.state.run.id,
@@ -336,6 +354,7 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                     type: "model_context_frame",
                     ...(frame.modelCallId === undefined ? {} : { modelCallId: frame.modelCallId }),
                     stage: frame.stage,
+                    ...(frame.nativeIdentity === undefined ? {} : { nativeIdentity: structuredClone(frame.nativeIdentity) }),
                     epochNumber: frame.epochNumber,
                     conversationPosition: frame.conversationPosition,
                     sections: structuredClone(frame.sections),

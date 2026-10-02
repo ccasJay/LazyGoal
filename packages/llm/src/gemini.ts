@@ -1,3 +1,4 @@
+import { isModelAssistantMessage, sameNativeIdentity, type NativeConversationIdentity, type GeminiContinuationPart } from "../../contracts/src/model-conversation";
 import { randomUUID } from "node:crypto";
 import { 
     GoogleGenAI,
@@ -82,12 +83,18 @@ const GEMINI_ABSENT_SENTINEL = "__lazygoal_absent__";
  */
 export class Gemini implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
+    /** 同一 Gemini 端点和模型的原生回放身份。 */
+    readonly nativeConversationIdentity: NativeConversationIdentity;
     private readonly client: GoogleGenAI;
     private readonly model: string;
     private readonly maxOutputTokens: number | undefined;
 
     constructor(config: GeminiConfig) {
         this.structuredOutputMode = config.structuredOutputMode;
+        this.nativeConversationIdentity = {
+            provider: "google", endpoint: (config.baseURL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, ""),
+            model: config.model, protocol: "gemini-content",
+        };
         this.client = new GoogleGenAI({
             apiKey: config.apiKey,
             httpOptions: { retryOptions: { attempts: 1 } },
@@ -123,9 +130,9 @@ export class Gemini implements LLMAdapter {
             }
         }
 
-        const input = toGeminiInput(request.messages, request.maxOutputTokens ?? this.maxOutputTokens);
+        const input = toGeminiInput(request.messages, this.nativeConversationIdentity, request.maxOutputTokens ?? this.maxOutputTokens);
 
-        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined) {
+        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length) {
             input.config = {
                 ...input.config,
                 responseMimeType: "application/json",
@@ -172,14 +179,13 @@ export class Gemini implements LLMAdapter {
 
             const candidate = response.candidates?.[0];
             const textParts: string[] = [];
+            const reasoningParts: string[] = [];
             const toolCalls: LLMToolCall[] = [];
 
             if (candidate?.content?.parts) {
                 for (const part of candidate.content.parts) {
                     if (typeof part.text === "string" && part.text.length > 0) {
-                        textParts.push(part.text);
-                    } else if (typeof (part as any).thought === "string" && (part as any).thought.length > 0) {
-                        textParts.push((part as any).thought);
+                        (part.thought === true ? reasoningParts : textParts).push(part.text);
                     }
                     if (part.functionCall) {
                         toolCalls.push({
@@ -191,26 +197,27 @@ export class Gemini implements LLMAdapter {
                 }
             }
 
-            if (toolCalls.length === 0 && (response as any).functionCalls) {
-                for (const fc of (response as any).functionCalls) {
-                    toolCalls.push({
-                        callId: fc.id ?? `call_${randomUUID()}`,
-                        toolId: fc.name ?? "",
-                        argumentsJson: JSON.stringify(fc.args ?? {}),
-                    });
-                }
-            }
-
             const rawContent = textParts.length > 0
                 ? textParts.join("\n").trim()
-                : (toolCalls.length > 0 ? "" : (response.text ?? ""));
-            const content = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined
+                : (toolCalls.length > 0 || candidate?.content?.parts !== undefined ? "" : (response.text ?? ""));
+            const content = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length
                 ? restoreGeminiResponseProjection(rawContent, request.structuredOutput.schema)
                 : rawContent;
 
+            const continuation = {
+                identity: this.nativeConversationIdentity,
+                parts: structuredClone(candidate?.content?.parts ?? []) as readonly GeminiContinuationPart[],
+            };
+            const message = {
+                role: "assistant" as const, content,
+                ...(reasoningParts.length === 0 ? {} : { reasoning: reasoningParts.join("\n") }),
+                ...(toolCalls.length > 0 ? { toolCalls } : {}), continuation,
+            };
+            if (toolCalls.length <= 1 && !isModelAssistantMessage(message)) {
+                throw new LLMRequestModeMismatchError("Unsupported Gemini response parts for native text/tool history");
+            }
             return {
-                content,
-                ...(toolCalls.length > 0 ? { toolCalls } : {}),
+                ...message,
                 providerMetadata: {
                     model: this.model,
                     ...(usage !== undefined ? { usage } : {}),
@@ -238,6 +245,7 @@ export class Gemini implements LLMAdapter {
 /** 将统一消息转换为 Gemini contents 与可选 systemInstruction。 */
 function toGeminiInput(
     messages: readonly LLMMessage[],
+    identity: NativeConversationIdentity,
     maxOutputTokens?: number,
 ): GeminiInput {
     const systemInstruction: string[] = [];
@@ -255,11 +263,24 @@ function toGeminiInput(
                 });
                 break;
             case "assistant":
+                if (msg.continuation !== undefined && !sameNativeIdentity(msg.continuation.identity, identity)) {
+                    throw new LLMRequestModeMismatchError("Native history belongs to another provider, endpoint, model or protocol");
+                }
                 contents.push({
                     role: "model",
-                    parts: [{text: msg.content}],
+                    parts: msg.continuation?.parts !== undefined
+                        ? structuredClone(msg.continuation.parts) as NonNullable<Content["parts"]>
+                        : [{ text: msg.content }],
                 });
                 break;
+            case "tool": {
+                const previous = contents.at(-1)?.parts?.find(part => part.functionCall?.name === msg.toolId)?.functionCall;
+                contents.push({ role: "user", parts: [{ functionResponse: {
+                    name: msg.toolId, ...(previous?.id === undefined ? {} : { id: previous.id }),
+                    response: JSON.parse(msg.content) as Record<string, unknown>,
+                } }] });
+                break;
+            }
         }
     }
 

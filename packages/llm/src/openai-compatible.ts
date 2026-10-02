@@ -1,3 +1,4 @@
+import { sameNativeIdentity, type NativeConversationIdentity } from "../../contracts/src/model-conversation";
 import OpenAI from "openai";
 import type { LLMAdapter } from "./core/adapter";
 import {
@@ -31,6 +32,8 @@ import { classifyTransientModelFailure } from "./core/model-request-failure";
 export interface OpenAICompatibleConfig {
     /** 服务端使用的 API Key。 */
     apiKey: string;
+    /** 连接的供应商身份；兼容端点默认为 openai-compatible。 */
+    provider?: "openai" | "openai-compatible";
     /** OpenAI API 或兼容服务的基础 URL。 */
     baseURL: string;
     /** 每次生成请求使用的模型名称。 */
@@ -55,6 +58,8 @@ export interface OpenAICompatibleConfig {
  */
 export class OpenAICompatible implements LLMAdapter {
     readonly structuredOutputMode: StructuredOutputMode;
+    /** 无凭据的原生回放身份。 */
+    readonly nativeConversationIdentity: NativeConversationIdentity;
     private readonly client: OpenAI;
     private readonly model: string;
     private readonly maxOutputTokens: number | undefined;
@@ -62,6 +67,10 @@ export class OpenAICompatible implements LLMAdapter {
     /** @param config - API Key、兼容端点地址、模型名称与固定的结构化输出模式。 */
     constructor (config: OpenAICompatibleConfig){
         this.structuredOutputMode = config.structuredOutputMode;
+        this.nativeConversationIdentity = {
+            provider: config.provider ?? "openai-compatible", endpoint: config.baseURL.replace(/\/+$/, ""),
+            model: config.model, protocol: "openai-chat",
+        };
         this.client = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.baseURL,
@@ -98,7 +107,7 @@ export class OpenAICompatible implements LLMAdapter {
             }
         }
 
-        const messages = toOpenAIMessages(_request.messages);
+        const messages = toOpenAIMessages(_request.messages, this.nativeConversationIdentity);
         const maxOutputTokens = _request.maxOutputTokens ?? this.maxOutputTokens;
 
         try {
@@ -109,7 +118,7 @@ export class OpenAICompatible implements LLMAdapter {
                 ...(maxOutputTokens !== undefined
                     ? { max_tokens: maxOutputTokens }
                     : {}),
-                ...((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && _request.structuredOutput !== undefined
+                ...((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && _request.structuredOutput !== undefined && !hasTools
                     ? {
                         response_format: {
                             type: "json_schema" as const,
@@ -133,6 +142,7 @@ export class OpenAICompatible implements LLMAdapter {
                             },
                         })),
                         tool_choice: _request.toolChoice ?? "required",
+                        parallel_tool_calls: false,
                     }
                     : {}),
             };
@@ -148,10 +158,9 @@ export class OpenAICompatible implements LLMAdapter {
             const usage = extractOpenAIUsage(response.usage);
 
             const textContent = message?.content ?? "";
-            const reasoningContent = (message as any)?.reasoning_content ?? (message as any)?.thought ?? "";
-            const fullContent = textContent && reasoningContent
-                ? `${reasoningContent}\n${textContent}`
-                : (textContent || (typeof reasoningContent === "string" ? reasoningContent : ""));
+            const extended = message as typeof message & { reasoning_content?: string; thought?: string };
+            const reasoningContent = extended?.reasoning_content;
+            const reasoning = reasoningContent ?? extended?.thought;
 
             const toolCalls: LLMToolCall[] | undefined = message?.tool_calls?.map(tc => {
                 const func = "function" in tc ? tc.function : (tc as any).function;
@@ -163,7 +172,12 @@ export class OpenAICompatible implements LLMAdapter {
             });
 
             return {
-                content: fullContent,
+                content: textContent,
+                ...(reasoning === undefined ? {} : { reasoning }),
+                continuation: {
+                    identity: this.nativeConversationIdentity,
+                    ...(reasoningContent === undefined ? {} : { reasoningContent }),
+                },
                 ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
                 providerMetadata: {
                     requestId: response.id,
@@ -192,26 +206,24 @@ export class OpenAICompatible implements LLMAdapter {
 /** 将统一消息按原顺序转换为 OpenAI Chat Completions 消息。 */
 function toOpenAIMessages(
     messages: readonly LLMMessage[],
+    identity: NativeConversationIdentity,
 ): OpenAI.Chat.ChatCompletionMessageParam[] {
-    return messages.map((msg) => {
-        switch (msg.role) {
-            case "system":
-                return {
-                    role: "system",
-                    content: msg.content,
-                };
-            case "user":
-                return {
-                    role: "user",
-                    content: msg.content,
-                };
-            case "assistant":
-                return {
-                    role: "assistant",
-                    content: msg.content,
-                };
-            // case for tool todo
+    return messages.map(message => {
+        if (message.role === "tool") return {
+            role: "tool", tool_call_id: message.callId, content: message.content,
+        };
+        if (message.role !== "assistant") return { role: message.role, content: message.content };
+        if (message.continuation !== undefined && !sameNativeIdentity(message.continuation.identity, identity)) {
+            throw new LLMRequestModeMismatchError("Native history belongs to another provider, endpoint, model or protocol");
         }
+        return {
+            role: "assistant", content: message.content,
+            ...(message.toolCalls === undefined ? {} : { tool_calls: message.toolCalls.map(call => ({
+                id: call.callId, type: "function" as const, function: { name: call.toolId, arguments: call.argumentsJson },
+            })) }),
+            ...(message.continuation?.reasoningContent === undefined ? {} : {
+                reasoning_content: message.continuation.reasoningContent,
+            }),
+        };
     });
-    
 }

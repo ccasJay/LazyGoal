@@ -59,6 +59,19 @@ function controlPayload(request: CapturedRequest): Record<string, any> {
     return JSON.parse(control.content) as Record<string, any>;
 }
 
+function nativeFixtureMessage(content: string, id: string) {
+    const wire = JSON.parse(content) as { result?: Record<string, any> };
+    if (wire.result === undefined) return { role: "assistant", content };
+    const { kind, ...args } = wire.result;
+    const name = kind === "tool_call" ? args.action.toolId
+        : kind === "ask_user" ? "ask_user"
+        : kind === "task_proposal" ? "system_propose_task_plan"
+        : "system_complete_task";
+    return { role: "assistant", content: "", tool_calls: [{ id, type: "function", function: {
+        name, arguments: JSON.stringify(kind === "tool_call" ? args.action.input : args),
+    } }] };
+}
+
 test("Composition Root carries Memory through task approval into Executing", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-prompt-v1-"));
     await writeDefaultProfile(workspace);
@@ -170,13 +183,17 @@ test("Composition Root carries Memory through task approval into Executing", asy
                     ?.flatMap((unit) => unit.events)
                     .filter((event) => event.eventType === "tool_finished" || event.eventType === "observation_recorded")
                     .at(-1);
-                if (evidence === undefined) {
+                const nativeEvidence = capturedRequest.messages.filter(message => message.role === "tool")
+                    .map(message => JSON.parse(message.content) as any)
+                    .find(result => result.observation !== undefined)?.sourceSequence;
+                const evidenceSequence = evidence?.sequence ?? nativeEvidence;
+                if (evidenceSequence === undefined) {
                     response.statusCode = 500;
                     response.end("Expected committed tool evidence in the current model context");
                     return;
                 }
                 const proposal = JSON.parse(responseContent);
-                proposal.result.memoryPatch.operations[0].fact.evidenceSequences = [evidence.sequence];
+                proposal.result.memoryPatch.operations[0].fact.evidenceSequences = [evidenceSequence];
                 responseContent = JSON.stringify(proposal);
             }
             requests.push(capturedRequest);
@@ -188,7 +205,7 @@ test("Composition Root carries Memory through task approval into Executing", asy
                 model: "test-model",
                 choices: [{
                     index: 0,
-                    message: { role: "assistant", content: responseContent },
+                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
                     finish_reason: "stop",
                 }],
             }));
@@ -473,7 +490,7 @@ test("端到端非法 wire 响应拒绝调用 Tool 且不产生执行副作用",
                 model: "test-model",
                 choices: [{
                     index: 0,
-                    message: { role: "assistant", content: responseContent },
+                    message: nativeFixtureMessage(responseContent, `call-${requests.length}`),
                     finish_reason: "stop",
                 }],
             }));

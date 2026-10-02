@@ -36,7 +36,11 @@ export interface BrowserModelInputDetail {
 
 const system = (call: ModelInputRecord) => call.messages.filter(message => message.role === "system").map(message => message.content).join("\n");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-const messageKey = (message: ModelInputMessage) => JSON.stringify([message.role, message.source, message.content]);
+const messageKey = (message: ModelInputMessage) => JSON.stringify([
+    message.role, message.source, message.content,
+    message.role === "assistant" ? [message.reasoning, message.toolCalls, message.continuation] : null,
+    message.role === "tool" ? [message.callId, message.toolId] : null,
+]);
 const validId = (value: string | null) => value !== null && /^[A-Za-z0-9_-]{1,256}$/.test(value);
 
 /**
@@ -82,7 +86,7 @@ export function createBrowserModelInputRoutes(store: Pick<GoalStore, "restore">,
                 const added = call.messages.map((message, index) => ({ ...message, index })).filter(message => message.role !== "system" && !old.has(messageKey(message)));
                 const { messages: _, ...identity } = call;
                 return { ...identity, systemVersion: hash(system(call)), firstSystem: previous === undefined, systemChanged: previous !== undefined && system(previous) !== system(call), previousCallId: previous?.callId ?? null,
-                    messages: added.slice(0, 10).map(message => ({ role: message.role, source: message.source, index: message.index, preview: message.content.slice(0, 700), truncated: message.content.length > 700 })), omittedMessageCount: Math.max(0, added.length - 10) };
+                    messages: added.slice(0, 10).map(message => ({ role: message.role, source: message.source, index: message.index, preview: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined ? JSON.stringify(message) : message.content).slice(0, 700), truncated: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined ? JSON.stringify(message) : message.content).length > 700 })), omittedMessageCount: Math.max(0, added.length - 10) };
             });
             return context.json({ calls: summaries, total: indices.length, nextOffset: offset + 100 < indices.length ? offset + 100 : null });
         } catch { return context.json({ error: "model_input_read_failed" }, 500); }

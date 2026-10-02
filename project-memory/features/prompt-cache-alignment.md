@@ -4,7 +4,7 @@ status: active
 summary: "实现 Goal-stable → Epoch-stable → Step-dynamic 三层请求拓扑以最大化大模型前缀缓存命中"
 source_spec: specs/prompt-cache-alignment/
 distilled_at: 2026-09-03
-reviewed_at: 2026-09-03
+reviewed_at: 2026-10-01
 tags: [prompt-cache, kv-cache, prompt-topology, token-budget, stateless-render]
 authorities: [docs/architecture/agent.md, packages/agent/src/model-inference-view.ts, packages/agent/src/render.ts, packages/agent/src/step-prompt/agent-decision@1.njk]
 ---
@@ -17,7 +17,7 @@ authorities: [docs/architecture/agent.md, packages/agent/src/model-inference-vie
 
 ## Durable Decisions
 
-- D1 — 提升 Approved Task Contract（`objective` 与带索引编号的 `completionCriteria`）至 `Goal-stable` 根前缀（System Message），在整个执行阶段跨步 100% 逐字相同。 [S1, S2, S3, S5]
+- D1 — 提升 Approved Task Contract（`objective` 与带索引编号的 `completionCriteria`）至 `Goal-stable` 根前缀（System Message），在整个执行阶段跨步 100% 逐字相同（注：该任务前缀放置在后续 prompt-context-layering 中进一步演进为动态 section）。 [S1, S2, S3, S5]
 - D2 — 隔离 `Epoch-stable` 中间前缀的微观 Token 水位（`inputTokens` 与 `remainingTokens`），仅在超限时注入离散 `checkpointRequired: true` 信号，保证同一 Epoch 内对话消息前缀 100% 逐字固定。 [S1, S2, S3, S4]
 - D3 — 精简 `Step-dynamic` 尾部控制消息为纯增量 `StepDynamicPayload`，彻底剔除重复的 `intent`、`task`、`contextEpoch` 及内部 `budget` 报告，降低单次传输开销与注意力干扰。 [S1, S2, S3, S4]
 - D4 — 保持 `renderRequest` 的纯函数无状态特性，断点恢复完全基于已持久化 Snapshot 与 Trajectory committed boundary，不依赖任何外部有状态连接。 [S1, S2, S4, S6]

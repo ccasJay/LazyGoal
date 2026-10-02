@@ -45,3 +45,18 @@ test("model input durable boundary rejects unsupported schema and unsafe content
         await assert.rejects(store.read("goal-1", "run-1"), /reference/);
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("native model input messages survive restart with independent reasoning, calls, signatures and tool IDs", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "native-input-"));
+    try {
+        const record: ModelInputRecord = { goalId: "goal", runId: "run", callId: "call", stepIndex: 2, stage: "decide", occurredAt: new Date().toISOString(), messages: [
+            { role: "assistant", source: "native_history", content: "Checking", reasoning: "Summary", toolCalls: [{ callId: "native-call", toolId: "read_file", argumentsJson: "{}" }], continuation: {
+                identity: { provider: "google", protocol: "gemini-content", model: "test", endpoint: "https://generativelanguage.googleapis.com/v1beta" },
+                parts: [{ functionCall: { name: "read_file", args: {} }, thoughtSignature: "opaque" }],
+            } },
+            { role: "tool", source: "native_history", callId: "native-call", toolId: "read_file", content: '{"kind":"success"}' },
+        ] };
+        await new JsonFileModelInputStore(directory).append(record);
+        assert.deepEqual(await new JsonFileModelInputStore(directory).read("goal", "run"), [record]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});

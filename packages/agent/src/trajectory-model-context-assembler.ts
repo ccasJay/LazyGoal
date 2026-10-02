@@ -1,3 +1,5 @@
+import type { NativeConversationIdentity } from "../../contracts/src/model-conversation";
+import { collectNativeModelExchanges } from "./native-model-history";
 import type { Goal } from "../../runtime/src/domain";
 import {
     isExecutionAbortedError,
@@ -124,6 +126,8 @@ export interface TrajectoryModelContextAssemblerOptions {
  * ```
  */
 export interface TrajectoryModelContextAssemblyInput {
+    /** 仅 Decide 原生 Adapter 提供；省略时保持现有语义投影。 */
+    readonly nativeConversationIdentity?: NativeConversationIdentity;
     /** 当前完整 Goal 快照。 */
     readonly goal: Goal;
     /** 已完成 Conversation 裁剪的基础 View。 */
@@ -301,14 +305,38 @@ export class TrajectoryModelContextAssembler {
             );
         }
         const boundary = input.goal.state.run.committedThroughSequence;
-        const units = this.executionUnitAdapter.adapt(committed, {
+        const baseUnits = this.executionUnitAdapter.adapt(committed, {
             committedThroughSequence: boundary,
             goalId: input.goal.id,
             runId: input.goal.state.run.id,
         });
-        const projectedUnits = Object.freeze(
-            units.map((unit) => this.eventProjector.projectExecutionUnit(unit)),
-        );
+        const native = input.nativeConversationIdentity === undefined
+            ? new Map()
+            : collectNativeModelExchanges(committed, input.nativeConversationIdentity, this.eventProjector);
+        const units = [...baseUnits];
+        for (const [unitId, exchanges] of native) {
+            if (units.some(unit => unit.executionUnitId === unitId)) continue;
+            const events = committed.filter(event => event.executionUnitId === unitId);
+            units.push({
+                executionUnitId: unitId, goalId: input.goal.id, runId: input.goal.state.run.id, phase: "executing",
+                firstSequence: events[0]!.sequence, lastSequence: exchanges.at(-1)!.settledThroughSequence,
+                items: events, events, characterCount: 0,
+            });
+        }
+        units.sort((a, b) => a.firstSequence - b.firstSequence);
+        const semanticUnits = units.map(unit => this.eventProjector.projectExecutionUnit(unit));
+        const projectedUnits = Object.freeze(units.map((unit, index) => {
+            const projection = semanticUnits[index]!;
+            const exchanges = native.get(unit.executionUnitId);
+            if (exchanges === undefined) return projection;
+            return {
+                ...projection, nativeExchanges: exchanges,
+                events: projection.events.filter(event => ![
+                    "model_response_received", "decision_received", "think_requested", "think_completed",
+                    "tool_finished", "observation_recorded", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed",
+                ].includes(event.eventType)),
+            };
+        }));
         const fixedInput = input.fixedInput ?? defaultFixedInput(input.view);
         const budget = this.policy.plan({ fixedInput });
 
@@ -322,7 +350,7 @@ export class TrajectoryModelContextAssembler {
         const firstWarm = this.reduceWarm(
             input,
             firstSelection,
-            projectedUnits,
+            semanticUnits,
             budget.warmBudget,
         );
         const reallocatedHotBudget = this.policy.reallocateHotBudget(
@@ -337,7 +365,7 @@ export class TrajectoryModelContextAssembler {
         const finalWarm = this.reduceWarm(
             input,
             finalSelection,
-            projectedUnits,
+            semanticUnits,
             budget.warmBudget,
         );
         const compactedWarm = finalWarm.retained;
@@ -345,9 +373,7 @@ export class TrajectoryModelContextAssembler {
         return freezeContext({
             measuredAs: budget.measuredAs,
             softOverflow: false,
-            hot: finalSelection.selected.map((unit) =>
-                this.eventProjector.projectExecutionUnit(unit),
-            ),
+            hot: finalSelection.selected.map(unit => projectedUnits.find(projected => projected.executionUnitId === unit.executionUnitId)!),
             warm: compactedWarm,
             budget,
         });

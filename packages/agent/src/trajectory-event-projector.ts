@@ -1,3 +1,4 @@
+import type { ModelConversationMessage } from "../../contracts/src/model-conversation";
 import { createHash } from "node:crypto";
 
 import type {
@@ -172,7 +173,7 @@ export class TrajectoryEventProjector {
      * @throws ModelContextSourceError 当单元事件无法通过 Trajectory 协议校验时。
      */
     projectExecutionUnit(unit: ModelExecutionUnit): ModelExecutionUnitProjection {
-        const events = Object.freeze(unit.events.map((event) => this.project(event)));
+        const events = Object.freeze(unit.events.filter(event => event.eventType !== "model_response_received").map((event) => this.project(event)));
         return Object.freeze({
             executionUnitId: unit.executionUnitId,
             goalId: unit.goalId,
@@ -278,8 +279,32 @@ export class TrajectoryEventProjector {
     }
 }
 
-/** 已完成执行单元的模型 DTO。 */
+/**
+ * 同一模型响应及其已提交结果的不可拆分消息交换。
+ * @remarks Conversation 位置决定与真实用户消息的顺序；签名和调用参数随完整交换裁剪。
+ * @example
+ * ```ts
+ * const exchange: NativeModelExchange = { conversationPosition: 1, responseSequence: 2, settledThroughSequence: 8, messages: [assistant, result] };
+ * ```
+ */
+export interface NativeModelExchange {
+    readonly conversationPosition: number;
+    readonly responseSequence: number;
+    readonly settledThroughSequence: number;
+    readonly messages: readonly ModelConversationMessage[];
+}
+
+/**
+ * 可进入模型历史预算的执行单元投影。
+ * @remarks nativeExchanges 包含完整调用与结果；选择器必须按整个单元裁剪，不修改原始签名。
+ * @example
+ * ```ts
+ * const count = unit.nativeExchanges?.flatMap(exchange => exchange.messages).length ?? 0;
+ * ```
+ */
 export interface ModelExecutionUnitProjection {
+    /** 原生回放时替代同单元中的模型调用及结果文本，按整个单元进行预算裁剪。 */
+    readonly nativeExchanges?: readonly NativeModelExchange[];
     readonly executionUnitId: string;
     readonly goalId: string;
     readonly runId: string;

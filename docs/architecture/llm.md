@@ -2,8 +2,8 @@
 
 ## 职责与调用
 
-LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本消息，返回原始文本及
-诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
+LLM 模块负责供应商通信。`LLMAdapter.generate` 接收有序文本或原生工具消息，返回正文、
+独立 reasoning 摘要、工具调用、续接字段及诊断 metadata；可选的 `stream` 将 Provider 增量归一化为供应商无关事件，由 Agent
 适配到 `@lazygoal/execution-stream`；Agent 负责 Prompt、JSON 结构和语义校验，Runtime 负责工具、状态与恢复。
 CLI、ALFWorld 和 smoke 共用 [配置解析](../../packages/llm/src/config.ts) 与
 [工厂](../../packages/llm/src/factory.ts)，在创建 Goal、Store 或 sidecar 前完成模型解析。
@@ -30,7 +30,7 @@ Runtime 阶段绑定策略，不要求两个 Adapter 使用相同的结构化输
 所有 Adapter 在请求前后检查取消信号并传入 SDK。取消统一为 `ExecutionAbortedError`；
 pi-ai 返回型失败转换为 `PiAiProviderError`；可识别的暂时 Provider/传输异常映射为 Runtime 故障类型。
 请求与模式不匹配时抛出 `LLMRequestModeMismatchError`。
-原生 strict 分别映射 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`。
+原生 Adapter 在无工具请求中将 strict 映射为 OpenAI `response_format.json_schema` 和 Gemini `responseSchema`；Decide 挂载工具时只使用函数参数 Schema，不同时发送顶层决策 Schema。
 Gemini strict 输出将决策判别联合打平为带 `nullable: true` 的全量 required 扁平对象，从语法机源头约束
 `action` 等关键字段生成；逆向投影剥离非目标分支字段并恢复空值与证据哨兵值，再交由 Wire Contract 校验。
 端点拒绝 Schema 或返回非法决策时明确失败，不自动降级。
@@ -98,10 +98,11 @@ GEPA 生命周期固定使用两个互不复用的 LLM 配置：Working LM 从 L
 原生 Adapter 的真实上报计数写入 `providerMetadata.usage`，缺失时省略。
 pi-ai 不能证明计数是否真实上报，故只写非权威 `piUsage` 数值，始终省略 `usage`；
 benchmark 将这些调用计入 `missingCalls`。Trace 对 metadata 脱敏限长；metadata 不进入
-Goal Snapshot、Domain Event 或模型上下文。不保存认证头、完整 SDK 响应或 thinking。
+Goal Snapshot、Domain Event 或模型上下文。不保存认证头或完整 SDK 响应。原生响应正文、公开 reasoning 摘要和必要续接字段单独随接受的阶段事实保存到 Trajectory，不属于诊断 metadata。
 
-本期仅支持文本与显式 API Key，不支持原生 tool calling、多模态、OAuth、云身份、
-自动 JSON 修复或模型切换。自定义兼容服务必须支持 pi-ai 使用的流式 Chat Completions。
+原生 OpenAI Chat Completions 与 Gemini 支持 assistant 工具调用和配对结果回传。Adapter 身份绑定 provider、端点、模型与协议；正文与公开 reasoning 摘要分离，Gemini 原始 Parts 和不透明签名按顺序保存。OpenAI 回传明确返回的 `reasoning_content` 扩展字段，不把摘要当作正文。OpenAI 禁止并行调用，Agent 在动作解码前要求 Decide 恰好一个调用、Think 无调用。
+
+当前仅支持文本、函数工具与显式 API Key；不支持 Responses reasoning items、其他多模态 Part、OAuth、云身份或 reasoning 强度配置。pi-ai 保持既有语义历史，不接收原生 Adapter 的续接载荷。自定义兼容服务的 pi-ai 路径须支持流式 Chat Completions。
 
 GEPA 的 `start` 与 `resume` 属于显式付费操作：控制面在调用模型或 benchmark 前要求
 `--yes`，上层 smoke 还必须向操作者显示 Working/Reflection 模型、预算和目标 Profile
@@ -112,3 +113,5 @@ GEPA 的 `start` 与 `resume` 属于显式付费操作：控制面在调用模�
 一次无副作用的 `smoke_evidence` 工具调用及完成，并验证 Observation 证据。
 只使用内存存储；SIGINT 取消调用并返回 130。该命令会产生费用，不属于自动化回归。
 成功、失败或取消输出包含 provider、model 和 mode；凭据缺失时不代表已验证。
+
+`npm run llm:native-dialogue-smoke` 使用显式 OpenAI/OpenAI-compatible/Google 环境配置，产生两次真实模型请求，验证首轮工具结果能原生回传到第二轮。工具只返回固定证据，不修改工作区。该付费 smoke 不进入自动回归；未运行或缺少凭据时不得报告供应商端到端验证通过。

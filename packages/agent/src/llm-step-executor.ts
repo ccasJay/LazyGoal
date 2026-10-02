@@ -1,3 +1,4 @@
+import { isModelAssistantMessage, sameNativeIdentity } from "../../contracts/src/model-conversation";
 import type { ModelInputStore, ModelInputRecord } from "../../runtime/src/model-input";
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
@@ -218,6 +219,7 @@ export class LLMStepExecutor implements StepExecutor {
                 thinkHistory: input.thinkHistory,
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
+            adapter.nativeConversationIdentity,
         );
         const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,
@@ -241,7 +243,7 @@ export class LLMStepExecutor implements StepExecutor {
         return {
             goal: input.thinkGoal.trim(),
             output,
-            modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId },
+            modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) },
         };
     }
 
@@ -270,6 +272,7 @@ export class LLMStepExecutor implements StepExecutor {
                 thinkHistory,
                 ...(input.runtimeFeedback === undefined ? {} : { runtimeFeedback: input.runtimeFeedback }),
             },
+            adapter.nativeConversationIdentity,
         );
         const { response, startedAt, callId } = await this.generateModelResponse(
             adapter,
@@ -279,6 +282,15 @@ export class LLMStepExecutor implements StepExecutor {
             "decide",
             plan.modelContextFrame.sections.map(section => section.content),
         );
+        if (adapter.nativeConversationIdentity !== undefined && response.toolCalls?.length !== 1) {
+            throw new LLMResponseProtocolError("Decide stage requires exactly one native tool call");
+        }
+
+        if (adapter.nativeConversationIdentity !== undefined && (response.continuation === undefined
+            || !sameNativeIdentity(response.continuation.identity, adapter.nativeConversationIdentity)
+            || !isModelAssistantMessage(nativeResponseMessage(response)))) {
+            throw new LLMResponseProtocolError("Invalid native response identity or continuation data");
+        }
 
         let output: DecideOutput;
         if (response.toolCalls && response.toolCalls.length > 0) {
@@ -327,12 +339,11 @@ export class LLMStepExecutor implements StepExecutor {
                 throw validationErr;
             }
             if (output.kind === "tool_call") {
-                const effectiveActionId = toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
-                    ? toolCall.callId
-                    : (output.action.actionId && output.action.actionId.trim().length > 0
-                        ? output.action.actionId
-                        : `action-${randomUUID()}`);
-                output = { ...output, action: { ...output.action, actionId: effectiveActionId } };
+                const actionId = adapter.nativeConversationIdentity !== undefined
+                    ? `action-${randomUUID()}`
+                    : toolCall.callId && toolCall.callId.trim().length > 0 && toolCall.callId !== toolCall.toolId
+                        ? toolCall.callId : output.action.actionId;
+                output = { ...output, action: { ...output.action, actionId } };
             }
         } else {
             try {
@@ -360,8 +371,8 @@ export class LLMStepExecutor implements StepExecutor {
         }
 
         return output.kind === "request_think"
-            ? { kind: "request_think", goal: output.goal, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId } }
-            : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId } };
+            ? { kind: "request_think", goal: output.goal, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } }
+            : { kind: "decision", decision: output, modelContextFrame: { ...plan.modelContextFrame, modelCallId: callId, ...(response.continuation === undefined ? {} : { modelResponse: nativeResponseMessage(response) }) } };
     }
 
     private async generateModelResponse(
@@ -390,7 +401,8 @@ export class LLMStepExecutor implements StepExecutor {
             occurredAt: new Date().toISOString(),
             messages: providerRequest.messages.map((message, index) => ({
                 ...message,
-                source: message.role === "system" ? "system" as const
+                source: message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? "native_history" as const
+                    : message.role === "system" ? "system" as const
                     : index === providerRequest.messages.length - 1 ? "working_context" as const
                     : goal.state.messages.some(saved => saved.role === message.role && saved.content === message.content) ? "conversation" as const
                     : sections.includes(message.content) ? "section" as const
@@ -403,6 +415,7 @@ export class LLMStepExecutor implements StepExecutor {
         await this.appendModelMetric({
             recordType: "call_started",
             ...metricIdentity,
+            modelId: goal.state.modelSelection.modelId,
             occurredAt: new Date().toISOString(),
         });
         let response: LLMResponse;
@@ -513,6 +526,12 @@ export class LLMStepExecutor implements StepExecutor {
                 payload: { text: response.content },
             });
         }
+        if (response.reasoning !== undefined && response.reasoning.length > 0) {
+            this.publishExecutionEvent(input, {
+                kind: "reasoning_delta", visibility: "restricted", durability: "live", delivery: "delta",
+                coalescingKey: `reasoning:${input.executionUnitId ?? "run"}`, payload: { text: response.reasoning },
+            });
+        }
         this.publishExecutionEvent(input, {
             kind: "model_completed",
             visibility: "public",
@@ -595,4 +614,13 @@ export class LLMStepExecutor implements StepExecutor {
             // 流是观察通道；发布故障不得改变 Agent 决策语义。
         }
     }
+}
+
+function nativeResponseMessage(response: LLMResponse): import("../../contracts/src/model-conversation").ModelAssistantMessage {
+    return {
+        role: "assistant", content: response.content,
+        ...(response.reasoning === undefined ? {} : { reasoning: response.reasoning }),
+        ...(response.toolCalls === undefined ? {} : { toolCalls: response.toolCalls }),
+        ...(response.continuation === undefined ? {} : { continuation: response.continuation }),
+    };
 }

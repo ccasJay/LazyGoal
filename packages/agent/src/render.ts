@@ -87,12 +87,24 @@ function renderViewWorkingContextMessage(
     view: ModelInferenceView,
     responseShapeGuide?: string,
 ): Extract<LLMMessage, { readonly role: "user" }> {
+    const native = view.trajectoryContext?.hot.flatMap(unit => unit.nativeExchanges ?? []) ?? [];
+    const toolResults = native.flatMap(exchange => exchange.messages.filter(message => message.role === "tool"));
+    const previous = view.workingContext.execution.previousStep;
+    const previousCovered = previous?.kind === "action" && toolResults.some(message => {
+        const result = JSON.parse(message.content) as { actionId?: string };
+        return result.actionId === previous.action.actionId;
+    });
+    const lookupCovered = native.some(exchange => exchange.messages.some(message => message.role === "tool" && message.toolId === "system_context_lookup"));
+    const { previousStep: _, ...execution } = view.workingContext.execution;
     return {
         role: "user",
         content: JSON.stringify(createWorkingContextPayload(
-            view.workingContext,
-            view.trajectoryContext,
-            view.contextLookupResult,
+            previousCovered ? { ...view.workingContext, execution } : view.workingContext,
+            view.trajectoryContext === undefined ? undefined : {
+                ...view.trajectoryContext,
+                hot: view.trajectoryContext.hot.map(({ nativeExchanges: _, ...unit }) => unit),
+            },
+            lookupCovered ? undefined : view.contextLookupResult,
             view.contextEpoch,
             responseShapeGuide,
         ), null, 2),
@@ -103,13 +115,14 @@ function renderViewWorkingContextMessage(
  * 将完整 View 渲染为一轮 LLM 请求。
  *
  * @remarks
- * 使用注入的 `PromptBundleRenderer` 生成固定 system 消息；随后按原样追加真实
- * Conversation、带身份/来源的动态 section，以及 JSON Working Context 控制消息。
+ * 使用注入的 `PromptBundleRenderer` 生成固定 system 消息；已结算原生交换按提交时的
+ * Conversation 位置插入真实会话，再追加阶段输入、动态 section 与 JSON Working Context。
+ * 已由原生结果表达的 Think 输出与运行事实不重复展开；调用和结果始终相邻。
  *
  * @param view - 已投影好的 ModelInferenceView。
  * @param renderer - 由 Composition Root 创建并与 Executor 共享的 Bundle Renderer。
  * @param responseShapeGuide - 可选的 prompt-only 结构指引文本；strict 模式时省略。
- * @returns 按固定 system → 真实会话 → 动态 section → Working Context 顺序组装的消息列表。
+ * @returns 固定 system、带原生交换的真实会话、阶段输入、动态 section 与 Working Context 的有序消息列表。
  * @throws 渲染失败时抛出。
  */
 export function renderRequest(
@@ -119,17 +132,34 @@ export function renderRequest(
     dynamicSections?: readonly DynamicSectionUpdateMessage[],
     stageMessages: readonly LLMMessage[] = [],
 ): LLMRequest {
+    const exchanges = (view.trajectoryContext?.hot.flatMap(unit => unit.nativeExchanges ?? []) ?? [])
+        .sort((a, b) => a.responseSequence - b.responseSequence);
+    const history: LLMMessage[] = [];
+    let cursor = 0;
+    for (const message of view.conversation) {
+        while (cursor < exchanges.length && exchanges[cursor]!.conversationPosition <= message.sourceMessageIndex) {
+            history.push(...exchanges[cursor++]!.messages);
+        }
+        history.push({ role: message.role, content: message.content });
+    }
+    for (; cursor < exchanges.length; cursor++) history.push(...exchanges[cursor]!.messages);
+    const thinkOutputs = new Set(exchanges.flatMap(exchange => exchange.messages.flatMap(message => {
+        if (message.role !== "tool" || message.toolId !== "system_request_think") return [];
+        return [(JSON.parse(message.content) as { output: string }).output];
+    })));
+    const filteredStageMessages = stageMessages.filter((message, index) => {
+        if (message.role === "assistant" && thinkOutputs.has(message.content)) return false;
+        const next = stageMessages[index + 1];
+        return !(message.role === "user" && message.content.includes('"source":"runtime_think_request"') && next?.role === "assistant" && thinkOutputs.has(next.content));
+    });
     return {
         messages: [
             {
                 role: "system",
                 content: renderer.render(view.prompt),
             },
-            ...view.conversation.map((message) => ({
-                role: message.role,
-                content: message.content,
-            })),
-            ...stageMessages,
+            ...history,
+            ...filteredStageMessages,
             ...(dynamicSections ?? renderer.renderDynamicSections(view)).map((section) => ({
                 role: section.role,
                 content: section.content,

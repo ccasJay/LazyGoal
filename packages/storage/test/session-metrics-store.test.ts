@@ -22,6 +22,7 @@ function started(callId = "call-1"): ModelCallMetricRecord {
         goalId: "goal/1",
         runId: "run 1",
         callId,
+        modelId: "test-model",
         occurredAt: "2026-09-25T10:00:00.000Z",
     };
 }

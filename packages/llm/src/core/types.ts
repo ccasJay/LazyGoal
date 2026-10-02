@@ -1,19 +1,13 @@
 import type { JsonSchema202012 } from "../../../contracts/src/index";
 import type { JsonValue } from "../../../runtime/src/domain";
 
-/** 当前统一 LLM 消息协议支持的角色。 */
-export type LLMRole = "system" | "user" | "assistant";
+import type { ModelAssistantMessage, ModelConversationMessage, ModelToolCall, ModelContinuation } from "../../../contracts/src/model-conversation";
+export type { NativeConversationIdentity } from "../../../contracts/src/model-conversation";
 
-/**
- * 与具体供应商无关的单条 LLM 消息。
- *
- * @remarks
- * Adapter 负责将这些角色映射到供应商协议；当前不包含 Tool 消息。
- */
-export type LLMMessage = 
-    | { role: "system"; content: string }
-    | { role: "user"; content: string }
-    | { role: "assistant"; content: string };
+/** 统一模型消息角色，包含原生工具结果。 */
+export type LLMRole = ModelConversationMessage["role"];
+/** 原生消息与纯文本消息共享的请求边界。 */
+export type LLMMessage = ModelConversationMessage;
 
 /**
  * 模型供应商的结构化输出模式。
@@ -75,29 +69,8 @@ export interface LLMToolDefinition {
     readonly parametersSchema: Record<string, unknown>;
 }
 
-/**
- * 模型返回的原生结构化工具调用。
- *
- * @remarks
- * 表示模型在特定步骤生成的工具执行指令，包含唯一调用 ID、调用的工具名称以及未解析的 JSON 参数字符串。
- *
- * @example
- * ```ts
- * const call: LLMToolCall = {
- *     callId: "call_123",
- *     toolId: "bash",
- *     argumentsJson: '{"command":"ls -la"}',
- * };
- * ```
- */
-export interface LLMToolCall {
-    /** 工具调用的唯一标识 ID。 */
-    readonly callId: string;
-    /** 所调用的工具名称 / 标识。 */
-    readonly toolId: string;
-    /** 序列化的参数 JSON 字符串。 */
-    readonly argumentsJson: string;
-}
+/** 模型原生函数调用；与 Runtime Action 身份独立。 */
+export type LLMToolCall = ModelToolCall;
 
 /** 一次 LLM 生成请求；消息顺序必须按原样传递给 Adapter。 */
 export interface LLMRequest {
@@ -112,7 +85,7 @@ export interface LLMRequest {
     readonly tools?: readonly LLMToolDefinition[];
     /**
      * 原生工具调用策略。
-     * - `required`: 强制模型必须且仅触发 1 个工具调用；
+     * - `required`: 要求调用工具；Adapter 与 Agent 共同落实 Decide 的单调用约束；
      * - `auto`: 由模型自主决定是仅回复文本还是调用工具；
      * - `none`: 禁止模型调用工具。
      */
@@ -162,9 +135,13 @@ export class LLMRequestModeMismatchError extends Error {
  * };
  * ```
  */
-export interface LLMResponse {
-    /** Agent 协议解析使用的原始模型文本（包含思维链/自然语言回复）。 */
+export interface LLMResponse extends Omit<ModelAssistantMessage, "role"> {
+    /** 正文文本；原生 Adapter 的 reasoning 摘要通过独立字段返回。 */
     readonly content: string;
+    /** 供应商实际公开的 reasoning 摘要，不进入正文解析。 */
+    readonly reasoning?: string;
+    /** 可持久化的协议续接字段，不属于诊断 metadata。 */
+    readonly continuation?: ModelContinuation;
     /** 模型发起的工具调用列表。原生双通道下单次单步通常包含 0 个或 1 个工具调用。 */
     readonly toolCalls?: readonly LLMToolCall[];
     /** 可选供应商诊断字段；不会参与 Runtime 状态转换。 */

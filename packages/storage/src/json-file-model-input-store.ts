@@ -1,10 +1,11 @@
+import { isModelConversationMessage, type ModelAssistantMessage } from "../../contracts/src/model-conversation";
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../../runtime/src/model-input";
 
-type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string }[] };
-const sources = ["system", "conversation", "section", "working_context", "stage", "request"];
+type Manifest = Omit<ModelInputRecord, "messages"> & { schemaVersion: 1; messages: { role: ModelInputMessage["role"]; source: ModelInputMessage["source"]; ref: string; callId?: string; toolId?: string; reasoning?: string; toolCalls?: ModelAssistantMessage["toolCalls"]; continuation?: ModelAssistantMessage["continuation"] }[] };
+const sources = ["system", "conversation", "section", "working_context", "stage", "request", "native_history"];
 const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return Buffer.from(value).toString("base64url"); };
 const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -40,7 +41,8 @@ export class JsonFileModelInputStore implements ModelInputStore {
                     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
                     if (await readFile(join(bodyDirectory, `${ref}.txt`), "utf8") !== message.content) throw new Error("Model input content hash mismatch");
                 }
-                messages.push({ role: message.role, source: message.source, ref });
+                const { content: _, ...fields } = message;
+                messages.push({ ...fields, ref });
             }
             const { messages: _, ...identity } = record;
             await appendFile(join(directory, "requests.jsonl"), JSON.stringify({ schemaVersion: 1, ...identity, messages }) + "\n", { mode: 0o600 });
@@ -67,7 +69,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 || !Array.isArray(value.messages)) throw new Error("Invalid model input manifest");
             const messages: ModelInputMessage[] = [];
             for (const message of value.messages) {
-                if (!object(message) || !["system", "user", "assistant"].includes(String(message.role)) || !sources.includes(String(message.source))
+                if (!object(message) || !["system", "user", "assistant", "tool"].includes(String(message.role)) || !sources.includes(String(message.source))
                     || typeof message.ref !== "string" || !/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
                 let body = bodies.get(message.ref);
                 if (body === undefined) {
@@ -75,7 +77,10 @@ export class JsonFileModelInputStore implements ModelInputStore {
                     if (digest(body) !== message.ref) throw new Error("Model input content hash mismatch");
                     bodies.set(message.ref, body);
                 }
-                messages.push({ role: message.role as ModelInputMessage["role"], source: message.source as ModelInputMessage["source"], content: body });
+                const { ref: _, source, ...fields } = message;
+                const restored = { ...fields, content: body };
+                if (!isModelConversationMessage(restored)) throw new Error("Invalid model input message");
+                messages.push({ ...restored, source: source as ModelInputMessage["source"] });
             }
             result.push({ goalId, runId, callId: value.callId, stage: value.stage as ModelInputRecord["stage"], stepIndex: Number(value.stepIndex), occurredAt: value.occurredAt,
                 ...(value.executionUnitId === undefined ? {} : { executionUnitId: value.executionUnitId as string }), messages });

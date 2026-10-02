@@ -8,15 +8,13 @@ import {
   ChevronRight,
   CircleHelp,
   Clock3,
+  Database,
   Folder,
+  Gauge,
   GitBranch,
   LayoutGrid,
   Layers,
-  List,
-  Maximize2,
-  Minimize2,
   MoreHorizontal,
-  PanelLeftClose,
   Plus,
   Search,
   Shield,
@@ -46,8 +44,7 @@ import "./style.css";
 import { Trajectory } from "./trajectory";
 
 type GoalStatus = "Ready" | "Running" | "Needs input" | "Completed" | "Stopped";
-type SessionTab = "Activity" | "Plan" | "Trajectory";
-type BoardView = "board" | "list";
+type SessionTab = "Board" | "Activity" | "Plan" | "Trajectory";
 type MetricsState = { readonly kind: "ready"; readonly value: SessionMetricsSnapshot } | { readonly kind: "error" };
 
 const statuses: readonly GoalStatus[] = [
@@ -91,15 +88,10 @@ function App() {
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
-  const [boardView, setBoardView] = useState<BoardView>("board");
   const [search, setSearch] = useState("");
-  const [needsInputOnly, setNeedsInputOnly] = useState(false);
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{runId: string; executionUnitId: string; nonce: number} | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
-  const [expanded, setExpanded] = useState(false);
-  const [sidebar, setSidebar] = useState(true);
-  const [width, setWidth] = useState(440);
   const [follow, setFollow] = useState(true);
   const [showTools, setShowTools] = useState(true);
   const [liveText, setLiveText] = useState("");
@@ -128,10 +120,7 @@ function App() {
   const activeGoal = goals.find((goal) => goal.goalId === selectedGoalId);
   const sessionVisible = activeGoal !== undefined || draftSessionOpen;
   const currentRun = session?.runs.find((run) => run.current);
-  const visibleGoals = useMemo(() => goals.filter((goal) => {
-    const matchesSearch = goal.intent.toLowerCase().includes(search.toLowerCase());
-    return matchesSearch && (!needsInputOnly || goal.runStatus === "waiting");
-  }), [goals, needsInputOnly, search]);
+  const visibleGoals = useMemo(() => goals.filter((goal) => goal.intent.toLowerCase().includes(search.toLowerCase())), [goals, search]);
   const canSendText = session !== null
     && session.pendingInteraction === undefined
     && session.pendingAction === undefined
@@ -339,7 +328,6 @@ function App() {
       latestSession.current = next;
       setSession(next);
       setSessionTab("Activity");
-      setExpanded(false);
     }).catch((error: unknown) => {
       if (active && !controller.signal.aborted) setSessionError(errorMessage(error));
     }).finally(() => {
@@ -542,8 +530,7 @@ function App() {
   function toggleGoalSelection(goalId: string) {
     setModelPickerTarget(null);
     setDraftSessionOpen(false);
-    setSelectedGoalId((current) => current === goalId ? null : goalId);
-    setExpanded(false);
+    setSelectedGoalId(goalId);
     setSessionTab("Activity");
   }
 
@@ -555,7 +542,6 @@ function App() {
     setDraftPlanMode(false);
     setDraftSessionOpen(true);
     setSessionTab("Activity");
-    setExpanded(false);
     setCommandError(null);
   }
 
@@ -563,7 +549,6 @@ function App() {
     setModelPickerTarget(null);
     setSelectedGoalId(null);
     setDraftSessionOpen(false);
-    setExpanded(false);
   }
 
   async function submitDraftMessage(content: string): Promise<boolean> {
@@ -709,222 +694,109 @@ function App() {
   }
 
   const sessionTabs: readonly SessionTab[] = session?.goalPlan === undefined
-    ? ["Activity", "Trajectory"]
-    : ["Activity", "Plan", "Trajectory"];
+    ? ["Board", "Activity", "Trajectory"]
+    : ["Board", "Activity", "Plan", "Trajectory"];
 
-  return (
-    <div className="app">
-      {sidebar && (
-        <aside className="sidebar">
-          <div className="brand">
-            <span className="brand-icon"><Zap size={19} fill="currentColor" /></span>
-            LazyGoal
-            <button className="icon muted" aria-label="Hide sidebar" onClick={() => setSidebar(false)}>
-              <PanelLeftClose size={16} />
-            </button>
-          </div>
-          <div className="workspace">
-            <span className="workspace-avatar">LG</span>
-            <div>Local workspace<small>Current project</small></div>
-          </div>
-          <div className="nav-label">Workspace</div>
-          <button
-            className={`nav ${!needsInputOnly ? "selected" : ""}`}
-            onClick={() => setNeedsInputOnly(false)}
-          >
-            <LayoutGrid size={16} />
-            All goals<span>{goals.length}</span>
+  const boardContent = (
+    <section className="board-area">
+      <div className="toolbar">
+        <strong className="board-title">All goals <span>{goals.length}</span></strong>
+        <label className="search">
+          <Search size={14} />
+          <input
+            aria-label="Search goals"
+            placeholder="Search goals…"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        {search && (
+          <button className="icon" aria-label="Clear search" title="Clear search" onClick={() => setSearch("")}>
+            <X size={14} />
           </button>
-          <button
-            className={`nav ${needsInputOnly ? "selected" : ""}`}
-            onClick={() => setNeedsInputOnly((value) => !value)}
-          >
-            <CircleHelp size={16} />
-            Needs input
-            <span className="amber">{goals.filter((goal) => goal.runStatus === "waiting").length}</span>
-          </button>
-          <div className="sidebar-bottom">
-            <div className="connection-label">
-              <span className={`dot ${browserApi.hasAccessToken ? "connected" : ""}`} />
-              {browserApi.hasAccessToken ? "Local Runtime" : "Not connected"}
-            </div>
-            <p>Goals and session history come from the current workspace.</p>
-            <div className="profile">
-              <span className="avatar">LG</span>
-              <div>LazyGoal<small>Local session</small></div>
-            </div>
-          </div>
-        </aside>
+        )}
+        <button className="icon refresh-button" aria-label="Refresh goals" onClick={() => void refreshGoals()}>
+          <Clock3 size={14} />
+        </button>
+      </div>
+      {sessionError && selectedGoalId === null && (
+        <div className="page-error" role="alert">
+          <span>{sessionError}</span>
+          {browserApi.hasAccessToken && <button onClick={() => void refreshGoals()}>Retry</button>}
+        </div>
       )}
-      <main className="main">
-        <header className="topbar">
-          <div className="breadcrumb">
-            {!sidebar && (
-              <button className="icon" aria-label="Show sidebar" onClick={() => setSidebar(true)}>
-                <LayoutGrid size={16} />
-              </button>
-            )}
-            <Folder size={15} />
-            <span>Workspace</span>
-            <ChevronRight size={13} />
-            <strong>Goals</strong>
-            {activeGoal && <><ChevronRight size={13} /><strong className="breadcrumb-current">{activeGoal.intent}</strong></>}
-          </div>
-          <div className="header-actions">
-            {(!expanded || !sessionVisible) && (
-              <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}>
-                <Plus size={15} /> New goal
-              </button>
-            )}
-          </div>
-        </header>
-        <div className={`content ${sessionVisible ? "session-open" : ""}`}>
-          {(!expanded || !sessionVisible) && (
-            <section
-              className="board-area"
-              onClick={(event) => {
-                if (selectedGoalId === null) return;
-                if (event.target instanceof Element && event.target.closest("button, input, label, a")) return;
-                closeSession();
-              }}
-            >
-              <div className="toolbar">
-                <div className="view-switch" aria-label="Goal view">
-                  <button aria-pressed={boardView === "board"} onClick={() => setBoardView("board")}>
-                    <LayoutGrid size={14} /> Board
-                  </button>
-                  <button aria-pressed={boardView === "list"} onClick={() => setBoardView("list")}>
-                    <List size={14} /> List
-                  </button>
+      {goalsLoading ? (
+        <div className="board-empty"><span className="loading-mark" /><p>Loading saved Goals…</p></div>
+      ) : goals.length === 0 && !sessionError ? (
+        <div className="board-empty">
+          <InboxIcon />
+          <h2>No saved Goals yet</h2>
+          <p>Create a Goal to start a real session in this workspace.</p>
+          <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
+        </div>
+      ) : visibleGoals.length === 0 && !sessionError ? (
+        <div className="board-empty">
+          <Search size={26} />
+          <h2>No matching Goals</h2>
+          <p>Clear the search to see saved Goals.</p>
+        </div>
+      ) : (
+        <div className="board">
+          {statuses.map((status) => {
+            const statusGoals = visibleGoals.filter((item) => statusFromRun(item.runStatus) === status);
+            return (
+              <section className={`column ${statusClass(status)}`} key={status}>
+                <div className="column-heading">
+                  <span className="status-dot" />
+                  <h2>{status}</h2>
+                  <span className="count">{statusGoals.length}</span>
                 </div>
-                <button
-                  className={`filter ${needsInputOnly ? "on" : ""}`}
-                  aria-pressed={needsInputOnly}
-                  onClick={() => setNeedsInputOnly((value) => !value)}
-                >
-                  <CircleHelp size={13} /> Needs input
-                </button>
-                <label className="search">
-                  <Search size={14} />
-                  <input
-                    aria-label="Search goals"
-                    placeholder="Search goals…"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </label>
-                {(search || needsInputOnly) && (
-                  <button className="icon" aria-label="Clear filters" title="Clear filters" onClick={() => { setSearch(""); setNeedsInputOnly(false); }}>
-                    <X size={14} />
-                  </button>
-                )}
-                <button className="icon refresh-button" aria-label="Refresh goals" onClick={() => void refreshGoals()}>
-                  <Clock3 size={14} />
-                </button>
-              </div>
-              {sessionError && selectedGoalId === null && (
-                <div className="page-error" role="alert">
-                  <span>{sessionError}</span>
-                  {browserApi.hasAccessToken && <button onClick={() => void refreshGoals()}>Retry</button>}
-                </div>
-              )}
-              {goalsLoading ? (
-                <div className="board-empty"><span className="loading-mark" /><p>Loading saved Goals…</p></div>
-              ) : goals.length === 0 && !sessionError ? (
-                <div className="board-empty">
-                  <InboxIcon />
-                  <h2>No saved Goals yet</h2>
-                  <p>Create a Goal to start a real session in this workspace.</p>
-                  <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}><Plus size={14} /> New goal</button>
-                </div>
-              ) : visibleGoals.length === 0 && !sessionError ? (
-                <div className="board-empty">
-                  <Search size={26} />
-                  <h2>No matching Goals</h2>
-                  <p>Clear the search or input filter to see saved Goals.</p>
-                </div>
-              ) : boardView === "list" ? (
-                <div className="goal-table">
-                  <div className="list-heading"><span>Goal</span><span>Status</span><span>Updated</span></div>
-                  {visibleGoals.map((goal) => <GoalRow
+                <div className="cards">
+                  {statusGoals.map((goal) => <GoalCard
                     key={goal.goalId}
                     goal={goal}
+                    metrics={metricsByGoal[goal.goalId]}
                     selected={selectedGoalId === goal.goalId}
                     onSelect={() => toggleGoalSelection(goal.goalId)}
                   />)}
+                  {statusGoals.length === 0 && <div className="empty-column">No goals here</div>}
                 </div>
-              ) : (
-                <div className="board">
-                  {statuses.map((status) => {
-                    const statusGoals = visibleGoals.filter((item) => statusFromRun(item.runStatus) === status);
-                    return (
-                      <section className={`column ${statusClass(status)}`} key={status}>
-                        <div className="column-heading">
-                          <span className="status-dot" />
-                          <h2>{status}</h2>
-                          <span className="count">{statusGoals.length}</span>
-                        </div>
-                        <div className="cards">
-                          {statusGoals.map((goal) => <GoalCard
-                            key={goal.goalId}
-                            goal={goal}
-                            metrics={metricsByGoal[goal.goalId]}
-                            selected={selectedGoalId === goal.goalId}
-                            onSelect={() => toggleGoalSelection(goal.goalId)}
-                          />)}
-                          {statusGoals.length === 0 && <div className="empty-column">No goals here</div>}
-                        </div>
-                      </section>
-                    );
-                  })}
-                </div>
-              )}
-              <footer className="board-footer">
-                <span><span className="dot blue" />{goals.filter((goal) => goal.runStatus === "running").length} running</span>
-                <span>Select a Goal to open its session <ChevronRight size={12} /></span>
-              </footer>
-            </section>
-          )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
+  return (
+    <div className="app">
+      <main className="main">
+        <header className="topbar">
+          <div className="topbar-identity">
+            <button className="topbar-brand" aria-label="Open Board" onClick={closeSession}>
+              <span className="brand-icon"><Zap size={19} fill="currentColor" /></span>LazyGoal
+            </button>
+            <div className="breadcrumb">
+              <Folder size={15} />
+              <span>Workspace</span>
+              <ChevronRight size={13} />
+              <strong>Goals</strong>
+              {activeGoal && <><ChevronRight size={13} /><strong className="breadcrumb-current">{activeGoal.intent}</strong></>}
+            </div>
+          </div>
+          <div className="header-actions">
+            {session?.goalId === selectedGoalId && <button className="goal-info-toggle" aria-label="Goal information and permissions" onClick={() => setGoalInfoOpen(true)}>Goal info</button>}
+            {sessionVisible && <button className="icon" aria-label="Close session" onClick={closeSession}><X size={17} /></button>}
+            <button className="primary" onClick={openNewGoalDraft} disabled={!browserApi.hasAccessToken}>
+              <Plus size={15} /> New goal
+            </button>
+          </div>
+        </header>
+        <div className={`content ${sessionVisible ? "session-open" : ""}`}>
+          {!sessionVisible && boardContent}
           {sessionVisible && (
-            <>
-              <div
-                className="resize-handle"
-                role="separator"
-                aria-label="Resize session"
-                aria-orientation="vertical"
-                aria-valuenow={width}
-                aria-valuemin={340}
-                aria-valuemax={720}
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-                  event.preventDefault();
-                  setWidth((current) => Math.max(340, Math.min(720, current + (event.key === "ArrowLeft" ? 20 : -20))));
-                }}
-                onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
-                onPointerMove={(event) => {
-                  if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                    setWidth(Math.max(340, Math.min(720, window.innerWidth - event.clientX)));
-                  }
-                }}
-                onPointerUp={(event) => event.currentTarget.releasePointerCapture(event.pointerId)}
-              />
-              <section className={`session ${expanded ? "expanded" : ""}`} style={{ width: expanded ? "100%" : width }}>
-                <header className="session-header">
-                  <span>
-                    {activeGoal
-                      ? <><span className={`status-dot ${statusClass(statusFromRun(activeGoal.runStatus))}`} />{activeGoal.goalId.slice(0, 12)}</>
-                      : <><span className="status-dot ready" />New conversation</>}
-                    <ChevronRight size={12} /> Session
-                  </span>
-                  <div>
-                    {session && <button className="goal-info-toggle" aria-label="Goal information and permissions" onClick={() => setGoalInfoOpen(true)}>Goal info</button>}
-                    <button className="icon" aria-label={expanded ? "Collapse session" : "Expand session"} onClick={() => setExpanded((value) => !value)}>
-                      {expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
-                    </button>
-                    <button className="icon" aria-label="Close session" onClick={closeSession}><X size={17} /></button>
-                  </div>
-                </header>
+            <section className="session">
                 {goalInfoOpen && session && <section className="goal-info-panel" aria-label="Goal information"><header><strong>Goal information</strong><button className="icon" aria-label="Close Goal information" onClick={() => setGoalInfoOpen(false)}><X size={17}/></button></header><GoalDetails session={session} tab="Details" grants={toolGrants} grantsLoading={toolGrantsLoading} grantsError={toolGrantsError} revokingGrantId={revokingGrantId} onRevokeGrant={grant => void revokeToolGrant(grant)}/></section>}
                 {draftSessionOpen ? (
                   <>
@@ -986,7 +858,7 @@ function App() {
                         <span className="dot" />{streamConnected ? "Connected" : "Reconnecting"}
                       </span>
                     </div>
-                    {sessionTab === "Trajectory" ? (
+                    {sessionTab === "Board" ? boardContent : sessionTab === "Trajectory" ? (
                       <Trajectory key={`${session.goalId}:${trajectoryTarget?.nonce ?? "browse"}`} session={session} target={trajectoryTarget}/>
                     ) : sessionTab === "Plan" ? (
                       <GoalDetails
@@ -1108,13 +980,13 @@ function App() {
                         </div>
                       </>
                     )}
-                    {commandError && (
+                    {sessionTab !== "Board" && commandError && (
                       <div className="command-error" role="alert">
                         <span>{commandError}</span>
                         <button aria-label="Dismiss error" onClick={() => setCommandError(null)}><X size={13} /></button>
                       </div>
                     )}
-                    <div className="composer-area">
+                    {sessionTab !== "Board" && <div className="composer-area">
                       {session.runStatus === "waiting" && (
                         session.pendingInteraction !== undefined || session.pendingAction !== undefined
                           ? <>
@@ -1170,11 +1042,10 @@ function App() {
                         <><div className="composer-extra-controls">{renderPermissionControl(true)}<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} /></div><div className="composer-note">The approved action is being recorded.</div></>
                       )}
                       <SessionMetricsBar state={metricsByGoal[session.goalId]} />
-                    </div>
+                    </div>}
                   </>
                 )}
-              </section>
-            </>
+            </section>
           )}
         </div>
       </main>
@@ -1380,31 +1251,24 @@ function SessionMetricsBar({ state }: { state?: MetricsState }) {
   const metrics = state.value;
   const coverage = metricCoverage(metrics);
   return <div className="session-metrics" aria-label="Recorded Goal metrics">
-    <div className="session-metric"><span>Steps</span><strong>{metrics.stepCount}</strong></div>
-    <div className="session-metric"><span>Tokens in / out</span><strong>{metricNumber(metrics.inputTokens)} <em>/</em> {metricNumber(metrics.outputTokens)}</strong></div>
-    <div className="session-metric" title={`${metrics.cacheMeasuredCalls} measured calls; ${metrics.cacheExcludedCalls} excluded calls`}><span>Cache hit</span><strong>{metricPercent(metrics.cacheHitRate)}</strong></div>
-    <div className="session-metric" title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}><span>Generation</span><strong>{metricSpeed(metrics.tokensPerSecond)} <small>tok/s</small></strong></div>
+    <div className="session-metric">
+      <Gauge size={15} aria-hidden="true" />
+      <span>{metrics.roundCount} run{metrics.roundCount === 1 ? "" : "s"} · {metrics.stepCount} step{metrics.stepCount === 1 ? "" : "s"}</span>
+      <span className="session-metric-divider">·</span>
+      <span title={`${metrics.throughputMeasuredCalls} measured calls; ${metrics.throughputExcludedCalls} excluded calls`}>{metricSpeed(metrics.tokensPerSecond)} tok/s</span>
+    </div>
+    <div className="session-metric">
+      <Database size={15} aria-hidden="true" />
+      <span>{metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out</span>
+      <span className="session-metric-divider">·</span>
+      <span title={`${metrics.cacheMeasuredCalls} measured calls; ${metrics.cacheExcludedCalls} excluded calls`}>Cache hit {metricPercent(metrics.cacheHitRate)}</span>
+    </div>
+    <div className="session-metric" title="Remaining context after the latest confirmed call on the current model">
+      <span className="context-ring" style={{ background: `conic-gradient(#aebbd1 ${(metrics.contextRemainingPercent ?? 0) * 100}%, #4b5360 0)` }} aria-hidden="true" />
+      <span>Context left {metricPercent(metrics.contextRemainingPercent ?? null)}</span>
+    </div>
     {coverage !== null && <span className="session-metrics-coverage" title="Provider usage coverage">{coverage}</span>}
   </div>;
-}
-
-function GoalRow({
-  goal,
-  selected,
-  onSelect,
-}: {
-  goal: BrowserGoalListItem;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const status = statusFromRun(goal.runStatus);
-  return (
-    <button className={`goal-row ${selected ? "active" : ""}`} onClick={onSelect} aria-pressed={selected}>
-      <span><small>{goal.goalId.slice(0, 12)}</small><strong>{goal.intent}</strong></span>
-      <span className={`status-pill ${statusClass(status)}`}><span className="status-dot" />{status}</span>
-      <time dateTime={goal.updatedAt}>{formatUpdatedAt(goal.updatedAt)}</time>
-    </button>
-  );
 }
 
 function ModelPicker({ target, selectedId, onSelect, onClose, onDone }: {
@@ -1575,7 +1439,6 @@ function MessageComposer({
         <div className="composer-tools">
           <div className="composer-controls">
             {footerControls}
-            <span><Zap size={12} /> Local Runtime</span>
           </div>
           <button type="submit" className="send" aria-label="Send message" disabled={busy || !draft.trim()}>
             {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}

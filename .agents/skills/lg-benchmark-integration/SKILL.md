@@ -16,7 +16,7 @@ description: '在 LazyGoal 仓库中接入新评测基准（Benchmark，如 GAIA
 1. **水平物理隔离（Zero Cross-Benchmark Dependencies）**：
    - 所有 Benchmark 必须独立建构在 `benchmarks/<name>/` 目录下。
    - **禁止**任何跨 Benchmark 的水平代码引用（例如 `benchmarks/gaia` 严禁直接引用 `benchmarks/swebench`）。
-   - 跨 Benchmark 共享的基础设施必须抽象并下沉至 `benchmarks/src/` 共享层（受 `pnpm run check:dependencies` 静态防护）。
+   - 跨 Benchmark 共享的基础设施必须抽象并下沉至 `benchmarks/src/` 共享层（受 `npm run check:dependencies` 静态防护）。
 2. **容器沙箱首选（Sandbox First for Execution Safety）**：
    - 凡涉及不受信任的代码运行、Shell 命令执行或特定环境依赖的评测，**必须**使用基于 Docker 的容器化 ACP 模式。
    - 仅纯文本交互或宿主只读分析任务允许采用 [本地 Sidecar 模式](./references/local-sidecar-pattern.md)。
