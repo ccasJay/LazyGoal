@@ -4,9 +4,9 @@ status: active
 summary: "以只读紧凑记录呈现已提交执行轨迹，并保存可检查的模型输入消息与 System Prompt"
 source_spec: specs/browser-trajectory/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-01
-tags: [browser, trajectory, model-input, system-prompt, read-only, compact-ui]
-authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packages/runtime/src/model-input.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, prototypes/goal-board/src/trajectory-records.tsx, prototypes/goal-board/src/model-input-inspector.tsx]
+reviewed_at: 2026-10-02
+tags: [browser, trajectory, model-input, system-prompt, read-only, compact-ui, timeline-zoom]
+authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packages/runtime/src/model-input.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, prototypes/goal-board/src/trajectory.tsx, prototypes/goal-board/src/trajectory-records.tsx, prototypes/goal-board/src/model-input-inspector.tsx]
 ---
 
 # Browser Trajectory
@@ -14,6 +14,7 @@ authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packag
 ## Purpose
 
 - 浏览器以只读紧凑记录查看正式工作区中已提交的 Goal/Run 轨迹，并按需检查与轨迹关联的模型调用输入，尤其是实际发送前准备的完整 System Prompt。 [S1, S2, S3, S4, S5, S7, S8]
+- 轨迹概览提供视窗缩放与交互式平移导航，方便长会话在毫秒级时间轴与高密度序号间穿梭。 [S3, S10]
 
 ## Durable Decisions
 
@@ -21,12 +22,14 @@ authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packag
 - D2 — 每次输入记录保留调用身份、阶段、时间、消息角色、已知来源、正文与原始顺序；正文按 Goal 内 SHA-256 内容寻址，在 Run 之间复用。写入不完整或哈希不符时拒绝读取；输入日志写入失败时阻止该次 Adapter 调用。 [S2, S4, S5, S6, S9]
 - D3 — 轨迹表保持领域事件序列，用紧凑单行记录合并工具输入/结果预览，并在对应请求附近显示 System Prompt 首次出现或发生变化的记录；完整消息、System Prompt、Diff、Source 与 Raw 按需放入检查器。历史输入缺失必须标记为未记录，不能用当前配置重建旧请求。 [S1, S2, S3, S7, S8]
 - D4 — 浏览器请求列表与消息正文搜索分页读取，详情设 2 MiB 上限、Diff 超过 2,000 行时退回查看完整文本；轨迹 JSONL 和输入清单仍整文件读取，因此 HTTP/DOM 分页不构成磁盘读取成本上限。 [S2, S3, S7, S8]
+- D5 — 轨迹概览视窗缩放与交互解耦：概览时间线支持以光标位置为锚点的滚轮缩放、拖拽平移模式（Pan mode / Shift+拖拽）、键盘快捷键导航（`+`/`-`/`=`/`Home`/`ArrowLeft`/`ArrowRight`/`Escape`）与缩放重置；视窗变换纯属前端视区投影映射，与轨迹事件分页读取和基于序列的范围过滤严格解耦；在切换 Run、事件页或坐标轴模式（时间 vs 序号）时确定性重置视窗。 [S3, S10, S11]
 
 ## Guardrails
 
 - 输入日志与 Snapshot、Trajectory 领域事实、诊断 Trace、上下文比较基线分属不同职责；调用身份只关联记录，不能使输入事实成为恢复状态或已提交轨迹事件。 [S1, S3, S4, S5, S6]
 - 模型输入日志及事件详情沿用正式浏览器的能力令牌和工作区边界；读取只投影数据，不触发模型调用、工具执行、轨迹变更或授权操作。 [S1, S2, S3, S7]
 - 不得推测 Provider 实际收到的请求、缺失的历史 Prompt、模型耗时、逐事件用量或工具声明；超出读取上限时明确报错，不能显示截断文本并标成完整内容。 [S1, S2, S3, S7, S8]
+- 轨迹视窗缩放与平移不得触发后端事件重查或改写当前选定序列范围；切换 Run 或分页时必须重置为全量视窗 [0, 1]，防止旧视区悬挂导致空白展示。 [S3, S10]
 
 ## Revisit When
 
@@ -45,3 +48,5 @@ authorities: [docs/architecture/browser.md, docs/architecture/storage.md, packag
 - S7: `packages/browser/src/browser-model-input.ts`
 - S8: `prototypes/goal-board/src/trajectory-records.tsx`
 - S9: `packages/storage/test/model-input-store.test.ts`
+- S10: `prototypes/goal-board/src/trajectory.tsx`
+- S11: `prototypes/goal-board/e2e/board.test.mjs`
